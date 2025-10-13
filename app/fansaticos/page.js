@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default function FanSaticos() {
   return (
     <div className="min-h-screen bg-white">
@@ -25,14 +27,14 @@ export default function FanSaticos() {
       <nav className="bg-white border-b py-4">
         <div className="container mx-auto px-4 flex justify-between items-center">
           <div>
-            <a href="/">
-              <img src="/logo_transparent.png" alt="Internet Operadores" className="h-10" />
-            </a>
+            <Link href="/">
+              <img src="/logo_transparent.png" alt="Internet Operadores" className="h-10 cursor-pointer" />
+            </Link>
           </div>
           <div className="flex gap-6">
-            <a href="https://internetoperadores.com/empresa" className="hover:text-orange-500">EMPRESA</a>
+            <a href="https://internetoperadores.com/empresa" className="hover:text-orange-500" target="_blank" rel="noopener noreferrer">EMPRESA</a>
             <span className="text-orange-500 font-semibold">FANSÁTICOS</span>
-             <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">SABER DIARIO</a>
+            <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">SABER DIARIO</a>
             <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">Protección</a>
           </div>
         </div>
@@ -53,7 +55,6 @@ export default function FanSaticos() {
         <div className="container mx-auto px-4 max-w-4xl">
           <div className="space-y-12">
             
-            {/* Miedo 1 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Tengo miedo de que un día nos hackeen y se lleven toda la información.
@@ -63,7 +64,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 2 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Estoy pagando servicios IT que ni entiendo ni uso.
@@ -73,7 +73,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 3 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Mi equipo se queja de que todo va lento, pero no sé qué hacer.
@@ -83,7 +82,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 4 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Lo tengo todo en la nube, pero a veces pienso: ¿y si un día no puedo entrar?
@@ -93,7 +91,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 5 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 No sé si estoy cumpliendo con la protección de datos como debería.
@@ -103,7 +100,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 6 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Si mañana se cae todo, no tengo ni idea de cuánto me costaría realmente.
@@ -113,7 +109,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 7 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Mi gente usa sus móviles, sus tablets… y nadie controla nada.
@@ -123,7 +118,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 8 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Digo que tengo copias de seguridad… pero no sé si servirían de algo.
@@ -133,7 +127,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 9 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Cuando hablo con algunos proveedores, siento que me están vendiendo aire.
@@ -143,7 +136,6 @@ export default function FanSaticos() {
               </p>
             </div>
 
-            {/* Miedo 10 */}
             <div className="border-l-4 border-orange-500 pl-6 py-4">
               <h3 className="text-2xl font-bold mb-3">
                 Estoy creciendo, y me preocupa que la tecnología no esté a la altura.
@@ -187,6 +179,5 @@ export default function FanSaticos() {
         </div>
       </footer>
     </div>
-  );
+   );
 }
-
