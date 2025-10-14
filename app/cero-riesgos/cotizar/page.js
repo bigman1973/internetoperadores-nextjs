@@ -192,10 +192,10 @@ export default function CotizarCeroRiesgos() {
 
       <div className="container mx-auto px-4 py-12">
         <div className="max-w-4xl mx-auto">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">
+          <h1 className="text-4xl font-bold text-black mb-4">
             Cotización Informe Cero Riesgos
           </h1>
-          <p className="text-lg text-gray-600 mb-8">
+          <p className="text-lg text-gray-800 mb-8 font-medium">
             Completa el formulario para calcular el precio de tu auditoría de ciberseguridad
           </p>
 
@@ -205,11 +205,11 @@ export default function CotizarCeroRiesgos() {
               <form onSubmit={handleSubmit} className="bg-white rounded-lg shadow-lg p-6 space-y-6">
                 {/* Datos del cliente */}
                 <div>
-                  <h2 className="text-2xl font-bold mb-4">Datos de contacto</h2>
+                  <h2 className="text-2xl font-bold text-black mb-4">Datos de contacto</h2>
                   
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-bold text-gray-900 mb-1">
                         Nombre completo *
                       </label>
                       <input
@@ -223,7 +223,7 @@ export default function CotizarCeroRiesgos() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-bold text-gray-900 mb-1">
                         Email *
                       </label>
                       <input
@@ -237,7 +237,7 @@ export default function CotizarCeroRiesgos() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-bold text-gray-900 mb-1">
                         Empresa *
                       </label>
                       <input
@@ -251,7 +251,7 @@ export default function CotizarCeroRiesgos() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-sm font-bold text-gray-900 mb-1">
                         Teléfono
                       </label>
                       <input
@@ -267,10 +267,10 @@ export default function CotizarCeroRiesgos() {
 
                 {/* Configuración de sedes */}
                 <div>
-                  <h2 className="text-2xl font-bold mb-4">Configuración</h2>
+                  <h2 className="text-2xl font-bold text-black mb-4">Configuración</h2>
                   
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-bold text-gray-900 mb-1">
                       Número de sedes
                     </label>
                     <select
@@ -287,7 +287,7 @@ export default function CotizarCeroRiesgos() {
                   {/* Detalles por sede */}
                   {formData.sedes.map((sede, index) => (
                     <div key={index} className="bg-gray-50 p-4 rounded-lg mb-4">
-                      <h3 className="font-bold mb-3">
+                      <h3 className="font-bold text-black mb-3">
                         {index === 0 ? 'Sede Principal' : `Sede ${index + 1}`}
                         <span className="text-sm font-normal text-gray-600 ml-2">
                           (Base: €{index === 0 ? '790' : '590'} - incluye 10 PCs + 1 servidor)
@@ -296,7 +296,7 @@ export default function CotizarCeroRiesgos() {
                       
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-1">
                             Número de PCs
                           </label>
                           <input
@@ -314,7 +314,7 @@ export default function CotizarCeroRiesgos() {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-1">
                             Número de Servidores
                           </label>
                           <input
@@ -337,7 +337,7 @@ export default function CotizarCeroRiesgos() {
 
                 {/* Tipo de pago */}
                 <div>
-                  <h2 className="text-2xl font-bold mb-4">Tipo de pago</h2>
+                  <h2 className="text-2xl font-bold text-black mb-4">Tipo de pago</h2>
                   
                   <div className="space-y-3">
                     <label className="flex items-center p-4 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-orange-500 transition-colors">
@@ -391,7 +391,7 @@ export default function CotizarCeroRiesgos() {
             {/* Resumen */}
             <div className="md:col-span-1">
               <div className="bg-white rounded-lg shadow-lg p-6 sticky top-4">
-                <h2 className="text-2xl font-bold mb-4">Resumen</h2>
+                <h2 className="text-2xl font-bold text-black mb-4">Resumen</h2>
                 
                 <div className="space-y-3 mb-6">
                   {formData.sedes.map((sede, index) => (
@@ -399,7 +399,7 @@ export default function CotizarCeroRiesgos() {
                       <div className="font-bold">
                         {index === 0 ? 'Sede Principal' : `Sede ${index + 1}`}
                       </div>
-                      <div className="text-gray-600">
+                      <div className="text-gray-900 font-medium">
                         {sede.pcs} PCs • {sede.servidores} {sede.servidores === 1 ? 'Servidor' : 'Servidores'}
                       </div>
                     </div>
@@ -407,11 +407,11 @@ export default function CotizarCeroRiesgos() {
                 </div>
 
                 <div className="border-t pt-4 space-y-2">
-                  <div className="flex justify-between text-gray-700">
+                  <div className="flex justify-between text-black font-semibold">
                     <span>Subtotal:</span>
                     <span>€{subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-gray-700">
+                  <div className="flex justify-between text-black font-semibold">
                     <span>IVA (21%):</span>
                     <span>€{iva.toFixed(2)}</span>
                   </div>
