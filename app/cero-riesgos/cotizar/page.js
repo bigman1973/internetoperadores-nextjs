@@ -217,7 +217,7 @@ export default function CotizarCeroRiesgos() {
                         required
                         value={formData.customerName}
                         onChange={(e) => setFormData({...formData, customerName: e.target.value})}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                         placeholder="Juan Pérez"
                       />
                     </div>
@@ -231,7 +231,7 @@ export default function CotizarCeroRiesgos() {
                         required
                         value={formData.customerEmail}
                         onChange={(e) => setFormData({...formData, customerEmail: e.target.value})}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                         placeholder="juan@empresa.com"
                       />
                     </div>
@@ -245,7 +245,7 @@ export default function CotizarCeroRiesgos() {
                         required
                         value={formData.customerCompany}
                         onChange={(e) => setFormData({...formData, customerCompany: e.target.value})}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                         placeholder="Mi Empresa S.L."
                       />
                     </div>
@@ -258,7 +258,7 @@ export default function CotizarCeroRiesgos() {
                         type="tel"
                         value={formData.customerPhone}
                         onChange={(e) => setFormData({...formData, customerPhone: e.target.value})}
-                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                         placeholder="+34 600 000 000"
                       />
                     </div>
@@ -276,7 +276,7 @@ export default function CotizarCeroRiesgos() {
                     <select
                       value={formData.numSedes}
                       onChange={(e) => handleNumSedesChange(parseInt(e.target.value))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                     >
                       {[1, 2, 3, 4, 5].map(num => (
                         <option key={num} value={num}>{num} {num === 1 ? 'sede' : 'sedes'}</option>
@@ -304,7 +304,7 @@ export default function CotizarCeroRiesgos() {
                             min="1"
                             value={sede.pcs}
                             onChange={(e) => handleSedeChange(index, 'pcs', e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                           />
                           {sede.pcs > 10 && (
                             <p className="text-xs text-gray-600 mt-1">
@@ -322,7 +322,7 @@ export default function CotizarCeroRiesgos() {
                             min="1"
                             value={sede.servidores}
                             onChange={(e) => handleSedeChange(index, 'servidores', e.target.value)}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent"
+                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                           />
                           {sede.servidores > 1 && (
                             <p className="text-xs text-gray-600 mt-1">
