@@ -72,7 +72,7 @@ export default function Home() {
       <section className="py-16 bg-white">
         <div className="container mx-auto px-4">
           <h2 className="text-4xl font-bold text-orange-500 mb-8 max-w-5xl">
-            Muchos de empresarios trabajan con la sensación constante de que "algo puede fallar". ¿Y si pudieras saber exactamente qué tienes mal y cómo mejorarlo?
+            Muchos de empresarios trabajan con la sensación constante de que &quot;algo puede fallar&quot;. ¿Y si pudieras saber exactamente qué tienes mal y cómo mejorarlo?
           </h2>
           <div className="h-1 w-20 bg-orange-500"></div>
         </div>
@@ -176,14 +176,14 @@ export default function Home() {
             <div>
               <h3 className="text-2xl font-bold mb-4">Vocación operadora 24/7</h3>
               <p className="text-lg text-gray-300">
-                "Nacimos como operadores. Vivimos conectados." Nuestra esencia está en la continuidad: los servicios no paran y nosotros tampoco. Vigilamos, prevenimos e intervenimos en tiempo real, los 365 días del año.
+                &quot;Nacimos como operadores. Vivimos conectados.&quot; Nuestra esencia está en la continuidad: los servicios no paran y nosotros tampoco. Vigilamos, prevenimos e intervenimos en tiempo real, los 365 días del año.
               </p>
             </div>
 
             <div>
               <h3 className="text-2xl font-bold mb-4">Seguridad y mejora constante</h3>
               <p className="text-lg text-gray-300">
-                "Más que mantenimiento: inteligencia en tiempo real." Supervisamos tu red para detectar, entender y resolver antes de que el problema exista. Cada alerta es una oportunidad para mejorar y proteger tu negocio.
+                &quot;Más que mantenimiento: inteligencia en tiempo real.&quot; Supervisamos tu red para detectar, entender y resolver antes de que el problema exista. Cada alerta es una oportunidad para mejorar y proteger tu negocio.
               </p>
             </div>
           </div>
@@ -234,7 +234,7 @@ export default function Home() {
       <section className="py-20 bg-gradient-to-r from-orange-500 to-orange-600 text-white">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-4xl font-bold mb-6">
-            "Anticiparse es la mejor defensa."
+            &quot;Anticiparse es la mejor defensa.&quot;
           </h2>
           <p className="text-xl mb-8 max-w-3xl mx-auto">
             Auditamos, monitorizamos y reforzamos tu entorno digital antes de que ocurra un incidente. Así conviertes la seguridad en una ventaja competitiva, no en una reacción de emergencia.
@@ -294,7 +294,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
             <p className="text-2xl font-bold mb-8 text-black">
-              "Nuestro objetivo es detectar y prevenir ataques a tu empresa, protegiendo especialmente las comunicaciones, tu conexión al mundo y principal vía de ciberataques."
+              &quot;Nuestro objetivo es detectar y prevenir ataques a tu empresa, protegiendo especialmente las comunicaciones, tu conexión al mundo y principal vía de ciberataques.&quot;
             </p>
           </div>
 
@@ -341,21 +341,21 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             <div className="bg-white p-6 rounded-lg shadow">
               <p className="text-gray-700 mb-4 italic">
-                "Creíamos que teníamos copias de seguridad, pero en realidad no se estaban haciendo bien. Si hubiéramos perdido los datos, habría sido un desastre. Ahora dormimos tranquilos."
+                &quot;Creíamos que teníamos copias de seguridad, pero en realidad no se estaban haciendo bien. Si hubiéramos perdido los datos, habría sido un desastre. Ahora dormimos tranquilos.&quot;
               </p>
               <p className="font-bold">Director Financiero</p>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow">
               <p className="text-gray-700 mb-4 italic">
-                "En una hora detectaron fallos que nuestro proveedor de siempre nunca mencionó. Nos ahorraron más de 1.200 € al año y ahora tenemos mejor conectividad y soporte real."
+                &quot;En una hora detectaron fallos que nuestro proveedor de siempre nunca mencionó. Nos ahorraron más de 1.200 € al año y ahora tenemos mejor conectividad y soporte real.&quot;
               </p>
               <p className="font-bold">Empresario</p>
             </div>
 
             <div className="bg-white p-6 rounded-lg shadow">
               <p className="text-gray-700 mb-4 italic">
-                "Teníamos cortes constantes en la centralita y nadie nos daba solución. Ellos lo analizaron todo, cambiamos de operador con su ayuda y ahora por fin funciona como debe."
+                &quot;Teníamos cortes constantes en la centralita y nadie nos daba solución. Ellos lo analizaron todo, cambiamos de operador con su ayuda y ahora por fin funciona como debe.&quot;
               </p>
               <p className="font-bold">Jefe Atención al Cliente</p>
             </div>
@@ -368,7 +368,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-3xl font-bold mb-6">
-              "Identifica, comprende y responde a los ataques más rápido."
+              &quot;Identifica, comprende y responde a los ataques más rápido.&quot;
             </h2>
             <p className="text-xl mb-8">
               Detectamos vulnerabilidades, analizamos su impacto y te damos un plan de acción claro para que actúes antes de que se conviertan en un problema real.
@@ -383,7 +383,7 @@ export default function Home() {
 
             <div>
               <p className="text-2xl font-bold mb-4">
-                "Lo suficientemente grandes para ayudarte, lo suficientemente cercanos para conocerte."
+                &quot;Lo suficientemente grandes para ayudarte, lo suficientemente cercanos para conocerte.&quot;
               </p>
               <p className="text-lg mb-6">
                 Cuando te conocemos, sabemos cómo ayudarte de verdad. Empieza contándonos algo de ti

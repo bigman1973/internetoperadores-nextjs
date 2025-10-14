@@ -70,7 +70,7 @@ export default function Empresa() {
                 Internet Operadores nació con vocación de operador de telecomunicaciones. No somos una empresa de IT que ofrece conectividad como servicio adicional. Somos operadores que entendemos la tecnología desde su base: la red.
               </p>
               <p className="text-lg text-gray-700 mb-4">
-                Esta perspectiva nos permite ver lo que otros no ven. Detectamos problemas antes de que ocurran, optimizamos infraestructuras que otros consideran "suficientes" y protegemos empresas con criterio técnico real, no con soluciones genéricas.
+                Esta perspectiva nos permite ver lo que otros no ven. Detectamos problemas antes de que ocurran, optimizamos infraestructuras que otros consideran &quot;suficientes&quot; y protegemos empresas con criterio técnico real, no con soluciones genéricas.
               </p>
               <p className="text-lg text-gray-700">
                 Trabajamos con empresas que entienden que la tecnología no es un gasto, sino la columna vertebral de su operación. Y que un fallo técnico puede costar mucho más que cualquier inversión en prevención.
@@ -134,7 +134,7 @@ export default function Empresa() {
             Nuestra filosofía
           </h2>
           <p className="text-center text-xl text-gray-600 mb-16">
-            "Anticiparse es la mejor defensa"
+            &quot;Anticiparse es la mejor defensa&quot;
           </p>
 
           <div className="space-y-8">
