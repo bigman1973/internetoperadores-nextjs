@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { getStripe } from '@/lib/stripe-client';
 
 export default function CotizarCeroRiesgos() {
   const [formData, setFormData] = useState({
@@ -156,14 +155,11 @@ export default function CotizarCeroRiesgos() {
         throw new Error(data.error);
       }
 
-      // Redirigir a Stripe Checkout
-      const stripe = await getStripe();
-      const { error: stripeError } = await stripe.redirectToCheckout({
-        sessionId: data.sessionId,
-      });
-
-      if (stripeError) {
-        throw new Error(stripeError.message);
+      // Redirigir a Stripe Checkout usando la URL directa
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        throw new Error('No se recibió URL de pago');
       }
     } catch (err) {
       setError(err.message);
