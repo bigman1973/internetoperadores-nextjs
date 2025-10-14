@@ -57,14 +57,19 @@ export async function POST(request) {
 
       return NextResponse.json({ sessionId: session.id, url: session.url });
     } else if (paymentType === 'subscription') {
-      // Para suscripción, primero crear un precio recurrente
+      // Para suscripción, crear producto y precio dinámicamente
+      const product = await stripe.products.create({
+        name: 'Informe Cero Riesgos',
+        description: breakdown,
+      });
+
       const price = await stripe.prices.create({
         currency: 'eur',
         unit_amount: amountInCents,
         recurring: {
           interval: 'year',
         },
-        product: process.env.STRIPE_PRODUCT_ID,
+        product: product.id,
       });
 
       // Crear sesión para suscripción
