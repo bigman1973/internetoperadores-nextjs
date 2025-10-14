@@ -65,12 +65,12 @@ export default function Home() {
             </div>
           </div>
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20quiero%20reservar%20el%20servicio%20Cero%20Riesgos%20por%20790€" 
+            href="/cero-riesgos/cotizar" 
             className="inline-block bg-orange-500 text-white px-10 py-4 rounded text-xl font-bold hover:bg-orange-600"
-            target="_blank"
-            rel="noopener noreferrer"
+            
+            
           >
-            RESERVA CERO RIESGOS<br/>
+            SOLICITAR COTIZACIÓN<br/>
             <span className="text-sm">por 790€</span>
           </a>
         </div>
@@ -349,7 +349,7 @@ export default function Home() {
             target="_blank"
             rel="noopener noreferrer"
           >
-            RESERVA CERO RIESGOS POR 790€
+            SOLICITAR COTIZACIÓN POR 790€
           </a>
         </div>
       </section>
