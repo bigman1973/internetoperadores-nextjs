@@ -34,8 +34,9 @@ export default async function ExitoPage({ searchParams }) {
       } catch (err) {
         lastError = err;
         attempts++;
-        console.log(\`⚠️ Intento \${attempts}/\${maxAttempts} falló:\`, err.message);
-        
+        console.log(`⚠️ Intento ${attempts}/${maxAttempts} falló:`, err.message);
+
+  
         if (attempts < maxAttempts) {
           // Esperar 1 segundo antes de reintentar
           await new Promise(resolve => setTimeout(resolve, 1000));
