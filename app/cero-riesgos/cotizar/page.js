@@ -479,10 +479,29 @@ export default function CotizarCeroRiesgos() {
                   </div>
                 </div>
 
+                {formData.paymentType === 'subscription-biennial' && (
+                  <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm font-bold text-green-900">🎉 ¡Ahorro del 10%!</p>
+                    <p className="text-xs text-green-700 mt-1">
+                      Pagas €{(total * 2 * 0.9).toFixed(2)} en lugar de €{(total * 2).toFixed(2)}
+                    </p>
+                    <p className="text-xs text-green-700 font-bold">
+                      Ahorras €{(total * 2 * 0.1).toFixed(2)}
+                    </p>
+                  </div>
+                )}
+
                 <div className="mt-6 text-xs text-gray-600">
                   <p className="mb-2">✓ Pago seguro con Stripe</p>
                   <p className="mb-2">✓ Factura emitida por Internet Operadores</p>
                   <p>✓ Informe entregado en 48 horas</p>
+                  <p className="mt-3 font-bold text-gray-900">
+                    Modalidad: {
+                      formData.paymentType === 'one-time' ? 'Pago único' :
+                      formData.paymentType === 'subscription-annual' ? 'Suscripción anual' :
+                      'Suscripción 2 años (10% desc.)'
+                    }
+                  </p>
                 </div>
               </div>
             </div>
@@ -492,3 +511,5 @@ export default function CotizarCeroRiesgos() {
     </div>
   );
 }
+
+
