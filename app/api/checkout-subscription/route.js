@@ -1,74 +1,29 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
-export async function POST(request) {
+export async function POST(req) {
+  const { priceId } = await req.json();
+  const origin = req.headers.get("origin") || "http://localhost:3000";
+
   try {
-    const body = await request.json();
-    const { 
-      priceId, 
-      customerEmail, 
-      customerName,
-      metadata = {} 
-    } = body;
-
-    // Validar datos requeridos
-    if (!priceId) {
-      return NextResponse.json(
-        { error: 'Price ID es requerido' },
-        { status: 400 }
-      );
-    }
-
-    // Construir parámetros para la sesión de suscripción
-    const params = new URLSearchParams({
-      'mode': 'subscription',
-      'payment_method_types[0]': 'card',
-      'line_items[0][price]': priceId,
-      'line_items[0][quantity]': '1',
-      'success_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
-      'cancel_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
-    });
-
-    // Agregar email si está presente
-    if (customerEmail) {
-      params.append('customer_email', customerEmail);
-    }
-
-    // Agregar metadata
-    if (customerName) {
-      params.append('metadata[customerName]', customerName);
-    }
-
-    // Agregar metadata adicional
-    Object.entries(metadata).forEach(([key, value]) => {
-      params.append(`metadata[${key}]`, String(value));
-    });
-
-    // Crear sesión de Checkout usando fetch
-    const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params,
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      mode: "subscription",
+      // AQUÍ ESTÁ EL CAMBIO IMPORTANTE:
+      success_url: `${origin}/gracias?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/`,
     } );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error('Error de Stripe:', data);
-      return NextResponse.json(
-        { error: data.error?.message || 'Error al crear sesión de suscripción' },
-        { status: response.status }
-      );
-    }
-
-    return NextResponse.json({ sessionId: data.id, url: data.url });
-  } catch (error) {
-    console.error('Error creando sesión de suscripción:', error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ sessionId: session.id });
+  } catch (err) {
+    console.error("Error creating Stripe subscription session:", err.message);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
+
