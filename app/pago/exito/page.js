@@ -1,11 +1,12 @@
 'use client';
 
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
-export default function ExitoPage() {
+function ExitoContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const sessionId = searchParams.get('session_id');
@@ -291,3 +292,19 @@ export default function ExitoPage() {
   );
 }
 
+export default function ExitoPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center text-center p-4">
+        <div className="bg-white p-10 rounded-lg shadow-lg max-w-2xl mx-auto">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-orange-500 mx-auto mb-4"></div>
+          <h1 className="text-2xl font-bold text-gray-800">
+            Cargando...
+          </h1>
+        </div>
+      </div>
+    }>
+      <ExitoContent />
+    </Suspense>
+  );
+}
