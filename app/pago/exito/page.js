@@ -1,26 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { WHATSAPP_NUMBER, generateSimpleWhatsAppLink } from '@/lib/whatsapp';
 
-export default function PagoExito() {
+function PagoExitoContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get('session_id');
-  const [sessionData, setSessionData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (sessionId) {
-      // Aquí podrías hacer una llamada a tu API para obtener detalles de la sesión
-      // Por ahora, simplemente mostramos el sessionId
-      setSessionData({ sessionId });
-      setLoading(false);
-    } else {
-      setLoading(false);
-    }
-  }, [sessionId]);
 
   const whatsappMessage = sessionId 
     ? `Hola, acabo de completar un pago. ID de sesión: ${sessionId}. Me gustaría confirmar los próximos pasos para recibir mi Informe Cero Riesgos.`
@@ -91,5 +78,20 @@ export default function PagoExito() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function PagoExito() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Cargando...</p>
+        </div>
+      </div>
+    }>
+      <PagoExitoContent />
+    </Suspense>
   );
 }
