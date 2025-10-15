@@ -1,49 +1,74 @@
-import Link from 'next/link';
+import { redirect } from "next/navigation";
 
-export default function PagoExito() {
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+export default async function ExitoPage({ searchParams }) {
+  const sessionId = searchParams?.session_id;
+
+  // Si no hay session_id, no se puede acceder a esta página
+  if (!sessionId) {
+    redirect("/");
+  }
+
+  let customerEmail = "";
+  try {
+    // Verificamos la sesión con Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    customerEmail = session.customer_details?.email;
+
+    // Si la sesión no está pagada, fuera
+    if (session.payment_status !== 'paid') {
+      redirect("/");
+    }
+
+  } catch (error) {
+    console.error("Error retrieving Stripe session:", error.message);
+    redirect("/");
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
-        <div className="mb-6">
-          <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center">
-            <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
-            </svg>
-          </div>
-        </div>
-        
-        <h1 className="text-3xl font-bold text-gray-900 mb-4">
-          ¡Pago Exitoso!
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center text-center p-4">
+      <div className="bg-white p-10 rounded-lg shadow-lg max-w-2xl mx-auto">
+        <svg
+          className="w-16 h-16 text-green-500 mx-auto mb-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+          ></path>
+        </svg>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">
+          ¡Pago completado con éxito!
         </h1>
-        
-        <p className="text-lg text-gray-600 mb-6">
-          Gracias por tu compra. Hemos recibido tu pago correctamente.
+        <p className="text-gray-600 mb-6">
+          Hemos recibido tu pago correctamente.
+          {customerEmail && (
+            <>
+                
+
+              En breve recibirás un correo de confirmación en{" "}
+              <strong className="text-gray-900">{customerEmail}</strong>.
+            </>
+           )}
         </p>
-        
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-blue-800">
-            Recibirás un correo electrónico con los detalles de tu compra y los próximos pasos.
+        <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
+          <h2 className="text-xl font-semibold text-gray-800 mb-3">
+            Siguientes Pasos: Datos Fiscales
+          </h2>
+          <p className="text-gray-700">
+            Para poder generar tu factura, necesitamos que completes tus datos
+            fiscales.
           </p>
-        </div>
-        
-        <div className="space-y-3">
-          <Link 
-            href="/"
-            className="block w-full bg-orange-500 text-white px-6 py-3 rounded font-semibold hover:bg-orange-600 transition-colors"
-          >
-            Volver al Inicio
-          </Link>
-          
-          <a 
-            href="https://wa.me/34655100400?text=Hola,%20acabo%20de%20realizar%20un%20pago"
-            className="block w-full bg-green-500 text-white px-6 py-3 rounded font-semibold hover:bg-green-600 transition-colors"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Contactar por WhatsApp
-          </a>
+          {/* Aquí es donde irá el formulario en el siguiente paso */}
         </div>
       </div>
     </div>
   );
 }
+
