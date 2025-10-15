@@ -1,6 +1,12 @@
+'use client';
+
 import Link from 'next/link';
+import { WHATSAPP_NUMBER, generateSimpleWhatsAppLink } from '@/lib/whatsapp';
 
 export default function PagoCancelado() {
+  const whatsappMessage = `Hola, necesito ayuda con el proceso de pago del Informe Cero Riesgos. Tuve que cancelar la transacción.`;
+  const whatsappLink = generateSimpleWhatsAppLink(WHATSAPP_NUMBER, whatsappMessage);
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8 text-center">
@@ -20,38 +26,49 @@ export default function PagoCancelado() {
           Has cancelado el proceso de pago. No se ha realizado ningún cargo.
         </p>
         
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-          <p className="text-sm text-gray-700">
-            Si tuviste algún problema o tienes dudas, no dudes en contactarnos.
-          </p>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <h3 className="font-bold text-blue-900 mb-2">💡 ¿Tuviste algún problema?</h3>
+          <ul className="text-sm text-blue-800 text-left space-y-1">
+            <li>• Puedes intentar nuevamente cuando quieras</li>
+            <li>• Contáctanos si necesitas ayuda</li>
+            <li>• Aceptamos múltiples métodos de pago</li>
+          </ul>
         </div>
         
         <div className="space-y-3">
           <Link 
-            href="/cero-riesgos"
-            className="block w-full bg-orange-500 text-white px-6 py-3 rounded font-semibold hover:bg-orange-600 transition-colors"
+            href="/cero-riesgos/cotizar"
+            className="block w-full bg-orange-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-orange-600 transition-colors"
           >
-            Volver a Intentar
+            🔄 Volver a Intentar
           </Link>
-          
-          <Link 
-            href="/"
-            className="block w-full bg-gray-200 text-gray-700 px-6 py-3 rounded font-semibold hover:bg-gray-300 transition-colors"
-          >
-            Volver al Inicio
-          </Link>
-          
+
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20necesito%20ayuda%20con%20el%20pago"
-            className="block w-full bg-green-500 text-white px-6 py-3 rounded font-semibold hover:bg-green-600 transition-colors"
+            href={whatsappLink}
+            className="block w-full bg-green-500 text-white px-6 py-3 rounded-lg font-semibold hover:bg-green-600 transition-colors"
             target="_blank"
             rel="noopener noreferrer"
           >
-            Contactar por WhatsApp
+            📱 Necesito Ayuda (WhatsApp)
           </a>
+          
+          <Link 
+            href="/"
+            className="block w-full bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+          >
+            Volver al Inicio
+          </Link>
+        </div>
+
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <p className="text-xs text-gray-500">
+            También puedes contactarnos por email:{' '}
+            <a href="mailto:info@internetoperadores.com" className="text-orange-500 hover:underline">
+              info@internetoperadores.com
+            </a>
+          </p>
         </div>
       </div>
     </div>
   );
 }
-

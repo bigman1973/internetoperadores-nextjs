@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { WHATSAPP_NUMBER, generateWhatsAppLink } from '@/lib/whatsapp';
 
 export default function CotizarCeroRiesgos() {
   const [formData, setFormData] = useState({
@@ -212,7 +213,7 @@ export default function CotizarCeroRiesgos() {
                         type="text"
                         required
                         value={formData.customerName}
-                        onChange={(e) => setFormData({...formData, customerName: e.target.value})}
+                        onChange={(e ) => setFormData({...formData, customerName: e.target.value})}
                         className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-gray-900 font-medium"
                         placeholder="Juan Pérez"
                       />
@@ -345,9 +346,12 @@ export default function CotizarCeroRiesgos() {
                         onChange={(e) => setFormData({...formData, paymentType: e.target.value})}
                         className="mr-3"
                       />
-                      <div>
+                      <div className="flex-1">
                         <div className="font-bold">Pago único</div>
                         <div className="text-sm text-gray-600">Paga una sola vez</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-gray-900">€{total.toFixed(2)}</div>
                       </div>
                     </label>
 
@@ -355,14 +359,39 @@ export default function CotizarCeroRiesgos() {
                       <input
                         type="radio"
                         name="paymentType"
-                        value="subscription"
-                        checked={formData.paymentType === 'subscription'}
+                        value="subscription-annual"
+                        checked={formData.paymentType === 'subscription-annual'}
                         onChange={(e) => setFormData({...formData, paymentType: e.target.value})}
                         className="mr-3"
                       />
-                      <div>
+                      <div className="flex-1">
                         <div className="font-bold">Suscripción anual</div>
                         <div className="text-sm text-gray-600">Renovación automática cada año</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-gray-900">€{total.toFixed(2)}/año</div>
+                      </div>
+                    </label>
+
+                    <label className="flex items-center p-4 border-2 border-green-500 bg-green-50 rounded-lg cursor-pointer hover:border-green-600 transition-colors relative">
+                      <div className="absolute -top-2 -right-2 bg-green-500 text-white text-xs font-bold px-2 py-1 rounded">
+                        AHORRA 10%
+                      </div>
+                      <input
+                        type="radio"
+                        name="paymentType"
+                        value="subscription-biennial"
+                        checked={formData.paymentType === 'subscription-biennial'}
+                        onChange={(e) => setFormData({...formData, paymentType: e.target.value})}
+                        className="mr-3"
+                      />
+                      <div className="flex-1">
+                        <div className="font-bold text-green-900">Suscripción 2 años (10% descuento)</div>
+                        <div className="text-sm text-green-700">Pago por adelantado • Renovación cada 2 años</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-lg font-bold text-green-900">€{(total * 2 * 0.9).toFixed(2)}</div>
+                        <div className="text-xs text-green-700 line-through">€{(total * 2).toFixed(2)}</div>
                       </div>
                     </label>
                   </div>
@@ -379,8 +408,41 @@ export default function CotizarCeroRiesgos() {
                   disabled={loading}
                   className="w-full bg-orange-500 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-orange-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? 'Procesando...' : 'Proceder al pago'}
+                  {loading ? 'Procesando...' : '💳 Proceder al pago'}
                 </button>
+
+                <div className="relative">
+                  <div className="absolute inset-0 flex items-center">
+                    <div className="w-full border-t border-gray-300"></div>
+                  </div>
+                  <div className="relative flex justify-center text-sm">
+                    <span className="px-2 bg-white text-gray-500">o</span>
+                  </div>
+                </div>
+
+                <a
+                  href={generateWhatsAppLink(WHATSAPP_NUMBER, {
+                    customerName: formData.customerName,
+                    customerEmail: formData.customerEmail,
+                    customerCompany: formData.customerCompany,
+                    customerPhone: formData.customerPhone,
+                    numSedes: formData.numSedes,
+                    sedes: formData.sedes,
+                    subtotal,
+                    iva,
+                    total,
+                    paymentType: formData.paymentType
+                  })}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block w-full bg-green-500 text-white px-8 py-4 rounded-lg text-lg font-bold hover:bg-green-600 transition-colors text-center"
+                >
+                  📱 Enviar cotización por WhatsApp
+                </a>
+
+                <p className="text-xs text-gray-500 text-center">
+                  Envía tu cotización por WhatsApp y te ayudaremos con el proceso de pago
+                </p>
               </form>
             </div>
 
@@ -430,4 +492,3 @@ export default function CotizarCeroRiesgos() {
     </div>
   );
 }
-

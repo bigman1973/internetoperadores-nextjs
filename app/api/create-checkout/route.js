@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
 
 export async function POST(request) {
   try {
@@ -26,75 +25,148 @@ export async function POST(request) {
     const amountInCents = Math.round(totalAmount * 100);
 
     if (paymentType === 'one-time') {
-      // Crear sesión para pago único
-      const session = await stripe.checkout.sessions.create({
-        mode: 'payment',
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price_data: {
-              currency: 'eur',
-              product_data: {
-                name: 'Informe Cero Riesgos',
-                description: breakdown,
-              },
-              unit_amount: amountInCents,
-            },
-            quantity: 1,
-          },
-        ],
-        customer_email: customerEmail,
-        metadata: {
-          customerName: customerName,
-          customerCompany: customerCompany,
-          customerPhone: customerPhone,
-          paymentType: 'one-time',
-          breakdown: breakdown,
+      // Crear sesión para pago único usando fetch
+      const params = new URLSearchParams({
+        'mode': 'payment',
+        'payment_method_types[0]': 'card',
+        'line_items[0][price_data][currency]': 'eur',
+        'line_items[0][price_data][product_data][name]': 'Informe Cero Riesgos',
+        'line_items[0][price_data][product_data][description]': breakdown || '',
+        'line_items[0][price_data][unit_amount]': amountInCents.toString(),
+        'line_items[0][quantity]': '1',
+        'customer_email': customerEmail,
+        'metadata[customerName]': customerName || '',
+        'metadata[customerCompany]': customerCompany || '',
+        'metadata[customerPhone]': customerPhone || '',
+        'metadata[paymentType]': 'one-time',
+        'metadata[breakdown]': breakdown || '',
+        'success_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
+        'cancel_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
+      });
+
+      const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
+        body: params,
+      } );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        console.error('Error de Stripe:', data);
+        return NextResponse.json(
+          { error: data.error?.message || 'Error al crear sesión de pago' },
+          { status: response.status }
+        );
+      }
+
+      return NextResponse.json({ sessionId: data.id, url: data.url });
+
+    } else if (paymentType === 'subscription-annual' || paymentType === 'subscription-biennial') {
+      // Para suscripción, primero crear producto
+      const productParams = new URLSearchParams({
+        'name': 'Informe Cero Riesgos',
+        'description': breakdown || '',
       });
 
-      return NextResponse.json({ sessionId: session.id, url: session.url });
-    } else if (paymentType === 'subscription') {
-      // Para suscripción, crear producto y precio dinámicamente
-      const product = await stripe.products.create({
-        name: 'Informe Cero Riesgos',
-        description: breakdown,
-      });
-
-      const price = await stripe.prices.create({
-        currency: 'eur',
-        unit_amount: amountInCents,
-        recurring: {
-          interval: 'year',
+      const productResponse = await fetch('https://api.stripe.com/v1/products', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        product: product.id,
+        body: productParams,
+      } );
+
+      const productData = await productResponse.json();
+
+      if (!productResponse.ok) {
+        console.error('Error creando producto:', productData);
+        return NextResponse.json(
+          { error: productData.error?.message || 'Error al crear producto' },
+          { status: productResponse.status }
+        );
+      }
+
+      // Determinar el monto y el intervalo según el tipo de suscripción
+      let finalAmount = amountInCents;
+      let interval = 'year';
+      let intervalCount = 1;
+      
+      if (paymentType === 'subscription-biennial') {
+        // Suscripción bienal: 2 años con 10% de descuento
+        finalAmount = Math.round(amountInCents * 2 * 0.9);
+        intervalCount = 2;
+      }
+
+      // Crear precio para el producto
+      const priceParams = new URLSearchParams({
+        'currency': 'eur',
+        'unit_amount': finalAmount.toString(),
+        'recurring[interval]': interval,
+        'recurring[interval_count]': intervalCount.toString(),
+        'product': productData.id,
       });
 
-      // Crear sesión para suscripción
-      const session = await stripe.checkout.sessions.create({
-        mode: 'subscription',
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price: price.id,
-            quantity: 1,
-          },
-        ],
-        customer_email: customerEmail,
-        metadata: {
-          customerName: customerName,
-          customerCompany: customerCompany,
-          customerPhone: customerPhone,
-          paymentType: 'subscription',
-          breakdown: breakdown,
+      const priceResponse = await fetch('https://api.stripe.com/v1/prices', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
         },
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
+        body: priceParams,
+      } );
+
+      const priceData = await priceResponse.json();
+
+      if (!priceResponse.ok) {
+        console.error('Error creando precio:', priceData);
+        return NextResponse.json(
+          { error: priceData.error?.message || 'Error al crear precio' },
+          { status: priceResponse.status }
+        );
+      }
+
+      // Crear sesión de suscripción
+      const sessionParams = new URLSearchParams({
+        'mode': 'subscription',
+        'payment_method_types[0]': 'card',
+        'line_items[0][price]': priceData.id,
+        'line_items[0][quantity]': '1',
+        'customer_email': customerEmail,
+        'metadata[customerName]': customerName || '',
+        'metadata[customerCompany]': customerCompany || '',
+        'metadata[customerPhone]': customerPhone || '',
+        'metadata[paymentType]': paymentType,
+        'metadata[breakdown]': breakdown || '',
+        'success_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
+        'cancel_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
       });
 
-      return NextResponse.json({ sessionId: session.id, url: session.url });
+      const sessionResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: sessionParams,
+      } );
+
+      const sessionData = await sessionResponse.json();
+
+      if (!sessionResponse.ok) {
+        console.error('Error creando sesión:', sessionData);
+        return NextResponse.json(
+          { error: sessionData.error?.message || 'Error al crear sesión de suscripción' },
+          { status: sessionResponse.status }
+        );
+      }
+
+      return NextResponse.json({ sessionId: sessionData.id, url: sessionData.url });
+
     } else {
       return NextResponse.json(
         { error: 'Tipo de pago inválido' },
@@ -109,4 +181,3 @@ export async function POST(request) {
     );
   }
 }
-
