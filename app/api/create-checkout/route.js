@@ -24,7 +24,19 @@ export async function POST(request) {
     // Convertir el monto a centavos (Stripe usa centavos)
     const amountInCents = Math.round(totalAmount * 100);
 
+    // DIAGNÓSTICO: Verificar la variable de entorno
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+    console.log('🔍 DEBUG - NEXT_PUBLIC_BASE_URL:', baseUrl);
+    console.log('🔍 DEBUG - Todas las variables NEXT_PUBLIC:', Object.keys(process.env).filter(k => k.startsWith('NEXT_PUBLIC')));
+
     if (paymentType === 'one-time') {
+      // Construir las URLs con fallback
+      const successUrl = `${baseUrl || 'https://internetoperadores-nextjs.vercel.app'}/pago/exito?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl || 'https://internetoperadores-nextjs.vercel.app'}/pago/cancelado`;
+      
+      console.log('🔍 DEBUG - Success URL que se enviará a Stripe:', successUrl );
+      console.log('🔍 DEBUG - Cancel URL que se enviará a Stripe:', cancelUrl);
+
       // Crear sesión para pago único usando fetch
       const params = new URLSearchParams({
         'mode': 'payment',
@@ -40,8 +52,8 @@ export async function POST(request) {
         'metadata[customerPhone]': customerPhone || '',
         'metadata[paymentType]': 'one-time',
         'metadata[breakdown]': breakdown || '',
-        'success_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
-        'cancel_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
+        'success_url': successUrl,
+        'cancel_url': cancelUrl,
       });
 
       const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -62,6 +74,9 @@ export async function POST(request) {
           { status: response.status }
         );
       }
+
+      console.log('✅ Sesión creada exitosamente:', data.id);
+      console.log('🔍 DEBUG - URL de Stripe Checkout:', data.url);
 
       return NextResponse.json({ sessionId: data.id, url: data.url });
 
@@ -130,6 +145,12 @@ export async function POST(request) {
         );
       }
 
+      // Construir las URLs con fallback
+      const successUrl = `${baseUrl || 'https://internetoperadores-nextjs.vercel.app'}/pago/exito?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${baseUrl || 'https://internetoperadores-nextjs.vercel.app'}/pago/cancelado`;
+      
+      console.log('🔍 DEBUG - Success URL (subscription ):', successUrl);
+
       // Crear sesión de suscripción
       const sessionParams = new URLSearchParams({
         'mode': 'subscription',
@@ -142,8 +163,8 @@ export async function POST(request) {
         'metadata[customerPhone]': customerPhone || '',
         'metadata[paymentType]': paymentType,
         'metadata[breakdown]': breakdown || '',
-        'success_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/exito?session_id={CHECKOUT_SESSION_ID}`,
-        'cancel_url': `${process.env.NEXT_PUBLIC_BASE_URL}/pago/cancelado`,
+        'success_url': successUrl,
+        'cancel_url': cancelUrl,
       });
 
       const sessionResponse = await fetch('https://api.stripe.com/v1/checkout/sessions', {
@@ -165,6 +186,8 @@ export async function POST(request) {
         );
       }
 
+      console.log('✅ Sesión de suscripción creada:', sessionData.id);
+
       return NextResponse.json({ sessionId: sessionData.id, url: sessionData.url });
 
     } else {
@@ -181,3 +204,4 @@ export async function POST(request) {
     );
   }
 }
+
