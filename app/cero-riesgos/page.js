@@ -260,8 +260,7 @@ export default function CotizarCeroRiesgos() {
                       />
                     </div>
                   </div>
-                </div>
-
+                  
                 {/* Configuración de sedes */}
                 <div>
                   <h2 className="text-2xl font-bold text-black mb-4">Configuración</h2>
