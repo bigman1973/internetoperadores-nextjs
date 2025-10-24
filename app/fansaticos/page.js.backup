@@ -1,11 +1,47 @@
 import Link from 'next/link';
-import Header from '@/components/Header';
 
-export default function Fansaticos() {
+export default function FanSaticos() {
   return (
     <div className="min-h-screen bg-white">
-      <Header />
+       {/* Header */}
+      <header className="bg-gray-900 text-white py-3 text-sm">
+        <div className="container mx-auto px-4 flex justify-between items-center">
+          <div className="flex gap-6">
+            <a href="mailto:david.perez@internetoperadores.com" className="hover:text-orange-500">
+              david.perez@internetoperadores.com
+            </a>
+            <span>Paseo De La Habana 26 1-1. 28036, Madrid. España</span>
+          </div>
+          <a 
+            href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
+            className="bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            WhatsApp
+          </a>
+        </div>
+      </header>
 
+      {/* Navigation */}
+      <nav className="bg-white border-b py-4">
+        <div className="container mx-auto px-4 flex justify-between items-center">
+          <div>
+            <Link href="/">
+              <img src="/logo_transparent.png" alt="Internet Operadores" className="h-10 cursor-pointer" />
+            </Link>
+          </div>
+          <div className="flex gap-6 text-gray-900 font-semibold">
+            <Link href="/" className="hover:text-orange-500">INICIO</Link>
+            <Link href="/empresa" className="hover:text-orange-500">EMPRESA</Link>
+            <Link href="/cero-riesgos" className="hover:text-orange-500">CERO RIESGOS</Link>
+            <Link href="/fansaticos" className="hover:text-orange-500">FANSÁTICOS</Link>
+            <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">SABER DIARIO</a>
+            <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">Protección</a>
+          </div>
+
+        </div>
+      </nav>
 
       {/* Hero */}
       <section className="py-16 bg-gradient-to-b from-gray-50 to-white">
