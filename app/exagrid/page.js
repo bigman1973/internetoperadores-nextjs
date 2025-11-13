@@ -31,13 +31,13 @@ export default function ExagridPage() {
       <Header />
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-blue-900 via-blue-800 to-blue-900 text-white py-20 md:py-32">
+      <section className="bg-gray-800 text-white py-20 md:py-32">
         <div className="container mx-auto px-4">
           <div className="max-w-4xl mx-auto text-center">
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6">
               Exagrid - Almacenamiento de Backup Escalonado
             </h1>
-            <p className="text-xl md:text-2xl mb-8 text-blue-100">
+            <p className="text-xl md:text-2xl mb-8 text-gray-100">
               La solución más rápida y segura para proteger tus datos empresariales
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -49,7 +49,7 @@ export default function ExagridPage() {
               </a>
               <a
                 href="#casos-exito"
-                className="bg-white hover:bg-gray-100 text-blue-900 px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105"
+                className="bg-white hover:bg-gray-100 text-gray-900 px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105"
               >
                 Ver Casos de Éxito
               </a>
@@ -72,7 +72,7 @@ export default function ExagridPage() {
             {/* Beneficio 1 */}
             <div className="bg-white p-8 rounded-xl shadow-lg hover:shadow-2xl transition-shadow">
               <div className="text-5xl mb-4">⚡</div>
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Velocidad Sin Igual
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -85,7 +85,7 @@ export default function ExagridPage() {
             {/* Beneficio 2 */}
             <div className="bg-white p-8 rounded-xl shadow-lg hover:shadow-2xl transition-shadow">
               <div className="text-5xl mb-4">🛡️</div>
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Seguridad Total
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -98,7 +98,7 @@ export default function ExagridPage() {
             {/* Beneficio 3 */}
             <div className="bg-white p-8 rounded-xl shadow-lg hover:shadow-2xl transition-shadow">
               <div className="text-5xl mb-4">📈</div>
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Escalabilidad Real
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -111,7 +111,7 @@ export default function ExagridPage() {
             {/* Beneficio 4 */}
             <div className="bg-white p-8 rounded-xl shadow-lg hover:shadow-2xl transition-shadow">
               <div className="text-5xl mb-4">💰</div>
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Coste Predecible
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -133,7 +133,7 @@ export default function ExagridPage() {
 
           <div className="max-w-4xl mx-auto">
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-8 rounded-xl mb-8">
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Landing Zone (Disco Caché)
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -228,7 +228,7 @@ export default function ExagridPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
             <div className="bg-blue-50 p-8 rounded-xl">
-              <h3 className="text-2xl font-bold mb-4 text-blue-900">
+              <h3 className="text-2xl font-bold mb-4 text-gray-900">
                 Empresas Medianas y Grandes
               </h3>
               <ul className="space-y-2 text-gray-700">
@@ -311,7 +311,7 @@ export default function ExagridPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">🔧</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Consultoría Especializada
               </h3>
               <p className="text-gray-700">
@@ -321,7 +321,7 @@ export default function ExagridPage() {
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">⚙️</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Instalación y Configuración
               </h3>
               <p className="text-gray-700">
@@ -331,7 +331,7 @@ export default function ExagridPage() {
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">📞</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Soporte Técnico Continuo
               </h3>
               <p className="text-gray-700">
@@ -341,7 +341,7 @@ export default function ExagridPage() {
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">📊</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Optimización y Monitoreo
               </h3>
               <p className="text-gray-700">
@@ -351,7 +351,7 @@ export default function ExagridPage() {
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">💡</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Formación Personalizada
               </h3>
               <p className="text-gray-700">
@@ -361,7 +361,7 @@ export default function ExagridPage() {
 
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="text-4xl mb-4">🎯</div>
-              <h3 className="text-xl font-bold mb-3 text-blue-900">
+              <h3 className="text-xl font-bold mb-3 text-gray-900">
                 Garantía de Resultados
               </h3>
               <p className="text-gray-700">
@@ -381,7 +381,7 @@ export default function ExagridPage() {
 
           <div className="max-w-4xl mx-auto overflow-x-auto">
             <table className="w-full bg-white shadow-lg rounded-lg overflow-hidden">
-              <thead className="bg-blue-900 text-white">
+              <thead className="bg-gray-900 text-white">
                 <tr>
                   <th className="px-6 py-4 text-left">Característica</th>
                   <th className="px-6 py-4 text-left">Detalle</th>
@@ -399,7 +399,7 @@ export default function ExagridPage() {
                   ['Garantía', '5 años con protección de precios']
                 ].map((row, index) => (
                   <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                    <td className="px-6 py-4 font-semibold text-blue-900">{row[0]}</td>
+                    <td className="px-6 py-4 font-semibold text-gray-900">{row[0]}</td>
                     <td className="px-6 py-4 text-gray-700">{row[1]}</td>
                   </tr>
                 ))}
@@ -440,7 +440,7 @@ export default function ExagridPage() {
               }
             ].map((faq, index) => (
               <div key={index} className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-xl font-bold mb-3 text-blue-900">
+                <h3 className="text-xl font-bold mb-3 text-gray-900">
                   {faq.pregunta}
                 </h3>
                 <p className="text-gray-700">{faq.respuesta}</p>
@@ -535,7 +535,7 @@ export default function ExagridPage() {
                   href="https://www.exagrid.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 bg-blue-900 hover:bg-blue-800 text-white px-8 py-4 rounded-lg text-lg font-semibold text-center transition-all transform hover:scale-105"
+                  className="flex-1 bg-gray-900 hover:bg-blue-800 text-white px-8 py-4 rounded-lg text-lg font-semibold text-center transition-all transform hover:scale-105"
                 >
                   Descargar Datasheet
                 </a>
