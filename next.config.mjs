@@ -1,5 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Forzar rebuild completo sin caché
+  generateBuildId: async () => {
+    return `build-${Date.now()}`
+  },
+  // Desactivar optimización de imágenes para forzar rebuild
+  images: {
+    unoptimized: true,
+  },
   async headers() {
     return [
       {
