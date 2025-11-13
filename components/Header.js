@@ -47,6 +47,7 @@ export default function Header() {
               <Link href="/empresa" className="hover:text-orange-500">EMPRESA</Link>
               <Link href="/fansaticos" className="hover:text-orange-500">FANSÁTICOS</Link>
               <Link href="/cero-riesgos" className="hover:text-orange-500">CERO RIESGOS</Link>
+              <Link href="/exagrid" className="hover:text-orange-500">EXAGRID</Link>
               <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">SABER DIARIO</a>
               <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">Protección</a>
             </div>
@@ -74,6 +75,7 @@ export default function Header() {
               <Link href="/empresa" className="text-gray-900 hover:text-orange-500 font-semibold py-2">EMPRESA</Link>
               <Link href="/fansaticos" className="text-gray-900 hover:text-orange-500 font-semibold py-2">FANSÁTICOS</Link>
               <Link href="/cero-riesgos" className="text-gray-900 hover:text-orange-500 font-semibold py-2">CERO RIESGOS</Link>
+              <Link href="/exagrid" className="text-gray-900 hover:text-orange-500 font-semibold py-2">EXAGRID</Link>
               <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="text-gray-900 hover:text-orange-500 font-semibold py-2">SABER DIARIO</a>
               <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-3 rounded hover:bg-orange-600 font-semibold text-center">Protección</a>
             </div>
