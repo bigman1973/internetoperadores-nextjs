@@ -25,6 +25,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="es">
       <head>
+        <script id="Cookiebot" src="https://consent.cookiebot.com/uc.js" data-cbid="1621b6e2-0bdc-4d8d-8995-ed4e9db62ee5" data-blockingmode="auto" type="text/javascript"></script>
         <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
         <meta httpEquiv="Pragma" content="no-cache" />
         <meta httpEquiv="Expires" content="0" />
