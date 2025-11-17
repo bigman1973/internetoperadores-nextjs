@@ -441,9 +441,19 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="bg-gray-900 text-white py-6 md:py-8 border-t border-gray-800">
-        <div className="container mx-auto px-4 text-center">
-          <p className="text-sm md:text-base">&copy; 2025 Internet Operadores. Todos los derechos reservados.</p>
-          <p className="text-xs md:text-sm text-gray-400 mt-2">
+        <div className="container mx-auto px-4">
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <p className="text-sm md:text-base">&copy; 2025 Internet Operadores. Todos los derechos reservados.</p>
+            <div className="flex gap-4 md:gap-6 text-xs md:text-sm">
+              <Link href="/politica-privacidad" className="text-gray-400 hover:text-orange-500 transition-colors">
+                Política de Privacidad
+              </Link>
+              <Link href="/politica-cookies" className="text-gray-400 hover:text-orange-500 transition-colors">
+                Política de Cookies
+              </Link>
+            </div>
+          </div>
+          <p className="text-xs md:text-sm text-gray-400 mt-4 text-center">
             Paseo De La Habana 26 1-1. 28036, Madrid. España
           </p>
         </div>
