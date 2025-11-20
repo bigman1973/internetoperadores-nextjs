@@ -2,13 +2,17 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import HeaderSimplificado from '@/components/HeaderSimplificado';
 
 export default function Home() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
+      {/* Header Simplificado - Nuevo diseño */}
+      <HeaderSimplificado />
+
+      {/* Header Antiguo - Comentado para referencia
       <header className="bg-gray-900 text-white py-3 text-sm">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 md:gap-0">
@@ -82,28 +86,37 @@ export default function Home() {
           )}
         </div>
       </nav>
+      Fin Header Antiguo */}
 
-      {/* Hero Section */}
-      <section className="bg-gray-800 py-12 md:py-20">
+      {/* Hero Section Mejorado */}
+      <section className="bg-gray-800 py-16 md:py-24">
         <div className="container mx-auto px-4">
-          <div className="max-w-3xl">
-            <h1 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4 leading-tight">
-              Servicios IT: Seguridad, Backups Y Telecomunicaciones
+          <div className="max-w-4xl mx-auto text-center">
+            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight">
+              Protege tu Empresa de Ciberataques
             </h1>
-            <p className="text-xl md:text-2xl text-orange-500 mb-6">
-              —escáner de malware
+            <p className="text-xl md:text-2xl text-gray-300 mb-8 leading-relaxed">
+              Auditoría completa de seguridad, backups y telecomunicaciones en 48 horas
             </p>
-            <p className="text-base md:text-lg text-white mb-8 leading-relaxed">
-              Revisamos la ciberseguridad, las copias de seguridad y las telecomunicaciones de tu empresa para detectar riesgos y oportunidades de mejora. Recibirás un informe claro en 48 horas con acciones concretas para proteger tu negocio y dormir tranquilo.
+            <p className="text-base md:text-lg text-gray-400 mb-10 leading-relaxed max-w-2xl mx-auto">
+              Detectamos riesgos, identificamos oportunidades de mejora y te entregamos un informe claro con acciones concretas para proteger tu negocio.
             </p>
-            <a 
-              href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U"
-              className="inline-block bg-orange-500 text-white px-6 md:px-8 py-3 rounded font-semibold hover:bg-orange-600 text-sm md:text-base"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              SOLUCIONES DE SEGURIDAD 🔒
-            </a>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <a 
+                href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U"
+                className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Solicitar Informe Gratuito
+              </a>
+              <a 
+                href="#como-funciona"
+                className="bg-white hover:bg-gray-100 text-gray-900 px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105"
+              >
+                Ver Cómo Funciona
+              </a>
+            </div>
           </div>
         </div>
       </section>
