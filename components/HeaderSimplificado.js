@@ -1,11 +1,23 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
 export default function HeaderSimplificado() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [solucionesOpen, setSolucionesOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Cerrar dropdown al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setSolucionesOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <nav className="bg-white border-b shadow-sm sticky top-0 z-50">
@@ -25,12 +37,60 @@ export default function HeaderSimplificado() {
             <Link href="/" className="hover:text-orange-500 transition-colors">
               INICIO
             </Link>
-            <Link href="/cero-riesgos" className="hover:text-orange-500 transition-colors">
-              INFORME CERO RIESGOS
-            </Link>
-            <Link href="/exagrid" className="hover:text-orange-500 transition-colors">
-              EXAGRID
-            </Link>
+            
+            {/* Dropdown SOLUCIONES */}
+            <div className="relative" ref={dropdownRef}>
+              <button 
+                onClick={() => setSolucionesOpen(!solucionesOpen)}
+                className="hover:text-orange-500 transition-colors flex items-center gap-1 text-orange-500"
+              >
+                SOLUCIONES
+                <svg 
+                  className={`w-4 h-4 transition-transform ${solucionesOpen ? 'rotate-180' : ''}`} 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {solucionesOpen && (
+                <div className="absolute top-full left-0 mt-2 w-72 bg-white border shadow-lg rounded-lg py-2 z-50">
+                  <Link 
+                    href="/cero-riesgos" 
+                    className="block px-4 py-3 hover:bg-gray-50 transition-colors"
+                    onClick={() => setSolucionesOpen(false)}
+                  >
+                    <div className="font-semibold text-gray-900 hover:text-orange-500">Informe Cero Riesgos</div>
+                    <div className="text-xs text-gray-500 mt-1">Auditoría completa de seguridad</div>
+                  </Link>
+                  
+                  <Link 
+                    href="/exagrid" 
+                    className="block px-4 py-3 hover:bg-gray-50 transition-colors"
+                    onClick={() => setSolucionesOpen(false)}
+                  >
+                    <div className="font-semibold text-gray-900 hover:text-orange-500">Exagrid</div>
+                    <div className="text-xs text-gray-500 mt-1">Backup empresarial avanzado</div>
+                  </Link>
+                  
+                  <div className="border-t my-2"></div>
+                  
+                  <div className="px-4 py-2">
+                    <div className="text-sm font-semibold text-gray-700 mb-2">Otros Servicios:</div>
+                    <div className="space-y-1.5 text-sm text-gray-600">
+                      <div className="hover:text-orange-500 cursor-pointer">• Conectividad</div>
+                      <div className="hover:text-orange-500 cursor-pointer">• Backup Gestionado 360</div>
+                      <div className="hover:text-orange-500 cursor-pointer">• Infraestructura Física</div>
+                      <div className="hover:text-orange-500 cursor-pointer">• WiFi360</div>
+                      <div className="hover:text-orange-500 cursor-pointer">• CobroCripto</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <Link href="/empresa" className="hover:text-orange-500 transition-colors">
               EMPRESA
             </Link>
@@ -97,20 +157,27 @@ export default function HeaderSimplificado() {
               >
                 INICIO
               </Link>
-              <Link 
-                href="/cero-riesgos" 
-                className="text-gray-900 hover:text-orange-500 hover:bg-gray-50 font-semibold py-3 px-4 rounded transition-colors" 
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                INFORME CERO RIESGOS
-              </Link>
-              <Link 
-                href="/exagrid" 
-                className="text-gray-900 hover:text-orange-500 hover:bg-gray-50 font-semibold py-3 px-4 rounded transition-colors" 
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                EXAGRID
-              </Link>
+              
+              <div className="px-4 py-2">
+                <div className="font-semibold text-orange-500 mb-2">SOLUCIONES</div>
+                <div className="flex flex-col gap-2 ml-4">
+                  <Link 
+                    href="/cero-riesgos" 
+                    className="text-gray-900 hover:text-orange-500 hover:bg-gray-50 py-2 px-3 rounded transition-colors" 
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Informe Cero Riesgos
+                  </Link>
+                  <Link 
+                    href="/exagrid" 
+                    className="text-gray-900 hover:text-orange-500 hover:bg-gray-50 py-2 px-3 rounded transition-colors" 
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    Exagrid
+                  </Link>
+                </div>
+              </div>
+              
               <Link 
                 href="/empresa" 
                 className="text-gray-900 hover:text-orange-500 hover:bg-gray-50 font-semibold py-3 px-4 rounded transition-colors" 

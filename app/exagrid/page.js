@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Header from '../../components/Header';
+import HeaderSimplificado from '@/components/HeaderSimplificado';
 
 export default function ExagridPage() {
   const [formData, setFormData] = useState({
@@ -28,7 +28,7 @@ export default function ExagridPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <Header />
+      <HeaderSimplificado />
 
       {/* Hero Section */}
       <section className="bg-gray-800 text-white py-20 md:py-32">

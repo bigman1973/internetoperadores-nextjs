@@ -1,10 +1,10 @@
-import Link from 'next/link';
-import Header from '@/components/Header';
+import Link from'use client';
+import HeaderSimplificado from '@/components/HeaderSimplificado';
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-white">
-      <Header />
+      <HeaderSimplificado />
 
 
       {/* Hero */}
