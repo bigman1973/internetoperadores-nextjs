@@ -87,6 +87,7 @@ export default function Home() {
         </div>
       </nav>
       Fin Header Antiguo */}
+      
 
       {/* Hero Section Mejorado */}
       <section className="bg-gray-800 py-16 md:py-24">
