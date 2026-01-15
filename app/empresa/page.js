@@ -49,22 +49,31 @@ export default function EmpresaPage() {
               />
             </Link>
 
-            <div className="hidden lg:flex items-center gap-8">
-              <Link href="/selector" className="text-gray-700 hover:text-orange-500 font-medium transition-colors text-base">
-                Inicio
+            <div className="hidden lg:flex items-center gap-6">
+              <Link href="/" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
+                INICIO
               </Link>
-              <Link href="/empresa" className="text-orange-500 font-semibold transition-colors text-base">
-                Empresas
+              <Link href="/empresa" className="text-orange-500 font-semibold transition-colors text-sm">
+                EMPRESA
               </Link>
-              <Link href="/particular" className="text-gray-700 hover:text-orange-500 font-medium transition-colors text-base">
-                Particulares
+              <Link href="/fansaticos" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
+                FANSÁTICOS
               </Link>
+              <Link href="/cero-riesgos" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
+                CERO RIESGOS
+              </Link>
+              <Link href="/exagrid" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
+                EXAGRID
+              </Link>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
+                SABER DIARIO
+              </a>
             </div>
 
             <div className="hidden lg:flex items-center gap-3">
-              <Link href="/contacto" className="px-5 py-2.5 text-base bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-all shadow-sm hover:shadow-md">
-                Contactar
-              </Link>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="px-4 py-2 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 font-semibold transition-all">
+                Protección
+              </a>
             </div>
           </div>
         </div>
