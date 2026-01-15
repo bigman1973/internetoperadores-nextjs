@@ -4,61 +4,76 @@ export default function ParticularPage() {
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Top bar */}
-          <div className="flex items-center justify-between py-2 border-b border-gray-100">
-            <div className="flex items-center gap-4 text-sm text-gray-600">
-              <a href="tel:+34655100400" className="hover:text-orange-600">
-                +34 655 100 400
-              </a>
-              <a href="mailto:info@internetoperadores.com" className="hover:text-orange-600">
-                info@internetoperadores.com
-              </a>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              <Link href="/selector" className="text-gray-600 hover:text-orange-600">
-                ¿Eres empresa?
-              </Link>
+      <header className="bg-white shadow-sm sticky top-0 z-50">
+        {/* Top Bar */}
+        <div className="bg-gray-50 border-b border-gray-200">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-10">
+              <div className="flex items-center gap-6 text-sm">
+                <Link href="/empresa" className="text-gray-600 hover:text-orange-500 font-medium transition-colors">
+                  Empresas
+                </Link>
+                <Link href="/particular" className="text-orange-500 font-semibold">
+                  Particulares
+                </Link>
+              </div>
+              
+              <div className="flex items-center gap-1 text-sm text-gray-700">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+                <a href="tel:+34655100400" className="font-medium hover:text-orange-500 transition-colors">
+                  +34 655 100 400
+                </a>
+              </div>
+              
+              <div className="flex items-center gap-6 text-sm">
+                <Link href="/soporte" className="text-gray-600 hover:text-orange-500 font-medium transition-colors">
+                  Soporte
+                </Link>
+                <Link href="/login" className="text-gray-600 hover:text-orange-500 font-medium transition-colors">
+                  Área Cliente
+                </Link>
+              </div>
             </div>
           </div>
+        </div>
 
-          {/* Main header */}
-          <div className="flex items-center justify-between py-4">
-            <Link href="/particular" className="flex items-center">
-              <img 
-                src="/logo_transparent.png" 
-                alt="Internet Operadores" 
-                className="h-16"
-              />
-            </Link>
-
-            {/* Desktop Menu */}
-            <nav className="hidden md:flex items-center gap-8">
-              <a href="#tarifas" className="text-base text-gray-700 hover:text-orange-600 font-medium">
-                Tarifas
-              </a>
-              <a href="#cobertura" className="text-base text-gray-700 hover:text-orange-600 font-medium">
-                Cobertura
-              </a>
-              <a href="#ayuda" className="text-base text-gray-700 hover:text-orange-600 font-medium">
-                Ayuda
-              </a>
-            </nav>
-
-            {/* CTAs */}
-            <div className="flex items-center gap-4">
-              <Link 
-                href="tel:+34655100400"
-                className="px-6 py-2 border-2 border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
-              >
-                Llamar
+        {/* Main Navigation */}
+        <div className="bg-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-20">
+              {/* Logo */}
+              <Link href="/particular" className="flex items-center">
+                <img 
+                  src="/logo_transparent.png" 
+                  alt="Internet Operadores" 
+                  className="h-14"
+                />
               </Link>
+
+              {/* Desktop Menu */}
+              <nav className="hidden md:flex items-center gap-8">
+                <Link href="/internet" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                  Internet
+                </Link>
+                <Link href="/movil" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                  Móvil
+                </Link>
+                <Link href="/packs" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                  Packs
+                </Link>
+                <Link href="/ofertas" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                  Ofertas
+                </Link>
+              </nav>
+
+              {/* CTA Button */}
               <Link 
-                href="#contratar"
-                className="px-6 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors"
+                href="#cobertura"
+                className="px-6 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm hover:shadow-md"
               >
-                Contratar
+                Comprobar Cobertura
               </Link>
             </div>
           </div>
