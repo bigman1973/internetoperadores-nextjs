@@ -325,7 +325,7 @@ export default function EmpresaPage() {
                   <svg className="w-5 h-5 text-green-500 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                   </svg>
-                  <span>Sin "es problema interno"</span>
+                  <span>Sin &ldquo;es problema interno&rdquo;</span>
                 </li>
               </ul>
               <div className="bg-orange-50 rounded-lg p-4">
@@ -459,7 +459,7 @@ export default function EmpresaPage() {
               <div className="mb-6">
                 <div className="text-sm text-orange-600 font-semibold mb-2">Empresa Logística • 100 empleados</div>
                 <h3 className="text-xl font-bold text-gray-900 mb-3">
-                  "Teníamos 3 proveedores diferentes. Cuando algo fallaba, nadie se hacía responsable."
+                  &ldquo;Teníamos 3 proveedores diferentes. Cuando algo fallaba, nadie se hacía responsable.&rdquo;
                 </h3>
               </div>
               <div className="mb-6">
@@ -474,7 +474,7 @@ export default function EmpresaPage() {
               </div>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm italic text-gray-700">
-                  "Por fin tenemos un operador que responde. Antes tardaban días, ahora minutos."
+                  &ldquo;Por fin tenemos un operador que responde. Antes tardaban días, ahora minutos.&rdquo;
                 </p>
                 <p className="text-xs text-gray-600 mt-2">— Director IT</p>
               </div>
@@ -485,7 +485,7 @@ export default function EmpresaPage() {
               <div className="mb-6">
                 <div className="text-sm text-orange-600 font-semibold mb-2">Contact Center • 50 agentes</div>
                 <h3 className="text-xl font-bold text-gray-900 mb-3">
-                  "Nuestros agentes no podían traer expertos. Los clientes repetían todo 3 veces."
+                  &ldquo;Nuestros agentes no podían traer expertos. Los clientes repetían todo 3 veces.&rdquo;
                 </h3>
               </div>
               <div className="mb-6">
@@ -500,7 +500,7 @@ export default function EmpresaPage() {
               </div>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm italic text-gray-700">
-                  "Ahora cualquier empleado puede entrar en una llamada. Resolvemos en 2 min lo que antes tardaba 20."
+                  &ldquo;Ahora cualquier empleado puede entrar en una llamada. Resolvemos en 2 min lo que antes tardaba 20.&rdquo;
                 </p>
                 <p className="text-xs text-gray-600 mt-2">— Director Operaciones</p>
               </div>
@@ -511,7 +511,7 @@ export default function EmpresaPage() {
               <div className="mb-6">
                 <div className="text-sm text-orange-600 font-semibold mb-2">Despacho Profesional • 25 empleados</div>
                 <h3 className="text-xl font-bold text-gray-900 mb-3">
-                  "Nuestro operador anterior nos ignoraba. Tardaban semanas en hacer cambios simples."
+                  &ldquo;Nuestro operador anterior nos ignoraba. Tardaban semanas en hacer cambios simples.&rdquo;
                 </h3>
               </div>
               <div className="mb-6">
@@ -526,7 +526,7 @@ export default function EmpresaPage() {
               </div>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm italic text-gray-700">
-                  "Nosotros mismos gestionamos todo. Y cuando necesitamos ayuda, responden en minutos."
+                  &ldquo;Nosotros mismos gestionamos todo. Y cuando necesitamos ayuda, responden en minutos.&rdquo;
                 </p>
                 <p className="text-xs text-gray-600 mt-2">— Socio Director</p>
               </div>
