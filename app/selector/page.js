@@ -59,11 +59,6 @@ export default function SelectorPage() {
                 className="rounded-2xl shadow-2xl w-full h-auto"
               />
             </div>
-              </div>
-              {/* Elementos decorativos */}
-              <div className="absolute -top-4 -right-4 w-24 h-24 bg-orange-200 rounded-full blur-3xl opacity-30"></div>
-              <div className="absolute -bottom-4 -left-4 w-32 h-32 bg-orange-100 rounded-full blur-3xl opacity-30"></div>
-            </div>
           </div>
         </div>
 
