@@ -24,15 +24,15 @@ export default function SelectorPage() {
 
       {/* Contenido principal */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-        {/* Hero con diferenciador real */}
+        {/* Hero con enfoque sutil */}
         <div className="text-center mb-16">
           <div className="grid lg:grid-cols-2 gap-12 items-center mb-12">
             <div className="text-left">
               <div className="inline-block bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-semibold mb-4">
-                🎯 El único operador con 100% de cobertura en España
+                🎯 Internet que funciona. Siempre.
               </div>
               <h1 className="text-5xl font-bold text-gray-900 mb-4">
-                ¿Cansado de que te digan que no hay cobertura?
+                ¿Cansado de que tu internet falle cuando más lo necesitas?
               </h1>
               <p className="text-xl text-gray-600 mb-6">
                 Llegamos donde otros no llegan. Con la mejor tecnología para tu caso: Fibra, 5G, WIMAX o Satélite.
@@ -114,7 +114,7 @@ export default function SelectorPage() {
           </div>
         </div>
 
-        {/* Selector B2B/B2C con dolores emocionales reales */}
+        {/* Selector B2B/B2C con ROI emocional */}
         <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
           {/* Card Empresa (B2B) */}
           <a 
@@ -134,34 +134,34 @@ export default function SelectorPage() {
                 Tengo una Empresa
               </h2>
               <p className="text-gray-600 mb-6 font-semibold">
-                Y necesito conectividad que no falle...
+                Y mi negocio no puede parar...
               </p>
 
-              {/* DOLORES EMOCIONALES REALES */}
+              {/* DOLORES CON ROI */}
               <ul className="space-y-3 mb-8">
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Tu equipo teletrabaja desde zonas sin fibra?</strong> Nosotros llegamos con 5G, WIMAX o satélite.</span>
+                  <span><strong>¿Cuánto te cuesta 1 hora sin internet?</strong> ¿Más de lo que pagas al mes?</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Tienes sedes en polígonos sin cobertura?</strong> Conectamos cualquier ubicación.</span>
+                  <span><strong>¿Tu equipo teletrabaja desde zonas sin fibra?</strong> No dejes que tu negocio se pare.</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Cansado de que tu operador te ignore?</strong> Soporte 24/7 real, no un chatbot.</span>
+                  <span><strong>¿Prefieres ahorrar 100€/mes o perder 10.000€ en ventas?</strong> Nosotros tampoco.</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Pagas múltiples plataformas</strong> que no hablan entre sí? Unificamos todo.</span>
+                  <span><strong>Comunicaciones Unificadas</strong> que funcionan, siempre.</span>
                 </li>
               </ul>
 
@@ -195,7 +195,7 @@ export default function SelectorPage() {
                 Soy Particular
               </h2>
               <p className="text-gray-600 mb-6 font-semibold">
-                Y estoy harto de problemas con mi internet...
+                Y mi familia es lo primero...
               </p>
 
               {/* DOLORES EMOCIONALES REALES */}
@@ -204,25 +204,25 @@ export default function SelectorPage() {
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Te has mudado y no te llega la fibra?</strong> Nosotros llegamos donde otros no.</span>
+                  <span><strong>¿Qué es más importante: ahorrar 1€ o que tu hijo apruebe?</strong></span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Para una vez que tu hijo se concentra</strong> y el WiFi le falla? Nunca más.</span>
+                  <span><strong>¿Cuánto te cuesta perder una entrevista de trabajo</strong> por culpa del WiFi?</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Harto de que las videollamadas se corten?</strong> Internet estable, siempre.</span>
+                  <span><strong>¿Te has mudado y no te llega la fibra?</strong> No te preocupes, nosotros llegamos.</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Nadie te atiende cuando tienes un problema?</strong> Atención real, no robots.</span>
+                  <span><strong>Atención real, no robots.</strong> Habla con personas que te entienden.</span>
                 </li>
               </ul>
 
