@@ -26,16 +26,16 @@ export default function SelectorPage() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
         <div className="text-center mb-16">
           <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            Bienvenido a Internet Operadores
+            ¿Qué te preocupa de tu empresa o tu hogar?
           </h1>
           <p className="text-xl text-gray-600">
-            Selecciona tu perfil para acceder a soluciones personalizadas
+            Selecciona tu situación para descubrir cómo podemos ayudarte
           </p>
         </div>
 
         {/* Selector B2B/B2C */}
         <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-          {/* Card Empresa (B2B) */}
+          {/* Card Empresa (B2B) - Enfocado en PROBLEMAS */}
           <a 
             href="/empresa"
             className="group relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
@@ -50,44 +50,44 @@ export default function SelectorPage() {
 
               {/* Contenido */}
               <h2 className="text-3xl font-bold text-gray-900 mb-4">
-                Soy Empresa
+                Tengo una Empresa
               </h2>
-              <p className="text-gray-600 mb-6">
-                Comunicaciones unificadas, mantenimiento IT, fibra empresarial y soluciones de ciberseguridad.
+              <p className="text-gray-600 mb-6 font-semibold">
+                Y me preocupa que algo falle en mi negocio...
               </p>
 
-              {/* Características */}
+              {/* PROBLEMAS que resolvemos */}
               <ul className="space-y-3 mb-8">
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Comunicaciones Unificadas
+                  <span><strong>¿Temes un ciberataque</strong> que paralice tu empresa o robe información sensible?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Mantenimiento Informático
+                  <span><strong>¿Sufres cortes constantes</strong> en internet o la centralita que afectan a tus clientes?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Fibra y Móviles Empresas
+                  <span><strong>¿Dudas si tus copias de seguridad</strong> funcionan realmente o perderás todo si hay un problema?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Informe Cero Riesgos
+                  <span><strong>¿Pagas demasiado por IT</strong> sin saber si realmente estás protegido o bien dimensionado?</span>
                 </li>
               </ul>
 
               {/* CTA */}
               <div className="flex items-center justify-between">
                 <span className="text-orange-600 font-semibold group-hover:text-orange-700">
-                  Acceder a soluciones empresariales
+                  Quiero proteger mi empresa
                 </span>
                 <svg className="w-6 h-6 text-orange-600 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -97,11 +97,11 @@ export default function SelectorPage() {
 
             {/* Badge */}
             <div className="absolute top-4 right-4 bg-orange-500 text-white px-4 py-1 rounded-full text-sm font-semibold">
-              Recomendado
+              Más de 25 años
             </div>
           </a>
 
-          {/* Card Particular (B2C) */}
+          {/* Card Particular (B2C) - Enfocado en PROBLEMAS */}
           <a 
             href="/particular"
             className="group relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
@@ -118,42 +118,42 @@ export default function SelectorPage() {
               <h2 className="text-3xl font-bold text-gray-900 mb-4">
                 Soy Particular
               </h2>
-              <p className="text-gray-600 mb-6">
-                Fibra óptica de alta velocidad y tarifas móviles con las mejores condiciones para tu hogar.
+              <p className="text-gray-600 mb-6 font-semibold">
+                Y estoy cansado de problemas con mi operador...
               </p>
 
-              {/* Características */}
+              {/* PROBLEMAS que resolvemos */}
               <ul className="space-y-3 mb-8">
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Fibra hasta 1 Gbps
+                  <span><strong>¿Tu internet va lento</strong> y no puedes trabajar desde casa o ver series sin cortes?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Tarifas móviles flexibles
+                  <span><strong>¿Pagas demasiado</strong> por fibra y móvil sin tener claro qué estás contratando?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Paquetes combinados
+                  <span><strong>¿Nadie te atiende</strong> cuando tienes un problema y te pierdes en centralitas automáticas?</span>
                 </li>
-                <li className="flex items-center text-gray-700">
-                  <svg className="w-5 h-5 text-orange-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  Sin permanencia
+                  <span><strong>¿Estás atado con permanencias</strong> que no te dejan cambiar aunque el servicio sea malo?</span>
                 </li>
               </ul>
 
               {/* CTA */}
               <div className="flex items-center justify-between">
                 <span className="text-orange-600 font-semibold group-hover:text-orange-700">
-                  Ver tarifas para particulares
+                  Quiero un operador que me atienda
                 </span>
                 <svg className="w-6 h-6 text-orange-600 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -166,7 +166,7 @@ export default function SelectorPage() {
         {/* Información adicional */}
         <div className="text-center mt-16">
           <p className="text-gray-600 mb-4">
-            ¿No estás seguro? Llámanos y te asesoramos
+            ¿No estás seguro? Llámanos y te asesoramos sin compromiso
           </p>
           <a 
             href="tel:+34655100400" 
