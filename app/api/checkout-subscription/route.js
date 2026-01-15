@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+// Solo inicializar Stripe si la clave existe (evita error en build)
+const stripe = process.env.STRIPE_SECRET_KEY 
+  ? require("stripe")(process.env.STRIPE_SECRET_KEY)
+  : null;
 
 export async function POST(req) {
+  // Validar que Stripe esté configurado
+  if (!stripe) {
+    return NextResponse.json(
+      { error: "Stripe no está configurado. Añade STRIPE_SECRET_KEY a las variables de entorno." },
+      { status: 500 }
+    );
+  }
+
   const { priceId } = await req.json();
   const origin = req.headers.get("origin") || "http://localhost:3000";
 
