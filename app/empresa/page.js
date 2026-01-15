@@ -49,31 +49,34 @@ export default function EmpresaPage() {
               />
             </Link>
 
-            <div className="hidden lg:flex items-center gap-6">
-              <Link href="/" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
-                INICIO
+            <div className="hidden lg:flex items-center gap-8">
+              <Link href="/productos" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                Productos
               </Link>
-              <Link href="/empresa" className="text-orange-500 font-semibold transition-colors text-sm">
-                EMPRESA
+              <Link href="/soluciones" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                Soluciones
               </Link>
-              <Link href="/fansaticos" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
-                FANSÁTICOS
+              <Link href="/sectores" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                Sectores
               </Link>
-              <Link href="/cero-riesgos" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
-                CERO RIESGOS
+              <Link href="/recursos" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                Recursos
               </Link>
-              <Link href="/exagrid" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
-                EXAGRID
+              <Link href="/empresa" className="text-orange-500 font-semibold transition-colors">
+                Empresa
               </Link>
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="text-gray-700 hover:text-orange-500 font-semibold transition-colors text-sm">
-                SABER DIARIO
-              </a>
+              <Link href="/partners" className="text-gray-700 hover:text-orange-500 font-medium transition-colors">
+                Partners
+              </Link>
             </div>
 
             <div className="hidden lg:flex items-center gap-3">
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="px-4 py-2 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 font-semibold transition-all">
-                Protección
-              </a>
+              <Link href="/demo" className="px-5 py-2.5 text-orange-500 border-2 border-orange-500 rounded-lg hover:bg-orange-50 font-semibold transition-all">
+                Ver Demo
+              </Link>
+              <Link href="/contacto" className="px-5 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-all shadow-sm hover:shadow-md">
+                Contactar
+              </Link>
             </div>
           </div>
         </div>
