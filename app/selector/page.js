@@ -51,61 +51,14 @@ export default function SelectorPage() {
               </div>
             </div>
 
-            {/* Infografía multi-tecnología */}
+            {/* Imagen profesional estilo Nextiva */}
             <div className="relative">
-              <div className="bg-gradient-to-br from-orange-100 to-orange-50 rounded-2xl p-8 shadow-xl">
-                <div className="aspect-square bg-white rounded-lg shadow-lg p-6 relative overflow-hidden">
-                  {/* Mapa de España estilizado */}
-                  <div className="absolute inset-0 bg-gradient-to-br from-orange-500/5 to-orange-600/10"></div>
-                  <div className="relative z-10">
-                    <h3 className="text-center font-bold text-gray-900 mb-6">Todas las Tecnologías</h3>
-                    <div className="grid grid-cols-2 gap-4">
-                      {/* Fibra */}
-                      <div className="bg-orange-50 rounded-lg p-4 text-center">
-                        <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                          </svg>
-                        </div>
-                        <p className="text-xs font-semibold text-gray-700">Fibra</p>
-                        <p className="text-xs text-gray-500">Hasta 10 Gbps</p>
-                      </div>
-                      {/* 5G */}
-                      <div className="bg-orange-50 rounded-lg p-4 text-center">
-                        <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                          </svg>
-                        </div>
-                        <p className="text-xs font-semibold text-gray-700">5G</p>
-                        <p className="text-xs text-gray-500">Hasta 1 Gbps</p>
-                      </div>
-                      {/* WIMAX */}
-                      <div className="bg-orange-50 rounded-lg p-4 text-center">
-                        <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                          </svg>
-                        </div>
-                        <p className="text-xs font-semibold text-gray-700">WIMAX</p>
-                        <p className="text-xs text-gray-500">Hasta 100 Mbps</p>
-                      </div>
-                      {/* Satélite */}
-                      <div className="bg-orange-50 rounded-lg p-4 text-center">
-                        <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center mx-auto mb-2">
-                          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </div>
-                        <p className="text-xs font-semibold text-gray-700">Satélite</p>
-                        <p className="text-xs text-gray-500">Órbita baja</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 text-center">
-                      <p className="text-xs font-bold text-orange-600">Te damos la MEJOR para tu caso</p>
-                    </div>
-                  </div>
-                </div>
+              <img 
+                src="/hero-image-selector-internet-operadores.png" 
+                alt="Madre feliz con hijo estudiando - Internet que funciona"
+                className="rounded-2xl shadow-2xl w-full h-auto"
+              />
+            </div>
               </div>
               {/* Elementos decorativos */}
               <div className="absolute -top-4 -right-4 w-24 h-24 bg-orange-200 rounded-full blur-3xl opacity-30"></div>
@@ -121,6 +74,14 @@ export default function SelectorPage() {
             href="/empresa"
             className="group relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
           >
+            {/* Imagen B2B */}
+            <div className="relative h-64 overflow-hidden">
+              <img 
+                src="/hero-b2b-empresario.png" 
+                alt="Empresario trabajando desde chalet - Cobertura universal"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
             <div className="p-12">
               {/* Icono */}
               <div className="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-orange-500 transition-colors">
@@ -182,6 +143,14 @@ export default function SelectorPage() {
             href="/particular"
             className="group relative bg-white rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
           >
+            {/* Imagen B2C */}
+            <div className="relative h-64 overflow-hidden">
+              <img 
+                src="/hero-b2c-familia.png" 
+                alt="Madre con hijo estudiando - Internet que funciona"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
             <div className="p-12">
               {/* Icono */}
               <div className="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-orange-500 transition-colors">
