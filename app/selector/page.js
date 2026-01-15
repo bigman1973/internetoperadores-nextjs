@@ -56,13 +56,31 @@ export default function SelectorPage() {
                 Y me preocupa que algo falle en mi negocio...
               </p>
 
-              {/* PROBLEMAS que resolvemos */}
+              {/* PROBLEMAS MODERNOS que resolvemos */}
               <ul className="space-y-3 mb-8">
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                   </svg>
-                  <span><strong>¿Tu centralita se cae constantemente</strong> y pierdes llamadas de clientes importantes?</span>
+                  <span><strong>¿Cansado de que tu operador te ignore</strong> cuando tienes un problema?</span>
+                </li>
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  <span><strong>¿Tu equipo pierde tiempo</strong> cambiando entre 5 herramientas diferentes para comunicarse?</span>
+                </li>
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  <span><strong>¿Tus clientes repiten la misma información</strong> cada vez que llaman?</span>
+                </li>
+                <li className="flex items-start text-gray-700">
+                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                  </svg>
+                  <span><strong>¿Pagas múltiples plataformas</strong> que no hablan entre sí?</span>
                 </li>
                 <li className="flex items-start text-gray-700">
                   <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -70,30 +88,12 @@ export default function SelectorPage() {
                   </svg>
                   <span><strong>¿Temes un ciberataque</strong> que paralice tu empresa o robe información sensible?</span>
                 </li>
-                <li className="flex items-start text-gray-700">
-                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>¿Sufres cortes constantes</strong> en internet o la centralita que afectan a tus clientes?</span>
-                </li>
-                <li className="flex items-start text-gray-700">
-                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>¿Dudas si tus copias de seguridad</strong> funcionan realmente o perderás todo si hay un problema?</span>
-                </li>
-                <li className="flex items-start text-gray-700">
-                  <svg className="w-5 h-5 text-red-500 mr-3 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>¿Pagas demasiado por IT</strong> sin saber si realmente estás protegido o bien dimensionado?</span>
-                </li>
               </ul>
 
               {/* CTA */}
               <div className="flex items-center justify-between">
                 <span className="text-orange-600 font-semibold group-hover:text-orange-700">
-                  Quiero proteger mi empresa
+                  Soluciones para mi empresa
                 </span>
                 <svg className="w-6 h-6 text-orange-600 group-hover:translate-x-2 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
