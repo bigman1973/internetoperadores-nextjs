@@ -56,8 +56,8 @@ export default function SelectorPage() {
             </div>
             <div className="relative">
               <img 
-                src="/hero-b2c-familia.png" 
-                alt="Familia feliz con internet que funciona"
+                src="/hero-selector-empresa-videollamada.png" 
+                alt="Empresaria en videollamada con equipo - Garantía de conexión 24/7"
                 className="rounded-2xl shadow-2xl w-full h-auto"
               />
             </div>
