@@ -39,8 +39,11 @@ export default function SelectorPage() {
           <h1 className="text-5xl font-bold text-gray-900 mb-6">
             ¿Cansado de que tu internet se caiga?
           </h1>
-          <p className="text-xl text-gray-600 mb-8">
-            No importa si tienes fibra o no. Somos el único operador que te garantiza que NUNCA te quedarás sin internet. Si falla la conexión principal, activamos backup automático (5G, WIMAX o Satélite).
+          <p className="text-xl text-gray-600 mb-2">
+            No importa si tienes fibra o no. Somos el único operador que te garantiza que NUNCA* te quedarás sin internet. Si falla la conexión principal, activamos backup automático (5G, WIMAX o Satélite).
+          </p>
+          <p className="text-lg font-semibold text-orange-600 mb-8">
+            Y si falla, te devolvemos el dinero.
           </p>
           <div className="flex items-center justify-center gap-4 text-sm text-gray-500">
             <span className="font-semibold">Tecnologías:</span>
@@ -144,6 +147,13 @@ export default function SelectorPage() {
           </a>
         </div>
       </main>
+
+      {/* Disclaimer */}
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <p className="text-xs text-gray-500 text-center">
+          *Garantía sujeta al cumplimiento de las recomendaciones técnicas de instalación y mantenimiento proporcionadas por Internet Operadores.
+        </p>
+      </div>
 
       {/* Footer simple */}
       <footer className="bg-gray-50 border-t border-gray-200 py-8">
