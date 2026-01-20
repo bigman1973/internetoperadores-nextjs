@@ -1,16 +1,11 @@
 'use client'
 
-import { signOut } from 'next-auth/react'
+import { signOut, useSession } from 'next-auth/react'
 import { ArrowRightOnRectangleIcon, Bars3Icon } from '@heroicons/react/24/outline'
 
-interface AdminHeaderProps {
-  user: {
-    name: string
-    email: string
-  }
-}
-
-export default function AdminHeader({ user }: AdminHeaderProps) {
+export default function AdminHeader() {
+  const { data: session } = useSession()
+  
   return (
     <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 bg-white px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
       {/* Mobile menu button */}
@@ -36,13 +31,15 @@ export default function AdminHeader({ user }: AdminHeaderProps) {
           {/* User menu */}
           <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />
           
-          <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="flex items-center gap-x-2 text-sm font-semibold text-gray-700 hover:text-orange-600"
-          >
-            <span className="hidden sm:inline">{user.name}</span>
-            <ArrowRightOnRectangleIcon className="h-5 w-5" aria-hidden="true" />
-          </button>
+          {session?.user && (
+            <button
+              onClick={() => signOut({ callbackUrl: '/login' })}
+              className="flex items-center gap-x-2 text-sm font-semibold text-gray-700 hover:text-orange-600"
+            >
+              <span className="hidden sm:inline">{session.user.name || session.user.email}</span>
+              <ArrowRightOnRectangleIcon className="h-5 w-5" aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
     </header>

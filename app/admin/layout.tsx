@@ -17,7 +17,7 @@ export default async function AdminLayout({
       {/* Main content */}
       <div className="lg:pl-64">
         {/* Header */}
-        <AdminHeader user={session.user} />
+        <AdminHeader />
 
         {/* Page content */}
         <main className="p-4 sm:p-6 lg:p-8">

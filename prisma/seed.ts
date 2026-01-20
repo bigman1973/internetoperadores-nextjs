@@ -112,31 +112,22 @@ async function main() {
 
   console.log('✅ Tarifas de ejemplo creadas')
 
-  // Crear cliente de ejemplo
-  const clientePassword = await bcrypt.hash('cliente123', 10)
+  // TODO: Crear cliente de ejemplo cuando se implemente el modelo completo
+  // const clientePassword = await bcrypt.hash('cliente123', 10)
   
-  const cliente = await prisma.cliente.upsert({
-    where: { email: 'juan.perez@email.com' },
-    update: {},
-    create: {
-      email: 'juan.perez@email.com',
-      passwordHash: clientePassword,
-      nombre: 'Juan',
-      apellidos: 'Pérez García',
-      tipo: 'PARTICULAR',
-      dniNif: '12345678A',
-      telefono: '655123456',
-      direccionCalle: 'Calle Mayor 123',
-      direccionCiudad: 'Madrid',
-      direccionCp: '28001',
-      direccionProvincia: 'Madrid',
-      fechaAlta: new Date('2023-03-15'),
-      estado: 'ACTIVO',
-      newsletterSuscrito: true,
-    },
-  })
+  // const cliente = await prisma.clienteWeb.upsert({
+  //   where: { email: 'juan.perez@email.com' },
+  //   update: {},
+  //   create: {
+  //     email: 'juan.perez@email.com',
+  //     passwordHash: clientePassword,
+  //     nombre: 'Juan',
+  //     ispGestionId: 'CLIENTE_001',
+  //     newsletterSuscrito: true,
+  //   },
+  // })
 
-  console.log('✅ Cliente de ejemplo creado:', cliente.email)
+  // console.log('✅ Cliente de ejemplo creado:', cliente.email)
 
   console.log('🎉 Seed completado exitosamente!')
 }

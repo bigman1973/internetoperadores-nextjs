@@ -52,11 +52,11 @@ export const authOptions: NextAuthOptions = {
             }
           } else if (credentials.userType === 'cliente') {
             // Login de cliente
-            const cliente = await prisma.cliente.findUnique({
+            const cliente = await prisma.clienteWeb.findUnique({
               where: { email: credentials.email }
             })
 
-            if (!cliente || cliente.estado !== 'ACTIVO') {
+            if (!cliente) {
               return null
             }
 
@@ -98,7 +98,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as string
-        session.user.userType = token.userType as string
+        session.user.userType = token.userType as 'admin' | 'cliente'
       }
       return session
     }

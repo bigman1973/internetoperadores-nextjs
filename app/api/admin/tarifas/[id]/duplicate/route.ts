@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma'
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -14,7 +14,8 @@ export async function POST(
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const tarifaId = parseInt(params.id)
+    const resolvedParams = await params
+    const tarifaId = parseInt(resolvedParams.id)
 
     // Obtener tarifa original
     const tarifaOriginal = await prisma.tarifa.findUnique({

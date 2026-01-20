@@ -69,7 +69,15 @@ async function getTarifas(searchParams: SearchParams) {
 
   const totalPages = Math.ceil(total / pageSize)
 
-  return { tarifas, total, page, totalPages }
+  // Convertir Decimals a números para TypeScript
+  const tarifasConvertidas = tarifas.map(t => ({
+    ...t,
+    precioSinIva: Number(t.precioSinIva),
+    precioConIva: Number(t.precioConIva),
+    costeOperador: t.costeOperador ? Number(t.costeOperador) : null,
+  }))
+
+  return { tarifas: tarifasConvertidas, total, page, totalPages }
 }
 
 async function getCategorias() {

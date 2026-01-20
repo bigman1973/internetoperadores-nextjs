@@ -10,22 +10,25 @@ import {
 async function getDashboardStats() {
   const [
     tarifasActivas,
-    totalClientes,
+    // totalClientes,
     // Estadísticas del mes actual
     vistasEsteMes,
     contratacionesEsteMes,
   ] = await Promise.all([
     prisma.tarifa.count({ where: { activa: true } }),
-    prisma.cliente.count({ where: { estado: 'ACTIVO' } }),
+    // TODO: Implementar modelo Cliente
+    // prisma.cliente.count({ where: { estado: 'ACTIVO' } }),
     // TODO: Implementar conteo de vistas del mes
     Promise.resolve(0),
     // TODO: Implementar conteo de contrataciones del mes
     Promise.resolve(0),
   ])
 
+  const totalClientes = 0 // Temporal hasta implementar modelo Cliente
+
   return {
     tarifasActivas,
-    totalClientes,
+    totalClientes, // Temporal: 0
     vistasEsteMes,
     contratacionesEsteMes,
   }

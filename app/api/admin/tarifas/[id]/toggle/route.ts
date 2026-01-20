@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma'
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -15,7 +15,8 @@ export async function PATCH(
     }
 
     const { activa } = await request.json()
-    const tarifaId = parseInt(params.id)
+    const resolvedParams = await params
+    const tarifaId = parseInt(resolvedParams.id)
 
     const tarifa = await prisma.tarifa.update({
       where: { id: tarifaId },

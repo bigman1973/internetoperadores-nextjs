@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma'
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -22,19 +22,19 @@ export async function DELETE(
       )
     }
 
-    const tarifaId = parseInt(params.id)
+    const resolvedParams = await params
+    const tarifaId = parseInt(resolvedParams.id)
 
-    // Verificar si la tarifa tiene servicios contratados
-    const serviciosCount = await prisma.servicioContratado.count({
-      where: { tarifaId },
-    })
-
-    if (serviciosCount > 0) {
-      return NextResponse.json(
-        { error: 'No se puede eliminar una tarifa con servicios contratados' },
-        { status: 400 }
-      )
-    }
+    // TODO: Implementar verificación de servicios contratados cuando se cree el modelo
+    // const serviciosCount = await prisma.servicioContratado.count({
+    //   where: { tarifaId },
+    // })
+    // if (serviciosCount > 0) {
+    //   return NextResponse.json(
+    //     { error: 'No se puede eliminar una tarifa con servicios contratados' },
+    //     { status: 400 }
+    //   )
+    // }
 
     // Registrar en historial antes de eliminar
     await prisma.historialCambio.create({
@@ -62,7 +62,7 @@ export async function DELETE(
 
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -71,7 +71,8 @@ export async function GET(
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    const tarifaId = parseInt(params.id)
+    const resolvedParams = await params
+    const tarifaId = parseInt(resolvedParams.id)
 
     const tarifa = await prisma.tarifa.findUnique({
       where: { id: tarifaId },

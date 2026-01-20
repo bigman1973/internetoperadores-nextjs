@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Solo SUPER_ADMIN, GERENTE y EDITOR pueden crear
-    if (!['SUPER_ADMIN', 'GERENTE', 'EDITOR'].includes(session.user.rol)) {
+    if (!['SUPER_ADMIN', 'GERENTE', 'EDITOR'].includes(session.user.role || '')) {
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
@@ -45,8 +45,8 @@ export async function POST(request: NextRequest) {
         observaciones: data.observaciones || null,
         destacada: data.destacada || false,
         activa: data.activa !== undefined ? data.activa : true,
-        createdById: session.user.id,
-        updatedById: session.user.id,
+        createdById: parseInt(session.user.id),
+        updatedById: parseInt(session.user.id),
       },
     });
 
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     await prisma.historialCambio.create({
       data: {
         tarifaId: tarifa.id,
-        usuarioId: session.user.id,
+        usuarioId: parseInt(session.user.id),
         accion: 'CREAR',
         cambios: {
           tarifa: tarifa.nombre,
