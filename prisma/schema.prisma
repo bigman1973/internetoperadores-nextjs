@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -50,21 +50,21 @@ model Tarifa {
   tipoCliente             TipoCliente @map("tipo_cliente")
   categoria               String
   nombre                  String
-  descripcionCorta        String?   @map("descripcion_corta") @db.Text
-  descripcionLarga        String?   @map("descripcion_larga") @db.Text
+  descripcionCorta        String?   @map("descripcion_corta")
+  descripcionLarga        String?   @map("descripcion_larga")
   velocidad               String?
   precioSinIva            Decimal   @map("precio_sin_iva") @db.Decimal(10, 2)
   precioConIva            Decimal   @map("precio_con_iva") @db.Decimal(10, 2)
   costeOperador           Decimal?  @map("coste_operador") @db.Decimal(10, 2)
   permanencia             String?
-  penalizacion            String?   @db.Text
+  penalizacion            String?
   garantia                String?
-  observaciones           String?   @db.Text
+  observaciones           String?
   destacada               Boolean   @default(false)
   activa                  Boolean   @default(true)
   soloClientesExistentes  Boolean   @default(false) @map("solo_clientes_existentes")
-  fechaInicio             DateTime? @map("fecha_inicio") @db.Date
-  fechaFin                DateTime? @map("fecha_fin") @db.Date
+  fechaInicio             DateTime? @map("fecha_inicio")
+  fechaFin                DateTime? @map("fecha_fin")
   orden                   Int       @default(0)
   ispGestionId            String?   @map("isp_gestion_id") // ID en ISPGestión para sincronización
   createdAt               DateTime  @default(now()) @map("created_at")
@@ -99,7 +99,7 @@ model Categoria {
   id          Int         @id @default(autoincrement())
   nombre      String
   tipoCliente TipoClienteCategoria @map("tipo_cliente")
-  descripcion String?     @db.Text
+  descripcion String?
   icono       String?
   orden       Int         @default(0)
   activa      Boolean     @default(true)
@@ -149,7 +149,7 @@ enum AccionHistorial {
 model EstadisticaTarifa {
   id              Int      @id @default(autoincrement())
   tarifaId        Int      @map("tarifa_id")
-  fecha           DateTime @db.Date
+  fecha           DateTime
   vistas          Int      @default(0)
   contrataciones  Int      @default(0)
 
@@ -191,7 +191,7 @@ model NotificacionCliente {
   clienteId   Int       @map("cliente_id")
   tipo        TipoNotificacion
   titulo      String
-  mensaje     String    @db.Text
+  mensaje     String
   leida       Boolean   @default(false)
   fechaEnvio  DateTime  @default(now()) @map("fecha_envio")
 
