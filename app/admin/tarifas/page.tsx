@@ -91,10 +91,11 @@ async function getCategorias() {
 export default async function TarifasPage({
   searchParams,
 }: {
-  searchParams: SearchParams
+  searchParams: Promise<SearchParams>
 }) {
   const session = await requireAuth('admin')
-  const { tarifas, total, page, totalPages } = await getTarifas(searchParams)
+  const resolvedSearchParams = await searchParams
+  const { tarifas, total, page, totalPages } = await getTarifas(resolvedSearchParams)
   const categorias = await getCategorias()
 
   return (
@@ -136,7 +137,7 @@ export default async function TarifasPage({
                     type="text"
                     name="search"
                     id="search"
-                    defaultValue={searchParams.search}
+                    defaultValue={resolvedSearchParams.search}
                     placeholder="Nombre de tarifa..."
                     className="block w-full rounded-md border-gray-300 pl-10 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                   />
@@ -151,7 +152,7 @@ export default async function TarifasPage({
                 <select
                   id="tipoCliente"
                   name="tipoCliente"
-                  defaultValue={searchParams.tipoCliente}
+                  defaultValue={resolvedSearchParams.tipoCliente}
                   className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
@@ -168,7 +169,7 @@ export default async function TarifasPage({
                 <select
                   id="categoria"
                   name="categoria"
-                  defaultValue={searchParams.categoria}
+                  defaultValue={resolvedSearchParams.categoria}
                   className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todas</option>
@@ -186,7 +187,7 @@ export default async function TarifasPage({
                 <select
                   id="estado"
                   name="estado"
-                  defaultValue={searchParams.estado}
+                  defaultValue={resolvedSearchParams.estado}
                   className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>

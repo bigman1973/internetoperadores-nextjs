@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Deshabilitar Turbopack en build de producción (bug con resolución de módulos)
-  experimental: {
-    turbo: false,
-  },
+  // Nota: Turbopack deshabilitado en script de build (removido --turbopack flag)
   async headers() {
     return [
       {
