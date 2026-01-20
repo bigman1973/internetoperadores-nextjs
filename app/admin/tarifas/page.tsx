@@ -165,9 +165,7 @@ export default async function TarifasPage({
                 >
                   <option value="">Todas</option>
                   {categorias.map(cat => (
-                    <key={cat}>
-                      <option value={cat}>{cat}</option>
-                    </key>
+                    <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
               </div>
