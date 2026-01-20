@@ -29,7 +29,6 @@ model UsuarioAdmin {
   tarifasCreadas    Tarifa[]           @relation("TarifaCreador")
   tarifasEditadas   Tarifa[]           @relation("TarifaEditor")
   historialCambios  HistorialCambio[]
-  ticketsAsignados  TicketSoporte[]
 
   @@map("usuarios_admin")
 }
@@ -52,6 +51,7 @@ model Tarifa {
   categoria               String
   nombre                  String
   descripcionCorta        String?   @map("descripcion_corta") @db.Text
+  descripcionLarga        String?   @map("descripcion_larga") @db.Text
   velocidad               String?
   precioSinIva            Decimal   @map("precio_sin_iva") @db.Decimal(10, 2)
   precioConIva            Decimal   @map("precio_con_iva") @db.Decimal(10, 2)
@@ -66,6 +66,7 @@ model Tarifa {
   fechaInicio             DateTime? @map("fecha_inicio") @db.Date
   fechaFin                DateTime? @map("fecha_fin") @db.Date
   orden                   Int       @default(0)
+  ispGestionId            String?   @map("isp_gestion_id") // ID en ISPGestión para sincronización
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
   
@@ -75,13 +76,13 @@ model Tarifa {
   createdBy               UsuarioAdmin? @relation("TarifaCreador", fields: [createdById], references: [id])
   updatedBy               UsuarioAdmin? @relation("TarifaEditor", fields: [updatedById], references: [id])
   
-  serviciosContratados    ServicioContratado[]
   historialCambios        HistorialCambio[]
   estadisticas            EstadisticaTarifa[]
 
   @@index([tipoCliente, categoria])
   @@index([activa])
   @@index([destacada])
+  @@index([ispGestionId])
   @@map("tarifas")
 }
 
@@ -138,6 +139,7 @@ enum AccionHistorial {
   ACTIVAR
   DESACTIVAR
   SUBIDA_MASIVA
+  IMPORTAR_EXCEL
 }
 
 // ============================================================================
@@ -159,219 +161,29 @@ model EstadisticaTarifa {
 }
 
 // ============================================================================
-// CLIENTES (Extranet)
+// CLIENTES WEB (Solo para login de extranet)
+// Datos completos están en ISPGestión
 // ============================================================================
 
-model Cliente {
+model ClienteWeb {
   id                  Int         @id @default(autoincrement())
   email               String      @unique
   passwordHash        String      @map("password_hash")
+  ispGestionId        String      @unique @map("isp_gestion_id") // ID del cliente en ISPGestión
   nombre              String
-  apellidos           String?
-  tipo                TipoCliente
-  dniNif              String?     @map("dni_nif")
-  telefono            String?
-  direccionCalle      String?     @map("direccion_calle")
-  direccionCiudad     String?     @map("direccion_ciudad")
-  direccionCp         String?     @map("direccion_cp")
-  direccionProvincia  String?     @map("direccion_provincia")
-  fechaAlta           DateTime    @map("fecha_alta") @db.Date
-  estado              EstadoCliente @default(ACTIVO)
+  ultimoAcceso        DateTime?   @map("ultimo_acceso")
   newsletterSuscrito  Boolean     @default(false) @map("newsletter_suscrito")
   createdAt           DateTime    @default(now()) @map("created_at")
   updatedAt           DateTime    @updatedAt @map("updated_at")
 
   // Relaciones
-  servicios           ServicioContratado[]
-  facturas            Factura[]
-  tickets             TicketSoporte[]
   notificaciones      NotificacionCliente[]
 
-  @@map("clientes")
-}
-
-enum EstadoCliente {
-  ACTIVO
-  INACTIVO
-  MOROSO
+  @@map("clientes_web")
 }
 
 // ============================================================================
-// SERVICIOS CONTRATADOS
-// ============================================================================
-
-model ServicioContratado {
-  id                    Int       @id @default(autoincrement())
-  clienteId             Int       @map("cliente_id")
-  tarifaId              Int       @map("tarifa_id")
-  fechaContratacion     DateTime  @map("fecha_contratacion") @db.Date
-  fechaBaja             DateTime? @map("fecha_baja") @db.Date
-  estado                EstadoServicio @default(ACTIVO)
-  precioContratado      Decimal   @map("precio_contratado") @db.Decimal(10, 2)
-  precioActual          Decimal   @map("precio_actual") @db.Decimal(10, 2)
-  grandfathering        Boolean   @default(false)
-  direccionInstalacion  String?   @map("direccion_instalacion") @db.Text
-  numeroLinea           String?   @map("numero_linea")
-  observaciones         String?   @db.Text
-  createdAt             DateTime  @default(now()) @map("created_at")
-  updatedAt             DateTime  @updatedAt @map("updated_at")
-
-  // Relaciones
-  cliente               Cliente   @relation(fields: [clienteId], references: [id])
-  tarifa                Tarifa    @relation(fields: [tarifaId], references: [id])
-  lineasFactura         LineaFactura[]
-  consumoDatos          ConsumoDatos[]
-
-  @@map("servicios_contratados")
-}
-
-enum EstadoServicio {
-  ACTIVO
-  SUSPENDIDO
-  BAJA
-}
-
-// ============================================================================
-// FACTURAS
-// ============================================================================
-
-model Factura {
-  id                Int       @id @default(autoincrement())
-  clienteId         Int       @map("cliente_id")
-  numeroFactura     String    @unique @map("numero_factura")
-  fechaEmision      DateTime  @map("fecha_emision") @db.Date
-  fechaVencimiento  DateTime  @map("fecha_vencimiento") @db.Date
-  importeSinIva     Decimal   @map("importe_sin_iva") @db.Decimal(10, 2)
-  importeConIva     Decimal   @map("importe_con_iva") @db.Decimal(10, 2)
-  estado            EstadoFactura @default(PENDIENTE)
-  fechaPago         DateTime? @map("fecha_pago") @db.Date
-  metodoPago        MetodoPago? @map("metodo_pago")
-  pdfUrl            String?   @map("pdf_url")
-  createdAt         DateTime  @default(now()) @map("created_at")
-
-  // Relaciones
-  cliente           Cliente   @relation(fields: [clienteId], references: [id])
-  lineas            LineaFactura[]
-
-  @@map("facturas")
-}
-
-enum EstadoFactura {
-  PENDIENTE
-  PAGADA
-  VENCIDA
-  ANULADA
-}
-
-enum MetodoPago {
-  DOMICILIACION
-  TARJETA
-  TRANSFERENCIA
-  EFECTIVO
-}
-
-// ============================================================================
-// LÍNEAS DE FACTURA
-// ============================================================================
-
-model LineaFactura {
-  id                    Int       @id @default(autoincrement())
-  facturaId             Int       @map("factura_id")
-  servicioContratadoId  Int       @map("servicio_contratado_id")
-  concepto              String
-  cantidad              Int       @default(1)
-  precioUnitario        Decimal   @map("precio_unitario") @db.Decimal(10, 2)
-  importe               Decimal   @db.Decimal(10, 2)
-
-  // Relaciones
-  factura               Factura   @relation(fields: [facturaId], references: [id])
-  servicioContratado    ServicioContratado @relation(fields: [servicioContratadoId], references: [id])
-
-  @@map("lineas_factura")
-}
-
-// ============================================================================
-// CONSUMO DE DATOS (para servicios móviles)
-// ============================================================================
-
-model ConsumoDatos {
-  id                    Int       @id @default(autoincrement())
-  servicioContratadoId  Int       @map("servicio_contratado_id")
-  fecha                 DateTime  @db.Date
-  datosMb               Int       @default(0) @map("datos_mb")
-  minutosLlamadas       Int       @default(0) @map("minutos_llamadas")
-  smsEnviados           Int       @default(0) @map("sms_enviados")
-
-  // Relaciones
-  servicioContratado    ServicioContratado @relation(fields: [servicioContratadoId], references: [id])
-
-  @@unique([servicioContratadoId, fecha])
-  @@map("consumo_datos")
-}
-
-// ============================================================================
-// TICKETS DE SOPORTE
-// ============================================================================
-
-model TicketSoporte {
-  id            Int       @id @default(autoincrement())
-  clienteId     Int       @map("cliente_id")
-  numeroTicket  String    @unique @map("numero_ticket")
-  asunto        String
-  descripcion   String    @db.Text
-  estado        EstadoTicket @default(ABIERTO)
-  prioridad     PrioridadTicket @default(MEDIA)
-  asignadoA     Int?      @map("asignado_a")
-  fechaApertura DateTime  @default(now()) @map("fecha_apertura")
-  fechaCierre   DateTime? @map("fecha_cierre")
-
-  // Relaciones
-  cliente       Cliente   @relation(fields: [clienteId], references: [id])
-  asignado      UsuarioAdmin? @relation(fields: [asignadoA], references: [id])
-  mensajes      MensajeTicket[]
-
-  @@map("tickets_soporte")
-}
-
-enum EstadoTicket {
-  ABIERTO
-  EN_PROCESO
-  RESUELTO
-  CERRADO
-}
-
-enum PrioridadTicket {
-  BAJA
-  MEDIA
-  ALTA
-  URGENTE
-}
-
-// ============================================================================
-// MENSAJES DE TICKETS
-// ============================================================================
-
-model MensajeTicket {
-  id        Int       @id @default(autoincrement())
-  ticketId  Int       @map("ticket_id")
-  autorTipo AutorTipo @map("autor_tipo")
-  autorId   Int       @map("autor_id")
-  mensaje   String    @db.Text
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  // Relaciones
-  ticket    TicketSoporte @relation(fields: [ticketId], references: [id])
-
-  @@map("mensajes_ticket")
-}
-
-enum AutorTipo {
-  CLIENTE
-  ADMIN
-}
-
-// ============================================================================
-// NOTIFICACIONES PARA CLIENTES
+// NOTIFICACIONES PARA CLIENTES (Solo web, no en ISPGestión)
 // ============================================================================
 
 model NotificacionCliente {
@@ -384,7 +196,7 @@ model NotificacionCliente {
   fechaEnvio  DateTime  @default(now()) @map("fecha_envio")
 
   // Relaciones
-  cliente     Cliente   @relation(fields: [clienteId], references: [id])
+  cliente     ClienteWeb   @relation(fields: [clienteId], references: [id])
 
   @@map("notificaciones_cliente")
 }
