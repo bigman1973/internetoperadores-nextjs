@@ -1,78 +1,51 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import prisma from '@/lib/prisma';
-import { getAllClientes } from '@/lib/ispgestion/service';
+import { getAllClientes } from '../../../../lib/ispgestion/service';
+import { prisma } from '../../../../lib/prisma';
 import bcrypt from 'bcryptjs';
 
 export async function POST() {
   try {
-    const session = await getServerSession(authOptions);
-
-    if (!session || session.user.userType !== 'admin') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
-
-    // 1. Obtener todos los clientes de ISPGestión
+    console.log('Iniciando sincronización masiva de clientes...');
     const clientesIsp = await getAllClientes();
     
-    if (!clientesIsp || clientesIsp.length === 0) {
-      return NextResponse.json({ message: 'No se encontraron clientes en ISPGestión' });
+    if (!clientesIsp || !Array.isArray(clientesIsp)) {
+      return NextResponse.json({ error: 'No se recibieron clientes de ISPGestión' }, { status: 400 });
     }
 
     let creados = 0;
     let actualizados = 0;
+    const defaultPassword = await bcrypt.hash('cliente123', 10);
 
-    // 2. Procesar cada cliente
     for (const c of clientesIsp) {
-      // Mapeamos los campos (ajustar según la respuesta real de la API)
-      const email = c.email || c.correo;
-      const nombre = c.nombre || `${c.nombre_pila} ${c.apellidos}`;
-      const ispgestionId = String(c.id || c.codigo_cliente);
-
-      if (!email) continue;
-
-      // Buscamos si ya existe
-      const existing = await prisma.clienteWeb.findUnique({
-        where: { email }
+      const email = c.email || `${c.id}@internetoperadores.com`;
+      
+      await prisma.clienteWeb.upsert({
+        where: { email: email },
+        update: {
+          nombre: c.nombre || c.razon_social || 'Cliente sin nombre',
+          ispGestionId: String(c.id),
+        },
+        create: {
+          email: email,
+          nombre: c.nombre || c.razon_social || 'Cliente sin nombre',
+          passwordHash: defaultPassword,
+          ispGestionId: String(c.id),
+        }
       });
-
-      if (existing) {
-        await prisma.clienteWeb.update({
-          where: { id: existing.id },
-          data: {
-            nombre,
-            ispGestionId: ispgestionId,
-          }
-        });
-        actualizados++;
-      } else {
-        // Si es nuevo, le asignamos una contraseña temporal (su email o similar)
-        // El cliente podrá cambiarla o usar "olvidé mi contraseña"
-        const tempPassword = await bcrypt.hash('cliente123', 10);
-        await prisma.clienteWeb.create({
-          data: {
-            email,
-            nombre,
-            passwordHash: tempPassword,
-            ispGestionId: ispgestionId,
-            newsletterSuscrito: false,
-          }
-        });
-        creados++;
-      }
+      
+      creados++;
     }
 
     return NextResponse.json({ 
       success: true, 
-      message: `Sincronización completada: ${creados} creados, ${actualizados} actualizados.` 
+      message: `Sincronización completada: ${creados} clientes procesados.` 
     });
-
-  } catch (error) {
-    console.error('Error en sync clientes:', error);
+  } catch (error: any) {
+    console.error('Error en sincronización:', error);
     return NextResponse.json({ 
-      error: error instanceof Error ? error.message : 'Error desconocido' 
+      error: 'Error en la sincronización', 
+      details: error.message 
     }, { status: 500 });
   }
 }

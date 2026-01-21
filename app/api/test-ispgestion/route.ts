@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
-import { testConnection } from '@/lib/ispgestion/service';
+import { testConnection } from '../../../lib/ispgestion/service';
 
 export async function GET() {
   try {
