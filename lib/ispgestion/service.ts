@@ -59,9 +59,31 @@ export async function verifyClienteCredentials(email: string, password: string):
 /**
  * Función de prueba para verificar la conexión.
  */
+/**
+ * Obtiene el listado completo de clientes desde ISPGestión.
+ */
+export async function getAllClientes() {
+  try {
+    // Intentamos obtener los clientes. El endpoint exacto puede variar según la versión de la API.
+    // Probamos con /clientes o /clientes/lista
+    const response = await ispgestion.get('/clientes');
+    
+    if (response.data && Array.isArray(response.data)) {
+      return response.data;
+    } else if (response.data && response.data.clientes) {
+      return response.data.clientes;
+    }
+    
+    return [];
+  } catch (error) {
+    console.error('Error al obtener clientes de ISPGestión:', error);
+    throw error;
+  }
+}
+
 export async function testConnection() {
   try {
-    const response = await ispgestion.get('/clientes/lista', {
+    const response = await ispgestion.get('/clientes', {
       params: { limit: 1 }
     });
     

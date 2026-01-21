@@ -3,6 +3,7 @@ import prisma from '@/lib/prisma'
 import Link from 'next/link'
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import ClientesTable from '@/components/admin/ClientesTable'
+import SyncClientesButton from '@/components/admin/SyncClientesButton'
 
 interface SearchParams {
   search?: string
@@ -81,7 +82,8 @@ export default async function ClientesPage({
             Gestiona los clientes registrados en la plataforma ({total} clientes)
           </p>
         </div>
-        <div className="mt-4 sm:mt-0">
+        <div className="mt-4 sm:mt-0 flex gap-x-3">
+          <SyncClientesButton />
           <Link
             href="/admin/clientes/nuevo"
             className="inline-flex items-center gap-x-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600"

@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,27 +7,124 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ============================================================================
-// USUARIOS ADMIN (Intranet)
-// ============================================================================
-
 model UsuarioAdmin {
-  id                Int       @id @default(autoincrement())
-  email             String    @unique
-  passwordHash      String    @map("password_hash")
-  nombre            String
-  rol               RolAdmin  @default(EDITOR)
-  activo            Boolean   @default(true)
-  ultimoAcceso      DateTime? @map("ultimo_acceso")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
-
-  // Relaciones
-  tarifasCreadas    Tarifa[]           @relation("TarifaCreador")
-  tarifasEditadas   Tarifa[]           @relation("TarifaEditor")
-  historialCambios  HistorialCambio[]
+  id               Int               @id @default(autoincrement())
+  email            String            @unique
+  passwordHash     String            @map("password_hash")
+  nombre           String
+  rol              RolAdmin          @default(EDITOR)
+  activo           Boolean           @default(true)
+  ultimoAcceso     DateTime?         @map("ultimo_acceso")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  historialCambios HistorialCambio[]
+  tarifasCreadas   Tarifa[]          @relation("TarifaCreador")
+  tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
 
   @@map("usuarios_admin")
+}
+
+model Tarifa {
+  id                     Int                 @id @default(autoincrement())
+  tipoCliente            TipoCliente         @map("tipo_cliente")
+  categoria              String
+  nombre                 String
+  descripcionCorta       String?             @map("descripcion_corta")
+  descripcionLarga       String?             @map("descripcion_larga")
+  velocidad              String?
+  precioSinIva           Decimal             @map("precio_sin_iva") @db.Decimal(10, 2)
+  precioConIva           Decimal             @map("precio_con_iva") @db.Decimal(10, 2)
+  costeOperador          Decimal?            @map("coste_operador") @db.Decimal(10, 2)
+  permanencia            String?
+  penalizacion           String?
+  garantia               String?
+  observaciones          String?
+  destacada              Boolean             @default(false)
+  activa                 Boolean             @default(true)
+  soloClientesExistentes Boolean             @default(false) @map("solo_clientes_existentes")
+  fechaInicio            DateTime?           @map("fecha_inicio")
+  fechaFin               DateTime?           @map("fecha_fin")
+  orden                  Int                 @default(0)
+  ispGestionId           String?             @map("isp_gestion_id")
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+  createdById            Int?                @map("created_by")
+  updatedById            Int?                @map("updated_by")
+  estadisticas           EstadisticaTarifa[]
+  historialCambios       HistorialCambio[]
+  createdBy              UsuarioAdmin?       @relation("TarifaCreador", fields: [createdById], references: [id])
+  updatedBy              UsuarioAdmin?       @relation("TarifaEditor", fields: [updatedById], references: [id])
+
+  @@index([tipoCliente, categoria])
+  @@index([activa])
+  @@index([destacada])
+  @@index([ispGestionId])
+  @@map("tarifas")
+}
+
+model Categoria {
+  id          Int                  @id @default(autoincrement())
+  nombre      String
+  tipoCliente TipoClienteCategoria @map("tipo_cliente")
+  descripcion String?
+  icono       String?
+  orden       Int                  @default(0)
+  activa      Boolean              @default(true)
+
+  @@map("categorias")
+}
+
+model HistorialCambio {
+  id        Int             @id @default(autoincrement())
+  tarifaId  Int?            @map("tarifa_id")
+  usuarioId Int             @map("usuario_id")
+  accion    AccionHistorial
+  cambios   Json?
+  createdAt DateTime        @default(now()) @map("created_at")
+  tarifa    Tarifa?         @relation(fields: [tarifaId], references: [id])
+  usuario   UsuarioAdmin    @relation(fields: [usuarioId], references: [id])
+
+  @@map("historial_cambios")
+}
+
+model EstadisticaTarifa {
+  id             Int      @id @default(autoincrement())
+  tarifaId       Int      @map("tarifa_id")
+  fecha          DateTime
+  vistas         Int      @default(0)
+  contrataciones Int      @default(0)
+  tarifa         Tarifa   @relation(fields: [tarifaId], references: [id])
+
+  @@unique([tarifaId, fecha])
+  @@map("estadisticas_tarifas")
+}
+
+model ClienteWeb {
+  id                 Int                   @id @default(autoincrement())
+  email              String                @unique
+  passwordHash       String                @map("password_hash")
+  ispGestionId       String                @unique @map("isp_gestion_id")
+  nombre             String
+  ultimoAcceso       DateTime?             @map("ultimo_acceso")
+  newsletterSuscrito Boolean               @default(false) @map("newsletter_suscrito")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
+  notificaciones     NotificacionCliente[]
+
+  @@map("clientes_web")
+}
+
+model NotificacionCliente {
+  id         Int              @id @default(autoincrement())
+  clienteId  Int              @map("cliente_id")
+  tipo       TipoNotificacion
+  titulo     String
+  mensaje    String
+  leida      Boolean          @default(false)
+  fechaEnvio DateTime         @default(now()) @map("fecha_envio")
+  cliente    ClienteWeb       @relation(fields: [clienteId], references: [id])
+
+  @@map("notificaciones_cliente")
 }
 
 enum RolAdmin {
@@ -41,95 +135,15 @@ enum RolAdmin {
   FINANCIERO
 }
 
-// ============================================================================
-// TARIFAS
-// ============================================================================
-
-model Tarifa {
-  id                      Int       @id @default(autoincrement())
-  tipoCliente             TipoCliente @map("tipo_cliente")
-  categoria               String
-  nombre                  String
-  descripcionCorta        String?   @map("descripcion_corta")
-  descripcionLarga        String?   @map("descripcion_larga")
-  velocidad               String?
-  precioSinIva            Decimal   @map("precio_sin_iva") @db.Decimal(10, 2)
-  precioConIva            Decimal   @map("precio_con_iva") @db.Decimal(10, 2)
-  costeOperador           Decimal?  @map("coste_operador") @db.Decimal(10, 2)
-  permanencia             String?
-  penalizacion            String?
-  garantia                String?
-  observaciones           String?
-  destacada               Boolean   @default(false)
-  activa                  Boolean   @default(true)
-  soloClientesExistentes  Boolean   @default(false) @map("solo_clientes_existentes")
-  fechaInicio             DateTime? @map("fecha_inicio")
-  fechaFin                DateTime? @map("fecha_fin")
-  orden                   Int       @default(0)
-  ispGestionId            String?   @map("isp_gestion_id") // ID en ISPGestión para sincronización
-  createdAt               DateTime  @default(now()) @map("created_at")
-  updatedAt               DateTime  @updatedAt @map("updated_at")
-  
-  // Relaciones
-  createdById             Int?      @map("created_by")
-  updatedById             Int?      @map("updated_by")
-  createdBy               UsuarioAdmin? @relation("TarifaCreador", fields: [createdById], references: [id])
-  updatedBy               UsuarioAdmin? @relation("TarifaEditor", fields: [updatedById], references: [id])
-  
-  historialCambios        HistorialCambio[]
-  estadisticas            EstadisticaTarifa[]
-
-  @@index([tipoCliente, categoria])
-  @@index([activa])
-  @@index([destacada])
-  @@index([ispGestionId])
-  @@map("tarifas")
-}
-
 enum TipoCliente {
   PARTICULAR
   EMPRESA
-}
-
-// ============================================================================
-// CATEGORÍAS
-// ============================================================================
-
-model Categoria {
-  id          Int         @id @default(autoincrement())
-  nombre      String
-  tipoCliente TipoClienteCategoria @map("tipo_cliente")
-  descripcion String?
-  icono       String?
-  orden       Int         @default(0)
-  activa      Boolean     @default(true)
-
-  @@map("categorias")
 }
 
 enum TipoClienteCategoria {
   PARTICULAR
   EMPRESA
   AMBOS
-}
-
-// ============================================================================
-// HISTORIAL DE CAMBIOS (Auditoría)
-// ============================================================================
-
-model HistorialCambio {
-  id        Int      @id @default(autoincrement())
-  tarifaId  Int?     @map("tarifa_id")
-  usuarioId Int      @map("usuario_id")
-  accion    AccionHistorial
-  cambios   Json?    // JSON con campos modificados
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relaciones
-  tarifa    Tarifa?       @relation(fields: [tarifaId], references: [id])
-  usuario   UsuarioAdmin  @relation(fields: [usuarioId], references: [id])
-
-  @@map("historial_cambios")
 }
 
 enum AccionHistorial {
@@ -140,65 +154,6 @@ enum AccionHistorial {
   DESACTIVAR
   SUBIDA_MASIVA
   IMPORTAR_EXCEL
-}
-
-// ============================================================================
-// ESTADÍSTICAS DE TARIFAS
-// ============================================================================
-
-model EstadisticaTarifa {
-  id              Int      @id @default(autoincrement())
-  tarifaId        Int      @map("tarifa_id")
-  fecha           DateTime
-  vistas          Int      @default(0)
-  contrataciones  Int      @default(0)
-
-  // Relaciones
-  tarifa          Tarifa   @relation(fields: [tarifaId], references: [id])
-
-  @@unique([tarifaId, fecha])
-  @@map("estadisticas_tarifas")
-}
-
-// ============================================================================
-// CLIENTES WEB (Solo para login de extranet)
-// Datos completos están en ISPGestión
-// ============================================================================
-
-model ClienteWeb {
-  id                  Int         @id @default(autoincrement())
-  email               String      @unique
-  passwordHash        String      @map("password_hash")
-  ispGestionId        String      @unique @map("isp_gestion_id") // ID del cliente en ISPGestión
-  nombre              String
-  ultimoAcceso        DateTime?   @map("ultimo_acceso")
-  newsletterSuscrito  Boolean     @default(false) @map("newsletter_suscrito")
-  createdAt           DateTime    @default(now()) @map("created_at")
-  updatedAt           DateTime    @updatedAt @map("updated_at")
-
-  // Relaciones
-  notificaciones      NotificacionCliente[]
-
-  @@map("clientes_web")
-}
-
-// ============================================================================
-// NOTIFICACIONES PARA CLIENTES (Solo web, no en ISPGestión)
-// ============================================================================
-
-model NotificacionCliente {
-  id          Int       @id @default(autoincrement())
-  clienteId   Int       @map("cliente_id")
-  tipo        TipoNotificacion
-  titulo      String
-  mensaje     String
-  leida       Boolean   @default(false)
-  fechaEnvio  DateTime  @default(now()) @map("fecha_envio")
-
-  // Relaciones
-  cliente     ClienteWeb   @relation(fields: [clienteId], references: [id])
-
-  @@map("notificaciones_cliente")
 }
 
 enum TipoNotificacion {
