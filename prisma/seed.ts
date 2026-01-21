@@ -6,12 +6,14 @@ const prisma = new PrismaClient()
 async function main() {
   console.log('🌱 Iniciando seed de la base de datos...')
 
-  // Crear usuario admin por defecto
+  // 1. Crear usuario admin por defecto
   const adminPassword = await bcrypt.hash('admin123', 10)
   
   const admin = await prisma.usuarioAdmin.upsert({
     where: { email: 'david.perez@internetoperadores.com' },
-    update: {},
+    update: {
+      passwordHash: adminPassword,
+    },
     create: {
       email: 'david.perez@internetoperadores.com',
       passwordHash: adminPassword,
@@ -21,9 +23,9 @@ async function main() {
     },
   })
 
-  console.log('✅ Usuario admin creado:', admin.email)
+  console.log('✅ Usuario admin procesado:', admin.email)
 
-  // Crear categorías por defecto
+  // 2. Crear categorías por defecto (Usando nombre como identificador lógico)
   const categorias = [
     { nombre: 'FIBRA', tipoCliente: 'AMBOS', descripcion: 'Conexión de fibra óptica', icono: 'fiber', orden: 1 },
     { nombre: 'WIMAX', tipoCliente: 'AMBOS', descripcion: 'Conexión inalámbrica WIMAX', icono: 'wifi', orden: 2 },
@@ -34,16 +36,26 @@ async function main() {
   ]
 
   for (const cat of categorias) {
-    await prisma.categoria.upsert({
-      where: { id: categorias.indexOf(cat) + 1 },
-      update: {},
-      create: cat as any,
+    // Buscamos por nombre para evitar conflictos de ID
+    const existingCat = await prisma.categoria.findFirst({
+      where: { nombre: cat.nombre }
     })
+
+    if (existingCat) {
+      await prisma.categoria.update({
+        where: { id: existingCat.id },
+        data: cat as any
+      })
+    } else {
+      await prisma.categoria.create({
+        data: cat as any
+      })
+    }
   }
 
-  console.log('✅ Categorías creadas')
+  console.log('✅ Categorías procesadas')
 
-  // Crear algunas tarifas de ejemplo
+  // 3. Crear algunas tarifas de ejemplo
   const tarifasEjemplo = [
     {
       tipoCliente: 'PARTICULAR',
@@ -105,25 +117,31 @@ async function main() {
   ]
 
   for (const tarifa of tarifasEjemplo) {
-    await prisma.tarifa.upsert({
-      where: { 
-        // Usamos una combinación única si no tenemos ID, o buscamos por nombre
-        id: tarifasEjemplo.indexOf(tarifa) + 1 
-      },
-      update: tarifa as any,
-      create: tarifa as any,
+    const existingTarifa = await prisma.tarifa.findFirst({
+      where: { nombre: tarifa.nombre, tipoCliente: tarifa.tipoCliente as any }
     })
+
+    if (existingTarifa) {
+      await prisma.tarifa.update({
+        where: { id: existingTarifa.id },
+        data: tarifa as any
+      })
+    } else {
+      await prisma.tarifa.create({
+        data: tarifa as any
+      })
+    }
   }
 
-  console.log('✅ Tarifas de ejemplo creadas')
+  console.log('✅ Tarifas de ejemplo procesadas')
 
-  // Crear cliente de ejemplo
+  // 4. Crear cliente de ejemplo
   const clientePassword = await bcrypt.hash('cliente123', 10)
   
   const cliente = await prisma.clienteWeb.upsert({
     where: { email: 'juan.perez@email.com' },
     update: {
-      passwordHash: clientePassword, // Aseguramos que la contraseña sea siempre 'cliente123'
+      passwordHash: clientePassword,
     },
     create: {
       email: 'juan.perez@email.com',
@@ -134,7 +152,7 @@ async function main() {
     },
   })
 
-  console.log('✅ Cliente de ejemplo creado:', cliente.email)
+  console.log('✅ Cliente de ejemplo procesado:', cliente.email)
 
   console.log('🎉 Seed completado exitosamente!')
 }
