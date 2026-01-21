@@ -78,6 +78,7 @@ async function getTopTarifas() {
       const tarifa = await prisma.tarifa.findUnique({
         where: { id: stat.tarifaId },
       })
+      if (!tarifa) return null
       return {
         ...tarifa,
         vistas: stat._sum.vistas || 0,
@@ -86,7 +87,8 @@ async function getTopTarifas() {
     })
   )
 
-  return tarifasConInfo
+  // Filtrar nulls
+  return tarifasConInfo.filter((t) => t !== null)
 }
 
 export default async function AdminDashboard() {
