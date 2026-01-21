@@ -3,8 +3,14 @@ import axios from 'axios';
 const API_URL = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISP_GESTION_API_USER || 'VOLA';
 const API_HASH = process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+const PROXY_URL = process.env.RAILWAY_PUBLIC_DOMAIN 
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api/ispgestion-proxy`
+  : '/api/ispgestion-proxy';
 
-const ispgestion = axios.create({
+/**
+ * Cliente de Axios configurado para llamadas directas (usado en el servidor de Railway)
+ */
+const ispgestionDirect = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
@@ -13,55 +19,61 @@ const ispgestion = axios.create({
 });
 
 /**
- * Obtiene el listado completo de clientes desde ISPGestión probando varios endpoints comunes.
+ * Función genérica para realizar peticiones a ISPGestión.
+ * Si estamos en Vercel (cliente), usa el proxy de Railway.
+ * Si estamos en Railway (servidor con IP autorizada), llama directo.
  */
+async function request(endpoint: string, method = 'GET', data = null, params = null) {
+  // Si existe la variable de entorno que indica que estamos en Railway, usamos conexión directa
+  const isServerWithAuthorizedIp = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
+
+  if (isServerWithAuthorizedIp) {
+    const response = await ispgestionDirect({ url: endpoint, method, data, params });
+    return response.data;
+  } else {
+    // Estamos en Vercel, usamos el proxy de Railway
+    // Nota: Necesitamos la URL completa de Railway si no estamos en el mismo dominio
+    const railwayUrl = process.env.NEXT_PUBLIC_RAILWAY_URL || ''; 
+    const response = await axios.post(`${railwayUrl}/api/ispgestion-proxy`, {
+      endpoint,
+      method,
+      data,
+      params
+    });
+    return response.data;
+  }
+}
+
 export async function getAllClientes() {
   const endpoints = ['/clientes', '/clientes/lista', '/clientes/listado', '/v1/clientes'];
-  let lastErrorDetail = '';
+  let lastError = null;
 
   for (const endpoint of endpoints) {
     try {
-      const response = await ispgestion.get(endpoint);
-      
-      if (response.data) {
-        if (Array.isArray(response.data)) return response.data;
-        if (response.data.clientes && Array.isArray(response.data.clientes)) return response.data.clientes;
-        if (response.data.data && Array.isArray(response.data.data)) return response.data.data;
+      const data = await request(endpoint);
+      if (data) {
+        if (Array.isArray(data)) return data;
+        if (data.clientes && Array.isArray(data.clientes)) return data.clientes;
+        if (data.data && Array.isArray(data.data)) return data.data;
       }
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        const status = error.response?.status;
-        const data = error.response?.data;
-        lastErrorDetail = `Status ${status}: ${JSON.stringify(data) || error.message}`;
-        
-        // Si es 401, el problema es de credenciales o IP, no de endpoint
-        if (status === 401) {
-          throw new Error(`Error de Autenticación (401): Verifica que el usuario VOLA tenga permisos y que la IP de Vercel esté habilitada. Detalle: ${lastErrorDetail}`);
-        }
-      }
+      lastError = error;
     }
   }
 
-  throw new Error(`No se pudo sincronizar: ${lastErrorDetail || 'Error desconocido'}`);
+  throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
 }
 
 export async function testConnection() {
   try {
-    const response = await ispgestion.get('/clientes', { params: { limit: 1 } }).catch(() => 
-      ispgestion.get('/clientes/lista', { params: { limit: 1 } })
-    );
-    
-    return {
-      success: true,
-      status: response.status,
-      data: response.data,
-    };
+    const data = await request('/clientes', 'GET', null, { limit: 1 });
+    return { success: true, data };
   } catch (error) {
     return {
       success: false,
-      error: axios.isAxiosError(error) ? `Status ${error.response?.status}: ${error.message}` : 'Error desconocido',
+      error: axios.isAxiosError(error) ? error.message : 'Error desconocido',
     };
   }
 }
 
-export default ispgestion;
+export default request;
