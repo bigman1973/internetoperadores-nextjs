@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { requireAuth } from '@/lib/middleware/auth'
 import AdminSidebar from '@/components/admin/AdminSidebar'
 import AdminHeader from '@/components/admin/AdminHeader'

@@ -1,4 +1,5 @@
 export const dynamic = "force-dynamic";
+module.exports.dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 
 // Solo inicializar Stripe si la clave existe (evita error en build)
