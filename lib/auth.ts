@@ -2,6 +2,7 @@ import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import prisma from './prisma'
+import { verifyClienteCredentials, getClienteByEmail } from './ispgestion/service'
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -52,20 +53,52 @@ export const authOptions: NextAuthOptions = {
             }
           } else if (credentials.userType === 'cliente') {
             // Login de cliente
-            const cliente = await prisma.clienteWeb.findUnique({
+            let cliente = await prisma.clienteWeb.findUnique({
               where: { email: credentials.email }
             })
 
-            if (!cliente) {
-              return null
+            let isValidPassword = false;
+
+            if (cliente) {
+              // 1. Intentar login con la contraseña local
+              isValidPassword = await bcrypt.compare(
+                credentials.password,
+                cliente.passwordHash
+              )
             }
 
-            const isValidPassword = await bcrypt.compare(
-              credentials.password,
-              cliente.passwordHash
-            )
+            if (!cliente || !isValidPassword) {
+              // 2. Si falla o no existe, intentar validar contra ISPGestión
+              const ispgestionId = await verifyClienteCredentials(credentials.email, credentials.password);
 
-            if (!isValidPassword) {
+              if (ispgestionId) {
+                // 3. Si es válido en ISPGestión, sincronizar y crear/actualizar localmente
+                const clienteData = await getClienteByEmail(credentials.email);
+                
+                if (clienteData) {
+                  const newPasswordHash = await bcrypt.hash(credentials.password, 10);
+                  
+                  cliente = await prisma.clienteWeb.upsert({
+                    where: { email: credentials.email },
+                    update: {
+                      passwordHash: newPasswordHash,
+                      nombre: clienteData.nombre, // Asumiendo que ISPGestión devuelve el nombre
+                      ispGestionId: ispgestionId,
+                    },
+                    create: {
+                      email: credentials.email,
+                      passwordHash: newPasswordHash,
+                      nombre: clienteData.nombre,
+                      ispGestionId: ispgestionId,
+                      newsletterSuscrito: false, // Por defecto, se puede actualizar después
+                    }
+                  });
+                  isValidPassword = true; // El login fue exitoso vía ISPGestión
+                }
+              }
+            }
+
+            if (!cliente || !isValidPassword) {
               return null
             }
 
