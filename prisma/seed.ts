@@ -105,8 +105,13 @@ async function main() {
   ]
 
   for (const tarifa of tarifasEjemplo) {
-    await prisma.tarifa.create({
-      data: tarifa as any,
+    await prisma.tarifa.upsert({
+      where: { 
+        // Usamos una combinación única si no tenemos ID, o buscamos por nombre
+        id: tarifasEjemplo.indexOf(tarifa) + 1 
+      },
+      update: tarifa as any,
+      create: tarifa as any,
     })
   }
 
@@ -117,7 +122,9 @@ async function main() {
   
   const cliente = await prisma.clienteWeb.upsert({
     where: { email: 'juan.perez@email.com' },
-    update: {},
+    update: {
+      passwordHash: clientePassword, // Aseguramos que la contraseña sea siempre 'cliente123'
+    },
     create: {
       email: 'juan.perez@email.com',
       passwordHash: clientePassword,
