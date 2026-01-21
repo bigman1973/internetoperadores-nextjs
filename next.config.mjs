@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Nota: Turbopack deshabilitado en script de build (removido --turbopack flag)
+  serverExternalPackages: ['@prisma/client'],
   async headers() {
     return [
       {
@@ -23,5 +23,4 @@ const nextConfig = {
     ];
   },
 };
-
 export default nextConfig;
