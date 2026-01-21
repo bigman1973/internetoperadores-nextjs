@@ -17,26 +17,32 @@ const ispgestion = axios.create({
  */
 export async function getAllClientes() {
   const endpoints = ['/clientes', '/clientes/lista', '/clientes/listado', '/v1/clientes'];
-  let lastError = null;
+  let lastErrorDetail = '';
 
   for (const endpoint of endpoints) {
     try {
-      console.log(`Probando endpoint: ${endpoint}`);
       const response = await ispgestion.get(endpoint);
       
       if (response.data) {
-        // Manejar diferentes formatos de respuesta
         if (Array.isArray(response.data)) return response.data;
         if (response.data.clientes && Array.isArray(response.data.clientes)) return response.data.clientes;
         if (response.data.data && Array.isArray(response.data.data)) return response.data.data;
       }
     } catch (error) {
-      lastError = error;
-      console.warn(`Fallo en endpoint ${endpoint}:`, axios.isAxiosError(error) ? error.message : error);
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const data = error.response?.data;
+        lastErrorDetail = `Status ${status}: ${JSON.stringify(data) || error.message}`;
+        
+        // Si es 401, el problema es de credenciales o IP, no de endpoint
+        if (status === 401) {
+          throw new Error(`Error de Autenticación (401): Verifica que el usuario VOLA tenga permisos y que la IP de Vercel esté habilitada. Detalle: ${lastErrorDetail}`);
+        }
+      }
     }
   }
 
-  throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
+  throw new Error(`No se pudo sincronizar: ${lastErrorDetail || 'Error desconocido'}`);
 }
 
 export async function testConnection() {
@@ -53,7 +59,7 @@ export async function testConnection() {
   } catch (error) {
     return {
       success: false,
-      error: axios.isAxiosError(error) ? error.message : 'Error desconocido',
+      error: axios.isAxiosError(error) ? `Status ${error.response?.status}: ${error.message}` : 'Error desconocido',
     };
   }
 }
