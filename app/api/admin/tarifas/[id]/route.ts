@@ -106,3 +106,46 @@ export async function GET(
     )
   }
 }
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session || session.user.userType !== 'admin') {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
+    const resolvedParams = await params
+    const tarifaId = parseInt(resolvedParams.id)
+    const body = await request.json()
+
+    // Actualizar tarifa
+    const tarifa = await prisma.tarifa.update({
+      where: { id: tarifaId },
+      data: {
+        ...body,
+        updatedById: parseInt(session.user.id),
+      },
+    })
+
+    // Registrar en historial
+    await prisma.historialCambio.create({
+      data: {
+        tarifaId,
+        usuarioId: parseInt(session.user.id),
+        accion: 'EDITAR',
+        cambios: body,
+      },
+    })
+
+    return NextResponse.json(tarifa)
+  } catch (error) {
+    console.error('Error al actualizar tarifa:', error)
+    return NextResponse.json(
+      { error: 'Error al actualizar tarifa' },
+      { status: 500 }
+    )
+  }
+}

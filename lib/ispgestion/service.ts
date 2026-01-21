@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { prisma } from '../prisma';
+import bcrypt from 'bcryptjs';
 
 const API_URL = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISP_GESTION_API_USER || 'VOLA';
@@ -14,7 +16,7 @@ const ispgestionDirect = axios.create({
 
 async function request(endpoint: string, method = 'GET', data = null, params = null) {
   const isServerWithAuthorizedIp = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
-
+  
   if (isServerWithAuthorizedIp) {
     const response = await ispgestionDirect({ url: endpoint, method, data, params });
     return response.data;
@@ -33,7 +35,7 @@ async function request(endpoint: string, method = 'GET', data = null, params = n
 export async function verifyClienteCredentials(email: string, pass: string) {
   try {
     const data = await request('/clientes/login', 'POST', { email, pass });
-    return data && data.success ? data.cliente : null;
+    return data && data.success ? data.cliente_id || data.id : null;
   } catch (error) {
     console.error('Error verificando credenciales en ISPGestión:', error);
     return null;
@@ -55,7 +57,7 @@ export async function getClienteByEmail(email: string) {
 export async function getAllClientes() {
   const endpoints = ['/clientes', '/clientes/lista', '/clientes/listado', '/v1/clientes'];
   let lastError = null;
-
+  
   for (const endpoint of endpoints) {
     try {
       const data = await request(endpoint);
@@ -69,6 +71,43 @@ export async function getAllClientes() {
     }
   }
   throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
+}
+
+export async function syncClients() {
+  try {
+    const externalClients = await getAllClientes();
+    let updated = 0;
+    const defaultPasswordHash = await bcrypt.hash('cliente123', 10);
+
+    for (const client of externalClients) {
+      const email = client.email || client.correo;
+      const ispgestionId = (client.id || client.cliente_id || client.isp_gestion_id)?.toString();
+      
+      if (!email || !ispgestionId) continue;
+
+      await prisma.clienteWeb.upsert({
+        where: { email },
+        update: {
+          nombre: client.nombre || client.name || 'Cliente Sin Nombre',
+          ispGestionId: ispgestionId,
+        },
+        create: {
+          email,
+          nombre: client.nombre || client.name || 'Cliente Sin Nombre',
+          passwordHash: defaultPasswordHash,
+          ispGestionId: ispgestionId,
+          newsletterSuscrito: false,
+        },
+      });
+      
+      updated++;
+    }
+
+    return { success: true, count: externalClients.length, updated };
+  } catch (error: any) {
+    console.error('Error en syncClients:', error);
+    throw error;
+  }
 }
 
 export async function testConnection() {
