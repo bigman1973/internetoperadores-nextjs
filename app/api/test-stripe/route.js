@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
 
 export async function GET() {
@@ -8,4 +9,3 @@ export async function GET() {
     secretKeyPrefix: process.env.STRIPE_SECRET_KEY?.substring(0, 20),
   });
 }
-
