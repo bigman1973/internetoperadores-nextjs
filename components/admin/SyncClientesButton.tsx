@@ -18,9 +18,9 @@ export default function SyncClientesButton() {
       const response = await fetch('/api/admin/clientes/sync', {
         method: 'POST',
       });
-
+      
       const data = await response.json();
-
+      
       if (response.ok) {
         alert(data.message || 'Sincronización completada con éxito.');
         router.refresh();
@@ -39,7 +39,7 @@ export default function SyncClientesButton() {
     <button
       onClick={handleSync}
       disabled={loading}
-      className={`inline-flex items-center gap-x-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed`}
+      className="inline-flex items-center gap-x-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
     >
       <ArrowPathIcon className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
       {loading ? 'Sincronizando...' : 'Sincronizar ISPGestión'}
