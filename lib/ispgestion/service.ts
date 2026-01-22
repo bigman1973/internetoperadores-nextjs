@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 const API_URL = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISP_GESTION_API_USER || 'VOLA';
 const API_HASH = process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
-const RAILWAY_PROXY_URL = 'https://internetoperadores-production.up.railway.app/api/ispgestion-proxy';
+const RAILWAY_PROXY_URL = 'https://ispgestion-middleware-production.up.railway.app/api/ispgestion-proxy';
 
 const ispgestionDirect = axios.create({
   baseURL: API_URL,
