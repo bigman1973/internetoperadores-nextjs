@@ -1,8 +1,8 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import prisma from '@/lib/prisma'
+import { authOptions } from '../../../../lib/auth'
+import prisma from '../../../../lib/prisma'
 
 export async function DELETE(
   request: Request,
@@ -10,34 +10,14 @@ export async function DELETE(
 ) {
   try {
     const session = await getServerSession(authOptions)
-
     if (!session || session.user.userType !== 'admin') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
-
-    // Verificar permisos (solo Super Admin y Gerente pueden eliminar)
     if (!['SUPER_ADMIN', 'GERENTE'].includes(session.user.role || '')) {
-      return NextResponse.json(
-        { error: 'No tienes permisos para eliminar tarifas' },
-        { status: 403 }
-      )
+      return NextResponse.json({ error: 'No tienes permisos' }, { status: 403 })
     }
-
     const resolvedParams = await params
     const tarifaId = parseInt(resolvedParams.id)
-
-    // TODO: Implementar verificación de servicios contratados cuando se cree el modelo
-    // const serviciosCount = await prisma.servicioContratado.count({
-    //   where: { tarifaId },
-    // })
-    // if (serviciosCount > 0) {
-    //   return NextResponse.json(
-    //     { error: 'No se puede eliminar una tarifa con servicios contratados' },
-    //     { status: 400 }
-    //   )
-    // }
-
-    // Registrar en historial antes de eliminar
     await prisma.historialCambio.create({
       data: {
         tarifaId,
@@ -45,19 +25,10 @@ export async function DELETE(
         accion: 'ELIMINAR',
       },
     })
-
-    // Eliminar tarifa
-    await prisma.tarifa.delete({
-      where: { id: tarifaId },
-    })
-
+    await prisma.tarifa.delete({ where: { id: tarifaId } })
     return NextResponse.json({ success: true })
   } catch (error) {
-    console.error('Error al eliminar tarifa:', error)
-    return NextResponse.json(
-      { error: 'Error al eliminar tarifa' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Error al eliminar' }, { status: 500 })
   }
 }
 
@@ -67,43 +38,22 @@ export async function GET(
 ) {
   try {
     const session = await getServerSession(authOptions)
-
     if (!session || session.user.userType !== 'admin') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
-
     const resolvedParams = await params
     const tarifaId = parseInt(resolvedParams.id)
-
     const tarifa = await prisma.tarifa.findUnique({
       where: { id: tarifaId },
       include: {
-        createdBy: {
-          select: {
-            nombre: true,
-            email: true,
-          },
-        },
-        updatedBy: {
-          select: {
-            nombre: true,
-            email: true,
-          },
-        },
+        createdBy: { select: { nombre: true, email: true } },
+        updatedBy: { select: { nombre: true, email: true } },
       },
     })
-
-    if (!tarifa) {
-      return NextResponse.json({ error: 'Tarifa no encontrada' }, { status: 404 })
-    }
-
+    if (!tarifa) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
     return NextResponse.json(tarifa)
   } catch (error) {
-    console.error('Error al obtener tarifa:', error)
-    return NextResponse.json(
-      { error: 'Error al obtener tarifa' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Error al obtener' }, { status: 500 })
   }
 }
 
@@ -116,21 +66,13 @@ export async function PATCH(
     if (!session || session.user.userType !== 'admin') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
-
     const resolvedParams = await params
     const tarifaId = parseInt(resolvedParams.id)
     const body = await request.json()
-
-    // Actualizar tarifa
     const tarifa = await prisma.tarifa.update({
       where: { id: tarifaId },
-      data: {
-        ...body,
-        updatedById: parseInt(session.user.id),
-      },
+      data: { ...body, updatedById: parseInt(session.user.id) },
     })
-
-    // Registrar en historial
     await prisma.historialCambio.create({
       data: {
         tarifaId,
@@ -139,13 +81,8 @@ export async function PATCH(
         cambios: body,
       },
     })
-
     return NextResponse.json(tarifa)
   } catch (error) {
-    console.error('Error al actualizar tarifa:', error)
-    return NextResponse.json(
-      { error: 'Error al actualizar tarifa' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Error al actualizar' }, { status: 500 })
   }
 }

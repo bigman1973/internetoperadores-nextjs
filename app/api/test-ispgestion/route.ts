@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { testConnection } from '@/lib/ispgestion/service';
+import { testConnection } from '../../../lib/ispgestion/service';
 
 export const dynamic = 'force-dynamic';
 
