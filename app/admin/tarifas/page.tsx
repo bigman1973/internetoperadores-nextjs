@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
-import { requireAuth } from '@/lib/middleware/auth'
-import prisma from '@/lib/prisma'
+import { requireAuth } from '../../../lib/middleware/auth'
+import prisma from '../../../lib/prisma'
 import Link from 'next/link'
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
-import TarifasTable from '@/components/admin/TarifasTable'
+import TarifasTable from '../../../components/admin/TarifasTable'
 
 interface SearchParams {
   search?: string

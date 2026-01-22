@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
-import prisma from '@/lib/prisma';
+import prisma from '../../../lib/prisma';
 
 // GET /api/tarifas - Obtener tarifas públicas (solo activas)
 export async function GET(request: NextRequest) {

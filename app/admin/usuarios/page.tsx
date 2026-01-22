@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-import { requireAuth } from '@/lib/middleware/auth'
+import { requireAuth } from '../../../lib/middleware/auth'
 
 export default async function UsuariosPage() {
   await requireAuth('admin')

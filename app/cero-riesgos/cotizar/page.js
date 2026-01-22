@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { WHATSAPP_NUMBER, generateWhatsAppLink } from '@/lib/whatsapp';
+import { WHATSAPP_NUMBER, generateWhatsAppLink } from '../../../lib/whatsapp';
 
 export default function CotizarCeroRiesgos() {
   const [formData, setFormData] = useState({
