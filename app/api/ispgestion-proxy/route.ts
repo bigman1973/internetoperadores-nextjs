@@ -8,12 +8,15 @@ export async function POST(request: Request) {
     const { endpoint, method, data, params } = body;
     
     // Credenciales de ISPGestión
-    const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
+    const apiUrl = (process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api').replace(/\/$/, '');
     const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
     const apiPassword = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
+    // Limpiar endpoint para evitar doble barra
+    const cleanEndpoint = endpoint.replace(/^\/+/, '');
+    
     // Construir URL (sin parámetros de autenticación - van en headers)
-    const url = new URL(`${apiUrl}/${endpoint}`);
+    const url = new URL(`${apiUrl}/${cleanEndpoint}`);
     
     // Añadir parámetros adicionales si existen (pero NO credenciales)
     if (params) {
@@ -46,7 +49,7 @@ export async function POST(request: Request) {
     const responseText = await response.text();
     
     console.log(`[ISPGestión Proxy] Status: ${response.status}`);
-    console.log(`[ISPGestión Proxy] Respuesta (primeros 500 chars):`, responseText.substring(0, 500));
+    console.log(`[ISPGestión Proxy] Respuesta completa:`, responseText);
     
     // Si la respuesta no es OK, devolver error con detalles
     if (!response.ok) {
@@ -61,16 +64,25 @@ export async function POST(request: Request) {
       }, { status: response.status });
     }
     
+    // Verificar si la respuesta es un error de ISPGestión (formato "Error: X")
+    if (responseText.startsWith('Error:')) {
+      return NextResponse.json({ 
+        success: false, 
+        error: responseText,
+        message: 'ISPGestión devolvió un error. Contacte con soporte de ISPGestión para más información.'
+      }, { status: 400 });
+    }
+    
     // Intentar parsear como JSON
     try {
       const result = JSON.parse(responseText);
       return NextResponse.json(result);
     } catch (parseError) {
-      // Si no es JSON válido, devolver error
+      // Si no es JSON válido, devolver la respuesta como texto
       return NextResponse.json({ 
         success: false, 
         error: 'La respuesta de ISPGestión no es JSON válido',
-        rawResponse: responseText.substring(0, 1000)
+        rawResponse: responseText
       }, { status: 500 });
     }
   } catch (error: any) {

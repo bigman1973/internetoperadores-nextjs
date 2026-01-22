@@ -18,19 +18,22 @@ const ispgestionDirect = axios.create({
 async function request(endpoint: string, method = 'GET', data: any = null, params: any = null) {
   const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
   
+  // Limpiar endpoint para evitar doble barra
+  const cleanEndpoint = endpoint.replace(/^\/+/, '');
+  
   if (isRailway) {
-    console.log(`[ISPGestión] Petición directa a ${endpoint}`);
+    console.log(`[ISPGestión] Petición directa a ${cleanEndpoint}`);
     const response = await ispgestionDirect({ 
-      url: endpoint, 
+      url: cleanEndpoint, 
       method, 
       data, 
       params 
     });
     return response.data;
   } else {
-    console.log(`[ISPGestión] Usando PROXY de Railway para ${endpoint}`);
+    console.log(`[ISPGestión] Usando PROXY de Railway para ${cleanEndpoint}`);
     const response = await axios.post(RAILWAY_PROXY_URL, {
-      endpoint,
+      endpoint: cleanEndpoint,
       method,
       data,
       params
@@ -41,7 +44,7 @@ async function request(endpoint: string, method = 'GET', data: any = null, param
 
 export async function verifyClienteCredentials(email: string, pass: string): Promise<string | null> {
   try {
-    const data = await request('/clientes/login', 'POST', { email, pass });
+    const data = await request('clientes/login', 'POST', { email, pass });
     return data && data.success ? (data.cliente_id || data.id)?.toString() : null;
   } catch (error) {
     console.error('Error verificando credenciales en ISPGestión:', error);
@@ -51,7 +54,7 @@ export async function verifyClienteCredentials(email: string, pass: string): Pro
 
 export async function getClienteByEmail(email: string) {
   try {
-    const data = await request('/clientes', 'GET', null, { email });
+    const data = await request('clientes', 'GET', null, { email });
     if (Array.isArray(data)) return data[0];
     if (data.clientes && Array.isArray(data.clientes)) return data.clientes[0];
     return null;
@@ -98,18 +101,38 @@ export async function syncClients() {
 }
 
 export async function getAllClientes() {
-  const endpoints = ['/clientes', '/clientes/lista', '/v1/clientes'];
+  // Probar el endpoint exacto de la documentación con parámetros de paginación
+  const endpoints = [
+    'clientes',
+    'clientes/',
+    'clientes?mostrar=100&pagina=1',
+  ];
   let lastError = null;
   
   for (const endpoint of endpoints) {
     try {
+      console.log(`[ISPGestión] Probando endpoint: ${endpoint}`);
       const data = await request(endpoint);
+      
+      // Si recibimos un error de ISPGestión, continuar con el siguiente endpoint
+      if (data && data.error) {
+        console.log(`[ISPGestión] Endpoint ${endpoint} devolvió error: ${data.error}`);
+        lastError = new Error(data.error);
+        continue;
+      }
+      
       if (data) {
         if (Array.isArray(data)) return data;
         if (data.clientes && Array.isArray(data.clientes)) return data.clientes;
         if (data.data && Array.isArray(data.data)) return data.data;
+        // Si es un objeto con datos de clientes
+        if (typeof data === 'object' && !data.error) {
+          const values = Object.values(data);
+          if (values.length > 0 && Array.isArray(values[0])) return values[0];
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.log(`[ISPGestión] Error en endpoint ${endpoint}:`, error.message);
       lastError = error;
     }
   }
@@ -118,7 +141,7 @@ export async function getAllClientes() {
 
 export async function testConnection() {
   try {
-    const data = await request('/clientes', 'GET', null, { limit: 1 });
+    const data = await request('clientes', 'GET', null, { mostrar: 1 });
     return { success: true, data };
   } catch (error: any) {
     return { 
