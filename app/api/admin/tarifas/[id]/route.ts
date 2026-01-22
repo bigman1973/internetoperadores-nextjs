@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../../../lib/auth'
-import prisma from '../../../../lib/prisma'
+import { prisma } from '../../../../lib/prisma'
 
 export async function DELETE(
   request: Request,
@@ -13,18 +13,8 @@ export async function DELETE(
     if (!session || session.user.userType !== 'admin') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
-    if (!['SUPER_ADMIN', 'GERENTE'].includes(session.user.role || '')) {
-      return NextResponse.json({ error: 'No tienes permisos' }, { status: 403 })
-    }
     const resolvedParams = await params
     const tarifaId = parseInt(resolvedParams.id)
-    await prisma.historialCambio.create({
-      data: {
-        tarifaId,
-        usuarioId: parseInt(session.user.id),
-        accion: 'ELIMINAR',
-      },
-    })
     await prisma.tarifa.delete({ where: { id: tarifaId } })
     return NextResponse.json({ success: true })
   } catch (error) {
@@ -44,11 +34,7 @@ export async function GET(
     const resolvedParams = await params
     const tarifaId = parseInt(resolvedParams.id)
     const tarifa = await prisma.tarifa.findUnique({
-      where: { id: tarifaId },
-      include: {
-        createdBy: { select: { nombre: true, email: true } },
-        updatedBy: { select: { nombre: true, email: true } },
-      },
+      where: { id: tarifaId }
     })
     if (!tarifa) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
     return NextResponse.json(tarifa)
@@ -72,14 +58,6 @@ export async function PATCH(
     const tarifa = await prisma.tarifa.update({
       where: { id: tarifaId },
       data: { ...body, updatedById: parseInt(session.user.id) },
-    })
-    await prisma.historialCambio.create({
-      data: {
-        tarifaId,
-        usuarioId: parseInt(session.user.id),
-        accion: 'EDITAR',
-        cambios: body,
-      },
     })
     return NextResponse.json(tarifa)
   } catch (error) {
