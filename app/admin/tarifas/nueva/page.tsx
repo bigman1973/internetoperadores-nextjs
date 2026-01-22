@@ -1,10 +1,8 @@
 "use client";
 export const dynamic = "force-dynamic";
-
-
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import AdminHeader from '@/components/admin/AdminHeader';
+import AdminHeader from '../../../components/admin/AdminHeader';
 
 export default function NuevaTarifaPage() {
   const router = useRouter();
@@ -37,7 +35,6 @@ export default function NuevaTarifaPage() {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
 
-    // Auto-calcular precio con IVA
     if (name === 'precioSinIva' && value) {
       const precioSinIva = parseFloat(value);
       if (!isNaN(precioSinIva)) {
@@ -48,7 +45,6 @@ export default function NuevaTarifaPage() {
       }
     }
 
-    // Auto-calcular precio sin IVA
     if (name === 'precioConIva' && value) {
       const precioConIva = parseFloat(value);
       if (!isNaN(precioConIva)) {
@@ -63,7 +59,6 @@ export default function NuevaTarifaPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-
     try {
       const response = await fetch('/api/admin/tarifas', {
         method: 'POST',
@@ -75,7 +70,6 @@ export default function NuevaTarifaPage() {
           costeOperador: formData.costeOperador ? parseFloat(formData.costeOperador) : null,
         }),
       });
-
       if (response.ok) {
         router.push('/admin/tarifas?success=created');
       } else {
@@ -98,115 +92,56 @@ export default function NuevaTarifaPage() {
         <div className="mb-6">
           <button
             onClick={() => router.back()}
-            className="text-gray-600 hover:text-gray-900 flex items-center gap-2"
+            className="text-sm text-gray-600 hover:text-orange-600 flex items-center gap-1"
           >
             ← Volver
           </button>
+          <h1 className="text-2xl font-bold text-gray-900 mt-2">Crear Nueva Tarifa</h1>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <h1 className="text-2xl font-bold mb-6">Nueva Tarifa</h1>
-
+        <div className="bg-white shadow rounded-lg p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Tipo Cliente y Categoría */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Tipo Cliente *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Cliente</label>
                 <select
                   name="tipoCliente"
                   value={formData.tipoCliente}
                   onChange={handleChange}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 >
                   <option value="PARTICULAR">Particular</option>
                   <option value="EMPRESA">Empresa</option>
                 </select>
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Categoría *
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
                 <input
                   type="text"
                   name="categoria"
                   value={formData.categoria}
                   onChange={handleChange}
                   required
-                  placeholder="ej: FIBRA, WIMAX, MÓVIL"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
             </div>
 
-            {/* Nombre */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nombre de la Tarifa *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Nombre de la Tarifa</label>
               <input
                 type="text"
                 name="nombre"
                 value={formData.nombre}
                 onChange={handleChange}
                 required
-                placeholder="ej: Perdiu 1, Trencalos 12"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md"
               />
             </div>
 
-            {/* Descripciones */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Descripción Corta
-              </label>
-              <input
-                type="text"
-                name="descripcionCorta"
-                value={formData.descripcionCorta}
-                onChange={handleChange}
-                placeholder="Breve descripción para listados"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Descripción Larga
-              </label>
-              <textarea
-                name="descripcionLarga"
-                value={formData.descripcionLarga}
-                onChange={handleChange}
-                rows={3}
-                placeholder="Descripción detallada para la página de la tarifa"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-
-            {/* Velocidad y Precios */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Velocidad
-                </label>
-                <input
-                  type="text"
-                  name="velocidad"
-                  value={formData.velocidad}
-                  onChange={handleChange}
-                  placeholder="ej: 100Mb/100Mb"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Precio sin IVA * (€)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Precio Sin IVA (€)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -214,14 +149,11 @@ export default function NuevaTarifaPage() {
                   value={formData.precioSinIva}
                   onChange={handleChange}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
-
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Precio con IVA * (€)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Precio Con IVA (€)</label>
                 <input
                   type="number"
                   step="0.01"
@@ -229,117 +161,16 @@ export default function NuevaTarifaPage() {
                   value={formData.precioConIva}
                   onChange={handleChange}
                   required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
                 />
               </div>
             </div>
 
-            {/* Coste Operador */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Coste Operador (€)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  name="costeOperador"
-                  value={formData.costeOperador}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Permanencia
-                </label>
-                <input
-                  type="text"
-                  name="permanencia"
-                  value={formData.permanencia}
-                  onChange={handleChange}
-                  placeholder="ej: 12 meses"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Garantía
-                </label>
-                <input
-                  type="text"
-                  name="garantia"
-                  value={formData.garantia}
-                  onChange={handleChange}
-                  placeholder="ej: 0.5"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-            </div>
-
-            {/* Penalización */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Penalización
-              </label>
-              <input
-                type="text"
-                name="penalizacion"
-                value={formData.penalizacion}
-                onChange={handleChange}
-                placeholder="ej: 150€ + 100€ Equipo"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-
-            {/* Observaciones */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Observaciones
-              </label>
-              <textarea
-                name="observaciones"
-                value={formData.observaciones}
-                onChange={handleChange}
-                rows={2}
-                placeholder="Notas internas"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-
-            {/* Checkboxes */}
-            <div className="flex gap-6">
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name="destacada"
-                  checked={formData.destacada}
-                  onChange={handleChange}
-                  className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <span className="text-sm text-gray-700">Destacada</span>
-              </label>
-
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  name="activa"
-                  checked={formData.activa}
-                  onChange={handleChange}
-                  className="w-4 h-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded"
-                />
-                <span className="text-sm text-gray-700">Activa</span>
-              </label>
-            </div>
-
-            {/* Botones */}
             <div className="flex gap-4 pt-4">
               <button
                 type="submit"
                 disabled={loading}
-                className="px-6 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:opacity-50"
               >
                 {loading ? 'Creando...' : 'Crear Tarifa'}
               </button>
