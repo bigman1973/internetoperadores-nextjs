@@ -11,7 +11,7 @@ import {
   StarIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
-import { formatCurrency, formatDate } from '../../../lib/utils/format'
+import { formatCurrency, formatDate } from '../../lib/utils/format'
 
 interface Tarifa {
   id: number

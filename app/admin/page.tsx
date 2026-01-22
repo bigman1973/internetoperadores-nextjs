@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
-import { requireAuth } from '../../../lib/middleware/auth'
-import prisma from '../../../lib/prisma'
+import { requireAuth } from '../../lib/middleware/auth'
+import prisma from '../../lib/prisma'
 import { 
   CreditCardIcon, 
   EyeIcon, 

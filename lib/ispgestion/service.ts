@@ -15,8 +15,7 @@ const ispgestionDirect = axios.create({
   },
 });
 
-async function request(endpoint: string, method = 'GET', data = null, params = null) {
-  // Si estamos en Railway, vamos directo
+async function request(endpoint: string, method = 'GET', data: any = null, params: any = null) {
   const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
   
   if (isRailway) {
@@ -29,7 +28,6 @@ async function request(endpoint: string, method = 'GET', data = null, params = n
     });
     return response.data;
   } else {
-    // Si estamos en Vercel o Local, usamos el proxy de Railway
     console.log(`[ISPGestión] Usando PROXY de Railway para ${endpoint}`);
     const response = await axios.post(RAILWAY_PROXY_URL, {
       endpoint,
@@ -38,6 +36,28 @@ async function request(endpoint: string, method = 'GET', data = null, params = n
       params
     });
     return response.data;
+  }
+}
+
+export async function verifyClienteCredentials(email: string, pass: string): Promise<string | null> {
+  try {
+    const data = await request('/clientes/login', 'POST', { email, pass });
+    return data && data.success ? (data.cliente_id || data.id)?.toString() : null;
+  } catch (error) {
+    console.error('Error verificando credenciales en ISPGestión:', error);
+    return null;
+  }
+}
+
+export async function getClienteByEmail(email: string) {
+  try {
+    const data = await request('/clientes', 'GET', null, { email });
+    if (Array.isArray(data)) return data[0];
+    if (data.clientes && Array.isArray(data.clientes)) return data.clientes[0];
+    return null;
+  } catch (error) {
+    console.error('Error obteniendo cliente por email en ISPGestión:', error);
+    return null;
   }
 }
 

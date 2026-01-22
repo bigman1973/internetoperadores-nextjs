@@ -2,7 +2,7 @@
 export const dynamic = "force-dynamic";
 import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
-import AdminHeader from '../../../../components/admin/AdminHeader';
+import AdminHeader from '../../../../../components/admin/AdminHeader';
 
 export default function EditarTarifaPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();

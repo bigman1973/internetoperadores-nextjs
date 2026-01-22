@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-module.exports.dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 
 // Solo inicializar Stripe si la clave existe (evita error en build)
@@ -29,10 +29,9 @@ export async function POST(req) {
         },
       ],
       mode: "subscription",
-      // AQUÍ ESTÁ EL CAMBIO IMPORTANTE:
       success_url: `${origin}/gracias?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/`,
-    } );
+    });
 
     return NextResponse.json({ sessionId: session.id });
   } catch (err) {
