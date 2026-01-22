@@ -12,26 +12,28 @@ export async function POST(request: Request) {
     const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
     const apiPassword = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
-    // Construir URL con parámetros de autenticación
-    // Probar con 'password' o 'clave' en lugar de 'hash'
+    // Construir URL (sin parámetros de autenticación - van en headers)
     const url = new URL(`${apiUrl}/${endpoint}`);
-    url.searchParams.append('usuario', apiUser);
-    url.searchParams.append('password', apiPassword);  // Cambiado de 'hash' a 'password'
     
-    // Añadir parámetros adicionales si existen
+    // Añadir parámetros adicionales si existen (pero NO credenciales)
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         url.searchParams.append(key, String(value));
       });
     }
     
+    // Crear credenciales Base64 para HTTP Basic Auth
+    const credentials = Buffer.from(`${apiUser}:${apiPassword}`).toString('base64');
+    
     console.log(`[ISPGestión Proxy] Llamando a: ${url.toString()}`);
+    console.log(`[ISPGestión Proxy] Usando Basic Auth con usuario: ${apiUser}`);
     
     const fetchOptions: RequestInit = {
       method: method || 'GET',
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
+        'Authorization': `Basic ${credentials}`,  // HTTP Basic Auth
       },
     };
     
@@ -92,8 +94,8 @@ export async function GET() {
       apiUrl,
       apiUser,
       passwordConfigured: apiPassword !== '(no configurado)',
-      passwordPreview: apiPassword !== '(no configurado)' ? apiPassword.substring(0, 8) + '...' : 'N/A'
+      authMethod: 'HTTP Basic Authentication'
     },
-    message: 'Proxy ISPGestión funcionando. Use POST para hacer peticiones.'
+    message: 'Proxy ISPGestión funcionando con Basic Auth. Use POST para hacer peticiones.'
   });
 }
