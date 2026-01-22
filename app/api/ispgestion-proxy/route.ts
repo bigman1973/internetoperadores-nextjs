@@ -7,9 +7,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { endpoint, method, data, params } = body;
     
-    const apiUrl = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
-    const apiUser = process.env.ISP_GESTION_API_USER || 'VOLA';
-    const apiHash = process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+    // Usar los nombres de variables que están en Railway
+    const apiUrl = process.env.ISPGESTION_API_URL || process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
+    const apiUser = process.env.ISPGESTION_USERNAME || process.env.ISP_GESTION_API_USER || 'VOLA';
+    const apiHash = process.env.ISPGESTION_HASH || process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
     // Construir URL con parámetros de autenticación
     const url = new URL(`${apiUrl}/${endpoint}`);
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
     }
     
     console.log(`[ISPGestión Proxy] Llamando a: ${url.toString()}`);
+    console.log(`[ISPGestión Proxy] Usuario: ${apiUser}, Hash: ${apiHash.substring(0, 8)}...`);
     
     const fetchOptions: RequestInit = {
       method: method || 'GET',
@@ -40,7 +42,7 @@ export async function POST(request: Request) {
     const response = await fetch(url.toString(), fetchOptions);
     const result = await response.json();
     
-    console.log(`[ISPGestión Proxy] Respuesta:`, result);
+    console.log(`[ISPGestión Proxy] Respuesta:`, JSON.stringify(result).substring(0, 200));
     
     return NextResponse.json(result);
   } catch (error: any) {
