@@ -1,48 +1,39 @@
-'use client';
-
-import { useState } from 'react';
-import { ArrowPathIcon } from '@heroicons/react/24/outline';
-import { useRouter } from 'next/navigation';
+'use client'
+import { useState } from 'react'
+import { ArrowPathIcon } from '@heroicons/react/24/outline'
 
 export default function SyncClientesButton() {
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
+  const [isSyncing, setIsSyncing] = useState(false)
 
   const handleSync = async () => {
-    if (!confirm('¿Estás seguro de que quieres sincronizar todos los clientes desde ISPGestión? Esto puede tardar unos momentos.')) {
-      return;
-    }
-
-    setLoading(true);
+    setIsSyncing(true)
     try {
-      const response = await fetch('/api/admin/clientes/sync', {
+      const response = await fetch('/api/sync', {
         method: 'POST',
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        alert(data.message || 'Sincronización completada con éxito.');
-        router.refresh();
+      })
+      const data = await response.json()
+      if (data.success) {
+        alert(`Sincronización exitosa: ${data.updated} clientes actualizados.`)
+        window.location.reload()
       } else {
-        alert('Error en la sincronización: ' + (data.error || 'Error desconocido'));
+        alert(`Error: ${data.error}`)
       }
     } catch (error) {
-      console.error('Error al sincronizar:', error);
-      alert('Error de red al intentar sincronizar.');
+      console.error('Error syncing clients:', error)
+      alert('Error al conectar con el servidor de sincronización.')
     } finally {
-      setLoading(false);
+      setIsSyncing(false)
     }
-  };
+  }
 
   return (
     <button
       onClick={handleSync}
-      disabled={loading}
-      className="inline-flex items-center gap-x-2 rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+      disabled={isSyncing}
+      className="inline-flex items-center gap-x-2 rounded-md bg-orange-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-600 disabled:opacity-50"
     >
-      <ArrowPathIcon className={`h-5 w-5 ${loading ? 'animate-spin' : ''}`} />
-      {loading ? 'Sincronizando...' : 'Sincronizar ISPGestión'}
+      <ArrowPathIcon className={`h-5 w-5 ${isSyncing ? 'animate-spin' : ''}`} />
+      {isSyncing ? 'Sincronizando...' : 'Sincronizar ISPGestión'}
     </button>
-  );
+  )
 }
