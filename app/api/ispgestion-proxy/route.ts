@@ -31,6 +31,7 @@ export async function POST(request: Request) {
       method: method || 'GET',
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
       },
     };
     
@@ -40,11 +41,36 @@ export async function POST(request: Request) {
     }
     
     const response = await fetch(url.toString(), fetchOptions);
-    const result = await response.json();
+    const responseText = await response.text();
     
-    console.log(`[ISPGestión Proxy] Respuesta:`, JSON.stringify(result).substring(0, 200));
+    console.log(`[ISPGestión Proxy] Status: ${response.status}`);
+    console.log(`[ISPGestión Proxy] Respuesta (primeros 500 chars):`, responseText.substring(0, 500));
     
-    return NextResponse.json(result);
+    // Si la respuesta no es OK, devolver error con detalles
+    if (!response.ok) {
+      return NextResponse.json({ 
+        success: false, 
+        error: `ISPGestión devolvió error ${response.status}`,
+        status: response.status,
+        statusText: response.statusText,
+        details: responseText.includes('<!DOCTYPE') 
+          ? 'La API devolvió HTML en lugar de JSON. Posible error de autenticación o IP no autorizada.'
+          : responseText.substring(0, 500)
+      }, { status: response.status });
+    }
+    
+    // Intentar parsear como JSON
+    try {
+      const result = JSON.parse(responseText);
+      return NextResponse.json(result);
+    } catch (parseError) {
+      // Si no es JSON válido, devolver error
+      return NextResponse.json({ 
+        success: false, 
+        error: 'La respuesta de ISPGestión no es JSON válido',
+        rawResponse: responseText.substring(0, 1000)
+      }, { status: 500 });
+    }
   } catch (error: any) {
     console.error('[ISPGestión Proxy] Error:', error);
     return NextResponse.json({ 
@@ -52,4 +78,22 @@ export async function POST(request: Request) {
       error: error instanceof Error ? error.message : 'Error desconocido'
     }, { status: 500 });
   }
+}
+
+// Endpoint de diagnóstico para verificar configuración
+export async function GET() {
+  const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
+  const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
+  const apiHash = process.env.ISPGESTION_HASH || '(no configurado)';
+  
+  return NextResponse.json({
+    status: 'ok',
+    config: {
+      apiUrl,
+      apiUser,
+      hashConfigured: apiHash !== '(no configurado)',
+      hashPreview: apiHash !== '(no configurado)' ? apiHash.substring(0, 8) + '...' : 'N/A'
+    },
+    message: 'Proxy ISPGestión funcionando. Use POST para hacer peticiones.'
+  });
 }
