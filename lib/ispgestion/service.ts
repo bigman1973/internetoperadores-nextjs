@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 const API_URL = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISP_GESTION_API_USER || 'VOLA';
 const API_HASH = process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+const RAILWAY_PROXY_URL = 'https://internetoperadores-production.up.railway.app/api/ispgestion-proxy';
 
 const ispgestionDirect = axios.create({
   baseURL: API_URL,
@@ -15,14 +16,22 @@ const ispgestionDirect = axios.create({
 });
 
 async function request(endpoint: string, method = 'GET', data = null, params = null) {
-  const isServerWithAuthorizedIp = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
+  // Si estamos en Railway, vamos directo
+  const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
   
-  if (isServerWithAuthorizedIp) {
-    const response = await ispgestionDirect({ url: endpoint, method, data, params });
+  if (isRailway) {
+    console.log(`[ISPGestión] Petición directa a ${endpoint}`);
+    const response = await ispgestionDirect({ 
+      url: endpoint, 
+      method, 
+      data, 
+      params 
+    });
     return response.data;
   } else {
-    const railwayUrl = process.env.NEXT_PUBLIC_RAILWAY_URL || ''; 
-    const response = await axios.post(`${railwayUrl}/api/ispgestion-proxy`, {
+    // Si estamos en Vercel o Local, usamos el proxy de Railway
+    console.log(`[ISPGestión] Usando PROXY de Railway para ${endpoint}`);
+    const response = await axios.post(RAILWAY_PROXY_URL, {
       endpoint,
       method,
       data,
@@ -30,47 +39,6 @@ async function request(endpoint: string, method = 'GET', data = null, params = n
     });
     return response.data;
   }
-}
-
-export async function verifyClienteCredentials(email: string, pass: string) {
-  try {
-    const data = await request('/clientes/login', 'POST', { email, pass });
-    return data && data.success ? data.cliente_id || data.id : null;
-  } catch (error) {
-    console.error('Error verificando credenciales en ISPGestión:', error);
-    return null;
-  }
-}
-
-export async function getClienteByEmail(email: string) {
-  try {
-    const data = await request('/clientes', 'GET', null, { email });
-    if (Array.isArray(data)) return data[0];
-    if (data.clientes && Array.isArray(data.clientes)) return data.clientes[0];
-    return null;
-  } catch (error) {
-    console.error('Error obteniendo cliente por email en ISPGestión:', error);
-    return null;
-  }
-}
-
-export async function getAllClientes() {
-  const endpoints = ['/clientes', '/clientes/lista', '/clientes/listado', '/v1/clientes'];
-  let lastError = null;
-  
-  for (const endpoint of endpoints) {
-    try {
-      const data = await request(endpoint);
-      if (data) {
-        if (Array.isArray(data)) return data;
-        if (data.clientes && Array.isArray(data.clientes)) return data.clientes;
-        if (data.data && Array.isArray(data.data)) return data.data;
-      }
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
 }
 
 export async function syncClients() {
@@ -102,7 +70,6 @@ export async function syncClients() {
       
       updated++;
     }
-
     return { success: true, count: externalClients.length, updated };
   } catch (error: any) {
     console.error('Error en syncClients:', error);
@@ -110,12 +77,34 @@ export async function syncClients() {
   }
 }
 
+export async function getAllClientes() {
+  const endpoints = ['/clientes', '/clientes/lista', '/v1/clientes'];
+  let lastError = null;
+  
+  for (const endpoint of endpoints) {
+    try {
+      const data = await request(endpoint);
+      if (data) {
+        if (Array.isArray(data)) return data;
+        if (data.clientes && Array.isArray(data.clientes)) return data.clientes;
+        if (data.data && Array.isArray(data.data)) return data.data;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
+}
+
 export async function testConnection() {
   try {
     const data = await request('/clientes', 'GET', null, { limit: 1 });
     return { success: true, data };
-  } catch (error) {
-    return { success: false, error: axios.isAxiosError(error) ? error.message : 'Error desconocido' };
+  } catch (error: any) {
+    return { 
+      success: false, 
+      error: error.response?.data?.error || error.message || 'Error desconocido' 
+    };
   }
 }
 
