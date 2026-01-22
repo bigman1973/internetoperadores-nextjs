@@ -7,15 +7,16 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { endpoint, method, data, params } = body;
     
-    // Usar EXACTAMENTE los nombres de variables que están en Railway (sin guiones)
+    // Credenciales de ISPGestión
     const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
     const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
-    const apiHash = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+    const apiPassword = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
     // Construir URL con parámetros de autenticación
+    // Probar con 'password' o 'clave' en lugar de 'hash'
     const url = new URL(`${apiUrl}/${endpoint}`);
     url.searchParams.append('usuario', apiUser);
-    url.searchParams.append('hash', apiHash);
+    url.searchParams.append('password', apiPassword);  // Cambiado de 'hash' a 'password'
     
     // Añadir parámetros adicionales si existen
     if (params) {
@@ -25,7 +26,6 @@ export async function POST(request: Request) {
     }
     
     console.log(`[ISPGestión Proxy] Llamando a: ${url.toString()}`);
-    console.log(`[ISPGestión Proxy] Usuario: ${apiUser}, Hash: ${apiHash.substring(0, 8)}...`);
     
     const fetchOptions: RequestInit = {
       method: method || 'GET',
@@ -84,15 +84,15 @@ export async function POST(request: Request) {
 export async function GET() {
   const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
   const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
-  const apiHash = process.env.ISPGESTION_HASH || '(no configurado)';
+  const apiPassword = process.env.ISPGESTION_HASH || '(no configurado)';
   
   return NextResponse.json({
     status: 'ok',
     config: {
       apiUrl,
       apiUser,
-      hashConfigured: apiHash !== '(no configurado)',
-      hashPreview: apiHash !== '(no configurado)' ? apiHash.substring(0, 8) + '...' : 'N/A'
+      passwordConfigured: apiPassword !== '(no configurado)',
+      passwordPreview: apiPassword !== '(no configurado)' ? apiPassword.substring(0, 8) + '...' : 'N/A'
     },
     message: 'Proxy ISPGestión funcionando. Use POST para hacer peticiones.'
   });
