@@ -7,10 +7,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { endpoint, method, data, params } = body;
     
-    // Usar los nombres de variables que están en Railway
-    const apiUrl = process.env.ISPGESTION_API_URL || process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
-    const apiUser = process.env.ISPGESTION_USERNAME || process.env.ISP_GESTION_API_USER || 'VOLA';
-    const apiHash = process.env.ISPGESTION_HASH || process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+    // Usar EXACTAMENTE los nombres de variables que están en Railway (sin guiones)
+    const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
+    const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
+    const apiHash = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
     // Construir URL con parámetros de autenticación
     const url = new URL(`${apiUrl}/${endpoint}`);
