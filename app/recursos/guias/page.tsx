@@ -8,9 +8,10 @@ const guias = [
     tipo: 'GUÍA ESTRELLA',
     titulo: 'Guía de Conectividad Empresarial 2026',
     descripcion: 'Todo lo que necesitas saber para garantizar la conexión de tu empresa: tecnologías disponibles, sistemas de backup, seguridad de red y mejores prácticas.',
-    paginas: '50+ páginas',
+    paginas: '29 páginas',
     formato: 'PDF',
     destacado: true,
+    url: '/recursos/guias/conectividad-empresarial',
     contenido: ['Tecnologías de conectividad', 'Sistemas de backup', 'Seguridad de red', 'Checklist de auditoría', 'Casos prácticos']
   },
   {
@@ -18,28 +19,36 @@ const guias = [
     titulo: '10 puntos para auditar tu infraestructura de red',
     descripcion: 'Lista de verificación completa para evaluar el estado de tu red empresarial y detectar puntos de mejora.',
     paginas: '8 páginas',
-    formato: 'PDF'
+    formato: 'PDF',
+    url: '#',
+    proximamente: true
   },
   {
     tipo: 'GUÍA',
     titulo: 'Guía de migración a la nube para PYMEs',
     descripcion: 'Paso a paso para migrar tus comunicaciones y sistemas a la nube de forma segura y sin interrupciones.',
     paginas: '25 páginas',
-    formato: 'PDF'
+    formato: 'PDF',
+    url: '#',
+    proximamente: true
   },
   {
     tipo: 'MANUAL',
     titulo: 'Manual de buenas prácticas en comunicaciones unificadas',
     descripcion: 'Mejores prácticas para implementar y gestionar soluciones de comunicaciones unificadas en tu empresa.',
     paginas: '30 páginas',
-    formato: 'PDF'
+    formato: 'PDF',
+    url: '#',
+    proximamente: true
   },
   {
     tipo: 'INFOGRAFÍA',
     titulo: 'Costes ocultos de las caídas de internet',
     descripcion: 'Visualización de los costes directos e indirectos que supone para una empresa cada hora sin conexión.',
     paginas: '1 página',
-    formato: 'PDF / PNG'
+    formato: 'PDF / PNG',
+    url: '#',
+    proximamente: true
   }
 ];
 
@@ -93,7 +102,7 @@ export default function GuiasPage() {
                   </div>
                   <div className="flex flex-wrap gap-3 sm:gap-4 mb-6">
                     <span className="flex items-center gap-1 text-xs sm:text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                      📄 50+ páginas
+                      📄 29 páginas
                     </span>
                     <span className="flex items-center gap-1 text-xs sm:text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
                       📥 PDF descargable
@@ -102,15 +111,18 @@ export default function GuiasPage() {
                       ✅ Checklist incluido
                     </span>
                   </div>
-                  <button className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm sm:text-base">
+                  <Link 
+                    href="/recursos/guias/conectividad-empresarial"
+                    className="inline-block px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm sm:text-base"
+                  >
                     Descargar Guía Gratuita
-                  </button>
+                  </Link>
                 </div>
                 <div className="lg:w-64 flex items-center justify-center">
                   <div className="bg-gradient-to-br from-orange-100 to-orange-200 rounded-xl p-8 sm:p-10 text-center w-full">
                     <div className="text-6xl sm:text-7xl mb-2">📖</div>
                     <p className="text-sm text-gray-700 font-medium">PDF Descargable</p>
-                    <p className="text-xs text-gray-500 mt-1">50+ páginas</p>
+                    <p className="text-xs text-gray-500 mt-1">29 páginas</p>
                   </div>
                 </div>
               </div>
@@ -128,12 +140,19 @@ export default function GuiasPage() {
               {guias.slice(1).map((guia, i) => (
                 <div 
                   key={i} 
-                  className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-500 hover:shadow-lg transition-all flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between"
+                  className={`bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-500 hover:shadow-lg transition-all flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between ${guia.proximamente ? 'opacity-75' : ''}`}
                 >
                   <div className="flex-1">
-                    <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold mb-2">
-                      {guia.tipo}
-                    </span>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="inline-block bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-semibold">
+                        {guia.tipo}
+                      </span>
+                      {guia.proximamente && (
+                        <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-semibold">
+                          PRÓXIMAMENTE
+                        </span>
+                      )}
+                    </div>
                     <h3 className="text-lg font-bold text-gray-900 mb-1">{guia.titulo}</h3>
                     <p className="text-sm text-gray-600 mb-2">{guia.descripcion}</p>
                     <div className="flex gap-3 text-xs text-gray-500">
@@ -141,9 +160,18 @@ export default function GuiasPage() {
                       <span>📥 {guia.formato}</span>
                     </div>
                   </div>
-                  <button className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-all font-semibold text-sm whitespace-nowrap">
-                    Descargar
-                  </button>
+                  {guia.proximamente ? (
+                    <span className="px-4 py-2 bg-gray-100 text-gray-500 rounded-lg font-semibold text-sm whitespace-nowrap cursor-not-allowed">
+                      Próximamente
+                    </span>
+                  ) : (
+                    <Link 
+                      href={guia.url || '#'}
+                      className="px-4 py-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-all font-semibold text-sm whitespace-nowrap"
+                    >
+                      Descargar
+                    </Link>
+                  )}
                 </div>
               ))}
             </div>
