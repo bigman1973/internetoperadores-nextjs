@@ -8,7 +8,7 @@ const articulos = [
     slug: 'conexion-respaldo-senales',
     titulo: '5 señales de que tu empresa necesita una conexión de respaldo (y cuánto te cuesta no tenerla)',
     extracto: 'Descubre los indicadores clave que te dicen que es hora de implementar un sistema de backup de conexión para garantizar la continuidad de tu negocio. El coste de una caída puede superar los 300.000€ por hora.',
-    fecha: '23 Enero 2026',
+    fecha: '18 Diciembre 2025',
     categoria: 'Conectividad',
     tiempo: '7 min lectura',
     destacado: true
@@ -17,7 +17,7 @@ const articulos = [
     slug: 'teams-vs-zoom-vs-wildix',
     titulo: 'Teams vs. Zoom vs. Wildix: ¿Qué solución de Comunicaciones Unificadas es mejor para tu empresa?',
     extracto: 'Análisis comparativo de las tres principales plataformas de comunicaciones unificadas. Te ayudamos a elegir la mejor opción según tu caso de uso y necesidades.',
-    fecha: '23 Enero 2026',
+    fecha: '25 Diciembre 2025',
     categoria: 'Comunicaciones Unificadas',
     tiempo: '8 min lectura'
   },
@@ -25,7 +25,7 @@ const articulos = [
     slug: 'wifi-empresarial-guia',
     titulo: 'Guía definitiva de WiFi empresarial: Más allá del router doméstico',
     extracto: 'Todo sobre redes WiFi para empresas: tecnologías como Ruckus BeamFlex+, estándares WiFi 6E, densidad de usuarios, seguridad y mejores prácticas de implementación.',
-    fecha: '23 Enero 2026',
+    fecha: '1 Enero 2026',
     categoria: 'Infraestructura',
     tiempo: '9 min lectura'
   },
@@ -33,7 +33,7 @@ const articulos = [
     slug: 'mpls-vs-sdwan',
     titulo: 'MPLS vs. SD-WAN: La batalla por el futuro de la red empresarial',
     extracto: 'Comparativa técnica entre MPLS y SD-WAN. Ventajas, desventajas y casos de uso para ayudarte a decidir qué tecnología se adapta mejor a tu red multi-sede.',
-    fecha: '23 Enero 2026',
+    fecha: '8 Enero 2026',
     categoria: 'Conectividad',
     tiempo: '8 min lectura'
   },
@@ -41,7 +41,7 @@ const articulos = [
     slug: 'tendencias-comunicaciones-2026',
     titulo: 'El futuro es ahora: 5 tendencias en Comunicaciones Unificadas que marcarán 2026',
     extracto: 'Las principales tendencias que marcarán el sector de las comunicaciones empresariales este año: IA proactiva, convergencia UCaaS/CCaaS, verticalización y más.',
-    fecha: '23 Enero 2026',
+    fecha: '15 Enero 2026',
     categoria: 'Tendencias',
     tiempo: '8 min lectura'
   },
@@ -49,7 +49,7 @@ const articulos = [
     slug: 'ransomware-exagrid',
     titulo: 'Ransomware: Por qué tu backup tradicional no es suficiente y cómo ExaGrid cambia las reglas del juego',
     extracto: 'El ransomware es una amenaza real para las empresas. Descubre cómo la tecnología Retention Time-Lock de ExaGrid puede salvarte de un desastre.',
-    fecha: '23 Enero 2026',
+    fecha: '22 Enero 2026',
     categoria: 'Seguridad',
     tiempo: '8 min lectura'
   }
