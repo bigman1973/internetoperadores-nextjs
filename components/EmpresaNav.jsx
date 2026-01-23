@@ -20,9 +20,19 @@ const sectores = [
   { nombre: 'Servicios Profesionales', href: '/sectores/servicios-profesionales', descripcion: 'Despachos, consultoras, asesorías' },
 ];
 
+const recursos = [
+  { nombre: 'Blog', href: '/recursos/blog', descripcion: 'Artículos y novedades' },
+  { nombre: 'Casos de Éxito', href: '/recursos/casos-exito', descripcion: 'Historias de clientes' },
+  { nombre: 'Guías y Whitepapers', href: '/recursos/guias', descripcion: 'Documentos descargables' },
+  { nombre: 'Webinars y Demos', href: '/recursos/webinars', descripcion: 'Vídeos y seminarios' },
+  { nombre: 'FAQ y Tutoriales', href: '/recursos/faq', descripcion: 'Preguntas frecuentes' },
+  { nombre: 'Herramientas', href: '/recursos/herramientas', descripcion: 'Calculadoras y tests' },
+];
+
 export default function EmpresaNav({ currentPage = '' }) {
   const [solucionesOpen, setSolucionesOpen] = useState(false);
   const [sectoresOpen, setSectoresOpen] = useState(false);
+  const [recursosOpen, setRecursosOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -149,9 +159,42 @@ export default function EmpresaNav({ currentPage = '' }) {
                 </div>
               </div>
 
-              <Link href="/recursos" className={`transition-colors ${currentPage === 'recursos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
-                Recursos
-              </Link>
+              {/* Recursos Dropdown */}
+              <div 
+                className="relative"
+                onMouseEnter={() => setRecursosOpen(true)}
+                onMouseLeave={() => setRecursosOpen(false)}
+              >
+                <Link 
+                  href="/recursos" 
+                  className={`transition-colors flex items-center gap-1 ${currentPage === 'recursos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
+                >
+                  Recursos
+                  <svg className={`w-4 h-4 transition-transform ${recursosOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </Link>
+                
+                {/* Dropdown Menu */}
+                <div className={`absolute top-full left-0 mt-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-2 transition-all duration-200 ${recursosOpen ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-2'}`}>
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <Link href="/recursos" className="text-orange-600 font-semibold text-sm hover:text-orange-700">
+                      Ver todos los recursos →
+                    </Link>
+                  </div>
+                  {recursos.map((recurso) => (
+                    <Link 
+                      key={recurso.href}
+                      href={recurso.href} 
+                      className="block px-4 py-3 hover:bg-orange-50 transition-colors"
+                    >
+                      <span className="font-semibold text-gray-900 text-sm">{recurso.nombre}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{recurso.descripcion}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
               <Link href="/empresa" className={`transition-colors ${currentPage === 'empresa' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
                 Empresa
               </Link>
@@ -230,7 +273,22 @@ export default function EmpresaNav({ currentPage = '' }) {
                   </div>
                 </div>
 
-                <Link href="/recursos" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Recursos</Link>
+                {/* Mobile Recursos */}
+                <div className="py-2">
+                  <Link href="/recursos" className="text-orange-600 font-semibold">Recursos</Link>
+                  <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
+                    {recursos.map((recurso) => (
+                      <Link 
+                        key={recurso.href}
+                        href={recurso.href} 
+                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                      >
+                        {recurso.nombre}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+
                 <Link href="/empresa" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Empresa</Link>
                 <Link href="/partners" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Partners</Link>
               </div>
