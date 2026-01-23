@@ -5,47 +5,53 @@ import EmpresaFooter from '../../../components/EmpresaFooter';
 
 const articulos = [
   {
-    titulo: '5 señales de que tu empresa necesita una conexión de respaldo',
-    extracto: 'Descubre los indicadores clave que te dicen que es hora de implementar un sistema de backup de conexión para garantizar la continuidad de tu negocio.',
-    fecha: '15 Enero 2026',
+    slug: 'conexion-respaldo-senales',
+    titulo: '5 señales de que tu empresa necesita una conexión de respaldo (y cuánto te cuesta no tenerla)',
+    extracto: 'Descubre los indicadores clave que te dicen que es hora de implementar un sistema de backup de conexión para garantizar la continuidad de tu negocio. El coste de una caída puede superar los 300.000€ por hora.',
+    fecha: '23 Enero 2026',
     categoria: 'Conectividad',
-    tiempo: '5 min lectura',
+    tiempo: '7 min lectura',
     destacado: true
   },
   {
-    titulo: 'Cómo elegir entre Teams, Zoom y Wildix para tu negocio',
-    extracto: 'Análisis comparativo de las tres principales plataformas de comunicaciones unificadas. Te ayudamos a elegir la mejor opción según tu caso de uso.',
-    fecha: '12 Enero 2026',
+    slug: 'teams-vs-zoom-vs-wildix',
+    titulo: 'Teams vs. Zoom vs. Wildix: ¿Qué solución de Comunicaciones Unificadas es mejor para tu empresa?',
+    extracto: 'Análisis comparativo de las tres principales plataformas de comunicaciones unificadas. Te ayudamos a elegir la mejor opción según tu caso de uso y necesidades.',
+    fecha: '23 Enero 2026',
     categoria: 'Comunicaciones Unificadas',
     tiempo: '8 min lectura'
   },
   {
-    titulo: 'Guía completa de WiFi empresarial: Lo que debes saber antes de instalar',
-    extracto: 'Todo sobre redes WiFi para empresas: tecnologías, estándares, densidad de usuarios, seguridad y mejores prácticas de implementación.',
-    fecha: '8 Enero 2026',
+    slug: 'wifi-empresarial-guia',
+    titulo: 'Guía definitiva de WiFi empresarial: Más allá del router doméstico',
+    extracto: 'Todo sobre redes WiFi para empresas: tecnologías como Ruckus BeamFlex+, estándares WiFi 6E, densidad de usuarios, seguridad y mejores prácticas de implementación.',
+    fecha: '23 Enero 2026',
     categoria: 'Infraestructura',
-    tiempo: '10 min lectura'
+    tiempo: '9 min lectura'
   },
   {
-    titulo: 'MPLS vs SD-WAN: ¿Cuál es mejor para tu empresa?',
-    extracto: 'Comparativa técnica entre MPLS y SD-WAN. Ventajas, desventajas y casos de uso para ayudarte a decidir qué tecnología se adapta mejor a tus necesidades.',
-    fecha: '5 Enero 2026',
+    slug: 'mpls-vs-sdwan',
+    titulo: 'MPLS vs. SD-WAN: La batalla por el futuro de la red empresarial',
+    extracto: 'Comparativa técnica entre MPLS y SD-WAN. Ventajas, desventajas y casos de uso para ayudarte a decidir qué tecnología se adapta mejor a tu red multi-sede.',
+    fecha: '23 Enero 2026',
     categoria: 'Conectividad',
-    tiempo: '7 min lectura'
+    tiempo: '8 min lectura'
   },
   {
-    titulo: 'Tendencias en comunicaciones unificadas para 2026',
-    extracto: 'Las principales tendencias que marcarán el sector de las comunicaciones empresariales este año: IA, automatización, trabajo híbrido y más.',
-    fecha: '2 Enero 2026',
+    slug: 'tendencias-comunicaciones-2026',
+    titulo: 'El futuro es ahora: 5 tendencias en Comunicaciones Unificadas que marcarán 2026',
+    extracto: 'Las principales tendencias que marcarán el sector de las comunicaciones empresariales este año: IA proactiva, convergencia UCaaS/CCaaS, verticalización y más.',
+    fecha: '23 Enero 2026',
     categoria: 'Tendencias',
-    tiempo: '6 min lectura'
+    tiempo: '8 min lectura'
   },
   {
-    titulo: 'Cómo proteger tu empresa del ransomware con ExaGrid',
-    extracto: 'El ransomware es una amenaza real para las empresas. Descubre cómo una solución de backup como ExaGrid puede salvarte de un desastre.',
-    fecha: '28 Diciembre 2025',
+    slug: 'ransomware-exagrid',
+    titulo: 'Ransomware: Por qué tu backup tradicional no es suficiente y cómo ExaGrid cambia las reglas del juego',
+    extracto: 'El ransomware es una amenaza real para las empresas. Descubre cómo la tecnología Retention Time-Lock de ExaGrid puede salvarte de un desastre.',
+    fecha: '23 Enero 2026',
     categoria: 'Seguridad',
-    tiempo: '5 min lectura'
+    tiempo: '8 min lectura'
   }
 ];
 
@@ -93,35 +99,36 @@ export default function BlogPage() {
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto space-y-6">
             {articulos.map((articulo, i) => (
-              <article 
-                key={i} 
-                className={`bg-white border-2 rounded-xl p-6 sm:p-8 hover:shadow-lg transition-all ${articulo.destacado ? 'border-orange-500' : 'border-gray-200 hover:border-orange-500'}`}
-              >
-                <div className="flex flex-wrap gap-2 mb-3">
-                  <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-semibold">
-                    {articulo.categoria}
-                  </span>
-                  {articulo.destacado && (
-                    <span className="inline-block bg-gray-900 text-white px-2 py-1 rounded text-xs font-semibold">
-                      DESTACADO
+              <Link href={`/recursos/blog/${articulo.slug}`} key={i}>
+                <article 
+                  className={`bg-white border-2 rounded-xl p-6 sm:p-8 hover:shadow-lg transition-all cursor-pointer ${articulo.destacado ? 'border-orange-500' : 'border-gray-200 hover:border-orange-500'}`}
+                >
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-semibold">
+                      {articulo.categoria}
                     </span>
-                  )}
-                </div>
-                <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 hover:text-orange-600 transition-colors cursor-pointer">
-                  {articulo.titulo}
-                </h2>
-                <p className="text-sm sm:text-base text-gray-600 mb-4">{articulo.extracto}</p>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 text-xs sm:text-sm text-gray-500">
-                    <span>{articulo.fecha}</span>
-                    <span>•</span>
-                    <span>{articulo.tiempo}</span>
+                    {articulo.destacado && (
+                      <span className="inline-block bg-gray-900 text-white px-2 py-1 rounded text-xs font-semibold">
+                        DESTACADO
+                      </span>
+                    )}
                   </div>
-                  <span className="text-orange-600 font-semibold text-sm hover:text-orange-700 cursor-pointer">
-                    Leer más →
-                  </span>
-                </div>
-              </article>
+                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 hover:text-orange-600 transition-colors">
+                    {articulo.titulo}
+                  </h2>
+                  <p className="text-sm sm:text-base text-gray-600 mb-4">{articulo.extracto}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-xs sm:text-sm text-gray-500">
+                      <span>{articulo.fecha}</span>
+                      <span>•</span>
+                      <span>{articulo.tiempo}</span>
+                    </div>
+                    <span className="text-orange-600 font-semibold text-sm hover:text-orange-700">
+                      Leer más →
+                    </span>
+                  </div>
+                </article>
+              </Link>
             ))}
           </div>
         </div>
