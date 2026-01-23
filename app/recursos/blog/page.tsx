@@ -1,4 +1,5 @@
 "use client";
+import { useState } from 'react';
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
@@ -58,6 +59,13 @@ const articulos = [
 const categorias = ['Todos', 'Conectividad', 'Comunicaciones Unificadas', 'Infraestructura', 'Seguridad', 'Tendencias'];
 
 export default function BlogPage() {
+  const [categoriaActiva, setCategoriaActiva] = useState('Todos');
+
+  // Filtrar artículos según la categoría seleccionada
+  const articulosFiltrados = categoriaActiva === 'Todos' 
+    ? articulos 
+    : articulos.filter(articulo => articulo.categoria === categoriaActiva);
+
   return (
     <div className="min-h-screen bg-white">
       <EmpresaNav currentPage="recursos" />
@@ -82,10 +90,15 @@ export default function BlogPage() {
       <section className="py-6 bg-white border-b">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="flex flex-wrap gap-2 justify-center">
-            {categorias.map((cat, i) => (
+            {categorias.map((cat) => (
               <button 
-                key={i}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${i === 0 ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-orange-700'}`}
+                key={cat}
+                onClick={() => setCategoriaActiva(cat)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                  categoriaActiva === cat 
+                    ? 'bg-orange-600 text-white' 
+                    : 'bg-gray-100 text-gray-700 hover:bg-orange-100 hover:text-orange-700'
+                }`}
               >
                 {cat}
               </button>
@@ -97,39 +110,61 @@ export default function BlogPage() {
       {/* Artículos */}
       <section className="py-12 sm:py-16 bg-white">
         <div className="container mx-auto px-4 sm:px-6">
-          <div className="max-w-4xl mx-auto space-y-6">
-            {articulos.map((articulo, i) => (
-              <Link href={`/recursos/blog/${articulo.slug}`} key={i}>
-                <article 
-                  className={`bg-white border-2 rounded-xl p-6 sm:p-8 hover:shadow-lg transition-all cursor-pointer ${articulo.destacado ? 'border-orange-500' : 'border-gray-200 hover:border-orange-500'}`}
-                >
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-semibold">
-                      {articulo.categoria}
-                    </span>
-                    {articulo.destacado && (
-                      <span className="inline-block bg-gray-900 text-white px-2 py-1 rounded text-xs font-semibold">
-                        DESTACADO
-                      </span>
-                    )}
-                  </div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 hover:text-orange-600 transition-colors">
-                    {articulo.titulo}
-                  </h2>
-                  <p className="text-sm sm:text-base text-gray-600 mb-4">{articulo.extracto}</p>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4 text-xs sm:text-sm text-gray-500">
-                      <span>{articulo.fecha}</span>
-                      <span>•</span>
-                      <span>{articulo.tiempo}</span>
-                    </div>
-                    <span className="text-orange-600 font-semibold text-sm hover:text-orange-700">
-                      Leer más →
-                    </span>
-                  </div>
-                </article>
-              </Link>
-            ))}
+          <div className="max-w-4xl mx-auto">
+            {/* Contador de resultados */}
+            <p className="text-sm text-gray-500 mb-6">
+              {articulosFiltrados.length} {articulosFiltrados.length === 1 ? 'artículo' : 'artículos'} 
+              {categoriaActiva !== 'Todos' && ` en ${categoriaActiva}`}
+            </p>
+            
+            <div className="space-y-6">
+              {articulosFiltrados.length > 0 ? (
+                articulosFiltrados.map((articulo, i) => (
+                  <Link href={`/recursos/blog/${articulo.slug}`} key={i}>
+                    <article 
+                      className={`bg-white border-2 rounded-xl p-6 sm:p-8 hover:shadow-lg transition-all cursor-pointer ${articulo.destacado ? 'border-orange-500' : 'border-gray-200 hover:border-orange-500'}`}
+                    >
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        <span className="inline-block bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-semibold">
+                          {articulo.categoria}
+                        </span>
+                        {articulo.destacado && (
+                          <span className="inline-block bg-gray-900 text-white px-2 py-1 rounded text-xs font-semibold">
+                            DESTACADO
+                          </span>
+                        )}
+                      </div>
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 hover:text-orange-600 transition-colors">
+                        {articulo.titulo}
+                      </h2>
+                      <p className="text-sm sm:text-base text-gray-600 mb-4">{articulo.extracto}</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4 text-xs sm:text-sm text-gray-500">
+                          <span>{articulo.fecha}</span>
+                          <span>•</span>
+                          <span>{articulo.tiempo}</span>
+                        </div>
+                        <span className="text-orange-600 font-semibold text-sm hover:text-orange-700">
+                          Leer más →
+                        </span>
+                      </div>
+                    </article>
+                  </Link>
+                ))
+              ) : (
+                <div className="text-center py-12">
+                  <div className="text-5xl mb-4">🔍</div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">No hay artículos en esta categoría</h3>
+                  <p className="text-gray-600 mb-4">Pronto publicaremos contenido sobre {categoriaActiva}.</p>
+                  <button 
+                    onClick={() => setCategoriaActiva('Todos')}
+                    className="text-orange-600 font-semibold hover:text-orange-700"
+                  >
+                    Ver todos los artículos →
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </section>
