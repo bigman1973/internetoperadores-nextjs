@@ -5,45 +5,55 @@ import EmpresaFooter from '../../../components/EmpresaFooter';
 
 const casos = [
   {
-    empresa: 'Hotel Costa Brava',
-    sector: 'Hostelería',
-    titulo: 'WiFi para 500 huéspedes simultáneos',
-    descripcion: 'Implementamos una red WiFi de alta densidad con puntos de acceso Ruckus que soporta más de 500 dispositivos simultáneos sin degradación de servicio.',
-    resultados: ['500+ dispositivos simultáneos', '99.9% uptime', 'Satisfacción huéspedes +40%'],
-    soluciones: ['Infraestructura de Red', 'WiFi Empresarial'],
+    slug: 'industria-automocion',
+    sector: 'Industria',
+    titulo: 'Transformación digital de fábrica de componentes de automoción',
+    descripcion: 'Consultoría, estabilización de infraestructura física, implementación de WiFi profesional Ruckus y migración a SD-WAN con SLA del 99,9% para una planta con robots valorados en más de 10 millones de euros.',
+    resultados: ['0 incidencias críticas', 'SLA 99,9%', 'Red industrial certificada'],
+    soluciones: ['Infraestructura de Red', 'WiFi Ruckus', 'SD-WAN'],
+    imagen: '/images/casos-exito/industria-automocion.jpg',
     destacado: true
   },
   {
-    empresa: 'Supermercados MercaFresh',
+    slug: 'hosteleria-hotel',
+    sector: 'Hostelería',
+    titulo: 'WiFi de alta densidad para hotel de 200 habitaciones',
+    descripcion: 'Implementación de red WiFi profesional con puntos de acceso Ruckus que soporta más de 800 dispositivos simultáneos sin degradación de servicio, cubriendo habitaciones, zonas comunes y áreas de eventos.',
+    resultados: ['800+ dispositivos simultáneos', '99.9% uptime', 'Satisfacción huéspedes +35%'],
+    soluciones: ['Infraestructura de Red', 'WiFi Ruckus'],
+    imagen: '/images/casos-exito/hosteleria-hotel.jpg',
+    destacado: false
+  },
+  {
+    slug: 'retail-cadena',
     sector: 'Retail',
-    titulo: 'Conectividad multi-sede con MPLS',
-    descripcion: 'Red MPLS para conectar 25 supermercados con la central, garantizando comunicación segura y fiable para TPVs, inventario y comunicaciones internas.',
-    resultados: ['25 sedes conectadas', 'Latencia <10ms', 'Ahorro 30% vs líneas dedicadas'],
-    soluciones: ['Conectividad Avanzada', 'MPLS']
+    titulo: 'Conectividad unificada para cadena de 25 tiendas con SD-WAN',
+    descripcion: 'Unificación de la conectividad de 25 tiendas bajo una única plataforma SD-WAN, eliminando 8 proveedores diferentes y garantizando conexión de respaldo automática para TPVs y ERP.',
+    resultados: ['-35% costes conectividad', '99,9% disponibilidad', '1 único interlocutor'],
+    soluciones: ['SD-WAN', 'Conectividad Avanzada', '4G/5G Backup'],
+    imagen: '/images/casos-exito/retail-tiendas.jpg',
+    destacado: false
   },
   {
-    empresa: 'Clínica Dental Sonríe',
-    sector: 'Sanidad',
-    titulo: 'Backup de datos con ExaGrid y cumplimiento GDPR',
-    descripcion: 'Implementación de ExaGrid para backup de historiales clínicos con retención inmutable, garantizando cumplimiento GDPR y protección ante ransomware.',
-    resultados: ['RPO de 15 minutos', 'Recuperación en <1 hora', '100% cumplimiento GDPR'],
-    soluciones: ['ExaGrid', 'Backup Empresarial']
+    slug: 'sector-publico-sanidad',
+    sector: 'Sector Público',
+    titulo: 'Protección de datos sanitarios con ExaGrid',
+    descripcion: 'Implementación de ExaGrid con Retention Time-Lock para una administración pública del sector sanitario tras sufrir un ciberataque con robo de datos. Proyecto en fase de implementación.',
+    resultados: ['Protección anti-ransomware', 'RTO <2 horas', 'Cumplimiento ENS Alto'],
+    soluciones: ['ExaGrid', 'Backup Empresarial', 'Ciberseguridad'],
+    imagen: '/images/casos-exito/sector-publico-sanidad.jpg',
+    destacado: true,
+    enCurso: true
   },
   {
-    empresa: 'Abogados Martínez & Asociados',
+    slug: 'servicios-profesionales',
     sector: 'Servicios Profesionales',
-    titulo: 'Comunicaciones unificadas con Wildix',
-    descripcion: 'Centralita virtual Wildix integrada con CRM jurídico, permitiendo gestión de llamadas, videollamadas y chat desde una única plataforma.',
-    resultados: ['Productividad +25%', 'Llamadas perdidas -60%', 'Integración CRM completa'],
-    soluciones: ['Comunicaciones Unificadas', 'Wildix']
-  },
-  {
-    empresa: 'Logística TransRapid',
-    sector: 'Industria y Logística',
-    titulo: 'Conexión 24/7 con backup automático',
-    descripcion: 'Sistema de failover automático fibra + 5G para almacén logístico donde una hora sin conexión supone pérdidas de más de 50.000€.',
-    resultados: ['0 minutos de caída en 12 meses', 'Failover en <30 segundos', 'ROI en 3 meses'],
-    soluciones: ['Conectividad Avanzada', 'Backup de Conexión']
+    titulo: 'Comunicaciones unificadas con Wildix para despacho multisede',
+    descripcion: 'Implementación de Wildix para unificar las comunicaciones de un despacho de abogados con 4 oficinas, integrando voz, vídeo, chat y CRM jurídico en una única plataforma.',
+    resultados: ['1 número para 4 oficinas', '-40% costes telefonía', '+25% satisfacción clientes'],
+    soluciones: ['Comunicaciones Unificadas', 'Wildix', 'UCaaS'],
+    imagen: '/images/casos-exito/servicios-profesionales.jpg',
+    destacado: false
   }
 ];
 
@@ -59,10 +69,10 @@ export default function CasosExitoPage() {
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               Volver a Recursos
             </Link>
-            <div className="text-5xl mb-4">🏆</div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-4 sm:mb-6">Casos de Éxito</h1>
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">
-              Historias reales de empresas que han transformado sus comunicaciones con nuestras soluciones.
+              Historias reales de empresas que han transformado sus comunicaciones e infraestructura con nuestras soluciones. 
+              Por confidencialidad, no publicamos nombres; referencias disponibles bajo petición.
             </p>
           </div>
         </div>
@@ -97,55 +107,93 @@ export default function CasosExitoPage() {
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-5xl mx-auto space-y-8">
             {casos.map((caso, i) => (
-              <article 
+              <Link 
                 key={i} 
-                className={`bg-white border-2 rounded-xl overflow-hidden hover:shadow-lg transition-all ${caso.destacado ? 'border-orange-500' : 'border-gray-200'}`}
+                href={`/recursos/casos-exito/${caso.slug}`}
+                className="block"
               >
-                <div className="p-6 sm:p-8">
-                  <div className="flex flex-wrap items-center gap-2 mb-4">
-                    <span className="inline-block bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-xs font-semibold">
-                      {caso.sector}
-                    </span>
-                    {caso.destacado && (
-                      <span className="inline-block bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">
-                        ⭐ DESTACADO
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-col lg:flex-row gap-6">
-                    <div className="flex-1">
-                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">{caso.empresa}</h2>
-                      <h3 className="text-lg text-orange-600 font-semibold mb-3">{caso.titulo}</h3>
+                <article 
+                  className={`bg-white border-2 rounded-xl overflow-hidden hover:shadow-lg transition-all ${caso.destacado ? 'border-orange-500' : 'border-gray-200'}`}
+                >
+                  <div className="flex flex-col lg:flex-row">
+                    {/* Imagen */}
+                    <div className="lg:w-80 h-48 lg:h-auto relative flex-shrink-0">
+                      <img 
+                        src={caso.imagen} 
+                        alt={caso.titulo}
+                        className="w-full h-full object-cover"
+                      />
+                      {caso.enCurso && (
+                        <div className="absolute top-3 left-3 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                          En implementación
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Contenido */}
+                    <div className="flex-1 p-6 sm:p-8">
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <span className="inline-block bg-gray-800 text-white px-3 py-1 rounded-full text-xs font-semibold">
+                          {caso.sector}
+                        </span>
+                        {caso.destacado && (
+                          <span className="inline-block bg-orange-100 text-orange-700 px-3 py-1 rounded-full text-xs font-semibold">
+                            DESTACADO
+                          </span>
+                        )}
+                      </div>
+                      
+                      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 group-hover:text-orange-600 transition-colors">
+                        {caso.titulo}
+                      </h2>
                       <p className="text-sm sm:text-base text-gray-600 mb-4">{caso.descripcion}</p>
-                      <div className="flex flex-wrap gap-2">
+                      
+                      <div className="flex flex-wrap gap-2 mb-4">
                         {caso.soluciones.map((sol, j) => (
                           <span key={j} className="inline-block bg-orange-50 text-orange-700 px-2 py-1 rounded text-xs">
                             {sol}
                           </span>
                         ))}
                       </div>
-                    </div>
-                    <div className="lg:w-64 bg-gray-50 rounded-lg p-4">
-                      <h4 className="text-sm font-bold text-gray-900 mb-3">Resultados clave:</h4>
-                      <ul className="space-y-2">
-                        {caso.resultados.map((res, j) => (
-                          <li key={j} className="flex items-center gap-2 text-sm text-gray-700">
-                            <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                            {res}
-                          </li>
-                        ))}
-                      </ul>
+                      
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h4 className="text-sm font-bold text-gray-900 mb-2">Resultados clave:</h4>
+                        <div className="flex flex-wrap gap-3">
+                          {caso.resultados.map((res, j) => (
+                            <span key={j} className="flex items-center gap-1 text-sm text-gray-700">
+                              <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                              {res}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="bg-gray-50 px-6 sm:px-8 py-4 flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Ver caso completo</span>
-                  <span className="text-orange-600 font-semibold text-sm hover:text-orange-700 cursor-pointer">
-                    Leer más →
-                  </span>
-                </div>
-              </article>
+                  
+                  <div className="bg-gray-50 px-6 sm:px-8 py-4 flex justify-between items-center border-t border-gray-100">
+                    <span className="text-sm text-gray-500">Ver caso completo</span>
+                    <span className="text-orange-600 font-semibold text-sm group-hover:text-orange-700">
+                      Leer más →
+                    </span>
+                  </div>
+                </article>
+              </Link>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Nota de confidencialidad */}
+      <section className="py-8 bg-gray-50">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-3xl mx-auto text-center">
+            <p className="text-gray-600 text-sm">
+              Por motivos de confidencialidad, no publicamos los nombres de las empresas en nuestros casos de éxito. 
+              Si desea conocer más detalles sobre algún proyecto o solicitar referencias directas, 
+              estaremos encantados de facilitárselas bajo petición.
+            </p>
           </div>
         </div>
       </section>
@@ -158,9 +206,20 @@ export default function CasosExitoPage() {
             <p className="text-base sm:text-lg text-gray-600 mb-6">
               Solicita una auditoría gratuita y descubre cómo podemos ayudar a tu empresa.
             </p>
-            <Link href="/contacto" className="inline-block px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold">
-              Solicitar Auditoría Gratuita
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <a 
+                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20gratuita"
+                className="inline-block px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold"
+              >
+                Solicitar Auditoría Gratuita
+              </a>
+              <Link 
+                href="/contacto" 
+                className="inline-block px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold"
+              >
+                Contactar con un especialista
+              </Link>
+            </div>
           </div>
         </div>
       </section>

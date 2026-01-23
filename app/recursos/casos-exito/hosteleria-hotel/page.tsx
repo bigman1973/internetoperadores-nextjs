@@ -21,20 +21,20 @@ export default function CasoExitoPage() {
             
             <div className="flex flex-wrap gap-3 mb-6">
               <span className="inline-flex items-center bg-gray-800 text-white px-4 py-2 rounded-full text-sm font-semibold">
-                Industria
+                Hostelería
               </span>
               <span className="inline-flex items-center bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-semibold">
-                Automoción
+                Hotel Boutique
               </span>
             </div>
             
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6 leading-tight">
-              Transformación digital de la infraestructura de red en un fabricante de componentes de automoción
+              WiFi de alta densidad para un hotel boutique de 120 habitaciones
             </h1>
             
             <p className="text-xl text-gray-600 leading-relaxed">
-              Cómo ayudamos a una empresa industrial con más de 500 empleados y robots valorados en millones de euros 
-              a modernizar su infraestructura de comunicaciones, pasando del caos a la excelencia operativa.
+              Cómo transformamos la experiencia de conectividad de los huéspedes, pasando de quejas constantes 
+              a valoraciones de 5 estrellas en WiFi, con una solución profesional Ruckus.
             </p>
           </div>
         </div>
@@ -45,8 +45,8 @@ export default function CasoExitoPage() {
         <div className="max-w-4xl mx-auto">
           <div className="relative w-full h-[300px] sm:h-[400px] rounded-2xl overflow-hidden shadow-xl">
             <img 
-              src="/images/casos-exito/industria-automocion.jpg" 
-              alt="Robots industriales en línea de producción de automoción" 
+              src="/images/casos-exito/hosteleria-hotel.jpg" 
+              alt="Lobby de hotel boutique moderno" 
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
@@ -62,10 +62,11 @@ export default function CasoExitoPage() {
           <div className="bg-gray-50 border-l-4 border-gray-800 p-6 sm:p-8 rounded-r-xl mb-12">
             <h2 className="text-lg font-bold text-gray-900 mb-3">Resumen ejecutivo</h2>
             <p className="text-gray-700 leading-relaxed">
-              Una empresa líder en la fabricación de motores y componentes para la industria del automóvil se enfrentaba 
-              a una infraestructura de red obsoleta que ponía en riesgo la operatividad de sus líneas de producción 
-              automatizadas. Con robots industriales valorados en más de 10 millones de euros y una red que había 
-              crecido de forma desordenada durante años, la situación requería una intervención integral.
+              Un hotel boutique de 4 estrellas superior con 120 habitaciones en una zona turística de alta demanda 
+              sufría un problema crítico: las valoraciones en plataformas como Booking y TripAdvisor mencionaban 
+              constantemente el mal funcionamiento del WiFi. En un sector donde la conectividad se ha convertido 
+              en un factor decisivo para la elección del alojamiento, esta situación estaba afectando directamente 
+              a la ocupación y la reputación del establecimiento.
             </p>
           </div>
 
@@ -74,10 +75,10 @@ export default function CasoExitoPage() {
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">El desafío</h2>
             
             <p className="text-gray-700 leading-relaxed mb-6">
-              Cuando realizamos la primera auditoría de la infraestructura, nos encontramos con lo que internamente 
-              denominamos "un galimatías tecnológico". Es importante señalar que esta situación no era responsabilidad 
-              del departamento de IT, que hacía un trabajo encomiable con los recursos disponibles, sino el resultado 
-              de años de crecimiento orgánico sin una planificación estratégica de la infraestructura.
+              El hotel había invertido en una solución WiFi de consumo que, sobre el papel, parecía suficiente. 
+              Sin embargo, la realidad era muy diferente: en temporada alta, con el hotel al 100% de ocupación 
+              y cada huésped conectando una media de 3-4 dispositivos (móvil, tablet, portátil, smartwatch), 
+              la red colapsaba sistemáticamente.
             </p>
 
             <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
@@ -85,23 +86,23 @@ export default function CasoExitoPage() {
               <ul className="space-y-3 text-gray-700">
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Red física obsoleta:</strong> Cableado de más de 15 años sin certificar, con múltiples puntos de fallo y sin redundancia.</span>
+                  <span><strong>Saturación de red:</strong> Los puntos de acceso domésticos no soportaban más de 15-20 dispositivos simultáneos, cuando cada habitación podía tener 4 o más.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Segmentación inexistente:</strong> Tráfico de oficinas, producción y visitantes compartiendo la misma red sin aislamiento.</span>
+                  <span><strong>Zonas muertas:</strong> El spa, la terraza y algunas habitaciones de esquina no tenían cobertura adecuada.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>WiFi doméstico en entorno industrial:</strong> Puntos de acceso Ubiquiti de gama doméstica que no soportaban la densidad de dispositivos ni las interferencias del entorno fabril.</span>
+                  <span><strong>Roaming deficiente:</strong> Los huéspedes perdían conexión al moverse por las instalaciones, interrumpiendo videollamadas y streaming.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Conectividad sin garantías:</strong> Una única línea de fibra sin SLA definido ni conexión de respaldo.</span>
+                  <span><strong>Sin segmentación:</strong> Huéspedes, empleados y sistemas de gestión compartían la misma red, creando riesgos de seguridad.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Riesgo operativo crítico:</strong> Cualquier caída de red podía detener robots que cuestan más de 10 millones de euros, con pérdidas de producción de miles de euros por hora.</span>
+                  <span><strong>Impacto en reputación:</strong> Valoración media de WiFi de 2.8/5 en reseñas online, con comentarios negativos recurrentes.</span>
                 </li>
               </ul>
             </div>
@@ -109,27 +110,28 @@ export default function CasoExitoPage() {
 
           {/* La solución */}
           <section className="mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Nuestra solución: Un enfoque por fases</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Nuestra solución</h2>
             
             <p className="text-gray-700 leading-relaxed mb-8">
-              Diseñamos un plan de transformación en cuatro fases que permitiera modernizar la infraestructura 
-              sin interrumpir la producción, minimizando riesgos y maximizando el retorno de la inversión.
+              Diseñamos una solución WiFi profesional basada en tecnología Ruckus, específicamente pensada 
+              para entornos de alta densidad como hoteles, con capacidad para gestionar cientos de dispositivos 
+              simultáneos manteniendo una experiencia de usuario premium.
             </p>
 
             {/* Fase 1 */}
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 1</span>
-                <h3 className="text-xl font-bold text-gray-900">Consultoría y auditoría técnica</h3>
+                <h3 className="text-xl font-bold text-gray-900">Site survey y diseño RF</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Realizamos un análisis exhaustivo de toda la infraestructura existente, documentando cada punto de red, 
-                cada dispositivo y cada flujo de tráfico. Identificamos los puntos críticos y diseñamos una arquitectura 
-                de red moderna que cumpliera con los estándares industriales y las necesidades específicas del cliente.
+                Realizamos un estudio de radiofrecuencia completo del edificio, identificando las características 
+                constructivas (muros de piedra, techos altos, estructuras metálicas) que afectaban a la propagación 
+                de la señal. Con esta información, diseñamos la ubicación óptima de cada punto de acceso.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 4 semanas | <strong>Entregables:</strong> Informe de auditoría, diseño de arquitectura, plan de migración
+                  <strong>Resultado:</strong> Mapa de calor RF completo y diseño de 45 puntos de acceso estratégicamente ubicados
                 </p>
               </div>
             </div>
@@ -138,16 +140,16 @@ export default function CasoExitoPage() {
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 2</span>
-                <h3 className="text-xl font-bold text-gray-900">Estabilización de la infraestructura física</h3>
+                <h3 className="text-xl font-bold text-gray-900">Despliegue de infraestructura Ruckus</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Renovamos completamente el cableado estructurado con certificación Cat6A, instalamos switches industriales 
-                con capacidad PoE++ para alimentar dispositivos de planta, y creamos una segmentación de red mediante VLANs 
-                que aislaba el tráfico de producción, oficinas, invitados y sistemas críticos.
+                Instalamos puntos de acceso Ruckus R750 en zonas de alta densidad (lobby, restaurante, salas de reuniones) 
+                y R650 en habitaciones y pasillos. La tecnología BeamFlex+ adapta automáticamente los patrones de antena 
+                para optimizar la cobertura y minimizar interferencias.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 8 semanas | <strong>Trabajo:</strong> Realizado en horarios de baja producción para minimizar impacto
+                  <strong>Capacidad:</strong> Hasta 512 dispositivos por punto de acceso | <strong>Roaming:</strong> Seamless entre APs
                 </p>
               </div>
             </div>
@@ -156,35 +158,16 @@ export default function CasoExitoPage() {
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 3</span>
-                <h3 className="text-xl font-bold text-gray-900">Implementación de WiFi profesional</h3>
+                <h3 className="text-xl font-bold text-gray-900">Segmentación y portal cautivo</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Sustituimos los puntos de acceso Ubiquiti por una solución WiFi empresarial Ruckus, diseñada específicamente 
-                para entornos industriales con alta interferencia electromagnética. La tecnología BeamFlex+ de Ruckus 
-                garantiza una cobertura estable incluso en zonas con maquinaria pesada y estructuras metálicas.
+                Configuramos tres redes separadas: huéspedes (con portal cautivo personalizado con la imagen del hotel), 
+                empleados (con acceso a sistemas internos) y dispositivos IoT (cerraduras, termostatos, TV). 
+                Implementamos también un sistema de ancho de banda garantizado por habitación.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 3 semanas | <strong>Resultado:</strong> Cobertura 100% de las naves con roaming seamless
-                </p>
-              </div>
-            </div>
-
-            {/* Fase 4 */}
-            <div className="border-l-4 border-orange-500 pl-6 mb-8">
-              <div className="flex items-center gap-3 mb-3">
-                <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 4</span>
-                <h3 className="text-xl font-bold text-gray-900">Migración a SD-WAN con garantías máximas</h3>
-              </div>
-              <p className="text-gray-700 leading-relaxed mb-4">
-                Implementamos una solución SD-WAN con doble conexión de fibra de operadores independientes, garantizando 
-                un SLA del 99,9% de disponibilidad. El sistema balancea automáticamente el tráfico entre ambas líneas 
-                y realiza failover instantáneo en caso de caída, asegurando que los sistemas de producción nunca pierdan 
-                conectividad.
-              </p>
-              <div className="bg-orange-50 rounded-lg p-4">
-                <p className="text-sm text-orange-800">
-                  <strong>SLA garantizado:</strong> 99,9% | <strong>Tiempo de failover:</strong> &lt; 1 segundo
+                  <strong>Ancho de banda garantizado:</strong> 50 Mbps simétricos por habitación
                 </p>
               </div>
             </div>
@@ -196,20 +179,20 @@ export default function CasoExitoPage() {
             
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <p className="text-4xl font-bold text-green-700 mb-2">99,9%</p>
-                <p className="text-green-800 font-medium">Disponibilidad de red garantizada</p>
+                <p className="text-4xl font-bold text-green-700 mb-2">4.8/5</p>
+                <p className="text-green-800 font-medium">Valoración WiFi en reseñas (antes 2.8)</p>
               </div>
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <p className="text-4xl font-bold text-green-700 mb-2">0</p>
-                <p className="text-green-800 font-medium">Paradas de producción por red en 18 meses</p>
+                <p className="text-4xl font-bold text-green-700 mb-2">+600</p>
+                <p className="text-green-800 font-medium">Dispositivos simultáneos soportados</p>
               </div>
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
                 <p className="text-4xl font-bold text-green-700 mb-2">100%</p>
-                <p className="text-green-800 font-medium">Cobertura WiFi en todas las naves</p>
+                <p className="text-green-800 font-medium">Cobertura en todas las instalaciones</p>
               </div>
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <p className="text-4xl font-bold text-green-700 mb-2">&lt;1s</p>
-                <p className="text-green-800 font-medium">Tiempo de failover entre conexiones</p>
+                <p className="text-4xl font-bold text-green-700 mb-2">0</p>
+                <p className="text-green-800 font-medium">Quejas de WiFi en los últimos 12 meses</p>
               </div>
             </div>
 
@@ -218,11 +201,12 @@ export default function CasoExitoPage() {
                 <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/>
               </svg>
               <p className="text-lg leading-relaxed text-gray-700 italic mb-4">
-                "Antes vivíamos con el miedo constante de que una caída de red paralizara la producción. 
-                Ahora tenemos la tranquilidad de saber que nuestra infraestructura está preparada para soportar 
-                las exigencias de la Industria 4.0. La inversión se ha amortizado con creces."
+                "El WiFi era nuestro talón de Aquiles. Ahora es uno de nuestros puntos fuertes. Los huéspedes 
+                pueden hacer videollamadas desde la piscina, ver Netflix en 4K en la habitación y trabajar 
+                desde cualquier rincón del hotel sin problemas. Ha sido una inversión que ha impactado 
+                directamente en nuestra reputación online."
               </p>
-              <p className="text-gray-500 font-medium">— Director de Operaciones</p>
+              <p className="text-gray-500 font-medium">— Director General del Hotel</p>
             </div>
           </section>
 
@@ -232,16 +216,16 @@ export default function CasoExitoPage() {
             
             <div className="grid sm:grid-cols-3 gap-4">
               <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
-                <p className="font-bold text-gray-900 mb-1">Ruckus Networks</p>
-                <p className="text-sm text-gray-600">WiFi empresarial</p>
+                <p className="font-bold text-gray-900 mb-1">Ruckus R750/R650</p>
+                <p className="text-sm text-gray-600">WiFi 6 alta densidad</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
-                <p className="font-bold text-gray-900 mb-1">SD-WAN</p>
-                <p className="text-sm text-gray-600">Conectividad inteligente</p>
+                <p className="font-bold text-gray-900 mb-1">SmartZone</p>
+                <p className="text-sm text-gray-600">Gestión centralizada</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
-                <p className="font-bold text-gray-900 mb-1">VLANs industriales</p>
-                <p className="text-sm text-gray-600">Segmentación de red</p>
+                <p className="font-bold text-gray-900 mb-1">Portal Cautivo</p>
+                <p className="text-sm text-gray-600">Personalizado con branding</p>
               </div>
             </div>
           </section>
@@ -250,7 +234,7 @@ export default function CasoExitoPage() {
           <section className="mb-12">
             <div className="bg-gray-100 rounded-xl p-6 text-center">
               <p className="text-gray-600 text-sm">
-                Por motivos de confidencialidad, no publicamos el nombre de la empresa. 
+                Por motivos de confidencialidad, no publicamos el nombre del establecimiento. 
                 Si desea conocer más detalles sobre este caso o solicitar referencias directas, 
                 estaremos encantados de facilitárselas bajo petición.
               </p>
@@ -259,14 +243,14 @@ export default function CasoExitoPage() {
 
           {/* CTA */}
           <section className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-2xl p-8 sm:p-10 text-center text-white">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-4">¿Tu empresa tiene desafíos similares?</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4">¿Tu hotel tiene problemas de WiFi?</h2>
             <p className="text-lg opacity-90 mb-6 max-w-2xl mx-auto">
-              Podemos ayudarte a transformar tu infraestructura de comunicaciones. 
-              Solicita una auditoría gratuita y descubre cómo optimizar tu red.
+              Podemos ayudarte a transformar la experiencia de conectividad de tus huéspedes. 
+              Solicita una auditoría gratuita y descubre cómo mejorar tus valoraciones.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20de%20infraestructura"
+                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20WiFi%20para%20mi%20hotel"
                 className="inline-flex items-center justify-center bg-white text-orange-600 px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors"
               >
                 Solicitar Auditoría Gratuita

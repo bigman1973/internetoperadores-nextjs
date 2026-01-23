@@ -21,20 +21,20 @@ export default function CasoExitoPage() {
             
             <div className="flex flex-wrap gap-3 mb-6">
               <span className="inline-flex items-center bg-gray-800 text-white px-4 py-2 rounded-full text-sm font-semibold">
-                Industria
+                Retail
               </span>
               <span className="inline-flex items-center bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-semibold">
-                Automoción
+                Cadena de tiendas
               </span>
             </div>
             
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-6 leading-tight">
-              Transformación digital de la infraestructura de red en un fabricante de componentes de automoción
+              Conectividad unificada para una cadena de 25 tiendas con SD-WAN
             </h1>
             
             <p className="text-xl text-gray-600 leading-relaxed">
-              Cómo ayudamos a una empresa industrial con más de 500 empleados y robots valorados en millones de euros 
-              a modernizar su infraestructura de comunicaciones, pasando del caos a la excelencia operativa.
+              Cómo ayudamos a una cadena de retail de moda a unificar la conectividad de todas sus tiendas, 
+              reduciendo costes y mejorando la gestión centralizada con una solución SD-WAN.
             </p>
           </div>
         </div>
@@ -45,8 +45,8 @@ export default function CasoExitoPage() {
         <div className="max-w-4xl mx-auto">
           <div className="relative w-full h-[300px] sm:h-[400px] rounded-2xl overflow-hidden shadow-xl">
             <img 
-              src="/images/casos-exito/industria-automocion.jpg" 
-              alt="Robots industriales en línea de producción de automoción" 
+              src="/images/casos-exito/retail-tiendas.jpg" 
+              alt="Interior de tienda de moda moderna" 
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>
@@ -62,10 +62,10 @@ export default function CasoExitoPage() {
           <div className="bg-gray-50 border-l-4 border-gray-800 p-6 sm:p-8 rounded-r-xl mb-12">
             <h2 className="text-lg font-bold text-gray-900 mb-3">Resumen ejecutivo</h2>
             <p className="text-gray-700 leading-relaxed">
-              Una empresa líder en la fabricación de motores y componentes para la industria del automóvil se enfrentaba 
-              a una infraestructura de red obsoleta que ponía en riesgo la operatividad de sus líneas de producción 
-              automatizadas. Con robots industriales valorados en más de 10 millones de euros y una red que había 
-              crecido de forma desordenada durante años, la situación requería una intervención integral.
+              Una cadena de retail especializada en moda con 25 tiendas distribuidas por toda España se enfrentaba 
+              a un problema común en el sector: cada tienda tenía su propio proveedor de internet, con contratos, 
+              velocidades y niveles de servicio diferentes. Esto dificultaba la gestión centralizada, generaba 
+              costes administrativos elevados y provocaba incidencias constantes que afectaban a las ventas.
             </p>
           </div>
 
@@ -74,10 +74,9 @@ export default function CasoExitoPage() {
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">El desafío</h2>
             
             <p className="text-gray-700 leading-relaxed mb-6">
-              Cuando realizamos la primera auditoría de la infraestructura, nos encontramos con lo que internamente 
-              denominamos "un galimatías tecnológico". Es importante señalar que esta situación no era responsabilidad 
-              del departamento de IT, que hacía un trabajo encomiable con los recursos disponibles, sino el resultado 
-              de años de crecimiento orgánico sin una planificación estratégica de la infraestructura.
+              La expansión de la cadena había sido rápida, y en cada nueva apertura se contrataba el proveedor 
+              disponible en la zona sin una estrategia global de conectividad. El resultado era un mosaico de 
+              proveedores, tecnologías y contratos que hacía imposible una gestión eficiente.
             </p>
 
             <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
@@ -85,23 +84,23 @@ export default function CasoExitoPage() {
               <ul className="space-y-3 text-gray-700">
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Red física obsoleta:</strong> Cableado de más de 15 años sin certificar, con múltiples puntos de fallo y sin redundancia.</span>
+                  <span><strong>Fragmentación de proveedores:</strong> 8 operadores diferentes para 25 tiendas, con 8 facturas mensuales y 8 interlocutores distintos.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Segmentación inexistente:</strong> Tráfico de oficinas, producción y visitantes compartiendo la misma red sin aislamiento.</span>
+                  <span><strong>Velocidades dispares:</strong> Desde 50 Mbps en tiendas urbanas hasta 10 Mbps en localizaciones rurales, afectando a la experiencia de cliente.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>WiFi doméstico en entorno industrial:</strong> Puntos de acceso Ubiquiti de gama doméstica que no soportaban la densidad de dispositivos ni las interferencias del entorno fabril.</span>
+                  <span><strong>Sin conexión de respaldo:</strong> Una caída de internet significaba TPVs sin funcionar y pérdida directa de ventas.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Conectividad sin garantías:</strong> Una única línea de fibra sin SLA definido ni conexión de respaldo.</span>
+                  <span><strong>VPN inestable:</strong> El acceso al ERP central desde las tiendas era lento y con frecuentes desconexiones.</span>
                 </li>
                 <li className="flex items-start">
                   <span className="w-2 h-2 bg-red-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
-                  <span><strong>Riesgo operativo crítico:</strong> Cualquier caída de red podía detener robots que cuestan más de 10 millones de euros, con pérdidas de producción de miles de euros por hora.</span>
+                  <span><strong>Coste elevado:</strong> El gasto total en conectividad superaba los 3.500€/mes sin incluir los costes ocultos de gestión.</span>
                 </li>
               </ul>
             </div>
@@ -109,27 +108,27 @@ export default function CasoExitoPage() {
 
           {/* La solución */}
           <section className="mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Nuestra solución: Un enfoque por fases</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-6">Nuestra solución</h2>
             
             <p className="text-gray-700 leading-relaxed mb-8">
-              Diseñamos un plan de transformación en cuatro fases que permitiera modernizar la infraestructura 
-              sin interrumpir la producción, minimizando riesgos y maximizando el retorno de la inversión.
+              Diseñamos una arquitectura SD-WAN que unificaba todas las tiendas bajo una única plataforma de gestión, 
+              con conectividad redundante y priorización inteligente del tráfico crítico para el negocio.
             </p>
 
             {/* Fase 1 */}
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 1</span>
-                <h3 className="text-xl font-bold text-gray-900">Consultoría y auditoría técnica</h3>
+                <h3 className="text-xl font-bold text-gray-900">Auditoría y diseño de arquitectura</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Realizamos un análisis exhaustivo de toda la infraestructura existente, documentando cada punto de red, 
-                cada dispositivo y cada flujo de tráfico. Identificamos los puntos críticos y diseñamos una arquitectura 
-                de red moderna que cumpliera con los estándares industriales y las necesidades específicas del cliente.
+                Analizamos la situación de cada tienda: ubicación, cobertura de operadores, tráfico generado, 
+                aplicaciones críticas y requisitos específicos. Con esta información, diseñamos una arquitectura 
+                SD-WAN con doble conexión (fibra + 4G/5G de respaldo) para cada ubicación.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 4 semanas | <strong>Entregables:</strong> Informe de auditoría, diseño de arquitectura, plan de migración
+                  <strong>Resultado:</strong> Mapa de conectividad de 25 tiendas con solución personalizada para cada una
                 </p>
               </div>
             </div>
@@ -138,16 +137,16 @@ export default function CasoExitoPage() {
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 2</span>
-                <h3 className="text-xl font-bold text-gray-900">Estabilización de la infraestructura física</h3>
+                <h3 className="text-xl font-bold text-gray-900">Despliegue de equipamiento SD-WAN</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Renovamos completamente el cableado estructurado con certificación Cat6A, instalamos switches industriales 
-                con capacidad PoE++ para alimentar dispositivos de planta, y creamos una segmentación de red mediante VLANs 
-                que aislaba el tráfico de producción, oficinas, invitados y sistemas críticos.
+                Instalamos routers SD-WAN en cada tienda con capacidad para gestionar múltiples conexiones WAN, 
+                failover automático y priorización de tráfico. El despliegue se realizó de forma escalonada, 
+                tienda por tienda, sin interrumpir la operativa comercial.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 8 semanas | <strong>Trabajo:</strong> Realizado en horarios de baja producción para minimizar impacto
+                  <strong>Failover:</strong> Cambio automático a 4G/5G en menos de 3 segundos si cae la fibra
                 </p>
               </div>
             </div>
@@ -156,16 +155,16 @@ export default function CasoExitoPage() {
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 3</span>
-                <h3 className="text-xl font-bold text-gray-900">Implementación de WiFi profesional</h3>
+                <h3 className="text-xl font-bold text-gray-900">Configuración de políticas y QoS</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Sustituimos los puntos de acceso Ubiquiti por una solución WiFi empresarial Ruckus, diseñada específicamente 
-                para entornos industriales con alta interferencia electromagnética. La tecnología BeamFlex+ de Ruckus 
-                garantiza una cobertura estable incluso en zonas con maquinaria pesada y estructuras metálicas.
+                Configuramos políticas de calidad de servicio (QoS) para priorizar el tráfico crítico: TPVs, 
+                acceso al ERP, cámaras de seguridad. El tráfico de navegación general y actualizaciones se 
+                enruta por la conexión secundaria cuando la principal está ocupada.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>Duración:</strong> 3 semanas | <strong>Resultado:</strong> Cobertura 100% de las naves con roaming seamless
+                  <strong>Prioridad máxima:</strong> TPVs y ERP siempre con ancho de banda garantizado
                 </p>
               </div>
             </div>
@@ -174,17 +173,16 @@ export default function CasoExitoPage() {
             <div className="border-l-4 border-orange-500 pl-6 mb-8">
               <div className="flex items-center gap-3 mb-3">
                 <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded">FASE 4</span>
-                <h3 className="text-xl font-bold text-gray-900">Migración a SD-WAN con garantías máximas</h3>
+                <h3 className="text-xl font-bold text-gray-900">Panel de gestión centralizada</h3>
               </div>
               <p className="text-gray-700 leading-relaxed mb-4">
-                Implementamos una solución SD-WAN con doble conexión de fibra de operadores independientes, garantizando 
-                un SLA del 99,9% de disponibilidad. El sistema balancea automáticamente el tráfico entre ambas líneas 
-                y realiza failover instantáneo en caso de caída, asegurando que los sistemas de producción nunca pierdan 
-                conectividad.
+                Implementamos un panel de control centralizado donde el equipo de IT puede ver el estado de 
+                todas las tiendas en tiempo real, recibir alertas proactivas, aplicar cambios de configuración 
+                masivos y generar informes de rendimiento.
               </p>
               <div className="bg-orange-50 rounded-lg p-4">
                 <p className="text-sm text-orange-800">
-                  <strong>SLA garantizado:</strong> 99,9% | <strong>Tiempo de failover:</strong> &lt; 1 segundo
+                  <strong>Visibilidad:</strong> 25 tiendas monitorizadas desde un único dashboard
                 </p>
               </div>
             </div>
@@ -196,20 +194,20 @@ export default function CasoExitoPage() {
             
             <div className="grid sm:grid-cols-2 gap-6 mb-8">
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+                <p className="text-4xl font-bold text-green-700 mb-2">-35%</p>
+                <p className="text-green-800 font-medium">Reducción en costes de conectividad</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
                 <p className="text-4xl font-bold text-green-700 mb-2">99,9%</p>
                 <p className="text-green-800 font-medium">Disponibilidad de red garantizada</p>
               </div>
               <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
+                <p className="text-4xl font-bold text-green-700 mb-2">1</p>
+                <p className="text-green-800 font-medium">Única factura y único interlocutor</p>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
                 <p className="text-4xl font-bold text-green-700 mb-2">0</p>
-                <p className="text-green-800 font-medium">Paradas de producción por red en 18 meses</p>
-              </div>
-              <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <p className="text-4xl font-bold text-green-700 mb-2">100%</p>
-                <p className="text-green-800 font-medium">Cobertura WiFi en todas las naves</p>
-              </div>
-              <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center">
-                <p className="text-4xl font-bold text-green-700 mb-2">&lt;1s</p>
-                <p className="text-green-800 font-medium">Tiempo de failover entre conexiones</p>
+                <p className="text-green-800 font-medium">Ventas perdidas por caídas de red</p>
               </div>
             </div>
 
@@ -218,11 +216,11 @@ export default function CasoExitoPage() {
                 <path d="M14.017 21v-7.391c0-5.704 3.731-9.57 8.983-10.609l.995 2.151c-2.432.917-3.995 3.638-3.995 5.849h4v10h-9.983zm-14.017 0v-7.391c0-5.704 3.748-9.57 9-10.609l.996 2.151c-2.433.917-3.996 3.638-3.996 5.849h3.983v10h-9.983z"/>
               </svg>
               <p className="text-lg leading-relaxed text-gray-700 italic mb-4">
-                "Antes vivíamos con el miedo constante de que una caída de red paralizara la producción. 
-                Ahora tenemos la tranquilidad de saber que nuestra infraestructura está preparada para soportar 
-                las exigencias de la Industria 4.0. La inversión se ha amortizado con creces."
+                "Antes, cada vez que había un problema de internet en una tienda, era un caos: no sabíamos 
+                a quién llamar, cada operador echaba la culpa al otro. Ahora tenemos un único número de 
+                teléfono y un panel donde vemos todo en tiempo real. La tranquilidad no tiene precio."
               </p>
-              <p className="text-gray-500 font-medium">— Director de Operaciones</p>
+              <p className="text-gray-500 font-medium">— Director de Sistemas</p>
             </div>
           </section>
 
@@ -232,16 +230,16 @@ export default function CasoExitoPage() {
             
             <div className="grid sm:grid-cols-3 gap-4">
               <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
-                <p className="font-bold text-gray-900 mb-1">Ruckus Networks</p>
-                <p className="text-sm text-gray-600">WiFi empresarial</p>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
                 <p className="font-bold text-gray-900 mb-1">SD-WAN</p>
                 <p className="text-sm text-gray-600">Conectividad inteligente</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
-                <p className="font-bold text-gray-900 mb-1">VLANs industriales</p>
-                <p className="text-sm text-gray-600">Segmentación de red</p>
+                <p className="font-bold text-gray-900 mb-1">4G/5G Backup</p>
+                <p className="text-sm text-gray-600">Conexión de respaldo</p>
+              </div>
+              <div className="bg-white border border-gray-200 rounded-xl p-5 text-center hover:shadow-md transition-shadow">
+                <p className="font-bold text-gray-900 mb-1">QoS Avanzado</p>
+                <p className="text-sm text-gray-600">Priorización de tráfico</p>
               </div>
             </div>
           </section>
@@ -250,7 +248,7 @@ export default function CasoExitoPage() {
           <section className="mb-12">
             <div className="bg-gray-100 rounded-xl p-6 text-center">
               <p className="text-gray-600 text-sm">
-                Por motivos de confidencialidad, no publicamos el nombre de la empresa. 
+                Por motivos de confidencialidad, no publicamos el nombre de la cadena. 
                 Si desea conocer más detalles sobre este caso o solicitar referencias directas, 
                 estaremos encantados de facilitárselas bajo petición.
               </p>
@@ -259,14 +257,14 @@ export default function CasoExitoPage() {
 
           {/* CTA */}
           <section className="bg-gradient-to-r from-orange-500 to-orange-600 rounded-2xl p-8 sm:p-10 text-center text-white">
-            <h2 className="text-2xl sm:text-3xl font-bold mb-4">¿Tu empresa tiene desafíos similares?</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4">¿Gestionas múltiples ubicaciones?</h2>
             <p className="text-lg opacity-90 mb-6 max-w-2xl mx-auto">
-              Podemos ayudarte a transformar tu infraestructura de comunicaciones. 
-              Solicita una auditoría gratuita y descubre cómo optimizar tu red.
+              Podemos ayudarte a unificar la conectividad de todas tus sedes con una solución SD-WAN. 
+              Solicita una auditoría gratuita y descubre cuánto puedes ahorrar.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20de%20infraestructura"
+                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20SD-WAN%20para%20mis%20tiendas"
                 className="inline-flex items-center justify-center bg-white text-orange-600 px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors"
               >
                 Solicitar Auditoría Gratuita
