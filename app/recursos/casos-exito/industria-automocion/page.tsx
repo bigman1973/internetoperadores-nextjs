@@ -33,8 +33,9 @@ export default function CasoExitoPage() {
             </h1>
             
             <p className="text-xl text-gray-600 leading-relaxed">
-              Cómo ayudamos a una empresa industrial con más de 500 empleados y robots valorados en millones de euros 
-              a modernizar su infraestructura de comunicaciones, pasando del caos a la excelencia operativa.
+              Cómo ayudamos a un fabricante multinacional de componentes de automoción con presencia en Europa, 
+              Centroamérica y Asia, donde cada robot puede superar los 10 millones de euros de valor, 
+              a modernizar su infraestructura de comunicaciones pasando del caos a la excelencia operativa.
             </p>
           </div>
         </div>
@@ -62,10 +63,11 @@ export default function CasoExitoPage() {
           <div className="bg-gray-50 border-l-4 border-gray-800 p-6 sm:p-8 rounded-r-xl mb-12">
             <h2 className="text-lg font-bold text-gray-900 mb-3">Resumen ejecutivo</h2>
             <p className="text-gray-700 leading-relaxed">
-              Una empresa líder en la fabricación de motores y componentes para la industria del automóvil se enfrentaba 
-              a una infraestructura de red obsoleta que ponía en riesgo la operatividad de sus líneas de producción 
-              automatizadas. Con robots industriales valorados en más de 10 millones de euros y una red que había 
-              crecido de forma desordenada durante años, la situación requería una intervención integral.
+              Un fabricante multinacional líder en la producción de motores y componentes para la industria del automóvil, 
+              con centros de fabricación en Europa, Centroamérica y Asia, se enfrentaba a una infraestructura de red 
+              obsoleta que ponía en riesgo la operatividad de sus líneas de producción automatizadas. Cada centro cuenta 
+              con más de 10 robots industriales, donde un solo robot puede superar los 10 millones de euros de valor. 
+              La red había crecido de forma desordenada durante años y la situación requería una intervención integral.
             </p>
           </div>
 

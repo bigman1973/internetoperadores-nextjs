@@ -8,7 +8,7 @@ const casos = [
     slug: 'industria-automocion',
     sector: 'Industria',
     titulo: 'Transformación digital de fábrica de componentes de automoción',
-    descripcion: 'Consultoría, estabilización de infraestructura física, implementación de WiFi profesional Ruckus y migración a SD-WAN con SLA del 99,9% para una planta con robots valorados en más de 10 millones de euros.',
+    descripcion: 'Fabricante multinacional con sedes en Europa, Centroamérica y Asia. Cada centro tiene más de 10 robots industriales donde un solo robot supera los 10 millones de euros. Consultoría, WiFi Ruckus y SD-WAN con SLA 99,9%.',
     resultados: ['0 incidencias críticas', 'SLA 99,9%', 'Red industrial certificada'],
     soluciones: ['Infraestructura de Red', 'WiFi Ruckus', 'SD-WAN'],
     imagen: '/images/casos-exito/industria-automocion.jpg',
