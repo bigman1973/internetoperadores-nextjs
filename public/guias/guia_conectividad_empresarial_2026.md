@@ -1,11 +1,20 @@
 <style>
 @page {
   size: A4;
-  margin: 2.5cm 2cm 2.5cm 2cm;
+  margin: 2.5cm 2cm 3cm 2cm;
+  @bottom-center {
+    content: counter(page) " / " counter(pages);
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 10pt;
+    color: #666;
+  }
 }
 
 @page :first {
   margin-top: 0;
+  @bottom-center {
+    content: none;
+  }
 }
 
 body {
@@ -100,6 +109,13 @@ body {
   color: #F97316;
   font-weight: 600;
   font-size: 12pt;
+}
+
+.cover-ceo-box .ceo-name {
+  font-size: 14pt;
+  font-weight: 600;
+  color: #333;
+  margin: 8px 0;
 }
 
 .cover-ceo-box .ceo-phone {
@@ -357,6 +373,7 @@ tr:nth-child(even) {
   
   <div class="cover-ceo-box">
     <p class="ceo-title">¿Tiene dudas? Hable directamente con el CEO</p>
+    <p class="ceo-name">David Pérez</p>
     <p class="ceo-phone">WhatsApp: 655 100 400</p>
   </div>
 </div>
