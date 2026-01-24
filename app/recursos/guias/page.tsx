@@ -16,39 +16,39 @@ const guias = [
   },
   {
     tipo: 'CHECKLIST',
-    titulo: '10 puntos para auditar tu infraestructura de red',
-    descripcion: 'Lista de verificación completa para evaluar el estado de tu red empresarial y detectar puntos de mejora.',
-    paginas: '8 páginas',
+    titulo: 'Checklist Esencial de Seguridad de Red',
+    descripcion: 'Una lista de verificación práctica para evaluar y fortalecer la seguridad de su infraestructura de red y proteger su negocio.',
+    paginas: '12 páginas',
     formato: 'PDF',
-    url: '#',
-    proximamente: true
+    url: '/recursos/guias/checklist-seguridad-red',
+    proximamente: false
   },
   {
     tipo: 'GUÍA',
-    titulo: 'Guía de migración a la nube para PYMEs',
-    descripcion: 'Paso a paso para migrar tus comunicaciones y sistemas a la nube de forma segura y sin interrupciones.',
-    paginas: '25 páginas',
+    titulo: 'Guía Práctica de Migración a la Nube',
+    descripcion: 'Los conocimientos y pasos clave para planificar y ejecutar una migración a la nube exitosa, minimizando riesgos y maximizando el retorno de la inversión.',
+    paginas: '18 páginas',
     formato: 'PDF',
-    url: '#',
-    proximamente: true
+    url: '/recursos/guias/migracion-a-la-nube',
+    proximamente: false
+  },
+  {
+    tipo: 'GUÍA',
+    titulo: 'Guía de Comunicaciones Unificadas',
+    descripcion: 'Descubra cómo unificar la telefonía, videoconferencia y mensajería de su empresa en una única plataforma para potenciar la productividad.',
+    paginas: '15 páginas',
+    formato: 'PDF',
+    url: '/recursos/guias/comunicaciones-unificadas',
+    proximamente: false
   },
   {
     tipo: 'MANUAL',
-    titulo: 'Manual de buenas prácticas en comunicaciones unificadas',
-    descripcion: 'Mejores prácticas para implementar y gestionar soluciones de comunicaciones unificadas en tu empresa.',
-    paginas: '30 páginas',
+    titulo: 'Manual de WiFi para Empresas',
+    descripcion: 'Una guía completa para planificar, implementar y gestionar una red WiFi empresarial de alto rendimiento, segura y fiable.',
+    paginas: '16 páginas',
     formato: 'PDF',
-    url: '#',
-    proximamente: true
-  },
-  {
-    tipo: 'INFOGRAFÍA',
-    titulo: 'Costes ocultos de las caídas de internet',
-    descripcion: 'Visualización de los costes directos e indirectos que supone para una empresa cada hora sin conexión.',
-    paginas: '1 página',
-    formato: 'PDF / PNG',
-    url: '#',
-    proximamente: true
+    url: '/recursos/guias/wifi-empresarial',
+    proximamente: false
   }
 ];
 
