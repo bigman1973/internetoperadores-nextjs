@@ -1,15 +1,11 @@
 <style>
 @page {
   size: A4;
-  margin: 2cm 2cm 2.5cm 2cm;
-  @top-left {
-    content: element(header);
-  }
-  @bottom-center {
-    content: counter(page) " / " counter(pages);
-    font-size: 10px;
-    color: #666;
-  }
+  margin: 2.5cm 2cm 2.5cm 2cm;
+}
+
+@page :first {
+  margin-top: 0;
 }
 
 body {
@@ -19,92 +15,168 @@ body {
   color: #333;
 }
 
-.header {
-  position: running(header);
+.page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 10px;
+  padding: 15px 0;
   border-bottom: 2px solid #F97316;
-  margin-bottom: 20px;
+  margin-bottom: 25px;
 }
 
-.header-logo {
-  height: 40px;
+.page-header img {
+  height: 45px;
 }
 
-.header-contact {
+.page-header-right {
   text-align: right;
   font-size: 9pt;
-  color: #666;
+  color: #555;
+  line-height: 1.4;
 }
 
 .cover {
-  page-break-after: always;
   text-align: center;
-  padding-top: 150px;
+  padding-top: 80px;
+  page-break-after: always;
 }
 
-.cover-logo {
-  width: 250px;
-  margin-bottom: 60px;
+.cover img {
+  width: 280px;
+  margin-bottom: 50px;
 }
 
 .cover h1 {
-  font-size: 36pt;
+  font-size: 32pt;
   color: #F97316;
-  margin-bottom: 20px;
+  margin-bottom: 15px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .cover h2 {
-  font-size: 18pt;
+  font-size: 14pt;
   color: #666;
   font-weight: 400;
-  margin-bottom: 80px;
+  margin-bottom: 30px;
+  padding: 0 40px;
+  line-height: 1.5;
+}
+
+.cover-edition {
+  font-size: 16pt;
+  color: #F97316;
+  font-weight: 600;
+  margin-bottom: 60px;
 }
 
 .cover-contact {
-  margin-top: 100px;
+  margin-top: 40px;
   font-size: 11pt;
   color: #333;
-  line-height: 1.8;
+  line-height: 1.6;
 }
 
-.cover-ceo {
-  margin-top: 30px;
-  padding: 20px;
+.cover-ceo-box {
+  margin-top: 25px;
+  padding: 20px 30px;
   background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
+  border: 2px solid #F97316;
   border-radius: 10px;
   display: inline-block;
 }
 
-.cover-ceo strong {
+.cover-ceo-box p {
+  margin: 5px 0;
+}
+
+.cover-ceo-box .ceo-title {
   color: #F97316;
+  font-weight: 600;
+  font-size: 12pt;
+}
+
+.cover-ceo-box .ceo-phone {
+  font-size: 18pt;
+  font-weight: 700;
+  color: #333;
+}
+
+/* ÍNDICE */
+.toc-page {
+  page-break-after: always;
+}
+
+.toc-title {
+  font-size: 24pt;
+  color: #F97316;
+  text-align: center;
+  margin-bottom: 40px;
+  padding-bottom: 15px;
+  border-bottom: 3px solid #F97316;
+}
+
+.toc-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.toc-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 0;
+  border-bottom: 1px dotted #ccc;
+  font-size: 12pt;
+}
+
+.toc-item:hover {
+  background: #FFF7ED;
+}
+
+.toc-chapter {
+  color: #1F2937;
+  font-weight: 600;
+}
+
+.toc-intro {
+  color: #F97316;
+  font-weight: 600;
+}
+
+.toc-page-num {
+  color: #F97316;
+  font-weight: 600;
+  min-width: 30px;
+  text-align: right;
 }
 
 h1 {
   color: #F97316;
-  font-size: 24pt;
+  font-size: 22pt;
   border-bottom: 3px solid #F97316;
   padding-bottom: 10px;
-  margin-top: 40px;
+  margin-top: 35px;
+  margin-bottom: 20px;
   page-break-after: avoid;
 }
 
 h2 {
   color: #1F2937;
-  font-size: 16pt;
-  margin-top: 30px;
+  font-size: 14pt;
+  margin-top: 25px;
+  margin-bottom: 15px;
   border-left: 4px solid #F97316;
-  padding-left: 15px;
+  padding-left: 12px;
   page-break-after: avoid;
 }
 
 h3 {
   color: #374151;
-  font-size: 13pt;
-  margin-top: 20px;
+  font-size: 12pt;
+  margin-top: 18px;
+  margin-bottom: 10px;
   page-break-after: avoid;
 }
 
@@ -119,7 +191,7 @@ ul, ol {
 }
 
 li {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 table {
@@ -132,13 +204,13 @@ table {
 th {
   background: linear-gradient(135deg, #F97316 0%, #EA580C 100%);
   color: white;
-  padding: 12px 15px;
+  padding: 10px 12px;
   text-align: left;
   font-weight: 600;
 }
 
 td {
-  padding: 10px 15px;
+  padding: 8px 12px;
   border-bottom: 1px solid #E5E7EB;
 }
 
@@ -146,14 +218,10 @@ tr:nth-child(even) {
   background-color: #FFF7ED;
 }
 
-tr:hover {
-  background-color: #FFEDD5;
-}
-
 .highlight-box {
   background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
   border-left: 4px solid #F97316;
-  padding: 20px;
+  padding: 15px 20px;
   margin: 20px 0;
   border-radius: 0 8px 8px 0;
 }
@@ -165,72 +233,62 @@ tr:hover {
 .tip-box {
   background: #ECFDF5;
   border-left: 4px solid #10B981;
-  padding: 15px 20px;
-  margin: 20px 0;
+  padding: 12px 18px;
+  margin: 18px 0;
   border-radius: 0 8px 8px 0;
+}
+
+.tip-box strong {
+  color: #10B981;
 }
 
 .warning-box {
   background: #FEF2F2;
   border-left: 4px solid #EF4444;
-  padding: 15px 20px;
-  margin: 20px 0;
+  padding: 12px 18px;
+  margin: 18px 0;
   border-radius: 0 8px 8px 0;
 }
 
+.warning-box strong {
+  color: #EF4444;
+}
+
 .chapter-intro {
-  font-size: 12pt;
+  font-size: 11pt;
   font-style: italic;
   color: #6B7280;
-  margin-bottom: 25px;
-  padding: 15px;
+  margin-bottom: 20px;
+  padding: 12px 15px;
   background: #F9FAFB;
   border-radius: 8px;
 }
 
-.toc {
-  page-break-after: always;
+.checklist-box {
+  background: #F9FAFB;
+  padding: 15px 20px;
+  border-radius: 8px;
+  margin: 15px 0;
 }
 
-.toc h1 {
-  text-align: center;
-  border-bottom: none;
-}
-
-.toc ul {
+.checklist-box ul {
   list-style: none;
   margin-left: 0;
+  padding-left: 0;
 }
 
-.toc li {
-  padding: 10px 0;
-  border-bottom: 1px dotted #D1D5DB;
-}
-
-.toc a {
-  color: #1F2937;
-  text-decoration: none;
-}
-
-.checklist {
-  background: #F9FAFB;
-  padding: 20px;
-  border-radius: 8px;
-  margin: 20px 0;
-}
-
-.checklist li {
-  list-style: none;
-  padding-left: 30px;
+.checklist-box li {
+  padding-left: 25px;
   position: relative;
+  margin-bottom: 8px;
 }
 
-.checklist li:before {
+.checklist-box li:before {
   content: "☐";
   position: absolute;
   left: 0;
   color: #F97316;
-  font-size: 14pt;
+  font-size: 12pt;
 }
 
 .page-break {
@@ -240,73 +298,139 @@ tr:hover {
 .footer-cta {
   background: linear-gradient(135deg, #F97316 0%, #EA580C 100%);
   color: white;
-  padding: 30px;
+  padding: 25px 30px;
   border-radius: 10px;
   text-align: center;
-  margin-top: 40px;
+  margin-top: 30px;
 }
 
 .footer-cta h3 {
   color: white;
-  margin-top: 0;
+  margin: 0 0 10px 0;
+  font-size: 16pt;
+  border: none;
+  padding: 0;
 }
 
-.glossary dt {
+.footer-cta p {
+  text-align: center;
+  margin: 8px 0;
+}
+
+.glossary-section dt {
   font-weight: bold;
   color: #F97316;
-  margin-top: 15px;
+  margin-top: 12px;
+  font-size: 11pt;
 }
 
-.glossary dd {
-  margin-left: 20px;
-  margin-bottom: 10px;
+.glossary-section dd {
+  margin-left: 15px;
+  margin-bottom: 8px;
+  font-size: 10pt;
+}
+
+.copyright {
+  text-align: center;
+  color: #666;
+  font-size: 9pt;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid #ddd;
 }
 </style>
 
-<div class="header">
-  <img src="logo-internetoperadores.png" alt="Internet Operadores" class="header-logo">
-  <div class="header-contact">
+<!-- PORTADA -->
+<div class="cover">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  
+  <h1>Guía de Conectividad<br>Empresarial</h1>
+  <h2>Todo lo que necesita saber para construir una infraestructura de red resiliente, segura y preparada para el futuro</h2>
+  
+  <p class="cover-edition">Edición 2026</p>
+  
+  <div class="cover-contact">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26<br>
+    28036 Madrid
+    
+    <div class="cover-ceo-box">
+      <p class="ceo-title">¿Tiene dudas? Hable directamente con el CEO</p>
+      <p class="ceo-phone">WhatsApp: 655 100 400</p>
+    </div>
+  </div>
+</div>
+
+<!-- CABECERA PARA PÁGINAS INTERNAS -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
     <strong>Internet Operadores</strong><br>
     Paseo de la Habana, 26 · 28036 Madrid<br>
     Hablar con el CEO: 655 100 400
   </div>
 </div>
 
-<div class="cover">
-  <img src="logo-internetoperadores.png" alt="Internet Operadores" class="cover-logo">
-  
-  <h1>Guía de Conectividad Empresarial</h1>
-  <h2>Todo lo que necesita saber para construir una infraestructura de red resiliente, segura y preparada para el futuro</h2>
-  
-  <p style="font-size: 14pt; color: #666;">Edición 2026</p>
-  
-  <div class="cover-contact">
-    <strong>Internet Operadores</strong><br>
-    Paseo de la Habana, 26<br>
-    28036 Madrid<br><br>
-    
-    <div class="cover-ceo">
-      <strong>¿Tiene dudas? Hable directamente con el CEO</strong><br>
-      WhatsApp: <strong>655 100 400</strong>
-    </div>
-  </div>
+<!-- ÍNDICE -->
+<div class="toc-page">
+
+<h1 class="toc-title">Índice de Contenidos</h1>
+
+<ul class="toc-list">
+  <li class="toc-item">
+    <span class="toc-intro">Introducción — La conectividad como pilar estratégico</span>
+    <span class="toc-page-num">4</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 1 — Fundamentos de Conectividad Empresarial</span>
+    <span class="toc-page-num">6</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 2 — Alta Disponibilidad y Continuidad de Negocio</span>
+    <span class="toc-page-num">9</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 3 — Redes Multi-Sede: VPN, MPLS y SD-WAN</span>
+    <span class="toc-page-num">12</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 4 — WiFi Empresarial: De WiFi 6 a WiFi 7</span>
+    <span class="toc-page-num">15</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 5 — Seguridad Perimetral y Protección de Red</span>
+    <span class="toc-page-num">18</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 6 — Casos Prácticos por Sector</span>
+    <span class="toc-page-num">21</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 7 — Checklist de Evaluación de Infraestructura</span>
+    <span class="toc-page-num">24</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Capítulo 8 — Tendencias y Futuro de la Conectividad</span>
+    <span class="toc-page-num">26</span>
+  </li>
+  <li class="toc-item">
+    <span class="toc-chapter">Glosario — Términos Técnicos</span>
+    <span class="toc-page-num">28</span>
+  </li>
+</ul>
+
 </div>
 
-<div class="toc">
+<div class="page-break"></div>
 
-# Índice de Contenidos
-
-- **Introducción** — La conectividad como pilar estratégico
-- **Capítulo 1** — Fundamentos de Conectividad Empresarial
-- **Capítulo 2** — Alta Disponibilidad y Continuidad de Negocio
-- **Capítulo 3** — Redes Multi-Sede: VPN, MPLS y SD-WAN
-- **Capítulo 4** — WiFi Empresarial: De WiFi 6 a WiFi 7
-- **Capítulo 5** — Seguridad Perimetral y Protección de Red
-- **Capítulo 6** — Casos Prácticos por Sector
-- **Capítulo 7** — Checklist de Evaluación de Infraestructura
-- **Capítulo 8** — Tendencias y Futuro de la Conectividad
-- **Glosario** — Términos Técnicos
-
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
 </div>
 
 # Introducción: La Conectividad como Pilar Estratégico
@@ -336,6 +460,16 @@ Esta guía aborda de forma integral todos los aspectos de la conectividad empres
 6. **Checklist de evaluación** para auditar su infraestructura actual
 
 <div class="page-break"></div>
+
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
 
 # Capítulo 1: Fundamentos de Conectividad Empresarial
 
@@ -420,6 +554,16 @@ Las redes móviles ofrecen flexibilidad y cobertura ubicua:
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 # Capítulo 2: Alta Disponibilidad y Continuidad de Negocio
 
 <div class="chapter-intro">
@@ -489,6 +633,16 @@ Un SLA (Service Level Agreement) define los compromisos del proveedor:
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 # Capítulo 3: Redes Multi-Sede: VPN, MPLS y SD-WAN
 
 <div class="chapter-intro">
@@ -554,6 +708,16 @@ SD-WAN (Software-Defined WAN) combina lo mejor de ambos mundos:
 </div>
 
 <div class="page-break"></div>
+
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
 
 # Capítulo 4: WiFi Empresarial: De WiFi 6 a WiFi 7
 
@@ -634,6 +798,16 @@ Un despliegue WiFi profesional requiere:
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 # Capítulo 5: Seguridad Perimetral y Protección de Red
 
 <div class="chapter-intro">
@@ -694,6 +868,16 @@ El modelo Zero Trust asume que ningún usuario o dispositivo es de confianza por
 3. **Asumir brecha**: Diseñar como si ya estuviera comprometido
 
 <div class="page-break"></div>
+
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
 
 # Capítulo 6: Casos Prácticos por Sector
 
@@ -771,6 +955,16 @@ Cada sector tiene necesidades específicas de conectividad. A continuación, pre
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 # Capítulo 7: Checklist de Evaluación de Infraestructura
 
 <div class="chapter-intro">
@@ -779,7 +973,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 
 ## 7.1 Conectividad Principal
 
-<div class="checklist">
+<div class="checklist-box">
 
 - ¿Tiene documentado el ancho de banda contratado vs. el real?
 - ¿Su conexión es simétrica (misma velocidad subida/bajada)?
@@ -791,7 +985,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 
 ## 7.2 Alta Disponibilidad
 
-<div class="checklist">
+<div class="checklist-box">
 
 - ¿Tiene una conexión de backup configurada?
 - ¿El backup es de un operador/tecnología diferente?
@@ -803,7 +997,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 
 ## 7.3 Red WiFi
 
-<div class="checklist">
+<div class="checklist-box">
 
 - ¿Sus puntos de acceso son de grado empresarial?
 - ¿Tiene gestión centralizada de la red WiFi?
@@ -815,7 +1009,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 
 ## 7.4 Seguridad
 
-<div class="checklist">
+<div class="checklist-box">
 
 - ¿Tiene un firewall de nueva generación (NGFW)?
 - ¿El firewall inspecciona tráfico cifrado (SSL/TLS)?
@@ -827,7 +1021,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 
 ## 7.5 Gestión y Monitorización
 
-<div class="checklist">
+<div class="checklist-box">
 
 - ¿Monitoriza el rendimiento de su red en tiempo real?
 - ¿Tiene históricos de uso de ancho de banda?
@@ -838,7 +1032,7 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 </div>
 
 <div class="highlight-box">
-<strong>Interpretación:</strong><br>
+<strong>Interpretación de resultados:</strong><br><br>
 <strong>0-5 checks:</strong> Infraestructura en riesgo. Requiere atención urgente.<br>
 <strong>6-12 checks:</strong> Infraestructura básica. Hay margen de mejora significativo.<br>
 <strong>13-20 checks:</strong> Infraestructura sólida. Mantener y optimizar.<br>
@@ -846,6 +1040,16 @@ Utilice esta lista de verificación para evaluar el estado actual de su infraest
 </div>
 
 <div class="page-break"></div>
+
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
 
 # Capítulo 8: Tendencias y Futuro de la Conectividad
 
@@ -905,9 +1109,19 @@ La inteligencia artificial transformará la gestión de redes:
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 # Glosario de Términos Técnicos
 
-<dl class="glossary">
+<dl class="glossary-section">
 
 <dt>Ancho de banda</dt>
 <dd>Capacidad máxima de transferencia de datos de una conexión, medida en Mbps o Gbps.</dd>
@@ -955,21 +1169,29 @@ La inteligencia artificial transformará la gestión de redes:
 
 <div class="page-break"></div>
 
+<!-- CABECERA -->
+<div class="page-header">
+  <img src="/home/ubuntu/internetoperadores-web/public/guias/logo-internetoperadores.png" alt="Internet Operadores">
+  <div class="page-header-right">
+    <strong>Internet Operadores</strong><br>
+    Paseo de la Habana, 26 · 28036 Madrid<br>
+    Hablar con el CEO: 655 100 400
+  </div>
+</div>
+
 <div class="footer-cta">
 <h3>¿Necesita ayuda con su infraestructura de conectividad?</h3>
 <p>Nuestros expertos pueden analizar su situación actual y recomendarle las mejores soluciones para su caso específico.</p>
-<p style="font-size: 18pt; margin-top: 20px;"><strong>Hable directamente con el CEO</strong></p>
-<p style="font-size: 24pt;">WhatsApp: 655 100 400</p>
-<p style="margin-top: 20px;">
+<p style="font-size: 16pt; margin-top: 15px;"><strong>Hable directamente con el CEO</strong></p>
+<p style="font-size: 20pt; font-weight: bold;">WhatsApp: 655 100 400</p>
+<p style="margin-top: 15px;">
 Paseo de la Habana, 26 · 28036 Madrid<br>
 www.internetoperadores.com
 </p>
 </div>
 
----
-
-<p style="text-align: center; color: #666; font-size: 10pt; margin-top: 40px;">
+<div class="copyright">
 © 2026 Internet Operadores. Todos los derechos reservados.<br>
 Este documento es propiedad de Internet Operadores y está protegido por derechos de autor.<br>
 Se permite su distribución gratuita siempre que se mantenga íntegro y se cite la fuente.
-</p>
+</div>
