@@ -26,6 +26,10 @@ body {
 
 .page-header img {
   height: 45px;
+  margin-left: 0;
+  padding-left: 0;
+  position: relative;
+  left: -10px;
 }
 
 .page-header-right {
@@ -55,12 +59,14 @@ body {
 }
 
 .cover h2 {
-  font-size: 14pt;
-  color: #666;
+  font-size: 13pt;
+  color: #555;
   font-weight: 400;
-  margin-bottom: 30px;
-  padding: 0 40px;
-  line-height: 1.5;
+  font-style: italic;
+  margin-bottom: 35px;
+  padding: 0 60px;
+  line-height: 1.6;
+  border: none;
 }
 
 .cover-edition {
@@ -78,8 +84,8 @@ body {
 }
 
 .cover-ceo-box {
-  margin-top: 25px;
-  padding: 20px 30px;
+  margin-top: 50px;
+  padding: 25px 40px;
   background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%);
   border: 2px solid #F97316;
   border-radius: 10px;
@@ -349,15 +355,9 @@ tr:nth-child(even) {
   
   <p class="cover-edition">Edición 2026</p>
   
-  <div class="cover-contact">
-    <strong>Internet Operadores</strong><br>
-    Paseo de la Habana, 26<br>
-    28036 Madrid
-    
-    <div class="cover-ceo-box">
-      <p class="ceo-title">¿Tiene dudas? Hable directamente con el CEO</p>
-      <p class="ceo-phone">WhatsApp: 655 100 400</p>
-    </div>
+  <div class="cover-ceo-box">
+    <p class="ceo-title">¿Tiene dudas? Hable directamente con el CEO</p>
+    <p class="ceo-phone">WhatsApp: 655 100 400</p>
   </div>
 </div>
 
