@@ -1,4 +1,4 @@
-'''use client';
+'use client';
 
 import EmpresaNav from '@/components/EmpresaNav';
 import EmpresaFooter from '@/components/EmpresaFooter';
@@ -183,4 +183,3 @@ export default function GuiaWifiEmpresarial() {
     </div>
   );
 }
-'''
