@@ -41,7 +41,7 @@ export default function ExagridPage() {
             <p className="text-xl sm:text-2xl text-orange-600 font-semibold mb-4">Almacenamiento de Backup Escalonado</p>
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 px-2">La solución más rápida y segura para proteger tus datos empresariales. Tecnología probada por más de 4,800 empresas en todo el mundo.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
-              <Link href="/auditoria" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">Solicitar Consultoría Gratuita</Link>
+              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">Solicitar Consultoría Gratuita</Link>
               <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20ExaGrid" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
             </div>
           </div>
@@ -148,7 +148,7 @@ export default function ExagridPage() {
             <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-4 sm:mb-6 px-2">¿Listo para proteger tus datos?</h2>
             <p className="text-base sm:text-lg lg:text-xl text-orange-100 mb-6 sm:mb-8 px-2">Solicita una consultoría gratuita y descubre cómo ExaGrid puede transformar tu estrategia de backup.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
-              <Link href="/auditoria" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">Solicitar Consultoría Gratuita</Link>
+              <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">Solicitar Consultoría Gratuita</Link>
               <a href="tel:+34655100400" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">Llamar: 655 100 400</a>
             </div>
           </div>

@@ -67,7 +67,7 @@ export default function SectoresPage() {
               Conocemos los retos específicos de cada industria. Ofrecemos soluciones adaptadas a las necesidades de tu sector con más de 25 años de experiencia.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
-              <Link href="/auditoria" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
+              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
                 Solicitar Auditoría Gratuita
               </Link>
               <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20soluciones%20para%20mi%20sector" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">

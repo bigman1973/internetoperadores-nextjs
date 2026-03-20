@@ -101,7 +101,7 @@ export default function SolucionesPage() {
               Más de 25 años ayudando a empresas a comunicarse mejor, conectarse de forma segura y proteger sus datos. Soluciones adaptadas a cada necesidad, con soporte real y resultados medibles.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 mb-6 sm:mb-8 px-4">
-              <Link href="/auditoria" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
+              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
                 Solicitar Auditoría Gratuita
               </Link>
               <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20las%20soluciones%20de%20Internet%20Operadores" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">
@@ -198,7 +198,7 @@ export default function SolucionesPage() {
               Te ayudamos a identificar las mejores opciones para tu empresa. Solicita una auditoría gratuita y recibe un informe personalizado.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
-              <Link href="/auditoria" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
+              <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
                 Solicitar Auditoría Gratuita
               </Link>
               <a href="tel:+34655100400" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">

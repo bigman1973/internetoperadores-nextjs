@@ -94,7 +94,7 @@ export default function ComunicacionesUnificadasPage() {
               Centralita virtual, videoconferencia, chat empresarial y colaboración en una sola plataforma. No te atamos a un fabricante: elegimos la mejor solución para tu empresa.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
-              <Link href="/auditoria" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
+              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
                 Solicitar Demo Gratuita
               </Link>
               <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20Comunicaciones%20Unificadas" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">
@@ -209,7 +209,7 @@ export default function ComunicacionesUnificadasPage() {
               Solicita una demo gratuita y descubre cómo podemos transformar las comunicaciones de tu empresa.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
-              <Link href="/auditoria" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
+              <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
                 Solicitar Demo Gratuita
               </Link>
               <a href="tel:+34655100400" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">

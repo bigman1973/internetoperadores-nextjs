@@ -237,7 +237,7 @@ export default function GuiaConectividadEmpresarial() {
                         className="mt-1 w-4 h-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500"
                       />
                       <label htmlFor="acepta" className="text-sm text-gray-600">
-                        Acepto la <Link href="/privacidad" className="text-orange-500 hover:underline">política de privacidad</Link> y 
+                        Acepto la <Link href="/politica-privacidad" className="text-orange-500 hover:underline">política de privacidad</Link> y 
                         recibir comunicaciones comerciales de Internet Operadores. *
                       </label>
                     </div>
