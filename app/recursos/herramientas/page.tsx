@@ -9,27 +9,32 @@ const herramientas = [
     titulo: 'Calculadora de pérdidas por caída de internet',
     descripcion: 'Calcula cuánto dinero pierde tu empresa por cada hora sin conexión. Incluye costes directos e indirectos.',
     icono: '💰',
+    href: '#calculadora',
     destacado: true
   },
   {
     titulo: 'Test de velocidad empresarial',
     descripcion: 'Mide la velocidad real de tu conexión: descarga, subida, latencia y jitter. Optimizado para conexiones empresariales.',
-    icono: '⚡'
+    icono: '⚡',
+    href: '/recursos/herramientas/test-velocidad'
   },
   {
     titulo: 'Calculadora de ROI de comunicaciones unificadas',
     descripcion: 'Estima el retorno de inversión de implementar una solución de comunicaciones unificadas en tu empresa.',
-    icono: '📊'
+    icono: '📊',
+    href: '/recursos/herramientas/calculadora-roi'
   },
   {
     titulo: 'Comprobador de cobertura de fibra',
     descripcion: 'Introduce tu dirección y te decimos qué tecnologías de conectividad están disponibles en tu ubicación.',
-    icono: '📍'
+    icono: '📍',
+    href: '/recursos/herramientas/cobertura-fibra'
   },
   {
     titulo: 'Estimador de ancho de banda',
     descripcion: 'Calcula el ancho de banda que necesita tu empresa según el número de empleados y tipo de uso.',
-    icono: '📶'
+    icono: '📶',
+    href: '/recursos/herramientas/estimador-ancho-banda'
   }
 ];
 
@@ -39,7 +44,7 @@ export default function HerramientasPage() {
   const [horasCaida, setHorasCaida] = useState(1);
 
   const perdidaDirecta = empleados * costeHora * horasCaida;
-  const perdidaIndirecta = perdidaDirecta * 0.5; // 50% adicional por costes indirectos
+  const perdidaIndirecta = perdidaDirecta * 0.5;
   const perdidaTotal = perdidaDirecta + perdidaIndirecta;
 
   return (
@@ -56,14 +61,14 @@ export default function HerramientasPage() {
             <div className="text-5xl mb-4">🔧</div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 mb-4 sm:mb-6">Herramientas</h1>
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">
-              Calculadoras, tests y herramientas útiles para evaluar tus necesidades.
+              Calculadoras, tests y herramientas útiles para evaluar y optimizar tus necesidades de conectividad empresarial.
             </p>
           </div>
         </div>
       </section>
 
       {/* Calculadora Destacada */}
-      <section className="py-8 sm:py-12 bg-orange-600">
+      <section id="calculadora" className="py-8 sm:py-12 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-5xl mx-auto">
             <div className="bg-white rounded-2xl p-6 sm:p-8 lg:p-10 shadow-xl">
@@ -170,19 +175,45 @@ export default function HerramientasPage() {
       {/* Otras Herramientas */}
       <section className="py-12 sm:py-16 lg:py-20 bg-white">
         <div className="container mx-auto px-4 sm:px-6">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-8 text-center">Más herramientas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {herramientas.slice(1).map((herramienta, i) => (
-                <div key={i} className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-500 hover:shadow-lg transition-all">
+                <Link key={i} href={herramienta.href}
+                  className="group bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-500 hover:shadow-lg transition-all">
                   <div className="text-4xl mb-3">{herramienta.icono}</div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-2">{herramienta.titulo}</h3>
+                  <h3 className="text-lg font-bold text-gray-900 mb-2 group-hover:text-orange-600 transition-colors">
+                    {herramienta.titulo}
+                  </h3>
                   <p className="text-sm text-gray-600 mb-4">{herramienta.descripcion}</p>
-                  <button className="text-orange-600 font-semibold text-sm hover:text-orange-700">
-                    Usar herramienta →
-                  </button>
-                </div>
+                  <span className="inline-flex items-center text-orange-600 font-semibold text-sm group-hover:text-orange-700">
+                    Usar herramienta
+                    <svg className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </span>
+                </Link>
               ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Final */}
+      <section className="py-12 sm:py-16 bg-gray-50">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-3xl mx-auto text-center">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">¿Necesitas un análisis personalizado?</h2>
+            <p className="text-gray-600 mb-8">
+              Nuestro equipo técnico puede realizar un estudio completo de las necesidades de conectividad de tu empresa, sin compromiso.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link href="/contacto" className="px-8 py-4 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all font-bold text-lg">
+                Solicitar Estudio Gratuito
+              </Link>
+              <a href="https://wa.me/34900123456" className="px-8 py-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-bold text-lg">
+                Consultar por WhatsApp
+              </a>
             </div>
           </div>
         </div>
