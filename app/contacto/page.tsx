@@ -25,10 +25,28 @@ export default function ContactoPage() {
     setError('');
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch('/api/contacto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: formData.nombre,
+          empresa: formData.empresa,
+          email: formData.email,
+          telefono: formData.telefono,
+          empleados: formData.empleados,
+          servicio: formData.servicio,
+          mensaje: formData.mensaje,
+          origen: 'Formulario de contacto'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al enviar');
+      }
+
       setIsSubmitted(true);
     } catch (err) {
-      setError('Ha ocurrido un error. Por favor, inténtelo de nuevo.');
+      setError('Ha ocurrido un error. Por favor, inténtelo de nuevo o contacte por WhatsApp.');
     } finally {
       setIsSubmitting(false);
     }

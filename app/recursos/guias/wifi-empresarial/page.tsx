@@ -24,7 +24,23 @@ export default function GuiaWifiEmpresarial() {
     setError('');
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetch('/api/guias-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: formData.nombre,
+          email: formData.email,
+          empresa: formData.empresa,
+          telefono: formData.telefono,
+          cargo: formData.cargo,
+          guia: 'Manual de WiFi para Empresas'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al enviar');
+      }
+
       setIsSubmitted(true);
     } catch (err) {
       setError('Ha ocurrido un error. Por favor, inténtelo de nuevo.');

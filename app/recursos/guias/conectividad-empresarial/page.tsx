@@ -23,28 +23,23 @@ export default function GuiaConectividadEmpresarial() {
     setIsSubmitting(true);
     setError('');
 
-    // Aquí se integraría con Brevo
-    // Por ahora simulamos el envío
     try {
-      // Simular envío a Brevo
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // En producción, aquí iría la llamada a la API de Brevo
-      // const response = await fetch('/api/brevo/subscribe', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({
-      //     email: formData.email,
-      //     attributes: {
-      //       NOMBRE: formData.nombre,
-      //       EMPRESA: formData.empresa,
-      //       TELEFONO: formData.telefono,
-      //       CARGO: formData.cargo,
-      //       RECURSO: 'Guía Conectividad Empresarial 2026'
-      //     },
-      //     listIds: [X] // ID de la lista en Brevo
-      //   })
-      // });
+      const response = await fetch('/api/guias-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: formData.nombre,
+          email: formData.email,
+          empresa: formData.empresa,
+          telefono: formData.telefono,
+          cargo: formData.cargo,
+          guia: 'Guía de Conectividad Empresarial 2026'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al enviar');
+      }
 
       setIsSubmitted(true);
     } catch (err) {
