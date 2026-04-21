@@ -25,23 +25,29 @@ function LoginForm() {
         password,
         userType,
         redirect: false,
+        callbackUrl: userType === 'admin' ? '/admin' : '/cliente',
       })
 
       if (result?.error) {
+        console.error('Login error:', result.error, result.status)
         setError('Email o contraseña incorrectos')
         setLoading(false)
         return
       }
 
-      // Redirigir según el tipo de usuario
-      const callbackUrl = searchParams.get('callbackUrl')
-      if (callbackUrl) {
-        router.push(callbackUrl)
-      } else {
-        router.push(userType === 'admin' ? '/admin' : '/cliente')
+      if (result?.ok) {
+        // Redirigir según el tipo de usuario
+        const callbackUrl = searchParams.get('callbackUrl')
+        if (callbackUrl) {
+          router.push(callbackUrl)
+        } else {
+          router.push(userType === 'admin' ? '/admin' : '/cliente')
+        }
+        router.refresh()
       }
     } catch (err) {
-      setError('Error al iniciar sesión')
+      console.error('Login catch error:', err)
+      setError('Error al iniciar sesión. Inténtelo de nuevo.')
       setLoading(false)
     }
   }
