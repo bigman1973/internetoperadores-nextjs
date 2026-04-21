@@ -142,6 +142,102 @@ export async function getAllClientes() {
   throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
 }
 
+export async function syncContratos() {
+  try {
+    let allContratos: any[] = [];
+    let page = 1;
+    const pageSize = 500;
+    
+    // Obtener todos los contratos con paginación
+    while (true) {
+      console.log(`[ISPGestión] Obteniendo contratos página ${page}...`);
+      const data = await request('contratos_todos', 'GET', null, { mostrar: pageSize, pagina: page });
+      
+      if (Array.isArray(data) && data.length > 0) {
+        allContratos = allContratos.concat(data);
+        console.log(`[ISPGestión] Página ${page}: ${data.length} contratos (total: ${allContratos.length})`);
+        if (data.length < pageSize) break;
+        page++;
+      } else {
+        break;
+      }
+    }
+    
+    console.log(`[ISPGestión] Total contratos obtenidos: ${allContratos.length}`);
+    
+    let upserted = 0;
+    let errors = 0;
+    
+    for (const contrato of allContratos) {
+      try {
+        const contratoId = parseInt(contrato.id);
+        if (!contratoId || !contrato.clienteid) continue;
+        
+        const precio = parseFloat(contrato.precio) || 0;
+        const importeRemesar = contrato.importe_remesar ? parseFloat(contrato.importe_remesar) : null;
+        const descuentoTotal = contrato.descuento_total ? parseFloat(contrato.descuento_total) : null;
+        const fechaInicio = contrato.fechainicio ? new Date(contrato.fechainicio) : null;
+        const fechaBaja = contrato.fecha_baja ? new Date(contrato.fecha_baja) : null;
+        const activo = !contrato.fecha_baja;
+        
+        await prisma.$executeRaw`
+          INSERT INTO contratos_servicio (
+            isp_gestion_contrato_id, cliente_id, titulo, tarifa, precio,
+            importe_remesar, descuento_total, fecha_inicio, fecha_baja,
+            causa_baja, concepto_facturacion, permanencia, fecha_permanencia,
+            categoria, tipo_alta, telefonos_contrato, observaciones, activo,
+            created_at, updated_at
+          ) VALUES (
+            ${contratoId}, ${contrato.clienteid}, ${contrato.titulo || ''}, ${contrato.tarifa || ''},
+            ${precio}, ${importeRemesar}, ${descuentoTotal},
+            ${fechaInicio}, ${fechaBaja},
+            ${contrato.causa_baja || null}, ${contrato.concepto_facturacion || null},
+            ${contrato.permanencia || 0}, ${contrato.fecha_permanencia ? new Date(contrato.fecha_permanencia) : null},
+            ${contrato.categoria || null}, ${contrato.tipo_alta || null},
+            ${contrato.telefonos_contrato || null}, ${contrato.observaciones || null},
+            ${activo}, NOW(), NOW()
+          )
+          ON CONFLICT (isp_gestion_contrato_id) DO UPDATE SET
+            cliente_id = EXCLUDED.cliente_id,
+            titulo = EXCLUDED.titulo,
+            tarifa = EXCLUDED.tarifa,
+            precio = EXCLUDED.precio,
+            importe_remesar = EXCLUDED.importe_remesar,
+            descuento_total = EXCLUDED.descuento_total,
+            fecha_inicio = EXCLUDED.fecha_inicio,
+            fecha_baja = EXCLUDED.fecha_baja,
+            causa_baja = EXCLUDED.causa_baja,
+            concepto_facturacion = EXCLUDED.concepto_facturacion,
+            permanencia = EXCLUDED.permanencia,
+            fecha_permanencia = EXCLUDED.fecha_permanencia,
+            categoria = EXCLUDED.categoria,
+            tipo_alta = EXCLUDED.tipo_alta,
+            telefonos_contrato = EXCLUDED.telefonos_contrato,
+            observaciones = EXCLUDED.observaciones,
+            activo = EXCLUDED.activo,
+            updated_at = NOW()
+        `;
+        upserted++;
+      } catch (err: any) {
+        errors++;
+        if (errors <= 5) console.error(`Error upserting contrato ${contrato.id}:`, err.message);
+      }
+    }
+    
+    return { 
+      success: true, 
+      total: allContratos.length, 
+      upserted, 
+      errors,
+      activos: allContratos.filter(c => !c.fecha_baja).length,
+      bajas: allContratos.filter(c => c.fecha_baja).length
+    };
+  } catch (error: any) {
+    console.error('Error en syncContratos:', error);
+    throw error;
+  }
+}
+
 export async function testConnection() {
   try {
     const data = await request('clientes', 'GET', null, { mostrar: 1 });

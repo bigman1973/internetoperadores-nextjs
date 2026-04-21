@@ -10,7 +10,8 @@ import {
   UserGroupIcon,
   CogIcon,
   ArrowTrendingUpIcon,
-  DocumentTextIcon
+  DocumentTextIcon,
+  DocumentDuplicateIcon
 } from '@heroicons/react/24/outline'
 
 interface AdminSidebarProps {
@@ -25,6 +26,7 @@ const navigation = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon },
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
   { name: 'Clientes', href: '/admin/clientes', icon: UsersIcon },
+  { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },

@@ -115,6 +115,35 @@ model ClienteWeb {
   @@map("clientes_web")
 }
 
+model ContratoServicio {
+  id                  Int       @id @default(autoincrement())
+  ispGestionContratoId Int      @unique @map("isp_gestion_contrato_id")
+  clienteId           String    @map("cliente_id") // clienteid de ISP Gestión
+  titulo              String
+  tarifa              String
+  precio              Decimal   @db.Decimal(10, 2)
+  importeRemesar      Decimal?  @map("importe_remesar") @db.Decimal(10, 2)
+  descuentoTotal      Decimal?  @map("descuento_total") @db.Decimal(10, 2)
+  fechaInicio         DateTime? @map("fecha_inicio")
+  fechaBaja           DateTime? @map("fecha_baja")
+  causaBaja           String?   @map("causa_baja")
+  conceptoFacturacion String?   @map("concepto_facturacion")
+  permanencia         Int       @default(0)
+  fechaPermanencia    DateTime? @map("fecha_permanencia")
+  categoria           String?
+  tipoAlta            Int?      @map("tipo_alta")
+  telefonosContrato   String?   @map("telefonos_contrato")
+  observaciones       String?
+  activo              Boolean   @default(true)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([clienteId])
+  @@index([activo])
+  @@index([tarifa])
+  @@map("contratos_servicio")
+}
+
 model NotificacionCliente {
   id         Int              @id @default(autoincrement())
   clienteId  Int              @map("cliente_id")
