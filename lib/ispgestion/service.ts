@@ -5,8 +5,9 @@ import bcrypt from 'bcryptjs';
 const API_URL = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISPGESTION_API_USER || 'VOLA';
 const API_HASH = process.env.ISPGESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+const RAILWAY_PROXY_URL = 'https://ispgestion-middleware-production.up.railway.app/api/ispgestion-proxy';
 
-const ispgestionClient = axios.create({
+const ispgestionDirect = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
@@ -19,14 +20,29 @@ async function request(endpoint: string, method = 'GET', data: any = null, param
   // Limpiar endpoint para evitar doble barra
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
-  console.log(`[ISPGestión] Petición ${method} a ${cleanEndpoint}`);
-  const response = await ispgestionClient({ 
-    url: cleanEndpoint, 
-    method, 
-    data, 
-    params 
-  });
-  return response.data;
+  // ISP Gestión filtra por IP. Desde Railway se puede llamar directamente.
+  // Desde Vercel u otros entornos, usamos el proxy de Railway como intermediario.
+  const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
+  
+  if (isRailway) {
+    console.log(`[ISPGestión] Petición directa ${method} a ${cleanEndpoint}`);
+    const response = await ispgestionDirect({ 
+      url: cleanEndpoint, 
+      method, 
+      data, 
+      params 
+    });
+    return response.data;
+  } else {
+    console.log(`[ISPGestión] Petición via proxy Railway ${method} a ${cleanEndpoint}`);
+    const response = await axios.post(RAILWAY_PROXY_URL, {
+      endpoint: cleanEndpoint,
+      method,
+      data,
+      params
+    }, { timeout: 30000 });
+    return response.data;
+  }
 }
 
 export async function verifyClienteCredentials(email: string, pass: string): Promise<string | null> {
