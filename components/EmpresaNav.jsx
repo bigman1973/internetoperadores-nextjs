@@ -83,7 +83,7 @@ export default function EmpresaNav({ currentPage = '' }) {
             
             {/* Desktop Menu */}
             <div className="hidden lg:flex gap-6 xl:gap-8 text-sm xl:text-base font-medium">
-              <Link href="/productos" className={`transition-colors ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
+              <Link href="/tarifas/empresa" className={`transition-colors ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
                 Productos
               </Link>
               
@@ -239,7 +239,7 @@ export default function EmpresaNav({ currentPage = '' }) {
           {mobileMenuOpen && (
             <div className="lg:hidden py-4 border-t">
               <div className="flex flex-col gap-2">
-                <Link href="/productos" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Productos</Link>
+                <Link href="/tarifas/empresa" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Productos</Link>
                 
                 {/* Mobile Soluciones */}
                 <div className="py-2">

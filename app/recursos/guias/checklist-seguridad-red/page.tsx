@@ -182,7 +182,7 @@ export default function GuiaChecklistSeguridad() {
                   <h2 className="text-2xl font-bold text-gray-900 mb-2">¡Gracias!</h2>
                   <p className="text-gray-600 mb-6">Su checklist está en camino. Revise su bandeja de entrada.</p>
                   <a 
-                    href="/guias/checklist-seguridad-red.pdf"
+                    href="/guias/checklist_seguridad_red_2026.pdf"
                     download
                     className="inline-block bg-orange-500 text-white font-bold py-3 px-8 rounded-lg hover:bg-orange-600 transition-all duration-300"
                   >

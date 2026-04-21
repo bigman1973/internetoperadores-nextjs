@@ -25,10 +25,10 @@ export default function EmpresaPage() {
               Somos el único operador que te garantiza conexión 24/7 con backup automático. Y sobre esa base sólida, construimos la solución de comunicaciones unificadas que tu empresa necesita.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 mb-6 sm:mb-8 px-4">
-              <Link href="/auditoria" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
+              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
                 Solicitar Auditoría Gratuita
               </Link>
-              <Link href="/casos-exito" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">
+              <Link href="/recursos/casos-exito" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">
                 Ver Casos de Éxito
               </Link>
             </div>
@@ -316,7 +316,7 @@ export default function EmpresaPage() {
             <p className="text-base sm:text-lg lg:text-xl text-orange-100 mb-6 sm:mb-8 px-2">
               Solicita una auditoría gratuita y descubre cómo podemos ayudarte a garantizar la conexión de tu empresa.
             </p>
-            <Link href="/auditoria" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
+            <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
               Solicitar Auditoría Gratuita
             </Link>
           </div>
