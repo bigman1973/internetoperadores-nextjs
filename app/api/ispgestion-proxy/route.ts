@@ -9,8 +9,8 @@ export async function POST(request: Request) {
     
     // Credenciales de ISPGestión
     const apiUrl = (process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api').replace(/\/$/, '');
-    const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
-    const apiPassword = process.env.ISPGESTION_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
+    const apiUser = process.env.ISPGESTION_API_USER || 'VOLA';
+    const apiPassword = process.env.ISPGESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
     
     // Limpiar endpoint para evitar doble barra
     const cleanEndpoint = endpoint.replace(/^\/+/, '');
@@ -97,8 +97,8 @@ export async function POST(request: Request) {
 // Endpoint de diagnóstico para verificar configuración
 export async function GET() {
   const apiUrl = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
-  const apiUser = process.env.ISPGESTION_USERNAME || 'VOLA';
-  const apiPassword = process.env.ISPGESTION_HASH || '(no configurado)';
+  const apiUser = process.env.ISPGESTION_API_USER || 'VOLA';
+  const apiPassword = process.env.ISPGESTION_API_HASH || '(no configurado)';
   
   return NextResponse.json({
     status: 'ok',

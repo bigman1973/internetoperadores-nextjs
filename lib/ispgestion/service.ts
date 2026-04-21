@@ -2,44 +2,31 @@ import axios from 'axios';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
 
-const API_URL = process.env.ISP_GESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
-const API_USER = process.env.ISP_GESTION_API_USER || 'VOLA';
-const API_HASH = process.env.ISP_GESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
-const RAILWAY_PROXY_URL = 'https://ispgestion-middleware-production.up.railway.app/api/ispgestion-proxy';
+const API_URL = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
+const API_USER = process.env.ISPGESTION_API_USER || 'VOLA';
+const API_HASH = process.env.ISPGESTION_API_HASH || '04b7c2df9d9656133e54f5f4ca3ce2ec';
 
-const ispgestionDirect = axios.create({
+const ispgestionClient = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
     'Authorization': `Basic ${Buffer.from(`${API_USER}:${API_HASH}`).toString('base64')}`,
   },
+  timeout: 30000,
 });
 
 async function request(endpoint: string, method = 'GET', data: any = null, params: any = null) {
-  const isRailway = process.env.RAILWAY_ENVIRONMENT || process.env.IS_RAILWAY;
-  
   // Limpiar endpoint para evitar doble barra
   const cleanEndpoint = endpoint.replace(/^\/+/, '');
   
-  if (isRailway) {
-    console.log(`[ISPGestión] Petición directa a ${cleanEndpoint}`);
-    const response = await ispgestionDirect({ 
-      url: cleanEndpoint, 
-      method, 
-      data, 
-      params 
-    });
-    return response.data;
-  } else {
-    console.log(`[ISPGestión] Usando PROXY de Railway para ${cleanEndpoint}`);
-    const response = await axios.post(RAILWAY_PROXY_URL, {
-      endpoint: cleanEndpoint,
-      method,
-      data,
-      params
-    });
-    return response.data;
-  }
+  console.log(`[ISPGestión] Petición ${method} a ${cleanEndpoint}`);
+  const response = await ispgestionClient({ 
+    url: cleanEndpoint, 
+    method, 
+    data, 
+    params 
+  });
+  return response.data;
 }
 
 export async function verifyClienteCredentials(email: string, pass: string): Promise<string | null> {
