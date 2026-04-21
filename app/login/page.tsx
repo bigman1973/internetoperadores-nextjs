@@ -2,7 +2,6 @@
 export const dynamic = "force-dynamic";
 
 import { useState, Suspense } from 'react'
-import { signIn } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 
 function LoginForm() {
@@ -20,33 +19,42 @@ function LoginForm() {
     setLoading(true)
 
     try {
-      const result = await signIn('credentials', {
-        email,
-        password,
-        userType,
-        redirect: false,
-        callbackUrl: userType === 'admin' ? '/admin' : '/cliente',
+      // 1. Obtener CSRF token
+      const csrfRes = await fetch('/api/auth/csrf')
+      const csrfData = await csrfRes.json()
+
+      // 2. Hacer login directamente con fetch
+      const loginRes = await fetch('/api/auth/callback/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          email,
+          password,
+          userType,
+          csrfToken: csrfData.csrfToken,
+          json: 'true',
+        }),
+        redirect: 'follow',
       })
 
-      if (result?.error) {
-        console.error('Login error:', result.error, result.status)
-        setError('Email o contraseña incorrectos')
-        setLoading(false)
-        return
-      }
+      // 3. Verificar si el login fue exitoso comprobando la sesión
+      const sessionRes = await fetch('/api/auth/session')
+      const session = await sessionRes.json()
 
-      if (result?.ok) {
-        // Redirigir según el tipo de usuario
+      if (session?.user?.email) {
+        // Login exitoso - redirigir
         const callbackUrl = searchParams.get('callbackUrl')
         if (callbackUrl) {
-          router.push(callbackUrl)
+          window.location.href = callbackUrl
         } else {
-          router.push(userType === 'admin' ? '/admin' : '/cliente')
+          window.location.href = userType === 'admin' ? '/admin' : '/cliente'
         }
-        router.refresh()
+      } else {
+        setError('Email o contraseña incorrectos')
+        setLoading(false)
       }
     } catch (err) {
-      console.error('Login catch error:', err)
+      console.error('Login error:', err)
       setError('Error al iniciar sesión. Inténtelo de nuevo.')
       setLoading(false)
     }
