@@ -238,6 +238,112 @@ export async function syncContratos() {
   }
 }
 
+export async function syncTarifas() {
+  try {
+    // Obtener TODAS las tarifas de ISP Gestión (incluyendo las no publicadas en web)
+    const allTarifas = await request('tarifas', 'GET', null, { mostrar_todas: 1, todas: 1, campos_adicionales: 1 });
+    
+    if (!Array.isArray(allTarifas)) {
+      throw new Error('La respuesta de tarifas no es un array');
+    }
+    
+    // Filtrar solo las activas
+    const activeTarifas = allTarifas.filter((t: any) => t.activo === 1);
+    console.log(`[ISPGestión] Total tarifas: ${allTarifas.length}, Activas: ${activeTarifas.length}`);
+    
+    // Función para determinar la categoría
+    function getCategoria(tarifa: any): string {
+      const nombre = (tarifa.nombre || '').toUpperCase();
+      const nombreComercial = (tarifa.nombre_comercial || '').toUpperCase();
+      
+      if (nombre.includes('HOTSPOT') || nombreComercial.includes('HOTSPOT')) return 'VOLA HOTSPOT';
+      if (nombre.includes('WILDIX') || nombre.includes('PBX')) return 'CENTRALITAS WILDIX';
+      if (nombre.includes('ADAMO') || nombreComercial.includes('ADAMO')) return 'FIBRA ADAMO';
+      if (nombre.includes('AN-FIBRA') || nombre.includes('AIRE')) return 'FIBRA AIRE NETWORKS';
+      if (nombre.includes('STARLINK')) return 'STARLINK';
+      if (nombre.includes('ROUTER 4G') || (nombre.includes('4G') && !nombre.includes('FIBRA'))) return 'ROUTER 4G';
+      if (nombre.includes('MANTENIMIENTO')) return 'MANTENIMIENTO';
+      if (nombre.includes('MICROSOFT') || nombre.includes('PANDA') || nombre.includes('BACKUP')) return 'SERVICIOS AÑADIDOS';
+      
+      if (tarifa.movil === 1) return 'TELEFONÍA MÓVIL';
+      if (tarifa.fijo === 1) return 'TELEFONÍA FIJA';
+      if (tarifa.internet === 1) return 'INTERNET';
+      
+      return 'SERVICIOS VARIOS';
+    }
+    
+    // Función para extraer velocidad
+    function getVelocidad(tarifa: any): string | null {
+      const bajada = tarifa.bajada || tarifa.fibra_bajada;
+      const subida = tarifa.subida || tarifa.fibra_subida;
+      if (bajada && subida) return `${bajada}/${subida} Mbps`;
+      if (bajada) return `${bajada} Mbps`;
+      return null;
+    }
+    
+    // Eliminar tarifas existentes y sus dependencias
+    await prisma.$executeRaw`DELETE FROM estadisticas_tarifas`;
+    await prisma.$executeRaw`DELETE FROM historial_cambios`;
+    await prisma.$executeRaw`DELETE FROM tarifas`;
+    await prisma.$executeRaw`ALTER SEQUENCE tarifas_id_seq RESTART WITH 1`;
+    
+    let inserted = 0;
+    let errors = 0;
+    
+    for (const t of activeTarifas) {
+      try {
+        const ispId = t.id.toString();
+        const nombre = t.nombre_comercial || t.nombre || 'Sin nombre';
+        const categoria = getCategoria(t);
+        const precioSinIva = parseFloat(t.total || '0');
+        let precioConIva = parseFloat(t.total_iva || '0');
+        if (precioConIva === 0 && precioSinIva > 0) precioConIva = Math.round(precioSinIva * 1.21 * 100) / 100;
+        const costeOperador = t.precio_costo ? parseFloat(t.precio_costo) : null;
+        const permanencia = t.duracion_permanencia ? `${t.duracion_permanencia} meses` : null;
+        const penalizacion = t.penalizacion && parseFloat(t.penalizacion) > 0 ? `${t.penalizacion}€` : null;
+        const velocidad = getVelocidad(t);
+        const descripcionCorta = t.descripcion_web || null;
+        const descripcionLarga = t.descripcion_web_ampliacion || null;
+        const destacada = t.destacado === 1;
+        const fechaInicio = t.desdefecha ? new Date(t.desdefecha) : null;
+        let fechaFin = t.hastafecha ? new Date(t.hastafecha) : null;
+        if (t.hastafecha === '2999-01-01') fechaFin = null;
+        
+        await prisma.$executeRaw`
+          INSERT INTO tarifas (
+            tipo_cliente, categoria, nombre, descripcion_corta, descripcion_larga,
+            velocidad, precio_sin_iva, precio_con_iva, coste_operador,
+            permanencia, penalizacion, destacada, activa,
+            solo_clientes_existentes, fecha_inicio, fecha_fin, orden,
+            isp_gestion_id, created_at, updated_at
+          ) VALUES (
+            'EMPRESA', ${categoria}, ${nombre}, ${descripcionCorta}, ${descripcionLarga},
+            ${velocidad}, ${precioSinIva}, ${precioConIva}, ${costeOperador},
+            ${permanencia}, ${penalizacion}, ${destacada}, true,
+            false, ${fechaInicio}, ${fechaFin}, 0,
+            ${ispId}, NOW(), NOW()
+          )
+        `;
+        inserted++;
+      } catch (err: any) {
+        errors++;
+        if (errors <= 5) console.error(`Error insertando tarifa ${t.id}:`, err.message);
+      }
+    }
+    
+    return {
+      success: true,
+      totalISP: allTarifas.length,
+      activas: activeTarifas.length,
+      inserted,
+      errors
+    };
+  } catch (error: any) {
+    console.error('Error en syncTarifas:', error);
+    throw error;
+  }
+}
+
 export async function testConnection() {
   try {
     const data = await request('clientes', 'GET', null, { mostrar: 1 });
