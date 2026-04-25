@@ -70,33 +70,164 @@ export async function getClienteByEmail(email: string) {
 export async function syncClients() {
   try {
     const externalClients = await getAllClientes();
-    let updated = 0;
     const defaultPasswordHash = await bcrypt.hash('cliente123', 10);
-
+    
+    // Recoger los IDs de ISP Gestión de todos los clientes recibidos
+    const allIspIds = externalClients
+      .map((c: any) => c.id?.toString())
+      .filter((id: string | undefined) => id);
+    
+    // Marcar como inactivos los clientes que ya no están en ISP Gestión
+    const deactivated = await prisma.$executeRaw`
+      UPDATE clientes_web SET activo = false, updated_at = NOW()
+      WHERE isp_gestion_id IS NOT NULL 
+        AND isp_gestion_id != ''
+        AND isp_gestion_id NOT IN (SELECT unnest(${allIspIds}::text[]))
+        AND activo = true
+    `;
+    console.log(`[ISPGestión] Clientes marcados como inactivos: ${deactivated}`);
+    
+    let upserted = 0;
+    let errors = 0;
+    
     for (const client of externalClients) {
-      const email = client.email || client.correo;
-      const ispgestionId = (client.id || client.cliente_id || client.isp_gestion_id)?.toString();
-      
-      if (!email || !ispgestionId) continue;
-
-      await prisma.clienteWeb.upsert({
-        where: { email },
-        update: {
-          nombre: client.nombre || client.name || 'Cliente Sin Nombre',
-          ispGestionId: ispgestionId,
-        },
-        create: {
-          email,
-          nombre: client.nombre || client.name || 'Cliente Sin Nombre',
-          passwordHash: defaultPasswordHash,
-          ispGestionId: ispgestionId,
-          newsletterSuscrito: false,
-        },
-      });
-      
-      updated++;
+      try {
+        const ispId = client.id?.toString();
+        if (!ispId) continue;
+        
+        // El email puede tener varios separados por coma, coger el primero
+        const rawEmail = client.email || '';
+        const email = rawEmail.split(',')[0].trim();
+        if (!email) continue;
+        
+        const nombreCompleto = client.nombrecompleto || `${client.nombre || ''} ${client.apellidos || ''}`.trim() || 'Sin nombre';
+        const activo = !client.fecha_fin;
+        const fechaAlta = client.fecha_inicio || null;
+        const fechaBaja = client.fecha_fin || null;
+        
+        await prisma.$executeRaw`
+          INSERT INTO clientes_web (
+            email, password_hash, isp_gestion_id, nombre, newsletter_suscrito,
+            cliente_id_isp, codigo, nif, cif, persona_fisica, nombre_comercial,
+            apellidos, nombre_pila, telefono, movil, fax, web, movil_sms,
+            tipo_calle, domicilio, numero, edificio, bloque, escalera, piso, puerta,
+            municipio, localidad, codigo_postal, provincia, pais, coordenadas,
+            cuenta_cargo, cuenta_contable, forma_pago, tipo_iva,
+            factura_electronica, factura_mail, factura_papel, alerta_facturacion,
+            representante, cargo_representante, nif_representante,
+            activo, baneado, fecha_alta, fecha_baja,
+            idioma, categoria, recibe_publicidad, acepto_lopd,
+            comercial, agente, origen,
+            oficina_contable, organo_gestor, unidad_tramitadora,
+            created_at, updated_at
+          ) VALUES (
+            ${email}, ${defaultPasswordHash}, ${ispId}, ${nombreCompleto}, false,
+            ${client.clienteid || null}, ${client.codigo || null},
+            ${client.nif || null}, ${client.cif || null},
+            ${client.personafisica === 1}, ${client.nombre_comercial || null},
+            ${client.apellidos || null}, ${client.nombre || null},
+            ${client.telefono1 || null}, ${client.movil || null},
+            ${client.fax || null}, ${client.web && client.web !== 'http://' ? client.web : null},
+            ${client.movil_sms || null},
+            ${client.tipo_calle || null}, ${client.domicilio || null},
+            ${client.numero || null}, ${client.edificio || null},
+            ${client.bloque || null}, ${client.escalera || null},
+            ${client.piso || null}, ${client.puerta || null},
+            ${client.municipio || null}, ${client.nombre_localidad || null},
+            ${client.postal || null}, ${client.provincia || null},
+            ${client.pais || 'ES'}, ${client.coordenadas || null},
+            ${client.ccargo || null}, ${client.ccontable || null},
+            ${client.efectos_forma_pago || null}, ${client.iva || null},
+            ${client.factura_electronica === 1}, ${client.factura_mail === 1},
+            ${client.factura_papel === 1}, ${client.alerta_facturacion?.toString() || null},
+            ${client.representante || null}, ${client.cargo || null},
+            ${client.nif_representante || null},
+            ${activo}, ${client.baneado === true},
+            ${fechaAlta ? new Date(fechaAlta) : null}, ${fechaBaja ? new Date(fechaBaja) : null},
+            ${client.idioma || null}, ${client.categoria || null},
+            ${client.recibepublicidad === 1}, ${client.acepto_lopd ? true : null},
+            ${client.comercial || null}, ${client.agente || null},
+            ${client.nombre_origen || null},
+            ${client.oficina_contable || null}, ${client.organo_gestor || null},
+            ${client.unidad_tramitadora || null},
+            NOW(), NOW()
+          )
+          ON CONFLICT (isp_gestion_id) DO UPDATE SET
+            nombre = EXCLUDED.nombre,
+            email = EXCLUDED.email,
+            cliente_id_isp = EXCLUDED.cliente_id_isp,
+            codigo = EXCLUDED.codigo,
+            nif = EXCLUDED.nif,
+            cif = EXCLUDED.cif,
+            persona_fisica = EXCLUDED.persona_fisica,
+            nombre_comercial = EXCLUDED.nombre_comercial,
+            apellidos = EXCLUDED.apellidos,
+            nombre_pila = EXCLUDED.nombre_pila,
+            telefono = EXCLUDED.telefono,
+            movil = EXCLUDED.movil,
+            fax = EXCLUDED.fax,
+            web = EXCLUDED.web,
+            movil_sms = EXCLUDED.movil_sms,
+            tipo_calle = EXCLUDED.tipo_calle,
+            domicilio = EXCLUDED.domicilio,
+            numero = EXCLUDED.numero,
+            edificio = EXCLUDED.edificio,
+            bloque = EXCLUDED.bloque,
+            escalera = EXCLUDED.escalera,
+            piso = EXCLUDED.piso,
+            puerta = EXCLUDED.puerta,
+            municipio = EXCLUDED.municipio,
+            localidad = EXCLUDED.localidad,
+            codigo_postal = EXCLUDED.codigo_postal,
+            provincia = EXCLUDED.provincia,
+            pais = EXCLUDED.pais,
+            coordenadas = EXCLUDED.coordenadas,
+            cuenta_cargo = EXCLUDED.cuenta_cargo,
+            cuenta_contable = EXCLUDED.cuenta_contable,
+            forma_pago = EXCLUDED.forma_pago,
+            tipo_iva = EXCLUDED.tipo_iva,
+            factura_electronica = EXCLUDED.factura_electronica,
+            factura_mail = EXCLUDED.factura_mail,
+            factura_papel = EXCLUDED.factura_papel,
+            alerta_facturacion = EXCLUDED.alerta_facturacion,
+            representante = EXCLUDED.representante,
+            cargo_representante = EXCLUDED.cargo_representante,
+            nif_representante = EXCLUDED.nif_representante,
+            activo = EXCLUDED.activo,
+            baneado = EXCLUDED.baneado,
+            fecha_alta = EXCLUDED.fecha_alta,
+            fecha_baja = EXCLUDED.fecha_baja,
+            idioma = EXCLUDED.idioma,
+            categoria = EXCLUDED.categoria,
+            recibe_publicidad = EXCLUDED.recibe_publicidad,
+            acepto_lopd = EXCLUDED.acepto_lopd,
+            comercial = EXCLUDED.comercial,
+            agente = EXCLUDED.agente,
+            origen = EXCLUDED.origen,
+            oficina_contable = EXCLUDED.oficina_contable,
+            organo_gestor = EXCLUDED.organo_gestor,
+            unidad_tramitadora = EXCLUDED.unidad_tramitadora,
+            updated_at = NOW()
+        `;
+        upserted++;
+      } catch (err: any) {
+        errors++;
+        if (errors <= 5) console.error(`Error upserting cliente ${client.id}:`, err.message);
+      }
     }
-    return { success: true, count: externalClients.length, updated };
+    
+    const totalActivos = externalClients.filter((c: any) => !c.fecha_fin).length;
+    const totalInactivos = externalClients.filter((c: any) => c.fecha_fin).length;
+    
+    return { 
+      success: true, 
+      count: externalClients.length, 
+      upserted, 
+      deactivated: Number(deactivated),
+      activos: totalActivos,
+      inactivos: totalInactivos,
+      errors 
+    };
   } catch (error: any) {
     console.error('Error en syncClients:', error);
     throw error;
@@ -104,42 +235,22 @@ export async function syncClients() {
 }
 
 export async function getAllClientes() {
-  // Probar el endpoint exacto de la documentación con parámetros de paginación
-  const endpoints = [
-    'clientes',
-    'clientes/',
-    'clientes?mostrar=100&pagina=1',
-  ];
-  let lastError = null;
-  
-  for (const endpoint of endpoints) {
-    try {
-      console.log(`[ISPGestión] Probando endpoint: ${endpoint}`);
-      const data = await request(endpoint);
-      
-      // Si recibimos un error de ISPGestión, continuar con el siguiente endpoint
-      if (data && data.error) {
-        console.log(`[ISPGestión] Endpoint ${endpoint} devolvió error: ${data.error}`);
-        lastError = new Error(data.error);
-        continue;
-      }
-      
-      if (data) {
-        if (Array.isArray(data)) return data;
-        if (data.clientes && Array.isArray(data.clientes)) return data.clientes;
-        if (data.data && Array.isArray(data.data)) return data.data;
-        // Si es un objeto con datos de clientes
-        if (typeof data === 'object' && !data.error) {
-          const values = Object.values(data);
-          if (values.length > 0 && Array.isArray(values[0])) return values[0];
-        }
-      }
-    } catch (error: any) {
-      console.log(`[ISPGestión] Error en endpoint ${endpoint}:`, error.message);
-      lastError = error;
+  try {
+    console.log(`[ISPGestión] Obteniendo todos los clientes...`);
+    const data = await request('clientes', 'GET', null, { mostrar: 2000 });
+    
+    if (Array.isArray(data)) {
+      console.log(`[ISPGestión] Obtenidos ${data.length} clientes`);
+      return data;
     }
+    if (data && data.clientes && Array.isArray(data.clientes)) return data.clientes;
+    if (data && data.data && Array.isArray(data.data)) return data.data;
+    
+    throw new Error('Formato de respuesta inesperado');
+  } catch (error: any) {
+    console.error('Error obteniendo clientes:', error.message);
+    throw error;
   }
-  throw lastError || new Error('No se pudo encontrar un endpoint válido para clientes');
 }
 
 export async function syncContratos() {

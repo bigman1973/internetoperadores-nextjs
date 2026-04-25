@@ -125,17 +125,80 @@ model EstadisticaTarifa {
 }
 
 model ClienteWeb {
-  id                 Int                   @id @default(autoincrement())
-  email              String                @unique
-  passwordHash       String                @map("password_hash")
-  ispGestionId       String                @unique @map("isp_gestion_id")
-  nombre             String
-  ultimoAcceso       DateTime?             @map("ultimo_acceso")
-  newsletterSuscrito Boolean               @default(false) @map("newsletter_suscrito")
-  createdAt          DateTime              @default(now()) @map("created_at")
-  updatedAt          DateTime              @updatedAt @map("updated_at")
-  notificaciones     NotificacionCliente[]
+  id                   Int                   @id @default(autoincrement())
+  email                String
+  passwordHash         String                @map("password_hash")
+  ispGestionId         String                @unique @map("isp_gestion_id")
+  nombre               String
+  ultimoAcceso         DateTime?             @map("ultimo_acceso")
+  newsletterSuscrito   Boolean               @default(false) @map("newsletter_suscrito")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  // Identificación
+  clienteIdIsp         String?               @map("cliente_id_isp")
+  codigo               String?
+  nif                  String?
+  cif                  String?
+  personaFisica        Boolean?              @default(true) @map("persona_fisica")
+  nombreComercial      String?               @map("nombre_comercial")
+  // Contacto
+  apellidos            String?
+  nombrePila           String?               @map("nombre_pila")
+  telefono             String?
+  movil                String?
+  fax                  String?
+  web                  String?
+  movilSms             String?               @map("movil_sms")
+  // Dirección
+  tipoCalle            String?               @map("tipo_calle")
+  domicilio            String?
+  numero               String?
+  edificio             String?
+  bloque               String?
+  escalera             String?
+  piso                 String?
+  puerta               String?
+  municipio            String?
+  localidad            String?
+  codigoPostal         String?               @map("codigo_postal")
+  provincia            String?
+  pais                 String?               @default("ES")
+  coordenadas          String?
+  // Facturación
+  cuentaCargo          String?               @map("cuenta_cargo")
+  cuentaContable       String?               @map("cuenta_contable")
+  formaPago            String?               @map("forma_pago")
+  tipoIva              String?               @map("tipo_iva")
+  facturaElectronica   Boolean?              @default(false) @map("factura_electronica")
+  facturaMail          Boolean?              @default(false) @map("factura_mail")
+  facturaPapel         Boolean?              @default(false) @map("factura_papel")
+  alertaFacturacion    String?               @map("alerta_facturacion")
+  // Representante legal
+  representante        String?
+  cargoRepresentante   String?               @map("cargo_representante")
+  nifRepresentante     String?               @map("nif_representante")
+  // Estado
+  activo               Boolean?              @default(true)
+  baneado              Boolean?              @default(false)
+  fechaAlta            DateTime?             @map("fecha_alta") @db.Date
+  fechaBaja            DateTime?             @map("fecha_baja") @db.Date
+  // Otros
+  idioma               String?
+  categoria            Int?
+  recibePublicidad     Boolean?              @default(false) @map("recibe_publicidad")
+  aceptoLopd           Boolean?              @map("acepto_lopd")
+  comercial            Int?
+  agente               Int?
+  origen               String?
+  // Factura electrónica admin pública
+  oficinaContable      String?               @map("oficina_contable")
+  organoGestor         String?               @map("organo_gestor")
+  unidadTramitadora    String?               @map("unidad_tramitadora")
+  notificaciones       NotificacionCliente[]
 
+  @@index([activo])
+  @@index([municipio])
+  @@index([personaFisica])
   @@map("clientes_web")
 }
 

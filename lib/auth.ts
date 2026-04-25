@@ -53,8 +53,8 @@ export const authOptions: NextAuthOptions = {
             }
           } else if (credentials.userType === 'cliente') {
             // Login de cliente
-            let cliente = await prisma.clienteWeb.findUnique({
-              where: { email: credentials.email }
+            let cliente = await prisma.clienteWeb.findFirst({
+              where: { email: credentials.email, activo: true }
             })
 
             let isValidPassword = false;
@@ -79,18 +79,18 @@ export const authOptions: NextAuthOptions = {
                   const newPasswordHash = await bcrypt.hash(credentials.password, 10);
                   
                   cliente = await prisma.clienteWeb.upsert({
-                    where: { email: credentials.email },
+                    where: { ispGestionId: ispgestionId },
                     update: {
                       passwordHash: newPasswordHash,
-                      nombre: clienteData.nombre, // Asumiendo que ISPGestión devuelve el nombre
-                      ispGestionId: ispgestionId,
+                      nombre: clienteData.nombre,
+                      email: credentials.email,
                     },
                     create: {
                       email: credentials.email,
                       passwordHash: newPasswordHash,
                       nombre: clienteData.nombre,
                       ispGestionId: ispgestionId,
-                      newsletterSuscrito: false, // Por defecto, se puede actualizar después
+                      newsletterSuscrito: false,
                     }
                   });
                   isValidPassword = true; // El login fue exitoso vía ISPGestión
