@@ -251,28 +251,69 @@ export async function syncTarifas() {
     const activeTarifas = allTarifas.filter((t: any) => t.activo === 1);
     console.log(`[ISPGestión] Total tarifas: ${allTarifas.length}, Activas: ${activeTarifas.length}`);
     
-    // Función para determinar la categoría
+    // Mapeo de tipo_id a categoría legible
+    const TIPO_CATEGORIA: Record<number, string> = {
+      159: 'EQUIPOS Y HARDWARE',
+      47: 'INTERNET 4G/WIMAX',
+      59: 'BACKUP Y CLOUD',
+      56: 'TELEFONÍA MÓVIL',
+      26: 'TELEFONÍA MÓVIL (BASE)',
+      57: 'HOTSPOT Y GESTIÓN',
+      58: 'FIBRA',
+      52: 'TELEFONÍA FIJA',
+      67: 'HOSTING',
+      68: 'HOSTING',
+      69: 'FIBRA FTTH',
+      160: 'TELEFONÍA FIJA (TARIFA PLANA)',
+      42: 'IP Y REDES',
+      64: 'SERVICIOS IT',
+      53: 'TERMINALES',
+      161: 'SERVIDORES Y CLOUD',
+      30: 'TELEFONÍA FIJA (TARIFA PLANA)',
+      29: 'LÍNEA FIJA',
+      158: 'CENTRALITAS PBX',
+      62: 'INTERCONEXIÓN OPERADOR',
+      46: 'BONOS MÓVIL',
+      65: 'SERVICIOS CLOUD',
+      63: 'SERVICIOS OPERADOR',
+      61: 'DATACENTER',
+      51: 'MANTENIMIENTO',
+      36: 'PBX CLOUD WILDIX',
+      54: 'ALQUILER Y SOFTWARE',
+      162: 'BONOS FIJO',
+      55: 'LÍNEA ADICIONAL',
+      50: 'INTERNET COMUNITAT',
+      41: 'HOTSPOT',
+      28: 'CUOTAS DE ALTA',
+      27: 'LÍNEA MÓVIL (BASE)',
+      155: 'COMPARTE GB',
+      60: 'BACKUP',
+      70: 'FTTH VoIP',
+    };
+    
+    // Función para determinar la categoría basada en tipo_id de ISP Gestión
     function getCategoria(tarifa: any): string {
-      const nombre = (tarifa.nombre || '').toUpperCase();
-      const nombreComercial = (tarifa.nombre_comercial || '').toUpperCase();
+      const tipoId = tarifa.tipo;
+      if (tipoId && TIPO_CATEGORIA[tipoId]) return TIPO_CATEGORIA[tipoId];
       
-      if (nombre.includes('HOTSPOT') || nombreComercial.includes('HOTSPOT')) return 'VOLA HOTSPOT';
-      if (nombre.includes('WILDIX') || nombre.includes('PBX')) return 'CENTRALITAS WILDIX';
-      if (nombre.includes('ADAMO') || nombreComercial.includes('ADAMO')) return 'FIBRA ADAMO';
-      if (nombre.includes('AN-FIBRA') || nombre.includes('AIRE')) return 'FIBRA AIRE NETWORKS';
-      if (nombre.includes('STARLINK')) return 'STARLINK';
-      if (nombre.includes('ROUTER 4G') || (nombre.includes('4G') && !nombre.includes('FIBRA'))) return 'ROUTER 4G';
-      if (nombre.includes('MANTENIMIENTO')) return 'MANTENIMIENTO';
-      if (nombre.includes('MICROSOFT') || nombre.includes('PANDA') || nombre.includes('BACKUP')) return 'SERVICIOS AÑADIDOS';
-      
+      // Fallback por flags
       if (tarifa.movil === 1) return 'TELEFONÍA MÓVIL';
       if (tarifa.fijo === 1) return 'TELEFONÍA FIJA';
       if (tarifa.internet === 1) return 'INTERNET';
       
-      return 'SERVICIOS VARIOS';
+      return 'OTROS SERVICIOS';
     }
     
-    // Función para extraer velocidad
+    // Función para determinar tipo_cliente
+    function getTipoCliente(tarifa: any): string {
+      const nombre = (tarifa.nombre || '').toUpperCase();
+      if (nombre.includes('PARTICULAR')) return 'PARTICULAR';
+      if (nombre.includes('EMPRESA')) return 'EMPRESA';
+      // Por defecto empresa ya que es B2B
+      return 'EMPRESA';
+    }
+    
+    // Función para extraer velocidad combinada
     function getVelocidad(tarifa: any): string | null {
       const bajada = tarifa.bajada || tarifa.fibra_bajada;
       const subida = tarifa.subida || tarifa.fibra_subida;
@@ -295,11 +336,12 @@ export async function syncTarifas() {
         const ispId = t.id.toString();
         const nombre = t.nombre_comercial || t.nombre || 'Sin nombre';
         const categoria = getCategoria(t);
+        const tipoCliente = getTipoCliente(t);
         const precioSinIva = parseFloat(t.total || '0');
         let precioConIva = parseFloat(t.total_iva || '0');
         if (precioConIva === 0 && precioSinIva > 0) precioConIva = Math.round(precioSinIva * 1.21 * 100) / 100;
-        const costeOperador = t.precio_costo ? parseFloat(t.precio_costo) : null;
-        const permanencia = t.duracion_permanencia ? `${t.duracion_permanencia} meses` : null;
+        const costeOperador = t.precio_costo && parseFloat(t.precio_costo) > 0 ? parseFloat(t.precio_costo) : null;
+        const permanenciaTexto = t.duracion_permanencia ? `${t.duracion_permanencia} meses` : null;
         const penalizacion = t.penalizacion && parseFloat(t.penalizacion) > 0 ? `${t.penalizacion}€` : null;
         const velocidad = getVelocidad(t);
         const descripcionCorta = t.descripcion_web || null;
@@ -309,19 +351,59 @@ export async function syncTarifas() {
         let fechaFin = t.hastafecha ? new Date(t.hastafecha) : null;
         if (t.hastafecha === '2999-01-01') fechaFin = null;
         
+        // Campos adicionales de producto
+        const ispTipoId = t.tipo || null;
+        const esMovil = t.movil === 1;
+        const esFijo = t.fijo === 1;
+        const esInternet = t.internet === 1;
+        const esTv = t.tv === 1;
+        const esCompuesta = t.compuesta === 1;
+        const velocidadBajada = t.bajada ? String(t.bajada) : null;
+        const velocidadSubida = t.subida ? String(t.subida) : null;
+        const fibraBajada = t.fibra_bajada ? String(t.fibra_bajada) : null;
+        const fibraSubida = t.fibra_subida ? String(t.fibra_subida) : null;
+        const datosIncluidos = t.datos && t.datos !== '0' ? String(t.datos) : null;
+        const minutosIncluidos = t.minutos ? String(t.minutos) : null;
+        const smsIncluidos = t.sms ? String(t.sms) : null;
+        const conceptoFacturacion = t.concepto_facturacion || null;
+        const servicioPppoe = t.servicio || null;
+        const duracionPermanenciaMeses = t.duracion_permanencia ? parseInt(t.duracion_permanencia) : null;
+        const observacionesPermanencia = t.observaciones_permanencia || null;
+        const tarifaPlanaId = t.tarifa_plana && t.tarifa_plana > 0 ? t.tarifa_plana : null;
+        const noFacturar = t.no_facturar === 1;
+        const noProrrateable = t.no_prorrateable === 1;
+        const publicarWeb = t.publicar_web === 1;
+        const tipoPeriodicidad = t.tipo_periocidad || 1;
+        const precioPeriodo = t.total_periodo ? parseFloat(t.total_periodo) : null;
+        const precioPeriodoIva = t.total_iva_periodo ? parseFloat(t.total_iva_periodo) : null;
+        
         await prisma.$executeRaw`
           INSERT INTO tarifas (
             tipo_cliente, categoria, nombre, descripcion_corta, descripcion_larga,
             velocidad, precio_sin_iva, precio_con_iva, coste_operador,
             permanencia, penalizacion, destacada, activa,
             solo_clientes_existentes, fecha_inicio, fecha_fin, orden,
-            isp_gestion_id, created_at, updated_at
+            isp_gestion_id, created_at, updated_at,
+            isp_tipo_id, es_movil, es_fijo, es_internet, es_tv, es_compuesta,
+            velocidad_bajada, velocidad_subida, fibra_bajada, fibra_subida,
+            datos_incluidos, minutos_incluidos, sms_incluidos,
+            concepto_facturacion, servicio_pppoe,
+            duracion_permanencia_meses, observaciones_permanencia,
+            tarifa_plana_id, no_facturar, no_prorrateable, publicar_web,
+            tipo_periodicidad, precio_periodo, precio_periodo_iva
           ) VALUES (
-            'EMPRESA', ${categoria}, ${nombre}, ${descripcionCorta}, ${descripcionLarga},
+            ${tipoCliente}::"TipoCliente", ${categoria}, ${nombre}, ${descripcionCorta}, ${descripcionLarga},
             ${velocidad}, ${precioSinIva}, ${precioConIva}, ${costeOperador},
-            ${permanencia}, ${penalizacion}, ${destacada}, true,
+            ${permanenciaTexto}, ${penalizacion}, ${destacada}, true,
             false, ${fechaInicio}, ${fechaFin}, 0,
-            ${ispId}, NOW(), NOW()
+            ${ispId}, NOW(), NOW(),
+            ${ispTipoId}, ${esMovil}, ${esFijo}, ${esInternet}, ${esTv}, ${esCompuesta},
+            ${velocidadBajada}, ${velocidadSubida}, ${fibraBajada}, ${fibraSubida},
+            ${datosIncluidos}, ${minutosIncluidos}, ${smsIncluidos},
+            ${conceptoFacturacion}, ${servicioPppoe},
+            ${duracionPermanenciaMeses}, ${observacionesPermanencia},
+            ${tarifaPlanaId}, ${noFacturar}, ${noProrrateable}, ${publicarWeb},
+            ${tipoPeriodicidad}, ${precioPeriodo}, ${precioPeriodoIva}
           )
         `;
         inserted++;
