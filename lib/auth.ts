@@ -78,21 +78,31 @@ export const authOptions: NextAuthOptions = {
                 if (clienteData) {
                   const newPasswordHash = await bcrypt.hash(credentials.password, 10);
                   
-                  cliente = await prisma.clienteWeb.upsert({
-                    where: { ispGestionId: ispgestionId },
-                    update: {
-                      passwordHash: newPasswordHash,
-                      nombre: clienteData.nombre,
-                      email: credentials.email,
-                    },
-                    create: {
-                      email: credentials.email,
-                      passwordHash: newPasswordHash,
-                      nombre: clienteData.nombre,
-                      ispGestionId: ispgestionId,
-                      newsletterSuscrito: false,
-                    }
+                  // Buscar si ya existe por ispGestionId
+                  const existingCliente = await prisma.clienteWeb.findFirst({
+                    where: { ispGestionId: ispgestionId }
                   });
+                  
+                  if (existingCliente) {
+                    cliente = await prisma.clienteWeb.update({
+                      where: { id: existingCliente.id },
+                      data: {
+                        passwordHash: newPasswordHash,
+                        nombre: clienteData.nombre,
+                        email: credentials.email,
+                      }
+                    });
+                  } else {
+                    cliente = await prisma.clienteWeb.create({
+                      data: {
+                        email: credentials.email,
+                        passwordHash: newPasswordHash,
+                        nombre: clienteData.nombre,
+                        ispGestionId: ispgestionId,
+                        newsletterSuscrito: false,
+                      }
+                    });
+                  }
                   isValidPassword = true; // El login fue exitoso vía ISPGestión
                 }
               }
