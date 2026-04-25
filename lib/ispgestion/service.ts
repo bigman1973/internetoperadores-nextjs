@@ -322,13 +322,23 @@ export async function syncTarifas() {
       return null;
     }
     
-    // Eliminar tarifas existentes y sus dependencias
-    await prisma.$executeRaw`DELETE FROM estadisticas_tarifas`;
-    await prisma.$executeRaw`DELETE FROM historial_cambios`;
-    await prisma.$executeRaw`DELETE FROM tarifas`;
-    await prisma.$executeRaw`ALTER SEQUENCE tarifas_id_seq RESTART WITH 1`;
+    // Recoger los IDs de ISP Gestión de las tarifas activas
+    const activeIspIds = activeTarifas.map((t: any) => t.id.toString());
     
-    let inserted = 0;
+    // Marcar como inactivas las tarifas que ya no están activas en ISP Gestión
+    // (solo las que tienen isp_gestion_id, para no tocar tarifas manuales)
+    const deactivated = await prisma.$executeRaw`
+      UPDATE tarifas SET activa = false, updated_at = NOW()
+      WHERE isp_gestion_id IS NOT NULL 
+        AND isp_gestion_id != ''
+        AND isp_gestion_id NOT IN (SELECT unnest(${activeIspIds}::text[]))
+        AND activa = true
+    `;
+    console.log(`[ISPGestión] Tarifas marcadas como inactivas: ${deactivated}`);
+    
+    let upserted = 0;
+    let created = 0;
+    let updated = 0;
     let errors = 0;
     
     for (const t of activeTarifas) {
@@ -377,7 +387,8 @@ export async function syncTarifas() {
         const precioPeriodo = t.total_periodo ? parseFloat(t.total_periodo) : null;
         const precioPeriodoIva = t.total_iva_periodo ? parseFloat(t.total_iva_periodo) : null;
         
-        await prisma.$executeRaw`
+        // Upsert: si ya existe por isp_gestion_id, actualizar; si no, crear
+        const result = await prisma.$executeRaw`
           INSERT INTO tarifas (
             tipo_cliente, categoria, nombre, descripcion_corta, descripcion_larga,
             velocidad, precio_sin_iva, precio_con_iva, coste_operador,
@@ -405,11 +416,52 @@ export async function syncTarifas() {
             ${tarifaPlanaId}, ${noFacturar}, ${noProrrateable}, ${publicarWeb},
             ${tipoPeriodicidad}, ${precioPeriodo}, ${precioPeriodoIva}
           )
+          ON CONFLICT (isp_gestion_id) DO UPDATE SET
+            tipo_cliente = EXCLUDED.tipo_cliente,
+            categoria = EXCLUDED.categoria,
+            nombre = EXCLUDED.nombre,
+            descripcion_corta = EXCLUDED.descripcion_corta,
+            descripcion_larga = EXCLUDED.descripcion_larga,
+            velocidad = EXCLUDED.velocidad,
+            precio_sin_iva = EXCLUDED.precio_sin_iva,
+            precio_con_iva = EXCLUDED.precio_con_iva,
+            coste_operador = EXCLUDED.coste_operador,
+            permanencia = EXCLUDED.permanencia,
+            penalizacion = EXCLUDED.penalizacion,
+            destacada = EXCLUDED.destacada,
+            activa = true,
+            fecha_inicio = EXCLUDED.fecha_inicio,
+            fecha_fin = EXCLUDED.fecha_fin,
+            isp_tipo_id = EXCLUDED.isp_tipo_id,
+            es_movil = EXCLUDED.es_movil,
+            es_fijo = EXCLUDED.es_fijo,
+            es_internet = EXCLUDED.es_internet,
+            es_tv = EXCLUDED.es_tv,
+            es_compuesta = EXCLUDED.es_compuesta,
+            velocidad_bajada = EXCLUDED.velocidad_bajada,
+            velocidad_subida = EXCLUDED.velocidad_subida,
+            fibra_bajada = EXCLUDED.fibra_bajada,
+            fibra_subida = EXCLUDED.fibra_subida,
+            datos_incluidos = EXCLUDED.datos_incluidos,
+            minutos_incluidos = EXCLUDED.minutos_incluidos,
+            sms_incluidos = EXCLUDED.sms_incluidos,
+            concepto_facturacion = EXCLUDED.concepto_facturacion,
+            servicio_pppoe = EXCLUDED.servicio_pppoe,
+            duracion_permanencia_meses = EXCLUDED.duracion_permanencia_meses,
+            observaciones_permanencia = EXCLUDED.observaciones_permanencia,
+            tarifa_plana_id = EXCLUDED.tarifa_plana_id,
+            no_facturar = EXCLUDED.no_facturar,
+            no_prorrateable = EXCLUDED.no_prorrateable,
+            publicar_web = EXCLUDED.publicar_web,
+            tipo_periodicidad = EXCLUDED.tipo_periodicidad,
+            precio_periodo = EXCLUDED.precio_periodo,
+            precio_periodo_iva = EXCLUDED.precio_periodo_iva,
+            updated_at = NOW()
         `;
-        inserted++;
+        upserted++;
       } catch (err: any) {
         errors++;
-        if (errors <= 5) console.error(`Error insertando tarifa ${t.id}:`, err.message);
+        if (errors <= 5) console.error(`Error upserting tarifa ${t.id}:`, err.message);
       }
     }
     
@@ -417,7 +469,8 @@ export async function syncTarifas() {
       success: true,
       totalISP: allTarifas.length,
       activas: activeTarifas.length,
-      inserted,
+      upserted,
+      deactivated: Number(deactivated),
       errors
     };
   } catch (error: any) {
