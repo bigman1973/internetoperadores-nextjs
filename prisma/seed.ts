@@ -138,19 +138,27 @@ async function main() {
   // 4. Crear cliente de ejemplo
   const clientePassword = await bcrypt.hash('cliente123', 10)
   
-  const cliente = await prisma.clienteWeb.upsert({
+  const existingCliente = await prisma.clienteWeb.findFirst({
     where: { email: 'juan.perez@email.com' },
-    update: {
-      passwordHash: clientePassword,
-    },
-    create: {
-      email: 'juan.perez@email.com',
-      passwordHash: clientePassword,
-      nombre: 'Juan Pérez',
-      ispGestionId: 'CLIENTE_001',
-      newsletterSuscrito: true,
-    },
   })
+  
+  let cliente
+  if (existingCliente) {
+    cliente = await prisma.clienteWeb.update({
+      where: { id: existingCliente.id },
+      data: { passwordHash: clientePassword },
+    })
+  } else {
+    cliente = await prisma.clienteWeb.create({
+      data: {
+        email: 'juan.perez@email.com',
+        passwordHash: clientePassword,
+        nombre: 'Juan Pérez',
+        ispGestionId: 'CLIENTE_001',
+        newsletterSuscrito: true,
+      },
+    })
+  }
 
   console.log('✅ Cliente de ejemplo procesado:', cliente.email)
 
