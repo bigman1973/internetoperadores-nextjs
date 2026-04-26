@@ -18,20 +18,24 @@ export async function GET(
     const resolvedParams = await params
     const clienteId = parseInt(resolvedParams.id)
 
-    // First get the client to find their ISP Gestión ID
+    // First get the client to find their cliente_id_isp (the long ID used in contracts)
     const cliente = await prisma.clienteWeb.findUnique({
       where: { id: clienteId },
-      select: { ispGestionId: true }
+      select: { ispGestionId: true, clienteIdIsp: true }
     })
 
     if (!cliente) {
       return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 })
     }
 
-    // Now fetch all contracts for this client using their ISP Gestión ID
+    // Use clienteIdIsp (the long format ID like "000101005075") to match contracts
+    // The contratos_servicio.cliente_id field uses this format
+    const matchId = cliente.clienteIdIsp || cliente.ispGestionId
+
+    // Now fetch all contracts for this client
     const contratos: any = await prisma.$queryRawUnsafe(
       `SELECT * FROM contratos_servicio WHERE cliente_id = $1 ORDER BY activo DESC, fecha_inicio DESC`,
-      cliente.ispGestionId
+      matchId
     )
 
     const activos = contratos.filter((c: any) => c.activo).length

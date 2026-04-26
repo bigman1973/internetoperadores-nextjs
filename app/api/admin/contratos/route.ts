@@ -45,7 +45,7 @@ export async function GET(request: NextRequest) {
             COUNT(*) FILTER (WHERE cs.activo = true)::int as contratos_activos,
             COALESCE(SUM(cs.precio) FILTER (WHERE cs.activo = true), 0) as facturacion
           FROM contratos_servicio cs
-          LEFT JOIN clientes_web cw ON cw.isp_gestion_id = cs.cliente_id
+          LEFT JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
           WHERE cs.activo = true
           GROUP BY cs.cliente_id, cw.nombre
           ORDER BY facturacion DESC
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
       const countQuery = `
         SELECT COUNT(DISTINCT cs.cliente_id)::int as count
         FROM contratos_servicio cs
-        LEFT JOIN clientes_web cw ON cw.isp_gestion_id = cs.cliente_id
+        LEFT JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
         ${whereClause}
       `
       const countResult: any = await prisma.$queryRawUnsafe(countQuery, ...params)
@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
           COUNT(*) FILTER (WHERE cs.activo = false)::int as contratos_bajas,
           COALESCE(SUM(cs.precio) FILTER (WHERE cs.activo = true), 0) as facturacion_mensual
         FROM contratos_servicio cs
-        LEFT JOIN clientes_web cw ON cw.isp_gestion_id = cs.cliente_id
+        LEFT JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
         ${whereClause}
         GROUP BY cs.cliente_id, cw.nombre, cw.id, cw.email, cw.telefono, cw.municipio
         ORDER BY facturacion_mensual DESC
@@ -202,7 +202,7 @@ export async function GET(request: NextRequest) {
       prisma.$queryRawUnsafe(
         `SELECT cs.*, COALESCE(cw.nombre, 'Cliente ' || cs.cliente_id) as nombre_cliente, cw.id as cliente_db_id
          FROM contratos_servicio cs
-         LEFT JOIN clientes_web cw ON cw.isp_gestion_id = cs.cliente_id
+         LEFT JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
          ${whereClause}
          ORDER BY cs.activo DESC, cs.fecha_inicio DESC
          LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
@@ -211,7 +211,7 @@ export async function GET(request: NextRequest) {
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*)::int as count
          FROM contratos_servicio cs
-         LEFT JOIN clientes_web cw ON cw.isp_gestion_id = cs.cliente_id
+         LEFT JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
          ${whereClause}`,
         ...params
       )
