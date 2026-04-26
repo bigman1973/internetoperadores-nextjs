@@ -9,7 +9,7 @@ async function main() {
   const email = 'juan.perez@email.com'
   const password = 'cliente123'
   
-  const existingClient = await prisma.clienteWeb.findUnique({
+  const existingClient = await prisma.clienteWeb.findFirst({
     where: { email }
   })
 
@@ -17,7 +17,7 @@ async function main() {
     console.log('✅ El cliente ya existe. Actualizando contraseña para asegurar acceso...')
     const passwordHash = await bcrypt.hash(password, 10)
     await prisma.clienteWeb.update({
-      where: { email },
+      where: { id: existingClient.id },
       data: { passwordHash }
     })
     console.log('✅ Contraseña actualizada.')
