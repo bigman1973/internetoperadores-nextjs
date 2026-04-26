@@ -83,3 +83,53 @@ export async function GET(
     )
   }
 }
+
+export async function PUT(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+
+    if (!session || session.user.userType !== 'admin') {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
+
+    const resolvedParams = await params
+    const clienteId = parseInt(resolvedParams.id)
+    const body = await request.json()
+
+    // Campos actualizables
+    const updateData: any = {}
+    const allowedFields = [
+      'nombre', 'email', 'nif', 'cif', 'personaFisica', 'nombreComercial',
+      'apellidos', 'nombrePila', 'telefono', 'movil', 'fax', 'web', 'movilSms',
+      'tipoCalle', 'domicilio', 'numero', 'edificio', 'bloque', 'escalera',
+      'piso', 'puerta', 'municipio', 'localidad', 'codigoPostal', 'provincia',
+      'pais', 'coordenadas', 'cuentaCargo', 'cuentaContable', 'formaPago',
+      'tipoIva', 'facturaElectronica', 'facturaMail', 'facturaPapel',
+      'alertaFacturacion', 'representante', 'cargoRepresentante', 'nifRepresentante',
+      'activo', 'baneado', 'idioma', 'recibePublicidad', 'aceptoLopd',
+      'newsletterSuscrito', 'origen', 'oficinaContable', 'organoGestor', 'unidadTramitadora'
+    ]
+
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field]
+      }
+    }
+
+    const cliente = await prisma.clienteWeb.update({
+      where: { id: clienteId },
+      data: updateData,
+    })
+
+    return NextResponse.json(cliente)
+  } catch (error) {
+    console.error('Error al actualizar cliente:', error)
+    return NextResponse.json(
+      { error: 'Error al actualizar cliente' },
+      { status: 500 }
+    )
+  }
+}
