@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
-import { syncFacturas, syncRemesas } from '@/lib/ispgestion/service';
+import { syncFacturasBatch, syncRemesasBatch } from '@/lib/ispgestion/sync-facturas';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 export async function POST() {
   try {
-    // Sincronizar facturas y remesas en paralelo
+    // Sincronizar facturas y remesas en paralelo (batch mode)
     const [facturasResult, remesasResult] = await Promise.all([
-      syncFacturas(),
-      syncRemesas()
+      syncFacturasBatch(),
+      syncRemesasBatch()
     ]);
 
     return NextResponse.json({
