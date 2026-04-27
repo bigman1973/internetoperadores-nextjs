@@ -46,6 +46,7 @@ interface Tarifa {
   publicarWeb: boolean
   publicarWebParticular: boolean
   publicarWebEmpresa: boolean
+  seccionWebParticular: string | null
   tipoPeriodicidad: number | null
   precioPeriodo: number | null
   precioPeriodoIva: number | null
@@ -114,6 +115,59 @@ function ServiceBadges({ tarifa }: { tarifa: Tarifa }) {
   )
 }
 
+// Inline toggle component for web publication
+function WebToggle({ checked, onChange, label, colorOn, colorOff }: {
+  checked: boolean; onChange: () => void; label: string; colorOn: string; colorOff: string
+}) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onChange() }}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-all ${
+        checked ? colorOn : colorOff
+      }`}
+      title={checked ? `Quitar de ${label}` : `Publicar en ${label}`}
+    >
+      <span className={`inline-block w-3 h-3 rounded-full border transition-all ${
+        checked ? 'bg-white border-white/50' : 'bg-gray-300 border-gray-400'
+      }`}>
+        {checked && (
+          <svg className="w-3 h-3 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+        )}
+      </span>
+      {label}
+    </button>
+  )
+}
+
+// Inline section selector
+function SeccionSelector({ value, onChange, disabled }: {
+  value: string | null; onChange: (val: string | null) => void; disabled: boolean
+}) {
+  return (
+    <select
+      value={value || ''}
+      onChange={(e) => { e.stopPropagation(); onChange(e.target.value || null) }}
+      onClick={(e) => e.stopPropagation()}
+      disabled={disabled}
+      className={`rounded text-[11px] font-medium py-0.5 px-1 border transition-all ${
+        disabled
+          ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+          : value
+            ? 'bg-orange-50 text-orange-700 border-orange-300'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'
+      }`}
+    >
+      <option value="">Sección...</option>
+      <option value="internet">Internet</option>
+      <option value="movil">Móvil</option>
+      <option value="packs">Packs</option>
+      <option value="ofertas">Ofertas</option>
+    </select>
+  )
+}
+
 type ViewMode = 'grouped' | 'list'
 
 export default function TarifasPageClient() {
@@ -137,6 +191,9 @@ export default function TarifasPageClient() {
   const [tarifas, setTarifas] = useState<Tarifa[]>([])
   const [listTotal, setListTotal] = useState(0)
   const [listTotalPages, setListTotalPages] = useState(1)
+
+  // Saving state for inline edits
+  const [savingWebPublish, setSavingWebPublish] = useState<Set<number>>(new Set())
 
   useEffect(() => { fetchStats() }, [])
   useEffect(() => { fetchData() }, [viewMode, search, tipoCliente, categoria, estado, page])
@@ -276,6 +333,43 @@ export default function TarifasPageClient() {
     } catch (err) { console.error(err) }
   }
 
+  // Inline web publication update
+  const handleWebPublishChange = async (id: number, field: string, value: any) => {
+    setSavingWebPublish(prev => new Set(prev).add(id))
+    try {
+      const res = await fetch(`/api/admin/tarifas/${id}/web-publish`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [field]: value }),
+      })
+      if (res.ok) {
+        const updated = await res.json()
+        const updateTarifa = (t: Tarifa): Tarifa => t.id === id ? {
+          ...t,
+          publicarWebParticular: updated.publicarWebParticular,
+          publicarWebEmpresa: updated.publicarWebEmpresa,
+          seccionWebParticular: updated.seccionWebParticular,
+        } : t
+
+        if (viewMode === 'list') {
+          setTarifas(prev => prev.map(updateTarifa))
+        } else {
+          setGrupos(prev => prev.map(g => ({
+            ...g,
+            tarifas: g.tarifas.map(updateTarifa)
+          })))
+        }
+      }
+    } catch (err) { console.error(err) }
+    finally {
+      setSavingWebPublish(prev => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
   const TarifaRow = ({ tarifa, showCategory = false }: { tarifa: Tarifa; showCategory?: boolean }) => (
     <>
       <tr className={`hover:bg-gray-50 cursor-pointer ${expandedTarifa === tarifa.id ? 'bg-gray-50' : ''}`}
@@ -288,11 +382,7 @@ export default function TarifasPageClient() {
                 <span className="text-sm font-medium text-gray-900">{tarifa.nombre}</span>
                 {tarifa.destacada && <StarIconSolid className="h-4 w-4 text-yellow-400" />}
               </div>
-              <div className="flex items-center gap-1 mt-0.5">
-                {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}
-                {tarifa.publicarWebParticular && <span className="inline-flex items-center rounded px-1 py-0 text-[10px] font-medium bg-blue-100 text-blue-700">Part.</span>}
-                {tarifa.publicarWebEmpresa && <span className="inline-flex items-center rounded px-1 py-0 text-[10px] font-medium bg-orange-100 text-orange-700">Emp.</span>}
-              </div>
+              {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}
             </div>
           </div>
         </td>
@@ -302,6 +392,33 @@ export default function TarifasPageClient() {
             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
           </td>
         )}
+        {/* Inline Web Publication Controls */}
+        <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+          <div className={`flex items-center gap-1.5 ${savingWebPublish.has(tarifa.id) ? 'opacity-50 pointer-events-none' : ''}`}>
+            <WebToggle
+              checked={tarifa.publicarWebParticular}
+              onChange={() => handleWebPublishChange(tarifa.id, 'publicarWebParticular', !tarifa.publicarWebParticular)}
+              label="Part."
+              colorOn="bg-blue-600 text-white"
+              colorOff="bg-gray-100 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+            />
+            <WebToggle
+              checked={tarifa.publicarWebEmpresa}
+              onChange={() => handleWebPublishChange(tarifa.id, 'publicarWebEmpresa', !tarifa.publicarWebEmpresa)}
+              label="Emp."
+              colorOn="bg-orange-600 text-white"
+              colorOff="bg-gray-100 text-gray-500 hover:bg-orange-50 hover:text-orange-600"
+            />
+            <SeccionSelector
+              value={tarifa.seccionWebParticular}
+              onChange={(val) => handleWebPublishChange(tarifa.id, 'seccionWebParticular', val)}
+              disabled={!tarifa.publicarWebParticular}
+            />
+            {savingWebPublish.has(tarifa.id) && (
+              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-500"></div>
+            )}
+          </div>
+        </td>
         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatCurrency(tarifa.precioSinIva)}</td>
         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{formatCurrency(tarifa.precioConIva)}</td>
         <td className="px-4 py-3 whitespace-nowrap text-sm">
@@ -326,7 +443,7 @@ export default function TarifasPageClient() {
       </tr>
       {expandedTarifa === tarifa.id && (
         <tr>
-          <td colSpan={showCategory ? 9 : 8} className="px-6 py-3 bg-gray-50">
+          <td colSpan={showCategory ? 10 : 9} className="px-6 py-3 bg-gray-50">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
               <div>
                 <span className="font-semibold text-gray-700 block">Precios</span>
@@ -372,7 +489,7 @@ export default function TarifasPageClient() {
                   {tarifa.noFacturar && <div className="text-amber-600 font-medium">No facturable</div>}
                   {tarifa.noProrrateable && <div className="text-amber-600">No prorrateable</div>}
                   {tarifa.publicarWeb && <div className="text-green-600">Publicada en web (ISP Gestión)</div>}
-                  {tarifa.publicarWebParticular && <div className="text-blue-600 font-medium">Publicada en Web Particulares</div>}
+                  {tarifa.publicarWebParticular && <div className="text-blue-600 font-medium">Publicada en Web Particulares {tarifa.seccionWebParticular && `→ ${tarifa.seccionWebParticular}`}</div>}
                   {tarifa.publicarWebEmpresa && <div className="text-orange-600 font-medium">Publicada en Web Empresas</div>}
                 </div>
               </div>
@@ -525,6 +642,7 @@ export default function TarifasPageClient() {
                               <tr>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
+                                <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (con IVA)</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Permanencia</th>
@@ -558,6 +676,7 @@ export default function TarifasPageClient() {
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Categoría</th>
+                      <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (con IVA)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Permanencia</th>
@@ -570,7 +689,7 @@ export default function TarifasPageClient() {
                       <TarifaRow key={tarifa.id} tarifa={tarifa} showCategory />
                     ))}
                     {tarifas.length === 0 && (
-                      <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
+                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
                     )}
                   </tbody>
                 </table>
