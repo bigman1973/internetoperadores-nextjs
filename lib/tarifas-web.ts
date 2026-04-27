@@ -27,6 +27,8 @@ export interface TarifaWeb {
   esTv: boolean;
   esCompuesta: boolean;
   seccionWebParticular: string | null;
+  contratosActivos?: number;
+  esPopular?: boolean;
 }
 
 const tarifaSelect = {
@@ -63,7 +65,70 @@ function convertTarifa(t: any): TarifaWeb {
     ...t,
     precioSinIva: Number(t.precioSinIva),
     precioConIva: Number(t.precioConIva),
+    contratosActivos: 0,
+    esPopular: false,
   };
+}
+
+// Get active contract counts per tarifa name
+async function getContratosActivosPorTarifa(): Promise<Record<string, number>> {
+  const result = await prisma.contratoServicio.groupBy({
+    by: ['tarifa'],
+    where: {
+      fechaBaja: null,
+    },
+    _count: {
+      tarifa: true,
+    },
+  });
+
+  const counts: Record<string, number> = {};
+  for (const r of result) {
+    // Use lowercase trimmed name as key for matching
+    const key = r.tarifa.toLowerCase().trim();
+    counts[key] = (counts[key] || 0) + r._count.tarifa;
+  }
+  return counts;
+}
+
+// Enrich tarifas with contract counts and mark the most popular
+function enrichWithContractData(
+  tarifas: TarifaWeb[],
+  contratosMap: Record<string, number>
+): TarifaWeb[] {
+  // Add contract counts
+  const enriched = tarifas.map(t => ({
+    ...t,
+    contratosActivos: contratosMap[t.nombre.toLowerCase().trim()] || 0,
+  }));
+
+  // Sort by contratos activos descending (most contracted first)
+  enriched.sort((a, b) => b.contratosActivos - a.contratosActivos);
+
+  return enriched;
+}
+
+// Mark the most popular tarifa in a list (top 3)
+// Rules: mark as popular the one with most contracts, unless:
+// - All have 0 contracts
+// - All 3 have the same number of contracts
+function markPopular(tarifas: TarifaWeb[]): TarifaWeb[] {
+  if (tarifas.length === 0) return tarifas;
+
+  const maxContratos = Math.max(...tarifas.map(t => t.contratosActivos || 0));
+
+  // If all have 0 contracts, don't mark any
+  if (maxContratos === 0) return tarifas;
+
+  // If all have the same number, don't mark any
+  const allSame = tarifas.every(t => (t.contratosActivos || 0) === (tarifas[0].contratosActivos || 0));
+  if (allSame) return tarifas;
+
+  // Mark the one with the most contracts as popular
+  return tarifas.map(t => ({
+    ...t,
+    esPopular: (t.contratosActivos || 0) === maxContratos,
+  }));
 }
 
 export async function getTarifasWeb(seccion: 'empresa' | 'particular'): Promise<{
@@ -81,30 +146,28 @@ export async function getTarifasWeb(seccion: 'empresa' | 'particular'): Promise<
     where.publicarWebEmpresa = true;
   }
 
-  const tarifas = await prisma.tarifa.findMany({
-    where,
-    select: tarifaSelect,
-    orderBy: [
-      { destacada: 'desc' },
-      { categoria: 'asc' },
-      { orden: 'asc' },
-      { nombre: 'asc' },
-    ],
-  });
+  const [tarifasRaw, contratosMap] = await Promise.all([
+    prisma.tarifa.findMany({
+      where,
+      select: tarifaSelect,
+    }),
+    getContratosActivosPorTarifa(),
+  ]);
 
-  const tarifasConverted = tarifas.map(convertTarifa);
+  const tarifasConverted = tarifasRaw.map(convertTarifa);
+  const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
 
   const categorias: Record<string, TarifaWeb[]> = {};
-  for (const t of tarifasConverted) {
+  for (const t of tarifasEnriched) {
     const cat = t.categoria || 'OTROS';
     if (!categorias[cat]) categorias[cat] = [];
     categorias[cat].push(t);
   }
 
   return {
-    tarifas: tarifasConverted,
+    tarifas: tarifasEnriched,
     categorias,
-    total: tarifasConverted.length,
+    total: tarifasEnriched.length,
   };
 }
 
@@ -114,60 +177,49 @@ export async function getTarifasSeccionParticular(seccionMenu: 'internet' | 'mov
   top3: TarifaWeb[];
   total: number;
 }> {
-  const tarifas = await prisma.tarifa.findMany({
-    where: {
-      activa: true,
-      publicarWebParticular: true,
-      seccionWebParticular: seccionMenu,
-    },
-    select: tarifaSelect,
-    orderBy: [
-      { destacada: 'desc' },
-      { orden: 'asc' },
-      { precioConIva: 'asc' },
-    ],
-  });
+  const [tarifasRaw, contratosMap] = await Promise.all([
+    prisma.tarifa.findMany({
+      where: {
+        activa: true,
+        publicarWebParticular: true,
+        seccionWebParticular: seccionMenu,
+      },
+      select: tarifaSelect,
+    }),
+    getContratosActivosPorTarifa(),
+  ]);
 
-  const tarifasConverted = tarifas.map(convertTarifa);
+  const tarifasConverted = tarifasRaw.map(convertTarifa);
+  const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
+
+  // Top 3 = the 3 most contracted, with popular marking
+  const top3 = markPopular(tarifasEnriched.slice(0, 3));
 
   return {
-    tarifas: tarifasConverted,
-    top3: tarifasConverted.slice(0, 3),
-    total: tarifasConverted.length,
+    tarifas: tarifasEnriched,
+    top3,
+    total: tarifasEnriched.length,
   };
 }
 
 // Get the top 3 highlighted tarifas for the landing page
 export async function getTarifasLandingParticular(): Promise<TarifaWeb[]> {
-  const tarifas = await prisma.tarifa.findMany({
-    where: {
-      activa: true,
-      publicarWebParticular: true,
-      destacada: true,
-    },
-    select: tarifaSelect,
-    orderBy: [
-      { orden: 'asc' },
-      { precioConIva: 'asc' },
-    ],
-    take: 3,
-  });
-
-  // If less than 3 destacadas, fill with cheapest non-destacadas
-  if (tarifas.length < 3) {
-    const extra = await prisma.tarifa.findMany({
+  const [tarifasRaw, contratosMap] = await Promise.all([
+    prisma.tarifa.findMany({
       where: {
         activa: true,
         publicarWebParticular: true,
-        destacada: false,
-        id: { notIn: tarifas.map(t => t.id) },
       },
       select: tarifaSelect,
-      orderBy: [{ precioConIva: 'asc' }],
-      take: 3 - tarifas.length,
-    });
-    tarifas.push(...extra);
-  }
+    }),
+    getContratosActivosPorTarifa(),
+  ]);
 
-  return tarifas.map(convertTarifa);
+  const tarifasConverted = tarifasRaw.map(convertTarifa);
+  const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
+
+  // Top 3 most contracted, with popular marking
+  const top3 = markPopular(tarifasEnriched.slice(0, 3));
+
+  return top3;
 }

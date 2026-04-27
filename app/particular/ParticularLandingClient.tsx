@@ -29,6 +29,8 @@ interface TarifaWeb {
   esTv: boolean;
   esCompuesta: boolean;
   seccionWebParticular: string | null;
+  contratosActivos?: number;
+  esPopular?: boolean;
 }
 
 function CheckIcon() {
@@ -186,11 +188,10 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
           {hasDynamicTarifas ? (
             <>
               <div className={`grid grid-cols-1 ${tarifasTop.length >= 3 ? 'md:grid-cols-3' : tarifasTop.length === 2 ? 'md:grid-cols-2 max-w-3xl mx-auto' : 'max-w-md mx-auto'} gap-6 sm:gap-8`}>
-                {tarifasTop.map((tarifa, idx) => (
+                {tarifasTop.map((tarifa) => (
                   <TarifaCard
                     key={tarifa.id}
                     tarifa={tarifa}
-                    featured={tarifasTop.length >= 3 && idx === 1}
                   />
                 ))}
               </div>

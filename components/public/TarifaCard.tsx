@@ -17,6 +17,8 @@ interface TarifaCardProps {
   esCompuesta: boolean;
   destacada: boolean;
   categoria: string;
+  contratosActivos?: number;
+  esPopular?: boolean;
 }
 
 function CheckIcon() {
@@ -27,7 +29,7 @@ function CheckIcon() {
   );
 }
 
-export default function TarifaCard({ tarifa, featured = false }: { tarifa: TarifaCardProps; featured?: boolean }) {
+export default function TarifaCard({ tarifa }: { tarifa: TarifaCardProps }) {
   const features: string[] = [];
 
   if (tarifa.velocidadBajada) features.push(`${tarifa.velocidadBajada}`);
@@ -49,11 +51,13 @@ export default function TarifaCard({ tarifa, featured = false }: { tarifa: Tarif
   // Limit to 4 features
   const displayFeatures = features.slice(0, 4);
 
-  if (featured) {
+  const isPopular = tarifa.esPopular === true;
+
+  if (isPopular) {
     return (
       <div className="bg-orange-500 text-white rounded-2xl p-8 shadow-xl relative md:scale-105 flex flex-col">
         <div className="absolute top-4 right-4 bg-white text-orange-500 px-3 py-1 rounded-full text-sm font-semibold">
-          Popular
+          La Más Elegida
         </div>
         <h3 className="text-2xl font-bold mb-1">{tarifa.nombre}</h3>
         <p className="text-sm text-orange-100 mb-1">{tarifa.categoria}</p>
@@ -81,9 +85,6 @@ export default function TarifaCard({ tarifa, featured = false }: { tarifa: Tarif
 
   return (
     <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-orange-500 hover:shadow-lg transition-all flex flex-col">
-      {tarifa.destacada && (
-        <span className="inline-block mb-2 text-xs font-semibold text-orange-500 bg-orange-50 px-2 py-0.5 rounded-full w-fit">Destacada</span>
-      )}
       <h3 className="text-2xl font-bold text-gray-900 mb-1">{tarifa.nombre}</h3>
       <p className="text-sm text-gray-500 mb-1">{tarifa.categoria}</p>
       <div className="mb-6 mt-3">

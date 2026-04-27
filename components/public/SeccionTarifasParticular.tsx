@@ -29,6 +29,8 @@ interface TarifaWeb {
   esTv: boolean;
   esCompuesta: boolean;
   seccionWebParticular: string | null;
+  contratosActivos?: number;
+  esPopular?: boolean;
 }
 
 interface Props {
@@ -114,11 +116,10 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
           {top3.length > 0 ? (
             <>
               <div className={`grid grid-cols-1 ${top3.length >= 3 ? 'md:grid-cols-3' : top3.length === 2 ? 'md:grid-cols-2 max-w-3xl mx-auto' : 'max-w-md mx-auto'} gap-8`}>
-                {top3.map((tarifa, idx) => (
+                {top3.map((tarifa) => (
                   <TarifaCard
                     key={tarifa.id}
                     tarifa={tarifa}
-                    featured={top3.length >= 3 && idx === 1}
                   />
                 ))}
               </div>
