@@ -61,6 +61,8 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     destacada: false,
     activa: true,
     publicarWeb: false,
+    publicarWebParticular: false,
+    publicarWebEmpresa: false,
     soloClientesExistentes: false,
     
     // Otros
@@ -111,6 +113,8 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             destacada: data.destacada || false,
             activa: data.activa ?? true,
             publicarWeb: data.publicarWeb || false,
+            publicarWebParticular: data.publicarWebParticular || false,
+            publicarWebEmpresa: data.publicarWebEmpresa || false,
             soloClientesExistentes: data.soloClientesExistentes || false,
             garantia: data.garantia || '',
             observaciones: data.observaciones || '',
@@ -206,6 +210,8 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           destacada: formData.destacada,
           activa: formData.activa,
           publicarWeb: formData.publicarWeb,
+          publicarWebParticular: formData.publicarWebParticular,
+          publicarWebEmpresa: formData.publicarWebEmpresa,
           soloClientesExistentes: formData.soloClientesExistentes,
           garantia: formData.garantia || null,
           observaciones: formData.observaciones || null,
@@ -469,7 +475,40 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             </div>
           </div>
 
-          {/* SECCIÓN 7: Configuración y Estado */}
+          {/* SECCIÓN 7: Publicación en Web */}
+          <div className="bg-white shadow rounded-lg p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
+              🌐 Publicación en Web
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">Estos campos son independientes de ISP Gestión y controlan dónde se muestra esta tarifa en la web pública.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={`rounded-lg border-2 p-4 transition-colors ${formData.publicarWebParticular ? 'border-blue-500 bg-blue-50' : 'border-gray-200 bg-gray-50'}`}>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" name="publicarWebParticular" checked={formData.publicarWebParticular} onChange={handleChange} className="w-5 h-5 text-blue-600 rounded border-gray-300" />
+                  <div>
+                    <span className="text-sm font-semibold text-gray-900 block">Publicar en Particulares</span>
+                    <span className="text-xs text-gray-500">Visible en /tarifas/particular</span>
+                  </div>
+                </label>
+              </div>
+              <div className={`rounded-lg border-2 p-4 transition-colors ${formData.publicarWebEmpresa ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input type="checkbox" name="publicarWebEmpresa" checked={formData.publicarWebEmpresa} onChange={handleChange} className="w-5 h-5 text-orange-600 rounded border-gray-300" />
+                  <div>
+                    <span className="text-sm font-semibold text-gray-900 block">Publicar en Empresas</span>
+                    <span className="text-xs text-gray-500">Visible en /tarifas/empresa</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+            {formData.publicarWeb && (
+              <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-md">
+                <p className="text-xs text-amber-700">⚠️ El campo "Publicar en Web" de ISP Gestión está activado. Los campos de arriba son independientes y controlan la publicación real en la web.</p>
+              </div>
+            )}
+          </div>
+
+          {/* SECCIÓN 7b: Configuración y Estado */}
           <div className="bg-white shadow rounded-lg p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">
               ⚙️ Configuración y Estado
@@ -485,7 +524,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" name="publicarWeb" checked={formData.publicarWeb} onChange={handleChange} className="w-4 h-4 text-blue-600 rounded border-gray-300" />
-                <span className="text-sm font-medium text-gray-700">Publicar en Web</span>
+                <span className="text-sm font-medium text-gray-700">Publicar en Web (ISP Gestión)</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" name="soloClientesExistentes" checked={formData.soloClientesExistentes} onChange={handleChange} className="w-4 h-4 text-purple-600 rounded border-gray-300" />

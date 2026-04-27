@@ -44,6 +44,8 @@ interface Tarifa {
   noFacturar: boolean
   noProrrateable: boolean
   publicarWeb: boolean
+  publicarWebParticular: boolean
+  publicarWebEmpresa: boolean
   tipoPeriodicidad: number | null
   precioPeriodo: number | null
   precioPeriodoIva: number | null
@@ -286,7 +288,11 @@ export default function TarifasPageClient() {
                 <span className="text-sm font-medium text-gray-900">{tarifa.nombre}</span>
                 {tarifa.destacada && <StarIconSolid className="h-4 w-4 text-yellow-400" />}
               </div>
-              {tarifa.ispGestionId && <div className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</div>}
+              <div className="flex items-center gap-1 mt-0.5">
+                {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}
+                {tarifa.publicarWebParticular && <span className="inline-flex items-center rounded px-1 py-0 text-[10px] font-medium bg-blue-100 text-blue-700">Part.</span>}
+                {tarifa.publicarWebEmpresa && <span className="inline-flex items-center rounded px-1 py-0 text-[10px] font-medium bg-orange-100 text-orange-700">Emp.</span>}
+              </div>
             </div>
           </div>
         </td>
@@ -365,7 +371,9 @@ export default function TarifasPageClient() {
                   {tarifa.conceptoFacturacion && <div>Facturación: <span className="font-medium">{tarifa.conceptoFacturacion}</span></div>}
                   {tarifa.noFacturar && <div className="text-amber-600 font-medium">No facturable</div>}
                   {tarifa.noProrrateable && <div className="text-amber-600">No prorrateable</div>}
-                  {tarifa.publicarWeb && <div className="text-green-600">Publicada en web</div>}
+                  {tarifa.publicarWeb && <div className="text-green-600">Publicada en web (ISP Gestión)</div>}
+                  {tarifa.publicarWebParticular && <div className="text-blue-600 font-medium">Publicada en Web Particulares</div>}
+                  {tarifa.publicarWebEmpresa && <div className="text-orange-600 font-medium">Publicada en Web Empresas</div>}
                 </div>
               </div>
             </div>
