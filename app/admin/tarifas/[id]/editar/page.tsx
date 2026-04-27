@@ -63,6 +63,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     publicarWeb: false,
     publicarWebParticular: false,
     publicarWebEmpresa: false,
+    seccionWebParticular: '',
     soloClientesExistentes: false,
     
     // Otros
@@ -115,6 +116,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             publicarWeb: data.publicarWeb || false,
             publicarWebParticular: data.publicarWebParticular || false,
             publicarWebEmpresa: data.publicarWebEmpresa || false,
+            seccionWebParticular: data.seccionWebParticular || '',
             soloClientesExistentes: data.soloClientesExistentes || false,
             garantia: data.garantia || '',
             observaciones: data.observaciones || '',
@@ -212,6 +214,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           publicarWeb: formData.publicarWeb,
           publicarWebParticular: formData.publicarWebParticular,
           publicarWebEmpresa: formData.publicarWebEmpresa,
+          seccionWebParticular: formData.seccionWebParticular || null,
           soloClientesExistentes: formData.soloClientesExistentes,
           garantia: formData.garantia || null,
           observaciones: formData.observaciones || null,
@@ -490,6 +493,19 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                     <span className="text-xs text-gray-500">Visible en /tarifas/particular</span>
                   </div>
                 </label>
+                {formData.publicarWebParticular && (
+                  <div className="mt-3 pt-3 border-t border-blue-200">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Sección del menú</label>
+                    <select name="seccionWebParticular" value={formData.seccionWebParticular} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                      <option value="">Sin sección específica</option>
+                      <option value="internet">Internet</option>
+                      <option value="movil">Móvil</option>
+                      <option value="packs">Packs</option>
+                      <option value="ofertas">Ofertas</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">Aparecerá en la página correspondiente del menú de Particulares</p>
+                  </div>
+                )}
               </div>
               <div className={`rounded-lg border-2 p-4 transition-colors ${formData.publicarWebEmpresa ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-gray-50'}`}>
                 <label className="flex items-center gap-3 cursor-pointer">
