@@ -35,10 +35,15 @@ export default function EditarClientePage() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [form, setForm] = useState<any>({})
-  const [activeTab, setActiveTab] = useState<'datos' | 'contratos'>('datos')
+  const [activeTab, setActiveTab] = useState<'datos' | 'contratos' | 'facturas'>('datos')
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [contratosLoading, setContratosLoading] = useState(false)
   const [contratosFilter, setContratosFilter] = useState<'todos' | 'activos' | 'bajas'>('activos')
+  const [facturas, setFacturas] = useState<any[]>([])
+  const [facturasStats, setFacturasStats] = useState<any>(null)
+  const [facturasPorMes, setFacturasPorMes] = useState<any[]>([])
+  const [facturasLoading, setFacturasLoading] = useState(false)
+  const [facturasFilter, setFacturasFilter] = useState<'todas' | 'cobradas' | 'pendientes'>('todas')
 
   useEffect(() => {
     const fetchCliente = async () => {
@@ -63,6 +68,13 @@ export default function EditarClientePage() {
     }
   }, [form.ispGestionId, activeTab])
 
+  // Fetch facturas when tab changes
+  useEffect(() => {
+    if (form.id && activeTab === 'facturas' && facturas.length === 0) {
+      fetchFacturas()
+    }
+  }, [form.id, activeTab])
+
   const fetchContratos = async () => {
     if (!form.ispGestionId) return
     setContratosLoading(true)
@@ -75,6 +87,22 @@ export default function EditarClientePage() {
       console.error('Error fetching contratos:', err)
     } finally {
       setContratosLoading(false)
+    }
+  }
+
+  const fetchFacturas = async () => {
+    setFacturasLoading(true)
+    try {
+      const res = await fetch(`/api/admin/clientes/${clienteId}/facturas`)
+      if (!res.ok) throw new Error('Error al cargar facturas')
+      const data = await res.json()
+      setFacturas(data.facturas || [])
+      setFacturasStats(data.stats || null)
+      setFacturasPorMes(data.porMes || [])
+    } catch (err: any) {
+      console.error('Error fetching facturas:', err)
+    } finally {
+      setFacturasLoading(false)
     }
   }
 
@@ -202,6 +230,23 @@ export default function EditarClientePage() {
                 activeTab === 'contratos' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
               }`}>
                 {contratosActivos.length} activos
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab('facturas')}
+            className={`whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm flex items-center gap-2 ${
+              activeTab === 'facturas'
+                ? 'border-orange-500 text-orange-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Facturas
+            {facturasStats && facturasStats.total > 0 && (
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                activeTab === 'facturas' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'
+              }`}>
+                {facturasStats.total}
               </span>
             )}
           </button>
@@ -704,6 +749,157 @@ export default function EditarClientePage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+      {/* TAB: Facturas */}
+      {activeTab === 'facturas' && (
+        <div className="space-y-6">
+          {/* KPIs de facturación */}
+          {facturasStats && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+                <dt className="text-sm font-medium text-gray-500">Total Facturas</dt>
+                <dd className="mt-1 text-2xl font-semibold text-gray-900">{facturasStats.total}</dd>
+              </div>
+              <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+                <dt className="text-sm font-medium text-gray-500">Cobradas</dt>
+                <dd className="mt-1 text-2xl font-semibold text-green-600">{facturasStats.cobradas}</dd>
+              </div>
+              <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+                <dt className="text-sm font-medium text-gray-500">Pendientes</dt>
+                <dd className="mt-1 text-2xl font-semibold text-yellow-600">{facturasStats.pendientes}</dd>
+              </div>
+              <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+                <dt className="text-sm font-medium text-gray-500">Total Facturado (2026)</dt>
+                <dd className="mt-1 text-2xl font-semibold text-orange-600">
+                  {facturasStats.totalFacturado?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                </dd>
+              </div>
+              <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+                <dt className="text-sm font-medium text-gray-500">Media Mensual</dt>
+                <dd className="mt-1 text-2xl font-semibold text-blue-600">
+                  {facturasStats.facturacionMensual?.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                </dd>
+              </div>
+            </div>
+          )}
+
+          {/* Gráfico de facturación mensual */}
+          {facturasPorMes.length > 0 && (
+            <div className="bg-white rounded-lg shadow border border-gray-200 p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Facturación Mensual</h3>
+              <div className="space-y-2">
+                {facturasPorMes.map((m) => {
+                  const maxTotal = Math.max(...facturasPorMes.map(x => x.total))
+                  const pct = maxTotal > 0 ? (m.total / maxTotal) * 100 : 0
+                  const mesLabel = new Date(m.mes + '-01').toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+                  return (
+                    <div key={m.mes} className="flex items-center gap-4">
+                      <span className="text-sm text-gray-600 w-36 text-right capitalize">{mesLabel}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
+                        <div
+                          className="bg-orange-500 h-full rounded-full flex items-center justify-end pr-2"
+                          style={{ width: `${Math.max(pct, 8)}%` }}
+                        >
+                          <span className="text-xs font-medium text-white">
+                            {m.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-500 w-24 text-right">{m.count} fact.</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Filtro de facturas */}
+          <div className="flex gap-2">
+            {(['todas', 'cobradas', 'pendientes'] as const).map((f) => {
+              const count = f === 'todas' ? facturas.length :
+                f === 'cobradas' ? facturas.filter(fa => fa.situacion === 'COBRADA').length :
+                facturas.filter(fa => fa.situacion === 'PENDIENTE').length
+              return (
+                <button
+                  key={f}
+                  onClick={() => setFacturasFilter(f)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium ${
+                    facturasFilter === f
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {f === 'todas' ? `Todas (${count})` :
+                   f === 'cobradas' ? `Cobradas (${count})` :
+                   `Pendientes (${count})`}
+                </button>
+              )
+            })}
+          </div>
+
+          {facturasLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+              <span className="ml-3 text-gray-500">Cargando facturas...</span>
+            </div>
+          ) : facturas.length === 0 ? (
+            <div className="bg-white rounded-lg shadow border border-gray-200 p-8 text-center">
+              <p className="text-gray-500">No se encontraron facturas para este cliente.</p>
+              <p className="text-sm text-gray-400 mt-2">Asegúrate de haber sincronizado las facturas desde ISP Gestión.</p>
+            </div>
+          ) : (
+            <div className="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Documento</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Serie</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Base</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">IVA</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Pendiente</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {facturas
+                    .filter(f => {
+                      if (facturasFilter === 'cobradas') return f.situacion === 'COBRADA'
+                      if (facturasFilter === 'pendientes') return f.situacion === 'PENDIENTE'
+                      return true
+                    })
+                    .map((f) => (
+                    <tr key={f.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{f.documento || f.numeroDocumento}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{new Date(f.fecha).toLocaleDateString('es-ES')}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">{f.serieFactura}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right">{Number(f.base).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
+                      <td className="px-4 py-3 text-sm text-gray-500 text-right">{Number(f.totalImpuesto).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
+                      <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{Number(f.total).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                          f.situacion === 'COBRADA' ? 'bg-green-100 text-green-800' :
+                          f.situacion === 'PENDIENTE' ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {f.situacion}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-right">
+                        {Number(f.totalPendiente) > 0 ? (
+                          <span className="text-red-600 font-medium">{Number(f.totalPendiente).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</span>
+                        ) : (
+                          <span className="text-gray-400">0,00&euro;</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

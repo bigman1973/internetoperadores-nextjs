@@ -11,7 +11,8 @@ import {
   CogIcon,
   ArrowTrendingUpIcon,
   DocumentTextIcon,
-  DocumentDuplicateIcon
+  DocumentDuplicateIcon,
+  BanknotesIcon
 } from '@heroicons/react/24/outline'
 
 interface AdminSidebarProps {
@@ -27,6 +28,7 @@ const navigation = [
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
   { name: 'Clientes', href: '/admin/clientes', icon: UsersIcon },
   { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
+  { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },

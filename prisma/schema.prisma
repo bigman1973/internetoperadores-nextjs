@@ -235,6 +235,57 @@ model ContratoServicio {
   @@map("contratos_servicio")
 }
 
+model Factura {
+  id                Int       @id @default(autoincrement())
+  ispGestionId      Int       @unique @map("isp_gestion_id")
+  serieFactura      String    @map("serie_factura")
+  numeroDocumento   String    @map("numero_documento")
+  documento         String?
+  fecha             DateTime  @db.Date
+  idCliente         Int       @map("id_cliente")  // id_cliente de ISP Gestión
+  codigoCliente     String    @map("codigo_cliente")
+  nombreCompleto    String    @map("nombre_completo")
+  nifCif            String?   @map("nif_cif")
+  base              Decimal   @db.Decimal(10, 2)
+  totalImpuesto     Decimal   @map("total_impuesto") @db.Decimal(10, 2)
+  total             Decimal   @db.Decimal(10, 2)
+  situacion         String    // COBRADA, PENDIENTE, etc.
+  totalPendiente    Decimal   @map("total_pendiente") @db.Decimal(10, 2)
+  ejercicio         Int       @default(2026)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([idCliente])
+  @@index([codigoCliente])
+  @@index([fecha])
+  @@index([serieFactura])
+  @@index([situacion])
+  @@index([ejercicio])
+  @@map("facturas")
+}
+
+model Remesa {
+  id                Int       @id @default(autoincrement())
+  ispGestionId      Int       @unique @map("isp_gestion_id")
+  nombre            String
+  fecha             DateTime  @db.Date
+  nifPresentador    String?   @map("nif_presentador")
+  nombrePresentador String?   @map("nombre_presentador")
+  ibanAcreedor      String?   @map("iban_acreedor")
+  remesado          Boolean   @default(false)
+  contabilizado     Boolean   @default(false)
+  totalImporte      Decimal   @map("total_importe") @db.Decimal(10, 2)
+  numeroRegistros   Int       @map("numero_registros")
+  archivoGenerado   String?   @map("archivo_generado")
+  ejercicio         Int       @default(2026)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([fecha])
+  @@index([ejercicio])
+  @@map("remesas")
+}
+
 model NotificacionCliente {
   id         Int              @id @default(autoincrement())
   clienteId  Int              @map("cliente_id")
