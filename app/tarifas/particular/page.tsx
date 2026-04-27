@@ -1,7 +1,8 @@
 import { getTarifasWeb } from '@/lib/tarifas-web';
 import TarifasParticularClient from './TarifasParticularClient';
+import { unstable_noStore as noStore } from 'next/cache';
 
-export const revalidate = 3600; // Revalidar cada hora
+export const dynamic = 'force-dynamic';
 
 export const metadata = {
   title: 'Tarifas para Particulares | Internet Operadores',
@@ -9,6 +10,7 @@ export const metadata = {
 };
 
 export default async function TarifasParticularPage() {
+  noStore();
   const { tarifas, categorias, total } = await getTarifasWeb('particular');
 
   return <TarifasParticularClient tarifas={tarifas} categorias={categorias} total={total} />;

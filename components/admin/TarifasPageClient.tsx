@@ -514,6 +514,7 @@ export default function TarifasPageClient() {
                       <div className="flex items-center gap-4">
                         <span className="text-sm text-gray-600"><span className="font-bold text-gray-900">{grupo.total}</span> tarifas</span>
                         <span className="inline-flex items-center rounded-full bg-green-100 text-green-800 px-2 py-0.5 text-xs font-medium">{grupo.activas} activas</span>
+                        {(() => { const webP = grupo.tarifas.filter((t: Tarifa) => t.publicarWebParticular).length; const webE = grupo.tarifas.filter((t: Tarifa) => t.publicarWebEmpresa).length; return (webP > 0 || webE > 0) ? (<span className="flex items-center gap-1">{webP > 0 && <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-xs font-medium">{webP} Part.</span>}{webE > 0 && <span className="inline-flex items-center rounded-full bg-orange-100 text-orange-700 px-2 py-0.5 text-xs font-medium">{webE} Emp.</span>}</span>) : null; })()}
                       </div>
                     </button>
                     {expandedCats.has(grupo.categoria) && (
