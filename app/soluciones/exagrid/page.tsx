@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const beneficios = [
   { titulo: 'Velocidad Sin Igual', items: ['Backups 3X más rápidos', 'Recuperaciones 20X más rápidas', 'Ventana de backup fija'], icono: '⚡' },
@@ -141,6 +142,7 @@ export default function ExagridPage() {
         </div>
       </section>
 
+      <ProductosSolucionDynamic solucion="exagrid" solucionNombre="ExaGrid Backup" />
       {/* CTA Final */}
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">

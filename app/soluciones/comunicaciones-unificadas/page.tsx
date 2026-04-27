@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const partners = [
   {
@@ -199,6 +200,7 @@ export default function ComunicacionesUnificadasPage() {
       </section>
 
       {/* CTA Final */}
+      <ProductosSolucionDynamic solucion="comunicaciones-unificadas" solucionNombre="Comunicaciones Unificadas" />
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">

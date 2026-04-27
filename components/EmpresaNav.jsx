@@ -30,6 +30,7 @@ const recursos = [
 ];
 
 export default function EmpresaNav({ currentPage = '' }) {
+  const [productosOpen, setProductosOpen] = useState(false);
   const [solucionesOpen, setSolucionesOpen] = useState(false);
   const [sectoresOpen, setSectoresOpen] = useState(false);
   const [recursosOpen, setRecursosOpen] = useState(false);
@@ -83,9 +84,40 @@ export default function EmpresaNav({ currentPage = '' }) {
             
             {/* Desktop Menu */}
             <div className="hidden lg:flex gap-6 xl:gap-8 text-sm xl:text-base font-medium">
-              <Link href="/tarifas/empresa" className={`transition-colors ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
-                Productos
-              </Link>
+              {/* Productos Dropdown - grouped by solution */}
+              <div 
+                className="relative"
+                onMouseEnter={() => setProductosOpen(true)}
+                onMouseLeave={() => setProductosOpen(false)}
+              >
+                <Link 
+                  href="/tarifas/empresa" 
+                  className={`transition-colors flex items-center gap-1 ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
+                >
+                  Productos
+                  <svg className={`w-4 h-4 transition-transform ${productosOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </Link>
+                
+                <div className={`absolute top-full left-0 mt-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-2 transition-all duration-200 ${productosOpen ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-2'}`}>
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <Link href="/tarifas/empresa" className="text-orange-600 font-semibold text-sm hover:text-orange-700">
+                      Ver todos los productos →
+                    </Link>
+                  </div>
+                  {soluciones.map((solucion) => (
+                    <Link 
+                      key={solucion.href}
+                      href={solucion.href} 
+                      className="block px-4 py-3 hover:bg-orange-50 transition-colors"
+                    >
+                      <span className="font-semibold text-gray-900 text-sm">{solucion.nombre}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{solucion.descripcion}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
               
               {/* Soluciones Dropdown */}
               <div 
@@ -239,7 +271,21 @@ export default function EmpresaNav({ currentPage = '' }) {
           {mobileMenuOpen && (
             <div className="lg:hidden py-4 border-t">
               <div className="flex flex-col gap-2">
-                <Link href="/tarifas/empresa" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Productos</Link>
+                {/* Mobile Productos */}
+                <div className="py-2">
+                  <Link href="/tarifas/empresa" className="text-orange-600 font-semibold">Productos</Link>
+                  <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
+                    {soluciones.map((solucion) => (
+                      <Link 
+                        key={solucion.href}
+                        href={solucion.href} 
+                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                      >
+                        {solucion.nombre}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
                 
                 {/* Mobile Soluciones */}
                 <div className="py-2">

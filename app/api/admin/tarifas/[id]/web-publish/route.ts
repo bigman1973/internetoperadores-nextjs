@@ -33,9 +33,16 @@ export async function PATCH(
     }
     if ('publicarWebEmpresa' in body) {
       data.publicarWebEmpresa = body.publicarWebEmpresa
+      // If disabling empresa, also clear the section
+      if (!body.publicarWebEmpresa) {
+        data.seccionWebEmpresa = null
+      }
     }
     if ('seccionWebParticular' in body) {
       data.seccionWebParticular = body.seccionWebParticular || null
+    }
+    if ('seccionWebEmpresa' in body) {
+      data.seccionWebEmpresa = body.seccionWebEmpresa || null
     }
 
     const tarifa = await prisma.tarifa.update({
@@ -46,6 +53,7 @@ export async function PATCH(
         publicarWebParticular: true,
         publicarWebEmpresa: true,
         seccionWebParticular: true,
+        seccionWebEmpresa: true,
       },
     })
 

@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const planes = [
   { nombre: 'Básico', precio: 'Desde 199€/mes', descripcion: 'Para pequeñas empresas', caracteristicas: ['Hasta 10 equipos', 'Soporte 8x5', 'Monitorización básica', 'Tiempo respuesta 8h'] },
@@ -73,6 +74,7 @@ export default function MantenimientoITPage() {
           </div>
         </div>
       </section>
+      <ProductosSolucionDynamic solucion="mantenimiento-it" solucionNombre="Mantenimiento IT" />
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">

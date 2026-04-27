@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const soluciones = [
   { titulo: 'Conexión con Respaldo', descripcion: 'Línea principal con backup automático. Si falla la fibra, se activa 5G, WIMAX o Satélite sin intervención manual.', caracteristicas: ['Failover automático', 'Sin cortes de servicio', 'Múltiples tecnologías', 'Monitorización 24/7'] },
@@ -57,6 +58,7 @@ export default function ConectividadAvanzadaPage() {
           </div>
         </div>
       </section>
+      <ProductosSolucionDynamic solucion="conectividad-avanzada" solucionNombre="Conectividad Avanzada" />
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">

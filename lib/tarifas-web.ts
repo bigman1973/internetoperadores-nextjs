@@ -27,6 +27,7 @@ export interface TarifaWeb {
   esTv: boolean;
   esCompuesta: boolean;
   seccionWebParticular: string | null;
+  seccionWebEmpresa: string | null;
   contratosActivos?: number;
   esPopular?: boolean;
 }
@@ -58,6 +59,7 @@ const tarifaSelect = {
   esTv: true,
   esCompuesta: true,
   seccionWebParticular: true,
+  seccionWebEmpresa: true,
 };
 
 function convertTarifa(t: any): TarifaWeb {
@@ -183,6 +185,37 @@ export async function getTarifasSeccionParticular(seccionMenu: 'internet' | 'mov
         activa: true,
         publicarWebParticular: true,
         seccionWebParticular: seccionMenu,
+      },
+      select: tarifaSelect,
+    }),
+    getContratosActivosPorTarifa(),
+  ]);
+
+  const tarifasConverted = tarifasRaw.map(convertTarifa);
+  const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
+
+  // Top 3 = the 3 most contracted, with popular marking
+  const top3 = markPopular(tarifasEnriched.slice(0, 3));
+
+  return {
+    tarifas: tarifasEnriched,
+    top3,
+    total: tarifasEnriched.length,
+  };
+}
+
+// Get tarifas for a specific solution of the empresa section
+export async function getTarifasSolucionEmpresa(solucion: string): Promise<{
+  tarifas: TarifaWeb[];
+  top3: TarifaWeb[];
+  total: number;
+}> {
+  const [tarifasRaw, contratosMap] = await Promise.all([
+    prisma.tarifa.findMany({
+      where: {
+        activa: true,
+        publicarWebEmpresa: true,
+        seccionWebEmpresa: solucion,
       },
       select: tarifaSelect,
     }),

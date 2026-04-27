@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const ventajas = [
   { titulo: 'Operador autorizado', descripcion: 'Somos operador de telecomunicaciones autorizado por la CNMC. Facturación directa sin intermediarios.' },
@@ -59,6 +60,7 @@ export default function MovilesPage() {
           </div>
         </div>
       </section>
+      <ProductosSolucionDynamic solucion="moviles" solucionNombre="Móviles Empresa" />
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">

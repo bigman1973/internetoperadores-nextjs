@@ -47,6 +47,7 @@ interface Tarifa {
   publicarWebParticular: boolean
   publicarWebEmpresa: boolean
   seccionWebParticular: string | null
+  seccionWebEmpresa: string | null
   tipoPeriodicidad: number | null
   precioPeriodo: number | null
   precioPeriodoIva: number | null
@@ -164,6 +165,43 @@ function SeccionSelector({ value, onChange, disabled }: {
       <option value="movil">Móvil</option>
       <option value="packs">Packs</option>
       <option value="ofertas">Ofertas</option>
+    </select>
+  )
+}
+
+// Inline empresa section selector
+function SeccionEmpresaSelector({ value, onChange, disabled }: {
+  value: string | null; onChange: (val: string | null) => void; disabled: boolean
+}) {
+  const labels: Record<string, string> = {
+    'conectividad-avanzada': 'Conectividad',
+    'comunicaciones-unificadas': 'Comunicaciones',
+    'infraestructura-red': 'Infraestructura',
+    'mantenimiento-it': 'Mant. IT',
+    'moviles': 'Móviles',
+    'exagrid': 'ExaGrid',
+  }
+  return (
+    <select
+      value={value || ''}
+      onChange={(e) => { e.stopPropagation(); onChange(e.target.value || null) }}
+      onClick={(e) => e.stopPropagation()}
+      disabled={disabled}
+      className={`rounded text-[11px] font-medium py-0.5 px-1 border transition-all ${
+        disabled
+          ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
+          : value
+            ? 'bg-orange-50 text-orange-700 border-orange-300'
+            : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'
+      }`}
+    >
+      <option value="">Solución...</option>
+      <option value="conectividad-avanzada">Conectividad Avanzada</option>
+      <option value="comunicaciones-unificadas">Comunicaciones Unificadas</option>
+      <option value="infraestructura-red">Infraestructura de Red</option>
+      <option value="mantenimiento-it">Mantenimiento IT</option>
+      <option value="moviles">Móviles Empresa</option>
+      <option value="exagrid">ExaGrid Backup</option>
     </select>
   )
 }
@@ -349,6 +387,7 @@ export default function TarifasPageClient() {
           publicarWebParticular: updated.publicarWebParticular,
           publicarWebEmpresa: updated.publicarWebEmpresa,
           seccionWebParticular: updated.seccionWebParticular,
+          seccionWebEmpresa: updated.seccionWebEmpresa,
         } : t
 
         if (viewMode === 'list') {
@@ -413,6 +452,11 @@ export default function TarifasPageClient() {
               value={tarifa.seccionWebParticular}
               onChange={(val) => handleWebPublishChange(tarifa.id, 'seccionWebParticular', val)}
               disabled={!tarifa.publicarWebParticular}
+            />
+            <SeccionEmpresaSelector
+              value={tarifa.seccionWebEmpresa}
+              onChange={(val) => handleWebPublishChange(tarifa.id, 'seccionWebEmpresa', val)}
+              disabled={!tarifa.publicarWebEmpresa}
             />
             {savingWebPublish.has(tarifa.id) && (
               <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-500"></div>

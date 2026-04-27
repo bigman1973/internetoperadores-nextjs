@@ -2,6 +2,7 @@
 import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 
 const servicios = [
   { titulo: 'WiFi Empresarial', descripcion: 'Diseño e implementación de redes WiFi de alto rendimiento. Cobertura total, roaming seamless y gestión centralizada.', caracteristicas: ['Alta densidad de usuarios', 'Roaming sin cortes', 'Gestión cloud', 'Analíticas de uso'] },
@@ -59,6 +60,7 @@ export default function InfraestructuraRedPage() {
           </div>
         </div>
       </section>
+      <ProductosSolucionDynamic solucion="infraestructura-red" solucionNombre="Infraestructura de Red" />
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">

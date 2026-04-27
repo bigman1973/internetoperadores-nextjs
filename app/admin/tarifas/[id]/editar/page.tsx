@@ -64,6 +64,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     publicarWebParticular: false,
     publicarWebEmpresa: false,
     seccionWebParticular: '',
+    seccionWebEmpresa: '',
     soloClientesExistentes: false,
     
     // Otros
@@ -117,6 +118,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             publicarWebParticular: data.publicarWebParticular || false,
             publicarWebEmpresa: data.publicarWebEmpresa || false,
             seccionWebParticular: data.seccionWebParticular || '',
+            seccionWebEmpresa: data.seccionWebEmpresa || '',
             soloClientesExistentes: data.soloClientesExistentes || false,
             garantia: data.garantia || '',
             observaciones: data.observaciones || '',
@@ -215,6 +217,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           publicarWebParticular: formData.publicarWebParticular,
           publicarWebEmpresa: formData.publicarWebEmpresa,
           seccionWebParticular: formData.seccionWebParticular || null,
+          seccionWebEmpresa: formData.seccionWebEmpresa || null,
           soloClientesExistentes: formData.soloClientesExistentes,
           garantia: formData.garantia || null,
           observaciones: formData.observaciones || null,
@@ -512,9 +515,27 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                   <input type="checkbox" name="publicarWebEmpresa" checked={formData.publicarWebEmpresa} onChange={handleChange} className="w-5 h-5 text-orange-600 rounded border-gray-300" />
                   <div>
                     <span className="text-sm font-semibold text-gray-900 block">Publicar en Empresas</span>
-                    <span className="text-xs text-gray-500">Visible en /tarifas/empresa</span>
+                    <span className="text-xs text-gray-500">Visible en la página de la solución correspondiente</span>
                   </div>
                 </label>
+                {formData.publicarWebEmpresa && (
+                  <div className="mt-3 pt-3 border-t border-orange-200">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Solución <span className="text-red-500">*</span></label>
+                    <select name="seccionWebEmpresa" value={formData.seccionWebEmpresa} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500" required>
+                      <option value="">Seleccionar solución...</option>
+                      <option value="conectividad-avanzada">Conectividad Avanzada</option>
+                      <option value="comunicaciones-unificadas">Comunicaciones Unificadas</option>
+                      <option value="infraestructura-red">Infraestructura de Red</option>
+                      <option value="mantenimiento-it">Mantenimiento IT</option>
+                      <option value="moviles">Móviles Empresa</option>
+                      <option value="exagrid">ExaGrid Backup</option>
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">El producto aparecerá en la página de esta solución</p>
+                    {!formData.seccionWebEmpresa && (
+                      <p className="text-xs text-red-500 mt-1">⚠️ Debes seleccionar una solución para publicar en Empresas</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             {formData.publicarWeb && (
