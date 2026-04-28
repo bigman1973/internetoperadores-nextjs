@@ -14,8 +14,17 @@ import {
   MapPinIcon,
   BuildingOfficeIcon,
   UserIcon,
+  ArrowPathIcon,
+  CalendarDaysIcon,
+  BoltIcon,
 } from '@heroicons/react/24/outline'
 import { formatDate } from '../../lib/utils/format'
+
+interface TiposFacturacion {
+  mensual: boolean
+  anual: boolean
+  puntual: boolean
+}
 
 interface Cliente {
   id: number
@@ -73,6 +82,8 @@ interface Cliente {
   categoria?: number | null
   recibePublicidad?: boolean | null
   aceptoLopd?: boolean | null
+  // Tipos de facturación
+  tiposFacturacion?: TiposFacturacion | null
 }
 
 interface ClientesTableProps {
@@ -106,6 +117,35 @@ function getFormaPagoLabel(fp: string | null | undefined): string {
     'TARJ': 'Tarjeta',
   }
   return map[fp] || fp
+}
+
+function FacturacionBadges({ tipos }: { tipos: TiposFacturacion | null | undefined }) {
+  if (!tipos) return null
+  const { mensual, anual, puntual } = tipos
+  if (!mensual && !anual && !puntual) return null
+
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {mensual && (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-700" title="Facturación mensual recurrente">
+          <ArrowPathIcon className="h-2.5 w-2.5" />
+          Mensual
+        </span>
+      )}
+      {anual && (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="Facturación anual recurrente">
+          <CalendarDaysIcon className="h-2.5 w-2.5" />
+          Anual
+        </span>
+      )}
+      {puntual && (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="Facturación puntual (instalaciones, proyectos)">
+          <BoltIcon className="h-2.5 w-2.5" />
+          Puntual
+        </span>
+      )}
+    </div>
+  )
 }
 
 export default function ClientesTable({ clientes }: ClientesTableProps) {
@@ -168,8 +208,8 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center">
-                      <div className={`flex h-9 w-9 items-center justify-center rounded-full text-white font-bold text-xs ${cliente.activo !== false ? 'bg-orange-500' : 'bg-gray-400'}`}>
+                    <div className="flex items-start">
+                      <div className={`flex h-9 w-9 items-center justify-center rounded-full text-white font-bold text-xs flex-shrink-0 mt-0.5 ${cliente.activo !== false ? 'bg-orange-500' : 'bg-gray-400'}`}>
                         {cliente.personaFisica === false ? (
                           <BuildingOfficeIcon className="h-5 w-5" />
                         ) : (
@@ -182,6 +222,7 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                           <div className="text-xs text-orange-600">{cliente.nombreComercial}</div>
                         )}
                         <div className="text-xs text-gray-500">{cliente.email}</div>
+                        <FacturacionBadges tipos={cliente.tiposFacturacion} />
                       </div>
                     </div>
                   </td>
@@ -368,6 +409,15 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                               <dt className="text-gray-500">Factura electrónica:</dt>
                               <dd className="text-gray-900">{cliente.facturaElectronica ? 'Sí' : 'No'}</dd>
                             </div>
+                            {/* Tipos de facturación */}
+                            {cliente.tiposFacturacion && (cliente.tiposFacturacion.mensual || cliente.tiposFacturacion.anual || cliente.tiposFacturacion.puntual) && (
+                              <div className="border-t border-gray-200 pt-1 mt-1">
+                                <dt className="text-gray-500 mb-1">Tipo facturación:</dt>
+                                <dd>
+                                  <FacturacionBadges tipos={cliente.tiposFacturacion} />
+                                </dd>
+                              </div>
+                            )}
                             {cliente.representante && (
                               <>
                                 <div className="border-t border-gray-200 pt-1 mt-1">
