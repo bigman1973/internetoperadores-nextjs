@@ -154,35 +154,35 @@ export default function FacturacionPage() {
 
       {/* Dashboard KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3 lg:gap-4 mb-6">
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Total Facturas</dt>
-          <dd className="mt-1 text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 truncate">{stats.totalFacturas || 0}</dd>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Total Facturas</dt>
+          <dd className="mt-1 text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{stats.totalFacturas || 0}</dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Facturado</dt>
-          <dd className="mt-1 text-base sm:text-lg lg:text-xl font-bold text-gray-900 truncate">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Facturado</dt>
+          <dd className="mt-1 text-sm sm:text-base lg:text-xl font-bold text-gray-900">
             {formatCurrency(stats.totalFacturado || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Cobrado</dt>
-          <dd className="mt-1 text-base sm:text-lg lg:text-xl font-bold text-green-600 truncate">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Cobrado</dt>
+          <dd className="mt-1 text-sm sm:text-base lg:text-xl font-bold text-green-600">
             {formatCurrency(stats.totalCobrado || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Pendiente</dt>
-          <dd className="mt-1 text-base sm:text-lg lg:text-xl font-bold text-yellow-600 truncate">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Pendiente</dt>
+          <dd className="mt-1 text-sm sm:text-base lg:text-xl font-bold text-yellow-600">
             {formatCurrency(stats.totalPendiente || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Total Remesas</dt>
-          <dd className="mt-1 text-lg sm:text-xl lg:text-2xl font-bold text-gray-900 truncate">{stats.totalRemesas || 0}</dd>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Total Remesas</dt>
+          <dd className="mt-1 text-lg sm:text-xl lg:text-2xl font-bold text-gray-900">{stats.totalRemesas || 0}</dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 lg:px-4 py-3 lg:py-4 min-w-0">
-          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase truncate">Remesado</dt>
-          <dd className="mt-1 text-base sm:text-lg lg:text-xl font-bold text-blue-600 truncate">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-2 sm:px-3 lg:px-4 py-3 lg:py-4 overflow-hidden">
+          <dt className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Remesado</dt>
+          <dd className="mt-1 text-sm sm:text-base lg:text-xl font-bold text-blue-600">
             {formatCurrency(stats.totalRemesado || 0)}&euro;
           </dd>
         </div>
