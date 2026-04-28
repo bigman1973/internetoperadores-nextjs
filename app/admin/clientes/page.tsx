@@ -341,8 +341,22 @@ async function getClientes(searchParams: SearchParams) {
     tiposFacturacion: c.clienteIdIsp ? (tiposFacturacionMap[c.clienteIdIsp] || null) : null,
   }))
 
+  // Contar activos con facturación (clientes activos que tienen al menos un contrato activo)
+  const allContratosActivos = await prisma.contratoServicio.findMany({
+    where: { activo: true },
+    select: { clienteId: true },
+    distinct: ['clienteId'],
+  })
+  const idsConContratosGlobal = new Set(allContratosActivos.map(c => c.clienteId))
+  const allClientesActivos = await prisma.clienteWeb.findMany({
+    where: { activo: true },
+    select: { clienteIdIsp: true },
+  })
+  const activosConFact = allClientesActivos.filter(c => c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp)).length
+  const activosSinFact = totalActivos - activosConFact
+
   const totalPages = Math.ceil(total / pageSize)
-  return { clientes: clientesConTipos, total, page, totalPages, totalActivos, totalInactivos }
+  return { clientes: clientesConTipos, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact }
 }
 
 export default async function ClientesPage({
@@ -352,7 +366,7 @@ export default async function ClientesPage({
 }) {
   await requireAuth('admin')
   const resolvedSearchParams = await searchParams
-  const { clientes, total, page, totalPages, totalActivos, totalInactivos } = await getClientes(resolvedSearchParams)
+  const { clientes, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact } = await getClientes(resolvedSearchParams)
   const estadoActual = resolvedSearchParams.estado || 'activo'
 
   return (
@@ -377,18 +391,26 @@ export default async function ClientesPage({
       </div>
 
       {/* Tarjetas de estadísticas */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <div className="rounded-lg bg-white shadow border border-gray-200 p-4">
-          <p className="text-sm font-medium text-gray-500">Total Clientes</p>
-          <p className="text-2xl font-bold text-gray-900">{totalActivos + totalInactivos}</p>
+          <p className="text-xs font-medium text-gray-500">Total Clientes</p>
+          <p className="text-xl sm:text-2xl font-bold text-gray-900">{totalActivos + totalInactivos}</p>
         </div>
         <div className="rounded-lg bg-white shadow border border-green-200 p-4">
-          <p className="text-sm font-medium text-green-600">Activos</p>
-          <p className="text-2xl font-bold text-green-700">{totalActivos}</p>
+          <p className="text-xs font-medium text-green-600">Activos</p>
+          <p className="text-xl sm:text-2xl font-bold text-green-700">{totalActivos}</p>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-orange-200 p-4">
+          <p className="text-xs font-medium text-orange-600">Con Facturación</p>
+          <p className="text-xl sm:text-2xl font-bold text-orange-600">{activosConFact}</p>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-yellow-200 p-4">
+          <p className="text-xs font-medium text-yellow-600">Sin Facturación</p>
+          <p className="text-xl sm:text-2xl font-bold text-yellow-600">{activosSinFact}</p>
         </div>
         <div className="rounded-lg bg-white shadow border border-red-200 p-4">
-          <p className="text-sm font-medium text-red-600">Dados de Baja</p>
-          <p className="text-2xl font-bold text-red-700">{totalInactivos}</p>
+          <p className="text-xs font-medium text-red-600">Dados de Baja</p>
+          <p className="text-xl sm:text-2xl font-bold text-red-700">{totalInactivos}</p>
         </div>
       </div>
 
