@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+// V-Valley client ID in ISP Gestión (id_cliente in facturas table)
+const VVALLEY_ID_CLIENTE = 1969
+
 export async function GET() {
   try {
     // Get all facturas
@@ -21,17 +24,50 @@ export async function GET() {
     const totalPendienteAmount = facturas.reduce((sum, f) => sum + Number(f.totalPendiente || 0), 0)
     const totalRemesado = remesas.reduce((sum, r) => sum + Number(r.totalImporte), 0)
 
-    // Facturación por mes
-    const porMesMap: Record<string, { total: number; count: number }> = {}
+    // V-Valley facturas
+    const vvalleyFacturas = facturas.filter(f => f.idCliente === VVALLEY_ID_CLIENTE)
+    const totalVValley = vvalleyFacturas.reduce((sum, f) => sum + Number(f.total), 0)
+
+    // Facturación por mes (incluyendo V-Valley)
+    const porMesMap: Record<string, { total: number; count: number; vvalleyTotal: number; vvalleyCount: number }> = {}
     facturas.forEach(f => {
       const mes = f.fecha.toISOString().substring(0, 7)
-      if (!porMesMap[mes]) porMesMap[mes] = { total: 0, count: 0 }
+      if (!porMesMap[mes]) porMesMap[mes] = { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0 }
       porMesMap[mes].total += Number(f.total)
       porMesMap[mes].count += 1
+      if (f.idCliente === VVALLEY_ID_CLIENTE) {
+        porMesMap[mes].vvalleyTotal += Number(f.total)
+        porMesMap[mes].vvalleyCount += 1
+      }
     })
-    const porMes = Object.entries(porMesMap)
-      .map(([mes, data]) => ({ mes, ...data }))
-      .sort((a, b) => a.mes.localeCompare(b.mes))
+
+    // Remesas por mes
+    const remesasPorMesMap: Record<string, { total: number; count: number }> = {}
+    remesas.forEach(r => {
+      const mes = r.fecha.toISOString().substring(0, 7)
+      if (!remesasPorMesMap[mes]) remesasPorMesMap[mes] = { total: 0, count: 0 }
+      remesasPorMesMap[mes].total += Number(r.totalImporte)
+      remesasPorMesMap[mes].count += 1
+    })
+
+    // Unificar datos mensuales: facturación total, V-Valley, remesas
+    const allMeses = new Set([...Object.keys(porMesMap), ...Object.keys(remesasPorMesMap)])
+    const resumenMensual = Array.from(allMeses)
+      .sort()
+      .map(mes => {
+        const facData = porMesMap[mes] || { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0 }
+        const remData = remesasPorMesMap[mes] || { total: 0, count: 0 }
+        return {
+          mes,
+          totalFacturado: facData.total,
+          numFacturas: facData.count,
+          vvalleyFacturado: facData.vvalleyTotal,
+          vvalleyNumFacturas: facData.vvalleyCount,
+          vvalleyPorcentaje: facData.total > 0 ? (facData.vvalleyTotal / facData.total) * 100 : 0,
+          totalRemesado: remData.total,
+          numRemesas: remData.count,
+        }
+      })
 
     // Facturación por serie
     const porSerieMap: Record<string, { total: number; count: number }> = {}
@@ -45,14 +81,7 @@ export async function GET() {
       .map(([serie, data]) => ({ serie, ...data }))
       .sort((a, b) => b.total - a.total)
 
-    // Remesas por mes
-    const remesasPorMesMap: Record<string, { total: number; count: number }> = {}
-    remesas.forEach(r => {
-      const mes = r.fecha.toISOString().substring(0, 7)
-      if (!remesasPorMesMap[mes]) remesasPorMesMap[mes] = { total: 0, count: 0 }
-      remesasPorMesMap[mes].total += Number(r.totalImporte)
-      remesasPorMesMap[mes].count += 1
-    })
+    // Remesas por mes (mantener para compatibilidad)
     const remesasPorMes = Object.entries(remesasPorMesMap)
       .map(([mes, data]) => ({ mes, ...data }))
       .sort((a, b) => a.mes.localeCompare(b.mes))
@@ -60,9 +89,7 @@ export async function GET() {
     // Remesas por categoría (extraer del nombre)
     const remesasPorCatMap: Record<string, { total: number; count: number }> = {}
     remesas.forEach(r => {
-      // Extract category from name like "REMESA MÓVILES ENERO 2026"
       const parts = r.nombre.replace(/REMESA\s*/i, '').split(/\s+/)
-      // Remove month and year from the end
       const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE']
       const filteredParts = parts.filter(p => !meses.includes(p.toUpperCase()) && !/^\d{4}$/.test(p))
       const categoria = filteredParts.join(' ') || 'General'
@@ -74,6 +101,11 @@ export async function GET() {
       .map(([categoria, data]) => ({ categoria, ...data }))
       .sort((a, b) => b.total - a.total)
 
+    // Facturación por mes (mantener para compatibilidad)
+    const porMes = Object.entries(porMesMap)
+      .map(([mes, data]) => ({ mes, total: data.total, count: data.count }))
+      .sort((a, b) => a.mes.localeCompare(b.mes))
+
     return NextResponse.json({
       stats: {
         totalFacturas: facturas.length,
@@ -84,6 +116,9 @@ export async function GET() {
         pendientes: pendientes.length,
         totalRemesas: remesas.length,
         totalRemesado,
+        vvalleyTotal: totalVValley,
+        vvalleyFacturas: vvalleyFacturas.length,
+        vvalleyPorcentaje: totalFacturado > 0 ? (totalVValley / totalFacturado) * 100 : 0,
       },
       facturas: facturas.map(f => ({
         id: f.id,
@@ -110,6 +145,7 @@ export async function GET() {
         contabilizado: r.contabilizado,
         ibanAcreedor: r.ibanAcreedor,
       })),
+      resumenMensual,
       porMes,
       porSerie,
       remesasPorMes,

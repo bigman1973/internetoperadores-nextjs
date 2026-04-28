@@ -30,6 +30,26 @@ interface RemesaResumen {
   ibanAcreedor: string | null
 }
 
+interface ResumenMensual {
+  mes: string
+  totalFacturado: number
+  numFacturas: number
+  vvalleyFacturado: number
+  vvalleyNumFacturas: number
+  vvalleyPorcentaje: number
+  totalRemesado: number
+  numRemesas: number
+}
+
+const formatCurrency = (n: number) =>
+  n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const getMesLabel = (mes: string) =>
+  new Date(mes + '-01').toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
+
+const getMesShort = (mes: string) =>
+  new Date(mes + '-01').toLocaleDateString('es-ES', { month: 'short' }).replace('.', '')
+
 export default function FacturacionPage() {
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
@@ -89,6 +109,7 @@ export default function FacturacionPage() {
   const remesas: RemesaResumen[] = data?.remesas || []
   const porMes = data?.porMes || []
   const porSerie = data?.porSerie || []
+  const resumenMensual: ResumenMensual[] = data?.resumenMensual || []
 
   // Filtrar facturas
   const filteredFacturas = facturas.filter(f => {
@@ -102,10 +123,15 @@ export default function FacturacionPage() {
     return true
   })
 
+  // Calcular totales del resumen
+  const totalAnualFacturado = resumenMensual.reduce((s, m) => s + m.totalFacturado, 0)
+  const totalAnualVValley = resumenMensual.reduce((s, m) => s + m.vvalleyFacturado, 0)
+  const totalAnualRemesado = resumenMensual.reduce((s, m) => s + m.totalRemesado, 0)
+
   return (
-    <div className="max-w-7xl mx-auto p-6">
+    <div className="max-w-7xl mx-auto p-4 sm:p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Facturación y Remesas</h1>
           <p className="text-sm text-gray-500 mt-1">Ejercicio 2026 - Datos sincronizados desde ISP Gestión</p>
@@ -113,7 +139,7 @@ export default function FacturacionPage() {
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50 flex items-center gap-2"
+          className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-medium disabled:opacity-50 flex items-center gap-2 self-start sm:self-auto"
         >
           {syncing ? (
             <>
@@ -127,99 +153,239 @@ export default function FacturacionPage() {
       </div>
 
       {/* Dashboard KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 mb-6">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Total Facturas</dt>
-          <dd className="mt-1 text-2xl font-bold text-gray-900">{stats.totalFacturas || 0}</dd>
+          <dd className="mt-1 text-xl sm:text-2xl font-bold text-gray-900">{stats.totalFacturas || 0}</dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Facturado</dt>
-          <dd className="mt-1 text-xl font-bold text-gray-900">
-            {(stats.totalFacturado || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+          <dd className="mt-1 text-lg sm:text-xl font-bold text-gray-900">
+            {formatCurrency(stats.totalFacturado || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Cobrado</dt>
-          <dd className="mt-1 text-xl font-bold text-green-600">
-            {(stats.totalCobrado || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+          <dd className="mt-1 text-lg sm:text-xl font-bold text-green-600">
+            {formatCurrency(stats.totalCobrado || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Pendiente</dt>
-          <dd className="mt-1 text-xl font-bold text-yellow-600">
-            {(stats.totalPendiente || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+          <dd className="mt-1 text-lg sm:text-xl font-bold text-yellow-600">
+            {formatCurrency(stats.totalPendiente || 0)}&euro;
           </dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Total Remesas</dt>
-          <dd className="mt-1 text-2xl font-bold text-gray-900">{stats.totalRemesas || 0}</dd>
+          <dd className="mt-1 text-xl sm:text-2xl font-bold text-gray-900">{stats.totalRemesas || 0}</dd>
         </div>
-        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-3 sm:px-4 py-3 sm:py-4">
           <dt className="text-xs font-medium text-gray-500 uppercase">Remesado</dt>
-          <dd className="mt-1 text-xl font-bold text-blue-600">
-            {(stats.totalRemesado || 0).toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+          <dd className="mt-1 text-lg sm:text-xl font-bold text-blue-600">
+            {formatCurrency(stats.totalRemesado || 0)}&euro;
           </dd>
         </div>
       </div>
 
-      {/* Facturación mensual */}
-      {porMes.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Facturación Mensual 2026</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-2">
-              {porMes.map((m: any) => {
-                const maxTotal = Math.max(...porMes.map((x: any) => x.total))
-                const pct = maxTotal > 0 ? (m.total / maxTotal) * 100 : 0
-                const mesLabel = new Date(m.mes + '-01').toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
-                return (
-                  <div key={m.mes} className="flex items-center gap-3">
-                    <span className="text-sm text-gray-600 w-32 text-right capitalize">{mesLabel}</span>
-                    <div className="flex-1 bg-gray-100 rounded-full h-7 overflow-hidden">
-                      <div
-                        className="bg-orange-500 h-full rounded-full flex items-center justify-end pr-2"
-                        style={{ width: `${Math.max(pct, 12)}%` }}
-                      >
-                        <span className="text-xs font-medium text-white">
-                          {m.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-xs text-gray-500 w-16 text-right">{m.count} fact.</span>
-                  </div>
-                )
-              })}
-            </div>
-            {/* Remesas por mes */}
-            <div>
-              <h4 className="text-xs font-semibold text-gray-700 mb-3 uppercase">Remesas por Mes</h4>
-              {data?.remesasPorMes?.length > 0 ? (
-                <div className="space-y-2">
-                  {data.remesasPorMes.map((m: any) => {
-                    const maxR = Math.max(...data.remesasPorMes.map((x: any) => x.total))
-                    const pctR = maxR > 0 ? (m.total / maxR) * 100 : 0
-                    const mesLabel = new Date(m.mes + '-01').toLocaleDateString('es-ES', { month: 'long' })
-                    return (
-                      <div key={m.mes} className="flex items-center gap-3">
-                        <span className="text-sm text-gray-600 w-32 text-right capitalize">{mesLabel}</span>
-                        <div className="flex-1 bg-gray-100 rounded-full h-7 overflow-hidden">
-                          <div
-                            className="bg-blue-500 h-full rounded-full flex items-center justify-end pr-2"
-                            style={{ width: `${Math.max(pctR, 12)}%` }}
-                          >
-                            <span className="text-xs font-medium text-white">
-                              {m.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
-                            </span>
+      {/* Resumen Mensual Unificado */}
+      {resumenMensual.length > 0 && (
+        <div className="bg-white rounded-lg shadow border border-gray-200 mb-6 overflow-hidden">
+          <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
+            <h3 className="text-sm font-semibold text-gray-900">Resumen Mensual 2026</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Facturación total, V-Valley y remesas por mes</p>
+          </div>
+
+          {/* Vista Desktop: Tabla */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Mes</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Facturación Total</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Fact.</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-purple-600 uppercase tracking-wider">V-Valley</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-purple-600 uppercase tracking-wider">% Total</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-blue-600 uppercase tracking-wider">Remesado</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Rem.</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {resumenMensual.map((m) => {
+                  const maxTotal = Math.max(...resumenMensual.map(x => x.totalFacturado))
+                  const barPct = maxTotal > 0 ? (m.totalFacturado / maxTotal) * 100 : 0
+                  return (
+                    <tr key={m.mes} className="hover:bg-gray-50/50">
+                      <td className="px-4 py-3">
+                        <span className="text-sm font-medium text-gray-900 capitalize">{getMesLabel(m.mes)}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-3">
+                          <div className="w-24 bg-gray-100 rounded-full h-2 overflow-hidden">
+                            <div className="bg-orange-500 h-full rounded-full" style={{ width: `${barPct}%` }} />
                           </div>
+                          <span className="text-sm font-bold text-gray-900 tabular-nums min-w-[100px] text-right">
+                            {formatCurrency(m.totalFacturado)}&euro;
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-500 w-16 text-right">{m.count} rem.</span>
-                      </div>
-                    )
-                  })}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs text-gray-500">{m.numFacturas}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {m.vvalleyFacturado > 0 ? (
+                          <span className="text-sm font-semibold text-purple-700 tabular-nums">
+                            {formatCurrency(m.vvalleyFacturado)}&euro;
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {m.vvalleyPorcentaje > 0 ? (
+                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${
+                            m.vvalleyPorcentaje > 20 ? 'bg-red-100 text-red-700' :
+                            m.vvalleyPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {m.vvalleyPorcentaje.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {m.totalRemesado > 0 ? (
+                          <span className="text-sm font-semibold text-blue-700 tabular-nums">
+                            {formatCurrency(m.totalRemesado)}&euro;
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="text-xs text-gray-500">{m.numRemesas || '-'}</span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 border-t-2 border-gray-200">
+                  <td className="px-4 py-3">
+                    <span className="text-sm font-bold text-gray-900">TOTAL 2026</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-sm font-bold text-gray-900 tabular-nums">
+                      {formatCurrency(totalAnualFacturado)}&euro;
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-xs font-semibold text-gray-600">{stats.totalFacturas}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-sm font-bold text-purple-700 tabular-nums">
+                      {formatCurrency(totalAnualVValley)}&euro;
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${
+                      (stats.vvalleyPorcentaje || 0) > 20 ? 'bg-red-100 text-red-700' :
+                      (stats.vvalleyPorcentaje || 0) > 10 ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>
+                      {(stats.vvalleyPorcentaje || 0).toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-sm font-bold text-blue-700 tabular-nums">
+                      {formatCurrency(totalAnualRemesado)}&euro;
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-xs font-semibold text-gray-600">{stats.totalRemesas}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          {/* Vista Mobile: Cards */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {resumenMensual.map((m) => {
+              const maxTotal = Math.max(...resumenMensual.map(x => x.totalFacturado))
+              const barPct = maxTotal > 0 ? (m.totalFacturado / maxTotal) * 100 : 0
+              return (
+                <div key={m.mes} className="px-4 py-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-900 capitalize">{getMesLabel(m.mes)}</span>
+                    <span className="text-xs text-gray-500">{m.numFacturas} fact.</span>
+                  </div>
+
+                  {/* Barra de facturación total */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs text-gray-500 uppercase font-medium">Facturación</span>
+                      <span className="text-sm font-bold text-gray-900 tabular-nums">{formatCurrency(m.totalFacturado)}&euro;</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-2.5 overflow-hidden">
+                      <div className="bg-orange-500 h-full rounded-full" style={{ width: `${barPct}%` }} />
+                    </div>
+                  </div>
+
+                  {/* V-Valley */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-purple-600 uppercase font-medium">V-Valley</span>
+                      {m.vvalleyPorcentaje > 0 && (
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          m.vvalleyPorcentaje > 20 ? 'bg-red-100 text-red-700' :
+                          m.vvalleyPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {m.vvalleyPorcentaje.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-purple-700 tabular-nums">
+                      {m.vvalleyFacturado > 0 ? `${formatCurrency(m.vvalleyFacturado)}€` : '-'}
+                    </span>
+                  </div>
+
+                  {/* Remesado */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-blue-600 uppercase font-medium">Remesado</span>
+                      {m.numRemesas > 0 && (
+                        <span className="text-[10px] text-gray-400">{m.numRemesas} rem.</span>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-blue-700 tabular-nums">
+                      {m.totalRemesado > 0 ? `${formatCurrency(m.totalRemesado)}€` : '-'}
+                    </span>
+                  </div>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400">Sin datos de remesas</p>
-              )}
+              )
+            })}
+
+            {/* Total mobile */}
+            <div className="px-4 py-4 bg-gray-50 space-y-2">
+              <span className="text-sm font-bold text-gray-900">TOTAL 2026</span>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase">Facturado</p>
+                  <p className="text-sm font-bold text-gray-900 tabular-nums">{formatCurrency(totalAnualFacturado)}&euro;</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-purple-500 uppercase">V-Valley</p>
+                  <p className="text-sm font-bold text-purple-700 tabular-nums">{formatCurrency(totalAnualVValley)}&euro;</p>
+                  <p className="text-[10px] font-bold text-purple-500">{(stats.vvalleyPorcentaje || 0).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-blue-500 uppercase">Remesado</p>
+                  <p className="text-sm font-bold text-blue-700 tabular-nums">{formatCurrency(totalAnualRemesado)}&euro;</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -227,9 +393,9 @@ export default function FacturacionPage() {
 
       {/* Facturación por serie */}
       {porSerie.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-6 mb-6">
+        <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6 mb-6">
           <h3 className="text-sm font-semibold text-gray-900 mb-4">Facturación por Serie</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
             {porSerie.map((s: any) => (
               <button
                 key={s.serie}
@@ -243,7 +409,7 @@ export default function FacturacionPage() {
                 <p className="text-sm font-semibold text-gray-900">{s.serie}</p>
                 <p className="text-xs text-gray-500 mt-1">{s.count} facturas</p>
                 <p className="text-sm font-bold text-orange-600 mt-1">
-                  {s.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                  {formatCurrency(s.total)}&euro;
                 </p>
               </button>
             ))}
@@ -287,7 +453,7 @@ export default function FacturacionPage() {
               placeholder="Buscar por cliente, documento..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm w-64"
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm w-full sm:w-64"
             />
             {(['todas', 'cobradas', 'pendientes'] as const).map((f) => {
               const count = f === 'todas' ? facturas.length :
@@ -358,9 +524,9 @@ export default function FacturacionPage() {
                     <td className="px-4 py-3 text-sm text-gray-600">{new Date(f.fecha).toLocaleDateString('es-ES')}</td>
                     <td className="px-4 py-3 text-sm text-gray-900 max-w-xs truncate">{f.nombreCompleto}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{f.serieFactura}</td>
-                    <td className="px-4 py-3 text-sm text-gray-900 text-right">{f.base.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 text-right">{f.totalImpuesto.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
-                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{f.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 text-right">{formatCurrency(f.base)}&euro;</td>
+                    <td className="px-4 py-3 text-sm text-gray-500 text-right">{formatCurrency(f.totalImpuesto)}&euro;</td>
+                    <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{formatCurrency(f.total)}&euro;</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
                         f.situacion === 'COBRADA' ? 'bg-green-100 text-green-800' :
@@ -372,7 +538,7 @@ export default function FacturacionPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-right">
                       {f.totalPendiente > 0 ? (
-                        <span className="text-red-600 font-medium">{f.totalPendiente.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;</span>
+                        <span className="text-red-600 font-medium">{formatCurrency(f.totalPendiente)}&euro;</span>
                       ) : (
                         <span className="text-gray-400">0,00&euro;</span>
                       )}
@@ -395,7 +561,7 @@ export default function FacturacionPage() {
         <div className="space-y-4">
           {/* Remesas por categoría */}
           {data?.remesasPorCategoria?.length > 0 && (
-            <div className="bg-white rounded-lg shadow border border-gray-200 p-6 mb-4">
+            <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6 mb-4">
               <h3 className="text-sm font-semibold text-gray-900 mb-4">Remesas por Categoría</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {data.remesasPorCategoria.map((cat: any) => (
@@ -403,7 +569,7 @@ export default function FacturacionPage() {
                     <p className="text-sm font-semibold text-gray-900">{cat.categoria}</p>
                     <p className="text-xs text-gray-500 mt-1">{cat.count} remesas</p>
                     <p className="text-lg font-bold text-blue-600 mt-1">
-                      {cat.total.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                      {formatCurrency(cat.total)}&euro;
                     </p>
                   </div>
                 ))}
@@ -431,7 +597,7 @@ export default function FacturacionPage() {
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{r.nombre}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{new Date(r.fecha).toLocaleDateString('es-ES')}</td>
                     <td className="px-4 py-3 text-sm font-bold text-gray-900 text-right">
-                      {r.totalImporte.toLocaleString('es-ES', { minimumFractionDigits: 2 })}&euro;
+                      {formatCurrency(r.totalImporte)}&euro;
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600 text-right">{r.numeroRegistros}</td>
                     <td className="px-4 py-3 text-sm text-gray-600 font-mono text-xs">{r.ibanAcreedor || '-'}</td>
