@@ -112,10 +112,64 @@ async function getClientes(searchParams: SearchParams) {
 
   const where: any = {}
   
-  if (estadoFilter === 'activo') {
+  if (estadoFilter === 'activo' || estadoFilter === 'activo_con_fact' || estadoFilter === 'activo_sin_fact') {
     where.activo = true
   } else if (estadoFilter === 'inactivo') {
     where.activo = false
+  }
+
+  // Filtro de activos con/sin facturación
+  if (estadoFilter === 'activo_con_fact' || estadoFilter === 'activo_sin_fact') {
+    const clientesConContratos = await prisma.contratoServicio.findMany({
+      where: { activo: true },
+      select: { clienteId: true },
+      distinct: ['clienteId'],
+    })
+    const idsConContratos = new Set(clientesConContratos.map(c => c.clienteId))
+
+    const todosClientesActivos = await prisma.clienteWeb.findMany({
+      where: { activo: true },
+      select: { clienteIdIsp: true },
+    })
+
+    if (estadoFilter === 'activo_con_fact') {
+      const idsConFact = todosClientesActivos
+        .filter(c => c.clienteIdIsp && idsConContratos.has(c.clienteIdIsp))
+        .map(c => c.clienteIdIsp!)
+      if (idsConFact.length === 0) {
+        return { clientes: [], total: 0, page: 1, totalPages: 0, totalActivos: 0, totalInactivos: 0 }
+      }
+      // Combinar con filtro de facturación si existe
+      if (where.clienteIdIsp) {
+        const existingIds = new Set(where.clienteIdIsp.in as string[])
+        where.clienteIdIsp = { in: idsConFact.filter((id: string) => existingIds.has(id)) }
+      } else {
+        where.clienteIdIsp = { in: idsConFact }
+      }
+    } else {
+      const idsSinFact = todosClientesActivos
+        .filter(c => c.clienteIdIsp && !idsConContratos.has(c.clienteIdIsp))
+        .map(c => c.clienteIdIsp!)
+      // También incluir clientes sin clienteIdIsp
+      const idsSinClienteIdIsp = todosClientesActivos
+        .filter(c => !c.clienteIdIsp)
+        .map(() => '')
+      if (idsSinFact.length === 0) {
+        // Solo clientes sin clienteIdIsp
+        where.clienteIdIsp = null
+      } else {
+        where.OR = [
+          ...(where.OR || []),
+        ]
+        // Simplificar: usar clienteIdIsp in para los sin facturación
+        if (where.clienteIdIsp) {
+          const existingIds = new Set(where.clienteIdIsp.in as string[])
+          where.clienteIdIsp = { in: idsSinFact.filter((id: string) => existingIds.has(id)) }
+        } else {
+          where.clienteIdIsp = { in: idsSinFact }
+        }
+      }
+    }
   }
 
   if (searchParams.search) {
@@ -367,6 +421,8 @@ export default async function ClientesPage({
                   className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="activo">Solo Activos</option>
+                  <option value="activo_con_fact">Activos con facturación</option>
+                  <option value="activo_sin_fact">Activos sin facturación</option>
                   <option value="inactivo">Solo Dados de Baja</option>
                   <option value="todos">Todos</option>
                 </select>
