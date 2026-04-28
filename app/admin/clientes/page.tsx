@@ -350,13 +350,16 @@ async function getClientes(searchParams: SearchParams) {
   const idsConContratosGlobal = new Set(allContratosActivos.map(c => c.clienteId))
   const allClientesActivos = await prisma.clienteWeb.findMany({
     where: { activo: true },
-    select: { clienteIdIsp: true },
+    select: { clienteIdIsp: true, personaFisica: true },
   })
-  const activosConFact = allClientesActivos.filter(c => c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp)).length
+  const clientesConFactList = allClientesActivos.filter(c => c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp))
+  const activosConFact = clientesConFactList.length
+  const activosConFactParticular = clientesConFactList.filter(c => c.personaFisica === true).length
+  const activosConFactEmpresa = activosConFact - activosConFactParticular
   const activosSinFact = totalActivos - activosConFact
 
   const totalPages = Math.ceil(total / pageSize)
-  return { clientes: clientesConTipos, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact }
+  return { clientes: clientesConTipos, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact, activosConFactEmpresa, activosConFactParticular }
 }
 
 export default async function ClientesPage({
@@ -366,7 +369,7 @@ export default async function ClientesPage({
 }) {
   await requireAuth('admin')
   const resolvedSearchParams = await searchParams
-  const { clientes, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact } = await getClientes(resolvedSearchParams)
+  const { clientes, total, page, totalPages, totalActivos, totalInactivos, activosConFact, activosSinFact, activosConFactEmpresa, activosConFactParticular } = await getClientes(resolvedSearchParams)
   const estadoActual = resolvedSearchParams.estado || 'activo'
 
   return (
@@ -403,6 +406,10 @@ export default async function ClientesPage({
         <div className="rounded-lg bg-white shadow border border-orange-200 p-4">
           <p className="text-xs font-medium text-orange-600">Con Facturación</p>
           <p className="text-xl sm:text-2xl font-bold text-orange-600">{activosConFact}</p>
+          <div className="mt-1 flex gap-3 text-xs">
+            <span className="text-gray-500"><span className="font-semibold text-orange-700">{activosConFactEmpresa}</span> Empresas</span>
+            <span className="text-gray-500"><span className="font-semibold text-orange-700">{activosConFactParticular}</span> Particulares</span>
+          </div>
         </div>
         <div className="rounded-lg bg-white shadow border border-yellow-200 p-4">
           <p className="text-xs font-medium text-yellow-600">Sin Facturación</p>
