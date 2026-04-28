@@ -59,6 +59,7 @@ export default function FacturacionPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [serieFilter, setSerieFilter] = useState('')
   const [mesFilter, setMesFilter] = useState('')
+  const [serieMesFilter, setSerieMesFilter] = useState('')
 
   useEffect(() => {
     fetchData()
@@ -392,30 +393,93 @@ export default function FacturacionPage() {
       )}
 
       {/* Facturación por serie */}
-      {porSerie.length > 0 && (
-        <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6 mb-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Facturación por Serie</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {porSerie.map((s: any) => (
-              <button
-                key={s.serie}
-                onClick={() => setSerieFilter(serieFilter === s.serie ? '' : s.serie)}
-                className={`rounded-lg border px-3 py-3 text-left transition-colors ${
-                  serieFilter === s.serie
-                    ? 'border-orange-500 bg-orange-50'
-                    : 'border-gray-200 bg-white hover:border-gray-300'
-                }`}
-              >
-                <p className="text-sm font-semibold text-gray-900">{s.serie}</p>
-                <p className="text-xs text-gray-500 mt-1">{s.count} facturas</p>
-                <p className="text-sm font-bold text-orange-600 mt-1">
-                  {formatCurrency(s.total)}&euro;
+      {porSerie.length > 0 && (() => {
+        // Calcular porSerie filtrado por mes si hay filtro activo
+        const porSerieFiltered = serieMesFilter
+          ? (() => {
+              const map: Record<string, { total: number; count: number }> = {}
+              facturas.filter((f: FacturaResumen) => f.fecha.startsWith(serieMesFilter)).forEach((f: FacturaResumen) => {
+                const serie = f.serieFactura || 'Sin serie'
+                if (!map[serie]) map[serie] = { total: 0, count: 0 }
+                map[serie].total += f.total
+                map[serie].count += 1
+              })
+              return Object.entries(map)
+                .map(([serie, data]) => ({ serie, ...data }))
+                .sort((a, b) => b.total - a.total)
+            })()
+          : porSerie
+
+        // Obtener meses disponibles de las facturas
+        const mesesDisponibles = Array.from(new Set(facturas.map((f: FacturaResumen) => f.fecha.substring(0, 7))))
+          .sort()
+
+        const totalSerieFiltered = porSerieFiltered.reduce((s: number, x: any) => s + x.total, 0)
+        const countSerieFiltered = porSerieFiltered.reduce((s: number, x: any) => s + x.count, 0)
+
+        return (
+          <div className="bg-white rounded-lg shadow border border-gray-200 p-4 sm:p-6 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Facturación por Serie</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {serieMesFilter
+                    ? `${getMesLabel(serieMesFilter)} — ${countSerieFiltered} facturas — ${formatCurrency(totalSerieFiltered)}€`
+                    : `Todo el año 2026 — ${countSerieFiltered} facturas — ${formatCurrency(totalSerieFiltered)}€`
+                  }
                 </p>
-              </button>
-            ))}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setSerieMesFilter('')}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    serieMesFilter === ''
+                      ? 'bg-orange-500 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  Todo 2026
+                </button>
+                {mesesDisponibles.map(mes => (
+                  <button
+                    key={mes}
+                    onClick={() => setSerieMesFilter(serieMesFilter === mes ? '' : mes)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors capitalize ${
+                      serieMesFilter === mes
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {getMesShort(mes)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+              {porSerieFiltered.map((s: any) => (
+                <button
+                  key={s.serie}
+                  onClick={() => setSerieFilter(serieFilter === s.serie ? '' : s.serie)}
+                  className={`rounded-lg border px-3 py-3 text-left transition-colors ${
+                    serieFilter === s.serie
+                      ? 'border-orange-500 bg-orange-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-900">{s.serie}</p>
+                  <p className="text-xs text-gray-500 mt-1">{s.count} facturas</p>
+                  <p className="text-sm font-bold text-orange-600 mt-1">
+                    {formatCurrency(s.total)}&euro;
+                  </p>
+                </button>
+              ))}
+            </div>
+            {porSerieFiltered.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-6">No hay facturas para este mes</p>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Tabs: Facturas / Remesas */}
       <div className="border-b border-gray-200 mb-6">
