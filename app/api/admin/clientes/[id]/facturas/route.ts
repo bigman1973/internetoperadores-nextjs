@@ -11,37 +11,49 @@ export async function GET(
     const { id } = await params;
     const clienteId = parseInt(id);
     
-    // Obtener el cliente para saber su clienteIdIsp (codigo_cliente en facturas)
+    // Obtener el cliente para saber su ispGestionId (id_cliente en facturas)
     const cliente = await prisma.clienteWeb.findUnique({
       where: { id: clienteId },
-      select: { clienteIdIsp: true, codigo: true, ispGestionId: true, nombre: true }
+      select: { ispGestionId: true, clienteIdIsp: true, codigo: true, nombre: true }
     });
     
     if (!cliente) {
       return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 });
     }
     
-    // Buscar facturas por codigo_cliente (que coincide con clienteIdIsp del cliente)
-    // El campo codigo_cliente en facturas usa el formato "000186" que coincide con clienteIdIsp
-    const codigoCliente = cliente.clienteIdIsp || cliente.codigo || '';
+    // El campo idCliente (Int) en facturas coincide con ispGestionId (String) del cliente
+    // Ejemplo: factura.idCliente = 681 <-> cliente.ispGestionId = "681"
+    const ispId = cliente.ispGestionId;
     
-    if (!codigoCliente) {
+    if (!ispId) {
       return NextResponse.json({
         facturas: [],
-        stats: { total: 0, cobradas: 0, pendientes: 0, totalFacturado: 0, totalPendiente: 0, facturacionMensual: 0 },
+        stats: { total: 0, cobradas: 0, pendientes: 0, totalFacturado: 0, totalPendiente: 0, facturacionMensual: 0, facturacionAnual: 0 },
         porMes: [],
         porSerie: []
       });
     }
     
+    const idClienteInt = parseInt(ispId);
+    
+    if (isNaN(idClienteInt)) {
+      return NextResponse.json({
+        facturas: [],
+        stats: { total: 0, cobradas: 0, pendientes: 0, totalFacturado: 0, totalPendiente: 0, facturacionMensual: 0, facturacionAnual: 0 },
+        porMes: [],
+        porSerie: []
+      });
+    }
+    
+    // Buscar facturas donde idCliente (Int) coincide con ispGestionId convertido a Int
     const facturas = await prisma.factura.findMany({
-      where: { codigoCliente },
+      where: { idCliente: idClienteInt },
       orderBy: { fecha: 'desc' }
     });
     
     // Estadísticas
     const cobradas = facturas.filter(f => f.situacion === 'COBRADA');
-    const pendientes = facturas.filter(f => f.situacion === 'PENDIENTE');
+    const pendientes = facturas.filter(f => f.situacion !== 'COBRADA');
     const totalFacturado = facturas.reduce((sum, f) => sum + Number(f.total), 0);
     const totalPendiente = pendientes.reduce((sum, f) => sum + Number(f.totalPendiente), 0);
     
