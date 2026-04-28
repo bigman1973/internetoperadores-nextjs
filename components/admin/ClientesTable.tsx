@@ -24,6 +24,9 @@ interface TiposFacturacion {
   mensual: boolean
   anual: boolean
   puntual: boolean
+  importeMensual: number
+  importeAnual: number
+  importePuntual: number
 }
 
 interface Cliente {
@@ -119,29 +122,33 @@ function getFormaPagoLabel(fp: string | null | undefined): string {
   return map[fp] || fp
 }
 
+function formatImporte(value: number): string {
+  return value.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '€'
+}
+
 function FacturacionBadges({ tipos }: { tipos: TiposFacturacion | null | undefined }) {
   if (!tipos) return null
-  const { mensual, anual, puntual } = tipos
+  const { mensual, anual, puntual, importeMensual, importeAnual, importePuntual } = tipos
   if (!mensual && !anual && !puntual) return null
 
   return (
     <div className="flex flex-wrap gap-1 mt-1">
       {mensual && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-700" title="Facturación mensual recurrente">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-green-50 border border-green-200 px-1.5 py-0.5 text-[10px] font-semibold text-green-700" title={`Facturación mensual recurrente: ${formatImporte(importeMensual)}/mes`}>
           <ArrowPathIcon className="h-2.5 w-2.5" />
-          Mensual
+          Mensual {importeMensual > 0 && <span className="text-green-600 font-bold ml-0.5">{formatImporte(importeMensual)}</span>}
         </span>
       )}
       {anual && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title="Facturación anual recurrente">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 border border-blue-200 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700" title={`Facturación anual recurrente: ${formatImporte(importeAnual)}/año`}>
           <CalendarDaysIcon className="h-2.5 w-2.5" />
-          Anual
+          Anual {importeAnual > 0 && <span className="text-blue-600 font-bold ml-0.5">{formatImporte(importeAnual)}</span>}
         </span>
       )}
       {puntual && (
-        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title="Facturación puntual (instalaciones, proyectos)">
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-50 border border-amber-200 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700" title={`Facturación puntual 2026: ${formatImporte(importePuntual)}`}>
           <BoltIcon className="h-2.5 w-2.5" />
-          Puntual
+          Puntual {importePuntual > 0 && <span className="text-amber-600 font-bold ml-0.5">{formatImporte(importePuntual)}</span>}
         </span>
       )}
     </div>

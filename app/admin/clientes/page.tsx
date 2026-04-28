@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import ClientesTable from '../../../components/admin/ClientesTable'
 import SyncClientesButton from '../../../components/admin/SyncClientesButton'
+import { Prisma } from '@prisma/client'
 
 interface SearchParams {
   search?: string
@@ -21,19 +22,101 @@ async function getClientes(searchParams: SearchParams) {
   const page = parseInt(searchParams.page || '1')
   const pageSize = 30
   const skip = (page - 1) * pageSize
-
-  // Por defecto filtrar solo activos
   const estadoFilter = searchParams.estado || 'activo'
+  const facturacionFilter = searchParams.facturacion || ''
+
+  // Si hay filtro de facturación, necesitamos obtener primero los clienteIdIsp que cumplen el criterio
+  let clienteIdIspFiltrados: string[] | null = null
+
+  if (facturacionFilter && facturacionFilter !== '') {
+    if (facturacionFilter === 'nada') {
+      // Clientes SIN contratos activos: obtener todos los clienteId que SÍ tienen contratos
+      const clientesConContratos = await prisma.contratoServicio.findMany({
+        where: { activo: true },
+        select: { clienteId: true },
+        distinct: ['clienteId'],
+      })
+      const idsConContratos = new Set(clientesConContratos.map(c => c.clienteId))
+      
+      // Obtener todos los clientes y filtrar los que NO tienen contratos
+      const todosClientes = await prisma.clienteWeb.findMany({
+        where: estadoFilter === 'activo' ? { activo: true } : estadoFilter === 'inactivo' ? { activo: false } : {},
+        select: { clienteIdIsp: true },
+      })
+      clienteIdIspFiltrados = todosClientes
+        .filter(c => c.clienteIdIsp && !idsConContratos.has(c.clienteIdIsp))
+        .map(c => c.clienteIdIsp!)
+    } else if (facturacionFilter === 'mensual') {
+      // Clientes con contratos mensuales (periodicidad = 1 y NO anual en concepto)
+      const contratosResult = await prisma.contratoServicio.findMany({
+        where: { activo: true },
+        select: { clienteId: true, tarifa: true, conceptoFacturacion: true, titulo: true },
+      })
+      const tarifaNombres = [...new Set(contratosResult.map(c => c.tarifa))]
+      const tarifas = await prisma.tarifa.findMany({
+        where: { nombre: { in: tarifaNombres }, activa: true },
+        select: { nombre: true, tipoPeriodicidad: true },
+      })
+      const tarifaMap = new Map(tarifas.map(t => [t.nombre, t.tipoPeriodicidad || 1]))
+      
+      const idsSet = new Set<string>()
+      for (const c of contratosResult) {
+        const periodicidad = tarifaMap.get(c.tarifa)
+        const conceptoUpper = (c.conceptoFacturacion || '').toUpperCase()
+        const tituloUpper = (c.titulo || '').toUpperCase()
+        const esAnual = periodicidad === 12 || conceptoUpper.includes('ANUAL') || conceptoUpper.includes('[YEAR_FACTURACION]') || tituloUpper.includes('ANUAL')
+        if (!esAnual) {
+          idsSet.add(c.clienteId)
+        }
+      }
+      clienteIdIspFiltrados = [...idsSet]
+    } else if (facturacionFilter === 'anual') {
+      const contratosResult = await prisma.contratoServicio.findMany({
+        where: { activo: true },
+        select: { clienteId: true, tarifa: true, conceptoFacturacion: true, titulo: true },
+      })
+      const tarifaNombres = [...new Set(contratosResult.map(c => c.tarifa))]
+      const tarifas = await prisma.tarifa.findMany({
+        where: { nombre: { in: tarifaNombres }, activa: true },
+        select: { nombre: true, tipoPeriodicidad: true },
+      })
+      const tarifaMap = new Map(tarifas.map(t => [t.nombre, t.tipoPeriodicidad || 1]))
+      
+      const idsSet = new Set<string>()
+      for (const c of contratosResult) {
+        const periodicidad = tarifaMap.get(c.tarifa)
+        const conceptoUpper = (c.conceptoFacturacion || '').toUpperCase()
+        const tituloUpper = (c.titulo || '').toUpperCase()
+        const esAnual = periodicidad === 12 || conceptoUpper.includes('ANUAL') || conceptoUpper.includes('[YEAR_FACTURACION]') || tituloUpper.includes('ANUAL')
+        if (esAnual) {
+          idsSet.add(c.clienteId)
+        }
+      }
+      clienteIdIspFiltrados = [...idsSet]
+    } else if (facturacionFilter === 'puntual') {
+      // Clientes con facturas INST en 2026
+      const facturasInst = await prisma.factura.findMany({
+        where: { serieFactura: 'INST', ejercicio: 2026 },
+        select: { idCliente: true },
+        distinct: ['idCliente'],
+      })
+      const ispIds = facturasInst.map(f => f.idCliente)
+      // Convertir ispGestionId a clienteIdIsp
+      const clientesMap = await prisma.clienteWeb.findMany({
+        where: { ispGestionId: { in: ispIds.map(String) } },
+        select: { clienteIdIsp: true },
+      })
+      clienteIdIspFiltrados = clientesMap.filter(c => c.clienteIdIsp).map(c => c.clienteIdIsp!)
+    }
+  }
 
   const where: any = {}
   
-  // Filtro de estado (por defecto: activos)
   if (estadoFilter === 'activo') {
     where.activo = true
   } else if (estadoFilter === 'inactivo') {
     where.activo = false
   }
-  // 'todos' no añade filtro
 
   if (searchParams.search) {
     where.OR = [
@@ -65,6 +148,15 @@ async function getClientes(searchParams: SearchParams) {
     where.municipio = { contains: searchParams.municipio, mode: 'insensitive' }
   }
 
+  // Aplicar filtro de facturación al where
+  if (clienteIdIspFiltrados !== null) {
+    if (clienteIdIspFiltrados.length === 0) {
+      // No hay clientes que cumplan el filtro
+      return { clientes: [], total: 0, page: 1, totalPages: 0, totalActivos: 0, totalInactivos: 0 }
+    }
+    where.clienteIdIsp = { in: clienteIdIspFiltrados }
+  }
+
   const [clientes, total, totalActivos, totalInactivos] = await Promise.all([
     prisma.clienteWeb.findMany({
       where,
@@ -77,12 +169,12 @@ async function getClientes(searchParams: SearchParams) {
     prisma.clienteWeb.count({ where: { activo: false } }),
   ])
 
-  // Obtener los clienteIdIsp de los clientes de esta página para buscar sus contratos y facturas
+  // Obtener los clienteIdIsp de los clientes de esta página
   const clienteIds = clientes
     .map(c => c.clienteIdIsp)
     .filter((id): id is string => id !== null && id !== undefined)
 
-  // Obtener contratos activos de estos clientes con su tarifa
+  // Obtener contratos activos con precio para calcular importes
   const contratos = clienteIds.length > 0
     ? await prisma.contratoServicio.findMany({
         where: {
@@ -94,6 +186,8 @@ async function getClientes(searchParams: SearchParams) {
           tarifa: true,
           titulo: true,
           conceptoFacturacion: true,
+          precio: true,
+          importeRemesar: true,
         },
       })
     : []
@@ -115,7 +209,7 @@ async function getClientes(searchParams: SearchParams) {
 
   const tarifaPeriodicidadMap = new Map(tarifas.map(t => [t.nombre, t.tipoPeriodicidad || 1]))
 
-  // Obtener facturas puntuales (serie INST) de estos clientes
+  // Obtener facturas puntuales (serie INST) de estos clientes con total
   const ispGestionIds = clientes
     .map(c => parseInt(c.ispGestionId))
     .filter(id => !isNaN(id))
@@ -130,37 +224,46 @@ async function getClientes(searchParams: SearchParams) {
         select: {
           idCliente: true,
           serieFactura: true,
+          total: true,
         },
       })
     : []
 
-  // Construir mapa de tipos de facturación por cliente
-  // clienteIdIsp -> { mensual: boolean, anual: boolean, puntual: boolean }
-  const tiposFacturacionMap: Record<string, { mensual: boolean; anual: boolean; puntual: boolean }> = {}
+  // Construir mapa de tipos de facturación con importes
+  const tiposFacturacionMap: Record<string, { 
+    mensual: boolean; anual: boolean; puntual: boolean;
+    importeMensual: number; importeAnual: number; importePuntual: number;
+  }> = {}
+
+  const initTipos = () => ({ 
+    mensual: false, anual: false, puntual: false,
+    importeMensual: 0, importeAnual: 0, importePuntual: 0,
+  })
 
   // Procesar contratos
   for (const contrato of contratos) {
     if (!tiposFacturacionMap[contrato.clienteId]) {
-      tiposFacturacionMap[contrato.clienteId] = { mensual: false, anual: false, puntual: false }
+      tiposFacturacionMap[contrato.clienteId] = initTipos()
     }
 
     const periodicidad = tarifaPeriodicidadMap.get(contrato.tarifa)
     const conceptoUpper = (contrato.conceptoFacturacion || '').toUpperCase()
     const tituloUpper = (contrato.titulo || '').toUpperCase()
+    const precio = Number(contrato.precio) || 0
 
     if (periodicidad === 12 ||
         conceptoUpper.includes('ANUAL') ||
         conceptoUpper.includes('[YEAR_FACTURACION]') ||
         tituloUpper.includes('ANUAL')) {
       tiposFacturacionMap[contrato.clienteId].anual = true
+      tiposFacturacionMap[contrato.clienteId].importeAnual += precio
     } else {
-      // periodicidad = 1 (mensual) o concepto con mes_facturacion
       tiposFacturacionMap[contrato.clienteId].mensual = true
+      tiposFacturacionMap[contrato.clienteId].importeMensual += precio
     }
   }
 
   // Procesar facturas puntuales
-  // Crear mapa de ispGestionId -> clienteIdIsp
   const ispToClienteIdMap = new Map(
     clientes
       .filter(c => c.clienteIdIsp)
@@ -171,9 +274,10 @@ async function getClientes(searchParams: SearchParams) {
     const clienteIdIsp = ispToClienteIdMap.get(factura.idCliente)
     if (clienteIdIsp) {
       if (!tiposFacturacionMap[clienteIdIsp]) {
-        tiposFacturacionMap[clienteIdIsp] = { mensual: false, anual: false, puntual: false }
+        tiposFacturacionMap[clienteIdIsp] = initTipos()
       }
       tiposFacturacionMap[clienteIdIsp].puntual = true
+      tiposFacturacionMap[clienteIdIsp].importePuntual += Number(factura.total) || 0
     }
   }
 
@@ -183,13 +287,8 @@ async function getClientes(searchParams: SearchParams) {
     tiposFacturacion: c.clienteIdIsp ? (tiposFacturacionMap[c.clienteIdIsp] || null) : null,
   }))
 
-  // Filtrar por tipo de facturación si se ha seleccionado
-  let clientesFiltrados = clientesConTipos
-  // Nota: el filtro de facturación se aplica post-query, por lo que la paginación puede no ser exacta
-  // Para un filtro perfecto habría que hacer una subquery, pero para el uso actual es suficiente
-
   const totalPages = Math.ceil(total / pageSize)
-  return { clientes: clientesFiltrados, total, page, totalPages, totalActivos, totalInactivos }
+  return { clientes: clientesConTipos, total, page, totalPages, totalActivos, totalInactivos }
 }
 
 export default async function ClientesPage({
@@ -242,7 +341,7 @@ export default async function ClientesPage({
       <div className="rounded-lg bg-white shadow border border-gray-200">
         <div className="px-4 py-5 sm:p-6">
           <form method="get" className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <div>
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700">Buscar</label>
                 <div className="relative mt-1">
@@ -283,6 +382,21 @@ export default async function ClientesPage({
                   <option value="">Todos</option>
                   <option value="fisica">Persona Física</option>
                   <option value="juridica">Persona Jurídica</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="facturacion" className="block text-sm font-medium text-gray-700">Facturación</label>
+                <select
+                  id="facturacion"
+                  name="facturacion"
+                  defaultValue={resolvedSearchParams.facturacion}
+                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                >
+                  <option value="">Todos</option>
+                  <option value="mensual">Mensual</option>
+                  <option value="anual">Anual</option>
+                  <option value="puntual">Puntual</option>
+                  <option value="nada">Sin contratos</option>
                 </select>
               </div>
               <div>
