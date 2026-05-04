@@ -182,7 +182,7 @@ export default function FAQPage() {
               Nuestro equipo de soporte está disponible 24/7 para ayudarte.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a href="tel:+34900000000" className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold">
+              <a href="tel:+34900730034" className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold">
                 Llamar a Soporte
               </a>
               <a href="https://wa.me/34600000000" className="px-6 py-3 border-2 border-white text-white rounded-lg hover:bg-white hover:text-gray-900 transition-all font-semibold">

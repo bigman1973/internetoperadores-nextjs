@@ -415,7 +415,7 @@ export default function GuiaConectividadEmpresarial() {
               Solicitar Auditoría Gratuita
             </a>
             <a
-              href="tel:+34900000000"
+              href="tel:+34900730034"
               className="inline-flex items-center justify-center gap-2 bg-transparent border-2 border-white text-white py-4 px-8 rounded-lg font-semibold hover:bg-white hover:text-gray-900 transition-colors"
             >
               Llamar Ahora

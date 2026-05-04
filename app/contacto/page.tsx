@@ -265,7 +265,7 @@ export default function ContactoPage() {
                       Si necesita una respuesta urgente, puede llamarnos directamente o contactar por WhatsApp.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                      <a href="tel:+34900900900" className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all font-semibold">
+                      <a href="tel:+34900730034" className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all font-semibold">
                         Llamar ahora
                       </a>
                       <a href="https://wa.me/34900900900" className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold">
@@ -288,7 +288,7 @@ export default function ContactoPage() {
                     </div>
                     <h3 className="font-bold text-gray-900">Teléfono</h3>
                   </div>
-                  <a href="tel:+34900900900" className="text-xl font-bold text-orange-600 hover:text-orange-700">
+                  <a href="tel:+34900730034" className="text-xl font-bold text-orange-600 hover:text-orange-700">
                     900 900 900
                   </a>
                   <p className="text-sm text-gray-500 mt-1">Lunes a Viernes, 9:00 - 19:00</p>
@@ -331,7 +331,7 @@ export default function ContactoPage() {
                   <p className="text-orange-100 text-sm mb-4">
                     Si ya es cliente y necesita soporte técnico, nuestro equipo está disponible las 24 horas.
                   </p>
-                  <a href="tel:+34900900901" className="inline-block px-5 py-2.5 bg-white text-orange-600 rounded-xl hover:bg-orange-50 transition-all font-semibold text-sm">
+                  <a href="tel:+34900730034" className="inline-block px-5 py-2.5 bg-white text-orange-600 rounded-xl hover:bg-orange-50 transition-all font-semibold text-sm">
                     900 900 901 (Soporte)
                   </a>
                 </div>
@@ -349,7 +349,7 @@ export default function ContactoPage() {
                   </div>
                   <p className="text-gray-700 text-sm">
                     Internet Operadores S.L.<br />
-                    Barcelona, España
+                    Paseo De La Habana 26 1-1, 28036 Madrid
                   </p>
                 </div>
               </div>

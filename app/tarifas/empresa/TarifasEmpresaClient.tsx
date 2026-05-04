@@ -1,8 +1,10 @@
-"use client";
+'use client';
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import EmpresaNav from '../../../components/EmpresaNav';
+import EmpresaFooter from '../../../components/EmpresaFooter';
 import type { TarifaWeb } from '@/lib/tarifas-web';
 
 const iconoCategoria: Record<string, string> = {
@@ -137,6 +139,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <EmpresaNav currentPage="tarifas" />
       {/* Hero */}
       <div className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white py-16 md:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -382,6 +385,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
           </div>
         </div>
       </div>
+      <EmpresaFooter />
     </div>
   );
 }

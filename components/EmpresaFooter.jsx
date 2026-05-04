@@ -38,13 +38,13 @@ export default function EmpresaFooter() {
             </p>
             <div className="mt-6 space-y-2 text-sm text-gray-400">
               <p className="flex items-center gap-2">
-                <span>📞</span> <a href="tel:+34900123456" className="hover:text-orange-400 transition-colors">900 XXX XXX</a>
+                <span>📞</span> <a href="tel:+34900730034" className="hover:text-orange-400 transition-colors">900 730 034</a>
               </p>
               <p className="flex items-center gap-2">
                 <span>✉️</span> <a href="mailto:comercial@internetoperadores.com" className="hover:text-orange-400 transition-colors">comercial@internetoperadores.com</a>
               </p>
               <p className="flex items-center gap-2">
-                <span>📍</span> Barcelona, España
+                <span>📍</span> Paseo De La Habana 26 1-1, 28036 Madrid
               </p>
             </div>
           </div>

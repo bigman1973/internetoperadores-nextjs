@@ -40,7 +40,7 @@ export default function SoportePage() {
       if (!response.ok) throw new Error('Error al enviar');
       setIsSubmitted(true);
     } catch (err) {
-      setError('Ha ocurrido un error. Llame al 900 XXX XXX para soporte urgente.');
+      setError('Ha ocurrido un error. Llame al 900 730 034 para soporte urgente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -70,7 +70,7 @@ export default function SoportePage() {
               Estamos aquí para ayudarte en cualquier momento. Elige el canal que prefieras para contactar con nuestro equipo técnico.
             </p>
             <div className="grid sm:grid-cols-3 gap-4">
-              <a href="tel:+34900123456" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
+              <a href="tel:+34900730034" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
                 <span className="text-xl">📞</span> Llamar ahora
               </a>
               <a href="https://wa.me/34900123456?text=Hola%2C%20necesito%20soporte%20t%C3%A9cnico" target="_blank" className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
@@ -90,7 +90,7 @@ export default function SoportePage() {
           <h2 className="text-3xl font-bold text-gray-900 mb-12 text-center">Canales de atención</h2>
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {[
-              { icono: '📞', titulo: 'Teléfono 24/7', dato: '900 XXX XXX', desc: 'Línea directa con técnicos especializados. Sin esperas, sin menús interminables.', horario: '24 horas, 365 días' },
+              { icono: '📞', titulo: 'Teléfono 24/7', dato: '900 730 034', desc: 'Línea directa con técnicos especializados. Sin esperas, sin menús interminables.', horario: '24 horas, 365 días' },
               { icono: '💬', titulo: 'WhatsApp', dato: '+34 6XX XXX XXX', desc: 'Envía capturas, vídeos y describe tu incidencia de forma rápida y cómoda.', horario: '24 horas, 365 días' },
               { icono: '✉️', titulo: 'Email', dato: 'soporte@internetoperadores.com', desc: 'Para incidencias no urgentes o consultas técnicas que requieran documentación.', horario: 'Respuesta < 4h laborables' },
               { icono: '🎫', titulo: 'Ticket Web', dato: 'Formulario abajo', desc: 'Abre un ticket desde esta página y haz seguimiento del estado de tu incidencia.', horario: 'Respuesta < 2h laborables' }
@@ -188,7 +188,7 @@ export default function SoportePage() {
               <>
                 <div className="text-center mb-10">
                   <h2 className="text-3xl font-bold text-gray-900 mb-4">Abrir ticket de soporte</h2>
-                  <p className="text-gray-600">Para incidencias urgentes, recomendamos llamar al 900 XXX XXX</p>
+                  <p className="text-gray-600">Para incidencias urgentes, recomendamos llamar al 900 730 034</p>
                 </div>
                 <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 md:p-12">
                   {error && (
