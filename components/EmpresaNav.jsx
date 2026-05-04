@@ -5,7 +5,7 @@ import { useState } from 'react';
 const productos = [
   { nombre: 'Fibra e Internet', href: '/productos/fibra-internet', descripcion: 'FTTH, dedicada, backup 4G/5G' },
   { nombre: 'Telefonía Móvil', href: '/productos/telefonia-movil', descripcion: 'Tarifas empresa y flotas' },
-  { nombre: 'VoIP y Centralita Virtual', href: '/productos/voip-centralita', descripcion: 'Wildix, Zoom Phone, SIP Trunk' },
+  { nombre: 'Comunicaciones Unificadas', href: '/productos/comunicaciones-unificadas', descripcion: 'VoIP, Zoom, Wildix, Videoconferencia' },
   { nombre: 'Ciberseguridad', href: '/productos/ciberseguridad', descripcion: 'Panda, Firewalls, EDR' },
   { nombre: 'Backup Empresarial', href: '/productos/backup', descripcion: 'ExaGrid, copias en la nube' },
   { nombre: 'Mantenimiento IT', href: '/productos/mantenimiento-it', descripcion: 'Soporte remoto y presencial' },

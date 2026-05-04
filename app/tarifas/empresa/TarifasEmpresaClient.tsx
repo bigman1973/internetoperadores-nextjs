@@ -25,6 +25,7 @@ const iconoCategoria: Record<string, string> = {
   'COMPARTE GB': '📱',
   'CENTRALITAS PBX': '💬',
   'PBX CLOUD WILDIX': '💬',
+  'COMUNICACIONES UNIFICADAS': '🎥',
   'HOSTING': '☁️',
   'BACKUP Y CLOUD': '☁️',
   'BACKUP': '☁️',
