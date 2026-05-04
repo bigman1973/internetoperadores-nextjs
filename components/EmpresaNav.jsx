@@ -8,6 +8,7 @@ const soluciones = [
   { nombre: 'Soluciones Móviles', href: '/soluciones/moviles', descripcion: 'Tarifas empresariales' },
   { nombre: 'Infraestructura de Red', href: '/soluciones/infraestructura-red', descripcion: 'WiFi y redes - Ruckus' },
   { nombre: 'Mantenimiento IT', href: '/soluciones/mantenimiento-it', descripcion: 'Soporte y prevención' },
+  { nombre: 'Migración Web', href: '/soluciones/migracion-web', descripcion: 'De WordPress a Next.js' },
   { nombre: 'ExaGrid', href: '/soluciones/exagrid', descripcion: 'Backup empresarial' },
 ];
 
