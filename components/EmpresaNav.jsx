@@ -2,6 +2,17 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
+const productos = [
+  { nombre: 'Fibra e Internet', href: '/productos/fibra-internet', descripcion: 'FTTH, dedicada, backup 4G/5G' },
+  { nombre: 'Telefonía Móvil', href: '/productos/telefonia-movil', descripcion: 'Tarifas empresa y flotas' },
+  { nombre: 'VoIP y Centralita Virtual', href: '/productos/voip-centralita', descripcion: 'Wildix, Zoom Phone, SIP Trunk' },
+  { nombre: 'Ciberseguridad', href: '/productos/ciberseguridad', descripcion: 'Panda, Firewalls, EDR' },
+  { nombre: 'Backup Empresarial', href: '/productos/backup', descripcion: 'ExaGrid, copias en la nube' },
+  { nombre: 'Mantenimiento IT', href: '/productos/mantenimiento-it', descripcion: 'Soporte remoto y presencial' },
+  { nombre: 'Cloud y Hosting', href: '/productos/cloud-hosting', descripcion: 'Servidores, hosting, email' },
+  { nombre: 'Desarrollo Web', href: '/productos/desarrollo-web', descripcion: 'Webs, e-commerce, apps' },
+];
+
 const soluciones = [
   { nombre: 'Comunicaciones Unificadas', href: '/soluciones/comunicaciones-unificadas', descripcion: 'UCaaS - Wildix & Zoom' },
   { nombre: 'Conectividad Avanzada', href: '/soluciones/conectividad-avanzada', descripcion: 'Respaldo, MPLS, Internacional' },
@@ -85,14 +96,14 @@ export default function EmpresaNav({ currentPage = '' }) {
             
             {/* Desktop Menu */}
             <div className="hidden lg:flex gap-6 xl:gap-8 text-sm xl:text-base font-medium">
-              {/* Productos Dropdown - grouped by solution */}
+              {/* Productos Dropdown */}
               <div 
                 className="relative"
                 onMouseEnter={() => setProductosOpen(true)}
                 onMouseLeave={() => setProductosOpen(false)}
               >
                 <Link 
-                  href="/tarifas/empresa" 
+                  href="/productos" 
                   className={`transition-colors flex items-center gap-1 ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
                 >
                   Productos
@@ -103,18 +114,18 @@ export default function EmpresaNav({ currentPage = '' }) {
                 
                 <div className={`absolute top-full left-0 mt-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-2 transition-all duration-200 ${productosOpen ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-2'}`}>
                   <div className="px-4 py-2 border-b border-gray-100">
-                    <Link href="/tarifas/empresa" className="text-orange-600 font-semibold text-sm hover:text-orange-700">
+                    <Link href="/productos" className="text-orange-600 font-semibold text-sm hover:text-orange-700">
                       Ver todos los productos →
                     </Link>
                   </div>
-                  {soluciones.map((solucion) => (
+                  {productos.map((producto) => (
                     <Link 
-                      key={solucion.href}
-                      href={solucion.href} 
+                      key={producto.href}
+                      href={producto.href} 
                       className="block px-4 py-3 hover:bg-orange-50 transition-colors"
                     >
-                      <span className="font-semibold text-gray-900 text-sm">{solucion.nombre}</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">{solucion.descripcion}</span>
+                      <span className="font-semibold text-gray-900 text-sm">{producto.nombre}</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">{producto.descripcion}</span>
                     </Link>
                   ))}
                 </div>
@@ -274,15 +285,15 @@ export default function EmpresaNav({ currentPage = '' }) {
               <div className="flex flex-col gap-2">
                 {/* Mobile Productos */}
                 <div className="py-2">
-                  <Link href="/tarifas/empresa" className="text-orange-600 font-semibold">Productos</Link>
+                  <Link href="/productos" className="text-orange-600 font-semibold">Productos</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
-                    {soluciones.map((solucion) => (
+                    {productos.map((producto) => (
                       <Link 
-                        key={solucion.href}
-                        href={solucion.href} 
+                        key={producto.href}
+                        href={producto.href} 
                         className="block py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
-                        {solucion.nombre}
+                        {producto.nombre}
                       </Link>
                     ))}
                   </div>
