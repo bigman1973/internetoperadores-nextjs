@@ -66,6 +66,18 @@ const soluciones = [
     destacado: 'SLA garantizado'
   },
   {
+    id: 'migracion-web',
+    titulo: 'Migración Web',
+    subtitulo: 'De WordPress a Next.js',
+    descripcion: 'Migramos tu web WordPress obsoleta a tecnología de última generación. Máxima seguridad, velocidad extrema y sin mantenimiento constante. Auditoría gratuita.',
+    icono: (
+      <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+      </svg>
+    ),
+    destacado: 'Auditoría gratuita'
+  },
+  {
     id: 'exagrid',
     titulo: 'ExaGrid',
     subtitulo: 'Backup empresarial',
