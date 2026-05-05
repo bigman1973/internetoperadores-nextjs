@@ -1,6 +1,6 @@
 export const dynamic = "force-dynamic";
 import { requireAuth } from '../../lib/middleware/auth'
-import { prisma } from '../../lib/prisma'
+import prisma from '../../lib/prisma'
 import { 
   CreditCardIcon, 
   UsersIcon,
@@ -11,38 +11,58 @@ import {
 } from '@heroicons/react/24/outline'
 
 async function getDashboardStats() {
-  const [
-    tarifasActivas,
-    clientesActivos,
-    clientesEmpresa,
-    clientesParticular,
-    contratosActivos,
-    facturacionMesActual,
-  ] = await Promise.all([
-    prisma.tarifa.count({ where: { activa: true } }),
-    prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as total FROM clientes_web WHERE activo = true`) as Promise<any[]>,
-    prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as total FROM clientes_web WHERE activo = true AND persona_fisica = false`) as Promise<any[]>,
-    prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as total FROM clientes_web WHERE activo = true AND persona_fisica = true`) as Promise<any[]>,
-    prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as total FROM contratos_servicio WHERE activo = true`) as Promise<any[]>,
-    prisma.$queryRawUnsafe(`
-      SELECT COALESCE(SUM(total), 0)::float as total, 
-             COALESCE(SUM(base), 0)::float as base_imponible,
-             COUNT(*)::int as num_facturas
+  try {
+    const tarifasActivas = await prisma.tarifa.count({ where: { activa: true } })
+
+    // Clientes activos con facturación (tienen contratos activos)
+    const clientesResult: any[] = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COUNT(DISTINCT c.id)::int as total,
+        COUNT(DISTINCT c.id) FILTER (WHERE c.persona_fisica = false)::int as empresas,
+        COUNT(DISTINCT c.id) FILTER (WHERE c.persona_fisica = true)::int as particulares
+      FROM clientes_web c
+      INNER JOIN contratos_servicio cs ON cs.cliente_id = c.cliente_id_isp
+      WHERE c.activo = true AND cs.activo = true
+    `)
+
+    // Contratos activos
+    const contratosResult: any[] = await prisma.$queryRawUnsafe(`
+      SELECT COUNT(*)::int as total FROM contratos_servicio WHERE activo = true
+    `)
+
+    // Facturación mes actual
+    const facturacionResult: any[] = await prisma.$queryRawUnsafe(`
+      SELECT 
+        COALESCE(SUM(total), 0)::float as total, 
+        COALESCE(SUM(base), 0)::float as base_imponible,
+        COUNT(*)::int as num_facturas
       FROM facturas 
       WHERE ejercicio = EXTRACT(YEAR FROM CURRENT_DATE)::int 
         AND EXTRACT(MONTH FROM fecha) = EXTRACT(MONTH FROM CURRENT_DATE)::int
-    `) as Promise<any[]>,
-  ])
+    `)
 
-  return {
-    tarifasActivas,
-    clientesActivos: clientesActivos[0]?.total || 0,
-    clientesEmpresa: clientesEmpresa[0]?.total || 0,
-    clientesParticular: clientesParticular[0]?.total || 0,
-    contratosActivos: contratosActivos[0]?.total || 0,
-    facturacionMesActual: facturacionMesActual[0]?.total || 0,
-    baseImponibleMes: facturacionMesActual[0]?.base_imponible || 0,
-    facturasMes: facturacionMesActual[0]?.num_facturas || 0,
+    return {
+      tarifasActivas,
+      clientesActivos: clientesResult[0]?.total || 0,
+      clientesEmpresa: clientesResult[0]?.empresas || 0,
+      clientesParticular: clientesResult[0]?.particulares || 0,
+      contratosActivos: contratosResult[0]?.total || 0,
+      facturacionMesActual: facturacionResult[0]?.total || 0,
+      baseImponibleMes: facturacionResult[0]?.base_imponible || 0,
+      facturasMes: facturacionResult[0]?.num_facturas || 0,
+    }
+  } catch (error) {
+    console.error('Error fetching dashboard stats:', error)
+    return {
+      tarifasActivas: 0,
+      clientesActivos: 0,
+      clientesEmpresa: 0,
+      clientesParticular: 0,
+      contratosActivos: 0,
+      facturacionMesActual: 0,
+      baseImponibleMes: 0,
+      facturasMes: 0,
+    }
   }
 }
 
@@ -85,7 +105,7 @@ export default async function AdminDashboard() {
           </dd>
         </div>
 
-        {/* Clientes Activos */}
+        {/* Clientes Activos con Facturación */}
         <div className="relative overflow-hidden rounded-lg bg-white px-4 py-5 shadow sm:px-6 sm:py-6 border border-gray-200">
           <dt>
             <div className="absolute rounded-md bg-purple-500 p-3">
