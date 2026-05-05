@@ -312,14 +312,16 @@ export default function EstadisticasClient() {
   }
 
   // Obtener último mes dinámicamente
-  const ultimoMes = datosMensual?.ultimoMes2026 || 5
+  const ultimoMes = datosMensual?.ultimoMes2026 || 4
+  const mesEnCurso = datosMensual?.mesEnCurso || 5
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Estadísticas de Facturación</h1>
-        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Mismo período ({MESES[0]} - {MESES[ultimoMes - 1]})</p>
+        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Meses cerrados ({MESES[0]} - {MESES[ultimoMes - 1]})</p>
+        <p className="mt-0.5 text-xs text-amber-600">* {MESES[mesEnCurso - 1]} 2026 en curso (datos parciales, no incluido en la comparativa)</p>
       </div>
 
       {/* KPIs */}
@@ -423,14 +425,20 @@ export default function EstadisticasClient() {
                     {MESES.map((mes, i) => {
                       const d25 = datosMensual.datos2025.find((m: any) => m.mes === i + 1)
                       const d26 = datosMensual.datos2026.find((m: any) => m.mes === i + 1)
-                      const var_pct = d25 && d26 ? ((d26.total_sin_iva - d25.total_sin_iva) / d25.total_sin_iva * 100).toFixed(1) : null
+                      const esMesEnCurso = i + 1 === mesEnCurso
+                      const var_pct = d25 && d26 && !esMesEnCurso ? ((d26.total_sin_iva - d25.total_sin_iva) / d25.total_sin_iva * 100).toFixed(1) : null
                       return (
-                        <tr key={i} className={!d25 && !d26 ? 'opacity-30' : ''}>
-                          <td className="px-4 py-2 text-sm font-medium text-gray-900">{mes}</td>
+                        <tr key={i} className={`${!d25 && !d26 ? 'opacity-30' : ''} ${esMesEnCurso ? 'bg-amber-50' : ''}`}>
+                          <td className="px-4 py-2 text-sm font-medium text-gray-900">
+                            {mes}
+                            {esMesEnCurso && <span className="ml-2 text-xs text-amber-600 font-normal">(en curso)</span>}
+                          </td>
                           <td className="px-4 py-2 text-sm text-right text-gray-700">{d25 ? formatEur(d25.total_sin_iva) : '-'}</td>
-                          <td className="px-4 py-2 text-sm text-right text-gray-700">{d26 ? formatEur(d26.total_sin_iva) : '-'}</td>
+                          <td className={`px-4 py-2 text-sm text-right ${esMesEnCurso ? 'text-amber-600 italic' : 'text-gray-700'}`}>{d26 ? formatEur(d26.total_sin_iva) : '-'}</td>
                           <td className="px-4 py-2 text-sm text-right">
-                            {var_pct ? (
+                            {esMesEnCurso ? (
+                              <span className="text-xs text-amber-600">parcial</span>
+                            ) : var_pct ? (
                               <span className={`inline-flex items-center gap-0.5 font-medium ${parseFloat(var_pct) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                 {parseFloat(var_pct) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(var_pct))}%
                               </span>
@@ -453,7 +461,7 @@ export default function EstadisticasClient() {
               {/* Indicador de período */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                 <p className="text-sm text-blue-800">
-                  <strong>Comparativa justa:</strong> Se compara el mismo período ({datosClientes.periodoComparado}) en ambos años para que los datos sean directamente comparables.
+                  <strong>Comparativa justa:</strong> Solo se comparan meses cerrados ({datosClientes.periodoComparado}) en ambos años. {MESES[(datosClientes.mesEnCurso || 5) - 1]} está en curso y no se incluye.
                 </p>
               </div>
 
@@ -526,7 +534,7 @@ export default function EstadisticasClient() {
               {/* Indicador de período */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                 <p className="text-sm text-blue-800">
-                  <strong>Comparativa justa:</strong> Se compara el mismo período ({datosCategorias.periodoComparado}) en ambos años para que los datos sean directamente comparables.
+                  <strong>Comparativa justa:</strong> Solo se comparan meses cerrados ({datosCategorias.periodoComparado}) en ambos años. {MESES[(datosCategorias.mesEnCurso || 5) - 1]} está en curso y no se incluye.
                 </p>
               </div>
 

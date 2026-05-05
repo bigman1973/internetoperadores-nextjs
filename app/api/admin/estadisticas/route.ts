@@ -9,12 +9,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const tipo = searchParams.get('tipo') || 'mensual' // mensual, clientes, categorias
 
-    // Primero obtener el último mes con datos en 2026 para comparar mismo período
+    // Obtener el último mes con datos en 2026
     const ultimoMes2026Result = await prisma.$queryRawUnsafe(`
       SELECT MAX(EXTRACT(MONTH FROM fecha))::int as ultimo_mes
       FROM facturas WHERE ejercicio = 2026
     `) as any[]
-    const ultimoMes2026 = ultimoMes2026Result[0]?.ultimo_mes || 5
+    const ultimoMesConDatos = ultimoMes2026Result[0]?.ultimo_mes || 5
+    // Para comparativa justa: usar solo meses CERRADOS (hasta el mes anterior al actual con datos)
+    const ultimoMesCerrado = ultimoMesConDatos - 1 || 1
+    // El mes en curso es parcial
+    const mesEnCurso = ultimoMesConDatos
+    // Para las queries de comparativa usamos ultimoMesCerrado
+    const ultimoMes2026 = ultimoMesCerrado
 
     if (tipo === 'mensual') {
       // Evolución mensual 2025 vs 2026
@@ -70,6 +76,7 @@ export async function GET(request: NextRequest) {
         datos2025,
         datos2026,
         ultimoMes2026,
+        mesEnCurso,
         totales: {
           año2025: total2025[0],
           año2025MismoPeriodo: total2025MismoPeriodo[0],
@@ -136,7 +143,9 @@ export async function GET(request: NextRequest) {
         clientes2026: topClientes2026,
         totalAnual2025,
         ultimoMes2026,
-        periodoComparado: `Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]}`
+        mesEnCurso,
+        periodoComparado: `Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]}`,
+        periodoLabel: `Meses cerrados (Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]})`
       })
     }
 
@@ -227,6 +236,7 @@ export async function GET(request: NextRequest) {
         mensualSegmento2025,
         mensualSegmento2026,
         ultimoMes2026,
+        mesEnCurso,
         periodoComparado: `Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]}`
       })
     }
