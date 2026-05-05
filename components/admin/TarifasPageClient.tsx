@@ -17,6 +17,7 @@ interface Tarifa {
   tipoCliente: string
   categoria: string
   nombre: string
+  nombreComercial: string | null
   velocidad: string | null
   precioSinIva: number
   precioConIva: number
@@ -419,6 +420,9 @@ export default function TarifasPageClient() {
             <div>
               <div className="flex items-center gap-x-2">
                 <span className="text-sm font-medium text-gray-900">{tarifa.nombre}</span>
+                {tarifa.nombreComercial && tarifa.nombreComercial !== tarifa.nombre && (
+                  <span className="text-xs text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">Web: {tarifa.nombreComercial}</span>
+                )}
                 {tarifa.destacada && <StarIconSolid className="h-4 w-4 text-yellow-400" />}
               </div>
               {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}

@@ -7,6 +7,7 @@ import EmpresaFooter from '../../../components/EmpresaFooter';
 interface TarifaWeb {
   id: number;
   nombre: string;
+  nombreComercial: string | null;
   descripcionCorta: string | null;
   descripcionLarga: string | null;
   precioSinIva: number;
@@ -147,7 +148,7 @@ export default function ComunicacionesUnificadasPage() {
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <h3 className="text-base font-bold text-gray-900 leading-tight">
-                          {tarifa.nombre.replace('Zoom - ', '')}
+                          {(tarifa.nombreComercial || tarifa.nombre).replace('Zoom - ', '')}
                         </h3>
                         {tarifa.descripcionCorta && (
                           <p className="text-xs text-orange-600 mt-1 font-medium">

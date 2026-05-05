@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 interface TarifaCardProps {
   nombre: string;
+  nombreComercial?: string | null;
   descripcionCorta: string | null;
   precioConIva: number;
   precioSinIva: number;
@@ -59,7 +60,7 @@ export default function TarifaCard({ tarifa }: { tarifa: TarifaCardProps }) {
         <div className="absolute top-4 right-4 bg-white text-orange-500 px-3 py-1 rounded-full text-sm font-semibold">
           La Más Elegida
         </div>
-        <h3 className="text-2xl font-bold mb-1">{tarifa.nombre}</h3>
+        <h3 className="text-2xl font-bold mb-1">{tarifa.nombreComercial || tarifa.nombre}</h3>
         <p className="text-sm text-orange-100 mb-1">{tarifa.categoria}</p>
         <div className="mb-6 mt-3">
           <span className="text-5xl font-bold">{tarifa.precioConIva.toFixed(0)}€</span>
@@ -85,7 +86,7 @@ export default function TarifaCard({ tarifa }: { tarifa: TarifaCardProps }) {
 
   return (
     <div className="bg-white border-2 border-gray-200 rounded-2xl p-8 hover:border-orange-500 hover:shadow-lg transition-all flex flex-col">
-      <h3 className="text-2xl font-bold text-gray-900 mb-1">{tarifa.nombre}</h3>
+      <h3 className="text-2xl font-bold text-gray-900 mb-1">{tarifa.nombreComercial || tarifa.nombre}</h3>
       <p className="text-sm text-gray-500 mb-1">{tarifa.categoria}</p>
       <div className="mb-6 mt-3">
         <span className="text-5xl font-bold text-gray-900">{tarifa.precioConIva.toFixed(0)}€</span>

@@ -293,7 +293,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                           <tr key={tarifa.id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
-                                <span className="font-semibold text-gray-900">{tarifa.nombre}</span>
+                                <span className="font-semibold text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</span>
                                 {tarifa.destacada && <span className="text-yellow-500 text-xs">★</span>}
                               </div>
                             </td>
@@ -337,7 +337,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         <div className="text-xs text-orange-600 font-semibold uppercase tracking-wider mb-2">
                           {tarifa.categoria}
                         </div>
-                        <h3 className="text-lg font-bold text-gray-900 mb-2">{tarifa.nombre}</h3>
+                        <h3 className="text-lg font-bold text-gray-900 mb-2">{tarifa.nombreComercial || tarifa.nombre}</h3>
                         {tarifa.descripcionCorta && (
                           <p className="text-sm text-gray-500 mb-4 line-clamp-2">{tarifa.descripcionCorta}</p>
                         )}

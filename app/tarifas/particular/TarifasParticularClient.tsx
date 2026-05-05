@@ -136,7 +136,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
         <div className="text-xs text-orange-600 font-semibold uppercase tracking-wider mb-2">
           {iconoCategoria[tarifa.categoria] || '📦'} {tarifa.categoria}
         </div>
-        <h3 className="text-xl font-bold text-gray-900 mb-2">{tarifa.nombre}</h3>
+        <h3 className="text-xl font-bold text-gray-900 mb-2">{tarifa.nombreComercial || tarifa.nombre}</h3>
         {getDetalleConectividad(tarifa) && (
           <p className="text-gray-600 mb-3 text-sm">{getDetalleConectividad(tarifa)}</p>
         )}

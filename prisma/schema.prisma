@@ -30,6 +30,7 @@ model Tarifa {
   tipoCliente            TipoCliente         @map("tipo_cliente")
   categoria              String
   nombre                 String
+  nombreComercial        String?             @map("nombre_comercial")
   descripcionCorta       String?             @map("descripcion_corta")
   descripcionLarga       String?             @map("descripcion_larga")
   velocidad              String?

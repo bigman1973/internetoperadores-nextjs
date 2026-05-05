@@ -5,6 +5,7 @@ export interface TarifaWeb {
   tipoCliente: string;
   categoria: string;
   nombre: string;
+  nombreComercial: string | null;
   descripcionCorta: string | null;
   descripcionLarga: string | null;
   velocidad: string | null;
@@ -37,6 +38,7 @@ const tarifaSelect = {
   tipoCliente: true,
   categoria: true,
   nombre: true,
+  nombreComercial: true,
   descripcionCorta: true,
   descripcionLarga: true,
   velocidad: true,

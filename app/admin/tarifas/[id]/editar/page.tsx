@@ -16,6 +16,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     tipoCliente: 'PARTICULAR',
     categoria: '',
     nombre: '',
+    nombreComercial: '',
     descripcionCorta: '',
     descripcionLarga: '',
     ispGestionId: '',
@@ -82,6 +83,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             tipoCliente: data.tipoCliente || 'PARTICULAR',
             categoria: data.categoria || '',
             nombre: data.nombre || '',
+            nombreComercial: data.nombreComercial || data.nombre || '',
             descripcionCorta: data.descripcionCorta || '',
             descripcionLarga: data.descripcionLarga || '',
             ispGestionId: data.ispGestionId || '',
@@ -182,6 +184,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           tipoCliente: formData.tipoCliente,
           categoria: formData.categoria,
           nombre: formData.nombre,
+          nombreComercial: formData.nombreComercial || formData.nombre,
           descripcionCorta: formData.descripcionCorta || null,
           descripcionLarga: formData.descripcionLarga || null,
           precioSinIva: parseFloat(formData.precioSinIva) || 0,
@@ -281,9 +284,15 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 <input type="text" name="ispGestionId" value={formData.ispGestionId} onChange={handleChange} disabled className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-gray-50 text-gray-500" />
               </div>
             </div>
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la Tarifa</label>
-              <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la Tarifa</label>
+                <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-orange-700 mb-1">Nombre Comercial (Web)</label>
+                <input type="text" name="nombreComercial" value={formData.nombreComercial} onChange={handleChange} className="w-full px-3 py-2 border border-orange-300 rounded-md text-sm bg-orange-50" placeholder="Nombre que se mostrará en la web pública" />
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>

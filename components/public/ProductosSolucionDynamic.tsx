@@ -5,6 +5,7 @@ import Link from 'next/link';
 interface TarifaWeb {
   id: number;
   nombre: string;
+  nombreComercial: string | null;
   descripcionCorta: string | null;
   velocidad: string | null;
   velocidadBajada: string | null;
@@ -88,7 +89,7 @@ export default function ProductosSolucionDynamic({ solucion, solucionNombre }: {
                 )}
                 <div className="p-6 sm:p-8">
                   <h3 className={`text-lg sm:text-xl font-bold mb-1 ${tarifa.esPopular ? 'text-white' : 'text-gray-900'}`}>
-                    {tarifa.nombre}
+                    {tarifa.nombreComercial || tarifa.nombre}
                   </h3>
                   {tarifa.descripcionCorta && (
                     <p className={`text-sm mb-4 ${tarifa.esPopular ? 'text-white/80' : 'text-gray-500'}`}>
