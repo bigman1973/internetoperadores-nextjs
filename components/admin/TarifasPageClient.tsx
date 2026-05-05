@@ -695,6 +695,9 @@ export default function TarifasPageClient() {
               <option value="">Todos</option>
               <option value="activa">Activas</option>
               <option value="inactiva">Inactivas</option>
+              <option value="web-particular">Publicada Web Part.</option>
+              <option value="web-empresa">Publicada Web Emp.</option>
+              <option value="web-ambas">Publicada Web (cualquiera)</option>
             </select>
           </div>
           <div className="flex gap-2">
@@ -720,7 +723,7 @@ export default function TarifasPageClient() {
             {search && <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">Búsqueda: &quot;{search}&quot; <button onClick={() => { setSearch(''); setSearchInput('') }} className="text-orange-500 hover:text-orange-700">&times;</button></span>}
             {tipoCliente && <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{tipoCliente} <button onClick={() => setTipoCliente('')} className="text-blue-500 hover:text-blue-700">&times;</button></span>}
             {categoria && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getCatColor(categoria)}`}>{categoria} <button onClick={() => setCategoria('')} className="hover:opacity-70">&times;</button></span>}
-            {estado && <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">{estado === 'activa' ? 'Activas' : 'Inactivas'} <button onClick={() => setEstado('')} className="text-green-500 hover:text-green-700">&times;</button></span>}
+            {estado && <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">{estado === 'activa' ? 'Activas' : estado === 'inactiva' ? 'Inactivas' : estado === 'web-particular' ? 'Web Part.' : estado === 'web-empresa' ? 'Web Emp.' : 'Web (cualquiera)'} <button onClick={() => setEstado('')} className="text-green-500 hover:text-green-700">&times;</button></span>}
           </div>
         )}
       </div>

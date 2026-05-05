@@ -58,6 +58,16 @@ export async function GET(request: NextRequest) {
       where.activa = true;
     } else if (estado === 'inactiva') {
       where.activa = false;
+    } else if (estado === 'web-particular') {
+      where.publicarWebParticular = true;
+    } else if (estado === 'web-empresa') {
+      where.publicarWebEmpresa = true;
+    } else if (estado === 'web-ambas') {
+      where.OR = [
+        ...(where.OR || []),
+        { publicarWebParticular: true },
+        { publicarWebEmpresa: true },
+      ];
     }
 
     if (modo === 'stats') {
