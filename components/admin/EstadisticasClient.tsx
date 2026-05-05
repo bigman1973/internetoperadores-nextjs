@@ -325,17 +325,29 @@ export default function EstadisticasClient() {
       </div>
 
       {/* KPIs */}
-      {datosMensual && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {datosMensual && (() => {
+        const acumulado2026 = datosMensual.totales.año2026?.total_sin_iva || 0
+        const proyeccion2026 = ultimoMes > 0 ? acumulado2026 * (12 / ultimoMes) : 0
+        const total2025 = datosMensual.totales.año2025?.total_sin_iva || 0
+        const varProyeccion = total2025 > 0 ? ((proyeccion2026 - total2025) / total2025 * 100).toFixed(1) : null
+        return (
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <KPICard
             icon={<BanknotesIcon className="h-6 w-6 text-orange-600" />}
             label={`Facturación 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
-            value={formatEur(datosMensual.totales.año2026?.total_sin_iva || 0)}
+            value={formatEur(acumulado2026)}
             variacion={calcVariacion(
-              datosMensual.totales.año2026?.total_sin_iva || 0,
+              acumulado2026,
               datosMensual.totales.año2025MismoPeriodo?.total_sin_iva || 0
             )}
             subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
+          />
+          <KPICard
+            icon={<ArrowTrendingUpIcon className="h-6 w-6 text-emerald-600" />}
+            label="Proyección 2026 (año)"
+            value={formatEur(proyeccion2026)}
+            variacion={varProyeccion}
+            subtext={`vs ${formatEur(total2025)} en 2025`}
           />
           <KPICard
             icon={<DocumentTextIcon className="h-6 w-6 text-blue-600" />}
@@ -360,12 +372,13 @@ export default function EstadisticasClient() {
           <KPICard
             icon={<ChartBarIcon className="h-6 w-6 text-purple-600" />}
             label="Total 2025 (año completo)"
-            value={formatEur(datosMensual.totales.año2025?.total_sin_iva || 0)}
+            value={formatEur(total2025)}
             variacion={null}
             subtext="11 meses (feb-dic)"
           />
         </div>
-      )}
+        )
+      })()}
 
       {/* Tabs */}
       <div className="border-b border-gray-200">
