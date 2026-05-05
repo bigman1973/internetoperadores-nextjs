@@ -26,7 +26,7 @@ async function getDashboardStats() {
     prisma.$queryRawUnsafe(`SELECT COUNT(*)::int as total FROM contratos_servicio WHERE activo = true`) as Promise<any[]>,
     prisma.$queryRawUnsafe(`
       SELECT COALESCE(SUM(total), 0)::float as total, 
-             COALESCE(SUM(base_imponible), 0)::float as base_imponible,
+             COALESCE(SUM(base), 0)::float as base_imponible,
              COUNT(*)::int as num_facturas
       FROM facturas 
       WHERE ejercicio = EXTRACT(YEAR FROM CURRENT_DATE)::int 
