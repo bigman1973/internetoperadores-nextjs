@@ -1,17 +1,30 @@
 import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import AzureADProvider from 'next-auth/providers/azure-ad'
 import bcrypt from 'bcryptjs'
 import prisma from './prisma'
 import { verifyClienteCredentials, getClienteByEmail } from './ispgestion/service'
 
 export const authOptions: NextAuthOptions = {
   providers: [
+    // Azure AD (Microsoft) para admins
+    AzureADProvider({
+      clientId: process.env.AZURE_AD_CLIENT_ID!,
+      clientSecret: process.env.AZURE_AD_CLIENT_SECRET!,
+      tenantId: process.env.AZURE_AD_TENANT_ID!,
+      authorization: {
+        params: {
+          scope: 'openid profile email',
+        },
+      },
+    }),
+    // Credentials para admins y clientes (legacy)
     CredentialsProvider({
       name: 'Credentials',
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
-        userType: { label: "User Type", type: "text" } // 'admin' o 'cliente'
+        userType: { label: "User Type", type: "text" }
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password || !credentials?.userType) {
@@ -20,7 +33,6 @@ export const authOptions: NextAuthOptions = {
 
         try {
           if (credentials.userType === 'admin') {
-            // Login de admin
             const admin = await prisma.usuarioAdmin.findUnique({
               where: { email: credentials.email }
             })
@@ -38,7 +50,6 @@ export const authOptions: NextAuthOptions = {
               return null
             }
 
-            // Actualizar último acceso
             await prisma.usuarioAdmin.update({
               where: { id: admin.id },
               data: { ultimoAcceso: new Date() }
@@ -52,7 +63,6 @@ export const authOptions: NextAuthOptions = {
               userType: 'admin'
             }
           } else if (credentials.userType === 'cliente') {
-            // Login de cliente
             let cliente = await prisma.clienteWeb.findFirst({
               where: { email: credentials.email, activo: true }
             })
@@ -60,7 +70,6 @@ export const authOptions: NextAuthOptions = {
             let isValidPassword = false;
 
             if (cliente) {
-              // 1. Intentar login con la contraseña local
               isValidPassword = await bcrypt.compare(
                 credentials.password,
                 cliente.passwordHash
@@ -68,17 +77,14 @@ export const authOptions: NextAuthOptions = {
             }
 
             if (!cliente || !isValidPassword) {
-              // 2. Si falla o no existe, intentar validar contra ISPGestión
               const ispgestionId = await verifyClienteCredentials(credentials.email, credentials.password);
 
               if (ispgestionId) {
-                // 3. Si es válido en ISPGestión, sincronizar y crear/actualizar localmente
                 const clienteData = await getClienteByEmail(credentials.email);
                 
                 if (clienteData) {
                   const newPasswordHash = await bcrypt.hash(credentials.password, 10);
                   
-                  // Buscar si ya existe por ispGestionId
                   const existingCliente = await prisma.clienteWeb.findFirst({
                     where: { ispGestionId: ispgestionId }
                   });
@@ -103,7 +109,7 @@ export const authOptions: NextAuthOptions = {
                       }
                     });
                   }
-                  isValidPassword = true; // El login fue exitoso vía ISPGestión
+                  isValidPassword = true;
                 }
               }
             }
@@ -129,12 +135,50 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account }) {
+      // Si es login con Azure AD, verificar que el email está autorizado
+      if (account?.provider === 'azure-ad') {
+        const email = user.email?.toLowerCase()
+        if (!email) return false
+
+        const admin = await prisma.usuarioAdmin.findUnique({
+          where: { email }
+        })
+
+        if (!admin || !admin.activo) {
+          // Email no autorizado
+          return '/login?error=unauthorized'
+        }
+
+        // Actualizar último acceso
+        await prisma.usuarioAdmin.update({
+          where: { id: admin.id },
+          data: { ultimoAcceso: new Date() }
+        })
+
+        return true
+      }
+      return true
+    },
+    async jwt({ token, user, account }) {
       if (user) {
         token.id = user.id
         token.role = user.role
         token.userType = user.userType
       }
+
+      // Si es login con Azure AD, obtener rol del usuario de la BD
+      if (account?.provider === 'azure-ad' && user?.email) {
+        const admin = await prisma.usuarioAdmin.findUnique({
+          where: { email: user.email.toLowerCase() }
+        })
+        if (admin) {
+          token.id = admin.id.toString()
+          token.role = admin.rol
+          token.userType = 'admin'
+        }
+      }
+
       return token
     },
     async session({ session, token }) {

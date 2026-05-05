@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { signIn } from 'next-auth/react'
 
 function LoginForm() {
   const router = useRouter()
@@ -13,17 +14,22 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const errorParam = searchParams.get('error')
+
+  const handleMicrosoftLogin = () => {
+    setLoading(true)
+    signIn('azure-ad', { callbackUrl: '/admin' })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setLoading(true)
 
     try {
-      // 1. Obtener CSRF token
       const csrfRes = await fetch('/api/auth/csrf')
       const csrfData = await csrfRes.json()
 
-      // 2. Hacer login directamente con fetch
       const loginRes = await fetch('/api/auth/callback/credentials', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -37,12 +43,10 @@ function LoginForm() {
         redirect: 'follow',
       })
 
-      // 3. Verificar si el login fue exitoso comprobando la sesión
       const sessionRes = await fetch('/api/auth/session')
       const session = await sessionRes.json()
 
       if (session?.user?.email) {
-        // Login exitoso - redirigir
         const callbackUrl = searchParams.get('callbackUrl')
         if (callbackUrl) {
           window.location.href = callbackUrl
@@ -77,6 +81,17 @@ function LoginForm() {
       </div>
 
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
+        {/* Error messages */}
+        {(error || errorParam === 'unauthorized') && (
+          <div className="mb-4 rounded-md bg-red-50 p-4">
+            <p className="text-sm text-red-800">
+              {errorParam === 'unauthorized' 
+                ? 'Tu cuenta de Microsoft no está autorizada para acceder al panel. Contacta con el administrador.'
+                : error}
+            </p>
+          </div>
+        )}
+
         {/* Selector de tipo de usuario */}
         <div className="mb-6">
           <div className="flex rounded-lg bg-gray-100 p-1">
@@ -105,13 +120,36 @@ function LoginForm() {
           </div>
         </div>
 
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <p className="text-sm text-red-800">{error}</p>
-            </div>
-          )}
+        {/* Botón Microsoft - solo para admins */}
+        {userType === 'admin' && (
+          <>
+            <button
+              type="button"
+              onClick={handleMicrosoftLogin}
+              disabled={loading}
+              className="flex w-full items-center justify-center gap-3 rounded-md bg-[#2F2F2F] px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#1a1a1a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2F2F2F] disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg className="h-5 w-5" viewBox="0 0 21 21" fill="none">
+                <rect x="1" y="1" width="9" height="9" fill="#F25022"/>
+                <rect x="11" y="1" width="9" height="9" fill="#7FBA00"/>
+                <rect x="1" y="11" width="9" height="9" fill="#00A4EF"/>
+                <rect x="11" y="11" width="9" height="9" fill="#FFB900"/>
+              </svg>
+              {loading ? 'Conectando...' : 'Iniciar sesión con Microsoft'}
+            </button>
 
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-gray-50 px-2 text-gray-500">o con email y contraseña</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        <form className="space-y-6" onSubmit={handleSubmit}>
           <div>
             <label htmlFor="email" className="block text-sm font-medium leading-6 text-gray-900">
               Email
@@ -158,19 +196,6 @@ function LoginForm() {
             </button>
           </div>
         </form>
-
-        {/* Credenciales de prueba */}
-        <div className="mt-10 text-center">
-          <p className="text-xs text-gray-500">
-            <strong>Credenciales de prueba:</strong>
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            Admin: david.perez@internetoperadores.com / admin123
-          </p>
-          <p className="text-xs text-gray-500">
-            Cliente: juan.perez@email.com / cliente123
-          </p>
-        </div>
       </div>
     </div>
   )
