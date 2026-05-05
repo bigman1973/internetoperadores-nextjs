@@ -66,7 +66,7 @@ export async function GET(request: NextRequest) {
       // Top clientes con comparativa mensual
       const topClientes2025 = await prisma.$queryRawUnsafe(`
         SELECT codigo_cliente, nombre_cliente,
-          SUM(total_con_iva)::float as total_anual,
+          SUM(total_mes)::float as total_anual,
           COUNT(*)::int as facturas,
           json_agg(json_build_object('mes', mes, 'total', total_mes)) as meses
         FROM (
@@ -86,16 +86,17 @@ export async function GET(request: NextRequest) {
       let topClientes2026: any[] = []
       if (codigosClientes.length > 0) {
         topClientes2026 = await prisma.$queryRawUnsafe(`
-          SELECT codigo_cliente::int, nombre_completo as nombre_cliente,
-            SUM(total)::float as total_anual,
+          SELECT codigo_cliente, nombre_cliente,
+            SUM(total_mes)::float as total_anual,
             COUNT(*)::int as facturas,
-            json_agg(json_build_object('mes', EXTRACT(MONTH FROM fecha)::int, 'total', total_mes)) as meses
+            json_agg(json_build_object('mes', mes, 'total', total_mes)) as meses
           FROM (
-            SELECT codigo_cliente::int, nombre_completo, fecha,
+            SELECT codigo_cliente::int as codigo_cliente, nombre_completo as nombre_cliente, 
+              EXTRACT(MONTH FROM fecha)::int as mes,
               SUM(total)::float as total_mes
             FROM facturas 
             WHERE ejercicio = 2026 AND codigo_cliente::int = ANY($1)
-            GROUP BY codigo_cliente, nombre_completo, fecha
+            GROUP BY codigo_cliente, nombre_completo, EXTRACT(MONTH FROM fecha)::int
           ) sub
           GROUP BY codigo_cliente, nombre_cliente
           ORDER BY total_anual DESC
@@ -178,7 +179,7 @@ export async function GET(request: NextRequest) {
       `) as any[]
 
       const mensualSegmento2026 = await prisma.$queryRawUnsafe(`
-        SELECT EXTRACT(MONTH FROM fecha)::int as mes,
+        SELECT mes,
           CASE 
             WHEN total_cliente > 50000/5.0 THEN 'Grandes Cuentas'
             WHEN total_cliente > 10000/5.0 THEN 'Medianas'
@@ -187,11 +188,11 @@ export async function GET(request: NextRequest) {
           END as segmento,
           SUM(total_mes)::float as total
         FROM (
-          SELECT codigo_cliente::int, fecha,
+          SELECT codigo_cliente::int, EXTRACT(MONTH FROM fecha)::int as mes,
             SUM(total)::float as total_mes,
             AVG(SUM(total)) OVER (PARTITION BY codigo_cliente)::float as total_cliente
           FROM facturas WHERE ejercicio = 2026
-          GROUP BY codigo_cliente, fecha
+          GROUP BY codigo_cliente, EXTRACT(MONTH FROM fecha)::int
         ) sub
         GROUP BY mes, segmento
         ORDER BY mes, segmento
