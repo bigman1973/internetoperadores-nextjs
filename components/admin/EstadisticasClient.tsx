@@ -327,10 +327,17 @@ export default function EstadisticasClient() {
       {/* KPIs */}
       {datosMensual && (() => {
         const acumulado2026 = datosMensual.totales.año2026?.total_sin_iva || 0
+        const facturas2026 = datosMensual.totales.año2026?.facturas || 0
         const proyeccion2026 = ultimoMes > 0 ? acumulado2026 * (12 / ultimoMes) : 0
         const total2025 = datosMensual.totales.año2025?.total_sin_iva || 0
+        const facturas2025 = datosMensual.totales.año2025?.facturas || 0
         const varProyeccion = total2025 > 0 ? ((proyeccion2026 - total2025) / total2025 * 100).toFixed(1) : null
+        // Ticket medio
+        const ticketMedio2025 = facturas2025 > 0 ? total2025 / facturas2025 : 0
+        const ticketMedio2026 = facturas2026 > 0 ? acumulado2026 / facturas2026 : 0
+        const varTicket = ticketMedio2025 > 0 ? ((ticketMedio2026 - ticketMedio2025) / ticketMedio2025 * 100).toFixed(1) : null
         return (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <KPICard
             icon={<BanknotesIcon className="h-6 w-6 text-orange-600" />}
@@ -352,9 +359,9 @@ export default function EstadisticasClient() {
           <KPICard
             icon={<DocumentTextIcon className="h-6 w-6 text-blue-600" />}
             label={`Facturas 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
-            value={(datosMensual.totales.año2026?.facturas || 0).toLocaleString()}
+            value={(facturas2026).toLocaleString()}
             variacion={calcVariacion(
-              datosMensual.totales.año2026?.facturas || 0,
+              facturas2026,
               datosMensual.totales.año2025MismoPeriodo?.facturas || 0
             )}
             subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
@@ -377,6 +384,23 @@ export default function EstadisticasClient() {
             subtext="11 meses (feb-dic)"
           />
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <KPICard
+            icon={<BanknotesIcon className="h-6 w-6 text-amber-600" />}
+            label="Ticket Medio 2025 (año)"
+            value={formatEur(ticketMedio2025)}
+            variacion={null}
+            subtext={`${facturas2025.toLocaleString()} facturas`}
+          />
+          <KPICard
+            icon={<BanknotesIcon className="h-6 w-6 text-amber-600" />}
+            label={`Ticket Medio 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
+            value={formatEur(ticketMedio2026)}
+            variacion={varTicket}
+            subtext={`vs ${formatEur(ticketMedio2025)} en 2025`}
+          />
+        </div>
+        </>
         )
       })()}
 
