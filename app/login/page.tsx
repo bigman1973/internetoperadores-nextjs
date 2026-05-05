@@ -82,11 +82,13 @@ function LoginForm() {
 
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
         {/* Error messages */}
-        {(error || errorParam === 'unauthorized') && (
+        {(error || errorParam === 'unauthorized' || errorParam === 'disabled') && (
           <div className="mb-4 rounded-md bg-red-50 p-4">
             <p className="text-sm text-red-800">
               {errorParam === 'unauthorized' 
-                ? 'Tu cuenta de Microsoft no está autorizada para acceder al panel. Contacta con el administrador.'
+                ? 'Solo los usuarios de @internetoperadores.com pueden acceder al panel.'
+                : errorParam === 'disabled'
+                ? 'Tu cuenta ha sido desactivada por el administrador.'
                 : error}
             </p>
           </div>

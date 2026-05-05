@@ -136,18 +136,37 @@ export const authOptions: NextAuthOptions = {
   ],
   callbacks: {
     async signIn({ user, account }) {
-      // Si es login con Azure AD, verificar que el email está autorizado
+      // Si es login con Azure AD, verificar que el email es de la organización
       if (account?.provider === 'azure-ad') {
         const email = user.email?.toLowerCase()
         if (!email) return false
 
-        const admin = await prisma.usuarioAdmin.findUnique({
+        // Solo permitir emails de @internetoperadores.com
+        if (!email.endsWith('@internetoperadores.com')) {
+          return '/login?error=unauthorized'
+        }
+
+        // Buscar si ya existe en la tabla usuarios_admin
+        let admin = await prisma.usuarioAdmin.findUnique({
           where: { email }
         })
 
-        if (!admin || !admin.activo) {
-          // Email no autorizado
-          return '/login?error=unauthorized'
+        if (admin && !admin.activo) {
+          // Usuario desactivado por el admin
+          return '/login?error=disabled'
+        }
+
+        if (!admin) {
+          // Auto-crear usuario con rol VISOR (solo lectura)
+          admin = await prisma.usuarioAdmin.create({
+            data: {
+              email,
+              nombre: user.name || email.split('@')[0],
+              passwordHash: '', // No necesita password, usa Microsoft
+              rol: 'VISOR',
+              activo: true,
+            }
+          })
         }
 
         // Actualizar último acceso
