@@ -27,8 +27,9 @@ interface Totales {
 interface ClienteData {
   codigo_cliente: number
   nombre_cliente: string
-  total_anual: number
-  facturas: number
+  total_periodo: number
+  total_anual?: number
+  meses_activo: number
   meses: { mes: number; total: number }[]
 }
 
@@ -194,7 +195,7 @@ export default function EstadisticasClient() {
     destroyCharts()
 
     const Chart = window.Chart
-    const { clientes2025, clientes2026 } = datosClientes
+    const { clientes2025, clientes2026, periodoComparado } = datosClientes
 
     if (chartClientesRef.current && clientes2025.length > 0) {
       const ctx = chartClientesRef.current.getContext('2d')
@@ -207,17 +208,17 @@ export default function EstadisticasClient() {
           labels,
           datasets: [
             {
-              label: 'Total 2025',
-              data: topN.map((c: ClienteData) => c.total_anual),
+              label: `2025 (${periodoComparado})`,
+              data: topN.map((c: ClienteData) => c.total_periodo),
               backgroundColor: 'rgba(107, 114, 128, 0.6)',
               borderColor: '#6b7280',
               borderWidth: 1
             },
             {
-              label: 'Total 2026 (acumulado)',
+              label: `2026 (${periodoComparado})`,
               data: topN.map((c: ClienteData) => {
                 const c26 = clientes2026.find((x: ClienteData) => x.codigo_cliente === c.codigo_cliente)
-                return c26 ? c26.total_anual : 0
+                return c26 ? c26.total_periodo : 0
               }),
               backgroundColor: 'rgba(249, 115, 22, 0.6)',
               borderColor: '#f97316',
@@ -231,7 +232,7 @@ export default function EstadisticasClient() {
           indexAxis: 'y',
           plugins: {
             legend: { position: 'top' },
-            title: { display: true, text: 'Top 10 Clientes: 2025 vs 2026', font: { size: 14 } }
+            title: { display: true, text: `Top 10 Clientes: Mismo período (${periodoComparado})`, font: { size: 14 } }
           },
           scales: {
             x: {
@@ -251,7 +252,7 @@ export default function EstadisticasClient() {
     destroyCharts()
 
     const Chart = window.Chart
-    const { distribucion2025, distribucion2026 } = datosCategorias
+    const { distribucion2025, distribucion2026, periodoComparado } = datosCategorias
 
     if (chartSegmentosRef.current) {
       const ctx = chartSegmentosRef.current.getContext('2d')
@@ -263,7 +264,7 @@ export default function EstadisticasClient() {
           labels: segmentos.map(s => s.replace(' (>50K)', '').replace(' (10K-50K)', '').replace(' (2K-10K)', '').replace(' (<2K)', '')),
           datasets: [
             {
-              label: '2025 (total anual)',
+              label: `2025 (${periodoComparado})`,
               data: segmentos.map(s => {
                 const d = distribucion2025.find((x: any) => x.segmento === s)
                 return d ? d.total_segmento : 0
@@ -273,7 +274,7 @@ export default function EstadisticasClient() {
               borderWidth: 1
             },
             {
-              label: '2026 (acumulado ene-may)',
+              label: `2026 (${periodoComparado})`,
               data: segmentos.map(s => {
                 const d = distribucion2026.find((x: any) => x.segmento === s)
                 return d ? d.total_segmento : 0
@@ -289,7 +290,7 @@ export default function EstadisticasClient() {
           maintainAspectRatio: false,
           plugins: {
             legend: { position: 'top' },
-            title: { display: true, text: 'Facturación por Segmento de Cliente', font: { size: 14 } }
+            title: { display: true, text: `Facturación por Segmento - Mismo período (${periodoComparado})`, font: { size: 14 } }
           },
           scales: {
             y: {
@@ -310,12 +311,15 @@ export default function EstadisticasClient() {
     return ((actual - anterior) / anterior * 100).toFixed(1)
   }
 
+  // Obtener último mes dinámicamente
+  const ultimoMes = datosMensual?.ultimoMes2026 || 5
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Estadísticas de Facturación</h1>
-        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026</p>
+        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Mismo período ({MESES[0]} - {MESES[ultimoMes - 1]})</p>
       </div>
 
       {/* KPIs */}
@@ -323,30 +327,33 @@ export default function EstadisticasClient() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <KPICard
             icon={<BanknotesIcon className="h-6 w-6 text-orange-600" />}
-            label="Facturación 2026 (acum.)"
+            label={`Facturación 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
             value={formatEur(datosMensual.totales.año2026?.total_sin_iva || 0)}
             variacion={calcVariacion(
               datosMensual.totales.año2026?.total_sin_iva || 0,
-              datosMensual.datos2025.filter((m: any) => m.mes <= 5).reduce((s: number, m: any) => s + m.total_sin_iva, 0)
+              datosMensual.totales.año2025MismoPeriodo?.total_sin_iva || 0
             )}
-            subtext="vs mismo período 2025"
+            subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
           />
           <KPICard
             icon={<DocumentTextIcon className="h-6 w-6 text-blue-600" />}
-            label="Facturas 2026"
+            label={`Facturas 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
             value={(datosMensual.totales.año2026?.facturas || 0).toLocaleString()}
             variacion={calcVariacion(
               datosMensual.totales.año2026?.facturas || 0,
-              datosMensual.datos2025.filter((m: any) => m.mes <= 5).reduce((s: number, m: any) => s + m.facturas, 0)
+              datosMensual.totales.año2025MismoPeriodo?.facturas || 0
             )}
-            subtext="vs mismo período 2025"
+            subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
           />
           <KPICard
             icon={<UsersIcon className="h-6 w-6 text-green-600" />}
             label="Clientes 2026"
             value={(datosMensual.totales.año2026?.clientes || 0).toLocaleString()}
-            variacion={null}
-            subtext={`2025 total: ${datosMensual.totales.año2025?.clientes || 0}`}
+            variacion={calcVariacion(
+              datosMensual.totales.año2026?.clientes || 0,
+              datosMensual.totales.año2025MismoPeriodo?.clientes || 0
+            )}
+            subtext={`vs ${datosMensual.totales.año2025MismoPeriodo?.clientes || 0} en mismo período 2025`}
           />
           <KPICard
             icon={<ChartBarIcon className="h-6 w-6 text-purple-600" />}
@@ -443,6 +450,13 @@ export default function EstadisticasClient() {
           {/* TAB CLIENTES */}
           {tab === 'clientes' && datosClientes && (
             <div className="space-y-6">
+              {/* Indicador de período */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Comparativa justa:</strong> Se compara el mismo período ({datosClientes.periodoComparado}) en ambos años para que los datos sean directamente comparables.
+                </p>
+              </div>
+
               {/* Gráfico */}
               <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
                 <div style={{ height: '450px' }}>
@@ -456,30 +470,44 @@ export default function EstadisticasClient() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total 2025</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total 2026 (acum.)</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Proyección 2026</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Variación proy.</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2025 ({datosClientes.periodoComparado})</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2026 ({datosClientes.periodoComparado})</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Var. Real</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2025 Total</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Proy. 2026</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Var. Proy.</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {datosClientes.clientes2025.slice(0, 20).map((c: ClienteData) => {
                       const c26 = datosClientes.clientes2026.find((x: ClienteData) => x.codigo_cliente === c.codigo_cliente)
-                      const total26 = c26 ? c26.total_anual : 0
-                      // Proyección: si tenemos 5 meses, multiplicar por 12/5
-                      const mesesConDatos = 5
-                      const proyeccion = total26 * (12 / mesesConDatos)
-                      const variacion = c.total_anual > 0 ? ((proyeccion - c.total_anual) / c.total_anual * 100).toFixed(1) : null
+                      const total26 = c26 ? c26.total_periodo : 0
+                      const variacionReal = c.total_periodo > 0 ? ((total26 - c.total_periodo) / c.total_periodo * 100).toFixed(1) : null
+                      // Total anual 2025
+                      const anual25 = datosClientes.totalAnual2025?.find((x: any) => x.codigo_cliente === c.codigo_cliente)
+                      const totalAnual25 = anual25 ? anual25.total_anual : c.total_periodo
+                      // Proyección 2026: extrapolar al año completo
+                      const mesesDatos = datosClientes.ultimoMes2026 || 5
+                      const proyeccion26 = total26 * (12 / mesesDatos)
+                      const variacionProy = totalAnual25 > 0 ? ((proyeccion26 - totalAnual25) / totalAnual25 * 100).toFixed(1) : null
                       return (
                         <tr key={c.codigo_cliente}>
                           <td className="px-4 py-2 text-sm font-medium text-gray-900">{c.nombre_cliente}</td>
-                          <td className="px-4 py-2 text-sm text-right text-gray-700">{formatEur(c.total_anual)}</td>
+                          <td className="px-4 py-2 text-sm text-right text-gray-700">{formatEur(c.total_periodo)}</td>
                           <td className="px-4 py-2 text-sm text-right text-gray-700">{formatEur(total26)}</td>
-                          <td className="px-4 py-2 text-sm text-right text-gray-500 italic">{formatEur(proyeccion)}</td>
                           <td className="px-4 py-2 text-sm text-right">
-                            {variacion ? (
-                              <span className={`font-medium ${parseFloat(variacion) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {parseFloat(variacion) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(variacion))}%
+                            {variacionReal ? (
+                              <span className={`font-medium ${parseFloat(variacionReal) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {parseFloat(variacionReal) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(variacionReal))}%
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-right text-gray-500">{formatEur(totalAnual25)}</td>
+                          <td className="px-4 py-2 text-sm text-right text-gray-500 italic">{formatEur(proyeccion26)}</td>
+                          <td className="px-4 py-2 text-sm text-right">
+                            {variacionProy ? (
+                              <span className={`font-medium ${parseFloat(variacionProy) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {parseFloat(variacionProy) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(variacionProy))}%
                               </span>
                             ) : '-'}
                           </td>
@@ -495,6 +523,13 @@ export default function EstadisticasClient() {
           {/* TAB CATEGORÍAS/SEGMENTOS */}
           {tab === 'categorias' && datosCategorias && (
             <div className="space-y-6">
+              {/* Indicador de período */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Comparativa justa:</strong> Se compara el mismo período ({datosCategorias.periodoComparado}) en ambos años para que los datos sean directamente comparables.
+                </p>
+              </div>
+
               {/* Gráfico */}
               <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
                 <div style={{ height: '350px' }}>
@@ -505,7 +540,7 @@ export default function EstadisticasClient() {
               {/* Tabla distribución */}
               <div className="rounded-lg bg-white shadow border border-gray-200 overflow-hidden">
                 <div className="px-4 py-3 bg-gray-50 border-b">
-                  <h3 className="text-sm font-semibold text-gray-700">Distribución por Segmento de Cliente</h3>
+                  <h3 className="text-sm font-semibold text-gray-700">Distribución por Segmento — Período {datosCategorias.periodoComparado}</h3>
                 </div>
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -514,12 +549,15 @@ export default function EstadisticasClient() {
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Clientes 2025</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total 2025</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Clientes 2026</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total 2026 (acum.)</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Total 2026</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Variación</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {datosCategorias.distribucion2025.map((seg: any) => {
                       const seg26 = datosCategorias.distribucion2026.find((s: any) => s.segmento === seg.segmento)
+                      const total26 = seg26 ? seg26.total_segmento : 0
+                      const variacion = seg.total_segmento > 0 ? ((total26 - seg.total_segmento) / seg.total_segmento * 100).toFixed(1) : null
                       return (
                         <tr key={seg.segmento}>
                           <td className="px-4 py-2 text-sm font-medium text-gray-900">{seg.segmento}</td>
@@ -527,6 +565,13 @@ export default function EstadisticasClient() {
                           <td className="px-4 py-2 text-sm text-right text-gray-700">{formatEur(seg.total_segmento)}</td>
                           <td className="px-4 py-2 text-sm text-right text-gray-700">{seg26 ? seg26.num_clientes : 0}</td>
                           <td className="px-4 py-2 text-sm text-right text-gray-700">{seg26 ? formatEur(seg26.total_segmento) : '-'}</td>
+                          <td className="px-4 py-2 text-sm text-right">
+                            {variacion ? (
+                              <span className={`font-medium ${parseFloat(variacion) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {parseFloat(variacion) >= 0 ? '↑' : '↓'} {Math.abs(parseFloat(variacion))}%
+                              </span>
+                            ) : '-'}
+                          </td>
                         </tr>
                       )
                     })}

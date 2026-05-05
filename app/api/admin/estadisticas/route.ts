@@ -9,6 +9,13 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const tipo = searchParams.get('tipo') || 'mensual' // mensual, clientes, categorias
 
+    // Primero obtener el último mes con datos en 2026 para comparar mismo período
+    const ultimoMes2026Result = await prisma.$queryRawUnsafe(`
+      SELECT MAX(EXTRACT(MONTH FROM fecha))::int as ultimo_mes
+      FROM facturas WHERE ejercicio = 2026
+    `) as any[]
+    const ultimoMes2026 = ultimoMes2026Result[0]?.ultimo_mes || 5
+
     if (tipo === 'mensual') {
       // Evolución mensual 2025 vs 2026
       const datos2025 = await prisma.$queryRawUnsafe(`
@@ -33,7 +40,7 @@ export async function GET(request: NextRequest) {
         GROUP BY mes ORDER BY mes
       `) as any[]
 
-      // Totales anuales
+      // Totales anuales completos
       const total2025 = await prisma.$queryRawUnsafe(`
         SELECT SUM(precio_sin_iva)::float as total_sin_iva, 
           SUM(total_con_iva)::float as total_con_iva,
@@ -50,11 +57,22 @@ export async function GET(request: NextRequest) {
         FROM facturas WHERE ejercicio = 2026
       `) as any[]
 
+      // Total 2025 SOLO mismo período (para comparativa justa)
+      const total2025MismoPeriodo = await prisma.$queryRawUnsafe(`
+        SELECT SUM(precio_sin_iva)::float as total_sin_iva, 
+          SUM(total_con_iva)::float as total_con_iva,
+          COUNT(*)::int as facturas,
+          COUNT(DISTINCT codigo_cliente)::int as clientes
+        FROM facturacion_historica WHERE anio = 2025 AND mes <= $1
+      `, ultimoMes2026) as any[]
+
       return NextResponse.json({
         datos2025,
         datos2026,
+        ultimoMes2026,
         totales: {
           año2025: total2025[0],
+          año2025MismoPeriodo: total2025MismoPeriodo[0],
           año2026: total2026[0]
         }
       })
@@ -63,33 +81,43 @@ export async function GET(request: NextRequest) {
     if (tipo === 'clientes') {
       const limit = parseInt(searchParams.get('limit') || '20')
       
-      // Top clientes con comparativa mensual
+      // Top clientes 2025 SOLO mismo período que 2026
       const topClientes2025 = await prisma.$queryRawUnsafe(`
         SELECT codigo_cliente, nombre_cliente,
-          SUM(total_mes)::float as total_anual,
-          COUNT(*)::int as facturas,
-          json_agg(json_build_object('mes', mes, 'total', total_mes)) as meses
+          SUM(total_mes)::float as total_periodo,
+          COUNT(*)::int as meses_activo,
+          json_agg(json_build_object('mes', mes, 'total', total_mes) ORDER BY mes) as meses
         FROM (
           SELECT codigo_cliente, nombre_cliente, mes,
             SUM(total_con_iva)::float as total_mes
-          FROM facturacion_historica WHERE anio = 2025
+          FROM facturacion_historica WHERE anio = 2025 AND mes <= $2
           GROUP BY codigo_cliente, nombre_cliente, mes
         ) sub
         GROUP BY codigo_cliente, nombre_cliente
-        ORDER BY total_anual DESC
+        ORDER BY total_periodo DESC
         LIMIT $1
-      `, limit) as any[]
+      `, limit, ultimoMes2026) as any[]
 
-      // Mismos clientes en 2026
+      // Total anual completo 2025 para cada cliente (para referencia)
       const codigosClientes = topClientes2025.map((c: any) => c.codigo_cliente)
       
+      let totalAnual2025: any[] = []
+      if (codigosClientes.length > 0) {
+        totalAnual2025 = await prisma.$queryRawUnsafe(`
+          SELECT codigo_cliente, SUM(total_con_iva)::float as total_anual
+          FROM facturacion_historica WHERE anio = 2025 AND codigo_cliente = ANY($1)
+          GROUP BY codigo_cliente
+        `, codigosClientes) as any[]
+      }
+
+      // Mismos clientes en 2026 (mismo período)
       let topClientes2026: any[] = []
       if (codigosClientes.length > 0) {
         topClientes2026 = await prisma.$queryRawUnsafe(`
           SELECT codigo_cliente, nombre_cliente,
-            SUM(total_mes)::float as total_anual,
-            COUNT(*)::int as facturas,
-            json_agg(json_build_object('mes', mes, 'total', total_mes)) as meses
+            SUM(total_mes)::float as total_periodo,
+            COUNT(*)::int as meses_activo,
+            json_agg(json_build_object('mes', mes, 'total', total_mes) ORDER BY mes) as meses
           FROM (
             SELECT codigo_cliente::int as codigo_cliente, nombre_completo as nombre_cliente, 
               EXTRACT(MONTH FROM fecha)::int as mes,
@@ -99,26 +127,21 @@ export async function GET(request: NextRequest) {
             GROUP BY codigo_cliente, nombre_completo, EXTRACT(MONTH FROM fecha)::int
           ) sub
           GROUP BY codigo_cliente, nombre_cliente
-          ORDER BY total_anual DESC
+          ORDER BY total_periodo DESC
         `, codigosClientes) as any[]
       }
 
       return NextResponse.json({
         clientes2025: topClientes2025,
-        clientes2026: topClientes2026
+        clientes2026: topClientes2026,
+        totalAnual2025,
+        ultimoMes2026,
+        periodoComparado: `Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]}`
       })
     }
 
     if (tipo === 'categorias') {
-      // Para 2025 no tenemos categoría en el archivo original, 
-      // pero podemos cruzar con las tarifas/contratos
-      // Por ahora agrupamos por los principales clientes/servicios
-      
-      // Datos de 2026 por categoría (si existe en facturas)
-      // Como la tabla facturas no tiene categoría directamente,
-      // podemos intentar cruzar con contratos o usar el nombre del servicio
-      
-      // Alternativa: agrupar por rangos de facturación
+      // Distribución por segmento - MISMO PERÍODO
       const distribucion2025 = await prisma.$queryRawUnsafe(`
         SELECT 
           CASE 
@@ -131,12 +154,12 @@ export async function GET(request: NextRequest) {
           SUM(total_cliente)::float as total_segmento
         FROM (
           SELECT codigo_cliente, SUM(total_con_iva)::float as total_cliente
-          FROM facturacion_historica WHERE anio = 2025
+          FROM facturacion_historica WHERE anio = 2025 AND mes <= $1
           GROUP BY codigo_cliente
         ) sub
         GROUP BY segmento
         ORDER BY total_segmento DESC
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
       const distribucion2026 = await prisma.$queryRawUnsafe(`
         SELECT 
@@ -157,13 +180,13 @@ export async function GET(request: NextRequest) {
         ORDER BY total_segmento DESC
       `) as any[]
 
-      // Evolución mensual por segmento 2025
+      // Evolución mensual por segmento 2025 (mismo período)
       const mensualSegmento2025 = await prisma.$queryRawUnsafe(`
         SELECT mes,
           CASE 
-            WHEN total_cliente > 50000/11.0 THEN 'Grandes Cuentas'
-            WHEN total_cliente > 10000/11.0 THEN 'Medianas'
-            WHEN total_cliente > 2000/11.0 THEN 'Pequeñas'
+            WHEN total_cliente > 50000/$1::float THEN 'Grandes Cuentas'
+            WHEN total_cliente > 10000/$1::float THEN 'Medianas'
+            WHEN total_cliente > 2000/$1::float THEN 'Pequeñas'
             ELSE 'Micro'
           END as segmento,
           SUM(total_mes)::float as total
@@ -171,19 +194,19 @@ export async function GET(request: NextRequest) {
           SELECT codigo_cliente, mes, 
             SUM(total_con_iva)::float as total_mes,
             AVG(SUM(total_con_iva)) OVER (PARTITION BY codigo_cliente)::float as total_cliente
-          FROM facturacion_historica WHERE anio = 2025
+          FROM facturacion_historica WHERE anio = 2025 AND mes <= $1
           GROUP BY codigo_cliente, mes
         ) sub
         GROUP BY mes, segmento
         ORDER BY mes, segmento
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
       const mensualSegmento2026 = await prisma.$queryRawUnsafe(`
         SELECT mes,
           CASE 
-            WHEN total_cliente > 50000/5.0 THEN 'Grandes Cuentas'
-            WHEN total_cliente > 10000/5.0 THEN 'Medianas'
-            WHEN total_cliente > 2000/5.0 THEN 'Pequeñas'
+            WHEN total_cliente > 50000/$1::float THEN 'Grandes Cuentas'
+            WHEN total_cliente > 10000/$1::float THEN 'Medianas'
+            WHEN total_cliente > 2000/$1::float THEN 'Pequeñas'
             ELSE 'Micro'
           END as segmento,
           SUM(total_mes)::float as total
@@ -196,13 +219,15 @@ export async function GET(request: NextRequest) {
         ) sub
         GROUP BY mes, segmento
         ORDER BY mes, segmento
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
       return NextResponse.json({
         distribucion2025,
         distribucion2026,
         mensualSegmento2025,
-        mensualSegmento2026
+        mensualSegmento2026,
+        ultimoMes2026,
+        periodoComparado: `Ene - ${['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][ultimoMes2026 - 1]}`
       })
     }
 
