@@ -234,6 +234,11 @@ export default function TarifasPageClient() {
   // Saving state for inline edits
   const [savingWebPublish, setSavingWebPublish] = useState<Set<number>>(new Set())
 
+  // Inline nombre comercial edit
+  const [editingNombreComercial, setEditingNombreComercial] = useState<number | null>(null)
+  const [nombreComercialInput, setNombreComercialInput] = useState('')
+  const [savingNombreComercial, setSavingNombreComercial] = useState<Set<number>>(new Set())
+
   useEffect(() => { fetchStats() }, [])
   useEffect(() => { fetchData() }, [viewMode, search, tipoCliente, categoria, estado, page])
 
@@ -410,20 +415,86 @@ export default function TarifasPageClient() {
     }
   }
 
+  const handleNombreComercialEdit = (tarifa: Tarifa) => {
+    setEditingNombreComercial(tarifa.id)
+    setNombreComercialInput(tarifa.nombreComercial || tarifa.nombre)
+  }
+
+  const handleNombreComercialSave = async (id: number) => {
+    setSavingNombreComercial(prev => new Set(prev).add(id))
+    try {
+      const res = await fetch(`/api/admin/tarifas/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombreComercial: nombreComercialInput }),
+      })
+      if (res.ok) {
+        const updateTarifa = (t: Tarifa): Tarifa => t.id === id ? { ...t, nombreComercial: nombreComercialInput } : t
+        if (viewMode === 'list') {
+          setTarifas(prev => prev.map(updateTarifa))
+        } else {
+          setGrupos(prev => prev.map(g => ({ ...g, tarifas: g.tarifas.map(updateTarifa) })))
+        }
+      }
+    } catch (err) { console.error(err) }
+    finally {
+      setSavingNombreComercial(prev => { const next = new Set(prev); next.delete(id); return next })
+      setEditingNombreComercial(null)
+    }
+  }
+
+  const handleNombreComercialCancel = () => {
+    setEditingNombreComercial(null)
+    setNombreComercialInput('')
+  }
+
   const TarifaRow = ({ tarifa, showCategory = false }: { tarifa: Tarifa; showCategory?: boolean }) => (
     <>
       <tr className={`hover:bg-gray-50 cursor-pointer ${expandedTarifa === tarifa.id ? 'bg-gray-50' : ''}`}
           onClick={() => setExpandedTarifa(expandedTarifa === tarifa.id ? null : tarifa.id)}>
-        <td className="px-4 py-3 whitespace-nowrap">
+        <td className="px-4 py-3">
           <div className="flex items-center gap-2">
             {expandedTarifa === tarifa.id ? <ChevronUpIcon className="h-4 w-4 text-gray-400 flex-shrink-0" /> : <ChevronDownIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />}
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-x-2">
-                <span className="text-sm font-medium text-gray-900">{tarifa.nombre}</span>
-                {tarifa.nombreComercial && tarifa.nombreComercial !== tarifa.nombre && (
-                  <span className="text-xs text-orange-600 font-medium bg-orange-50 px-1.5 py-0.5 rounded">Web: {tarifa.nombreComercial}</span>
+                <span className="text-sm font-medium text-gray-900 truncate">{tarifa.nombre}</span>
+                {tarifa.destacada && <StarIconSolid className="h-4 w-4 text-yellow-400 flex-shrink-0" />}
+              </div>
+              {/* Inline editable nombre comercial */}
+              <div className="mt-0.5" onClick={(e) => e.stopPropagation()}>
+                {editingNombreComercial === tarifa.id ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={nombreComercialInput}
+                      onChange={(e) => setNombreComercialInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleNombreComercialSave(tarifa.id); if (e.key === 'Escape') handleNombreComercialCancel() }}
+                      className="text-xs px-1.5 py-0.5 border border-orange-300 rounded bg-orange-50 text-orange-800 w-48 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                      autoFocus
+                      disabled={savingNombreComercial.has(tarifa.id)}
+                    />
+                    <button onClick={() => handleNombreComercialSave(tarifa.id)} className="text-green-600 hover:text-green-800" title="Guardar">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                    </button>
+                    <button onClick={handleNombreComercialCancel} className="text-red-500 hover:text-red-700" title="Cancelar">
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => handleNombreComercialEdit(tarifa)}
+                    className={`text-xs px-1.5 py-0.5 rounded transition-all hover:bg-orange-100 ${
+                      tarifa.nombreComercial && tarifa.nombreComercial !== tarifa.nombre
+                        ? 'text-orange-600 font-medium bg-orange-50'
+                        : 'text-gray-400 hover:text-orange-600'
+                    }`}
+                    title="Editar nombre comercial (web)"
+                  >
+                    {tarifa.nombreComercial && tarifa.nombreComercial !== tarifa.nombre
+                      ? `Web: ${tarifa.nombreComercial}`
+                      : '✏️ Nombre web...'}
+                  </button>
                 )}
-                {tarifa.destacada && <StarIconSolid className="h-4 w-4 text-yellow-400" />}
               </div>
               {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}
             </div>
