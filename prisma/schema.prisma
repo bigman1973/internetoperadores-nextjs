@@ -336,3 +336,33 @@ enum TipoNotificacion {
   ALERTA
   PROMOCION
 }
+
+model CategoriaTarifa {
+  id            Int      @id @default(autoincrement())
+  nombre        String   @unique @db.VarChar(100)
+  descripcion   String?
+  color         String?  @default("gray") @db.VarChar(50)
+  orden         Int      @default(0)
+  activa        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  subcategorias SubcategoriaTarifa[]
+
+  @@map("categorias_tarifas")
+}
+
+model SubcategoriaTarifa {
+  id          Int      @id @default(autoincrement())
+  categoriaId Int      @map("categoria_id")
+  nombre      String   @db.VarChar(100)
+  descripcion String?
+  orden       Int      @default(0)
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  categoria   CategoriaTarifa @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+
+  @@unique([categoriaId, nombre])
+  @@index([categoriaId])
+  @@map("subcategorias_tarifas")
+}

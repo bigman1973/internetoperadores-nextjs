@@ -4,6 +4,12 @@ import { useState, useEffect, use } from 'react';
 import { useRouter } from 'next/navigation';
 import AdminHeader from '../../../../../components/admin/AdminHeader';
 
+interface CategoriaConfig {
+  id: number;
+  nombre: string;
+  subcategorias: { id: number; nombre: string }[];
+}
+
 export default function EditarTarifaPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const resolvedParams = use(params);
@@ -11,6 +17,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [categoriasConfig, setCategoriasConfig] = useState<CategoriaConfig[]>([]);
   const [formData, setFormData] = useState({
     // Datos básicos
     tipoCliente: 'PARTICULAR',
@@ -75,6 +82,12 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
   });
 
   useEffect(() => {
+    // Cargar categorías desde la BD
+    fetch('/api/admin/configuracion/categorias')
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setCategoriasConfig(data) })
+      .catch(() => {});
+
     const fetchTarifa = async () => {
       try {
         const response = await fetch(`/api/admin/tarifas/${id}`);
@@ -280,23 +293,16 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <input type="text" name="categoria" value={formData.categoria} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <select name="categoria" value={formData.categoria} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                  <option value="">Seleccionar categoría</option>
+                  {categoriasConfig.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Subcategoría</label>
                 {(() => {
-                  const SUBCATS: Record<string, string[]> = {
-                    'INTERNET': ['Fibra', '5G', 'Radio', 'Satélite'],
-                    'TELEFONÍA MÓVIL': ['Prepago', 'Contrato', 'Datos'],
-                    'TELEFONÍA MÓVIL (BASE)': ['Prepago', 'Contrato', 'Datos'],
-                    'TELEFONÍA FIJA': ['Analógica', 'VoIP', 'SIP Trunk'],
-                    'TELEFONÍA FIJA (TARIFA PLANA)': ['Analógica', 'VoIP', 'SIP Trunk'],
-                    'HOSTING': ['Compartido', 'VPS', 'Dedicado', 'Cloud'],
-                    'BACKUP Y CLOUD': ['Local', 'Cloud', 'Híbrido'],
-                    'COMUNICACIONES UNIFICADAS': ['PBX', 'UCaaS', 'Videoconferencia', 'Mensajería'],
-                    'EQUIPOS Y HARDWARE': ['Routers', 'Switches', 'APs', 'Terminales', 'Otros'],
-                  };
-                  const opciones = SUBCATS[formData.categoria.toUpperCase()] || [];
+                  const catConfig = categoriasConfig.find(c => c.nombre === formData.categoria.toUpperCase());
+                  const opciones = catConfig?.subcategorias.map(s => s.nombre) || [];
                   return opciones.length > 0 ? (
                     <select name="subcategoria" value={formData.subcategoria} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
                       <option value="">Sin subcategoría</option>

@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { requireAuth } from '../../../lib/middleware/auth'
+import ConfigCategoriasClient from '../../../components/admin/ConfigCategoriasClient'
 
 export default async function ConfiguracionPage() {
   await requireAuth('admin')
@@ -9,12 +10,13 @@ export default async function ConfiguracionPage() {
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">CONFIGURACIÓN</h1>
-          <p className="mt-1 text-sm text-gray-500">Esta sección está actualmente en desarrollo.</p>
+          <p className="mt-1 text-sm text-gray-500">Gestión de parámetros del sistema</p>
         </div>
       </div>
-      <div className="rounded-lg bg-white shadow border border-gray-200 p-12 text-center">
-        <h3 className="mt-2 text-sm font-semibold text-gray-900">Próximamente</h3>
-        <p className="mt-1 text-sm text-gray-500">Estamos trabajando para traerte esta funcionalidad lo antes posible.</p>
+
+      {/* Categorías y Subcategorías */}
+      <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
+        <ConfigCategoriasClient />
       </div>
     </div>
   )
