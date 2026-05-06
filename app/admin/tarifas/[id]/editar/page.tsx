@@ -33,6 +33,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     precioSinIva: '',
     precioConIva: '',
     costeOperador: '',
+    cuotaAlta: '',
     precioPeriodo: '',
     precioPeriodoIva: '',
     
@@ -105,6 +106,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             precioSinIva: data.precioSinIva?.toString() || '0',
             precioConIva: data.precioConIva?.toString() || '0',
             costeOperador: data.costeOperador?.toString() || '',
+            cuotaAlta: data.cuotaAlta?.toString() || '',
             precioPeriodo: data.precioPeriodo?.toString() || '',
             precioPeriodoIva: data.precioPeriodoIva?.toString() || '',
             esMovil: data.esMovil || false,
@@ -206,6 +208,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           precioSinIva: parseFloat(formData.precioSinIva) || 0,
           precioConIva: parseFloat(formData.precioConIva) || 0,
           costeOperador: formData.costeOperador ? parseFloat(formData.costeOperador) : null,
+          cuotaAlta: formData.cuotaAlta ? parseFloat(formData.cuotaAlta) : null,
           precioPeriodo: formData.precioPeriodo ? parseFloat(formData.precioPeriodo) : null,
           precioPeriodoIva: formData.precioPeriodoIva ? parseFloat(formData.precioPeriodoIva) : null,
           esMovil: formData.esMovil,
@@ -401,6 +404,10 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Coste Operador (€)</label>
                 <input type="number" step="0.01" name="costeOperador" value={formData.costeOperador} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Coste para el operador" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cuota de Alta (sin IVA €)</label>
+                <input type="number" step="0.01" name="cuotaAlta" value={formData.cuotaAlta} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Cuota de alta sin IVA" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">

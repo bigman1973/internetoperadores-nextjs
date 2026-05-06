@@ -297,16 +297,7 @@ export default function TarifasPageClient() {
   }
 
   const handleSync = async () => {
-    setSyncing(true)
-    try {
-      const res = await fetch('/api/sync-tarifas', { method: 'POST' })
-      const data = await res.json()
-      if (data.success) {
-        alert(`Sincronización exitosa: ${data.created} nuevas, ${data.updated} actualizadas.`)
-        fetchStats(); fetchData()
-      } else alert(`Error: ${data.error}`)
-    } catch { alert('Error al sincronizar.') }
-    finally { setSyncing(false) }
+    alert('La sincronización de tarifas desde ISPGestión está desactivada. Las tarifas se gestionan manualmente desde este panel para evitar sobreescrituras de datos editados.')
   }
 
   const toggleCat = (cat: string) => {

@@ -32,6 +32,7 @@ export default function NuevaTarifaPage() {
     precioSinIva: '',
     precioConIva: '',
     costeOperador: '',
+    cuotaAlta: '',
     permanencia: '',
     penalizacion: '',
     garantia: '',
@@ -84,6 +85,7 @@ export default function NuevaTarifaPage() {
           precioSinIva: parseFloat(formData.precioSinIva),
           precioConIva: parseFloat(formData.precioConIva),
           costeOperador: formData.costeOperador ? parseFloat(formData.costeOperador) : null,
+          cuotaAlta: formData.cuotaAlta ? parseFloat(formData.cuotaAlta) : null,
         }),
       });
       if (response.ok) {
@@ -189,6 +191,32 @@ export default function NuevaTarifaPage() {
                   onChange={handleChange}
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Coste Operador (sin IVA €)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="costeOperador"
+                  value={formData.costeOperador}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Coste para el operador"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Cuota de Alta (sin IVA €)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  name="cuotaAlta"
+                  value={formData.cuotaAlta}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  placeholder="Cuota de alta sin IVA"
                 />
               </div>
             </div>
