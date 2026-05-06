@@ -15,6 +15,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     // Datos básicos
     tipoCliente: 'PARTICULAR',
     categoria: '',
+    subcategoria: '',
     nombre: '',
     nombreComercial: '',
     descripcionCorta: '',
@@ -82,6 +83,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           setFormData({
             tipoCliente: data.tipoCliente || 'PARTICULAR',
             categoria: data.categoria || '',
+            subcategoria: data.subcategoria || '',
             nombre: data.nombre || '',
             nombreComercial: data.nombreComercial || data.nombre || '',
             descripcionCorta: data.descripcionCorta || '',
@@ -183,6 +185,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
         body: JSON.stringify({
           tipoCliente: formData.tipoCliente,
           categoria: formData.categoria,
+          subcategoria: formData.subcategoria || null,
           nombre: formData.nombre,
           nombreComercial: formData.nombreComercial || formData.nombre,
           descripcionCorta: formData.descripcionCorta || null,
@@ -278,6 +281,31 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
                 <input type="text" name="categoria" value={formData.categoria} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Subcategoría</label>
+                {(() => {
+                  const SUBCATS: Record<string, string[]> = {
+                    'INTERNET': ['Fibra', '5G', 'Radio', 'Satélite'],
+                    'TELEFONÍA MÓVIL': ['Prepago', 'Contrato', 'Datos'],
+                    'TELEFONÍA MÓVIL (BASE)': ['Prepago', 'Contrato', 'Datos'],
+                    'TELEFONÍA FIJA': ['Analógica', 'VoIP', 'SIP Trunk'],
+                    'TELEFONÍA FIJA (TARIFA PLANA)': ['Analógica', 'VoIP', 'SIP Trunk'],
+                    'HOSTING': ['Compartido', 'VPS', 'Dedicado', 'Cloud'],
+                    'BACKUP Y CLOUD': ['Local', 'Cloud', 'Híbrido'],
+                    'COMUNICACIONES UNIFICADAS': ['PBX', 'UCaaS', 'Videoconferencia', 'Mensajería'],
+                    'EQUIPOS Y HARDWARE': ['Routers', 'Switches', 'APs', 'Terminales', 'Otros'],
+                  };
+                  const opciones = SUBCATS[formData.categoria.toUpperCase()] || [];
+                  return opciones.length > 0 ? (
+                    <select name="subcategoria" value={formData.subcategoria} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                      <option value="">Sin subcategoría</option>
+                      {opciones.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <input type="text" name="subcategoria" value={formData.subcategoria} onChange={handleChange} placeholder="Opcional" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                  );
+                })()}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">ID ISP Gestión</label>

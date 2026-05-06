@@ -16,6 +16,7 @@ interface Tarifa {
   id: number
   tipoCliente: string
   categoria: string
+  subcategoria: string | null
   nombre: string
   nombreComercial: string | null
   velocidad: string | null
@@ -71,13 +72,13 @@ interface GrupoCategoria {
 
 const CATEGORY_COLORS: Record<string, string> = {
   'EQUIPOS Y HARDWARE': 'bg-slate-100 text-slate-700 border-slate-300',
-  'INTERNET 4G/WIMAX': 'bg-orange-100 text-orange-700 border-orange-300',
+  'INTERNET': 'bg-orange-100 text-orange-700 border-orange-300',
   'HOSTING': 'bg-indigo-100 text-indigo-700 border-indigo-300',
   'BACKUP': 'bg-violet-100 text-violet-700 border-violet-300',
   'TELEFONÍA MÓVIL': 'bg-blue-100 text-blue-700 border-blue-300',
   'TELEFONÍA FIJA': 'bg-green-100 text-green-700 border-green-300',
   'HOTSPOT': 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300',
-  'FIBRA': 'bg-cyan-100 text-cyan-700 border-cyan-300',
+
   'IP Y REDES': 'bg-teal-100 text-teal-700 border-teal-300',
   'SERVICIOS IT': 'bg-amber-100 text-amber-700 border-amber-300',
   'INTERCONEXIÓN': 'bg-rose-100 text-rose-700 border-rose-300',
@@ -91,6 +92,19 @@ const CATEGORY_COLORS: Record<string, string> = {
   'MANTENIMIENTO': 'bg-gray-100 text-gray-700 border-gray-300',
   'CLOUD': 'bg-violet-100 text-violet-700 border-violet-300',
   'TV': 'bg-pink-100 text-pink-700 border-pink-300',
+}
+
+// Subcategorías disponibles por categoría
+const SUBCATEGORIAS_POR_CATEGORIA: Record<string, string[]> = {
+  'INTERNET': ['Fibra', '5G', 'Radio', 'Satélite'],
+  'TELEFONÍA MÓVIL': ['Prepago', 'Contrato', 'Datos'],
+  'TELEFONÍA MÓVIL (BASE)': ['Prepago', 'Contrato', 'Datos'],
+  'TELEFONÍA FIJA': ['Analógica', 'VoIP', 'SIP Trunk'],
+  'TELEFONÍA FIJA (TARIFA PLANA)': ['Analógica', 'VoIP', 'SIP Trunk'],
+  'HOSTING': ['Compartido', 'VPS', 'Dedicado', 'Cloud'],
+  'BACKUP Y CLOUD': ['Local', 'Cloud', 'Híbrido'],
+  'COMUNICACIONES UNIFICADAS': ['PBX', 'UCaaS', 'Videoconferencia', 'Mensajería'],
+  'EQUIPOS Y HARDWARE': ['Routers', 'Switches', 'APs', 'Terminales', 'Otros'],
 }
 
 function getCatColor(cat: string): string {
@@ -502,10 +516,14 @@ export default function TarifasPageClient() {
             </div>
           </div>
         </td>
+        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">{tarifa.subcategoria || <span className="text-gray-300">—</span>}</td>
         <td className="px-4 py-3"><ServiceBadges tarifa={tarifa} /></td>
         {showCategory && (
           <td className="px-4 py-3 whitespace-nowrap">
-            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
+            <div className="flex flex-col gap-0.5">
+              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
+              {tarifa.subcategoria && <span className="text-[10px] text-gray-500 pl-1">{tarifa.subcategoria}</span>}
+            </div>
           </td>
         )}
         {/* Inline Web Publication Controls */}
@@ -578,7 +596,7 @@ export default function TarifasPageClient() {
       </tr>
       {expandedTarifa === tarifa.id && (
         <tr>
-          <td colSpan={showCategory ? 11 : 10} className="px-6 py-3 bg-gray-50">
+          <td colSpan={showCategory ? 12 : 11} className="px-6 py-3 bg-gray-50">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
               <div>
                 <span className="font-semibold text-gray-700 block">Precios</span>
@@ -779,6 +797,7 @@ export default function TarifasPageClient() {
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Subcategoría</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
@@ -813,6 +832,7 @@ export default function TarifasPageClient() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Subcategoría</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Categoría</th>
                       <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
@@ -829,7 +849,7 @@ export default function TarifasPageClient() {
                       <TarifaRow key={tarifa.id} tarifa={tarifa} showCategory />
                     ))}
                     {tarifas.length === 0 && (
-                      <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
+                      <tr><td colSpan={12} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
                     )}
                   </tbody>
                 </table>

@@ -8,11 +8,11 @@ import EmpresaFooter from '../../../components/EmpresaFooter';
 import type { TarifaWeb } from '@/lib/tarifas-web';
 
 const iconoCategoria: Record<string, string> = {
-  'FIBRA': '🔵',
-  'FIBRA FTTH': '🔵',
-  'FTTH VoIP': '🔵',
-  'INTERNET 4G/WIMAX': '📡',
-  'INTERNET COMUNITAT': '🌐',
+  'INTERNET': '🌐',
+  
+  
+  
+  
   'TELEFONÍA FIJA': '📞',
   'TELEFONÍA FIJA (TARIFA PLANA)': '📞',
   'LÍNEA FIJA': '📞',

@@ -29,6 +29,7 @@ model Tarifa {
   id                     Int                 @id @default(autoincrement())
   tipoCliente            TipoCliente         @map("tipo_cliente")
   categoria              String
+  subcategoria           String?             @map("subcategoria")
   nombre                 String
   nombreComercial        String?             @map("nombre_comercial")
   descripcionCorta       String?             @map("descripcion_corta")
