@@ -253,8 +253,32 @@ export default function TarifasPageClient() {
   const [nombreComercialInput, setNombreComercialInput] = useState('')
   const [savingNombreComercial, setSavingNombreComercial] = useState<Set<number>>(new Set())
 
-  useEffect(() => { fetchStats() }, [])
+  // Inline categoría/subcategoría edit
+  const [editingCategoria, setEditingCategoria] = useState<number | null>(null)
+  const [categoriaInput, setCategoriaInput] = useState('')
+  const [subcategoriaInput, setSubcategoriaInput] = useState('')
+  const [savingCategoria, setSavingCategoria] = useState<Set<number>>(new Set())
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([])
+  const [subcategoriasDisponibles, setSubcategoriasDisponibles] = useState<Record<string, string[]>>({})
+
+  useEffect(() => { fetchStats(); fetchCategoriasSubcategorias() }, [])
   useEffect(() => { fetchData() }, [viewMode, search, tipoCliente, categoria, estado, page])
+
+  const fetchCategoriasSubcategorias = async () => {
+    try {
+      const res = await fetch('/api/admin/configuracion/categorias')
+      if (res.ok) {
+        const data = await res.json()
+        const cats = data.map((c: any) => c.nombre)
+        setCategoriasDisponibles(cats)
+        const subMap: Record<string, string[]> = {}
+        data.forEach((c: any) => {
+          subMap[c.nombre] = (c.subcategorias || []).map((s: any) => s.nombre)
+        })
+        setSubcategoriasDisponibles(subMap)
+      }
+    } catch (err) { console.error(err) }
+  }
 
   const fetchStats = async () => {
     try {
@@ -453,6 +477,43 @@ export default function TarifasPageClient() {
     setNombreComercialInput('')
   }
 
+  // Inline categoría/subcategoría edit
+  const handleCategoriaEdit = (tarifa: Tarifa) => {
+    setEditingCategoria(tarifa.id)
+    setCategoriaInput(tarifa.categoria)
+    setSubcategoriaInput(tarifa.subcategoria || '')
+  }
+
+  const handleCategoriaSave = async (id: number) => {
+    setSavingCategoria(prev => new Set(prev).add(id))
+    try {
+      const res = await fetch(`/api/admin/tarifas/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ categoria: categoriaInput, subcategoria: subcategoriaInput || null }),
+      })
+      if (res.ok) {
+        const updateTarifa = (t: Tarifa): Tarifa => t.id === id ? { ...t, categoria: categoriaInput, subcategoria: subcategoriaInput || null } : t
+        if (viewMode === 'list') {
+          setTarifas(prev => prev.map(updateTarifa))
+        } else {
+          setGrupos(prev => prev.map(g => ({ ...g, tarifas: g.tarifas.map(updateTarifa) })))
+        }
+        fetchStats()
+      }
+    } catch (err) { console.error(err) }
+    finally {
+      setSavingCategoria(prev => { const next = new Set(prev); next.delete(id); return next })
+      setEditingCategoria(null)
+    }
+  }
+
+  const handleCategoriaCancel = () => {
+    setEditingCategoria(null)
+    setCategoriaInput('')
+    setSubcategoriaInput('')
+  }
+
   const TarifaRow = ({ tarifa, showCategory = false }: { tarifa: Tarifa; showCategory?: boolean }) => (
     <>
       <tr className={`hover:bg-gray-50 cursor-pointer ${expandedTarifa === tarifa.id ? 'bg-gray-50' : ''}`}
@@ -507,14 +568,57 @@ export default function TarifasPageClient() {
             </div>
           </div>
         </td>
-        <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-600">{tarifa.subcategoria || <span className="text-gray-300">—</span>}</td>
-        <td className="px-4 py-3"><ServiceBadges tarifa={tarifa} /></td>
-        {showCategory && (
-          <td className="px-4 py-3 whitespace-nowrap">
-            <div className="flex flex-col gap-0.5">
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
-              {tarifa.subcategoria && <span className="text-[10px] text-gray-500 pl-1">{tarifa.subcategoria}</span>}
+        <td className="px-4 py-3 whitespace-nowrap text-xs" onClick={(e) => e.stopPropagation()}>
+          {editingCategoria === tarifa.id ? (
+            <div className="flex flex-col gap-1">
+              <select
+                value={categoriaInput}
+                onChange={(e) => { setCategoriaInput(e.target.value); setSubcategoriaInput('') }}
+                className="text-xs px-1.5 py-0.5 border border-orange-300 rounded bg-orange-50 text-orange-800 w-44 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                disabled={savingCategoria.has(tarifa.id)}
+              >
+                <option value="">Seleccionar categoría...</option>
+                {categoriasDisponibles.map(c => <option key={c} value={c}>{c}</option>)}
+                {/* Si la categoría actual no está en la lista dinámica, añadirla */}
+                {categoriaInput && !categoriasDisponibles.includes(categoriaInput) && <option value={categoriaInput}>{categoriaInput}</option>}
+              </select>
+              <select
+                value={subcategoriaInput}
+                onChange={(e) => setSubcategoriaInput(e.target.value)}
+                className="text-xs px-1.5 py-0.5 border border-blue-300 rounded bg-blue-50 text-blue-800 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                disabled={savingCategoria.has(tarifa.id) || !categoriaInput}
+              >
+                <option value="">Sin subcategoría</option>
+                {(subcategoriasDisponibles[categoriaInput] || SUBCATEGORIAS_POR_CATEGORIA[categoriaInput] || []).map((s: string) => <option key={s} value={s}>{s}</option>)}
+                {subcategoriaInput && !(subcategoriasDisponibles[categoriaInput] || []).includes(subcategoriaInput) && !(SUBCATEGORIAS_POR_CATEGORIA[categoriaInput] || []).includes(subcategoriaInput) && <option value={subcategoriaInput}>{subcategoriaInput}</option>}
+              </select>
+              <div className="flex gap-1">
+                <button onClick={() => handleCategoriaSave(tarifa.id)} className="text-green-600 hover:text-green-800" title="Guardar">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                </button>
+                <button onClick={handleCategoriaCancel} className="text-red-500 hover:text-red-700" title="Cancelar">
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+                {savingCategoria.has(tarifa.id) && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-500"></div>}
+              </div>
             </div>
+          ) : (
+            <button
+              onClick={() => handleCategoriaEdit(tarifa)}
+              className="text-left group hover:bg-gray-100 rounded px-1 py-0.5 transition-all"
+              title="Editar categoría y subcategoría"
+            >
+              <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
+              {tarifa.subcategoria && <span className="block text-[10px] text-gray-500 mt-0.5 pl-0.5">{tarifa.subcategoria}</span>}
+              {!tarifa.subcategoria && <span className="block text-[10px] text-gray-300 mt-0.5 pl-0.5 group-hover:text-gray-500">+ subcategoría</span>}
+            </button>
+          )}
+        </td>
+        <td className="px-4 py-3"><ServiceBadges tarifa={tarifa} /></td>
+        {/* En vista lista se mostraba una columna extra de categoría, pero ahora la columna Cat/Sub ya la incluye */}
+        {showCategory && (
+          <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
+            {tarifa.tipoCliente}
           </td>
         )}
         {/* Inline Web Publication Controls */}
@@ -788,7 +892,7 @@ export default function TarifasPageClient() {
                             <thead className="bg-gray-50">
                               <tr>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
-                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Subcategoría</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Cat / Sub</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
                                 <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
@@ -823,9 +927,9 @@ export default function TarifasPageClient() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tarifa</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Subcategoría</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Cat / Sub</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Servicios</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Categoría</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tipo</th>
                       <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (con IVA)</th>
