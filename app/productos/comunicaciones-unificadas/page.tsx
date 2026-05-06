@@ -70,6 +70,7 @@ export default function ComunicacionesUnificadasPage() {
   const [filtro, setFiltro] = useState<string>('todas');
   const [duracionSeleccionada, setDuracionSeleccionada] = useState<Record<string, number>>({});
   const [tramoSeleccionado, setTramoSeleccionado] = useState<Record<string, string>>({});
+  const [numUsuarios, setNumUsuarios] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch('/api/tarifas-solucion?solucion=comunicaciones-unificadas')
@@ -157,6 +158,45 @@ export default function ComunicacionesUnificadasPage() {
 
   const handleTramoChange = (grupoSlug: string, label: string) => {
     setTramoSeleccionado(prev => ({ ...prev, [grupoSlug]: label }));
+  };
+
+  const handleNumUsuariosChange = (grupoSlug: string, num: number, grupo: GrupoProducto) => {
+    if (num < 1) num = 1;
+    setNumUsuarios(prev => ({ ...prev, [grupoSlug]: num }));
+    // Detectar tramo automáticamente basado en el número de usuarios
+    const tramo = getTramoParaUsuarios(grupo, num);
+    if (tramo && tramo.varianteLabel) {
+      setTramoSeleccionado(prev => ({ ...prev, [grupoSlug]: tramo.varianteLabel! }));
+    }
+  };
+
+  const getTramoParaUsuarios = (grupo: GrupoProducto, num: number): TarifaWeb | null => {
+    // Parsear los tramos del varianteLabel para encontrar el correcto
+    // Formato esperado: "1 a 5 licencias", "6 a 50 licencias", "51 a 200 licencias", "+ de 201 licencias"
+    for (const v of grupo.variantes) {
+      if (!v.varianteLabel) continue;
+      const label = v.varianteLabel.toLowerCase();
+      // Extraer rango del label
+      const rangoMatch = label.match(/(\d+)\s*a\s*(\d+)/);
+      if (rangoMatch) {
+        const min = parseInt(rangoMatch[1]);
+        const max = parseInt(rangoMatch[2]);
+        if (num >= min && num <= max) return v;
+      }
+      // Formato "+ de X" o "> X" o "< X"
+      const mayorMatch = label.match(/[+>]\s*(?:de\s*)?(\d+)/);
+      if (mayorMatch) {
+        const min = parseInt(mayorMatch[1]);
+        if (num >= min) return v;
+      }
+      const menorMatch = label.match(/<\s*(\d+)/);
+      if (menorMatch) {
+        const max = parseInt(menorMatch[1]);
+        if (num >= max) return v;
+      }
+    }
+    // Si no se encuentra, devolver la última variante (tramo más alto)
+    return grupo.variantes[grupo.variantes.length - 1];
   };
 
   const getVarianteSeleccionada = (grupo: GrupoProducto): TarifaWeb => {
@@ -308,42 +348,60 @@ export default function ComunicacionesUnificadasPage() {
                           </div>
                         )}
 
-                        {/* Selector de tramo de licencias */}
+                        {/* Selector de número de usuarios */}
                         {grupo.tieneVariantesTramo && (
                           <div className="mb-4">
-                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Nº de licencias</label>
-                            <select
-                              value={varianteActual.varianteLabel || ''}
-                              onChange={(e) => handleTramoChange(grupo.slug, e.target.value)}
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">¿Cuántos usuarios necesitas?</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={numUsuarios[grupo.slug] || 1}
+                              onChange={(e) => handleNumUsuariosChange(grupo.slug, parseInt(e.target.value) || 1, grupo)}
                               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                            >
-                              {grupo.variantes.map((v) => (
-                                <option key={v.id} value={v.varianteLabel || ''}>
-                                  {v.varianteLabel} — {formatCurrency(v.precioSinIva)}/mes
-                                </option>
-                              ))}
-                            </select>
+                            />
+                            <p className="text-xs text-gray-400 mt-1">
+                              Tramo: {varianteActual.varianteLabel} — {formatCurrency(varianteActual.precioSinIva)}/usuario/mes
+                            </p>
                           </div>
                         )}
 
                         {/* Precio */}
                         <div className="border-t border-gray-100 pt-4">
-                          <div className="flex items-end justify-between">
+                          {grupo.tieneVariantesTramo ? (
                             <div>
-                              <span className="text-2xl font-bold text-orange-600">
-                                {formatCurrency(getPrecioMensual(varianteActual))}
-                              </span>
-                              <span className="text-xs text-gray-400 ml-1">/mes</span>
-                              <div className="text-xs text-gray-400 mt-0.5">
-                                {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
-                                  <span>Total: {formatCurrency(varianteActual.precioSinIva)} ({getDuracionLabel(varianteActual.duracionPermanenciaMeses)})</span>
-                                )}
+                              <div className="flex items-end justify-between">
+                                <div>
+                                  <span className="text-2xl font-bold text-orange-600">
+                                    {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}
+                                  </span>
+                                  <span className="text-xs text-gray-400 ml-1">/mes</span>
+                                </div>
                               </div>
-                              <div className="text-xs text-gray-400 mt-0.5">
-                                {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                              <div className="text-xs text-gray-400 mt-1">
+                                {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1) * 1.21)} /mes con IVA
+                              </div>
+                              <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
+                                {numUsuarios[grupo.slug] || 1} usuario{(numUsuarios[grupo.slug] || 1) > 1 ? 's' : ''} × {formatCurrency(varianteActual.precioSinIva)}/ud = {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}/mes
                               </div>
                             </div>
-                          </div>
+                          ) : (
+                            <div className="flex items-end justify-between">
+                              <div>
+                                <span className="text-2xl font-bold text-orange-600">
+                                  {formatCurrency(getPrecioMensual(varianteActual))}
+                                </span>
+                                <span className="text-xs text-gray-400 ml-1">/mes</span>
+                                <div className="text-xs text-gray-400 mt-0.5">
+                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                                    <span>Total: {formatCurrency(varianteActual.precioSinIva)} ({getDuracionLabel(varianteActual.duracionPermanenciaMeses)})</span>
+                                  )}
+                                </div>
+                                <div className="text-xs text-gray-400 mt-0.5">
+                                  {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Características */}
