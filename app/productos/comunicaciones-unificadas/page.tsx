@@ -34,7 +34,8 @@ interface GrupoProducto {
 }
 
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
+  // Usar de-DE para garantizar punto de miles (1.234,56 €) en todos los casos
+  return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(value);
 }
 
 function getNombreGrupo(tarifa: TarifaWeb): string {
@@ -453,21 +454,21 @@ export default function ComunicacionesUnificadasPage() {
                             </div>
                           ) : (
                             /* Duración (con o sin tramo): precio mensual */
-                            <div className="flex items-end justify-between">
-                              <div>
+                            <div>
+                              <div className="flex items-end">
                                 <span className="text-2xl font-bold text-orange-600">
                                   {formatCurrency(getPrecioMensual(varianteActual))}
                                 </span>
                                 <span className="text-xs text-gray-400 ml-1">/mes</span>
-                                <div className="text-xs text-gray-400 mt-0.5">
-                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
-                                    <span>Total: {formatCurrency(varianteActual.precioSinIva)} ({getDuracionLabel(varianteActual.duracionPermanenciaMeses)})</span>
-                                  )}
-                                </div>
-                                <div className="text-xs text-gray-400 mt-0.5">
-                                  {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
-                                </div>
                               </div>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                              </div>
+                              {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                                <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
+                                  Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva)} sin IVA ({formatCurrency(varianteActual.precioConIva)} con IVA)
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
