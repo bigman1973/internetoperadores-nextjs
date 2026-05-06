@@ -18,6 +18,7 @@ interface TarifaWeb {
   esPopular?: boolean;
   categoria: string;
   cuotaAlta: number | null;
+  subcategoria: string | null;
   grupoProducto: string | null;
   varianteLabel: string | null;
   caracteristicas: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null;
@@ -169,26 +170,25 @@ export default function ComunicacionesUnificadasPage() {
     return { agrupados, individuales };
   }, [tarifas]);
 
-  // Categorías para filtro basadas en descripcionCorta
+  // Subcategorías para filtro (solo las que tienen al menos un producto)
   const categoriasFiltro = useMemo(() => {
     const cats = new Set<string>();
     tarifas.forEach(t => {
-      if (t.descripcionCorta) {
-        const cat = t.descripcionCorta.split(' > ')[0] || t.descripcionCorta;
-        cats.add(cat);
+      if (t.subcategoria) {
+        cats.add(t.subcategoria);
       }
     });
     return Array.from(cats).sort();
   }, [tarifas]);
 
-  // Filtrar grupos e individuales por categoría
+  // Filtrar grupos e individuales por subcategoría
   const gruposFiltrados = useMemo(() => {
     if (filtro === 'todas') return grupos;
     return {
       agrupados: grupos.agrupados.filter(g => 
-        g.variantes.some(v => v.descripcionCorta?.startsWith(filtro))
+        g.variantes.some(v => v.subcategoria === filtro)
       ),
-      individuales: grupos.individuales.filter(t => t.descripcionCorta?.startsWith(filtro)),
+      individuales: grupos.individuales.filter(t => t.subcategoria === filtro),
     };
   }, [grupos, filtro]);
 
@@ -588,96 +588,7 @@ export default function ComunicacionesUnificadasPage() {
                 </div>
               )}
 
-              {/* Productos individuales (sin grupo) */}
-              {gruposFiltrados.individuales.length > 0 && (
-                <>
-                  {gruposFiltrados.agrupados.length > 0 && (
-                    <h2 className="text-xl font-bold text-gray-900 mb-6">Otros productos</h2>
-                  )}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {gruposFiltrados.individuales.map((tarifa) => (
-                      <div
-                        key={tarifa.id}
-                        className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
-                      >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="text-base font-bold text-gray-900 leading-tight">
-                              {(tarifa.nombreComercial || tarifa.nombre).replace('Zoom - ', '')}
-                            </h3>
-                            {tarifa.descripcionCorta && (
-                              <p className="text-xs text-orange-600 mt-1 font-medium">
-                                {tarifa.descripcionCorta.split(' > ')[1] || tarifa.descripcionCorta}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="border-t border-gray-100 pt-4 mt-auto">
-                          <div className="flex items-end justify-between">
-                            <div>
-                              <span className="text-2xl font-bold text-orange-600">
-                                {formatCurrency(tarifa.precioSinIva)}
-                              </span>
-                              <span className="text-xs text-gray-400 ml-1">
-                                {tarifa.duracionPermanenciaMeses 
-                                  ? tarifa.duracionPermanenciaMeses <= 1 ? '/mes' 
-                                  : tarifa.duracionPermanenciaMeses <= 12 ? '/año'
-                                  : tarifa.duracionPermanenciaMeses <= 24 ? '/2 años'
-                                  : '/3 años'
-                                  : '/año'}
-                              </span>
-                              <div className="text-xs text-gray-400 mt-0.5">
-                                {formatCurrency(tarifa.precioConIva)} con IVA
-                              </div>
-                            </div>
-                            {tarifa.permanencia && (
-                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                                {tarifa.permanencia}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Características */}
-                        {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
-                            {tarifa.caracteristicas.incluyePlanAnterior && (
-                              <p className="text-xs italic text-blue-600 mb-2">
-                                {tarifa.caracteristicas.incluyePlanAnterior}
-                              </p>
-                            )}
-                            <div className="space-y-1.5">
-                              {tarifa.caracteristicas.items.map((feat, idx) => (
-                                <div key={idx} className="flex items-start gap-2 text-sm">
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
-                                  <div>
-                                    <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
-                                    {feat.descripcion && (
-                                      <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <Link
-                          href="/contacto"
-                          className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
-                        >
-                          Solicitar
-                        </Link>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-
-              {gruposFiltrados.agrupados.length === 0 && gruposFiltrados.individuales.length === 0 && (
+              {gruposFiltrados.agrupados.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-gray-500 text-lg">No se encontraron productos en esta categoría.</p>
                 </div>
