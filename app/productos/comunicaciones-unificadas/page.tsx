@@ -28,6 +28,7 @@ interface GrupoProducto {
   slug: string;
   nombre: string;
   descripcion: string | null;
+  subcategoria: string | null;
   variantes: TarifaWeb[];
   caracteristicas: TarifaWeb['caracteristicas'];
   tieneVariantesDuracion: boolean;
@@ -114,6 +115,7 @@ export default function ComunicacionesUnificadasPage() {
             slug: t.grupoProducto,
             nombre: getNombreGrupo(t),
             descripcion: t.descripcionCorta,
+            subcategoria: t.subcategoria,
             variantes: [],
             caracteristicas: t.caracteristicas,
             tieneVariantesDuracion: false,
@@ -268,6 +270,226 @@ export default function ComunicacionesUnificadasPage() {
     return grupo.variantes.find(v => v.duracionPermanenciaMeses === 12) || grupo.variantes[0];
   };
 
+  // Función para renderizar una tarjeta de grupo (reutilizada en ambos modos)
+  const renderTarjetaGrupo = (grupo: GrupoProducto, varianteActual: TarifaWeb) => (
+    <div
+      key={grupo.slug}
+      className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
+    >
+      {/* Nombre del producto */}
+      <div className="mb-3">
+        <h3 className="text-base font-bold text-gray-900 leading-tight">
+          {grupo.nombre}
+        </h3>
+        {grupo.descripcion && (
+          <p className="text-xs text-orange-600 mt-1 font-medium">
+            {grupo.descripcion.split(' > ')[1] || grupo.descripcion}
+          </p>
+        )}
+      </div>
+
+      {/* Selector de participantes (dropdown) cuando tiene variantes de tramo */}
+      {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion && (
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-500 mb-1.5">¿Cuántos usuarios necesitas?</label>
+          <input
+            type="number"
+            min="1"
+            value={numUsuarios[grupo.slug] || 1}
+            onChange={(e) => handleNumUsuariosChange(grupo.slug, parseInt(e.target.value) || 1, grupo)}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Tramo: {varianteActual.varianteLabel} — {formatCurrency(varianteActual.precioSinIva)}/usuario/mes
+          </p>
+        </div>
+      )}
+
+      {/* Doble selector: participantes + duración */}
+      {grupo.tieneVariantesTramo && grupo.tieneVariantesDuracion && (() => {
+        const tramosUnicos = [...new Set(grupo.variantes.map(v => v.varianteLabel).filter(Boolean))] as string[];
+        const duracionesUnicas = [...new Set(grupo.variantes.map(v => v.duracionPermanenciaMeses).filter(Boolean))] as number[];
+        duracionesUnicas.sort((a, b) => a - b);
+        const tramoActual = tramoSeleccionado[grupo.slug] || tramosUnicos[0];
+        const duracionActual = duracionSeleccionada[grupo.slug] ?? 12;
+        return (
+          <div className="mb-4 space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1.5">Participantes</label>
+              <select
+                value={tramoActual}
+                onChange={(e) => setTramoSeleccionado(prev => ({ ...prev, [grupo.slug]: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+              >
+                {tramosUnicos.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                {duracionesUnicas.map((meses) => {
+                  const isSelected = meses === duracionActual;
+                  return (
+                    <button
+                      key={meses}
+                      onClick={() => handleDuracionChange(grupo.slug, meses)}
+                      className={`flex-1 py-1.5 text-xs font-medium transition-all ${
+                        isSelected
+                          ? 'bg-orange-600 text-white'
+                          : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
+                      }`}
+                    >
+                      {getDuracionLabel(meses)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Selector de duración (solo duración, sin tramo) */}
+      {grupo.tieneVariantesDuracion && !grupo.tieneVariantesTramo && (
+        <div className="mb-4">
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            {grupo.variantes.map((v) => {
+              const isSelected = v.id === varianteActual.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => handleDuracionChange(grupo.slug, v.duracionPermanenciaMeses || 0)}
+                  className={`flex-1 py-1.5 text-xs font-medium transition-all ${
+                    isSelected
+                      ? 'bg-orange-600 text-white'
+                      : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
+                  }`}
+                >
+                  {getDuracionLabel(v.duracionPermanenciaMeses)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Input de nº de usuarios/licencias para productos con precio por usuario */}
+      {grupo.esLicenciaPorUsuario && (
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-gray-500 mb-1.5">
+            Nº de licencias {grupo.minUsuarios > 1 ? `(mínimo ${grupo.minUsuarios})` : ''}
+          </label>
+          <input
+            type="number"
+            min={grupo.minUsuarios}
+            value={numUsuarios[grupo.slug] || grupo.minUsuarios}
+            onChange={(e) => {
+              let val = parseInt(e.target.value) || grupo.minUsuarios;
+              if (val < grupo.minUsuarios) val = grupo.minUsuarios;
+              setNumUsuarios(prev => ({ ...prev, [grupo.slug]: val }));
+            }}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+          />
+        </div>
+      )}
+
+      {/* Precio */}
+      <div className="border-t border-gray-100 pt-4">
+        {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion ? (
+          <div>
+            <div className="flex items-end justify-between">
+              <div>
+                <span className="text-2xl font-bold text-orange-600">
+                  {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}
+                </span>
+                <span className="text-xs text-gray-400 ml-1">/mes</span>
+              </div>
+            </div>
+            <div className="text-xs text-gray-400 mt-1">
+              {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1) * 1.21)} /mes con IVA
+            </div>
+            <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
+              {numUsuarios[grupo.slug] || 1} usuario{(numUsuarios[grupo.slug] || 1) > 1 ? 's' : ''} × {formatCurrency(varianteActual.precioSinIva)}/ud = {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}/mes
+            </div>
+          </div>
+        ) : (
+          <div>
+            {grupo.esLicenciaPorUsuario ? (
+              <>
+                <div className="flex items-end">
+                  <span className="text-2xl font-bold text-orange-600">
+                    {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios))}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-1">/mes</span>
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios) * 1.21)} /mes con IVA
+                </div>
+                <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
+                  {numUsuarios[grupo.slug] || grupo.minUsuarios} licencia{(numUsuarios[grupo.slug] || grupo.minUsuarios) > 1 ? 's' : ''} × {formatCurrency(getPrecioMensual(varianteActual))}/ud/mes
+                </div>
+                {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                  <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
+                    Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} sin IVA ({formatCurrency(varianteActual.precioConIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} con IVA)
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="flex items-end">
+                  <span className="text-2xl font-bold text-orange-600">
+                    {formatCurrency(getPrecioMensual(varianteActual))}
+                  </span>
+                  <span className="text-xs text-gray-400 ml-1">/mes</span>
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5">
+                  {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                </div>
+                {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                  <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
+                    Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva)} sin IVA ({formatCurrency(varianteActual.precioConIva)} con IVA)
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Características */}
+      {grupo.caracteristicas && grupo.caracteristicas.items && grupo.caracteristicas.items.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
+          {grupo.caracteristicas.incluyePlanAnterior && (
+            <p className="text-xs italic text-blue-600 mb-2">
+              {grupo.caracteristicas.incluyePlanAnterior}
+            </p>
+          )}
+          <div className="space-y-1.5">
+            {grupo.caracteristicas.items.map((feat, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-sm">
+                <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
+                  {feat.descripcion && (
+                    <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Link
+        href="/contacto"
+        className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
+      >
+        Solicitar
+      </Link>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-white">
       <EmpresaNav currentPage="productos" />
@@ -353,239 +575,67 @@ export default function ComunicacionesUnificadasPage() {
             </div>
           ) : (
             <div className="max-w-7xl mx-auto">
-              {/* Productos agrupados */}
-              {gruposFiltrados.agrupados.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-                  {gruposFiltrados.agrupados.map((grupo) => {
-                    const varianteActual = getVarianteSeleccionada(grupo);
-                    return (
-                      <div
-                        key={grupo.slug}
-                        className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
-                      >
-                        {/* Nombre del producto */}
-                        <div className="mb-3">
-                          <h3 className="text-base font-bold text-gray-900 leading-tight">
-                            {grupo.nombre}
-                          </h3>
-                          {grupo.descripcion && (
-                            <p className="text-xs text-orange-600 mt-1 font-medium">
-                              {grupo.descripcion.split(' > ')[1] || grupo.descripcion}
-                            </p>
-                          )}
+              {/* Productos agrupados por fabricante/subcategoría cuando filtro es 'todas' */}
+              {gruposFiltrados.agrupados.length > 0 && filtro === 'todas' ? (
+                <div className="space-y-12">
+                  {(() => {
+                    // Agrupar por fabricante (nivel superior) derivado de subcategoría
+                    const fabricanteMap: Record<string, { nombre: string; subcategorias: Record<string, GrupoProducto[]> }> = {};
+                    const ordenFabricantes: Record<string, number> = { 'Zoom': 1, 'Wildix': 2, 'Otros': 99 };
+                    
+                    gruposFiltrados.agrupados.forEach(grupo => {
+                      const sub = grupo.subcategoria || 'Sin categoría';
+                      let fabricante = 'Otros';
+                      if (sub.toLowerCase().includes('zoom') || sub === 'Webinars' || sub === 'Grandes Reuniones' || sub === 'Salas de reuniones') {
+                        fabricante = 'Zoom';
+                      } else if (sub.toLowerCase().includes('wildix')) {
+                        fabricante = 'Wildix';
+                      }
+                      if (!fabricanteMap[fabricante]) {
+                        fabricanteMap[fabricante] = { nombre: fabricante, subcategorias: {} };
+                      }
+                      if (!fabricanteMap[fabricante].subcategorias[sub]) {
+                        fabricanteMap[fabricante].subcategorias[sub] = [];
+                      }
+                      fabricanteMap[fabricante].subcategorias[sub].push(grupo);
+                    });
+
+                    const fabricantesOrdenados = Object.entries(fabricanteMap).sort(
+                      ([a], [b]) => (ordenFabricantes[a] ?? 99) - (ordenFabricantes[b] ?? 99)
+                    );
+
+                    return fabricantesOrdenados.map(([fabricante, data]) => (
+                      <div key={fabricante}>
+                        {/* Encabezado de fabricante */}
+                        <div className="mb-6">
+                          <h2 className="text-2xl font-bold text-gray-900">{fabricante}</h2>
+                          <div className="h-1 w-16 bg-orange-500 mt-2 rounded"></div>
                         </div>
-
-                        {/* Selector de participantes (dropdown) cuando tiene variantes de tramo */}
-                        {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion && (
-                          <div className="mb-4">
-                            <label className="block text-xs font-medium text-gray-500 mb-1.5">¿Cuántos usuarios necesitas?</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={numUsuarios[grupo.slug] || 1}
-                              onChange={(e) => handleNumUsuariosChange(grupo.slug, parseInt(e.target.value) || 1, grupo)}
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                            />
-                            <p className="text-xs text-gray-400 mt-1">
-                              Tramo: {varianteActual.varianteLabel} — {formatCurrency(varianteActual.precioSinIva)}/usuario/mes
-                            </p>
-                          </div>
-                        )}
-
-                        {/* Doble selector: participantes + duración */}
-                        {grupo.tieneVariantesTramo && grupo.tieneVariantesDuracion && (() => {
-                          const tramosUnicos = [...new Set(grupo.variantes.map(v => v.varianteLabel).filter(Boolean))] as string[];
-                          const duracionesUnicas = [...new Set(grupo.variantes.map(v => v.duracionPermanenciaMeses).filter(Boolean))] as number[];
-                          duracionesUnicas.sort((a, b) => a - b);
-                          const tramoActual = tramoSeleccionado[grupo.slug] || tramosUnicos[0];
-                          const duracionActual = duracionSeleccionada[grupo.slug] ?? 12;
-                          return (
-                            <div className="mb-4 space-y-3">
-                              {/* Selector de participantes */}
-                              <div>
-                                <label className="block text-xs font-medium text-gray-500 mb-1.5">Participantes</label>
-                                <select
-                                  value={tramoActual}
-                                  onChange={(e) => setTramoSeleccionado(prev => ({ ...prev, [grupo.slug]: e.target.value }))}
-                                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                                >
-                                  {tramosUnicos.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                              </div>
-                              {/* Selector de duración */}
-                              <div>
-                                <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                                  {duracionesUnicas.map((meses) => {
-                                    const isSelected = meses === duracionActual;
-                                    return (
-                                      <button
-                                        key={meses}
-                                        onClick={() => handleDuracionChange(grupo.slug, meses)}
-                                        className={`flex-1 py-1.5 text-xs font-medium transition-all ${
-                                          isSelected
-                                            ? 'bg-orange-600 text-white'
-                                            : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
-                                        }`}
-                                      >
-                                        {getDuracionLabel(meses)}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* Selector de duración (solo duración, sin tramo) */}
-                        {grupo.tieneVariantesDuracion && !grupo.tieneVariantesTramo && (
-                          <div className="mb-4">
-                            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                              {grupo.variantes.map((v) => {
-                                const isSelected = v.id === varianteActual.id;
-                                return (
-                                  <button
-                                    key={v.id}
-                                    onClick={() => handleDuracionChange(grupo.slug, v.duracionPermanenciaMeses || 0)}
-                                    className={`flex-1 py-1.5 text-xs font-medium transition-all ${
-                                      isSelected
-                                        ? 'bg-orange-600 text-white'
-                                        : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
-                                    }`}
-                                  >
-                                    {getDuracionLabel(v.duracionPermanenciaMeses)}
-                                  </button>
-                                );
+                        {/* Subcategorías dentro del fabricante */}
+                        {Object.entries(data.subcategorias).map(([subcat, gruposSub]) => (
+                          <div key={subcat} className="mb-8">
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 pl-1">{subcat}</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                              {gruposSub.map((grupo) => {
+                                const varianteActual = getVarianteSeleccionada(grupo);
+                                return renderTarjetaGrupo(grupo, varianteActual);
                               })}
                             </div>
                           </div>
-                        )}
-
-                        {/* Input de nº de usuarios/licencias para productos con precio por usuario */}
-                        {grupo.esLicenciaPorUsuario && (
-                          <div className="mb-4">
-                            <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                              Nº de licencias {grupo.minUsuarios > 1 ? `(mínimo ${grupo.minUsuarios})` : ''}
-                            </label>
-                            <input
-                              type="number"
-                              min={grupo.minUsuarios}
-                              value={numUsuarios[grupo.slug] || grupo.minUsuarios}
-                              onChange={(e) => {
-                                let val = parseInt(e.target.value) || grupo.minUsuarios;
-                                if (val < grupo.minUsuarios) val = grupo.minUsuarios;
-                                setNumUsuarios(prev => ({ ...prev, [grupo.slug]: val }));
-                              }}
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                            />
-                          </div>
-                        )}
-
-
-
-                        {/* Precio */}
-                        <div className="border-t border-gray-100 pt-4">
-                          {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion ? (
-                            /* Solo tramo (PBX): precio unitario × usuarios */
-                            <div>
-                              <div className="flex items-end justify-between">
-                                <div>
-                                  <span className="text-2xl font-bold text-orange-600">
-                                    {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}
-                                  </span>
-                                  <span className="text-xs text-gray-400 ml-1">/mes</span>
-                                </div>
-                              </div>
-                              <div className="text-xs text-gray-400 mt-1">
-                                {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1) * 1.21)} /mes con IVA
-                              </div>
-                              <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
-                                {numUsuarios[grupo.slug] || 1} usuario{(numUsuarios[grupo.slug] || 1) > 1 ? 's' : ''} × {formatCurrency(varianteActual.precioSinIva)}/ud = {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || 1))}/mes
-                              </div>
-                            </div>
-                          ) : (
-                            /* Duración (con o sin tramo): precio mensual */
-                            <div>
-                              {grupo.esLicenciaPorUsuario ? (
-                                /* Licencia por usuario con duración */
-                                <>
-                                  <div className="flex items-end">
-                                    <span className="text-2xl font-bold text-orange-600">
-                                      {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios))}
-                                    </span>
-                                    <span className="text-xs text-gray-400 ml-1">/mes</span>
-                                  </div>
-                                  <div className="text-xs text-gray-400 mt-0.5">
-                                    {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios) * 1.21)} /mes con IVA
-                                  </div>
-                                  <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
-                                    {numUsuarios[grupo.slug] || grupo.minUsuarios} licencia{(numUsuarios[grupo.slug] || grupo.minUsuarios) > 1 ? 's' : ''} × {formatCurrency(getPrecioMensual(varianteActual))}/ud/mes
-                                  </div>
-                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
-                                    <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
-                                      Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} sin IVA ({formatCurrency(varianteActual.precioConIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} con IVA)
-                                    </div>
-                                  )}
-                                </>
-                              ) : (
-                                /* Sin licencia por usuario: precio simple */
-                                <>
-                                  <div className="flex items-end">
-                                    <span className="text-2xl font-bold text-orange-600">
-                                      {formatCurrency(getPrecioMensual(varianteActual))}
-                                    </span>
-                                    <span className="text-xs text-gray-400 ml-1">/mes</span>
-                                  </div>
-                                  <div className="text-xs text-gray-400 mt-0.5">
-                                    {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
-                                  </div>
-                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
-                                    <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
-                                      Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva)} sin IVA ({formatCurrency(varianteActual.precioConIva)} con IVA)
-                                    </div>
-                                  )}
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Características */}
-                        {grupo.caracteristicas && grupo.caracteristicas.items && grupo.caracteristicas.items.length > 0 && (
-                          <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
-                            {grupo.caracteristicas.incluyePlanAnterior && (
-                              <p className="text-xs italic text-blue-600 mb-2">
-                                {grupo.caracteristicas.incluyePlanAnterior}
-                              </p>
-                            )}
-                            <div className="space-y-1.5">
-                              {grupo.caracteristicas.items.map((feat, idx) => (
-                                <div key={idx} className="flex items-start gap-2 text-sm">
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
-                                  <div>
-                                    <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
-                                    {feat.descripcion && (
-                                      <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
-                                    )}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        <Link
-                          href="/contacto"
-                          className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
-                        >
-                          Solicitar
-                        </Link>
+                        ))}
                       </div>
-                    );
+                    ));
+                  })()}
+                </div>
+              ) : gruposFiltrados.agrupados.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+                  {gruposFiltrados.agrupados.map((grupo) => {
+                    const varianteActual = getVarianteSeleccionada(grupo);
+                    return renderTarjetaGrupo(grupo, varianteActual);
                   })}
                 </div>
+              ) : (
+                null
               )}
 
               {gruposFiltrados.agrupados.length === 0 && (
