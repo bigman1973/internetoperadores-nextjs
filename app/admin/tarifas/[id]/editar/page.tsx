@@ -302,14 +302,14 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Cliente</label>
-                <select name="tipoCliente" value={formData.tipoCliente} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                <select name="tipoCliente" value={formData.tipoCliente} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900">
                   <option value="PARTICULAR">Particular</option>
                   <option value="EMPRESA">Empresa</option>
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
-                <select name="categoria" value={formData.categoria} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                <select name="categoria" value={formData.categoria} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900">
                   <option value="">Seleccionar categoría</option>
                   {categoriasConfig.map(c => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
                 </select>
@@ -320,12 +320,12 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                   const catConfig = categoriasConfig.find(c => c.nombre === formData.categoria.toUpperCase());
                   const opciones = catConfig?.subcategorias.map(s => s.nombre) || [];
                   return opciones.length > 0 ? (
-                    <select name="subcategoria" value={formData.subcategoria} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                    <select name="subcategoria" value={formData.subcategoria} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900">
                       <option value="">Sin subcategoría</option>
                       {opciones.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   ) : (
-                    <input type="text" name="subcategoria" value={formData.subcategoria} onChange={handleChange} placeholder="Opcional" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                    <input type="text" name="subcategoria" value={formData.subcategoria} onChange={handleChange} placeholder="Opcional" className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
                   );
                 })()}
               </div>
@@ -337,7 +337,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre de la Tarifa</label>
-                <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-orange-700 mb-1">Nombre Comercial (Web)</label>
@@ -347,11 +347,11 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descripción Corta</label>
-                <input type="text" name="descripcionCorta" value={formData.descripcionCorta} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Resumen breve de la tarifa" />
+                <input type="text" name="descripcionCorta" value={formData.descripcionCorta} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Resumen breve de la tarifa" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descripción Larga</label>
-                <textarea name="descripcionLarga" value={formData.descripcionLarga} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Descripción detallada" />
+                <textarea name="descripcionLarga" value={formData.descripcionLarga} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Descripción detallada" />
               </div>
             </div>
           </div>
@@ -408,29 +408,29 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Sin IVA (€)</label>
-                <input type="number" step="0.01" name="precioSinIva" value={formData.precioSinIva} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="number" step="0.01" name="precioSinIva" value={formData.precioSinIva} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Con IVA (€)</label>
-                <input type="number" step="0.01" name="precioConIva" value={formData.precioConIva} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="number" step="0.01" name="precioConIva" value={formData.precioConIva} onChange={handleChange} required className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Coste Operador (€)</label>
-                <input type="number" step="0.01" name="costeOperador" value={formData.costeOperador} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Coste para el operador" />
+                <input type="number" step="0.01" name="costeOperador" value={formData.costeOperador} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Coste para el operador" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Cuota de Alta (sin IVA €)</label>
-                <input type="number" step="0.01" name="cuotaAlta" value={formData.cuotaAlta} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Cuota de alta sin IVA" />
+                <input type="number" step="0.01" name="cuotaAlta" value={formData.cuotaAlta} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Cuota de alta sin IVA" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Período (€)</label>
-                <input type="number" step="0.01" name="precioPeriodo" value={formData.precioPeriodo} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="number" step="0.01" name="precioPeriodo" value={formData.precioPeriodo} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Precio Período con IVA (€)</label>
-                <input type="number" step="0.01" name="precioPeriodoIva" value={formData.precioPeriodoIva} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="number" step="0.01" name="precioPeriodoIva" value={formData.precioPeriodoIva} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
             </div>
           </div>
@@ -443,44 +443,44 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Velocidad (general)</label>
-                <input type="text" name="velocidad" value={formData.velocidad} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 600Mb/600Mb" />
+                <input type="text" name="velocidad" value={formData.velocidad} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 600Mb/600Mb" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Velocidad Bajada (Mbps)</label>
-                <input type="text" name="velocidadBajada" value={formData.velocidadBajada} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 600" />
+                <input type="text" name="velocidadBajada" value={formData.velocidadBajada} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 600" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Velocidad Subida (Mbps)</label>
-                <input type="text" name="velocidadSubida" value={formData.velocidadSubida} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 600" />
+                <input type="text" name="velocidadSubida" value={formData.velocidadSubida} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 600" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fibra Bajada</label>
-                <input type="text" name="fibraBajada" value={formData.fibraBajada} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="ID perfil fibra bajada" />
+                <input type="text" name="fibraBajada" value={formData.fibraBajada} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ID perfil fibra bajada" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Fibra Subida</label>
-                <input type="text" name="fibraSubida" value={formData.fibraSubida} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="ID perfil fibra subida" />
+                <input type="text" name="fibraSubida" value={formData.fibraSubida} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ID perfil fibra subida" />
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Datos Incluidos</label>
-                <input type="text" name="datosIncluidos" value={formData.datosIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 15GB, Ilimitados" />
+                <input type="text" name="datosIncluidos" value={formData.datosIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 15GB, Ilimitados" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Minutos Incluidos</label>
-                <input type="text" name="minutosIncluidos" value={formData.minutosIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: Ilimitados, 100min" />
+                <input type="text" name="minutosIncluidos" value={formData.minutosIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: Ilimitados, 100min" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">SMS Incluidos</label>
-                <input type="text" name="smsIncluidos" value={formData.smsIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 100, Ilimitados" />
+                <input type="text" name="smsIncluidos" value={formData.smsIncluidos} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 100, Ilimitados" />
               </div>
             </div>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Servicio PPPoE</label>
-              <input type="text" name="servicioPppoe" value={formData.servicioPppoe} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Nombre del servicio PPPoE" />
+              <input type="text" name="servicioPppoe" value={formData.servicioPppoe} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Nombre del servicio PPPoE" />
             </div>
           </div>
 
@@ -492,20 +492,20 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Duración Permanencia (meses)</label>
-                <input type="number" name="duracionPermanenciaMeses" value={formData.duracionPermanenciaMeses} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 12, 18, 24" />
+                <input type="number" name="duracionPermanenciaMeses" value={formData.duracionPermanenciaMeses} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 12, 18, 24" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Penalización (€)</label>
-                <input type="text" name="penalizacion" value={formData.penalizacion} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: 250" />
+                <input type="text" name="penalizacion" value={formData.penalizacion} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: 250" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Permanencia (texto)</label>
-                <input type="text" name="permanencia" value={formData.permanencia} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Descripción de permanencia" />
+                <input type="text" name="permanencia" value={formData.permanencia} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Descripción de permanencia" />
               </div>
             </div>
             <div className="mt-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones Permanencia</label>
-              <textarea name="observacionesPermanencia" value={formData.observacionesPermanencia} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: +100€ de penalización si no se devuelve el router" />
+              <textarea name="observacionesPermanencia" value={formData.observacionesPermanencia} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: +100€ de penalización si no se devuelve el router" />
             </div>
           </div>
 
@@ -516,12 +516,12 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             </h2>
             <div className="mt-0">
               <label className="block text-sm font-medium text-gray-700 mb-1">Concepto de Facturación</label>
-              <input type="text" name="conceptoFacturacion" value={formData.conceptoFacturacion} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" placeholder="Ej: [nombre_tarifa] DE [mes_actual_texto]" />
+              <input type="text" name="conceptoFacturacion" value={formData.conceptoFacturacion} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="Ej: [nombre_tarifa] DE [mes_actual_texto]" />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Tipo Periodicidad</label>
-                <select name="tipoPeriodicidad" value={formData.tipoPeriodicidad} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+                <select name="tipoPeriodicidad" value={formData.tipoPeriodicidad} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900">
                   <option value="1">Mensual</option>
                   <option value="2">Bimestral</option>
                   <option value="3">Trimestral</option>
@@ -562,7 +562,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 {formData.publicarWebParticular && (
                   <div className="mt-3 pt-3 border-t border-blue-200">
                     <label className="block text-xs font-medium text-gray-700 mb-1">Sección del menú</label>
-                    <select name="seccionWebParticular" value={formData.seccionWebParticular} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    <select name="seccionWebParticular" value={formData.seccionWebParticular} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-blue-500">
                       <option value="">Sin sección específica</option>
                       <option value="internet">Internet</option>
                       <option value="movil">Móvil</option>
@@ -584,7 +584,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 {formData.publicarWebEmpresa && (
                   <div className="mt-3 pt-3 border-t border-orange-200">
                     <label className="block text-xs font-medium text-gray-700 mb-1">Solución <span className="text-red-500">*</span></label>
-                    <select name="seccionWebEmpresa" value={formData.seccionWebEmpresa} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500" required>
+                    <select name="seccionWebEmpresa" value={formData.seccionWebEmpresa} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm text-gray-900 shadow-sm focus:border-orange-500 focus:ring-orange-500" required>
                       <option value="">Seleccionar solución...</option>
                       <option value="conectividad-avanzada">Conectividad Avanzada</option>
                       <option value="comunicaciones-unificadas">Comunicaciones Unificadas</option>
@@ -597,13 +597,13 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                     {!formData.seccionWebEmpresa && (
                       <p className="text-xs text-red-500 mt-1">⚠️ Debes seleccionar una solución para publicar en Empresas</p>
                     )}
-                    <div className="mt-3">
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de Producto</label>
-                      <input type="text" name="grupoProducto" value={formData.grupoProducto} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500" placeholder="ej: zoom-workplace-business" />
-                      <p className="text-xs text-gray-400 mt-1">Tarifas con el mismo grupo se agrupan en una sola tarjeta con selector de duración</p>
-                    </div>
                   </div>
                 )}
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de Producto</label>
+                  <input type="text" name="grupoProducto" value={formData.grupoProducto} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ej: zoom-workplace-business" />
+                  <p className="text-xs text-gray-500 mt-1">Tarifas con el mismo grupo se agrupan en una sola tarjeta con selector de duración en la web</p>
+                </div>
               </div>
             </div>
             {formData.publicarWeb && (
@@ -646,11 +646,11 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Garantía</label>
-                <input type="text" name="garantia" value={formData.garantia} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <input type="text" name="garantia" value={formData.garantia} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
-                <textarea name="observaciones" value={formData.observaciones} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm" />
+                <textarea name="observaciones" value={formData.observaciones} onChange={handleChange} rows={2} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" />
               </div>
             </div>
           </div>
@@ -669,7 +669,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 name="incluyePlanAnterior"
                 value={formData.incluyePlanAnterior}
                 onChange={handleChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900"
                 placeholder="Ej: Incluye todo lo que ofrece PBX-Basic y además:"
               />
               <p className="text-xs text-gray-400 mt-1">Se mostrará en cursiva antes de las características</p>
@@ -689,7 +689,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                           updated[index] = { ...updated[index], titulo: e.target.value };
                           setCaracteristicas(updated);
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900"
                         placeholder="Ej: Llamadas concurrentes por usuario"
                       />
                     </div>
@@ -703,7 +703,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                           updated[index] = { ...updated[index], descripcion: e.target.value };
                           setCaracteristicas(updated);
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900"
                         placeholder="Ej: 4 llamadas simultáneas"
                       />
                     </div>
