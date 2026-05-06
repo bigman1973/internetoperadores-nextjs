@@ -5,8 +5,8 @@ import EmpresaFooter from '../../components/EmpresaFooter';
 
 const productos = [
   {
-    id: 'fibra-internet',
-    titulo: 'Fibra e Internet',
+    id: 'conectividad-avanzada',
+    titulo: 'Conectividad Avanzada',
     subtitulo: 'Conectividad empresarial',
     descripcion: 'Líneas de fibra óptica FTTH, conexiones dedicadas, backup 4G/5G y soluciones de conectividad para empresas de cualquier tamaño.',
     icono: (
@@ -18,7 +18,7 @@ const productos = [
     disponible: false
   },
   {
-    id: 'telefonia-movil',
+    id: 'moviles',
     titulo: 'Telefonía Móvil',
     subtitulo: 'Tarifas empresariales',
     descripcion: 'Tarifas móviles para empresas con las mejores condiciones del mercado. Flotas, datos compartidos y gestión centralizada de líneas.',
