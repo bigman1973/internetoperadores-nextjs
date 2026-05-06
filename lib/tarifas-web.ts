@@ -237,8 +237,23 @@ export async function getTarifasSolucionEmpresa(solucion: string): Promise<{
   const tarifasConverted = tarifasRaw.map(convertTarifa);
   const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
 
-  // Top 3 = the 3 most contracted, with popular marking
-  const top3 = markPopular(tarifasEnriched.slice(0, 3));
+  // Prioritize tarifas with caracteristicas or destacadas for top3
+  // Sort: destacadas first, then those with caracteristicas, then by contratos
+  const sorted = [...tarifasEnriched].sort((a, b) => {
+    // Destacadas first
+    if (a.destacada && !b.destacada) return -1;
+    if (!a.destacada && b.destacada) return 1;
+    // Then those with caracteristicas
+    const aHasCaract = a.caracteristicas && a.caracteristicas.items && a.caracteristicas.items.length > 0;
+    const bHasCaract = b.caracteristicas && b.caracteristicas.items && b.caracteristicas.items.length > 0;
+    if (aHasCaract && !bHasCaract) return -1;
+    if (!aHasCaract && bHasCaract) return 1;
+    // Then by contratos activos
+    return (b.contratosActivos || 0) - (a.contratosActivos || 0);
+  });
+
+  // Top 3 with popular marking
+  const top3 = markPopular(sorted.slice(0, 3));
 
   return {
     tarifas: tarifasEnriched,

@@ -17,6 +17,8 @@ interface TarifaWeb {
   contratosActivos?: number;
   esPopular?: boolean;
   categoria: string;
+  cuotaAlta: number | null;
+  caracteristicas: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null;
 }
 
 function formatCurrency(value: number): string {
@@ -189,6 +191,38 @@ export default function ComunicacionesUnificadasPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Características / Funcionalidades */}
+                    {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-gray-100">
+                        {tarifa.caracteristicas.incluyePlanAnterior && (
+                          <p className="text-xs italic text-blue-600 mb-2">
+                            {tarifa.caracteristicas.incluyePlanAnterior}
+                          </p>
+                        )}
+                        <div className="space-y-1.5">
+                          {tarifa.caracteristicas.items.map((feat, idx) => (
+                            <div key={idx} className="flex items-start gap-2 text-sm">
+                              <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                              </svg>
+                              <div>
+                                <span className="font-medium text-gray-800">{feat.titulo}</span>
+                                {feat.descripcion && (
+                                  <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+                      <div className="mt-3 text-xs text-gray-500">
+                        Alta: {formatCurrency(tarifa.cuotaAlta * 1.21)} (IVA incl.)
+                      </div>
+                    )}
 
                     <Link
                       href="/contacto"
