@@ -40,7 +40,7 @@ function formatCurrency(value: number): string {
 function getNombreGrupo(tarifa: TarifaWeb): string {
   const nc = tarifa.nombreComercial || tarifa.nombre;
   // Limpiar prefijos y sufijos de duración
-  return nc
+  let nombre = nc
     .replace('Zoom - ', '')
     .replace(/ Annual$/, '')
     .replace(/ Two Years? Prepay$/, '')
@@ -50,6 +50,14 @@ function getNombreGrupo(tarifa: TarifaWeb): string {
     .replace(/ PrePay$/, '')
     .replace(/ - 1 Month$/, '')
     .trim();
+  // Limpiar números de participantes para webinars y meetings
+  // "Webinar 1000" -> "Zoom Webinar", "1000 Participants meeting" -> "Zoom Large Meeting"
+  if (tarifa.grupoProducto === 'zoom-webinar') {
+    nombre = 'Zoom Webinar';
+  } else if (tarifa.grupoProducto === 'zoom-large-meeting') {
+    nombre = 'Zoom Large Meeting';
+  }
+  return nombre;
 }
 
 function getDuracionLabel(meses: number | null): string {
@@ -200,7 +208,18 @@ export default function ComunicacionesUnificadasPage() {
   };
 
   const getVarianteSeleccionada = (grupo: GrupoProducto): TarifaWeb => {
-    // Si tiene variantes por tramo, usar selector de tramo
+    // Si tiene AMBAS variantes (tramo + duración), filtrar por ambas
+    if (grupo.tieneVariantesTramo && grupo.tieneVariantesDuracion) {
+      const tramoSel = tramoSeleccionado[grupo.slug] || grupo.variantes[0]?.varianteLabel;
+      const mesesSel = duracionSeleccionada[grupo.slug] ?? 12;
+      const match = grupo.variantes.find(v => v.varianteLabel === tramoSel && v.duracionPermanenciaMeses === mesesSel);
+      if (match) return match;
+      // Fallback: buscar solo por tramo
+      const porTramo = grupo.variantes.find(v => v.varianteLabel === tramoSel);
+      if (porTramo) return porTramo;
+      return grupo.variantes[0];
+    }
+    // Si solo tiene variantes por tramo, usar selector de tramo
     if (grupo.tieneVariantesTramo) {
       const tramoSel = tramoSeleccionado[grupo.slug];
       if (tramoSel) {
@@ -208,7 +227,7 @@ export default function ComunicacionesUnificadasPage() {
       }
       return grupo.variantes[0]; // Por defecto el primer tramo
     }
-    // Si tiene variantes por duración
+    // Si solo tiene variantes por duración
     const mesesSel = duracionSeleccionada[grupo.slug];
     if (mesesSel !== undefined) {
       return grupo.variantes.find(v => v.duracionPermanenciaMeses === mesesSel) || grupo.variantes[0];
@@ -324,7 +343,69 @@ export default function ComunicacionesUnificadasPage() {
                           )}
                         </div>
 
-                        {/* Selector de duración */}
+                        {/* Selector de participantes (dropdown) cuando tiene variantes de tramo */}
+                        {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion && (
+                          <div className="mb-4">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">¿Cuántos usuarios necesitas?</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={numUsuarios[grupo.slug] || 1}
+                              onChange={(e) => handleNumUsuariosChange(grupo.slug, parseInt(e.target.value) || 1, grupo)}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                            />
+                            <p className="text-xs text-gray-400 mt-1">
+                              Tramo: {varianteActual.varianteLabel} — {formatCurrency(varianteActual.precioSinIva)}/usuario/mes
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Doble selector: participantes + duración */}
+                        {grupo.tieneVariantesTramo && grupo.tieneVariantesDuracion && (() => {
+                          const tramosUnicos = [...new Set(grupo.variantes.map(v => v.varianteLabel).filter(Boolean))] as string[];
+                          const duracionesUnicas = [...new Set(grupo.variantes.map(v => v.duracionPermanenciaMeses).filter(Boolean))] as number[];
+                          duracionesUnicas.sort((a, b) => a - b);
+                          const tramoActual = tramoSeleccionado[grupo.slug] || tramosUnicos[0];
+                          const duracionActual = duracionSeleccionada[grupo.slug] ?? 12;
+                          return (
+                            <div className="mb-4 space-y-3">
+                              {/* Selector de participantes */}
+                              <div>
+                                <label className="block text-xs font-medium text-gray-500 mb-1.5">Participantes</label>
+                                <select
+                                  value={tramoActual}
+                                  onChange={(e) => setTramoSeleccionado(prev => ({ ...prev, [grupo.slug]: e.target.value }))}
+                                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                                >
+                                  {tramosUnicos.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                              {/* Selector de duración */}
+                              <div>
+                                <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                                  {duracionesUnicas.map((meses) => {
+                                    const isSelected = meses === duracionActual;
+                                    return (
+                                      <button
+                                        key={meses}
+                                        onClick={() => handleDuracionChange(grupo.slug, meses)}
+                                        className={`flex-1 py-1.5 text-xs font-medium transition-all ${
+                                          isSelected
+                                            ? 'bg-orange-600 text-white'
+                                            : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
+                                        }`}
+                                      >
+                                        {getDuracionLabel(meses)}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Selector de duración (solo duración, sin tramo) */}
                         {grupo.tieneVariantesDuracion && !grupo.tieneVariantesTramo && (
                           <div className="mb-4">
                             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
@@ -348,26 +429,12 @@ export default function ComunicacionesUnificadasPage() {
                           </div>
                         )}
 
-                        {/* Selector de número de usuarios */}
-                        {grupo.tieneVariantesTramo && (
-                          <div className="mb-4">
-                            <label className="block text-xs font-medium text-gray-500 mb-1.5">¿Cuántos usuarios necesitas?</label>
-                            <input
-                              type="number"
-                              min="1"
-                              value={numUsuarios[grupo.slug] || 1}
-                              onChange={(e) => handleNumUsuariosChange(grupo.slug, parseInt(e.target.value) || 1, grupo)}
-                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
-                            />
-                            <p className="text-xs text-gray-400 mt-1">
-                              Tramo: {varianteActual.varianteLabel} — {formatCurrency(varianteActual.precioSinIva)}/usuario/mes
-                            </p>
-                          </div>
-                        )}
+
 
                         {/* Precio */}
                         <div className="border-t border-gray-100 pt-4">
-                          {grupo.tieneVariantesTramo ? (
+                          {grupo.tieneVariantesTramo && !grupo.tieneVariantesDuracion ? (
+                            /* Solo tramo (PBX): precio unitario × usuarios */
                             <div>
                               <div className="flex items-end justify-between">
                                 <div>
@@ -385,6 +452,7 @@ export default function ComunicacionesUnificadasPage() {
                               </div>
                             </div>
                           ) : (
+                            /* Duración (con o sin tramo): precio mensual */
                             <div className="flex items-end justify-between">
                               <div>
                                 <span className="text-2xl font-bold text-orange-600">
