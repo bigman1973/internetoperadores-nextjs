@@ -135,7 +135,26 @@ export default function ComunicacionesUnificadasPage() {
       }
     });
 
-    return { agrupados: Object.values(gruposMap), individuales };
+    // Ordenar grupos según prioridad definida
+    const ordenGrupos: Record<string, number> = {
+      'zoom-workplace-pro': 1,
+      'zoom-workplace-business': 2,
+      'zoom-workplace-enterprise': 3,
+      'zoom-rooms': 4,
+      'zoom-large-meeting': 5,
+      'zoom-webinar': 6,
+      'pbx-basico': 7,
+      'pbx-esencial': 8,
+      'pbx-business': 9,
+      'pbx-premium': 10,
+    };
+    const agrupados = Object.values(gruposMap).sort((a, b) => {
+      const ordenA = ordenGrupos[a.slug] ?? 99;
+      const ordenB = ordenGrupos[b.slug] ?? 99;
+      return ordenA - ordenB;
+    });
+
+    return { agrupados, individuales };
   }, [tarifas]);
 
   // Categorías para filtro basadas en descripcionCorta
