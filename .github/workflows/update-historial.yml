@@ -1,0 +1,45 @@
+name: Update Historial Desarrollos
+
+on:
+  push:
+    branches:
+      - staging
+      - main
+
+jobs:
+  update-historial:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pg dependency
+        run: npm install pg
+
+      - name: Get commit messages
+        id: commits
+        run: |
+          # Obtener los mensajes de los commits del push (hasta 10)
+          MESSAGES=$(git log --format="%s" -n 10 ${{ github.event.before }}..${{ github.sha }} 2>/dev/null || git log --format="%s" -n 5)
+          # Unir con || como separador
+          JOINED=$(echo "$MESSAGES" | tr '\n' '|' | sed 's/|/||/g')
+          echo "messages=$JOINED" >> $GITHUB_OUTPUT
+
+      - name: Update historial
+        env:
+          COMMIT_MESSAGES: ${{ steps.commits.outputs.messages }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_SSL: 'false'
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        run: node scripts/update-historial.js
