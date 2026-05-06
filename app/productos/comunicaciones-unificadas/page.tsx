@@ -19,6 +19,7 @@ interface TarifaWeb {
   categoria: string;
   cuotaAlta: number | null;
   grupoProducto: string | null;
+  varianteLabel: string | null;
   caracteristicas: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null;
 }
 
@@ -29,6 +30,7 @@ interface GrupoProducto {
   variantes: TarifaWeb[];
   caracteristicas: TarifaWeb['caracteristicas'];
   tieneVariantesDuracion: boolean;
+  tieneVariantesTramo: boolean;
 }
 
 function formatCurrency(value: number): string {
@@ -67,6 +69,7 @@ export default function ComunicacionesUnificadasPage() {
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<string>('todas');
   const [duracionSeleccionada, setDuracionSeleccionada] = useState<Record<string, number>>({});
+  const [tramoSeleccionado, setTramoSeleccionado] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetch('/api/tarifas-solucion?solucion=comunicaciones-unificadas')
@@ -93,6 +96,7 @@ export default function ComunicacionesUnificadasPage() {
             variantes: [],
             caracteristicas: t.caracteristicas,
             tieneVariantesDuracion: false,
+            tieneVariantesTramo: false,
           };
         }
         gruposMap[t.grupoProducto].variantes.push(t);
@@ -105,12 +109,20 @@ export default function ComunicacionesUnificadasPage() {
       }
     });
 
-    // Determinar si tienen variantes de duración
+    // Determinar si tienen variantes de duración o de tramo
     Object.values(gruposMap).forEach(g => {
       const duraciones = new Set(g.variantes.map(v => v.duracionPermanenciaMeses));
+      const tramos = new Set(g.variantes.filter(v => v.varianteLabel).map(v => v.varianteLabel));
       g.tieneVariantesDuracion = duraciones.size > 1;
-      // Ordenar variantes por duración
-      g.variantes.sort((a, b) => (a.duracionPermanenciaMeses || 0) - (b.duracionPermanenciaMeses || 0));
+      g.tieneVariantesTramo = tramos.size > 1;
+      
+      if (g.tieneVariantesTramo) {
+        // Ordenar por precio descendente (más licencias = más barato)
+        g.variantes.sort((a, b) => b.precioSinIva - a.precioSinIva);
+      } else {
+        // Ordenar variantes por duración
+        g.variantes.sort((a, b) => (a.duracionPermanenciaMeses || 0) - (b.duracionPermanenciaMeses || 0));
+      }
     });
 
     return { agrupados: Object.values(gruposMap), individuales };
@@ -143,7 +155,20 @@ export default function ComunicacionesUnificadasPage() {
     setDuracionSeleccionada(prev => ({ ...prev, [grupoSlug]: meses }));
   };
 
+  const handleTramoChange = (grupoSlug: string, label: string) => {
+    setTramoSeleccionado(prev => ({ ...prev, [grupoSlug]: label }));
+  };
+
   const getVarianteSeleccionada = (grupo: GrupoProducto): TarifaWeb => {
+    // Si tiene variantes por tramo, usar selector de tramo
+    if (grupo.tieneVariantesTramo) {
+      const tramoSel = tramoSeleccionado[grupo.slug];
+      if (tramoSel) {
+        return grupo.variantes.find(v => v.varianteLabel === tramoSel) || grupo.variantes[0];
+      }
+      return grupo.variantes[0]; // Por defecto el primer tramo
+    }
+    // Si tiene variantes por duración
     const mesesSel = duracionSeleccionada[grupo.slug];
     if (mesesSel !== undefined) {
       return grupo.variantes.find(v => v.duracionPermanenciaMeses === mesesSel) || grupo.variantes[0];
@@ -260,7 +285,7 @@ export default function ComunicacionesUnificadasPage() {
                         </div>
 
                         {/* Selector de duración */}
-                        {grupo.tieneVariantesDuracion && (
+                        {grupo.tieneVariantesDuracion && !grupo.tieneVariantesTramo && (
                           <div className="mb-4">
                             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
                               {grupo.variantes.map((v) => {
@@ -280,6 +305,24 @@ export default function ComunicacionesUnificadasPage() {
                                 );
                               })}
                             </div>
+                          </div>
+                        )}
+
+                        {/* Selector de tramo de licencias */}
+                        {grupo.tieneVariantesTramo && (
+                          <div className="mb-4">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">Nº de licencias</label>
+                            <select
+                              value={varianteActual.varianteLabel || ''}
+                              onChange={(e) => handleTramoChange(grupo.slug, e.target.value)}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                            >
+                              {grupo.variantes.map((v) => (
+                                <option key={v.id} value={v.varianteLabel || ''}>
+                                  {v.varianteLabel} — {formatCurrency(v.precioSinIva)}/mes
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         )}
 

@@ -76,6 +76,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     seccionWebParticular: '',
     seccionWebEmpresa: '',
     grupoProducto: '',
+    varianteLabel: '',
     soloClientesExistentes: false,
     
     // Otros
@@ -142,6 +143,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             seccionWebParticular: data.seccionWebParticular || '',
             seccionWebEmpresa: data.seccionWebEmpresa || '',
             grupoProducto: data.grupoProducto || '',
+            varianteLabel: data.varianteLabel || '',
             soloClientesExistentes: data.soloClientesExistentes || false,
             garantia: data.garantia || '',
             observaciones: data.observaciones || '',
@@ -249,6 +251,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           seccionWebParticular: formData.seccionWebParticular || null,
           seccionWebEmpresa: formData.seccionWebEmpresa || null,
           grupoProducto: formData.grupoProducto || null,
+          varianteLabel: formData.varianteLabel || null,
           soloClientesExistentes: formData.soloClientesExistentes,
           garantia: formData.garantia || null,
           observaciones: formData.observaciones || null,
@@ -600,9 +603,17 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                   </div>
                 )}
                 <div className="mt-3 pt-3 border-t border-gray-200">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de Producto</label>
-                  <input type="text" name="grupoProducto" value={formData.grupoProducto} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ej: zoom-workplace-business" />
-                  <p className="text-xs text-gray-500 mt-1">Tarifas con el mismo grupo se agrupan en una sola tarjeta con selector de duración en la web</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de Producto</label>
+                      <input type="text" name="grupoProducto" value={formData.grupoProducto} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ej: pbx-basico" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Variante (label)</label>
+                      <input type="text" name="varianteLabel" value={formData.varianteLabel} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-900" placeholder="ej: 1 a 5 licencias" />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Tarifas con el mismo grupo se agrupan. La variante identifica cada opción (tramo de licencias o duración).</p>
                 </div>
               </div>
             </div>
