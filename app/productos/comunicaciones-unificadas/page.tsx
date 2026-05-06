@@ -31,6 +31,8 @@ interface GrupoProducto {
   caracteristicas: TarifaWeb['caracteristicas'];
   tieneVariantesDuracion: boolean;
   tieneVariantesTramo: boolean;
+  esLicenciaPorUsuario: boolean;
+  minUsuarios: number;
 }
 
 function formatCurrency(value: number): string {
@@ -99,6 +101,14 @@ export default function ComunicacionesUnificadasPage() {
     tarifas.forEach(t => {
       if (t.grupoProducto) {
         if (!gruposMap[t.grupoProducto]) {
+          // Definir qué grupos son licencia por usuario (precio × nº usuarios)
+          const gruposLicencia: Record<string, number> = {
+            'zoom-workplace-pro': 1,
+            'zoom-workplace-business': 1,
+            'zoom-workplace-enterprise': 50,
+            'zoom-rooms': 1,
+          };
+          const esLicencia = t.grupoProducto in gruposLicencia;
           gruposMap[t.grupoProducto] = {
             slug: t.grupoProducto,
             nombre: getNombreGrupo(t),
@@ -107,6 +117,8 @@ export default function ComunicacionesUnificadasPage() {
             caracteristicas: t.caracteristicas,
             tieneVariantesDuracion: false,
             tieneVariantesTramo: false,
+            esLicenciaPorUsuario: esLicencia,
+            minUsuarios: gruposLicencia[t.grupoProducto] || 1,
           };
         }
         gruposMap[t.grupoProducto].variantes.push(t);
@@ -449,6 +461,26 @@ export default function ComunicacionesUnificadasPage() {
                           </div>
                         )}
 
+                        {/* Input de nº de usuarios/licencias para productos con precio por usuario */}
+                        {grupo.esLicenciaPorUsuario && (
+                          <div className="mb-4">
+                            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                              Nº de licencias {grupo.minUsuarios > 1 ? `(mínimo ${grupo.minUsuarios})` : ''}
+                            </label>
+                            <input
+                              type="number"
+                              min={grupo.minUsuarios}
+                              value={numUsuarios[grupo.slug] || grupo.minUsuarios}
+                              onChange={(e) => {
+                                let val = parseInt(e.target.value) || grupo.minUsuarios;
+                                if (val < grupo.minUsuarios) val = grupo.minUsuarios;
+                                setNumUsuarios(prev => ({ ...prev, [grupo.slug]: val }));
+                              }}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 bg-gray-50 focus:border-orange-500 focus:ring-1 focus:ring-orange-500"
+                            />
+                          </div>
+                        )}
+
 
 
                         {/* Precio */}
@@ -474,19 +506,45 @@ export default function ComunicacionesUnificadasPage() {
                           ) : (
                             /* Duración (con o sin tramo): precio mensual */
                             <div>
-                              <div className="flex items-end">
-                                <span className="text-2xl font-bold text-orange-600">
-                                  {formatCurrency(getPrecioMensual(varianteActual))}
-                                </span>
-                                <span className="text-xs text-gray-400 ml-1">/mes</span>
-                              </div>
-                              <div className="text-xs text-gray-400 mt-0.5">
-                                {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
-                              </div>
-                              {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
-                                <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
-                                  Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva)} sin IVA ({formatCurrency(varianteActual.precioConIva)} con IVA)
-                                </div>
+                              {grupo.esLicenciaPorUsuario ? (
+                                /* Licencia por usuario con duración */
+                                <>
+                                  <div className="flex items-end">
+                                    <span className="text-2xl font-bold text-orange-600">
+                                      {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios))}
+                                    </span>
+                                    <span className="text-xs text-gray-400 ml-1">/mes</span>
+                                  </div>
+                                  <div className="text-xs text-gray-400 mt-0.5">
+                                    {formatCurrency(getPrecioMensual(varianteActual) * (numUsuarios[grupo.slug] || grupo.minUsuarios) * 1.21)} /mes con IVA
+                                  </div>
+                                  <div className="text-xs text-gray-500 mt-1 bg-gray-50 px-2 py-1 rounded">
+                                    {numUsuarios[grupo.slug] || grupo.minUsuarios} licencia{(numUsuarios[grupo.slug] || grupo.minUsuarios) > 1 ? 's' : ''} × {formatCurrency(getPrecioMensual(varianteActual))}/ud/mes
+                                  </div>
+                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                                    <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
+                                      Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} sin IVA ({formatCurrency(varianteActual.precioConIva * (numUsuarios[grupo.slug] || grupo.minUsuarios))} con IVA)
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                /* Sin licencia por usuario: precio simple */
+                                <>
+                                  <div className="flex items-end">
+                                    <span className="text-2xl font-bold text-orange-600">
+                                      {formatCurrency(getPrecioMensual(varianteActual))}
+                                    </span>
+                                    <span className="text-xs text-gray-400 ml-1">/mes</span>
+                                  </div>
+                                  <div className="text-xs text-gray-400 mt-0.5">
+                                    {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                                  </div>
+                                  {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                                    <div className="text-xs text-orange-700 font-medium mt-2 bg-orange-50 px-2 py-1.5 rounded">
+                                      Pago {varianteActual.duracionPermanenciaMeses === 12 ? 'anual' : varianteActual.duracionPermanenciaMeses === 24 ? 'bianual' : 'trianual'}: {formatCurrency(varianteActual.precioSinIva)} sin IVA ({formatCurrency(varianteActual.precioConIva)} con IVA)
+                                    </div>
+                                  )}
+                                </>
                               )}
                             </div>
                           )}
