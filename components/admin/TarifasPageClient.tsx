@@ -541,6 +541,20 @@ export default function TarifasPageClient() {
         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{formatCurrency(tarifa.precioSinIva)}</td>
         <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">{formatCurrency(tarifa.precioConIva)}</td>
         <td className="px-4 py-3 whitespace-nowrap text-sm">
+          {tarifa.costeOperador && tarifa.costeOperador > 0 && tarifa.precioSinIva > 0 ? (
+            (() => {
+              const margen = ((tarifa.precioSinIva - tarifa.costeOperador) / tarifa.precioSinIva) * 100;
+              return (
+                <span className={`font-medium ${margen >= 40 ? 'text-green-600' : margen >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
+                  {margen.toFixed(1)}%
+                </span>
+              );
+            })()
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+        <td className="px-4 py-3 whitespace-nowrap text-sm">
           {tarifa.duracionPermanenciaMeses ? <span className="text-amber-600 font-medium">{tarifa.duracionPermanenciaMeses} meses</span> : <span className="text-green-600">Sin permanencia</span>}
         </td>
         <td className="px-4 py-3 whitespace-nowrap">
@@ -562,7 +576,7 @@ export default function TarifasPageClient() {
       </tr>
       {expandedTarifa === tarifa.id && (
         <tr>
-          <td colSpan={showCategory ? 10 : 9} className="px-6 py-3 bg-gray-50">
+          <td colSpan={showCategory ? 11 : 10} className="px-6 py-3 bg-gray-50">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
               <div>
                 <span className="font-semibold text-gray-700 block">Precios</span>
@@ -767,6 +781,7 @@ export default function TarifasPageClient() {
                                 <th className="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Precio (con IVA)</th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Margen</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Permanencia</th>
                                 <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500">Estado</th>
                                 <th className="px-4 py-2 text-right text-xs font-medium uppercase text-gray-500">Acciones</th>
@@ -801,6 +816,7 @@ export default function TarifasPageClient() {
                       <th className="px-3 py-3 text-left text-xs font-medium uppercase text-gray-500">Publicar Web</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (sin IVA)</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Precio (con IVA)</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Margen</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Permanencia</th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Estado</th>
                       <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Acciones</th>
@@ -811,7 +827,7 @@ export default function TarifasPageClient() {
                       <TarifaRow key={tarifa.id} tarifa={tarifa} showCategory />
                     ))}
                     {tarifas.length === 0 && (
-                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
+                      <tr><td colSpan={11} className="px-4 py-8 text-center text-sm text-gray-500">No se encontraron tarifas con los filtros aplicados.</td></tr>
                     )}
                   </tbody>
                 </table>
