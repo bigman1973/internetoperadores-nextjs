@@ -76,6 +76,7 @@ model Tarifa {
   publicarWebEmpresa     Boolean             @default(false) @map("publicar_web_empresa")
   seccionWebParticular   String?             @map("seccion_web_particular")
   seccionWebEmpresa      String?             @map("seccion_web_empresa")
+  grupoProducto          String?             @map("grupo_producto")
   tipoPeriodicidad       Int?                @default(1) @map("tipo_periodicidad")
   precioPeriodo          Decimal?            @map("precio_periodo") @db.Decimal(10, 2)
   precioPeriodoIva       Decimal?            @map("precio_periodo_iva") @db.Decimal(10, 2)

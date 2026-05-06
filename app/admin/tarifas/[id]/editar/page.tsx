@@ -75,6 +75,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     publicarWebEmpresa: false,
     seccionWebParticular: '',
     seccionWebEmpresa: '',
+    grupoProducto: '',
     soloClientesExistentes: false,
     
     // Otros
@@ -140,6 +141,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             publicarWebEmpresa: data.publicarWebEmpresa || false,
             seccionWebParticular: data.seccionWebParticular || '',
             seccionWebEmpresa: data.seccionWebEmpresa || '',
+            grupoProducto: data.grupoProducto || '',
             soloClientesExistentes: data.soloClientesExistentes || false,
             garantia: data.garantia || '',
             observaciones: data.observaciones || '',
@@ -246,6 +248,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           publicarWebEmpresa: formData.publicarWebEmpresa,
           seccionWebParticular: formData.seccionWebParticular || null,
           seccionWebEmpresa: formData.seccionWebEmpresa || null,
+          grupoProducto: formData.grupoProducto || null,
           soloClientesExistentes: formData.soloClientesExistentes,
           garantia: formData.garantia || null,
           observaciones: formData.observaciones || null,
@@ -594,6 +597,11 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                     {!formData.seccionWebEmpresa && (
                       <p className="text-xs text-red-500 mt-1">⚠️ Debes seleccionar una solución para publicar en Empresas</p>
                     )}
+                    <div className="mt-3">
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Grupo de Producto</label>
+                      <input type="text" name="grupoProducto" value={formData.grupoProducto} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500" placeholder="ej: zoom-workplace-business" />
+                      <p className="text-xs text-gray-400 mt-1">Tarifas con el mismo grupo se agrupan en una sola tarjeta con selector de duración</p>
+                    </div>
                   </div>
                 )}
               </div>

@@ -1,6 +1,6 @@
 "use client";
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 
@@ -18,17 +18,55 @@ interface TarifaWeb {
   esPopular?: boolean;
   categoria: string;
   cuotaAlta: number | null;
+  grupoProducto: string | null;
   caracteristicas: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null;
+}
+
+interface GrupoProducto {
+  slug: string;
+  nombre: string;
+  descripcion: string | null;
+  variantes: TarifaWeb[];
+  caracteristicas: TarifaWeb['caracteristicas'];
+  tieneVariantesDuracion: boolean;
 }
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
 }
 
+function getNombreGrupo(tarifa: TarifaWeb): string {
+  const nc = tarifa.nombreComercial || tarifa.nombre;
+  // Limpiar prefijos y sufijos de duración
+  return nc
+    .replace('Zoom - ', '')
+    .replace(/ Annual$/, '')
+    .replace(/ Two Years? Prepay$/, '')
+    .replace(/ Two Year Prepay$/, '')
+    .replace(/ Three Years? Prepay$/, '')
+    .replace(/ Three Year Prepay$/, '')
+    .replace(/ PrePay$/, '')
+    .replace(/ - 1 Month$/, '')
+    .trim();
+}
+
+function getDuracionLabel(meses: number | null): string {
+  if (!meses || meses <= 1) return 'Mensual';
+  if (meses <= 12) return '1 año';
+  if (meses <= 24) return '2 años';
+  return '3 años';
+}
+
+function getPrecioMensual(tarifa: TarifaWeb): number {
+  const meses = tarifa.duracionPermanenciaMeses || 1;
+  return tarifa.precioSinIva / (meses || 1);
+}
+
 export default function ComunicacionesUnificadasPage() {
   const [tarifas, setTarifas] = useState<TarifaWeb[]>([]);
   const [loading, setLoading] = useState(true);
   const [filtro, setFiltro] = useState<string>('todas');
+  const [duracionSeleccionada, setDuracionSeleccionada] = useState<Record<string, number>>({});
 
   useEffect(() => {
     fetch('/api/tarifas-solucion?solucion=comunicaciones-unificadas')
@@ -40,19 +78,79 @@ export default function ComunicacionesUnificadasPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  // Agrupar tarifas por tipo (basado en descripcionCorta que tiene "Product Family > Product Line")
-  const gruposTarifa = tarifas.reduce((acc, t) => {
-    const grupo = t.descripcionCorta || 'Otros';
-    if (!acc[grupo]) acc[grupo] = [];
-    acc[grupo].push(t);
-    return acc;
-  }, {} as Record<string, TarifaWeb[]>);
+  // Agrupar tarifas: las que tienen grupo_producto se agrupan, las que no se muestran individuales
+  const grupos = useMemo(() => {
+    const gruposMap: Record<string, GrupoProducto> = {};
+    const individuales: TarifaWeb[] = [];
 
-  // Filtrar por grupo
-  const tarifasFiltradas = filtro === 'todas' ? tarifas : (gruposTarifa[filtro] || []);
+    tarifas.forEach(t => {
+      if (t.grupoProducto) {
+        if (!gruposMap[t.grupoProducto]) {
+          gruposMap[t.grupoProducto] = {
+            slug: t.grupoProducto,
+            nombre: getNombreGrupo(t),
+            descripcion: t.descripcionCorta,
+            variantes: [],
+            caracteristicas: t.caracteristicas,
+            tieneVariantesDuracion: false,
+          };
+        }
+        gruposMap[t.grupoProducto].variantes.push(t);
+        // Usar las características de la variante anual si existen
+        if (t.caracteristicas && t.duracionPermanenciaMeses === 12) {
+          gruposMap[t.grupoProducto].caracteristicas = t.caracteristicas;
+        }
+      } else {
+        individuales.push(t);
+      }
+    });
 
-  // Categorías para el filtro
-  const categoriasFiltro = Object.keys(gruposTarifa).sort();
+    // Determinar si tienen variantes de duración
+    Object.values(gruposMap).forEach(g => {
+      const duraciones = new Set(g.variantes.map(v => v.duracionPermanenciaMeses));
+      g.tieneVariantesDuracion = duraciones.size > 1;
+      // Ordenar variantes por duración
+      g.variantes.sort((a, b) => (a.duracionPermanenciaMeses || 0) - (b.duracionPermanenciaMeses || 0));
+    });
+
+    return { agrupados: Object.values(gruposMap), individuales };
+  }, [tarifas]);
+
+  // Categorías para filtro basadas en descripcionCorta
+  const categoriasFiltro = useMemo(() => {
+    const cats = new Set<string>();
+    tarifas.forEach(t => {
+      if (t.descripcionCorta) {
+        const cat = t.descripcionCorta.split(' > ')[0] || t.descripcionCorta;
+        cats.add(cat);
+      }
+    });
+    return Array.from(cats).sort();
+  }, [tarifas]);
+
+  // Filtrar grupos e individuales por categoría
+  const gruposFiltrados = useMemo(() => {
+    if (filtro === 'todas') return grupos;
+    return {
+      agrupados: grupos.agrupados.filter(g => 
+        g.variantes.some(v => v.descripcionCorta?.startsWith(filtro))
+      ),
+      individuales: grupos.individuales.filter(t => t.descripcionCorta?.startsWith(filtro)),
+    };
+  }, [grupos, filtro]);
+
+  const handleDuracionChange = (grupoSlug: string, meses: number) => {
+    setDuracionSeleccionada(prev => ({ ...prev, [grupoSlug]: meses }));
+  };
+
+  const getVarianteSeleccionada = (grupo: GrupoProducto): TarifaWeb => {
+    const mesesSel = duracionSeleccionada[grupo.slug];
+    if (mesesSel !== undefined) {
+      return grupo.variantes.find(v => v.duracionPermanenciaMeses === mesesSel) || grupo.variantes[0];
+    }
+    // Por defecto mostrar la anual
+    return grupo.variantes.find(v => v.duracionPermanenciaMeses === 12) || grupo.variantes[0];
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -66,7 +164,7 @@ export default function ComunicacionesUnificadasPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
-              Volver a Productos
+              Volver a Contrata
             </Link>
             <div className="inline-block bg-orange-600/20 text-orange-400 px-3 py-1.5 rounded-full text-xs sm:text-sm font-semibold mb-4">
               Partners Wildix & Zoom
@@ -79,7 +177,7 @@ export default function ComunicacionesUnificadasPage() {
             </p>
             <div className="flex flex-wrap justify-center gap-3 text-sm">
               <span className="bg-green-600/20 text-green-400 px-3 py-1.5 rounded-full">
-                ✓ {tarifas.length} productos disponibles
+                ✓ {grupos.agrupados.length + grupos.individuales.length} productos disponibles
               </span>
               <span className="bg-green-600/20 text-green-400 px-3 py-1.5 rounded-full">
                 ✓ Sin permanencia en planes mensuales
@@ -93,37 +191,39 @@ export default function ComunicacionesUnificadasPage() {
       </section>
 
       {/* Filtros */}
-      <section className="py-8 border-b border-gray-200 bg-gray-50">
-        <div className="container mx-auto px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-2 justify-center">
-            <button
-              onClick={() => setFiltro('todas')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                filtro === 'todas'
-                  ? 'bg-orange-600 text-white'
-                  : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-300'
-              }`}
-            >
-              Todas ({tarifas.length})
-            </button>
-            {categoriasFiltro.map(cat => (
+      {categoriasFiltro.length > 1 && (
+        <section className="py-8 border-b border-gray-200 bg-gray-50">
+          <div className="container mx-auto px-4 sm:px-6">
+            <div className="flex flex-wrap items-center gap-2 justify-center">
               <button
-                key={cat}
-                onClick={() => setFiltro(cat)}
+                onClick={() => setFiltro('todas')}
                 className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                  filtro === cat
+                  filtro === 'todas'
                     ? 'bg-orange-600 text-white'
                     : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-300'
                 }`}
               >
-                {cat.split(' > ')[1] || cat} ({gruposTarifa[cat]?.length || 0})
+                Todas
               </button>
-            ))}
+              {categoriasFiltro.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setFiltro(cat)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                    filtro === cat
+                      ? 'bg-orange-600 text-white'
+                      : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-300'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      {/* Listado de tarifas */}
+      {/* Listado de productos agrupados */}
       <section className="py-12 sm:py-16 lg:py-20">
         <div className="container mx-auto px-4 sm:px-6">
           {loading ? (
@@ -135,104 +235,206 @@ export default function ComunicacionesUnificadasPage() {
                 </div>
               </div>
             </div>
-          ) : tarifasFiltradas.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-gray-500 text-lg">No se encontraron productos en esta categoría.</p>
-            </div>
           ) : (
             <div className="max-w-7xl mx-auto">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {tarifasFiltradas.map((tarifa) => (
-                  <div
-                    key={tarifa.id}
-                    className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <h3 className="text-base font-bold text-gray-900 leading-tight">
-                          {(tarifa.nombreComercial || tarifa.nombre).replace('Zoom - ', '')}
-                        </h3>
-                        {tarifa.descripcionCorta && (
-                          <p className="text-xs text-orange-600 mt-1 font-medium">
-                            {tarifa.descripcionCorta.split(' > ')[1] || tarifa.descripcionCorta}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    {tarifa.descripcionLarga && (
-                      <p className="text-sm text-gray-500 mb-4 line-clamp-3">
-                        {tarifa.descripcionLarga}
-                      </p>
-                    )}
-
-                    <div className="border-t border-gray-100 pt-4 mt-auto">
-                      <div className="flex items-end justify-between">
-                        <div>
-                          <span className="text-2xl font-bold text-orange-600">
-                            {formatCurrency(tarifa.precioSinIva)}
-                          </span>
-                          <span className="text-xs text-gray-400 ml-1">
-                            {tarifa.duracionPermanenciaMeses 
-                              ? tarifa.duracionPermanenciaMeses <= 1 ? '/mes' 
-                              : tarifa.duracionPermanenciaMeses <= 12 ? '/año'
-                              : tarifa.duracionPermanenciaMeses <= 24 ? '/2 años'
-                              : '/3 años'
-                              : '/año'}
-                          </span>
-                          <div className="text-xs text-gray-400 mt-0.5">
-                            {formatCurrency(tarifa.precioConIva)} con IVA
-                          </div>
+              {/* Productos agrupados */}
+              {gruposFiltrados.agrupados.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+                  {gruposFiltrados.agrupados.map((grupo) => {
+                    const varianteActual = getVarianteSeleccionada(grupo);
+                    return (
+                      <div
+                        key={grupo.slug}
+                        className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
+                      >
+                        {/* Nombre del producto */}
+                        <div className="mb-3">
+                          <h3 className="text-base font-bold text-gray-900 leading-tight">
+                            {grupo.nombre}
+                          </h3>
+                          {grupo.descripcion && (
+                            <p className="text-xs text-orange-600 mt-1 font-medium">
+                              {grupo.descripcion.split(' > ')[1] || grupo.descripcion}
+                            </p>
+                          )}
                         </div>
-                        {tarifa.permanencia && (
-                          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                            {tarifa.permanencia}
-                          </span>
-                        )}
-                      </div>
-                    </div>
 
-                    {/* Características / Funcionalidades */}
-                    {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-gray-100">
-                        {tarifa.caracteristicas.incluyePlanAnterior && (
-                          <p className="text-xs italic text-blue-600 mb-2">
-                            {tarifa.caracteristicas.incluyePlanAnterior}
-                          </p>
+                        {/* Selector de duración */}
+                        {grupo.tieneVariantesDuracion && (
+                          <div className="mb-4">
+                            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                              {grupo.variantes.map((v) => {
+                                const isSelected = v.id === varianteActual.id;
+                                return (
+                                  <button
+                                    key={v.id}
+                                    onClick={() => handleDuracionChange(grupo.slug, v.duracionPermanenciaMeses || 0)}
+                                    className={`flex-1 py-1.5 text-xs font-medium transition-all ${
+                                      isSelected
+                                        ? 'bg-orange-600 text-white'
+                                        : 'bg-gray-50 text-gray-600 hover:bg-orange-50'
+                                    }`}
+                                  >
+                                    {getDuracionLabel(v.duracionPermanenciaMeses)}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
                         )}
-                        <div className="space-y-1.5">
-                          {tarifa.caracteristicas.items.map((feat, idx) => (
-                            <div key={idx} className="flex items-start gap-2 text-sm">
-                              <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                              </svg>
-                              <div>
-                                <span className="font-medium text-gray-800">{feat.titulo}</span>
-                                {feat.descripcion && (
-                                  <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+
+                        {/* Precio */}
+                        <div className="border-t border-gray-100 pt-4">
+                          <div className="flex items-end justify-between">
+                            <div>
+                              <span className="text-2xl font-bold text-orange-600">
+                                {formatCurrency(getPrecioMensual(varianteActual))}
+                              </span>
+                              <span className="text-xs text-gray-400 ml-1">/mes</span>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {varianteActual.duracionPermanenciaMeses && varianteActual.duracionPermanenciaMeses > 1 && (
+                                  <span>Total: {formatCurrency(varianteActual.precioSinIva)} ({getDuracionLabel(varianteActual.duracionPermanenciaMeses)})</span>
                                 )}
                               </div>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {formatCurrency(getPrecioMensual(varianteActual) * 1.21)} /mes con IVA
+                              </div>
                             </div>
-                          ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
 
-                    {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
-                      <div className="mt-3 text-xs text-gray-500">
-                        Alta: {formatCurrency(tarifa.cuotaAlta * 1.21)} (IVA incl.)
-                      </div>
-                    )}
+                        {/* Características */}
+                        {grupo.caracteristicas && grupo.caracteristicas.items && grupo.caracteristicas.items.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
+                            {grupo.caracteristicas.incluyePlanAnterior && (
+                              <p className="text-xs italic text-blue-600 mb-2">
+                                {grupo.caracteristicas.incluyePlanAnterior}
+                              </p>
+                            )}
+                            <div className="space-y-1.5">
+                              {grupo.caracteristicas.items.map((feat, idx) => (
+                                <div key={idx} className="flex items-start gap-2 text-sm">
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  <div>
+                                    <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
+                                    {feat.descripcion && (
+                                      <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
-                    <Link
-                      href="/contacto"
-                      className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
-                    >
-                      Solicitar
-                    </Link>
+                        <Link
+                          href="/contacto"
+                          className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
+                        >
+                          Solicitar
+                        </Link>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Productos individuales (sin grupo) */}
+              {gruposFiltrados.individuales.length > 0 && (
+                <>
+                  {gruposFiltrados.agrupados.length > 0 && (
+                    <h2 className="text-xl font-bold text-gray-900 mb-6">Otros productos</h2>
+                  )}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {gruposFiltrados.individuales.map((tarifa) => (
+                      <div
+                        key={tarifa.id}
+                        className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="text-base font-bold text-gray-900 leading-tight">
+                              {(tarifa.nombreComercial || tarifa.nombre).replace('Zoom - ', '')}
+                            </h3>
+                            {tarifa.descripcionCorta && (
+                              <p className="text-xs text-orange-600 mt-1 font-medium">
+                                {tarifa.descripcionCorta.split(' > ')[1] || tarifa.descripcionCorta}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="border-t border-gray-100 pt-4 mt-auto">
+                          <div className="flex items-end justify-between">
+                            <div>
+                              <span className="text-2xl font-bold text-orange-600">
+                                {formatCurrency(tarifa.precioSinIva)}
+                              </span>
+                              <span className="text-xs text-gray-400 ml-1">
+                                {tarifa.duracionPermanenciaMeses 
+                                  ? tarifa.duracionPermanenciaMeses <= 1 ? '/mes' 
+                                  : tarifa.duracionPermanenciaMeses <= 12 ? '/año'
+                                  : tarifa.duracionPermanenciaMeses <= 24 ? '/2 años'
+                                  : '/3 años'
+                                  : '/año'}
+                              </span>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {formatCurrency(tarifa.precioConIva)} con IVA
+                              </div>
+                            </div>
+                            {tarifa.permanencia && (
+                              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                                {tarifa.permanencia}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Características */}
+                        {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 flex-1">
+                            {tarifa.caracteristicas.incluyePlanAnterior && (
+                              <p className="text-xs italic text-blue-600 mb-2">
+                                {tarifa.caracteristicas.incluyePlanAnterior}
+                              </p>
+                            )}
+                            <div className="space-y-1.5">
+                              {tarifa.caracteristicas.items.map((feat, idx) => (
+                                <div key={idx} className="flex items-start gap-2 text-sm">
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  <div>
+                                    <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
+                                    {feat.descripcion && (
+                                      <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <Link
+                          href="/contacto"
+                          className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
+                        >
+                          Solicitar
+                        </Link>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </>
+              )}
+
+              {gruposFiltrados.agrupados.length === 0 && gruposFiltrados.individuales.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-gray-500 text-lg">No se encontraron productos en esta categoría.</p>
+                </div>
+              )}
             </div>
           )}
         </div>
