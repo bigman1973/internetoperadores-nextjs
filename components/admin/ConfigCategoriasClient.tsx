@@ -235,7 +235,7 @@ export default function ConfigCategoriasClient() {
               placeholder="Nombre de la categoría"
               value={newCatForm.nombre}
               onChange={e => setNewCatForm({ ...newCatForm, nombre: e.target.value })}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-orange-500 focus:ring-orange-500"
               required
             />
             <input
@@ -243,12 +243,12 @@ export default function ConfigCategoriasClient() {
               placeholder="Descripción (opcional)"
               value={newCatForm.descripcion}
               onChange={e => setNewCatForm({ ...newCatForm, descripcion: e.target.value })}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-orange-500 focus:ring-orange-500"
             />
             <select
               value={newCatForm.color}
               onChange={e => setNewCatForm({ ...newCatForm, color: e.target.value })}
-              className="rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-orange-500 focus:ring-orange-500"
             >
               {COLORES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
             </select>
@@ -280,12 +280,12 @@ export default function ConfigCategoriasClient() {
                       type="text"
                       value={editCatForm.nombre}
                       onChange={e => setEditCatForm({ ...editCatForm, nombre: e.target.value })}
-                      className="rounded border border-gray-300 px-2 py-1 text-sm w-48"
+                      className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900 w-48"
                     />
                     <select
                       value={editCatForm.color}
                       onChange={e => setEditCatForm({ ...editCatForm, color: e.target.value })}
-                      className="rounded border border-gray-300 px-2 py-1 text-sm"
+                      className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900"
                     >
                       {COLORES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
@@ -344,7 +344,7 @@ export default function ConfigCategoriasClient() {
                             type="text"
                             value={editSubForm.nombre}
                             onChange={e => setEditSubForm({ ...editSubForm, nombre: e.target.value })}
-                            className="rounded border border-gray-300 px-2 py-1 text-sm w-40"
+                            className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900 w-40"
                           />
                           <button onClick={() => handleUpdateSub(cat.id, sub.id)} className="text-green-600 hover:text-green-800">
                             <CheckIcon className="h-4 w-4" />
@@ -386,7 +386,7 @@ export default function ConfigCategoriasClient() {
                         placeholder="Nombre subcategoría"
                         value={newSubForm.nombre}
                         onChange={e => setNewSubForm({ ...newSubForm, nombre: e.target.value })}
-                        className="rounded border border-gray-300 px-2 py-1 text-sm w-40 focus:border-orange-500 focus:ring-orange-500"
+                        className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900 w-40 focus:border-orange-500 focus:ring-orange-500"
                         required
                         autoFocus
                       />

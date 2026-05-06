@@ -437,7 +437,7 @@ export default async function ClientesPage({
                     id="search"
                     defaultValue={resolvedSearchParams.search}
                     placeholder="Nombre, email, NIF, CIF, teléfono, municipio..."
-                    className="block w-full rounded-md border-gray-300 pl-10 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                    className="block w-full rounded-md border-gray-300 pl-10 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                   />
                 </div>
               </div>
@@ -447,7 +447,7 @@ export default async function ClientesPage({
                   id="estado"
                   name="estado"
                   defaultValue={estadoActual}
-                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="activo">Solo Activos</option>
                   <option value="activo_con_fact">Activos con facturación</option>
@@ -462,7 +462,7 @@ export default async function ClientesPage({
                   id="tipo"
                   name="tipo"
                   defaultValue={resolvedSearchParams.tipo}
-                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="fisica">Persona Física</option>
@@ -475,7 +475,7 @@ export default async function ClientesPage({
                   id="facturacion"
                   name="facturacion"
                   defaultValue={resolvedSearchParams.facturacion}
-                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="mensual">Mensual</option>
@@ -490,7 +490,7 @@ export default async function ClientesPage({
                   id="newsletter"
                   name="newsletter"
                   defaultValue={resolvedSearchParams.newsletter}
-                  className="mt-1 block w-full rounded-md border-gray-300 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="suscrito">Suscritos</option>

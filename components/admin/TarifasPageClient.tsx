@@ -797,13 +797,13 @@ export default function TarifasPageClient() {
               <div className="absolute inset-y-0 left-0 flex items-center pl-3"><MagnifyingGlassIcon className="h-5 w-5 text-gray-400" /></div>
               <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Nombre de tarifa..."
-                className="block w-full rounded-md border-gray-300 pl-10 pr-3 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
+                className="block w-full rounded-md border-gray-300 pl-10 pr-3 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
             </div>
           </form>
           <div className="w-full lg:w-40">
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipo Cliente</label>
             <select value={tipoCliente} onChange={(e) => { setTipoCliente(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               <option value="PARTICULAR">Particular</option>
               <option value="EMPRESA">Empresa</option>
@@ -812,7 +812,7 @@ export default function TarifasPageClient() {
           <div className="w-full lg:w-48">
             <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
             <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todas</option>
               {stats?.categorias.map(c => <option key={c.categoria} value={c.categoria}>{c.categoria} ({c.total})</option>)}
             </select>
@@ -820,7 +820,7 @@ export default function TarifasPageClient() {
           <div className="w-full lg:w-36">
             <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
             <select value={estado} onChange={(e) => { setEstado(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               <option value="activa">Activas</option>
               <option value="inactiva">Inactivas</option>

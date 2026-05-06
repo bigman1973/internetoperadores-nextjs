@@ -517,7 +517,7 @@ export default function FacturacionPage() {
               placeholder="Buscar por cliente, documento..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="border border-gray-300 rounded-md px-3 py-2 text-sm w-full sm:w-64"
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900 w-full sm:w-64"
             />
             {(['todas', 'cobradas', 'pendientes'] as const).map((f) => {
               const count = f === 'todas' ? facturas.length :
@@ -543,7 +543,7 @@ export default function FacturacionPage() {
               <select
                 value={mesFilter}
                 onChange={(e) => setMesFilter(e.target.value)}
-                className="border border-gray-300 rounded-md px-3 py-2 text-sm"
+                className="border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-900"
               >
                 <option value="">Todos los meses</option>
                 {porMes.map((m: any) => {
