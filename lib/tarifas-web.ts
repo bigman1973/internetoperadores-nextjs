@@ -30,6 +30,7 @@ export interface TarifaWeb {
   seccionWebParticular: string | null;
   seccionWebEmpresa: string | null;
   cuotaAlta: number | null;
+  caracteristicas: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null;
   contratosActivos?: number;
   esPopular?: boolean;
 }
@@ -64,6 +65,7 @@ const tarifaSelect = {
   seccionWebParticular: true,
   seccionWebEmpresa: true,
   cuotaAlta: true,
+  caracteristicas: true,
 };
 
 function convertTarifa(t: any): TarifaWeb {
@@ -72,6 +74,7 @@ function convertTarifa(t: any): TarifaWeb {
     precioSinIva: Number(t.precioSinIva),
     precioConIva: Number(t.precioConIva),
     cuotaAlta: t.cuotaAlta ? Number(t.cuotaAlta) : null,
+    caracteristicas: t.caracteristicas || null,
     contratosActivos: 0,
     esPopular: false,
   };

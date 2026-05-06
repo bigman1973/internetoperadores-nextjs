@@ -384,6 +384,23 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                             Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} € (IVA incl.)
                           </p>
                         )}
+                        {/* Características / Funcionalidades */}
+                        {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-gray-100">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Funcionalidades:</p>
+                            {tarifa.caracteristicas.incluyePlanAnterior && (
+                              <p className="text-xs italic text-blue-600 mb-2">{tarifa.caracteristicas.incluyePlanAnterior}</p>
+                            )}
+                            <div className="space-y-1">
+                              {tarifa.caracteristicas.items.map((feat: {titulo: string; descripcion: string}, idx: number) => (
+                                <div key={idx} className="text-xs text-gray-600">
+                                  <span className="font-medium text-gray-800">{feat.titulo}</span>
+                                  {feat.descripcion && <span className="text-gray-500"> — {feat.descripcion}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                       <div className="px-6 pb-6">
                         <Link href="/contacto" className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3 rounded-lg font-medium transition-colors">

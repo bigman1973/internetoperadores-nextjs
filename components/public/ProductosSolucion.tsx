@@ -132,6 +132,33 @@ export default function ProductosSolucion({ tarifas, solucionNombre, colorAccent
                       </div>
                     )}
 
+                    {/* Características / Funcionalidades */}
+                    {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+                      <div className={`mt-4 pt-4 border-t ${tarifa.esPopular ? 'border-white/20' : 'border-gray-200'}`}>
+                        <p className={`text-xs font-semibold uppercase tracking-wider mb-3 ${tarifa.esPopular ? 'text-white/80' : 'text-gray-500'}`}>Funcionalidades:</p>
+                        {tarifa.caracteristicas.incluyePlanAnterior && (
+                          <p className={`text-xs italic mb-3 ${tarifa.esPopular ? 'text-white/70' : 'text-blue-600'}`}>
+                            {tarifa.caracteristicas.incluyePlanAnterior}
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          {tarifa.caracteristicas.items.map((feat: {titulo: string; descripcion: string}, idx: number) => (
+                            <div key={idx} className={`flex items-start gap-2 text-sm ${tarifa.esPopular ? 'text-white/90' : 'text-gray-600'}`}>
+                              <svg className={`w-3 h-3 flex-shrink-0 mt-1 ${tarifa.esPopular ? 'text-white/60' : 'text-gray-400'}`} fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                              </svg>
+                              <div>
+                                <span className={`font-medium ${tarifa.esPopular ? 'text-white' : 'text-gray-800'}`}>{feat.titulo}</span>
+                                {feat.descripcion && (
+                                  <p className={`text-xs mt-0.5 ${tarifa.esPopular ? 'text-white/70' : 'text-gray-500'}`}>{feat.descripcion}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
 
                   <Link
