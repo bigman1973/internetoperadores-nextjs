@@ -496,7 +496,9 @@ export default function TarifasPageClient() {
                   </button>
                 )}
               </div>
-              {tarifa.ispGestionId && <span className="text-xs text-gray-400">ISP #{tarifa.ispGestionId}</span>}
+              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold mt-0.5 ${tarifa.ispGestionId ? 'bg-indigo-50 text-indigo-700' : 'bg-teal-50 text-teal-700'}`}>
+                {tarifa.ispGestionId ? `ISP #${tarifa.ispGestionId}` : 'Web manual'}
+              </span>
             </div>
           </div>
         </td>
