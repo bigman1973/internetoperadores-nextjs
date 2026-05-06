@@ -478,13 +478,15 @@ export default function TarifasPageClient() {
   }
 
   // Inline categoría/subcategoría edit
-  const handleCategoriaEdit = (tarifa: Tarifa) => {
+  const handleCategoriaEdit = (tarifa: Tarifa, e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation() }
     setEditingCategoria(tarifa.id)
     setCategoriaInput(tarifa.categoria)
     setSubcategoriaInput(tarifa.subcategoria || '')
   }
 
-  const handleCategoriaSave = async (id: number) => {
+  const handleCategoriaSave = async (id: number, e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation() }
     setSavingCategoria(prev => new Set(prev).add(id))
     try {
       const res = await fetch(`/api/admin/tarifas/${id}`, {
@@ -499,7 +501,8 @@ export default function TarifasPageClient() {
         } else {
           setGrupos(prev => prev.map(g => ({ ...g, tarifas: g.tarifas.map(updateTarifa) })))
         }
-        fetchStats()
+        // No llamar fetchStats() inmediatamente para evitar re-render que cause scroll
+        setTimeout(() => fetchStats(), 500)
       }
     } catch (err) { console.error(err) }
     finally {
@@ -508,7 +511,8 @@ export default function TarifasPageClient() {
     }
   }
 
-  const handleCategoriaCancel = () => {
+  const handleCategoriaCancel = (e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation() }
     setEditingCategoria(null)
     setCategoriaInput('')
     setSubcategoriaInput('')
@@ -574,6 +578,7 @@ export default function TarifasPageClient() {
               <select
                 value={categoriaInput}
                 onChange={(e) => { setCategoriaInput(e.target.value); setSubcategoriaInput('') }}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="text-xs px-1.5 py-0.5 border border-orange-300 rounded bg-orange-50 text-orange-800 w-44 focus:outline-none focus:ring-1 focus:ring-orange-400"
                 disabled={savingCategoria.has(tarifa.id)}
               >
@@ -585,6 +590,7 @@ export default function TarifasPageClient() {
               <select
                 value={subcategoriaInput}
                 onChange={(e) => setSubcategoriaInput(e.target.value)}
+                onMouseDown={(e) => e.stopPropagation()}
                 className="text-xs px-1.5 py-0.5 border border-blue-300 rounded bg-blue-50 text-blue-800 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 disabled={savingCategoria.has(tarifa.id) || !categoriaInput}
               >
@@ -593,10 +599,10 @@ export default function TarifasPageClient() {
                 {subcategoriaInput && !(subcategoriasDisponibles[categoriaInput] || []).includes(subcategoriaInput) && !(SUBCATEGORIAS_POR_CATEGORIA[categoriaInput] || []).includes(subcategoriaInput) && <option value={subcategoriaInput}>{subcategoriaInput}</option>}
               </select>
               <div className="flex gap-1">
-                <button onClick={() => handleCategoriaSave(tarifa.id)} className="text-green-600 hover:text-green-800" title="Guardar">
+                <button onClick={(e) => handleCategoriaSave(tarifa.id, e)} className="text-green-600 hover:text-green-800" title="Guardar">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                 </button>
-                <button onClick={handleCategoriaCancel} className="text-red-500 hover:text-red-700" title="Cancelar">
+                <button onClick={(e) => handleCategoriaCancel(e)} className="text-red-500 hover:text-red-700" title="Cancelar">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
                 {savingCategoria.has(tarifa.id) && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-500"></div>}
@@ -604,7 +610,7 @@ export default function TarifasPageClient() {
             </div>
           ) : (
             <button
-              onClick={() => handleCategoriaEdit(tarifa)}
+              onClick={(e) => handleCategoriaEdit(tarifa, e)}
               className="text-left group hover:bg-gray-100 rounded px-1 py-0.5 transition-all"
               title="Editar categoría y subcategoría"
             >
