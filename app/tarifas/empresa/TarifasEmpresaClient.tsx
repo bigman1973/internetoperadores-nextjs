@@ -294,11 +294,12 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                             <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
                                 <span className="font-semibold text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</span>
-                                {tarifa.destacada && <span className="text-yellow-500 text-xs">★</span>}
+                                {tarifa.esPopular && <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Más vendido</span>}
+                                {tarifa.destacada && !tarifa.esPopular && <span className="text-yellow-500 text-xs">★</span>}
                               </div>
                             </td>
                             <td className="px-6 py-4 text-gray-600 text-sm">
-                              {getDetalleConectividad(tarifa)}
+                              {getDetalleConectividad(tarifa) || '—'}
                             </td>
                             <td className="px-6 py-4 text-right text-gray-700">
                               {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : '-'}
@@ -310,7 +311,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                               {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
-                              {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia || 'Sin permanencia'}
+                              {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia || '—'}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <Link href="/contacto" className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
@@ -327,9 +328,14 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                 /* Cards for other categories */
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {tarifasCat.map((tarifa) => (
-                    <div key={tarifa.id} className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden border ${tarifa.destacada ? 'border-orange-400 ring-1 ring-orange-200' : 'border-gray-100'}`}>
-                      {tarifa.destacada && (
+                    <div key={tarifa.id} className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden border ${tarifa.esPopular ? 'border-orange-400 ring-1 ring-orange-200' : tarifa.destacada ? 'border-orange-300 ring-1 ring-orange-100' : 'border-gray-100'}`}>
+                      {tarifa.esPopular && (
                         <div className="bg-orange-500 text-white text-center py-1.5 text-xs font-semibold uppercase tracking-wider">
+                          Más vendido
+                        </div>
+                      )}
+                      {tarifa.destacada && !tarifa.esPopular && (
+                        <div className="bg-gray-800 text-white text-center py-1.5 text-xs font-semibold uppercase tracking-wider">
                           Destacada
                         </div>
                       )}
@@ -339,7 +345,12 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         </div>
                         <h3 className="text-lg font-bold text-gray-900 mb-2">{tarifa.nombreComercial || tarifa.nombre}</h3>
                         {tarifa.descripcionCorta && (
-                          <p className="text-sm text-gray-500 mb-4 line-clamp-2">{tarifa.descripcionCorta}</p>
+                          <p className="text-sm text-gray-500 mb-3 line-clamp-2">{tarifa.descripcionCorta}</p>
+                        )}
+                        {getDetalleConectividad(tarifa) && (
+                          <p className="text-xs text-gray-600 mb-3 bg-gray-50 rounded px-2 py-1">
+                            {getDetalleConectividad(tarifa)}
+                          </p>
                         )}
                         <div className="flex items-baseline gap-1 mb-4">
                           <span className="text-3xl font-bold text-gray-900">

@@ -126,9 +126,14 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
   }
 
   const TarifaCard = ({ tarifa, destacada = false }: { tarifa: TarifaWeb; destacada?: boolean }) => (
-    <div className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden ${destacada ? 'ring-2 ring-orange-500 border-orange-400' : 'border border-gray-100'}`}>
-      {destacada && (
+    <div className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden ${tarifa.esPopular ? 'ring-2 ring-orange-500 border-orange-400' : destacada ? 'ring-2 ring-orange-500 border-orange-400' : 'border border-gray-100'}`}>
+      {tarifa.esPopular && (
         <div className="bg-orange-500 text-white text-center py-1.5 text-xs font-semibold uppercase tracking-wider">
+          Más vendido
+        </div>
+      )}
+      {destacada && !tarifa.esPopular && (
+        <div className="bg-gray-800 text-white text-center py-1.5 text-xs font-semibold uppercase tracking-wider">
           Destacada
         </div>
       )}

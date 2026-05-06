@@ -161,17 +161,21 @@ export async function getTarifasWeb(seccion: 'empresa' | 'particular'): Promise<
   const tarifasConverted = tarifasRaw.map(convertTarifa);
   const tarifasEnriched = enrichWithContractData(tarifasConverted, contratosMap);
 
+  // Mark top 3 most sold globally as popular
+  const tarifasWithPopular = markPopular(tarifasEnriched.slice(0, 3))
+    .concat(tarifasEnriched.slice(3));
+
   const categorias: Record<string, TarifaWeb[]> = {};
-  for (const t of tarifasEnriched) {
+  for (const t of tarifasWithPopular) {
     const cat = t.categoria || 'OTROS';
     if (!categorias[cat]) categorias[cat] = [];
     categorias[cat].push(t);
   }
 
   return {
-    tarifas: tarifasEnriched,
+    tarifas: tarifasWithPopular,
     categorias,
-    total: tarifasEnriched.length,
+    total: tarifasWithPopular.length,
   };
 }
 
