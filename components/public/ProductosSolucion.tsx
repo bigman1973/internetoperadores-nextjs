@@ -115,14 +115,7 @@ export default function ProductosSolucion({ tarifas, solucionNombre, colorAccent
                       </svg>
                       {tarifa.permanencia || (tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : 'Sin permanencia')}
                     </div>
-                    {tarifa.contratosActivos && tarifa.contratosActivos > 0 && (
-                      <div className={`flex items-center gap-2 text-xs mt-2 ${tarifa.esPopular ? 'text-white/60' : 'text-gray-400'}`}>
-                        <svg className="w-3 h-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                          <path d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" />
-                        </svg>
-                        {tarifa.contratosActivos} empresas confían en esta tarifa
-                      </div>
-                    )}
+
                   </div>
 
                   <Link
