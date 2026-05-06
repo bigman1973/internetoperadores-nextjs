@@ -1,17 +1,6 @@
 "use client";
 import Link from 'next/link';
-import { useState } from 'react';
-
-const productos = [
-  { nombre: 'Fibra e Internet', href: '/productos/fibra-internet', descripcion: 'FTTH, dedicada, backup 4G/5G' },
-  { nombre: 'Telefonía Móvil', href: '/productos/telefonia-movil', descripcion: 'Tarifas empresa y flotas' },
-  { nombre: 'Comunicaciones Unificadas', href: '/productos/comunicaciones-unificadas', descripcion: 'VoIP, Zoom, Wildix, Videoconferencia' },
-  { nombre: 'Ciberseguridad', href: '/productos/ciberseguridad', descripcion: 'Panda, Firewalls, EDR' },
-  { nombre: 'Backup Empresarial', href: '/productos/backup', descripcion: 'ExaGrid, copias en la nube' },
-  { nombre: 'Mantenimiento IT', href: '/productos/mantenimiento-it', descripcion: 'Soporte remoto y presencial' },
-  { nombre: 'Cloud y Hosting', href: '/productos/cloud-hosting', descripcion: 'Servidores, hosting, email' },
-  { nombre: 'Desarrollo Web', href: '/productos/desarrollo-web', descripcion: 'Webs, e-commerce, apps' },
-];
+import { useState, useEffect } from 'react';
 
 const soluciones = [
   { nombre: 'Comunicaciones Unificadas', href: '/soluciones/comunicaciones-unificadas', descripcion: 'UCaaS - Wildix & Zoom' },
@@ -42,11 +31,19 @@ const recursos = [
 ];
 
 export default function EmpresaNav({ currentPage = '' }) {
-  const [productosOpen, setProductosOpen] = useState(false);
+  const [contrataOpen, setContrataOpen] = useState(false);
   const [solucionesOpen, setSolucionesOpen] = useState(false);
   const [sectoresOpen, setSectoresOpen] = useState(false);
   const [recursosOpen, setRecursosOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [seccionesActivas, setSeccionesActivas] = useState([]);
+
+  useEffect(() => {
+    fetch('/api/secciones-activas')
+      .then(res => res.json())
+      .then(data => setSeccionesActivas(data.secciones || []))
+      .catch(() => {});
+  }, []);
 
   return (
     <>
@@ -96,38 +93,42 @@ export default function EmpresaNav({ currentPage = '' }) {
             
             {/* Desktop Menu */}
             <div className="hidden lg:flex gap-6 xl:gap-8 text-sm xl:text-base font-medium">
-              {/* Productos Dropdown */}
+              {/* Contrata Dropdown (dinámico) */}
               <div 
                 className="relative"
-                onMouseEnter={() => setProductosOpen(true)}
-                onMouseLeave={() => setProductosOpen(false)}
+                onMouseEnter={() => setContrataOpen(true)}
+                onMouseLeave={() => setContrataOpen(false)}
               >
                 <Link 
                   href="/productos" 
                   className={`transition-colors flex items-center gap-1 ${currentPage === 'productos' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
                 >
-                  Productos
-                  <svg className={`w-4 h-4 transition-transform ${productosOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  Contrata
+                  <svg className={`w-4 h-4 transition-transform ${contrataOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </Link>
                 
-                <div className={`absolute top-full left-0 mt-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-2 transition-all duration-200 ${productosOpen ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-2'}`}>
+                <div className={`absolute top-full left-0 mt-0 w-80 bg-white rounded-xl shadow-xl border border-gray-100 py-2 transition-all duration-200 ${contrataOpen ? 'opacity-100 visible translate-y-0' : 'opacity-0 invisible -translate-y-2'}`}>
                   <div className="px-4 py-2 border-b border-gray-100">
                     <Link href="/productos" className="text-orange-600 font-semibold text-sm hover:text-orange-700">
                       Ver todos los productos →
                     </Link>
                   </div>
-                  {productos.map((producto) => (
-                    <Link 
-                      key={producto.href}
-                      href={producto.href} 
-                      className="block px-4 py-3 hover:bg-orange-50 transition-colors"
-                    >
-                      <span className="font-semibold text-gray-900 text-sm">{producto.nombre}</span>
-                      <span className="block text-xs text-gray-500 mt-0.5">{producto.descripcion}</span>
-                    </Link>
-                  ))}
+                  {seccionesActivas.length > 0 ? (
+                    seccionesActivas.map((seccion) => (
+                      <Link 
+                        key={seccion.href}
+                        href={seccion.href} 
+                        className="block px-4 py-3 hover:bg-orange-50 transition-colors"
+                      >
+                        <span className="font-semibold text-gray-900 text-sm">{seccion.nombre}</span>
+                        <span className="block text-xs text-gray-500 mt-0.5">{seccion.descripcion}</span>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="px-4 py-3 text-sm text-gray-400">Cargando...</div>
+                  )}
                 </div>
               </div>
               
@@ -239,35 +240,37 @@ export default function EmpresaNav({ currentPage = '' }) {
                 </div>
               </div>
 
-              <Link href="/empresa" className={`transition-colors ${currentPage === 'empresa' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
+              {/* Empresa */}
+              <Link 
+                href="/empresa" 
+                className={`transition-colors ${currentPage === 'empresa' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
+              >
                 Empresa
               </Link>
-              <Link href="/partners" className={`transition-colors ${currentPage === 'partners' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}>
+
+              {/* Partners */}
+              <Link 
+                href="/partners" 
+                className={`transition-colors ${currentPage === 'partners' ? 'text-orange-600 font-semibold' : 'text-gray-700 hover:text-orange-600'}`}
+              >
                 Partners
               </Link>
             </div>
 
             {/* CTA Buttons */}
-            <div className="flex gap-2 sm:gap-3">
-              <Link 
-                href="/demo" 
-                className="px-3 py-2 sm:px-4 sm:py-2.5 lg:px-5 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-xs sm:text-sm lg:text-base"
-              >
-                <span className="hidden sm:inline">Ver </span>Demo
+            <div className="hidden lg:flex gap-3">
+              <Link href="/demo" className="px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-sm">
+                Ver Demo
               </Link>
-              <Link 
-                href="/contacto" 
-                className="px-3 py-2 sm:px-4 sm:py-2.5 lg:px-5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-xs sm:text-sm lg:text-base"
-              >
+              <Link href="/contacto" className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm">
                 Contactar
               </Link>
             </div>
 
             {/* Mobile Menu Button */}
             <button 
-              className="lg:hidden text-gray-900 focus:outline-none ml-2"
+              className="lg:hidden p-2"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              aria-label="Toggle menu"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenuOpen ? (
@@ -283,17 +286,17 @@ export default function EmpresaNav({ currentPage = '' }) {
           {mobileMenuOpen && (
             <div className="lg:hidden py-4 border-t">
               <div className="flex flex-col gap-2">
-                {/* Mobile Productos */}
+                {/* Mobile Contrata */}
                 <div className="py-2">
-                  <Link href="/productos" className="text-orange-600 font-semibold">Productos</Link>
+                  <Link href="/productos" className="text-orange-600 font-semibold">Contrata</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
-                    {productos.map((producto) => (
+                    {seccionesActivas.map((seccion) => (
                       <Link 
-                        key={producto.href}
-                        href={producto.href} 
+                        key={seccion.href}
+                        href={seccion.href} 
                         className="block py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
-                        {producto.nombre}
+                        {seccion.nombre}
                       </Link>
                     ))}
                   </div>
@@ -347,8 +350,19 @@ export default function EmpresaNav({ currentPage = '' }) {
                   </div>
                 </div>
 
-                <Link href="/empresa" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Empresa</Link>
-                <Link href="/partners" className="py-2 text-gray-700 hover:text-orange-600 font-medium">Partners</Link>
+                {/* Mobile Empresa & Partners */}
+                <Link href="/empresa" className="py-2 text-orange-600 font-semibold">Empresa</Link>
+                <Link href="/partners" className="py-2 text-orange-600 font-semibold">Partners</Link>
+
+                {/* Mobile CTAs */}
+                <div className="flex gap-2 mt-4 pt-4 border-t">
+                  <Link href="/demo" className="flex-1 text-center px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg font-semibold text-sm">
+                    Ver Demo
+                  </Link>
+                  <Link href="/contacto" className="flex-1 text-center px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold text-sm">
+                    Contactar
+                  </Link>
+                </div>
               </div>
             </div>
           )}
