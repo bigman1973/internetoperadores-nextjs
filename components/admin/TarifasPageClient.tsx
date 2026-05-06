@@ -593,7 +593,7 @@ export default function TarifasPageClient() {
             <div className="flex flex-col gap-1">
               <select
                 value={categoriaInput}
-                onChange={(e) => { setCategoriaInput(e.target.value); setSubcategoriaInput('') }}
+                onChange={(e) => { scrollPosRef.current = window.scrollY; shouldRestoreScroll.current = true; setCategoriaInput(e.target.value); setSubcategoriaInput('') }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className="text-xs px-1.5 py-0.5 border border-orange-300 rounded bg-orange-50 text-orange-800 w-44 focus:outline-none focus:ring-1 focus:ring-orange-400"
                 disabled={savingCategoria.has(tarifa.id)}
@@ -605,7 +605,7 @@ export default function TarifasPageClient() {
               </select>
               <select
                 value={subcategoriaInput}
-                onChange={(e) => setSubcategoriaInput(e.target.value)}
+                onChange={(e) => { scrollPosRef.current = window.scrollY; shouldRestoreScroll.current = true; setSubcategoriaInput(e.target.value) }}
                 onMouseDown={(e) => e.stopPropagation()}
                 className="text-xs px-1.5 py-0.5 border border-blue-300 rounded bg-blue-50 text-blue-800 w-44 focus:outline-none focus:ring-1 focus:ring-blue-400"
                 disabled={savingCategoria.has(tarifa.id) || !categoriaInput}
