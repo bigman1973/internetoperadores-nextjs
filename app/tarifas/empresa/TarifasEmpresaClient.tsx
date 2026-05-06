@@ -285,6 +285,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                           <th className="text-right px-6 py-4 font-semibold">Precio (sin IVA)</th>
                           <th className="text-right px-6 py-4 font-semibold">Precio (con IVA)</th>
                           <th className="text-center px-6 py-4 font-semibold">Permanencia</th>
+                          <th className="text-center px-6 py-4 font-semibold">Garantía</th>
                           <th className="text-center px-6 py-4 font-semibold"></th>
                         </tr>
                       </thead>
@@ -312,6 +313,9 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
                               {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia || '—'}
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-gray-600">
+                              {tarifa.garantia || '—'}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <Link href="/contacto" className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
@@ -364,6 +368,11 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         {(tarifa.permanencia || tarifa.duracionPermanenciaMeses) && (
                           <p className="text-xs text-gray-500 mb-1">
                             Permanencia: {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia}
+                          </p>
+                        )}
+                        {tarifa.garantia && (
+                          <p className="text-xs text-gray-500 mb-1">
+                            Garantía: {tarifa.garantia}
                           </p>
                         )}
                       </div>

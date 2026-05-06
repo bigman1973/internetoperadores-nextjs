@@ -18,6 +18,7 @@ interface TarifaWeb {
   contratosActivos?: number;
   esPopular?: boolean;
   categoria: string;
+  garantia: string | null;
 }
 
 function formatCurrency(value: number): string {
@@ -128,6 +129,12 @@ export default function ProductosSolucionDynamic({ solucion, solucionNombre }: {
                       text={tarifa.permanencia || (tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : 'Sin permanencia')}
                       popular={tarifa.esPopular}
                     />
+                    {tarifa.garantia && (
+                      <Feature
+                        text={`Garantía: ${tarifa.garantia}`}
+                        popular={tarifa.esPopular}
+                      />
+                    )}
 
                   </div>
 

@@ -158,11 +158,16 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
           <p className="text-xs text-gray-400 mb-2">{tarifa.precioSinIva.toFixed(2)} € sin IVA</p>
         )}
         {(tarifa.permanencia || tarifa.duracionPermanenciaMeses) && (
-          <p className="text-xs text-gray-500 mb-4">
+          <p className="text-xs text-gray-500 mb-2">
             Permanencia: {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia}
           </p>
         )}
-        <Link href="/contacto" className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium text-center">
+        {tarifa.garantia && (
+          <p className="text-xs text-gray-500 mb-2">
+            Garantía: {tarifa.garantia}
+          </p>
+        )}
+        <Link href="/contacto" className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium text-center mt-2">
           Contratar
         </Link>
       </div>
