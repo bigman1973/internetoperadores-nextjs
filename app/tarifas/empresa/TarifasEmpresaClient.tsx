@@ -286,6 +286,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                           <th className="text-right px-6 py-4 font-semibold">Precio (con IVA)</th>
                           <th className="text-center px-6 py-4 font-semibold">Permanencia</th>
                           <th className="text-center px-6 py-4 font-semibold">Garantía</th>
+                          <th className="text-center px-6 py-4 font-semibold">Alta</th>
                           <th className="text-center px-6 py-4 font-semibold"></th>
                         </tr>
                       </thead>
@@ -316,6 +317,9 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
                               {tarifa.garantia || '—'}
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-gray-600">
+                              {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 ? `${(tarifa.cuotaAlta * 1.21).toFixed(2)} €` : '—'}
                             </td>
                             <td className="px-6 py-4 text-center">
                               <Link href="/contacto" className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
@@ -373,6 +377,11 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         {tarifa.garantia && (
                           <p className="text-xs text-gray-500 mb-1">
                             Garantía: {tarifa.garantia}
+                          </p>
+                        )}
+                        {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+                          <p className="text-xs text-gray-500 mb-1">
+                            Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} € (IVA incl.)
                           </p>
                         )}
                       </div>

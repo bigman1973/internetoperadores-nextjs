@@ -41,6 +41,7 @@ model Tarifa {
   permanencia            String?
   penalizacion           String?
   garantia               String?
+  cuotaAlta              Decimal?            @map("cuota_alta") @db.Decimal(10, 2)
   observaciones          String?
   destacada              Boolean             @default(false)
   activa                 Boolean             @default(true)

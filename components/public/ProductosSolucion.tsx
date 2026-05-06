@@ -123,6 +123,14 @@ export default function ProductosSolucion({ tarifas, solucionNombre, colorAccent
                         Garantía: {tarifa.garantia}
                       </div>
                     )}
+                    {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+                      <div className={`flex items-center gap-2 text-sm ${tarifa.esPopular ? 'text-white/90' : 'text-gray-600'}`}>
+                        <svg className={`w-4 h-4 flex-shrink-0 ${tarifa.esPopular ? 'text-white' : colors.text}`} fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
+                        </svg>
+                        Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} € (IVA incl.)
+                      </div>
+                    )}
 
                   </div>
 

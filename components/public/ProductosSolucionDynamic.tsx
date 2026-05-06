@@ -19,6 +19,7 @@ interface TarifaWeb {
   esPopular?: boolean;
   categoria: string;
   garantia: string | null;
+  cuotaAlta: number | null;
 }
 
 function formatCurrency(value: number): string {
@@ -132,6 +133,12 @@ export default function ProductosSolucionDynamic({ solucion, solucionNombre }: {
                     {tarifa.garantia && (
                       <Feature
                         text={`Garantía: ${tarifa.garantia}`}
+                        popular={tarifa.esPopular}
+                      />
+                    )}
+                    {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+                      <Feature
+                        text={`Alta: ${(tarifa.cuotaAlta * 1.21).toFixed(2)} € (IVA incl.)`}
                         popular={tarifa.esPopular}
                       />
                     )}
