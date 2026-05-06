@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import {
   PlusIcon, MagnifyingGlassIcon, ArrowPathIcon,
@@ -258,6 +258,7 @@ export default function TarifasPageClient() {
   const [categoriaInput, setCategoriaInput] = useState('')
   const [subcategoriaInput, setSubcategoriaInput] = useState('')
   const [savingCategoria, setSavingCategoria] = useState<Set<number>>(new Set())
+  const scrollPosRef = useRef<number>(0)
   const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([])
   const [subcategoriasDisponibles, setSubcategoriasDisponibles] = useState<Record<string, string[]>>({})
 
@@ -480,13 +481,16 @@ export default function TarifasPageClient() {
   // Inline categoría/subcategoría edit
   const handleCategoriaEdit = (tarifa: Tarifa, e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation() }
+    scrollPosRef.current = window.scrollY
     setEditingCategoria(tarifa.id)
     setCategoriaInput(tarifa.categoria)
     setSubcategoriaInput(tarifa.subcategoria || '')
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPosRef.current) })
   }
 
   const handleCategoriaSave = async (id: number, e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation() }
+    scrollPosRef.current = window.scrollY
     setSavingCategoria(prev => new Set(prev).add(id))
     try {
       const res = await fetch(`/api/admin/tarifas/${id}`, {
@@ -501,21 +505,23 @@ export default function TarifasPageClient() {
         } else {
           setGrupos(prev => prev.map(g => ({ ...g, tarifas: g.tarifas.map(updateTarifa) })))
         }
-        // No llamar fetchStats() inmediatamente para evitar re-render que cause scroll
         setTimeout(() => fetchStats(), 500)
       }
     } catch (err) { console.error(err) }
     finally {
       setSavingCategoria(prev => { const next = new Set(prev); next.delete(id); return next })
       setEditingCategoria(null)
+      requestAnimationFrame(() => { window.scrollTo(0, scrollPosRef.current) })
     }
   }
 
   const handleCategoriaCancel = (e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation() }
+    scrollPosRef.current = window.scrollY
     setEditingCategoria(null)
     setCategoriaInput('')
     setSubcategoriaInput('')
+    requestAnimationFrame(() => { window.scrollTo(0, scrollPosRef.current) })
   }
 
   const TarifaRow = ({ tarifa, showCategory = false }: { tarifa: Tarifa; showCategory?: boolean }) => (
