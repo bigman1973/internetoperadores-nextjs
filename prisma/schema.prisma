@@ -83,6 +83,7 @@ model Tarifa {
   updatedById            Int?                @map("updated_by")
   estadisticas           EstadisticaTarifa[]
   historialCambios       HistorialCambio[]
+  estrategias            EstrategiaProducto[]
   createdBy              UsuarioAdmin?       @relation("TarifaCreador", fields: [createdById], references: [id])
   updatedBy              UsuarioAdmin?       @relation("TarifaEditor", fields: [updatedById], references: [id])
 
@@ -365,4 +366,18 @@ model SubcategoriaTarifa {
   @@unique([categoriaId, nombre])
   @@index([categoriaId])
   @@map("subcategorias_tarifas")
+}
+
+model EstrategiaProducto {
+  id         Int      @id @default(autoincrement())
+  tarifaId   Int      @map("tarifa_id")
+  estrategia String   @db.Text
+  autor      String?  @default("Admin") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+  tarifa     Tarifa   @relation(fields: [tarifaId], references: [id], onDelete: Cascade)
+
+  @@index([tarifaId])
+  @@index([createdAt(sort: Desc)])
+  @@map("estrategias_producto")
 }
