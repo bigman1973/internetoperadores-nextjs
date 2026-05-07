@@ -1,7 +1,8 @@
-'use client';
+export const dynamic = "force-dynamic";
+
 
 import Link from 'next/link';
-import { WHATSAPP_NUMBER, generateSimpleWhatsAppLink } from '@/lib/whatsapp';
+import { WHATSAPP_NUMBER, generateSimpleWhatsAppLink } from '../../../lib/whatsapp';
 
 export default function PagoCancelado() {
   const whatsappMessage = `Hola, necesito ayuda con el proceso de pago del Informe Cero Riesgos. Tuve que cancelar la transacción.`;

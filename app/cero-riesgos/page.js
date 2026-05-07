@@ -1,5 +1,6 @@
+"use client";
 import Link from 'next/link';
-import Header from '@/components/Header';
+import Header from '../../components/Header';
 
 export default function Home() {
   return (
@@ -260,7 +261,7 @@ export default function Home() {
                 &quot;Nos dimos cuenta de que teníamos contratados servicios duplicados y mal dimensionados. El informe nos ahorró cientos de euros al mes y nos dio claridad.&quot;
               </p>
               <p className="font-bold">Banca</p>
-              <p className="text-sm text-gray-500">Barcelona</p>
+              <p className="text-sm text-gray-500">Madrid</p>
             </div>
             
             <div className="bg-gray-50 p-6 rounded-lg">

@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  serverExternalPackages: ['@prisma/client'],
   async headers() {
     return [
       {
@@ -24,4 +25,3 @@ const nextConfig = {
 };
 
 export default nextConfig;
-

@@ -1,0 +1,401 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UsuarioAdmin {
+  id               Int               @id @default(autoincrement())
+  email            String            @unique
+  passwordHash     String            @map("password_hash")
+  nombre           String
+  rol              RolAdmin          @default(EDITOR)
+  activo           Boolean           @default(true)
+  ultimoAcceso     DateTime?         @map("ultimo_acceso")
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+  historialCambios HistorialCambio[]
+  tarifasCreadas   Tarifa[]          @relation("TarifaCreador")
+  tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
+
+  @@map("usuarios_admin")
+}
+
+model Tarifa {
+  id                     Int                 @id @default(autoincrement())
+  tipoCliente            TipoCliente         @map("tipo_cliente")
+  categoria              String
+  subcategoria           String?             @map("subcategoria")
+  nombre                 String
+  nombreComercial        String?             @map("nombre_comercial")
+  descripcionCorta       String?             @map("descripcion_corta")
+  descripcionLarga       String?             @map("descripcion_larga")
+  velocidad              String?
+  precioSinIva           Decimal             @map("precio_sin_iva") @db.Decimal(10, 2)
+  precioConIva           Decimal             @map("precio_con_iva") @db.Decimal(10, 2)
+  costeOperador          Decimal?            @map("coste_operador") @db.Decimal(10, 2)
+  permanencia            String?
+  penalizacion           String?
+  garantia               String?
+  cuotaAlta              Decimal?            @map("cuota_alta") @db.Decimal(10, 2)
+  caracteristicas        Json?               @db.JsonB
+  observaciones          String?
+  destacada              Boolean             @default(false)
+  activa                 Boolean             @default(true)
+  soloClientesExistentes Boolean             @default(false) @map("solo_clientes_existentes")
+  fechaInicio            DateTime?           @map("fecha_inicio")
+  fechaFin               DateTime?           @map("fecha_fin")
+  orden                  Int                 @default(0)
+  ispGestionId           String?             @map("isp_gestion_id")
+  ispTipoId              Int?                @map("isp_tipo_id")
+  esMovil                Boolean             @default(false) @map("es_movil")
+  esFijo                 Boolean             @default(false) @map("es_fijo")
+  esInternet             Boolean             @default(false) @map("es_internet")
+  esTv                   Boolean             @default(false) @map("es_tv")
+  esCompuesta            Boolean             @default(false) @map("es_compuesta")
+  velocidadBajada        String?             @map("velocidad_bajada")
+  velocidadSubida        String?             @map("velocidad_subida")
+  fibraBajada            String?             @map("fibra_bajada")
+  fibraSubida            String?             @map("fibra_subida")
+  datosIncluidos         String?             @map("datos_incluidos")
+  minutosIncluidos       String?             @map("minutos_incluidos")
+  smsIncluidos           String?             @map("sms_incluidos")
+  conceptoFacturacion    String?             @map("concepto_facturacion")
+  servicioPppoe          String?             @map("servicio_pppoe")
+  duracionPermanenciaMeses Int?              @map("duracion_permanencia_meses")
+  observacionesPermanencia String?           @map("observaciones_permanencia")
+  tarifaPlanaId          Int?                @map("tarifa_plana_id")
+  noFacturar             Boolean             @default(false) @map("no_facturar")
+  noProrrateable         Boolean             @default(false) @map("no_prorrateable")
+  publicarWeb            Boolean             @default(false) @map("publicar_web")
+  publicarWebParticular  Boolean             @default(false) @map("publicar_web_particular")
+  publicarWebEmpresa     Boolean             @default(false) @map("publicar_web_empresa")
+  seccionWebParticular   String?             @map("seccion_web_particular")
+  seccionWebEmpresa      String?             @map("seccion_web_empresa")
+  grupoProducto          String?             @map("grupo_producto")
+  varianteLabel          String?             @map("variante_label")
+  tipoPeriodicidad       Int?                @default(1) @map("tipo_periodicidad")
+  precioPeriodo          Decimal?            @map("precio_periodo") @db.Decimal(10, 2)
+  precioPeriodoIva       Decimal?            @map("precio_periodo_iva") @db.Decimal(10, 2)
+  createdAt              DateTime            @default(now()) @map("created_at")
+  updatedAt              DateTime            @updatedAt @map("updated_at")
+  createdById            Int?                @map("created_by")
+  updatedById            Int?                @map("updated_by")
+  estadisticas           EstadisticaTarifa[]
+  historialCambios       HistorialCambio[]
+  estrategias            EstrategiaProducto[]
+  seccionesWeb           TarifaSeccionWeb[]
+  createdBy              UsuarioAdmin?       @relation("TarifaCreador", fields: [createdById], references: [id])
+  updatedBy              UsuarioAdmin?       @relation("TarifaEditor", fields: [updatedById], references: [id])
+
+  @@index([tipoCliente, categoria])
+  @@index([activa])
+  @@index([destacada])
+  @@index([ispGestionId])
+  @@map("tarifas")
+}
+
+model Categoria {
+  id          Int                  @id @default(autoincrement())
+  nombre      String
+  tipoCliente TipoClienteCategoria @map("tipo_cliente")
+  descripcion String?
+  icono       String?
+  orden       Int                  @default(0)
+  activa      Boolean              @default(true)
+
+  @@map("categorias")
+}
+
+model HistorialCambio {
+  id        Int             @id @default(autoincrement())
+  tarifaId  Int?            @map("tarifa_id")
+  usuarioId Int             @map("usuario_id")
+  accion    AccionHistorial
+  cambios   Json?
+  createdAt DateTime        @default(now()) @map("created_at")
+  tarifa    Tarifa?         @relation(fields: [tarifaId], references: [id])
+  usuario   UsuarioAdmin    @relation(fields: [usuarioId], references: [id])
+
+  @@map("historial_cambios")
+}
+
+model EstadisticaTarifa {
+  id             Int      @id @default(autoincrement())
+  tarifaId       Int      @map("tarifa_id")
+  fecha          DateTime
+  vistas         Int      @default(0)
+  contrataciones Int      @default(0)
+  tarifa         Tarifa   @relation(fields: [tarifaId], references: [id])
+
+  @@unique([tarifaId, fecha])
+  @@map("estadisticas_tarifas")
+}
+
+model ClienteWeb {
+  id                   Int                   @id @default(autoincrement())
+  email                String
+  passwordHash         String                @map("password_hash")
+  ispGestionId         String                @unique @map("isp_gestion_id")
+  nombre               String
+  ultimoAcceso         DateTime?             @map("ultimo_acceso")
+  newsletterSuscrito   Boolean               @default(false) @map("newsletter_suscrito")
+  createdAt            DateTime              @default(now()) @map("created_at")
+  updatedAt            DateTime              @updatedAt @map("updated_at")
+  // Identificación
+  clienteIdIsp         String?               @map("cliente_id_isp")
+  codigo               String?
+  nif                  String?
+  cif                  String?
+  personaFisica        Boolean?              @default(true) @map("persona_fisica")
+  nombreComercial      String?               @map("nombre_comercial")
+  // Contacto
+  apellidos            String?
+  nombrePila           String?               @map("nombre_pila")
+  telefono             String?
+  movil                String?
+  fax                  String?
+  web                  String?
+  movilSms             String?               @map("movil_sms")
+  // Dirección
+  tipoCalle            String?               @map("tipo_calle")
+  domicilio            String?
+  numero               String?
+  edificio             String?
+  bloque               String?
+  escalera             String?
+  piso                 String?
+  puerta               String?
+  municipio            String?
+  localidad            String?
+  codigoPostal         String?               @map("codigo_postal")
+  provincia            String?
+  pais                 String?               @default("ES")
+  coordenadas          String?
+  // Facturación
+  cuentaCargo          String?               @map("cuenta_cargo")
+  cuentaContable       String?               @map("cuenta_contable")
+  formaPago            String?               @map("forma_pago")
+  tipoIva              String?               @map("tipo_iva")
+  facturaElectronica   Boolean?              @default(false) @map("factura_electronica")
+  facturaMail          Boolean?              @default(false) @map("factura_mail")
+  facturaPapel         Boolean?              @default(false) @map("factura_papel")
+  alertaFacturacion    String?               @map("alerta_facturacion")
+  // Representante legal
+  representante        String?
+  cargoRepresentante   String?               @map("cargo_representante")
+  nifRepresentante     String?               @map("nif_representante")
+  // Estado
+  activo               Boolean?              @default(true)
+  baneado              Boolean?              @default(false)
+  fechaAlta            DateTime?             @map("fecha_alta") @db.Date
+  fechaBaja            DateTime?             @map("fecha_baja") @db.Date
+  // Otros
+  idioma               String?
+  categoria            Int?
+  recibePublicidad     Boolean?              @default(false) @map("recibe_publicidad")
+  aceptoLopd           Boolean?              @map("acepto_lopd")
+  comercial            Int?
+  agente               Int?
+  origen               String?
+  // Factura electrónica admin pública
+  oficinaContable      String?               @map("oficina_contable")
+  organoGestor         String?               @map("organo_gestor")
+  unidadTramitadora    String?               @map("unidad_tramitadora")
+  notificaciones       NotificacionCliente[]
+
+  @@index([activo])
+  @@index([municipio])
+  @@index([personaFisica])
+  @@map("clientes_web")
+}
+
+model ContratoServicio {
+  id                  Int       @id @default(autoincrement())
+  ispGestionContratoId Int      @unique @map("isp_gestion_contrato_id")
+  clienteId           String    @map("cliente_id") // clienteid de ISP Gestión
+  titulo              String
+  tarifa              String
+  precio              Decimal   @db.Decimal(10, 2)
+  importeRemesar      Decimal?  @map("importe_remesar") @db.Decimal(10, 2)
+  descuentoTotal      Decimal?  @map("descuento_total") @db.Decimal(10, 2)
+  fechaInicio         DateTime? @map("fecha_inicio")
+  fechaBaja           DateTime? @map("fecha_baja")
+  causaBaja           String?   @map("causa_baja")
+  conceptoFacturacion String?   @map("concepto_facturacion")
+  permanencia         Int       @default(0)
+  fechaPermanencia    DateTime? @map("fecha_permanencia")
+  categoria           String?
+  tipoAlta            Int?      @map("tipo_alta")
+  telefonosContrato   String?   @map("telefonos_contrato")
+  observaciones       String?
+  activo              Boolean   @default(true)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([clienteId])
+  @@index([activo])
+  @@index([tarifa])
+  @@map("contratos_servicio")
+}
+
+model Factura {
+  id                Int       @id @default(autoincrement())
+  ispGestionId      Int       @unique @map("isp_gestion_id")
+  serieFactura      String    @map("serie_factura")
+  numeroDocumento   String    @map("numero_documento")
+  documento         String?
+  fecha             DateTime  @db.Date
+  idCliente         Int       @map("id_cliente")  // id_cliente de ISP Gestión
+  codigoCliente     String    @map("codigo_cliente")
+  nombreCompleto    String    @map("nombre_completo")
+  nifCif            String?   @map("nif_cif")
+  base              Decimal   @db.Decimal(10, 2)
+  totalImpuesto     Decimal   @map("total_impuesto") @db.Decimal(10, 2)
+  total             Decimal   @db.Decimal(10, 2)
+  situacion         String    // COBRADA, PENDIENTE, etc.
+  totalPendiente    Decimal   @map("total_pendiente") @db.Decimal(10, 2)
+  ejercicio         Int       @default(2026)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([idCliente])
+  @@index([codigoCliente])
+  @@index([fecha])
+  @@index([serieFactura])
+  @@index([situacion])
+  @@index([ejercicio])
+  @@map("facturas")
+}
+
+model Remesa {
+  id                Int       @id @default(autoincrement())
+  ispGestionId      Int       @unique @map("isp_gestion_id")
+  nombre            String
+  fecha             DateTime  @db.Date
+  nifPresentador    String?   @map("nif_presentador")
+  nombrePresentador String?   @map("nombre_presentador")
+  ibanAcreedor      String?   @map("iban_acreedor")
+  remesado          Boolean   @default(false)
+  contabilizado     Boolean   @default(false)
+  totalImporte      Decimal   @map("total_importe") @db.Decimal(10, 2)
+  numeroRegistros   Int       @map("numero_registros")
+  archivoGenerado   String?   @map("archivo_generado")
+  ejercicio         Int       @default(2026)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([fecha])
+  @@index([ejercicio])
+  @@map("remesas")
+}
+
+model NotificacionCliente {
+  id         Int              @id @default(autoincrement())
+  clienteId  Int              @map("cliente_id")
+  tipo       TipoNotificacion
+  titulo     String
+  mensaje    String
+  leida      Boolean          @default(false)
+  fechaEnvio DateTime         @default(now()) @map("fecha_envio")
+  cliente    ClienteWeb       @relation(fields: [clienteId], references: [id])
+
+  @@map("notificaciones_cliente")
+}
+
+enum RolAdmin {
+  SUPER_ADMIN
+  GERENTE
+  EDITOR
+  VISOR
+  FINANCIERO
+}
+
+enum TipoCliente {
+  PARTICULAR
+  EMPRESA
+}
+
+enum TipoClienteCategoria {
+  PARTICULAR
+  EMPRESA
+  AMBOS
+}
+
+enum AccionHistorial {
+  CREAR
+  EDITAR
+  ELIMINAR
+  ACTIVAR
+  DESACTIVAR
+  SUBIDA_MASIVA
+  IMPORTAR_EXCEL
+}
+
+enum TipoNotificacion {
+  INFO
+  AVISO
+  ALERTA
+  PROMOCION
+}
+
+model CategoriaTarifa {
+  id            Int      @id @default(autoincrement())
+  nombre        String   @unique @db.VarChar(100)
+  descripcion   String?
+  color         String?  @default("gray") @db.VarChar(50)
+  orden         Int      @default(0)
+  activa        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  subcategorias SubcategoriaTarifa[]
+
+  @@map("categorias_tarifas")
+}
+
+model SubcategoriaTarifa {
+  id          Int      @id @default(autoincrement())
+  categoriaId Int      @map("categoria_id")
+  nombre      String   @db.VarChar(100)
+  descripcion String?
+  orden       Int      @default(0)
+  activa      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  categoria   CategoriaTarifa @relation(fields: [categoriaId], references: [id], onDelete: Cascade)
+
+  @@unique([categoriaId, nombre])
+  @@index([categoriaId])
+  @@map("subcategorias_tarifas")
+}
+
+model EstrategiaProducto {
+  id         Int      @id @default(autoincrement())
+  tarifaId   Int      @map("tarifa_id")
+  estrategia String   @db.Text
+  autor      String?  @default("Admin") @db.VarChar(255)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at")
+  tarifa     Tarifa   @relation(fields: [tarifaId], references: [id], onDelete: Cascade)
+
+  @@index([tarifaId])
+  @@index([createdAt(sort: Desc)])
+  @@map("estrategias_producto")
+}
+
+model TarifaSeccionWeb {
+  id        Int      @id @default(autoincrement())
+  tarifaId  Int      @map("tarifa_id")
+  seccion   String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  tarifa    Tarifa   @relation(fields: [tarifaId], references: [id], onDelete: Cascade)
+
+  @@unique([tarifaId, seccion])
+  @@index([seccion])
+  @@index([tarifaId])
+  @@map("tarifa_secciones_web")
+}
