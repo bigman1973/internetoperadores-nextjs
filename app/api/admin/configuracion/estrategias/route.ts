@@ -43,11 +43,13 @@ export async function GET(request: Request) {
         publicarWebEmpresa: true,
         activa: true,
         ispGestionId: true,
+        grupoProducto: true,
+        varianteLabel: true,
         estrategias: {
           orderBy: { createdAt: 'desc' },
         },
       },
-      orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
+      orderBy: [{ categoria: 'asc' }, { grupoProducto: 'asc' }, { nombre: 'asc' }],
     })
 
     // Obtener KPIs de contratos (unidades vendidas y facturación)
@@ -92,6 +94,8 @@ export async function GET(request: Request) {
         nombreComercial: t.nombreComercial,
         categoria: t.categoria,
         subcategoria: t.subcategoria,
+        grupoProducto: t.grupoProducto,
+        varianteLabel: t.varianteLabel,
         precioVenta: precioVenta,
         precioCoste: precioCoste,
         margen: margen !== null ? Math.round(margen * 100) / 100 : null,

@@ -15,14 +15,14 @@ export default async function ConfiguracionPage() {
         </div>
       </div>
 
-      {/* Estrategias Comerciales */}
-      <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
-        <EstrategiasComerciales />
-      </div>
-
       {/* Categorías y Subcategorías */}
       <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
         <ConfigCategoriasClient />
+      </div>
+
+      {/* Estrategias Comerciales */}
+      <div className="rounded-lg bg-white shadow border border-gray-200 p-6">
+        <EstrategiasComerciales />
       </div>
     </div>
   )
