@@ -33,7 +33,7 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
       precioConIva: tarifa.precioConIva,
       precioSinIva: tarifa.precioSinIva,
       cuotaAlta: tarifa.cuotaAlta || undefined,
-      periodicidad: tarifa.tipoPeriodicidad === 2 ? 'ANUAL' : 'MENSUAL',
+      periodicidad: (tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12) ? 'ANUAL' : 'MENSUAL',
       categoria: tarifa.categoria || undefined,
     })
     setAdded(true)

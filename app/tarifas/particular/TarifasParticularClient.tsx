@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import EmpresaNav from '../../../components/EmpresaNav';
+import ParticularNav from '../../../components/ParticularNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import AddToCartButton from '../../../components/AddToCartButton';
 import type { TarifaWeb } from '@/lib/tarifas-web';
@@ -192,8 +192,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <EmpresaNav currentPage="tarifas" />
-      {/* Hero */}
+      <ParticularNav currentPage="internet" />
       <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white py-12 md:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-3xl md:text-5xl font-bold mb-4">Tarifas para Particulares</h1>
