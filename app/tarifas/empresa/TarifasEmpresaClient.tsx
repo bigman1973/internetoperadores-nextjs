@@ -403,7 +403,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         )}
                       </div>
                       <div className="px-6 pb-6">
-                        <Link href="/contacto" className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3 rounded-lg font-medium transition-colors">
+                        <Link href={`/contratar?tarifaId=${tarifa.id}`} className="block w-full bg-orange-500 hover:bg-orange-600 text-white text-center py-3 rounded-lg font-medium transition-colors">
                           Contratar
                         </Link>
                       </div>

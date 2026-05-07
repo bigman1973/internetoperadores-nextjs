@@ -483,10 +483,10 @@ export default function ComunicacionesUnificadasPage() {
       )}
 
       <Link
-        href="/contacto"
+        href={`/contratar?tarifaId=${varianteActual.id}`}
         className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
       >
-        Solicitar
+        Contratar
       </Link>
     </div>
   );
@@ -554,10 +554,10 @@ export default function ComunicacionesUnificadasPage() {
       )}
 
       <Link
-        href="/contacto"
+        href={`/contratar?tarifaId=${tarifa.id}`}
         className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
       >
-        Solicitar
+        Contratar
       </Link>
     </div>
   );

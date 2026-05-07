@@ -189,7 +189,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
             </div>
           </div>
         )}
-        <Link href="/contacto" className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium text-center mt-2">
+        <Link href={`/contratar?tarifaId=${tarifa.id}`} className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium text-center mt-2">
           Contratar
         </Link>
       </div>
