@@ -142,10 +142,18 @@ export default function CarritoPage() {
                 <h2 className="text-lg font-bold text-gray-900 mb-4">Resumen del pedido</h2>
 
                 <div className="space-y-3 border-b border-gray-100 pb-4 mb-4">
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Cuotas mensuales/anuales</span>
-                    <span className="font-medium">{formatCurrency(totalConIva)}</span>
-                  </div>
+                  {items.filter(i => i.periodicidad === 'MENSUAL').length > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Cuotas mensuales</span>
+                      <span className="font-medium">{formatCurrency(items.filter(i => i.periodicidad === 'MENSUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/mes</span>
+                    </div>
+                  )}
+                  {items.filter(i => i.periodicidad === 'ANUAL').length > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Cuotas anuales</span>
+                      <span className="font-medium">{formatCurrency(items.filter(i => i.periodicidad === 'ANUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/año</span>
+                    </div>
+                  )}
                   {totalAltas > 0 && (
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Altas (pago único)</span>

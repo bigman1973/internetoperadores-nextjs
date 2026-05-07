@@ -314,7 +314,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                               {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
-                              {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia || '—'}
+                              —
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
                               {tarifa.garantia || '—'}
@@ -369,11 +369,6 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                         </div>
                         {tarifa.precioSinIva > 0 && (
                           <p className="text-xs text-gray-400 mb-2">{tarifa.precioSinIva.toFixed(2)} € sin IVA</p>
-                        )}
-                        {(tarifa.permanencia || tarifa.duracionPermanenciaMeses) && (
-                          <p className="text-xs text-gray-500 mb-1">
-                            Permanencia: {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia}
-                          </p>
                         )}
                         {tarifa.garantia && (
                           <p className="text-xs text-gray-500 mb-1">

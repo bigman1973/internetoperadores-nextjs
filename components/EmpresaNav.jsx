@@ -261,12 +261,18 @@ export default function EmpresaNav({ currentPage = '' }) {
 
             {/* CTA Buttons */}
             <div className="hidden lg:flex gap-3 items-center">
-              <Link href="/carrito" className="relative p-2 text-gray-600 hover:text-orange-600 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+              <Link href="/carrito" className="relative p-2 hover:scale-110 transition-transform">
+                <svg className="w-7 h-7" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Carrito */}
+                  <path d="M4 4h2.5l.5 2.5M9 14h10.5l4-9H7.5M9 14l-2-7.5M9 14l-2.5 2.5c-.6.6-.2 1.7.7 1.7H18" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  {/* Ruedas */}
+                  <circle cx="10" cy="21" r="1.5" fill="#ea580c"/>
+                  <circle cx="18" cy="21" r="1.5" fill="#ea580c"/>
+                  {/* Rayo */}
+                  <path d="M16 6l-3 4.5h3l-1 3.5 4-5h-3l1-3z" fill="#f97316" stroke="#ea580c" strokeWidth="0.5" strokeLinejoin="round"/>
                 </svg>
                 {itemCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold shadow-md">
                     {itemCount > 9 ? '9+' : itemCount}
                   </span>
                 )}
@@ -281,12 +287,18 @@ export default function EmpresaNav({ currentPage = '' }) {
 
             {/* Mobile Cart + Menu Button */}
             <div className="flex lg:hidden items-center gap-1">
-              <Link href="/carrito" className="relative p-2 text-gray-600 hover:text-orange-600 transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+              <Link href="/carrito" className="relative p-2 hover:scale-110 transition-transform">
+                <svg className="w-7 h-7" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Carrito */}
+                  <path d="M4 4h2.5l.5 2.5M9 14h10.5l4-9H7.5M9 14l-2-7.5M9 14l-2.5 2.5c-.6.6-.2 1.7.7 1.7H18" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  {/* Ruedas */}
+                  <circle cx="10" cy="21" r="1.5" fill="#ea580c"/>
+                  <circle cx="18" cy="21" r="1.5" fill="#ea580c"/>
+                  {/* Rayo */}
+                  <path d="M16 6l-3 4.5h3l-1 3.5 4-5h-3l1-3z" fill="#f97316" stroke="#ea580c" strokeWidth="0.5" strokeLinejoin="round"/>
                 </svg>
                 {itemCount > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold shadow-md">
                     {itemCount > 9 ? '9+' : itemCount}
                   </span>
                 )}

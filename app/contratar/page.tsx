@@ -518,15 +518,8 @@ function ContratarContent() {
                       <span className="font-bold text-xl text-orange-600">{formatCurrency(importeFinal)}</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">IVA incluido</p>
-                  </div>
 
-                  {tarifa.permanencia && (
-                    <div className="bg-yellow-50 p-3 rounded-lg">
-                      <p className="text-xs text-yellow-800">
-                        <strong>Permanencia:</strong> {tarifa.permanencia}
-                      </p>
-                    </div>
-                  )}
+                  </div>
                 </div>
               ) : null}
 
