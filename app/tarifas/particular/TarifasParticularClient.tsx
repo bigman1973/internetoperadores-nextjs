@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import ParticularNav from '../../../components/ParticularNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import AddToCartButton from '../../../components/AddToCartButton';
@@ -53,9 +53,28 @@ interface Props {
 
 export default function TarifasParticularClient({ tarifas, categorias, total }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS');
   const [busqueda, setBusqueda] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  // Map URL ?cat= param to category filter
+  useEffect(() => {
+    const catParam = searchParams.get('cat');
+    if (catParam) {
+      const catMap: Record<string, string> = {
+        'internet': 'INTERNET',
+        'movil': 'TELEFONÍA MÓVIL',
+        'fijo': 'TELEFONÍA FIJA',
+        'packs': 'TODAS', // TODO: implement packs filter
+        'ofertas': 'TODAS', // TODO: implement ofertas filter
+      };
+      const mapped = catMap[catParam.toLowerCase()];
+      if (mapped) {
+        setCategoriaSeleccionada(mapped);
+      }
+    }
+  }, [searchParams]);
 
   const categoriasOrdenadas = useMemo(() => {
     return Object.entries(categorias)
