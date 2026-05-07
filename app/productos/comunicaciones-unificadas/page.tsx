@@ -490,6 +490,77 @@ export default function ComunicacionesUnificadasPage() {
     </div>
   );
 
+  // Función para renderizar una tarjeta de tarifa individual (sin grupo_producto)
+  const renderTarjetaIndividual = (tarifa: TarifaWeb) => (
+    <div
+      key={tarifa.id}
+      className="bg-white border-2 border-gray-200 rounded-xl p-6 hover:border-orange-300 hover:shadow-lg transition-all flex flex-col"
+    >
+      <div className="mb-3">
+        <h3 className="text-base font-bold text-gray-900 leading-tight">
+          {tarifa.nombreComercial || tarifa.nombre}
+        </h3>
+        {tarifa.descripcionCorta && (
+          <p className="text-xs text-orange-600 mt-1 font-medium">
+            {tarifa.descripcionCorta}
+          </p>
+        )}
+      </div>
+
+      {tarifa.descripcionLarga && (
+        <p className="text-sm text-gray-600 mb-4 flex-1">
+          {tarifa.descripcionLarga}
+        </p>
+      )}
+
+      <div className="border-t border-gray-100 pt-4 mt-auto">
+        <div className="flex items-end justify-between">
+          <div>
+            <span className="text-2xl font-bold text-orange-600">
+              {formatCurrency(tarifa.precioSinIva)}
+            </span>
+            <span className="text-xs text-gray-400 ml-1">/mes</span>
+            <div className="text-xs text-gray-400 mt-0.5">
+              {formatCurrency(tarifa.precioConIva)} con IVA
+            </div>
+          </div>
+          {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+              Alta: {formatCurrency(tarifa.cuotaAlta)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-gray-100">
+          <div className="space-y-1.5">
+            {tarifa.caracteristicas.items.map((feat, idx) => (
+              <div key={idx} className="flex items-start gap-2 text-sm">
+                <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                </svg>
+                <div>
+                  <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
+                  {feat.descripcion && (
+                    <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Link
+        href="/contacto"
+        className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
+      >
+        Solicitar
+      </Link>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-white">
       <EmpresaNav currentPage="productos" />
@@ -576,7 +647,7 @@ export default function ComunicacionesUnificadasPage() {
           ) : (
             <div className="max-w-7xl mx-auto">
               {/* Productos agrupados por fabricante/subcategoría cuando filtro es 'todas' */}
-              {gruposFiltrados.agrupados.length > 0 && filtro === 'todas' ? (
+              {(gruposFiltrados.agrupados.length > 0 || gruposFiltrados.individuales.length > 0) && filtro === 'todas' ? (
                 <div className="space-y-12">
                   {(() => {
                     // Agrupar por fabricante (nivel superior) derivado de subcategoría
@@ -626,19 +697,48 @@ export default function ComunicacionesUnificadasPage() {
                       </div>
                     ));
                   })()}
+                  {/* Individuales agrupadas por subcategoría en vista Todas */}
+                  {(() => {
+                    const indivPorSub: Record<string, TarifaWeb[]> = {};
+                    gruposFiltrados.individuales.forEach(t => {
+                      const sub = t.subcategoria || 'Sin categoría';
+                      if (!indivPorSub[sub]) indivPorSub[sub] = [];
+                      indivPorSub[sub].push(t);
+                    });
+                    return Object.entries(indivPorSub).map(([subcat, tarifasSub]) => (
+                      <div key={`indiv-${subcat}`}>
+                        <div className="mb-6">
+                          <h2 className="text-2xl font-bold text-gray-900">{subcat}</h2>
+                          <div className="h-1 w-16 bg-orange-500 mt-2 rounded"></div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                          {tarifasSub.map(tarifa => renderTarjetaIndividual(tarifa))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
-              ) : gruposFiltrados.agrupados.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
-                  {gruposFiltrados.agrupados.map((grupo) => {
-                    const varianteActual = getVarianteSeleccionada(grupo);
-                    return renderTarjetaGrupo(grupo, varianteActual);
-                  })}
+              ) : (gruposFiltrados.agrupados.length > 0 || gruposFiltrados.individuales.length > 0) ? (
+                <div>
+                  {gruposFiltrados.agrupados.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+                      {gruposFiltrados.agrupados.map((grupo) => {
+                        const varianteActual = getVarianteSeleccionada(grupo);
+                        return renderTarjetaGrupo(grupo, varianteActual);
+                      })}
+                    </div>
+                  )}
+                  {gruposFiltrados.individuales.length > 0 && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {gruposFiltrados.individuales.map(tarifa => renderTarjetaIndividual(tarifa))}
+                    </div>
+                  )}
                 </div>
               ) : (
                 null
               )}
 
-              {gruposFiltrados.agrupados.length === 0 && (
+              {gruposFiltrados.agrupados.length === 0 && gruposFiltrados.individuales.length === 0 && (
                 <div className="text-center py-12">
                   <p className="text-gray-500 text-lg">No se encontraron productos en esta categoría.</p>
                 </div>
