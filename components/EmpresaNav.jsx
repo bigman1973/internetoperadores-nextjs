@@ -1,6 +1,7 @@
-"use client";
+'use client'
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { useCart } from './CartProvider';
 
 const soluciones = [
   { nombre: 'Comunicaciones Unificadas', href: '/soluciones/comunicaciones-unificadas', descripcion: 'UCaaS - Wildix & Zoom' },
@@ -31,6 +32,7 @@ const recursos = [
 ];
 
 export default function EmpresaNav({ currentPage = '' }) {
+  const { itemCount } = useCart();
   const [contrataOpen, setContrataOpen] = useState(false);
   const [solucionesOpen, setSolucionesOpen] = useState(false);
   const [sectoresOpen, setSectoresOpen] = useState(false);
@@ -258,7 +260,17 @@ export default function EmpresaNav({ currentPage = '' }) {
             </div>
 
             {/* CTA Buttons */}
-            <div className="hidden lg:flex gap-3">
+            <div className="hidden lg:flex gap-3 items-center">
+              <Link href="/carrito" className="relative p-2 text-gray-600 hover:text-orange-600 transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                </svg>
+                {itemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                    {itemCount > 9 ? '9+' : itemCount}
+                  </span>
+                )}
+              </Link>
               <Link href="/demo" className="px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-sm">
                 Ver Demo
               </Link>
@@ -267,9 +279,20 @@ export default function EmpresaNav({ currentPage = '' }) {
               </Link>
             </div>
 
-            {/* Mobile Menu Button */}
+            {/* Mobile Cart + Menu Button */}
+            <div className="flex lg:hidden items-center gap-1">
+              <Link href="/carrito" className="relative p-2 text-gray-600 hover:text-orange-600 transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                </svg>
+                {itemCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-orange-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-bold">
+                    {itemCount > 9 ? '9+' : itemCount}
+                  </span>
+                )}
+              </Link>
             <button 
-              className="lg:hidden p-2"
+              className="p-2"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -280,6 +303,7 @@ export default function EmpresaNav({ currentPage = '' }) {
                 )}
               </svg>
             </button>
+            </div>
           </div>
 
           {/* Mobile Menu */}

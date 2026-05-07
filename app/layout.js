@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import SessionProvider from "../components/SessionProvider";
+import { CartProvider } from "../components/CartProvider";
 import NewsletterFloat from "../components/public/NewsletterFloat";
 import "./globals.css";
 
@@ -44,11 +45,12 @@ export default function RootLayout({ children }) {
           strategy="beforeInteractive"
         />
         <SessionProvider>
-          {children}
-          <NewsletterFloat />
+          <CartProvider>
+            {children}
+            <NewsletterFloat />
+          </CartProvider>
         </SessionProvider>
       </body>
     </html>
   );
 }
-
