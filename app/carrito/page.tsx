@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCart, type CartItem } from '@/components/CartProvider'
-import EmpresaNav from '@/components/EmpresaNav'
+import DynamicNav from '@/components/DynamicNav'
 import EmpresaFooter from '@/components/EmpresaFooter'
 
 export default function CarritoPage() {
@@ -14,7 +14,7 @@ export default function CarritoPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <EmpresaNav currentPage="" />
+      <DynamicNav currentPage="" />
 
       <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
         {/* Header */}

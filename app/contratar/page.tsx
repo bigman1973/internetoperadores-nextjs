@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCart, type CartItem } from '@/components/CartProvider'
-import EmpresaNav from '@/components/EmpresaNav'
+import DynamicNav from '@/components/DynamicNav'
 import EmpresaFooter from '@/components/EmpresaFooter'
 
 function ContratarContent() {
@@ -55,7 +55,7 @@ function ContratarContent() {
           setError('Producto no encontrado')
         } else {
           setTarifa(data)
-          if (data.tipoPeriodicidad === 2) {
+          if (data.tipoPeriodicidad && data.tipoPeriodicidad >= 12) {
             setPeriodicidad('ANUAL')
           }
         }
@@ -165,7 +165,7 @@ function ContratarContent() {
   if (error && !tarifa && !isCartMode) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <EmpresaNav currentPage="" />
+        <DynamicNav currentPage="" />
         <div className="flex items-center justify-center py-20">
           <div className="bg-white p-8 rounded-lg shadow-md text-center">
             <p className="text-red-600 text-lg">{error}</p>
@@ -187,7 +187,7 @@ function ContratarContent() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <EmpresaNav currentPage="" />
+      <DynamicNav currentPage="" />
 
       <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
         {/* Header */}
