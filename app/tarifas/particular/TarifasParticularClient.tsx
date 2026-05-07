@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import AddToCartButton from '../../../components/AddToCartButton';
 import type { TarifaWeb } from '@/lib/tarifas-web';
 
 const iconoCategoria: Record<string, string> = {
@@ -189,9 +190,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
             </div>
           </div>
         )}
-        <Link href={`/contratar?tarifaId=${tarifa.id}`} className="block w-full bg-orange-600 text-white py-3 rounded-lg hover:bg-orange-700 transition-colors font-medium text-center mt-2">
-          Contratar
-        </Link>
+        <AddToCartButton tarifa={tarifa} variant="secondary" />
       </div>
     </div>
   );

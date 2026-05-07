@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
+import AddToCartButton from '../../../components/AddToCartButton';
 
 interface TarifaWeb {
   id: number;
@@ -482,12 +483,7 @@ export default function ComunicacionesUnificadasPage() {
         </div>
       )}
 
-      <Link
-        href={`/contratar?tarifaId=${varianteActual.id}`}
-        className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
-      >
-        Contratar
-      </Link>
+      <AddToCartButton tarifa={varianteActual} />
     </div>
   );
 
@@ -553,12 +549,7 @@ export default function ComunicacionesUnificadasPage() {
         </div>
       )}
 
-      <Link
-        href={`/contratar?tarifaId=${tarifa.id}`}
-        className="block w-full text-center py-2.5 mt-4 bg-orange-600 text-white rounded-lg font-semibold hover:bg-orange-700 transition-all text-sm"
-      >
-        Contratar
-      </Link>
+      <AddToCartButton tarifa={tarifa} />
     </div>
   );
 

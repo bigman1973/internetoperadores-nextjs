@@ -2,11 +2,18 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { useCart, type CartItem } from '@/components/CartProvider'
+import EmpresaNav from '@/components/EmpresaNav'
+import EmpresaFooter from '@/components/EmpresaFooter'
 
 function ContratarContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
+  const { items: cartItems, clearCart, totalConIva, totalAltas, totalGeneral } = useCart()
+
   const tarifaId = searchParams.get('tarifaId')
+  const fromCart = searchParams.get('fromCart') === 'true'
 
   const [tarifa, setTarifa] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -25,7 +32,16 @@ function ContratarContent() {
     customerCompany: '',
   })
 
+  // Modo: carrito o producto individual
+  const isCartMode = fromCart && cartItems.length > 0
+
   useEffect(() => {
+    if (isCartMode) {
+      // Modo carrito: no necesitamos cargar tarifa
+      setLoading(false)
+      return
+    }
+
     if (!tarifaId) {
       setError('No se ha especificado un producto')
       setLoading(false)
@@ -39,7 +55,6 @@ function ContratarContent() {
           setError('Producto no encontrado')
         } else {
           setTarifa(data)
-          // Determinar periodicidad por defecto
           if (data.tipoPeriodicidad === 2) {
             setPeriodicidad('ANUAL')
           }
@@ -50,10 +65,15 @@ function ContratarContent() {
         setError('Error al cargar el producto')
         setLoading(false)
       })
-  }, [tarifaId])
+  }, [tarifaId, isCartMode])
 
-  const importeAlta = tarifa?.cuotaAlta ? Number(tarifa.cuotaAlta) : 0
-  const importeCuota = tarifa ? Number(tarifa.precioConIva) : 0
+  // Calcular importes
+  const importeAlta = isCartMode
+    ? totalAltas
+    : (tarifa?.cuotaAlta ? Number(tarifa.cuotaAlta) : 0)
+  const importeCuota = isCartMode
+    ? totalConIva
+    : (tarifa ? Number(tarifa.precioConIva) : 0)
   const importeTotal = importeAlta + importeCuota
   const descuentoCrypto = paymentMethod === 'TRIPLE_A' ? Math.round(importeTotal * 0.01 * 100) / 100 : 0
   const importeFinal = importeTotal - descuentoCrypto
@@ -67,30 +87,67 @@ function ContratarContent() {
     setError('')
 
     try {
-      const response = await fetch('/api/payments/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tarifaId: parseInt(tarifaId!),
-          customerEmail: form.customerEmail,
-          customerName: form.customerName,
-          customerPhone: form.customerPhone,
-          customerNif: form.customerNif,
-          customerCompany: form.customerCompany,
-          customerType,
-          paymentMethod,
-          periodicidad,
-        }),
-      })
+      if (isCartMode) {
+        // Crear un pago por cada item del carrito (o un pago agrupado)
+        // Por ahora creamos un pago con el primer item y el total
+        const response = await fetch('/api/payments/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tarifaId: cartItems[0].tarifaId,
+            customerEmail: form.customerEmail,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            customerNif: form.customerNif,
+            customerCompany: form.customerCompany,
+            customerType,
+            paymentMethod,
+            periodicidad: cartItems[0].periodicidad,
+            // Pasar items del carrito para referencia
+            cartItems: cartItems.map(i => ({
+              tarifaId: i.tarifaId,
+              nombre: i.nombre,
+              cantidad: i.cantidad,
+              precioConIva: i.precioConIva,
+              cuotaAlta: i.cuotaAlta || 0,
+            })),
+            overrideAmount: importeFinal,
+          }),
+        })
 
-      const data = await response.json()
+        const data = await response.json()
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Error al procesar el pago')
+        if (!response.ok) {
+          throw new Error(data.error || 'Error al procesar el pago')
+        }
+
+        clearCart()
+        window.location.href = data.paymentUrl
+      } else {
+        const response = await fetch('/api/payments/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tarifaId: parseInt(tarifaId!),
+            customerEmail: form.customerEmail,
+            customerName: form.customerName,
+            customerPhone: form.customerPhone,
+            customerNif: form.customerNif,
+            customerCompany: form.customerCompany,
+            customerType,
+            paymentMethod,
+            periodicidad,
+          }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Error al procesar el pago')
+        }
+
+        window.location.href = data.paymentUrl
       }
-
-      // Redirigir a la pasarela de pago
-      window.location.href = data.paymentUrl
     } catch (err: any) {
       setError(err.message)
       setSubmitting(false)
@@ -105,29 +162,38 @@ function ContratarContent() {
     )
   }
 
-  if (error && !tarifa) {
+  if (error && !tarifa && !isCartMode) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white p-8 rounded-lg shadow-md text-center">
-          <p className="text-red-600 text-lg">{error}</p>
-          <button
-            onClick={() => router.back()}
-            className="mt-4 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-          >
-            Volver
-          </button>
+      <div className="min-h-screen bg-gray-50">
+        <EmpresaNav currentPage="" />
+        <div className="flex items-center justify-center py-20">
+          <div className="bg-white p-8 rounded-lg shadow-md text-center">
+            <p className="text-red-600 text-lg">{error}</p>
+            <button
+              onClick={() => router.back()}
+              className="mt-4 px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+            >
+              Volver
+            </button>
+          </div>
         </div>
+        <EmpresaFooter />
       </div>
     )
   }
 
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(amount)
+
   return (
-    <div className="min-h-screen bg-gray-50 py-8 px-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-gray-50">
+      <EmpresaNav currentPage="" />
+
+      <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Contratar servicio</h1>
-          <p className="text-gray-600 mt-2">Completa tus datos para finalizar la contratación</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Finalizar contratación</h1>
+          <p className="text-gray-600 mt-2">Completa tus datos para proceder al pago</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -135,7 +201,7 @@ function ContratarContent() {
           <div className="lg:col-span-2">
             <form onSubmit={handleSubmit} className="space-y-6">
               {/* Tipo de cliente */}
-              <div className="bg-white p-6 rounded-lg shadow-sm">
+              <div className="bg-white p-6 rounded-xl shadow-sm">
                 <h2 className="text-lg font-semibold mb-4">Tipo de cliente</h2>
                 <div className="flex gap-4">
                   <button
@@ -164,7 +230,7 @@ function ContratarContent() {
               </div>
 
               {/* Datos personales */}
-              <div className="bg-white p-6 rounded-lg shadow-sm">
+              <div className="bg-white p-6 rounded-xl shadow-sm">
                 <h2 className="text-lg font-semibold mb-4">Datos personales</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -238,7 +304,7 @@ function ContratarContent() {
               </div>
 
               {/* Método de pago */}
-              <div className="bg-white p-6 rounded-lg shadow-sm">
+              <div className="bg-white p-6 rounded-xl shadow-sm">
                 <h2 className="text-lg font-semibold mb-4">Método de pago</h2>
                 <div className="space-y-3">
                   {/* Tarjeta */}
@@ -343,7 +409,7 @@ function ContratarContent() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full py-4 bg-orange-500 text-white font-bold text-lg rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                className="w-full py-4 bg-orange-500 text-white font-bold text-lg rounded-xl hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg"
               >
                 {submitting ? (
                   <span className="flex items-center justify-center gap-2">
@@ -354,7 +420,7 @@ function ContratarContent() {
                     Procesando...
                   </span>
                 ) : (
-                  `Pagar ${importeFinal.toFixed(2)}€`
+                  `Pagar ${formatCurrency(importeFinal)}`
                 )}
               </button>
 
@@ -367,10 +433,56 @@ function ContratarContent() {
 
           {/* Resumen del pedido */}
           <div className="lg:col-span-1">
-            <div className="bg-white p-6 rounded-lg shadow-sm sticky top-8">
+            <div className="bg-white p-6 rounded-xl shadow-sm sticky top-24">
               <h2 className="text-lg font-semibold mb-4">Resumen del pedido</h2>
-              
-              {tarifa && (
+
+              {isCartMode ? (
+                <div className="space-y-4">
+                  {/* Items del carrito */}
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {cartItems.map((item) => (
+                      <div key={item.tarifaId} className="flex justify-between items-start text-sm border-b border-gray-50 pb-2">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-900">{item.nombre}</p>
+                          {item.cantidad > 1 && (
+                            <p className="text-xs text-gray-500">x{item.cantidad}</p>
+                          )}
+                        </div>
+                        <p className="font-medium text-gray-900 ml-2">
+                          {formatCurrency(item.precioConIva * item.cantidad)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="border-t pt-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Cuotas</span>
+                      <span className="font-medium">{formatCurrency(totalConIva)}</span>
+                    </div>
+                    {totalAltas > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Altas</span>
+                        <span className="font-medium">{formatCurrency(totalAltas)}</span>
+                      </div>
+                    )}
+                    {descuentoCrypto > 0 && (
+                      <div className="flex justify-between text-sm text-green-600">
+                        <span>Descuento crypto (1%)</span>
+                        <span>-{formatCurrency(descuentoCrypto)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="border-t pt-4">
+                    <div className="flex justify-between">
+                      <span className="font-bold text-gray-900">Total a pagar hoy</span>
+                      <span className="font-bold text-xl text-orange-600">{formatCurrency(importeFinal)}</span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">IVA incluido</p>
+                  </div>
+                </div>
+              ) : tarifa ? (
                 <div className="space-y-4">
                   <div>
                     <p className="font-medium text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</p>
@@ -383,19 +495,19 @@ function ContratarContent() {
                     {importeAlta > 0 && (
                       <div className="flex justify-between text-sm">
                         <span className="text-gray-600">Alta</span>
-                        <span className="font-medium">{importeAlta.toFixed(2)}€</span>
+                        <span className="font-medium">{formatCurrency(importeAlta)}</span>
                       </div>
                     )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">
                         Cuota {periodicidad === 'ANUAL' ? 'anual' : periodicidad === 'MENSUAL' ? 'mensual' : ''}
                       </span>
-                      <span className="font-medium">{importeCuota.toFixed(2)}€</span>
+                      <span className="font-medium">{formatCurrency(importeCuota)}</span>
                     </div>
                     {descuentoCrypto > 0 && (
                       <div className="flex justify-between text-sm text-green-600">
                         <span>Descuento crypto (1%)</span>
-                        <span>-{descuentoCrypto.toFixed(2)}€</span>
+                        <span>-{formatCurrency(descuentoCrypto)}</span>
                       </div>
                     )}
                   </div>
@@ -403,7 +515,7 @@ function ContratarContent() {
                   <div className="border-t pt-4">
                     <div className="flex justify-between">
                       <span className="font-bold text-gray-900">Total a pagar hoy</span>
-                      <span className="font-bold text-xl text-orange-600">{importeFinal.toFixed(2)}€</span>
+                      <span className="font-bold text-xl text-orange-600">{formatCurrency(importeFinal)}</span>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">IVA incluido</p>
                   </div>
@@ -416,11 +528,35 @@ function ContratarContent() {
                     </div>
                   )}
                 </div>
-              )}
+              ) : null}
+
+              {/* Trust badges */}
+              <div className="mt-6 pt-4 border-t space-y-2">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Pago seguro SSL 256-bit
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Activación inmediata tras el pago
+                </div>
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <svg className="w-4 h-4 text-green-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  Soporte técnico incluido
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
+      <EmpresaFooter />
     </div>
   )
 }
