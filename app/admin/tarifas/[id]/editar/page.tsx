@@ -75,6 +75,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     publicarWebEmpresa: false,
     seccionWebParticular: '',
     seccionWebEmpresa: '',
+    seccionesWebEmpresa: [] as string[],
     grupoProducto: '',
     varianteLabel: '',
     soloClientesExistentes: false,
@@ -142,6 +143,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             publicarWebEmpresa: data.publicarWebEmpresa || false,
             seccionWebParticular: data.seccionWebParticular || '',
             seccionWebEmpresa: data.seccionWebEmpresa || '',
+            seccionesWebEmpresa: data.seccionesWebEmpresa || (data.seccionWebEmpresa ? [data.seccionWebEmpresa] : []),
             grupoProducto: data.grupoProducto || '',
             varianteLabel: data.varianteLabel || '',
             soloClientesExistentes: data.soloClientesExistentes || false,
@@ -250,6 +252,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           publicarWebEmpresa: formData.publicarWebEmpresa,
           seccionWebParticular: formData.seccionWebParticular || null,
           seccionWebEmpresa: formData.seccionWebEmpresa || null,
+          seccionesWebEmpresa: formData.seccionesWebEmpresa,
           grupoProducto: formData.grupoProducto || null,
           varianteLabel: formData.varianteLabel || null,
           soloClientesExistentes: formData.soloClientesExistentes,
@@ -586,19 +589,39 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 </label>
                 {formData.publicarWebEmpresa && (
                   <div className="mt-3 pt-3 border-t border-orange-200">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Solución <span className="text-red-500">*</span></label>
-                    <select name="seccionWebEmpresa" value={formData.seccionWebEmpresa} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm text-gray-900 shadow-sm focus:border-orange-500 focus:ring-orange-500" required>
-                      <option value="">Seleccionar solución...</option>
-                      <option value="conectividad-avanzada">Conectividad Avanzada</option>
-                      <option value="comunicaciones-unificadas">Comunicaciones Unificadas</option>
-                      <option value="infraestructura-red">Infraestructura de Red</option>
-                      <option value="mantenimiento-it">Mantenimiento IT</option>
-                      <option value="moviles">Móviles Empresa</option>
-                      <option value="exagrid">ExaGrid Backup</option>
-                    </select>
-                    <p className="text-xs text-gray-400 mt-1">El producto aparecerá en la página de esta solución</p>
-                    {!formData.seccionWebEmpresa && (
-                      <p className="text-xs text-red-500 mt-1">⚠️ Debes seleccionar una solución para publicar en Empresas</p>
+                    <label className="block text-xs font-medium text-gray-700 mb-2">Secciones Web <span className="text-red-500">*</span></label>
+                    <div className="space-y-1">
+                      {[
+                        { value: 'conectividad-avanzada', label: 'Conectividad Avanzada' },
+                        { value: 'comunicaciones-unificadas', label: 'Comunicaciones Unificadas' },
+                        { value: 'infraestructura-red', label: 'Infraestructura de Red' },
+                        { value: 'mantenimiento-it', label: 'Mantenimiento IT' },
+                        { value: 'moviles', label: 'Móviles Empresa' },
+                        { value: 'exagrid', label: 'ExaGrid Backup' },
+                      ].map(opt => (
+                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={formData.seccionesWebEmpresa.includes(opt.value)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setFormData(prev => {
+                                const current = prev.seccionesWebEmpresa || [];
+                                const updated = checked
+                                  ? [...current, opt.value]
+                                  : current.filter((s: string) => s !== opt.value);
+                                return { ...prev, seccionesWebEmpresa: updated, seccionWebEmpresa: updated[0] || '' };
+                              });
+                            }}
+                            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                          />
+                          <span className="text-sm text-gray-700">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-400 mt-2">El producto aparecerá en las páginas seleccionadas (puede estar en varias)</p>
+                    {formData.seccionesWebEmpresa.length === 0 && (
+                      <p className="text-xs text-red-500 mt-1">⚠️ Debes seleccionar al menos una sección para publicar en Empresas</p>
                     )}
                   </div>
                 )}

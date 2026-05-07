@@ -236,7 +236,10 @@ export async function getTarifasSolucionEmpresa(solucion: string): Promise<{
       where: {
         activa: true,
         publicarWebEmpresa: true,
-        seccionWebEmpresa: solucion,
+        OR: [
+          { seccionWebEmpresa: solucion },
+          { seccionesWeb: { some: { seccion: solucion } } },
+        ],
       },
       select: tarifaSelect,
     }),

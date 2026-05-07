@@ -19,7 +19,20 @@ const seccionesInfo: Record<string, { nombre: string; descripcion: string }> = {
 export async function GET() {
   try {
     // Obtener secciones que tienen al menos una tarifa activa y publicada
-    const seccionesEmpresa = await prisma.tarifa.findMany({
+    // Usa la nueva tabla tarifa_secciones_web (many-to-many) con fallback al campo legacy
+    const seccionesFromTable = await prisma.tarifaSeccionWeb.findMany({
+      where: {
+        tarifa: {
+          activa: true,
+          publicarWebEmpresa: true,
+        },
+      },
+      select: { seccion: true },
+      distinct: ['seccion'],
+    });
+
+    // También consultar el campo legacy por si hay tarifas que aún no se migraron
+    const seccionesLegacy = await prisma.tarifa.findMany({
       where: {
         activa: true,
         publicarWebEmpresa: true,
@@ -29,9 +42,12 @@ export async function GET() {
       distinct: ['seccionWebEmpresa'],
     });
 
-    const secciones = seccionesEmpresa
-      .map(s => s.seccionWebEmpresa!)
-      .filter(Boolean)
+    // Combinar ambas fuentes (sin duplicados)
+    const allSlugs = new Set<string>();
+    seccionesFromTable.forEach(s => allSlugs.add(s.seccion));
+    seccionesLegacy.forEach(s => { if (s.seccionWebEmpresa) allSlugs.add(s.seccionWebEmpresa); });
+
+    const secciones = Array.from(allSlugs)
       .map(slug => ({
         slug,
         href: `/productos/${slug}`,

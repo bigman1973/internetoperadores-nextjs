@@ -33,9 +33,13 @@ export async function PATCH(
     }
     if ('publicarWebEmpresa' in body) {
       data.publicarWebEmpresa = body.publicarWebEmpresa
-      // If disabling empresa, also clear the section
+      // If disabling empresa, also clear the section and remove from secciones table
       if (!body.publicarWebEmpresa) {
         data.seccionWebEmpresa = null
+        // Remove all secciones from the many-to-many table
+        await prisma.tarifaSeccionWeb.deleteMany({
+          where: { tarifaId },
+        })
       }
     }
     if ('seccionWebParticular' in body) {
@@ -43,6 +47,24 @@ export async function PATCH(
     }
     if ('seccionWebEmpresa' in body) {
       data.seccionWebEmpresa = body.seccionWebEmpresa || null
+    }
+
+    // Handle multiple secciones (new many-to-many)
+    if ('seccionesWebEmpresa' in body) {
+      const secciones: string[] = body.seccionesWebEmpresa || []
+      
+      // Update legacy field with the first section (backward compatibility)
+      data.seccionWebEmpresa = secciones.length > 0 ? secciones[0] : null
+
+      // Sync the many-to-many table
+      await prisma.tarifaSeccionWeb.deleteMany({
+        where: { tarifaId },
+      })
+      if (secciones.length > 0) {
+        await prisma.tarifaSeccionWeb.createMany({
+          data: secciones.map(seccion => ({ tarifaId, seccion })),
+        })
+      }
     }
 
     const tarifa = await prisma.tarifa.update({
@@ -54,10 +76,16 @@ export async function PATCH(
         publicarWebEmpresa: true,
         seccionWebParticular: true,
         seccionWebEmpresa: true,
+        seccionesWeb: {
+          select: { seccion: true },
+        },
       },
     })
 
-    return NextResponse.json(tarifa)
+    return NextResponse.json({
+      ...tarifa,
+      seccionesWebEmpresa: tarifa.seccionesWeb.map((s: { seccion: string }) => s.seccion),
+    })
   } catch (error) {
     console.error('Error al actualizar publicación web:', error)
     return NextResponse.json(

@@ -1,5 +1,6 @@
 "use client";
 import Link from 'next/link';
+import Image from 'next/image';
 import { useState, useEffect, useMemo } from 'react';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
@@ -651,24 +652,38 @@ export default function ComunicacionesUnificadasPage() {
                 <div className="space-y-12">
                   {(() => {
                     // Agrupar por fabricante (nivel superior) derivado de subcategoría
-                    const fabricanteMap: Record<string, { nombre: string; subcategorias: Record<string, GrupoProducto[]> }> = {};
-                    const ordenFabricantes: Record<string, number> = { 'Zoom': 1, 'Wildix': 2, 'Otros': 99 };
+                    const fabricanteMap: Record<string, { nombre: string; subcategorias: Record<string, GrupoProducto[]>; individuales: Record<string, TarifaWeb[]> }> = {};
+                    const ordenFabricantes: Record<string, number> = { 'Wildix': 1, 'Otros': 50, 'Zoom': 99 };
+
+                    const getFabricante = (sub: string): string => {
+                      if (sub.toLowerCase().includes('zoom') || sub === 'Webinars' || sub === 'Grandes Reuniones' || sub === 'Salas de reuniones') return 'Zoom';
+                      if (sub.toLowerCase().includes('wildix')) return 'Wildix';
+                      return 'Otros';
+                    };
                     
                     gruposFiltrados.agrupados.forEach(grupo => {
                       const sub = grupo.subcategoria || 'Sin categoría';
-                      let fabricante = 'Otros';
-                      if (sub.toLowerCase().includes('zoom') || sub === 'Webinars' || sub === 'Grandes Reuniones' || sub === 'Salas de reuniones') {
-                        fabricante = 'Zoom';
-                      } else if (sub.toLowerCase().includes('wildix')) {
-                        fabricante = 'Wildix';
-                      }
+                      const fabricante = getFabricante(sub);
                       if (!fabricanteMap[fabricante]) {
-                        fabricanteMap[fabricante] = { nombre: fabricante, subcategorias: {} };
+                        fabricanteMap[fabricante] = { nombre: fabricante, subcategorias: {}, individuales: {} };
                       }
                       if (!fabricanteMap[fabricante].subcategorias[sub]) {
                         fabricanteMap[fabricante].subcategorias[sub] = [];
                       }
                       fabricanteMap[fabricante].subcategorias[sub].push(grupo);
+                    });
+
+                    // Incluir tarifas individuales dentro de su fabricante correspondiente
+                    gruposFiltrados.individuales.forEach(t => {
+                      const sub = t.subcategoria || 'Sin categoría';
+                      const fabricante = getFabricante(sub);
+                      if (!fabricanteMap[fabricante]) {
+                        fabricanteMap[fabricante] = { nombre: fabricante, subcategorias: {}, individuales: {} };
+                      }
+                      if (!fabricanteMap[fabricante].individuales[sub]) {
+                        fabricanteMap[fabricante].individuales[sub] = [];
+                      }
+                      fabricanteMap[fabricante].individuales[sub].push(t);
                     });
 
                     const fabricantesOrdenados = Object.entries(fabricanteMap).sort(
@@ -677,9 +692,21 @@ export default function ComunicacionesUnificadasPage() {
 
                     return fabricantesOrdenados.map(([fabricante, data]) => (
                       <div key={fabricante}>
-                        {/* Encabezado de fabricante */}
+                        {/* Encabezado de fabricante con logo */}
                         <div className="mb-6">
-                          <h2 className="text-2xl font-bold text-gray-900">{fabricante}</h2>
+                          {fabricante === 'Wildix' ? (
+                            <div className="flex items-center gap-3">
+                              <Image src="/logos/wildix-logo.png" alt="Wildix" width={160} height={50} className="h-10 w-auto object-contain" />
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Partner Certificado</span>
+                            </div>
+                          ) : fabricante === 'Zoom' ? (
+                            <div className="flex items-center gap-3">
+                              <Image src="/logos/zoom-logo.png" alt="Zoom" width={140} height={50} className="h-10 w-auto object-contain" />
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-medium">Partner Certificado</span>
+                            </div>
+                          ) : (
+                            <h2 className="text-2xl font-bold text-gray-900">{fabricante}</h2>
+                          )}
                           <div className="h-1 w-16 bg-orange-500 mt-2 rounded"></div>
                         </div>
                         {/* Subcategorías dentro del fabricante */}
@@ -694,29 +721,19 @@ export default function ComunicacionesUnificadasPage() {
                             </div>
                           </div>
                         ))}
+                        {/* Tarifas individuales dentro del fabricante */}
+                        {Object.entries(data.individuales).map(([subcat, tarifasSub]) => (
+                          <div key={`indiv-${subcat}`} className="mb-8">
+                            <h3 className="text-lg font-semibold text-gray-700 mb-4 pl-1">{subcat}</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                              {tarifasSub.map(tarifa => renderTarjetaIndividual(tarifa))}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     ));
                   })()}
-                  {/* Individuales agrupadas por subcategoría en vista Todas */}
-                  {(() => {
-                    const indivPorSub: Record<string, TarifaWeb[]> = {};
-                    gruposFiltrados.individuales.forEach(t => {
-                      const sub = t.subcategoria || 'Sin categoría';
-                      if (!indivPorSub[sub]) indivPorSub[sub] = [];
-                      indivPorSub[sub].push(t);
-                    });
-                    return Object.entries(indivPorSub).map(([subcat, tarifasSub]) => (
-                      <div key={`indiv-${subcat}`}>
-                        <div className="mb-6">
-                          <h2 className="text-2xl font-bold text-gray-900">{subcat}</h2>
-                          <div className="h-1 w-16 bg-orange-500 mt-2 rounded"></div>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                          {tarifasSub.map(tarifa => renderTarjetaIndividual(tarifa))}
-                        </div>
-                      </div>
-                    ));
-                  })()}
+
                 </div>
               ) : (gruposFiltrados.agrupados.length > 0 || gruposFiltrados.individuales.length > 0) ? (
                 <div>
