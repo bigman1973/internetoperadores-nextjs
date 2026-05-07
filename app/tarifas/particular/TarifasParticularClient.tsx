@@ -158,11 +158,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
         {tarifa.precioSinIva > 0 && (
           <p className="text-xs text-gray-400 mb-2">{tarifa.precioSinIva.toFixed(2)} € sin IVA</p>
         )}
-        {(tarifa.permanencia || tarifa.duracionPermanenciaMeses) && (
-          <p className="text-xs text-gray-500 mb-2">
-            Permanencia: {tarifa.duracionPermanenciaMeses ? `${tarifa.duracionPermanenciaMeses} meses` : tarifa.permanencia}
-          </p>
-        )}
         {tarifa.garantia && (
           <p className="text-xs text-gray-500 mb-2">
             Garantía: {tarifa.garantia}
