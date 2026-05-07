@@ -399,3 +399,77 @@ model TarifaSeccionWeb {
   @@index([tarifaId])
   @@map("tarifa_secciones_web")
 }
+
+model Order {
+  id                   String              @id @default(uuid())
+  // Cliente
+  customerEmail        String              @map("customer_email")
+  customerName         String              @map("customer_name")
+  customerPhone        String?             @map("customer_phone")
+  customerNif          String?             @map("customer_nif")
+  customerCompany      String?             @map("customer_company")
+  customerType         TipoCliente         @map("customer_type")
+  // Producto
+  tarifaId             Int                 @map("tarifa_id")
+  tarifaNombre         String              @map("tarifa_nombre")
+  // Importes
+  importeAlta          Decimal?            @map("importe_alta") @db.Decimal(10, 2)
+  importeCuota         Decimal             @map("importe_cuota") @db.Decimal(10, 2)
+  importeTotal         Decimal             @map("importe_total") @db.Decimal(10, 2)
+  moneda               String              @default("EUR") @db.VarChar(3)
+  // Periodicidad
+  periodicidad         Periodicidad        @default(MENSUAL)
+  // Pago
+  paymentGateway       PaymentGateway?     @map("payment_gateway")
+  paymentStatus        PaymentStatus       @default(PENDING) @map("payment_status")
+  gatewayTransactionId String?             @map("gateway_transaction_id")
+  gatewayPaymentUrl    String?             @map("gateway_payment_url")
+  blockchainTxHash     String?             @map("blockchain_tx_hash")
+  // Conciliación
+  settlementId         String?             @map("settlement_id")
+  reconciliationStatus ReconciliationStatus @default(PENDING_SETTLEMENT) @map("reconciliation_status")
+  // Recurrencia (preparado para futuro)
+  isRecurring          Boolean             @default(true) @map("is_recurring")
+  nextPaymentDate      DateTime?           @map("next_payment_date")
+  recurringActive      Boolean             @default(false) @map("recurring_active")
+  // Metadata
+  notes                String?
+  createdAt            DateTime            @default(now()) @map("created_at")
+  updatedAt            DateTime            @updatedAt @map("updated_at")
+  paidAt               DateTime?           @map("paid_at")
+
+  @@index([customerEmail])
+  @@index([paymentStatus])
+  @@index([paymentGateway])
+  @@index([reconciliationStatus])
+  @@index([createdAt])
+  @@index([tarifaId])
+  @@map("orders")
+}
+
+enum PaymentGateway {
+  VIVID_CARD
+  TRIPLE_A
+  VIVID_SEPA
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum ReconciliationStatus {
+  PENDING_SETTLEMENT
+  RECONCILED
+  DISPUTED
+}
+
+enum Periodicidad {
+  MENSUAL
+  ANUAL
+  PUNTUAL
+}
