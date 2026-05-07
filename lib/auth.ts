@@ -141,8 +141,9 @@ export const authOptions: NextAuthOptions = {
         const email = user.email?.toLowerCase()
         if (!email) return false
 
-        // Solo permitir emails de @internetoperadores.com
-        if (!email.endsWith('@internetoperadores.com')) {
+        // Dominios permitidos para acceso al panel
+        const allowedDomains = ['@internetoperadores.com', '@lfgd.es', '@farmsplanet.es']
+        if (!allowedDomains.some(domain => email.endsWith(domain))) {
           return '/login?error=unauthorized'
         }
 
