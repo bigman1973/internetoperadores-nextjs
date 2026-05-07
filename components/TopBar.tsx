@@ -1,10 +1,21 @@
 'use client'
 
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useSegment } from './SegmentProvider'
 
 export default function TopBar() {
   const { segment, setSegment } = useSegment()
+  const router = useRouter()
+
+  const handleSwitch = (target: 'empresa' | 'particular') => {
+    setSegment(target)
+    if (target === 'empresa') {
+      router.push('/tarifas/empresa')
+    } else {
+      router.push('/tarifas/particular')
+    }
+  }
 
   return (
     <div className="bg-white border-b border-gray-100 text-sm">
@@ -12,7 +23,7 @@ export default function TopBar() {
         {/* Toggle Empresas / Particulares */}
         <div className="flex items-center gap-4">
           <button
-            onClick={() => setSegment('empresa')}
+            onClick={() => handleSwitch('empresa')}
             className={`font-medium transition-colors ${
               segment === 'empresa'
                 ? 'text-orange-600 border-b-2 border-orange-600 pb-0.5'
@@ -22,7 +33,7 @@ export default function TopBar() {
             Empresas
           </button>
           <button
-            onClick={() => setSegment('particular')}
+            onClick={() => handleSwitch('particular')}
             className={`font-medium transition-colors ${
               segment === 'particular'
                 ? 'text-orange-600 border-b-2 border-orange-600 pb-0.5'
