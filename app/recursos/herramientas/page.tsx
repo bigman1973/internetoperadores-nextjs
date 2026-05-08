@@ -1,7 +1,7 @@
 "use client";
 import Link from 'next/link';
 import { useState } from 'react';
-import EmpresaNav from '../../../components/EmpresaNav';
+import DynamicNav from '../../../components/DynamicNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 
 const herramientas = [
@@ -49,7 +49,7 @@ export default function HerramientasPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <EmpresaNav currentPage="recursos" />
+      <DynamicNav currentPage="recursos" />
       
       <section className="bg-gradient-to-br from-orange-50 via-white to-orange-50 py-10 sm:py-16 lg:py-20">
         <div className="container mx-auto px-4 sm:px-6">
