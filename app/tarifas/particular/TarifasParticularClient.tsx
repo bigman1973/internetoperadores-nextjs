@@ -1,5 +1,4 @@
 'use client';
-
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -7,13 +6,8 @@ import ParticularNav from '../../../components/ParticularNav';
 import ParticularFooter from '../../../components/ParticularFooter';
 import AddToCartButton from '../../../components/AddToCartButton';
 import type { TarifaWeb } from '@/lib/tarifas-web';
-
 const iconoCategoria: Record<string, string> = {
   'INTERNET': '🌐',
-  
-  
-  
-  
   'TELEFONÍA FIJA': '📞',
   'TELEFONÍA FIJA (TARIFA PLANA)': '📞',
   'LÍNEA FIJA': '📞',
@@ -28,10 +22,6 @@ const iconoCategoria: Record<string, string> = {
   'PBX CLOUD WILDIX': '💬',
   'HOSTING': '☁️',
   'BACKUP Y CLOUD': '☁️',
-  'BACKUP': '☁️',
-  'SERVICIOS CLOUD': '☁️',
-  'SERVIDORES Y CLOUD': '🖥️',
-  'DATACENTER': '🖥️',
   'HOTSPOT Y GESTIÓN': '📶',
   'HOTSPOT': '📶',
   'EQUIPOS Y HARDWARE': '🔧',
@@ -45,20 +35,38 @@ const iconoCategoria: Record<string, string> = {
   'CUOTAS DE ALTA': '📋',
 };
 
+// Iconos y orden para subcategorías de Internet (tecnologías)
+const iconoTecnologia: Record<string, string> = {
+  'Fibra': '🔵',
+  '4G/5G': '📡',
+  'Radio': '📻',
+  'Satélite': '🛰️',
+};
+const ordenTecnologia: Record<string, number> = {
+  'Fibra': 1,
+  '4G/5G': 2,
+  'Radio': 3,
+  'Satélite': 4,
+};
+const descripcionTecnologia: Record<string, string> = {
+  'Fibra': 'Conexión de fibra óptica. Máxima velocidad y estabilidad para tu hogar.',
+  '4G/5G': 'Internet móvil de alta velocidad. Cobertura donde no llega la fibra.',
+  'Radio': 'Conexión inalámbrica por radioenlace. Ideal para zonas rurales y aisladas.',
+  'Satélite': 'Internet vía satélite. Cobertura garantizada en cualquier punto.',
+};
+
 interface Props {
   tarifas: TarifaWeb[];
   categorias: Record<string, TarifaWeb[]>;
   total: number;
   masVendidoIds?: number[];
 }
-
 export default function TarifasParticularClient({ tarifas, categorias, total, masVendidoIds = [] }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS');
   const [busqueda, setBusqueda] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-
   // Map URL ?cat= param to category filter
   useEffect(() => {
     const catParam = searchParams.get('cat');
@@ -76,11 +84,10 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       }
     }
   }, [searchParams]);
-
   // Títulos dinámicos según categoría
   const titulosPorCategoria: Record<string, { titulo: string; descripcion: string }> = {
     'TODAS': { titulo: 'Tarifas para Particulares', descripcion: 'Encuentra la tarifa perfecta para tu hogar. Internet, móvil y línea fija con la mejor cobertura.' },
-    'INTERNET': { titulo: 'Tarifas de Internet', descripcion: 'Fibra óptica, 4G y 5G para tu hogar. Conexión estable y rápida con la mejor cobertura.' },
+    'INTERNET': { titulo: 'Tarifas de Internet', descripcion: 'Fibra óptica, 4G/5G, radio y satélite para tu hogar. Conexión estable y rápida con la mejor cobertura.' },
     'TELEFONÍA MÓVIL': { titulo: 'Tarifas Móvil', descripcion: 'Datos, llamadas y SMS con cobertura nacional. Elige el plan que mejor se adapte a tu consumo.' },
     'TELEFONÍA MÓVIL (BASE)': { titulo: 'Tarifas Móvil', descripcion: 'Tarifas base de telefonía móvil con la mejor relación calidad-precio.' },
     'TELEFONÍA FIJA': { titulo: 'Tarifas de Fijo', descripcion: 'Línea fija con llamadas ilimitadas. La solución clásica que nunca falla.' },
@@ -88,22 +95,18 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     'MAS_VENDIDO': { titulo: 'Más Vendido', descripcion: 'Las tarifas más contratadas por nuestros clientes. Calidad probada y satisfacción garantizada.' },
   };
   const heroInfo = titulosPorCategoria[categoriaSeleccionada] || titulosPorCategoria['TODAS'];
-
   const categoriasOrdenadas = useMemo(() => {
     return Object.entries(categorias)
       .sort((a, b) => b[1].length - a[1].length)
       .map(([cat]) => cat);
   }, [categorias]);
-
   const tarifasFiltradas = useMemo(() => {
     let resultado = tarifas;
-
     if (categoriaSeleccionada === 'MAS_VENDIDO') {
       resultado = resultado.filter(t => masVendidoIds.includes(t.id));
     } else if (categoriaSeleccionada !== 'TODAS') {
       resultado = resultado.filter(t => t.categoria === categoriaSeleccionada);
     }
-
     if (busqueda.trim()) {
       const term = busqueda.toLowerCase();
       resultado = resultado.filter(t =>
@@ -113,9 +116,24 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
         t.categoria.toLowerCase().includes(term)
       );
     }
-
     return resultado;
-  }, [tarifas, categoriaSeleccionada, busqueda]);
+  }, [tarifas, categoriaSeleccionada, busqueda, masVendidoIds]);
+
+  // Agrupar tarifas de INTERNET por subcategoría (tecnología)
+  const tarifasPorTecnologia = useMemo(() => {
+    if (categoriaSeleccionada !== 'INTERNET') return null;
+    const grouped: Record<string, TarifaWeb[]> = {};
+    tarifasFiltradas.forEach(t => {
+      const tech = t.subcategoria || 'Otros';
+      if (!grouped[tech]) grouped[tech] = [];
+      grouped[tech].push(t);
+    });
+    // Ordenar por el orden definido
+    const sorted = Object.entries(grouped).sort((a, b) => {
+      return (ordenTecnologia[a[0]] || 99) - (ordenTecnologia[b[0]] || 99);
+    });
+    return sorted;
+  }, [tarifasFiltradas, categoriaSeleccionada]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -128,10 +146,8 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       setTimeout(() => setRefreshing(false), 1000);
     }
   };
-
   const tarifasDestacadas = tarifasFiltradas.filter(t => t.destacada);
   const tarifasNormales = tarifasFiltradas.filter(t => !t.destacada);
-
   const getDetalleConectividad = (tarifa: TarifaWeb): string | null => {
     const parts: string[] = [];
     if (tarifa.velocidad) return tarifa.velocidad;
@@ -141,7 +157,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     if (tarifa.minutosIncluidos) parts.push(`${tarifa.minutosIncluidos} min`);
     return parts.length > 0 ? parts.join(' · ') : null;
   };
-
   if (total === 0) {
     return (
       <div className="min-h-screen bg-gray-50">
@@ -159,7 +174,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       </div>
     );
   }
-
   const TarifaCard = ({ tarifa, destacada = false }: { tarifa: TarifaWeb; destacada?: boolean }) => (
     <div className={`bg-white rounded-xl shadow-sm hover:shadow-lg transition-shadow overflow-hidden ${tarifa.esPopular ? 'ring-2 ring-orange-500 border-orange-400' : destacada ? 'ring-2 ring-orange-500 border-orange-400' : 'border border-gray-100'}`}>
       {tarifa.esPopular && (
@@ -175,6 +189,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       <div className="p-6">
         <div className="text-xs text-orange-600 font-semibold uppercase tracking-wider mb-2">
           {iconoCategoria[tarifa.categoria] || '📦'} {tarifa.categoria}
+          {tarifa.subcategoria && <span className="text-gray-400 ml-2">· {tarifa.subcategoria}</span>}
         </div>
         <h3 className="text-xl font-bold text-gray-900 mb-2">{tarifa.nombreComercial || tarifa.nombre}</h3>
         {getDetalleConectividad(tarifa) && (
@@ -230,6 +245,9 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     </div>
   );
 
+  // Determinar si estamos en vista de Internet (para mostrar agrupación por tecnología)
+  const esVistaInternet = categoriaSeleccionada === 'INTERNET' && tarifasPorTecnologia && tarifasPorTecnologia.length > 0;
+
   return (
     <div className="min-h-screen bg-gray-50">
       <ParticularNav currentPage={searchParams.get("cat") || "internet"} />
@@ -246,7 +264,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
           </div>
         </div>
       </div>
-
       {/* Filtros */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow-sm p-4 md:p-6 mb-8">
@@ -294,7 +311,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
             </div>
           </div>
         </div>
-
         {/* Categorías rápidas */}
         {categoriasOrdenadas.length > 1 && (
           <div className="flex flex-wrap gap-2 justify-center mb-8">
@@ -324,32 +340,100 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
           </div>
         )}
 
-        {/* Tarifas Destacadas */}
-        {tarifasDestacadas.length > 0 && (
-          <div className="mb-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Tarifas Destacadas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {tarifasDestacadas.map(tarifa => (
-                <TarifaCard key={tarifa.id} tarifa={tarifa} destacada />
-              ))}
-            </div>
+        {/* Vista agrupada por tecnología (solo para INTERNET) */}
+        {esVistaInternet ? (
+          <div className="space-y-10">
+            {tarifasPorTecnologia!.map(([tech, tarifasTech]) => (
+              <div key={tech} id={`tech-${tech.toLowerCase().replace(/[^a-z0-9]/g, '')}`}>
+                {/* Header de tecnología */}
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-2xl">{iconoTecnologia[tech] || '📦'}</span>
+                  <div>
+                    <h2 className="text-2xl font-bold text-gray-900">{tech}</h2>
+                    <p className="text-sm text-gray-500">{descripcionTecnologia[tech] || `${tarifasTech.length} tarifas disponibles`}</p>
+                  </div>
+                </div>
+                {/* Tabla de tarifas por tecnología */}
+                <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-900 text-white">
+                          <th className="text-left px-6 py-4 font-semibold">Tarifa</th>
+                          <th className="text-left px-6 py-4 font-semibold">Detalle</th>
+                          <th className="text-right px-6 py-4 font-semibold">Precio/mes</th>
+                          <th className="text-center px-6 py-4 font-semibold">Alta</th>
+                          <th className="text-center px-6 py-4 font-semibold"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tarifasTech
+                          .sort((a, b) => a.precioConIva - b.precioConIva)
+                          .map((tarifa, idx) => (
+                          <tr key={tarifa.id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</span>
+                                {tarifa.esPopular && <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Más vendido</span>}
+                                {tarifa.destacada && !tarifa.esPopular && <span className="text-yellow-500 text-xs">★</span>}
+                              </div>
+                              {tarifa.descripcionCorta && (
+                                <p className="text-xs text-gray-500 mt-1">{tarifa.descripcionCorta}</p>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-gray-600 text-sm">
+                              {getDetalleConectividad(tarifa) || '—'}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <span className="font-bold text-gray-900 text-lg">
+                                {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
+                              </span>
+                              {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">IVA incl.</span>}
+                              {tarifa.precioSinIva > 0 && <span className="text-gray-400 text-xs block">{tarifa.precioSinIva.toFixed(2)} € sin IVA</span>}
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-gray-600">
+                              {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 ? `${(tarifa.cuotaAlta * 1.21).toFixed(2)} €` : '—'}
+                            </td>
+                            <td className="px-6 py-4 text-center">
+                              <AddToCartButton tarifa={tarifa} variant="secondary" compact />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
+        ) : (
+          <>
+            {/* Tarifas Destacadas */}
+            {tarifasDestacadas.length > 0 && (
+              <div className="mb-12">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">Tarifas Destacadas</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {tarifasDestacadas.map(tarifa => (
+                    <TarifaCard key={tarifa.id} tarifa={tarifa} destacada />
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Tarifas Normales */}
+            {tarifasNormales.length > 0 && (
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">
+                  {tarifasDestacadas.length > 0 ? 'Todas las Tarifas' : 'Nuestras Tarifas'}
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {tarifasNormales.map(tarifa => (
+                    <TarifaCard key={tarifa.id} tarifa={tarifa} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         )}
-
-        {/* Tarifas Normales */}
-        {tarifasNormales.length > 0 && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">
-              {tarifasDestacadas.length > 0 ? 'Todas las Tarifas' : 'Nuestras Tarifas'}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {tarifasNormales.map(tarifa => (
-                <TarifaCard key={tarifa.id} tarifa={tarifa} />
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Sin resultados */}
         {tarifasFiltradas.length === 0 && (
           <div className="text-center py-12">
@@ -363,7 +447,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
           </div>
         )}
       </div>
-
       {/* CTA Final */}
       <div className="bg-gradient-to-r from-orange-500 to-orange-600 py-16">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white">

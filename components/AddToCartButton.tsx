@@ -17,9 +17,10 @@ interface AddToCartButtonProps {
   }
   className?: string
   variant?: 'primary' | 'secondary'
+  compact?: boolean
 }
 
-export default function AddToCartButton({ tarifa, className, variant = 'primary' }: AddToCartButtonProps) {
+export default function AddToCartButton({ tarifa, className, variant = 'primary', compact = false }: AddToCartButtonProps) {
   const { addItem, items } = useCart()
   const [added, setAdded] = useState(false)
 
@@ -38,6 +39,28 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
     })
     setAdded(true)
     setTimeout(() => setAdded(false), 2000)
+  }
+
+  // Compact mode for table rows
+  if (compact) {
+    if (added) {
+      return (
+        <span className="inline-flex items-center gap-1 text-green-600 text-xs font-medium">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Añadido
+        </span>
+      )
+    }
+    return (
+      <button
+        onClick={handleAdd}
+        className={`bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${className || ''}`}
+      >
+        Contratar
+      </button>
+    )
   }
 
   const baseClasses = variant === 'primary'
