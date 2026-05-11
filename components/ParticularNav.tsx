@@ -27,7 +27,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
       <div className="container mx-auto px-3 sm:px-4">
         <div className="flex justify-between items-center h-[60px] sm:h-[70px]">
           {/* Logo */}
-          <Link href="/tarifas/particular" className="flex items-center">
+          <Link href="/particular" className="flex items-center">
             <img
               src="/logo_transparent.png"
               alt="Internet Operadores"
@@ -50,6 +50,13 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
                 {item.nombre}
               </Link>
             ))}
+            <span className="text-gray-300">|</span>
+            <Link
+              href="/empresa"
+              className="text-gray-500 hover:text-orange-600 transition-colors"
+            >
+              Empresa
+            </Link>
           </div>
 
           {/* Right side: Cart + CTA */}
@@ -116,6 +123,15 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
                 {item.nombre}
               </Link>
             ))}
+            <div className="border-t border-gray-100 pt-3 mt-2">
+              <Link
+                href="/empresa"
+                className="block text-gray-500 hover:text-orange-600 font-medium py-2"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Empresa
+              </Link>
+            </div>
             <Link
               href="/recursos/herramientas/cobertura-fibra"
               className="block bg-orange-600 text-white text-center px-5 py-3 rounded-lg font-semibold mt-3"

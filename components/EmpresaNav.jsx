@@ -56,7 +56,7 @@ export default function EmpresaNav({ currentPage = '' }) {
       <nav className="bg-white border-b sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-3 sm:px-4">
           <div className="flex justify-between items-center h-[60px] sm:h-[70px]">
-            <Link href="/" className="flex items-center">
+            <Link href="/empresa" className="flex items-center">
               <img 
                 src="/logo_transparent.png" 
                 alt="Internet Operadores" 
@@ -228,6 +228,16 @@ export default function EmpresaNav({ currentPage = '' }) {
               >
                 Partners
               </Link>
+
+              <span className="text-gray-300">|</span>
+
+              {/* Particulares */}
+              <Link 
+                href="/particular" 
+                className="text-gray-500 hover:text-orange-600 transition-colors"
+              >
+                Particulares
+              </Link>
             </div>
 
             {/* CTA Buttons */}
@@ -360,6 +370,7 @@ export default function EmpresaNav({ currentPage = '' }) {
                 {/* Mobile Empresa & Partners */}
                 <Link href="/empresa" className="py-2 text-orange-600 font-semibold">Empresa</Link>
                 <Link href="/partners" className="py-2 text-orange-600 font-semibold">Partners</Link>
+                <Link href="/particular" className="py-2 text-gray-500 font-medium hover:text-orange-600">Particulares</Link>
 
                 {/* Mobile CTAs */}
                 <div className="flex gap-2 mt-4 pt-4 border-t">
