@@ -15,15 +15,16 @@ export async function GET(request: NextRequest) {
       FROM facturas WHERE ejercicio = 2026
     `) as any[]
     const ultimoMesConDatos = ultimoMes2026Result[0]?.ultimo_mes || 5
-    // Para comparativa justa: usar solo meses CERRADOS (hasta el mes anterior al actual con datos)
-    const ultimoMesCerrado = ultimoMesConDatos - 1 || 1
-    // El mes en curso es parcial
+    
+    // Para estadísticas usamos solo meses CERRADOS (el mes con datos más reciente es parcial)
+    // Si solo hay 1 mes con datos, usamos ese (asumimos cerrado)
+    const ultimoMesCerrado = ultimoMesConDatos > 1 ? ultimoMesConDatos - 1 : 1
     const mesEnCurso = ultimoMesConDatos
-    // Para las queries de comparativa usamos ultimoMesCerrado
+    // Variable principal para todas las queries de comparativa
     const ultimoMes2026 = ultimoMesCerrado
 
     if (tipo === 'mensual') {
-      // Evolución mensual 2025 vs 2026
+      // Evolución mensual 2025 vs 2026 (solo meses cerrados)
       const datos2025 = await prisma.$queryRawUnsafe(`
         SELECT mes, 
           COUNT(*)::int as facturas,
@@ -31,9 +32,9 @@ export async function GET(request: NextRequest) {
           SUM(total_con_iva)::float as total_con_iva,
           COUNT(DISTINCT codigo_cliente)::int as clientes_unicos
         FROM facturacion_historica 
-        WHERE anio = 2025
+        WHERE anio = 2025 AND mes <= $1
         GROUP BY mes ORDER BY mes
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
       const datos2026 = await prisma.$queryRawUnsafe(`
         SELECT EXTRACT(MONTH FROM fecha)::int as mes,
@@ -42,28 +43,20 @@ export async function GET(request: NextRequest) {
           SUM(total)::float as total_con_iva,
           COUNT(DISTINCT codigo_cliente)::int as clientes_unicos
         FROM facturas
-        WHERE ejercicio = 2026
+        WHERE ejercicio = 2026 AND EXTRACT(MONTH FROM fecha) <= $1
         GROUP BY mes ORDER BY mes
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
-      // Totales anuales completos
-      const total2025 = await prisma.$queryRawUnsafe(`
-        SELECT SUM(precio_sin_iva)::float as total_sin_iva, 
-          SUM(total_con_iva)::float as total_con_iva,
-          COUNT(*)::int as facturas,
-          COUNT(DISTINCT codigo_cliente)::int as clientes
-        FROM facturacion_historica WHERE anio = 2025
-      `) as any[]
-
+      // Totales 2026 SOLO meses cerrados (para que coincida con la etiqueta)
       const total2026 = await prisma.$queryRawUnsafe(`
         SELECT SUM(base)::float as total_sin_iva,
           SUM(total)::float as total_con_iva,
           COUNT(*)::int as facturas,
           COUNT(DISTINCT codigo_cliente)::int as clientes
-        FROM facturas WHERE ejercicio = 2026
-      `) as any[]
+        FROM facturas WHERE ejercicio = 2026 AND EXTRACT(MONTH FROM fecha) <= $1
+      `, ultimoMes2026) as any[]
 
-      // Total 2025 SOLO mismo período (para comparativa justa)
+      // Total 2025 mismo período (para comparativa justa)
       const total2025MismoPeriodo = await prisma.$queryRawUnsafe(`
         SELECT SUM(precio_sin_iva)::float as total_sin_iva, 
           SUM(total_con_iva)::float as total_con_iva,
@@ -71,6 +64,15 @@ export async function GET(request: NextRequest) {
           COUNT(DISTINCT codigo_cliente)::int as clientes
         FROM facturacion_historica WHERE anio = 2025 AND mes <= $1
       `, ultimoMes2026) as any[]
+
+      // Total anual completo 2025 (para referencia)
+      const total2025 = await prisma.$queryRawUnsafe(`
+        SELECT SUM(precio_sin_iva)::float as total_sin_iva, 
+          SUM(total_con_iva)::float as total_con_iva,
+          COUNT(*)::int as facturas,
+          COUNT(DISTINCT codigo_cliente)::int as clientes
+        FROM facturacion_historica WHERE anio = 2025
+      `) as any[]
 
       return NextResponse.json({
         datos2025,
@@ -117,7 +119,7 @@ export async function GET(request: NextRequest) {
         `, codigosClientes) as any[]
       }
 
-      // Mismos clientes en 2026 (mismo período)
+      // Mismos clientes en 2026 (mismo período cerrado)
       let topClientes2026: any[] = []
       if (codigosClientes.length > 0) {
         topClientes2026 = await prisma.$queryRawUnsafe(`
@@ -130,12 +132,12 @@ export async function GET(request: NextRequest) {
               EXTRACT(MONTH FROM fecha)::int as mes,
               SUM(total)::float as total_mes
             FROM facturas 
-            WHERE ejercicio = 2026 AND codigo_cliente::int = ANY($1)
+            WHERE ejercicio = 2026 AND codigo_cliente::int = ANY($1) AND EXTRACT(MONTH FROM fecha) <= $2
             GROUP BY codigo_cliente, nombre_completo, EXTRACT(MONTH FROM fecha)::int
           ) sub
           GROUP BY codigo_cliente, nombre_cliente
           ORDER BY total_periodo DESC
-        `, codigosClientes) as any[]
+        `, codigosClientes, ultimoMes2026) as any[]
       }
 
       return NextResponse.json({
@@ -150,7 +152,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (tipo === 'categorias') {
-      // Distribución por segmento - MISMO PERÍODO
+      // Distribución por segmento - MISMO PERÍODO cerrado
       const distribucion2025 = await prisma.$queryRawUnsafe(`
         SELECT 
           CASE 
@@ -182,12 +184,12 @@ export async function GET(request: NextRequest) {
           SUM(total_cliente)::float as total_segmento
         FROM (
           SELECT codigo_cliente::int, SUM(total)::float as total_cliente
-          FROM facturas WHERE ejercicio = 2026
+          FROM facturas WHERE ejercicio = 2026 AND EXTRACT(MONTH FROM fecha) <= $1
           GROUP BY codigo_cliente
         ) sub
         GROUP BY segmento
         ORDER BY total_segmento DESC
-      `) as any[]
+      `, ultimoMes2026) as any[]
 
       // Evolución mensual por segmento 2025 (mismo período)
       const mensualSegmento2025 = await prisma.$queryRawUnsafe(`
@@ -223,7 +225,7 @@ export async function GET(request: NextRequest) {
           SELECT codigo_cliente::int, EXTRACT(MONTH FROM fecha)::int as mes,
             SUM(total)::float as total_mes,
             AVG(SUM(total)) OVER (PARTITION BY codigo_cliente)::float as total_cliente
-          FROM facturas WHERE ejercicio = 2026
+          FROM facturas WHERE ejercicio = 2026 AND EXTRACT(MONTH FROM fecha) <= $1
           GROUP BY codigo_cliente, EXTRACT(MONTH FROM fecha)::int
         ) sub
         GROUP BY mes, segmento
