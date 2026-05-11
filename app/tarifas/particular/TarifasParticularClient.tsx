@@ -233,9 +233,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
             <Link href="/contacto" className="bg-white text-orange-600 hover:bg-gray-100 px-8 py-3 rounded-lg font-semibold transition-colors">
               Contactar
             </Link>
-            <Link href="/tarifas/empresa" className="border-2 border-white/30 text-white hover:bg-white/10 px-8 py-3 rounded-lg font-semibold transition-colors">
-              Ver Tarifas Empresas
-            </Link>
           </div>
         </div>
       </div>
