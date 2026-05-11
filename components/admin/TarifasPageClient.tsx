@@ -230,7 +230,7 @@ export default function TarifasPageClient() {
   const [searchInput, setSearchInput] = useState('')
   const [tipoCliente, setTipoCliente] = useState('')
   const [categoria, setCategoria] = useState('')
-  const [estado, setEstado] = useState('')
+  const [estado, setEstado] = useState('activa')
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
