@@ -283,53 +283,8 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
           </div>
         </div>
       </div>
-      {/* Filtros */}
+      {/* Categorías */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-lg shadow-sm p-4 md:p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Buscar tarifa</label>
-              <input
-                type="text"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Nombre, velocidad..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
-              <select
-                value={categoriaSeleccionada}
-                onChange={(e) => setCategoriaSeleccionada(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                <option value="TODAS">Todas las categorías ({total})</option>
-                {categoriasOrdenadas.map(cat => (
-                  <option key={cat} value={cat}>
-                    {iconoCategoria[cat] || '📦'} {cat} ({categorias[cat]?.length || 0})
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
-                Mostrando <span className="font-bold text-orange-600">{tarifasFiltradas.length}</span> tarifas
-              </p>
-              <button
-                onClick={handleRefresh}
-                disabled={refreshing}
-                className="text-xs text-gray-400 hover:text-orange-600 flex items-center gap-1 transition-colors"
-                title="Actualizar tarifas"
-              >
-                <svg className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
-                </svg>
-                {refreshing ? 'Actualizando...' : 'Actualizar'}
-              </button>
-            </div>
-          </div>
-        </div>
         {/* Categorías rápidas */}
         {categoriasOrdenadas.length > 1 && (
           <div className="flex flex-wrap gap-2 justify-center mb-8">
