@@ -39,7 +39,7 @@ const iconoCategoria: Record<string, string> = {
 const iconoTecnologia: Record<string, string> = {
   'Fibra': '🔵',
   '4G/5G': '📡',
-  'Radio': '📻',
+  'Radio': '📶',
   'Satélite': '🛰️',
 };
 const ordenTecnologia: Record<string, number> = {
@@ -353,7 +353,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                     <p className="text-sm text-gray-500">{descripcionTecnologia[tech] || `${tarifasTech.length} tarifas disponibles`}</p>
                   </div>
                 </div>
-                {/* Tabla de tarifas por tecnología */}
+                {/* Tabla de tarifas por tecnología - ficha completa como empresas */}
                 <div className="bg-white rounded-xl shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -361,7 +361,10 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                         <tr className="bg-gray-900 text-white">
                           <th className="text-left px-6 py-4 font-semibold">Tarifa</th>
                           <th className="text-left px-6 py-4 font-semibold">Detalle</th>
-                          <th className="text-right px-6 py-4 font-semibold">Precio/mes</th>
+                          <th className="text-right px-6 py-4 font-semibold">Precio (sin IVA)</th>
+                          <th className="text-right px-6 py-4 font-semibold">Precio (con IVA)</th>
+                          <th className="text-center px-6 py-4 font-semibold">Permanencia</th>
+                          <th className="text-center px-6 py-4 font-semibold">Garantía</th>
                           <th className="text-center px-6 py-4 font-semibold">Alta</th>
                           <th className="text-center px-6 py-4 font-semibold"></th>
                         </tr>
@@ -384,12 +387,20 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                             <td className="px-6 py-4 text-gray-600 text-sm">
                               {getDetalleConectividad(tarifa) || '—'}
                             </td>
+                            <td className="px-6 py-4 text-right text-gray-700">
+                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : '-'}
+                            </td>
                             <td className="px-6 py-4 text-right">
                               <span className="font-bold text-gray-900 text-lg">
                                 {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
                               </span>
-                              {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">IVA incl.</span>}
-                              {tarifa.precioSinIva > 0 && <span className="text-gray-400 text-xs block">{tarifa.precioSinIva.toFixed(2)} € sin IVA</span>}
+                              {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-gray-600">
+                              —
+                            </td>
+                            <td className="px-6 py-4 text-center text-sm text-gray-600">
+                              {tarifa.garantia || '—'}
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
                               {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 ? `${(tarifa.cuotaAlta * 1.21).toFixed(2)} €` : '—'}
