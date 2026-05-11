@@ -56,7 +56,7 @@ export default function ParticularFooter() {
               <li><Link href="/tarifas/particular?cat=internet" className="text-gray-400 hover:text-orange-400 transition-colors">Internet</Link></li>
               <li><Link href="/tarifas/particular?cat=movil" className="text-gray-400 hover:text-orange-400 transition-colors">Móvil</Link></li>
               <li><Link href="/tarifas/particular?cat=packs" className="text-gray-400 hover:text-orange-400 transition-colors">Packs</Link></li>
-              <li><Link href="/tarifas/particular?cat=ofertas" className="text-gray-400 hover:text-orange-400 transition-colors">Ofertas</Link></li>
+              <li><Link href="/tarifas/particular?cat=mas-vendido" className="text-gray-400 hover:text-orange-400 transition-colors">Más Vendido</Link></li>
             </ul>
           </div>
 

@@ -4,12 +4,12 @@ import SeccionTarifasParticular from '@/components/public/SeccionTarifasParticul
 export const revalidate = 60;
 
 export const metadata = {
-  title: 'Ofertas Especiales | Internet Operadores',
-  description: 'Las mejores ofertas y promociones en internet, móvil y packs. Aprovecha nuestros descuentos.',
+  title: 'Más Vendido | Internet Operadores',
+  description: 'Las tarifas más contratadas por nuestros clientes. Calidad probada y satisfacción garantizada.',
 };
 
 export default async function OfertasPage() {
-  const { top3, total } = await getTarifasSeccionParticular('ofertas');
+  const { top3, total } = await getTarifasSeccionParticular('mas-vendido');
 
   const icono = (
     <svg className="w-16 h-16 mx-auto text-white/90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -20,14 +20,14 @@ export default async function OfertasPage() {
 
   return (
     <SeccionTarifasParticular
-      titulo="Ofertas"
+      titulo="Más Vendido"
       subtitulo="Las mejores promociones para ti"
-      descripcion="Descubre nuestras ofertas especiales y promociones exclusivas. Tiempo limitado."
+      descripcion="Las tarifas más contratadas por nuestros clientes. Calidad probada y satisfacción garantizada."
       icono={icono}
       color="purple"
       top3={top3}
       totalTarifas={total}
-      seccion="ofertas"
+      seccion="mas-vendido"
     />
   );
 }

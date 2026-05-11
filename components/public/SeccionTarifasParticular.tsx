@@ -81,7 +81,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
                 <Link href="/internet" className={`text-base font-medium transition-colors ${seccion === 'internet' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Internet</Link>
                 <Link href="/movil" className={`text-base font-medium transition-colors ${seccion === 'movil' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Móvil</Link>
                 <Link href="/packs" className={`text-base font-medium transition-colors ${seccion === 'packs' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Packs</Link>
-                <Link href="/ofertas" className={`text-base font-medium transition-colors ${seccion === 'ofertas' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Ofertas</Link>
+                <Link href="/mas-vendido" className={`text-base font-medium transition-colors ${seccion === 'mas-vendido' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Más Vendido</Link>
               </nav>
               <Link href="#cobertura" className="px-6 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm">
                 Comprobar Cobertura
@@ -175,7 +175,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
                 <li><Link href="/internet" className="hover:text-white">Internet</Link></li>
                 <li><Link href="/movil" className="hover:text-white">Móvil</Link></li>
                 <li><Link href="/packs" className="hover:text-white">Packs</Link></li>
-                <li><Link href="/ofertas" className="hover:text-white">Ofertas</Link></li>
+                <li><Link href="/mas-vendido" className="hover:text-white">Más Vendido</Link></li>
               </ul>
             </div>
             <div>

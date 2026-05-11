@@ -179,7 +179,7 @@ function SeccionSelector({ value, onChange, disabled }: {
       <option value="internet">Internet</option>
       <option value="movil">Móvil</option>
       <option value="packs">Packs</option>
-      <option value="ofertas">Ofertas</option>
+      <option value="mas-vendido">Más Vendido</option>
     </select>
   )
 }
