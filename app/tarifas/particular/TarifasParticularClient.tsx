@@ -214,12 +214,12 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                   <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
-                  <div>
+                  <span>
                     <span className="font-medium text-gray-800">{feat.titulo}</span>
                     {feat.descripcion && (
                       <span className="text-gray-500"> - {feat.descripcion}</span>
                     )}
-                  </div>
+                  </span>
                 </div>
               ))}
             </div>
