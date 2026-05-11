@@ -18,7 +18,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
     { nombre: 'Internet', href: '/tarifas/particular?cat=internet', key: 'internet' },
     { nombre: 'Móvil', href: '/tarifas/particular?cat=movil', key: 'movil' },
     { nombre: 'Packs', href: '/tarifas/particular?cat=packs', key: 'packs' },
-    { nombre: 'Ofertas', href: '/tarifas/particular?cat=ofertas', key: 'ofertas' },
+    { nombre: 'Más Vendido', href: '/tarifas/particular?cat=mas-vendido', key: 'mas-vendido' },
   ]
 
   return (

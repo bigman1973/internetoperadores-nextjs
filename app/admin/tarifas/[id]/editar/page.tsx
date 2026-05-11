@@ -75,6 +75,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
     publicarWebEmpresa: false,
     seccionWebParticular: '',
     seccionWebEmpresa: '',
+    seccionesWebParticular: [] as string[],
     seccionesWebEmpresa: [] as string[],
     grupoProducto: '',
     varianteLabel: '',
@@ -143,6 +144,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
             publicarWebEmpresa: data.publicarWebEmpresa || false,
             seccionWebParticular: data.seccionWebParticular || '',
             seccionWebEmpresa: data.seccionWebEmpresa || '',
+            seccionesWebParticular: data.seccionesWebParticular || (data.seccionWebParticular ? [data.seccionWebParticular] : []),
             seccionesWebEmpresa: data.seccionesWebEmpresa || (data.seccionWebEmpresa ? [data.seccionWebEmpresa] : []),
             grupoProducto: data.grupoProducto || '',
             varianteLabel: data.varianteLabel || '',
@@ -252,6 +254,7 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
           publicarWebEmpresa: formData.publicarWebEmpresa,
           seccionWebParticular: formData.seccionWebParticular || null,
           seccionWebEmpresa: formData.seccionWebEmpresa || null,
+          seccionesWebParticular: formData.seccionesWebParticular,
           seccionesWebEmpresa: formData.seccionesWebEmpresa,
           grupoProducto: formData.grupoProducto || null,
           varianteLabel: formData.varianteLabel || null,
@@ -567,15 +570,37 @@ export default function EditarTarifaPage({ params }: { params: Promise<{ id: str
                 </label>
                 {formData.publicarWebParticular && (
                   <div className="mt-3 pt-3 border-t border-blue-200">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Sección del menú</label>
-                    <select name="seccionWebParticular" value={formData.seccionWebParticular} onChange={handleChange} className="w-full rounded-md border-gray-300 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:ring-blue-500">
-                      <option value="">Sin sección específica</option>
-                      <option value="internet">Internet</option>
-                      <option value="movil">Móvil</option>
-                      <option value="packs">Packs</option>
-                      <option value="ofertas">Ofertas</option>
-                    </select>
-                    <p className="text-xs text-gray-400 mt-1">Aparecerá en la página correspondiente del menú de Particulares</p>
+                    <label className="block text-xs font-medium text-gray-700 mb-2">Secciones del menú (puede pertenecer a varias)</label>
+                    <div className="space-y-2">
+                      {[
+                        { value: 'internet', label: 'Internet' },
+                        { value: 'movil', label: 'Móvil' },
+                        { value: 'packs', label: 'Packs' },
+                        { value: 'mas-vendido', label: 'Más Vendido' },
+                      ].map(opt => (
+                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4 text-blue-600 rounded border-gray-300"
+                            checked={formData.seccionesWebParticular.includes(opt.value)}
+                            onChange={(e) => {
+                              setFormData(prev => {
+                                const current = prev.seccionesWebParticular || [];
+                                const updated = e.target.checked
+                                  ? [...current, opt.value]
+                                  : current.filter((s: string) => s !== opt.value);
+                                return { ...prev, seccionesWebParticular: updated, seccionWebParticular: updated[0] || '' };
+                              });
+                            }}
+                          />
+                          <span className="text-sm text-gray-700">{opt.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    {formData.seccionesWebParticular.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-2">⚠️ Selecciona al menos una sección para que aparezca en la web</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-2">La tarifa aparecerá en todas las secciones seleccionadas</p>
                   </div>
                 )}
               </div>

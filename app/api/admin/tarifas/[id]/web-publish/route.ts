@@ -26,9 +26,12 @@ export async function PATCH(
 
     if ('publicarWebParticular' in body) {
       data.publicarWebParticular = body.publicarWebParticular
-      // If disabling particular, also clear the section
+      // If disabling particular, also clear the section and remove from secciones table
       if (!body.publicarWebParticular) {
         data.seccionWebParticular = null
+        await prisma.tarifaSeccionWebParticular.deleteMany({
+          where: { tarifaId },
+        })
       }
     }
     if ('publicarWebEmpresa' in body) {
@@ -49,7 +52,25 @@ export async function PATCH(
       data.seccionWebEmpresa = body.seccionWebEmpresa || null
     }
 
-    // Handle multiple secciones (new many-to-many)
+    // Handle multiple secciones for Particulares (many-to-many)
+    if ('seccionesWebParticular' in body) {
+      const secciones: string[] = body.seccionesWebParticular || []
+      
+      // Update legacy field with the first section (backward compatibility)
+      data.seccionWebParticular = secciones.length > 0 ? secciones[0] : null
+
+      // Sync the many-to-many table
+      await prisma.tarifaSeccionWebParticular.deleteMany({
+        where: { tarifaId },
+      })
+      if (secciones.length > 0) {
+        await prisma.tarifaSeccionWebParticular.createMany({
+          data: secciones.map(seccion => ({ tarifaId, seccion })),
+        })
+      }
+    }
+
+    // Handle multiple secciones for Empresa (many-to-many)
     if ('seccionesWebEmpresa' in body) {
       const secciones: string[] = body.seccionesWebEmpresa || []
       
@@ -79,12 +100,16 @@ export async function PATCH(
         seccionesWeb: {
           select: { seccion: true },
         },
+        seccionesWebParticular: {
+          select: { seccion: true },
+        },
       },
     })
 
     return NextResponse.json({
       ...tarifa,
       seccionesWebEmpresa: tarifa.seccionesWeb.map((s: { seccion: string }) => s.seccion),
+      seccionesWebParticular: tarifa.seccionesWebParticular.map((s: { seccion: string }) => s.seccion),
     })
   } catch (error) {
     console.error('Error al actualizar publicación web:', error)

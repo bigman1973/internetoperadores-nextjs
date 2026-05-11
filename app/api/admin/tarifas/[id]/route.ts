@@ -37,12 +37,14 @@ export async function GET(
       where: { id: tarifaId },
       include: {
         seccionesWeb: { select: { seccion: true } },
+        seccionesWebParticular: { select: { seccion: true } },
       },
     })
     if (!tarifa) return NextResponse.json({ error: 'No encontrada' }, { status: 404 })
     return NextResponse.json({
       ...tarifa,
       seccionesWebEmpresa: tarifa.seccionesWeb.map(s => s.seccion),
+      seccionesWebParticular: tarifa.seccionesWebParticular.map(s => s.seccion),
     })
   } catch (error) {
     return NextResponse.json({ error: 'Error al obtener' }, { status: 500 })
@@ -62,18 +64,28 @@ export async function PATCH(
     const tarifaId = parseInt(resolvedParams.id)
     const body = await request.json()
 
-    // Extract seccionesWebEmpresa before passing to Prisma update
-    const { seccionesWebEmpresa, ...updateData } = body
+    // Extract multi-category fields before passing to Prisma update
+    const { seccionesWebEmpresa, seccionesWebParticular, ...updateData } = body
 
     // If seccionesWebEmpresa is provided, sync the many-to-many table
     if (seccionesWebEmpresa !== undefined) {
       const secciones: string[] = seccionesWebEmpresa || []
-      // Update legacy field for backward compatibility
       updateData.seccionWebEmpresa = secciones.length > 0 ? secciones[0] : null
-      // Sync the many-to-many table
       await prisma.tarifaSeccionWeb.deleteMany({ where: { tarifaId } })
       if (secciones.length > 0) {
         await prisma.tarifaSeccionWeb.createMany({
+          data: secciones.map((seccion: string) => ({ tarifaId, seccion })),
+        })
+      }
+    }
+
+    // If seccionesWebParticular is provided, sync the many-to-many table
+    if (seccionesWebParticular !== undefined) {
+      const secciones: string[] = seccionesWebParticular || []
+      updateData.seccionWebParticular = secciones.length > 0 ? secciones[0] : null
+      await prisma.tarifaSeccionWebParticular.deleteMany({ where: { tarifaId } })
+      if (secciones.length > 0) {
+        await prisma.tarifaSeccionWebParticular.createMany({
           data: secciones.map((seccion: string) => ({ tarifaId, seccion })),
         })
       }

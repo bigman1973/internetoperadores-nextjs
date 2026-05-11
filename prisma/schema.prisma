@@ -89,6 +89,7 @@ model Tarifa {
   historialCambios       HistorialCambio[]
   estrategias            EstrategiaProducto[]
   seccionesWeb           TarifaSeccionWeb[]
+  seccionesWebParticular TarifaSeccionWebParticular[]
   createdBy              UsuarioAdmin?       @relation("TarifaCreador", fields: [createdById], references: [id])
   updatedBy              UsuarioAdmin?       @relation("TarifaEditor", fields: [updatedById], references: [id])
 
@@ -398,6 +399,18 @@ model TarifaSeccionWeb {
   @@index([seccion])
   @@index([tarifaId])
   @@map("tarifa_secciones_web")
+}
+
+model TarifaSeccionWebParticular {
+  id        Int      @id @default(autoincrement())
+  tarifaId  Int      @map("tarifa_id")
+  seccion   String   @db.VarChar(100)
+  createdAt DateTime @default(now()) @map("created_at")
+  tarifa    Tarifa   @relation(fields: [tarifaId], references: [id], onDelete: Cascade)
+  @@unique([tarifaId, seccion])
+  @@index([seccion])
+  @@index([tarifaId])
+  @@map("tarifa_secciones_web_particular")
 }
 
 model Order {

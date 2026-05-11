@@ -49,9 +49,10 @@ interface Props {
   tarifas: TarifaWeb[];
   categorias: Record<string, TarifaWeb[]>;
   total: number;
+  masVendidoIds?: number[];
 }
 
-export default function TarifasParticularClient({ tarifas, categorias, total }: Props) {
+export default function TarifasParticularClient({ tarifas, categorias, total, masVendidoIds = [] }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS');
@@ -67,7 +68,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
         'movil': 'TELEFONÍA MÓVIL',
         'fijo': 'TELEFONÍA FIJA',
         'packs': 'TODAS', // TODO: implement packs filter
-        'ofertas': 'TODAS', // TODO: implement ofertas filter
+        'mas-vendido': 'MAS_VENDIDO',
       };
       const mapped = catMap[catParam.toLowerCase()];
       if (mapped) {
@@ -84,6 +85,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
     'TELEFONÍA MÓVIL (BASE)': { titulo: 'Tarifas Móvil', descripcion: 'Tarifas base de telefonía móvil con la mejor relación calidad-precio.' },
     'TELEFONÍA FIJA': { titulo: 'Tarifas de Fijo', descripcion: 'Línea fija con llamadas ilimitadas. La solución clásica que nunca falla.' },
     'LÍNEA FIJA': { titulo: 'Línea Fija', descripcion: 'Numeración adicional y líneas fijas para tu hogar.' },
+    'MAS_VENDIDO': { titulo: 'Más Vendido', descripcion: 'Las tarifas más contratadas por nuestros clientes. Calidad probada y satisfacción garantizada.' },
   };
   const heroInfo = titulosPorCategoria[categoriaSeleccionada] || titulosPorCategoria['TODAS'];
 
@@ -96,7 +98,9 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
   const tarifasFiltradas = useMemo(() => {
     let resultado = tarifas;
 
-    if (categoriaSeleccionada !== 'TODAS') {
+    if (categoriaSeleccionada === 'MAS_VENDIDO') {
+      resultado = resultado.filter(t => masVendidoIds.includes(t.id));
+    } else if (categoriaSeleccionada !== 'TODAS') {
       resultado = resultado.filter(t => t.categoria === categoriaSeleccionada);
     }
 

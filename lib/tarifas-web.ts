@@ -194,18 +194,26 @@ export async function getTarifasWeb(seccion: 'empresa' | 'particular'): Promise<
   };
 }
 
-// Get tarifas for a specific section of the particulares menu (internet, movil, packs, ofertas)
-export async function getTarifasSeccionParticular(seccionMenu: 'internet' | 'movil' | 'packs' | 'ofertas'): Promise<{
+// Get tarifas for a specific section of the particulares menu (internet, movil, packs, mas-vendido)
+export async function getTarifasSeccionParticular(seccionMenu: 'internet' | 'movil' | 'packs' | 'mas-vendido' | 'ofertas'): Promise<{
   tarifas: TarifaWeb[];
   top3: TarifaWeb[];
   total: number;
 }> {
+  // Use many-to-many table to find tarifas that belong to this section
+  const seccionesToSearch = seccionMenu === 'ofertas' ? 'mas-vendido' : seccionMenu;
+  const tarifaIdsInSection = await prisma.tarifaSeccionWebParticular.findMany({
+    where: { seccion: seccionesToSearch },
+    select: { tarifaId: true },
+  });
+  const ids = tarifaIdsInSection.map(s => s.tarifaId);
+  
   const [tarifasRaw, contratosMap] = await Promise.all([
     prisma.tarifa.findMany({
       where: {
         activa: true,
         publicarWebParticular: true,
-        seccionWebParticular: seccionMenu,
+        id: { in: ids.length > 0 ? ids : [-1] },
       },
       select: tarifaSelect,
     }),
