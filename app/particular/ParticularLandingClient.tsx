@@ -4,7 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useState } from 'react';
 import ParticularNav from '@/components/ParticularNav';
-import EmpresaFooter from '@/components/EmpresaFooter';
+import ParticularFooter from '@/components/ParticularFooter';
 import AddToCartButton from '@/components/AddToCartButton';
 
 interface TarifaWeb {
@@ -786,7 +786,7 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
         </div>
       </section>
 
-      <EmpresaFooter />
+      <ParticularFooter />
     </div>
   );
 }
