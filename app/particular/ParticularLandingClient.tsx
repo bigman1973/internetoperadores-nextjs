@@ -318,6 +318,9 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
                 Precio fijo garantizado
               </div>
             </div>
+            <a href="#condiciones" className="ml-2 text-orange-400 hover:text-orange-300 underline underline-offset-2 text-xs transition-colors">
+              Ver condiciones
+            </a>
           </div>
         </div>
       </section>
@@ -783,6 +786,119 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
           <p className="mt-8 text-orange-200 text-sm">
             Llamada gratuita. Lunes a viernes de 9:00 a 20:00.
           </p>
+        </div>
+      </section>
+
+
+      {/* ===== FAQ / CONDICIONES ===== */}
+      <section id="condiciones" className="py-16 sm:py-20 bg-gray-50">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h2 className="text-2xl sm:text-3xl font-bold text-center text-gray-900 mb-4">
+            Preguntas frecuentes
+          </h2>
+          <p className="text-center text-gray-600 mb-12 max-w-2xl mx-auto">
+            Transparencia total. Sin letra pequeña. Aquí tienes las respuestas a las dudas más comunes.
+          </p>
+          <div className="space-y-4">
+            {/* FAQ 1 - Precio fijo */}
+            <details className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <summary className="flex items-center justify-between cursor-pointer p-6 font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+                <span>¿Qué significa &ldquo;precio fijo garantizado&rdquo;?</span>
+                <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                <p className="mb-3">
+                  Significa que <strong>nunca subimos los precios de forma unilateral ni sin previo aviso</strong>. A diferencia de otros operadores que suben la factura &ldquo;porque sí&rdquo; a los pocos meses, nosotros mantenemos el precio que contratas.
+                </p>
+                <p className="mb-3">
+                  Dicho esto, somos transparentes: como empresa tecnológica, circunstancias excepcionales como subidas del IPC, incrementos en el coste de materias primas o cambios regulatorios podrían afectar a nuestros costes operativos.
+                </p>
+                <p>
+                  En ese caso, <strong>siempre te notificaremos con antelación</strong> y te ofreceremos alternativas. Nunca te encontrarás una sorpresa en la factura.
+                </p>
+              </div>
+            </details>
+            {/* FAQ 2 - Sin permanencia */}
+            <details className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <summary className="flex items-center justify-between cursor-pointer p-6 font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+                <span>¿Qué significa &ldquo;sin permanencia&rdquo;?</span>
+                <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                <p className="mb-3">
+                  Puedes irte cuando quieras, sin penalizaciones por cancelar el servicio. No hay cláusulas de permanencia obligatoria como en otros operadores.
+                </p>
+                <p className="mb-3">
+                  Los <strong>equipos y la instalación</strong> se pueden pagar inicialmente o financiar. Si decides marcharte antes de 12 meses, simplemente tendrás que devolver el equipo cedido y abonar los costes de instalación pendientes (si los financiaste).
+                </p>
+                <p>
+                  Es justo: nosotros invertimos en llevarte el servicio, y si te quedas más de un año, esos costes quedan cubiertos. Sin ataduras, sin sorpresas.
+                </p>
+              </div>
+            </details>
+            {/* FAQ 3 - 15 días de prueba */}
+            <details className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <summary className="flex items-center justify-between cursor-pointer p-6 font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+                <span>¿Y si el servicio no cumple mis expectativas?</span>
+                <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                <p className="mb-3">
+                  Tienes <strong>15 días de prueba</strong> desde la activación del servicio. Si la conexión no es la esperada o no estás satisfecho, podemos:
+                </p>
+                <ul className="list-disc list-inside mb-3 space-y-1">
+                  <li>Proponerte una solución técnica alternativa (otra tecnología, otro equipo)</li>
+                  <li>Cancelar el contrato sin coste alguno</li>
+                </ul>
+                <p>
+                  Creemos en nuestro servicio, por eso te damos la oportunidad de probarlo sin riesgo.
+                </p>
+              </div>
+            </details>
+            {/* FAQ 4 - Cobertura */}
+            <details className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <summary className="flex items-center justify-between cursor-pointer p-6 font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+                <span>¿Cómo sabéis qué tecnología llega a mi casa?</span>
+                <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                <p className="mb-3">
+                  Somos un operador <strong>multioperador</strong>. Trabajamos con múltiples redes y tecnologías (fibra FTTH, 4G, 5G, WiMAX, satélite). Cuando nos das tu dirección, nuestro equipo técnico analiza todas las opciones disponibles y te recomienda la mejor solución.
+                </p>
+                <p>
+                  No dependemos de una sola infraestructura, por eso podemos garantizar cobertura donde otros no llegan.
+                </p>
+              </div>
+            </details>
+            {/* FAQ 5 - Diferencia con grandes operadores */}
+            <details className="group bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <summary className="flex items-center justify-between cursor-pointer p-6 font-semibold text-gray-900 hover:bg-gray-50 transition-colors">
+                <span>¿En qué os diferenciáis de Movistar, Vodafone o MásMóvil?</span>
+                <svg className="w-5 h-5 text-gray-500 group-open:rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </summary>
+              <div className="px-6 pb-6 text-gray-600 leading-relaxed">
+                <p className="mb-3">
+                  Los grandes operadores dependen de una sola red y solo invierten donde hay millones de clientes. Nosotros:
+                </p>
+                <ul className="list-disc list-inside mb-3 space-y-1">
+                  <li><strong>Cobertura real:</strong> Si la fibra no llega, te conectamos por 4G/5G. Siempre hay solución.</li>
+                  <li><strong>Atención personal:</strong> Te atiende una persona que conoce tu caso. Sin robots ni esperas.</li>
+                  <li><strong>Precio honesto:</strong> Sin promociones trampa que suben a los 3 meses.</li>
+                  <li><strong>Más de 25 años:</strong> No somos una startup que puede desaparecer mañana.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
         </div>
       </section>
 
