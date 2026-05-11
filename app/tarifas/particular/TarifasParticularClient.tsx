@@ -119,11 +119,30 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     return resultado;
   }, [tarifas, categoriaSeleccionada, busqueda, masVendidoIds]);
 
+  // Filtro de subcategoría para vista Internet
+  const [filtroTecnologia, setFiltroTecnologia] = useState<string>('todas');
+
+  // Subcategorías disponibles en Internet
+  const subcategoriasInternet = useMemo(() => {
+    if (categoriaSeleccionada !== 'INTERNET') return [];
+    const cats = new Set<string>();
+    tarifasFiltradas.forEach(t => {
+      if (t.subcategoria) cats.add(t.subcategoria);
+    });
+    return Array.from(cats).sort((a, b) => (ordenTecnologia[a] || 99) - (ordenTecnologia[b] || 99));
+  }, [tarifasFiltradas, categoriaSeleccionada]);
+
+  // Tarifas filtradas por subcategoría
+  const tarifasInternetFiltradas = useMemo(() => {
+    if (filtroTecnologia === 'todas') return tarifasFiltradas;
+    return tarifasFiltradas.filter(t => t.subcategoria === filtroTecnologia);
+  }, [tarifasFiltradas, filtroTecnologia]);
+
   // Agrupar tarifas de INTERNET por subcategoría (tecnología)
   const tarifasPorTecnologia = useMemo(() => {
     if (categoriaSeleccionada !== 'INTERNET') return null;
     const grouped: Record<string, TarifaWeb[]> = {};
-    tarifasFiltradas.forEach(t => {
+    tarifasInternetFiltradas.forEach(t => {
       const tech = t.subcategoria || 'Otros';
       if (!grouped[tech]) grouped[tech] = [];
       grouped[tech].push(t);
@@ -133,7 +152,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       return (ordenTecnologia[a[0]] || 99) - (ordenTecnologia[b[0]] || 99);
     });
     return sorted;
-  }, [tarifasFiltradas, categoriaSeleccionada]);
+  }, [tarifasInternetFiltradas, categoriaSeleccionada]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -342,81 +361,117 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
 
         {/* Vista agrupada por tecnología (solo para INTERNET) */}
         {esVistaInternet ? (
-          <div className="space-y-10">
-            {tarifasPorTecnologia!.map(([tech, tarifasTech]) => (
-              <div key={tech} id={`tech-${tech.toLowerCase().replace(/[^a-z0-9]/g, '')}`}>
-                {/* Header de tecnología */}
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-2xl">{iconoTecnologia[tech] || '📦'}</span>
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">{tech}</h2>
-                    <p className="text-sm text-gray-500">{descripcionTecnologia[tech] || `${tarifasTech.length} tarifas disponibles`}</p>
-                  </div>
-                </div>
-                {/* Tabla de tarifas por tecnología - ficha completa como empresas */}
-                <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gray-900 text-white">
-                          <th className="text-left px-6 py-4 font-semibold">Tarifa</th>
-                          <th className="text-left px-6 py-4 font-semibold">Detalle</th>
-                          <th className="text-right px-6 py-4 font-semibold">Precio (sin IVA)</th>
-                          <th className="text-right px-6 py-4 font-semibold">Precio (con IVA)</th>
-                          <th className="text-center px-6 py-4 font-semibold">Permanencia</th>
-                          <th className="text-center px-6 py-4 font-semibold">Garantía</th>
-                          <th className="text-center px-6 py-4 font-semibold">Alta</th>
-                          <th className="text-center px-6 py-4 font-semibold"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {tarifasTech
-                          .sort((a, b) => a.precioConIva - b.precioConIva)
-                          .map((tarifa, idx) => (
-                          <tr key={tarifa.id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                            <td className="px-6 py-4">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</span>
-                                {tarifa.esPopular && <span className="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">Más vendido</span>}
-                                {tarifa.destacada && !tarifa.esPopular && <span className="text-yellow-500 text-xs">★</span>}
-                              </div>
-                              {tarifa.descripcionCorta && (
-                                <p className="text-xs text-gray-500 mt-1">{tarifa.descripcionCorta}</p>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 text-gray-600 text-sm">
-                              {getDetalleConectividad(tarifa) || '—'}
-                            </td>
-                            <td className="px-6 py-4 text-right text-gray-700">
-                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : '-'}
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className="font-bold text-gray-900 text-lg">
-                                {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
-                              </span>
-                              {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
-                            </td>
-                            <td className="px-6 py-4 text-center text-sm text-gray-600">
-                              —
-                            </td>
-                            <td className="px-6 py-4 text-center text-sm text-gray-600">
-                              {tarifa.garantia || '—'}
-                            </td>
-                            <td className="px-6 py-4 text-center text-sm text-gray-600">
-                              {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 ? `${(tarifa.cuotaAlta * 1.21).toFixed(2)} €` : '—'}
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <AddToCartButton tarifa={tarifa} variant="secondary" compact />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+          <>
+            {/* Filtros por subcategoría/tecnología */}
+            {subcategoriasInternet.length > 1 && (
+              <div className="py-6 border-b border-gray-200 bg-gray-50 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 mb-8 rounded-lg">
+                <div className="flex flex-wrap items-center gap-2 justify-center">
+                  <button
+                    onClick={() => setFiltroTecnologia('todas')}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                      filtroTecnologia === 'todas'
+                        ? 'bg-orange-600 text-white'
+                        : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-300'
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  {subcategoriasInternet.map(sub => (
+                    <button
+                      key={sub}
+                      onClick={() => setFiltroTecnologia(sub)}
+                      className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                        filtroTecnologia === sub
+                          ? 'bg-orange-600 text-white'
+                          : 'bg-white text-gray-600 border border-gray-300 hover:border-orange-300'
+                      }`}
+                    >
+                      {sub}
+                    </button>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
+            )}
+            {/* Tarjetas agrupadas por tecnología */}
+            <div className="space-y-12">
+              {tarifasPorTecnologia!.map(([tech, tarifasTech]) => (
+                <div key={tech} id={`tech-${tech.toLowerCase().replace(/[^a-z0-9]/g, '')}`}>
+                  {/* Header de tecnología */}
+                  <div className="mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900">{tech}</h2>
+                    <div className="h-1 w-16 bg-orange-500 mt-2 rounded"></div>
+                  </div>
+                  {/* Grid de tarjetas */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {tarifasTech
+                      .sort((a, b) => a.precioConIva - b.precioConIva)
+                      .map((tarifa) => (
+                      <div
+                        key={tarifa.id}
+                        className={`bg-white border-2 rounded-xl p-6 hover:shadow-lg transition-all flex flex-col ${
+                          tarifa.esPopular || tarifa.destacada
+                            ? 'border-orange-400 ring-1 ring-orange-200'
+                            : 'border-gray-200 hover:border-orange-300'
+                        }`}
+                      >
+                        {/* Nombre */}
+                        <div className="mb-3">
+                          <h3 className="text-lg font-bold text-gray-900 leading-tight">
+                            {tarifa.nombreComercial || tarifa.nombre}
+                          </h3>
+                          {tarifa.descripcionCorta && (
+                            <p className="text-xs text-orange-600 mt-1 font-medium">
+                              {tarifa.descripcionCorta}
+                            </p>
+                          )}
+                        </div>
+                        {/* Precio */}
+                        <div className="border-t border-gray-100 pt-4 mt-auto">
+                          <div>
+                            <span className="text-3xl font-bold text-orange-600">
+                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} \u20ac` : 'Consultar'}
+                            </span>
+                            <span className="text-sm text-gray-400 ml-1">/mes</span>
+                            {tarifa.precioConIva > 0 && (
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {tarifa.precioConIva.toFixed(2)} \u20ac con IVA
+                              </div>
+                            )}
+                          </div>
+                          {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
+                            <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-2">
+                              Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} \u20ac
+                            </span>
+                          )}
+                        </div>
+                        {/* Características */}
+                        {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
+                          <div className="mt-4 pt-4 border-t border-gray-100">
+                            <div className="space-y-1.5">
+                              {tarifa.caracteristicas.items.filter((feat: {titulo: string; descripcion: string}) => feat.titulo).map((feat: {titulo: string; descripcion: string}, idx: number) => (
+                                <div key={idx} className="flex items-start gap-2 text-sm">
+                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                  <div>
+                                    <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
+                                    {feat.descripcion && (
+                                      <span className="text-xs text-gray-500 ml-1">- {feat.descripcion}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        <AddToCartButton tarifa={tarifa} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <>
             {/* Tarifas Destacadas */}
