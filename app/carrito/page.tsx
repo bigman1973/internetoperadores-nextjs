@@ -43,7 +43,7 @@ export default function CarritoPage() {
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Tu carrito está vacío</h2>
             <p className="text-gray-500 mb-6">Explora nuestros productos y añade los que necesites.</p>
             <Link
-              href="/productos"
+              href="/tarifas/particular"
               className="inline-block px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-semibold"
             >
               Ver productos
@@ -125,7 +125,7 @@ export default function CarritoPage() {
               {/* Seguir comprando */}
               <div className="text-center pt-4">
                 <Link
-                  href="/productos"
+                  href="/tarifas/particular"
                   className="inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
