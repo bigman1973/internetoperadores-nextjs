@@ -14,6 +14,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const menuItems = [
+    { nombre: 'Inicio', href: '/particular', key: 'inicio' },
     { nombre: 'Internet', href: '/tarifas/particular?cat=internet', key: 'internet' },
     { nombre: 'Móvil', href: '/tarifas/particular?cat=movil', key: 'movil' },
     { nombre: 'Packs', href: '/tarifas/particular?cat=packs', key: 'packs' },
@@ -50,13 +51,6 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
                 {item.nombre}
               </Link>
             ))}
-            <span className="text-gray-300">|</span>
-            <Link
-              href="/empresa"
-              className="text-gray-500 hover:text-orange-600 transition-colors"
-            >
-              Empresa
-            </Link>
           </div>
 
           {/* Right side: Cart + CTA */}
@@ -123,15 +117,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
                 {item.nombre}
               </Link>
             ))}
-            <div className="border-t border-gray-100 pt-3 mt-2">
-              <Link
-                href="/empresa"
-                className="block text-gray-500 hover:text-orange-600 font-medium py-2"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                Empresa
-              </Link>
-            </div>
+
             <Link
               href="/recursos/herramientas/cobertura-fibra"
               className="block bg-orange-600 text-white text-center px-5 py-3 rounded-lg font-semibold mt-3"
