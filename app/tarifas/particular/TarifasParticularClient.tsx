@@ -209,17 +209,17 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
               <p className="text-xs italic text-blue-600 mb-3">{tarifa.caracteristicas.incluyePlanAnterior}</p>
             )}
             <div className="space-y-2">
-              {tarifa.caracteristicas.items.map((feat: {titulo: string; descripcion: string}, idx: number) => (
-                <div key={idx} className="flex items-start gap-2 text-sm text-gray-600">
+              {tarifa.caracteristicas.items.filter((feat: {titulo: string; descripcion: string}) => feat.titulo).map((feat: {titulo: string; descripcion: string}, idx: number) => (
+                <div key={idx} className="flex items-start gap-2 text-sm">
                   <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
-                  <span>
+                  <div>
                     <span className="font-medium text-gray-800">{feat.titulo}</span>
                     {feat.descripcion && (
-                      <span className="text-gray-500"> - {feat.descripcion}</span>
+                      <span className="text-gray-500 text-xs"> - {feat.descripcion}</span>
                     )}
-                  </span>
+                  </div>
                 </div>
               ))}
             </div>
