@@ -38,8 +38,8 @@ const iconoCategoria: Record<string, string> = {
 // Iconos y orden para subcategorías de Internet (tecnologías)
 const iconoTecnologia: Record<string, string> = {
   'Fibra': '🔵',
-  '4G/5G': '📡',
-  'Radio': '📶',
+  '4G/5G': '📶',
+  'Radio': '📡',
   'Satélite': '🛰️',
 };
 const ordenTecnologia: Record<string, number> = {
