@@ -1,8 +1,7 @@
 import { getTarifasWeb } from '@/lib/tarifas-web';
 import TarifasEmpresaClient from './TarifasEmpresaClient';
-import { unstable_noStore as noStore } from 'next/cache';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export const metadata = {
   title: 'Tarifas para Empresas | Internet Operadores',
@@ -10,7 +9,6 @@ export const metadata = {
 };
 
 export default async function TarifasEmpresaPage() {
-  noStore();
   const { tarifas, categorias, total } = await getTarifasWeb('empresa');
 
   return <TarifasEmpresaClient tarifas={tarifas} categorias={categorias} total={total} />;

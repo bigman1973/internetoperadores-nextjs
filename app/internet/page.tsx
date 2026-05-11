@@ -1,8 +1,7 @@
 import { getTarifasSeccionParticular } from '@/lib/tarifas-web';
 import SeccionTarifasParticular from '@/components/public/SeccionTarifasParticular';
-import { unstable_noStore as noStore } from 'next/cache';
 
-export const dynamic = 'force-dynamic';
+export const revalidate = 60;
 
 export const metadata = {
   title: 'Internet para tu Hogar | Internet Operadores',
@@ -10,7 +9,6 @@ export const metadata = {
 };
 
 export default async function InternetPage() {
-  noStore();
   const { top3, total } = await getTarifasSeccionParticular('internet');
 
   const icono = (

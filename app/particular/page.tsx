@@ -1,8 +1,8 @@
 import { getTarifasLandingParticular } from '@/lib/tarifas-web';
 import ParticularLandingClient from './ParticularLandingClient';
-import { unstable_noStore as noStore } from 'next/cache';
 
-export const dynamic = 'force-dynamic';
+// ISR: regenerar cada 60 segundos (las tarifas no cambian cada segundo)
+export const revalidate = 60;
 
 export const metadata = {
   title: 'Internet para tu hogar | Fibra, 4G y 5G donde vivas | Internet Operadores',
@@ -15,7 +15,6 @@ export const metadata = {
 };
 
 export default async function ParticularPage() {
-  noStore();
   const tarifasTop = await getTarifasLandingParticular();
 
   return <ParticularLandingClient tarifasTop={tarifasTop} />;
