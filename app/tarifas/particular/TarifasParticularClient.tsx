@@ -76,6 +76,17 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
     }
   }, [searchParams]);
 
+  // Títulos dinámicos según categoría
+  const titulosPorCategoria: Record<string, { titulo: string; descripcion: string }> = {
+    'TODAS': { titulo: 'Tarifas para Particulares', descripcion: 'Encuentra la tarifa perfecta para tu hogar. Internet, móvil y línea fija con la mejor cobertura.' },
+    'INTERNET': { titulo: 'Tarifas de Internet', descripcion: 'Fibra óptica, 4G y 5G para tu hogar. Conexión estable y rápida con la mejor cobertura.' },
+    'TELEFONÍA MÓVIL': { titulo: 'Tarifas Móvil', descripcion: 'Datos, llamadas y SMS con cobertura nacional. Elige el plan que mejor se adapte a tu consumo.' },
+    'TELEFONÍA MÓVIL (BASE)': { titulo: 'Tarifas Móvil', descripcion: 'Tarifas base de telefonía móvil con la mejor relación calidad-precio.' },
+    'TELEFONÍA FIJA': { titulo: 'Tarifas de Fijo', descripcion: 'Línea fija con llamadas ilimitadas. La solución clásica que nunca falla.' },
+    'LÍNEA FIJA': { titulo: 'Línea Fija', descripcion: 'Numeración adicional y líneas fijas para tu hogar.' },
+  };
+  const heroInfo = titulosPorCategoria[categoriaSeleccionada] || titulosPorCategoria['TODAS'];
+
   const categoriasOrdenadas = useMemo(() => {
     return Object.entries(categorias)
       .sort((a, b) => b[1].length - a[1].length)
@@ -211,12 +222,12 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <ParticularNav currentPage="internet" />
+      <ParticularNav currentPage={searchParams.get("cat") || "internet"} />
       <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white py-12 md:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-3xl md:text-5xl font-bold mb-4">Tarifas para Particulares</h1>
+          <h1 className="text-3xl md:text-5xl font-bold mb-4">{heroInfo.titulo}</h1>
           <p className="text-lg md:text-xl opacity-90 max-w-2xl mx-auto mb-6">
-            Encuentra la tarifa perfecta para tu hogar. Internet, móvil y línea fija con la mejor cobertura.
+            {heroInfo.descripcion}
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <Link href="/contacto" className="bg-white text-orange-600 hover:bg-gray-100 px-8 py-3 rounded-lg font-semibold transition-colors">
