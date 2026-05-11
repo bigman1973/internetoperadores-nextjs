@@ -204,16 +204,22 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
         )}
         {/* Características / Funcionalidades */}
         {tarifa.caracteristicas && tarifa.caracteristicas.items && tarifa.caracteristicas.items.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
-            <p className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">Funcionalidades:</p>
+          <div className="mt-4 pt-4 border-t border-gray-200">
             {tarifa.caracteristicas.incluyePlanAnterior && (
-              <p className="text-xs italic text-blue-600 mb-2">{tarifa.caracteristicas.incluyePlanAnterior}</p>
+              <p className="text-xs italic text-blue-600 mb-3">{tarifa.caracteristicas.incluyePlanAnterior}</p>
             )}
-            <div className="space-y-1">
+            <div className="space-y-2">
               {tarifa.caracteristicas.items.map((feat: {titulo: string; descripcion: string}, idx: number) => (
-                <div key={idx} className="text-xs text-gray-600">
-                  <span className="font-medium text-gray-800">{feat.titulo}</span>
-                  {feat.descripcion && <span className="text-gray-500"> — {feat.descripcion}</span>}
+                <div key={idx} className="flex items-start gap-2 text-sm text-gray-600">
+                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                  <div>
+                    <span className="font-medium text-gray-800">{feat.titulo}</span>
+                    {feat.descripcion && (
+                      <span className="text-gray-500"> - {feat.descripcion}</span>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
