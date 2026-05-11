@@ -11,9 +11,9 @@ export default function TopBar() {
   const handleSwitch = (target: 'empresa' | 'particular') => {
     setSegment(target)
     if (target === 'empresa') {
-      router.push('/tarifas/empresa')
+      router.push('/empresa')
     } else {
-      router.push('/tarifas/particular')
+      router.push('/particular')
     }
   }
 
