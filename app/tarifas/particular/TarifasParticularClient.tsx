@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import ParticularNav from '../../../components/ParticularNav';
-import EmpresaFooter from '../../../components/EmpresaFooter';
+import ParticularFooter from '../../../components/ParticularFooter';
 import AddToCartButton from '../../../components/AddToCartButton';
 import type { TarifaWeb } from '@/lib/tarifas-web';
 
@@ -358,7 +358,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total }: 
           </Link>
         </div>
       </div>
-      <EmpresaFooter />
+      <ParticularFooter />
     </div>
   );
 }

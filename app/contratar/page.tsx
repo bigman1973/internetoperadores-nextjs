@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useCart, type CartItem } from '@/components/CartProvider'
 import DynamicNav from '@/components/DynamicNav'
-import EmpresaFooter from '@/components/EmpresaFooter'
+import ParticularFooter from '@/components/ParticularFooter'
 
 function ContratarContent() {
   const searchParams = useSearchParams()
@@ -177,7 +177,7 @@ function ContratarContent() {
             </button>
           </div>
         </div>
-        <EmpresaFooter />
+        <ParticularFooter />
       </div>
     )
   }
@@ -549,7 +549,7 @@ function ContratarContent() {
         </div>
       </div>
 
-      <EmpresaFooter />
+      <ParticularFooter />
     </div>
   )
 }
