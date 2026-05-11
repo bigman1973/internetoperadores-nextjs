@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useCart, type CartItem } from '@/components/CartProvider'
 import DynamicNav from '@/components/DynamicNav'
-import EmpresaFooter from '@/components/EmpresaFooter'
+import ParticularFooter from '@/components/ParticularFooter'
 
 export default function CarritoPage() {
   const { items, removeItem, updateQuantity, clearCart, itemCount, totalConIva, totalAltas, totalGeneral } = useCart()
@@ -202,7 +202,7 @@ export default function CarritoPage() {
         )}
       </div>
 
-      <EmpresaFooter />
+      <ParticularFooter />
     </div>
   )
 }
