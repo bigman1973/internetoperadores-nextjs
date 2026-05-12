@@ -285,34 +285,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       </div>
       {/* Categorías */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Categorías rápidas */}
-        {categoriasOrdenadas.length > 1 && (
-          <div className="flex flex-wrap gap-2 justify-center mb-8">
-            <button
-              onClick={() => setCategoriaSeleccionada('TODAS')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                categoriaSeleccionada === 'TODAS'
-                  ? 'bg-orange-500 text-white'
-                  : 'bg-white text-gray-700 hover:bg-orange-50 border border-gray-200'
-              }`}
-            >
-              Todas
-            </button>
-            {categoriasOrdenadas.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setCategoriaSeleccionada(cat)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                  categoriaSeleccionada === cat
-                    ? 'bg-orange-500 text-white'
-                    : 'bg-white text-gray-700 hover:bg-orange-50 border border-gray-200'
-                }`}
-              >
-                {iconoCategoria[cat] || '📦'} {cat}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Vista agrupada por tecnología (solo para INTERNET) */}
         {esVistaInternet ? (

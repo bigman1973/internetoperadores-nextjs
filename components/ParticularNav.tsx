@@ -28,7 +28,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
       <div className="container mx-auto px-3 sm:px-4">
         <div className="flex justify-between items-center h-[60px] sm:h-[70px]">
           {/* Logo */}
-          <Link href="/particular" className="flex items-center">
+          <Link href="https://www.internetoperadores.com" className="flex items-center">
             <img
               src="/logo_transparent.png"
               alt="Internet Operadores"

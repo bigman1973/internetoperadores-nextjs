@@ -56,7 +56,7 @@ export default function EmpresaNav({ currentPage = '' }) {
       <nav className="bg-white border-b sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-3 sm:px-4">
           <div className="flex justify-between items-center h-[60px] sm:h-[70px]">
-            <Link href="/empresa" className="flex items-center">
+            <Link href="https://www.internetoperadores.com" className="flex items-center">
               <img 
                 src="/logo_transparent.png" 
                 alt="Internet Operadores" 
