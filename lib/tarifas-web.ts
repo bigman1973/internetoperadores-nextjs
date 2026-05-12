@@ -34,6 +34,7 @@ export interface TarifaWeb {
   subcategoria: string | null;
   grupoProducto: string | null;
   varianteLabel: string | null;
+  orden: number;
   contratosActivos?: number;
   esPopular?: boolean;
 }
@@ -72,6 +73,7 @@ const tarifaSelect = {
   subcategoria: true,
   grupoProducto: true,
   varianteLabel: true,
+  orden: true,
 };
 
 function convertTarifa(t: any): TarifaWeb {
@@ -84,6 +86,7 @@ function convertTarifa(t: any): TarifaWeb {
     subcategoria: t.subcategoria || null,
     grupoProducto: t.grupoProducto || null,
     varianteLabel: t.varianteLabel || null,
+    orden: t.orden || 0,
     contratosActivos: 0,
     esPopular: false,
   };
@@ -169,6 +172,7 @@ export async function getTarifasWeb(seccion: 'empresa' | 'particular'): Promise<
     prisma.tarifa.findMany({
       where,
       select: tarifaSelect,
+      orderBy: [{ orden: 'asc' }, { precioConIva: 'asc' }],
     }),
     getContratosActivosPorTarifa(),
   ]);
@@ -216,6 +220,7 @@ export async function getTarifasSeccionParticular(seccionMenu: 'internet' | 'mov
         id: { in: ids.length > 0 ? ids : [-1] },
       },
       select: tarifaSelect,
+      orderBy: [{ orden: 'asc' }, { precioConIva: 'asc' }],
     }),
     getContratosActivosPorTarifa(),
   ]);
@@ -250,6 +255,7 @@ export async function getTarifasSolucionEmpresa(solucion: string): Promise<{
         ],
       },
       select: tarifaSelect,
+      orderBy: [{ orden: 'asc' }, { precioConIva: 'asc' }],
     }),
     getContratosActivosPorTarifa(),
   ]);
@@ -291,6 +297,7 @@ export async function getTarifasLandingParticular(): Promise<TarifaWeb[]> {
         publicarWebParticular: true,
       },
       select: tarifaSelect,
+      orderBy: [{ orden: 'asc' }, { precioConIva: 'asc' }],
     }),
     getContratosActivosPorTarifa(),
   ]);
