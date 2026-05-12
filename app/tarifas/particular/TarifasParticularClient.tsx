@@ -384,18 +384,18 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                         <div className="border-t border-gray-100 pt-4 mt-auto">
                           <div>
                             <span className="text-3xl font-bold text-orange-600">
-                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} \u20ac` : 'Consultar'}
+                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : 'Consultar'}
                             </span>
                             <span className="text-sm text-gray-400 ml-1">/mes</span>
                             {tarifa.precioConIva > 0 && (
                               <div className="text-xs text-gray-400 mt-0.5">
-                                {tarifa.precioConIva.toFixed(2)} \u20ac con IVA
+                                {tarifa.precioConIva.toFixed(2)} € con IVA
                               </div>
                             )}
                           </div>
                           {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 && (
                             <span className="inline-block text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded mt-2">
-                              Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} \u20ac
+                              Alta: {(tarifa.cuotaAlta * 1.21).toFixed(2)} €
                             </span>
                           )}
                         </div>
