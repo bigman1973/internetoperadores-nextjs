@@ -102,9 +102,9 @@ export async function GET(request: NextRequest) {
           updatedBy: { select: { nombre: true } },
         },
         orderBy: [
-          { destacada: 'desc' },
+          { subcategoria: 'asc' },
           { orden: 'asc' },
-          { createdAt: 'desc' },
+          { precioConIva: 'asc' },
         ],
       });
 
