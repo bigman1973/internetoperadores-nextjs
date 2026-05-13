@@ -498,6 +498,8 @@ export default function TarifasPageClient() {
 
   // Inline web publication update
   const handleWebPublishChange = async (id: number, field: string, value: any) => {
+    scrollPosRef.current = window.scrollY
+    shouldRestoreScroll.current = true
     setSavingWebPublish(prev => new Set(prev).add(id))
     try {
       const res = await fetch(`/api/admin/tarifas/${id}/web-publish`, {
