@@ -75,7 +75,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
         'internet': 'INTERNET',
         'movil': 'TELEFONÍA MÓVIL',
         'fijo': 'TELEFONÍA FIJA',
-        'packs': 'TODAS', // TODO: implement packs filter
+        'packs': 'PACKS',
         'mas-vendido': 'MAS_VENDIDO',
       };
       const mapped = catMap[catParam.toLowerCase()];
@@ -93,6 +93,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     'TELEFONÍA FIJA': { titulo: 'Tarifas de Fijo', descripcion: 'Línea fija con llamadas ilimitadas. La solución clásica que nunca falla.' },
     'LÍNEA FIJA': { titulo: 'Línea Fija', descripcion: 'Numeración adicional y líneas fijas para tu hogar.' },
     'MAS_VENDIDO': { titulo: 'Más Vendido', descripcion: 'Las tarifas más contratadas por nuestros clientes. Calidad probada y satisfacción garantizada.' },
+    'PACKS': { titulo: 'Packs Ahorro', descripcion: 'Combina internet, móvil y fijo en un solo pack. Más servicios, menos preocupaciones y el mejor precio.' },
   };
   const heroInfo = titulosPorCategoria[categoriaSeleccionada] || titulosPorCategoria['TODAS'];
   const categoriasOrdenadas = useMemo(() => {
@@ -100,10 +101,23 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
       .sort((a, b) => b[1].length - a[1].length)
       .map(([cat]) => cat);
   }, [categorias]);
+  // Mapeo de categoría seleccionada a sección web para filtrar
+  const seccionWebMap: Record<string, string> = {
+    'INTERNET': 'internet',
+    'TELEFONÍA MÓVIL': 'movil',
+    'PACKS': 'packs',
+    'MAS_VENDIDO': 'mas-vendido',
+  };
+
   const tarifasFiltradas = useMemo(() => {
     let resultado = tarifas;
+    const seccionWeb = seccionWebMap[categoriaSeleccionada];
     if (categoriaSeleccionada === 'MAS_VENDIDO') {
-      resultado = resultado.filter(t => masVendidoIds.includes(t.id));
+      // Más vendido: filtrar por sección web O por masVendidoIds
+      resultado = resultado.filter(t => t.seccionWebParticular === 'mas-vendido' || masVendidoIds.includes(t.id));
+    } else if (seccionWeb) {
+      // Filtrar por sección web asignada en el admin
+      resultado = resultado.filter(t => t.seccionWebParticular === seccionWeb);
     } else if (categoriaSeleccionada !== 'TODAS') {
       resultado = resultado.filter(t => t.categoria === categoriaSeleccionada);
     }
