@@ -1,8 +1,10 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAIClient() {
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 export interface DatosLead {
   empresa: string;
@@ -178,6 +180,7 @@ IMPORTANTE: Responde EXCLUSIVAMENTE con un JSON válido con esta estructura exac
   "notasCondiciones": ["Nota 1", "Nota 2"]
 }`;
 
+  const openai = getOpenAIClient();
   const response = await openai.chat.completions.create({
     model: 'gpt-4.1-mini',
     messages: [
