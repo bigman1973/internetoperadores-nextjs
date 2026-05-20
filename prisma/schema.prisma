@@ -486,3 +486,133 @@ enum Periodicidad {
   ANUAL
   PUNTUAL
 }
+
+// ==========================================
+// SISTEMA DE CAPTACIÓN WEB - MIGRACIÓN WEB
+// ==========================================
+
+model LeadMigracionWeb {
+  id                String              @id @default(uuid())
+  // Datos básicos (Paso 1)
+  nombreEmpresa     String              @map("nombre_empresa")
+  contacto          String
+  email             String
+  telefono          String?
+  urlWebActual      String?             @map("url_web_actual")
+  // Sector (Paso 2)
+  sector            String?
+  sectorOtro        String?             @map("sector_otro")
+  // Estado web (Paso 3)
+  numPaginas        String?             @map("num_paginas")
+  tieneBlog         Boolean?            @default(false) @map("tiene_blog")
+  tieneTienda       Boolean?            @default(false) @map("tiene_tienda")
+  tieneFormularios  Boolean?            @default(false) @map("tiene_formularios")
+  tieneAreaPrivada  Boolean?            @default(false) @map("tiene_area_privada")
+  frustracionActual String?             @map("frustracion_actual")
+  // Necesidades (Paso 4)
+  objetivos         Json?               @db.JsonB
+  // Preguntas sector (Paso 5) - almacenado como JSON
+  respuestasSector  Json?               @map("respuestas_sector") @db.JsonB
+  // Integración software (Paso 6)
+  necesitaIntegracion Boolean?          @default(false) @map("necesita_integracion")
+  softwareActual    String?             @map("software_actual")
+  tieneApi          String?             @map("tiene_api")
+  datosIntegracion  String?             @map("datos_integracion")
+  proveedorActual   String?             @map("proveedor_actual")
+  // Presupuesto (Paso 7)
+  presupuesto       String?
+  fechaLimite       String?             @map("fecha_limite")
+  comoNosConocio    String?             @map("como_nos_conocio")
+  // Estado del lead
+  estado            EstadoLead          @default(NUEVO)
+  prioridad         PrioridadLead       @default(MEDIA)
+  notas             String?
+  asignadoA         Int?                @map("asignado_a")
+  // Cuestionario privado vinculado
+  cuestionarioId    String?             @unique @map("cuestionario_id")
+  cuestionario      CuestionarioPrivado? @relation(fields: [cuestionarioId], references: [id])
+  // Informe generado
+  informePdfUrl     String?             @map("informe_pdf_url")
+  // Timestamps
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@index([sector])
+  @@index([email])
+  @@index([createdAt])
+  @@map("leads_migracion_web")
+}
+
+model CuestionarioPrivado {
+  id              String                  @id @default(uuid())
+  token           String                  @unique @default(uuid())
+  // Info del cliente
+  nombreEmpresa   String                  @map("nombre_empresa")
+  sector          String
+  contactoNombre  String?                 @map("contacto_nombre")
+  contactoEmail   String?                 @map("contacto_email")
+  // Configuración
+  titulo          String?                 @default("Cuestionario Técnico y de Negocio")
+  descripcion     String?
+  // Preguntas (JSON con bloques y preguntas)
+  preguntas       Json                    @db.JsonB
+  // Estado
+  estado          EstadoCuestionario      @default(PENDIENTE)
+  fechaEnvio      DateTime?               @map("fecha_envio")
+  fechaCompletado DateTime?               @map("fecha_completado")
+  // Respuestas
+  respuestas      RespuestaCuestionario[]
+  // Lead vinculado
+  lead            LeadMigracionWeb?
+  // Timestamps
+  createdAt       DateTime                @default(now()) @map("created_at")
+  updatedAt       DateTime                @updatedAt @map("updated_at")
+
+  @@index([token])
+  @@index([estado])
+  @@index([createdAt])
+  @@map("cuestionarios_privados")
+}
+
+model RespuestaCuestionario {
+  id              Int                 @id @default(autoincrement())
+  cuestionarioId  String              @map("cuestionario_id")
+  bloque          String
+  numeroPregunta  Int                 @map("numero_pregunta")
+  pregunta        String
+  respuesta       String              @db.Text
+  createdAt       DateTime            @default(now()) @map("created_at")
+  cuestionario    CuestionarioPrivado @relation(fields: [cuestionarioId], references: [id], onDelete: Cascade)
+
+  @@unique([cuestionarioId, numeroPregunta])
+  @@index([cuestionarioId])
+  @@map("respuestas_cuestionario")
+}
+
+enum EstadoLead {
+  NUEVO
+  EN_REVISION
+  AUDITORIA_ENVIADA
+  CUESTIONARIO_ENVIADO
+  CUESTIONARIO_COMPLETADO
+  PROPUESTA_ENVIADA
+  CERRADO_GANADO
+  CERRADO_PERDIDO
+  DESCARTADO
+}
+
+enum PrioridadLead {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum EstadoCuestionario {
+  PENDIENTE
+  ENVIADO
+  EN_PROGRESO
+  COMPLETADO
+  EXPIRADO
+}
