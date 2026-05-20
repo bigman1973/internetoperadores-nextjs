@@ -16,8 +16,8 @@ interface Cuestionario {
   token: string;
   titulo: string;
   estado: string;
-  enviadoAt: string | null;
-  completadoAt: string | null;
+  fechaEnvio: string | null;
+  fechaCompletado: string | null;
   respuestas: Respuesta[];
 }
 
@@ -27,18 +27,27 @@ interface Lead {
   contacto: string;
   email: string;
   telefono: string | null;
-  urlWeb: string | null;
+  urlWebActual: string | null;
   sector: string | null;
+  sectorOtro: string | null;
   estado: string;
   prioridad: string;
   presupuesto: string | null;
-  plazo: string | null;
+  fechaLimite: string | null;
   numPaginas: string | null;
-  funcionalidades: string | null;
-  frustracion: string | null;
-  objetivos: string | null;
-  respuestasSector: string | null;
-  software: string | null;
+  tieneBlog: boolean | null;
+  tieneTienda: boolean | null;
+  tieneFormularios: boolean | null;
+  tieneAreaPrivada: boolean | null;
+  frustracionActual: string | null;
+  objetivos: any;
+  respuestasSector: any;
+  necesitaIntegracion: boolean | null;
+  softwareActual: string | null;
+  tieneApi: string | null;
+  datosIntegracion: string | null;
+  proveedorActual: string | null;
+  comoNosConocio: string | null;
   notas: string | null;
   informePdfUrl: string | null;
   createdAt: string;
@@ -47,17 +56,20 @@ interface Lead {
 
 const ESTADOS = [
   { value: 'NUEVO', label: 'Nuevo', color: 'bg-blue-100 text-blue-800' },
-  { value: 'CONTACTADO', label: 'Contactado', color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'EN_REVISION', label: 'En revisión', color: 'bg-yellow-100 text-yellow-800' },
+  { value: 'AUDITORIA_ENVIADA', label: 'Auditoría enviada', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'CUESTIONARIO_ENVIADO', label: 'Cuestionario enviado', color: 'bg-purple-100 text-purple-800' },
   { value: 'CUESTIONARIO_COMPLETADO', label: 'Cuestionario completado', color: 'bg-green-100 text-green-800' },
   { value: 'PROPUESTA_ENVIADA', label: 'Propuesta enviada', color: 'bg-orange-100 text-orange-800' },
   { value: 'CERRADO_GANADO', label: 'Cerrado (ganado)', color: 'bg-emerald-100 text-emerald-800' },
   { value: 'CERRADO_PERDIDO', label: 'Cerrado (perdido)', color: 'bg-red-100 text-red-800' },
+  { value: 'DESCARTADO', label: 'Descartado', color: 'bg-gray-100 text-gray-800' },
 ];
 
 export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [notas, setNotas] = useState('');
   const [guardandoNotas, setGuardandoNotas] = useState(false);
   const [creandoCuestionario, setCreandoCuestionario] = useState(false);
@@ -76,6 +88,10 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const fetchLead = async () => {
     try {
       const res = await fetch(`/api/admin/leads/${leadId}`);
+      if (!res.ok) {
+        setError('Error al cargar el lead');
+        return;
+      }
       const data = await res.json();
       setLead(data.lead);
       setNotas(data.lead?.notas || '');
@@ -83,8 +99,12 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         const baseUrl = window.location.origin;
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.lead.cuestionario.token}`);
       }
-    } catch (error) {
-      console.error('Error:', error);
+      if (data.lead?.informePdfUrl) {
+        setPdfUrl(data.lead.informePdfUrl);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      setError('Error de conexión');
     } finally {
       setLoading(false);
     }
@@ -98,8 +118,8 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         body: JSON.stringify({ estado: nuevoEstado }),
       });
       fetchLead();
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (err) {
+      console.error('Error:', err);
     }
   };
 
@@ -111,10 +131,23 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notas }),
       });
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (err) {
+      console.error('Error:', err);
     } finally {
       setGuardandoNotas(false);
+    }
+  };
+
+  const guardarPdfUrl = async () => {
+    try {
+      await fetch(`/api/admin/leads/${leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ informePdfUrl: pdfUrl }),
+      });
+      fetchLead();
+    } catch (err) {
+      console.error('Error:', err);
     }
   };
 
@@ -130,8 +163,8 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.cuestionario.token}`);
         fetchLead();
       }
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (err) {
+      console.error('Error:', err);
     } finally {
       setCreandoCuestionario(false);
     }
@@ -155,11 +188,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       }
       setShowEmailModal(false);
       fetchLead();
-      alert(data.emailSent === false 
-        ? 'Cuestionario creado. Resend no configurado - copie el link manualmente.' 
+      alert(data.emailSent === false
+        ? 'Cuestionario listo. Resend no configurado - copie el link manualmente.'
         : 'Email enviado correctamente');
-    } catch (error) {
-      console.error('Error:', error);
+    } catch (err) {
+      console.error('Error:', err);
       alert('Error al enviar el email');
     } finally {
       setEnviandoEmail(false);
@@ -176,9 +209,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
     return <div className="p-6 text-center text-gray-400">Cargando...</div>;
   }
 
-  if (!lead) {
-    return <div className="p-6 text-center text-red-500">Lead no encontrado</div>;
+  if (error || !lead) {
+    return <div className="p-6 text-center text-red-500">{error || 'Lead no encontrado'}</div>;
   }
+
+  const estadoActual = ESTADOS.find(e => e.value === lead.estado);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -191,7 +226,10 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
           <h1 className="text-2xl font-bold text-gray-900">{lead.nombreEmpresa}</h1>
           <p className="text-sm text-gray-500">Lead recibido el {new Date(lead.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoActual?.color || 'bg-gray-100 text-gray-800'}`}>
+            {estadoActual?.label || lead.estado}
+          </span>
           <select
             value={lead.estado}
             onChange={(e) => cambiarEstado(e.target.value)}
@@ -230,22 +268,22 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
               <div>
                 <label className="text-xs text-gray-500 font-medium">Web actual</label>
                 <p className="text-sm">
-                  {lead.urlWeb ? (
-                    <a href={lead.urlWeb} target="_blank" rel="noopener" className="text-orange-600 hover:underline">{lead.urlWeb}</a>
+                  {lead.urlWebActual ? (
+                    <a href={lead.urlWebActual} target="_blank" rel="noopener" className="text-orange-600 hover:underline">{lead.urlWebActual}</a>
                   ) : '-'}
                 </p>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Sector</label>
-                <p className="text-sm text-gray-900 capitalize">{lead.sector || '-'}</p>
+                <p className="text-sm text-gray-900 capitalize">{lead.sectorOtro || lead.sector || '-'}</p>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Presupuesto</label>
                 <p className="text-sm text-gray-900">{lead.presupuesto || '-'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Plazo</label>
-                <p className="text-sm text-gray-900">{lead.plazo || '-'}</p>
+                <label className="text-xs text-gray-500 font-medium">Plazo / Fecha límite</label>
+                <p className="text-sm text-gray-900">{lead.fechaLimite || '-'}</p>
               </div>
             </div>
 
@@ -257,55 +295,73 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                   <p className="text-sm text-gray-900">{lead.numPaginas}</p>
                 </div>
               )}
-              {lead.funcionalidades && (
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Funcionalidades actuales</label>
-                  <p className="text-sm text-gray-900">{lead.funcionalidades}</p>
-                </div>
-              )}
-              {lead.frustracion && (
+              <div className="flex flex-wrap gap-2">
+                {lead.tieneBlog && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Blog</span>}
+                {lead.tieneTienda && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Tienda online</span>}
+                {lead.tieneFormularios && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Formularios</span>}
+                {lead.tieneAreaPrivada && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Área privada</span>}
+              </div>
+              {lead.frustracionActual && (
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Frustración principal</label>
-                  <p className="text-sm text-gray-900">{lead.frustracion}</p>
+                  <p className="text-sm text-gray-900">{lead.frustracionActual}</p>
                 </div>
               )}
               {lead.objetivos && (
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Objetivos</label>
-                  <div className="text-sm text-gray-900">
-                    {lead.objetivos.split(',').map((obj, i) => (
+                  <div className="text-sm text-gray-900 mt-1">
+                    {(Array.isArray(lead.objetivos) ? lead.objetivos : []).map((obj: string, i: number) => (
                       <span key={i} className="inline-block bg-orange-50 text-orange-700 px-2 py-1 rounded text-xs mr-2 mb-1">
-                        {obj.trim()}
+                        {obj}
                       </span>
                     ))}
                   </div>
                 </div>
               )}
-              {lead.respuestasSector && (
+              {lead.respuestasSector && typeof lead.respuestasSector === 'object' && (
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Respuestas sector ({lead.sector})</label>
-                  <pre className="text-sm text-gray-900 whitespace-pre-wrap bg-gray-50 rounded p-3 mt-1">
-                    {lead.respuestasSector}
-                  </pre>
+                  <div className="bg-gray-50 rounded p-3 mt-1 space-y-2">
+                    {Object.entries(lead.respuestasSector).map(([key, val]) => (
+                      <div key={key}>
+                        <span className="text-xs text-gray-500">{key}:</span>
+                        <span className="text-sm text-gray-900 ml-2">{String(val)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-              {lead.software && (
+              {lead.necesitaIntegracion && (
+                <div className="border-t pt-4">
+                  <label className="text-xs text-gray-500 font-medium">Integración software</label>
+                  <div className="space-y-1 mt-1">
+                    {lead.softwareActual && <p className="text-sm text-gray-900">Software: {lead.softwareActual}</p>}
+                    {lead.tieneApi && <p className="text-sm text-gray-900">API: {lead.tieneApi}</p>}
+                    {lead.datosIntegracion && <p className="text-sm text-gray-900">Datos: {lead.datosIntegracion}</p>}
+                    {lead.proveedorActual && <p className="text-sm text-gray-900">Proveedor: {lead.proveedorActual}</p>}
+                  </div>
+                </div>
+              )}
+              {lead.comoNosConocio && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Software/Integraciones</label>
-                  <p className="text-sm text-gray-900">{lead.software}</p>
+                  <label className="text-xs text-gray-500 font-medium">Cómo nos conoció</label>
+                  <p className="text-sm text-gray-900">{lead.comoNosConocio}</p>
                 </div>
               )}
             </div>
           </div>
 
           {/* Respuestas del cuestionario técnico */}
-          {lead.cuestionario && lead.cuestionario.respuestas.length > 0 && (
+          {lead.cuestionario && lead.cuestionario.respuestas && lead.cuestionario.respuestas.length > 0 && (
             <div className="bg-white rounded-lg border p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-4">
                 Respuestas del Cuestionario Técnico
-                <span className="ml-2 text-xs font-normal text-green-600">
-                  Completado el {lead.cuestionario.completadoAt ? new Date(lead.cuestionario.completadoAt).toLocaleDateString('es-ES') : '-'}
-                </span>
+                {lead.cuestionario.fechaCompletado && (
+                  <span className="ml-2 text-xs font-normal text-green-600">
+                    Completado el {new Date(lead.cuestionario.fechaCompletado).toLocaleDateString('es-ES')}
+                  </span>
+                )}
               </h2>
               <div className="space-y-4">
                 {lead.cuestionario.respuestas.map((resp) => (
@@ -322,91 +378,108 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Acciones */}
+          {/* Link del cuestionario */}
           <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Acciones</h3>
-            <div className="space-y-3">
-              {!lead.cuestionario ? (
-                <button
-                  onClick={crearCuestionario}
-                  disabled={creandoCuestionario}
-                  className="w-full bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
-                >
-                  {creandoCuestionario ? 'Creando...' : '📋 Generar Cuestionario'}
-                </button>
-              ) : (
-                <>
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                    <p className="text-xs text-green-700 font-medium mb-2">Cuestionario creado</p>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={cuestionarioUrl}
-                        readOnly
-                        className="flex-1 text-xs border rounded px-2 py-1 bg-white"
-                      />
-                      <button
-                        onClick={copiarLink}
-                        className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
-                      >
-                        {copiado ? '✓' : 'Copiar'}
-                      </button>
-                    </div>
-                    <p className="text-xs text-green-600 mt-2">
-                      Estado: {lead.cuestionario.estado === 'COMPLETADO' ? '✅ Completado' : '⏳ Pendiente'}
-                    </p>
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Cuestionario Técnico</h3>
+            {!lead.cuestionario ? (
+              <button
+                onClick={crearCuestionario}
+                disabled={creandoCuestionario}
+                className="w-full bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+              >
+                {creandoCuestionario ? 'Creando...' : '📋 Generar Cuestionario'}
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-xs text-green-700 font-medium mb-2">Cuestionario creado</p>
+                  <p className="text-xs text-green-600 mb-2">
+                    Estado: {lead.cuestionario.estado === 'COMPLETADO' ? '✅ Completado' : '⏳ Pendiente de respuesta'}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={cuestionarioUrl}
+                      readOnly
+                      className="flex-1 text-xs border rounded px-2 py-1 bg-white truncate"
+                    />
+                    <button
+                      onClick={copiarLink}
+                      className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 whitespace-nowrap"
+                    >
+                      {copiado ? '✓ Copiado' : 'Copiar'}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setEmailAsunto(`Informe de Auditoría Web - ${lead.nombreEmpresa}`);
-                      setEmailMensaje('');
-                      setShowEmailModal(true);
-                    }}
-                    disabled={enviandoEmail}
-                    className="w-full bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    📧 Enviar Email con PDF + Link
-                  </button>
-                </>
-              )}
-            </div>
+                </div>
+                <a
+                  href={cuestionarioUrl}
+                  target="_blank"
+                  rel="noopener"
+                  className="block text-center text-xs text-orange-600 hover:underline"
+                >
+                  Abrir cuestionario en nueva pestaña →
+                </a>
+              </div>
+            )}
           </div>
 
           {/* PDF del informe */}
           <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Informe PDF</h3>
-            {lead.informePdfUrl ? (
+            <h3 className="text-sm font-semibold text-gray-900 mb-4">Informe PDF de Auditoría</h3>
+            <div className="space-y-3">
               <div>
-                <a href={lead.informePdfUrl} target="_blank" rel="noopener" className="text-orange-600 hover:underline text-sm">
-                  📄 Ver informe PDF
-                </a>
-              </div>
-            ) : (
-              <div>
-                <p className="text-xs text-gray-500 mb-2">URL del PDF de auditoría (subir manualmente):</p>
+                <label className="block text-xs text-gray-500 mb-1">URL del PDF:</label>
                 <input
                   type="url"
                   placeholder="https://..."
                   value={pdfUrl}
                   onChange={(e) => setPdfUrl(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm mb-2"
+                  className="w-full border rounded px-3 py-2 text-sm"
                 />
+              </div>
+              <div className="flex gap-2">
                 <button
-                  onClick={async () => {
-                    await fetch(`/api/admin/leads/${leadId}`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ informePdfUrl: pdfUrl }),
-                    });
-                    fetchLead();
-                  }}
+                  onClick={guardarPdfUrl}
                   className="text-xs bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700"
                 >
                   Guardar URL
                 </button>
+                {lead.informePdfUrl && (
+                  <a
+                    href={lead.informePdfUrl}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded hover:bg-orange-200"
+                  >
+                    📄 Ver PDF
+                  </a>
+                )}
               </div>
-            )}
+            </div>
           </div>
+
+          {/* Enviar email */}
+          {lead.cuestionario && (
+            <div className="bg-white rounded-lg border p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Enviar al Cliente</h3>
+              <button
+                onClick={() => {
+                  setEmailAsunto(`Informe de Auditoría Web - ${lead.nombreEmpresa}`);
+                  setEmailMensaje('');
+                  setShowEmailModal(true);
+                }}
+                disabled={enviandoEmail}
+                className="w-full bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+              >
+                📧 Enviar Email con PDF + Link
+              </button>
+              {lead.cuestionario.fechaEnvio && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Último envío: {new Date(lead.cuestionario.fechaEnvio).toLocaleDateString('es-ES')}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Notas internas */}
           <div className="bg-white rounded-lg border p-6">
@@ -426,7 +499,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             </button>
           </div>
 
-          {/* Info rápida */}
+          {/* Estado del proceso */}
           <div className="bg-white rounded-lg border p-6">
             <h3 className="text-sm font-semibold text-gray-900 mb-4">Estado del proceso</h3>
             <div className="space-y-2 text-xs">
@@ -441,21 +514,21 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                 </span>
               </div>
               <div className="flex justify-between">
+                <span className="text-gray-500">PDF adjuntado</span>
+                <span className={lead.informePdfUrl ? 'text-green-600' : 'text-gray-300'}>
+                  {lead.informePdfUrl ? '✓' : '○'}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-500">Email enviado</span>
-                <span className={lead.cuestionario?.enviadoAt ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.cuestionario?.enviadoAt ? '✓' : '○'}
+                <span className={lead.cuestionario?.fechaEnvio ? 'text-green-600' : 'text-gray-300'}>
+                  {lead.cuestionario?.fechaEnvio ? '✓' : '○'}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Cuestionario completado</span>
                 <span className={lead.cuestionario?.estado === 'COMPLETADO' ? 'text-green-600' : 'text-gray-300'}>
                   {lead.cuestionario?.estado === 'COMPLETADO' ? '✓' : '○'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Propuesta enviada</span>
-                <span className={lead.estado === 'PROPUESTA_ENVIADA' || lead.estado.startsWith('CERRADO') ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.estado === 'PROPUESTA_ENVIADA' || lead.estado.startsWith('CERRADO') ? '✓' : '○'}
                 </span>
               </div>
             </div>
