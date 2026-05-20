@@ -102,6 +102,15 @@ export default function EmpresaNav({ currentPage = '' }) {
                   ) : (
                     <div className="px-4 py-3 text-sm text-gray-400">Cargando...</div>
                   )}
+                  <div className="border-t border-gray-100 mt-1 pt-1">
+                    <Link 
+                      href="/contrata/migracion-web" 
+                      className="block px-4 py-3 hover:bg-orange-50 transition-colors"
+                    >
+                      <span className="font-semibold text-gray-900 text-sm">🌐 Migración Web</span>
+                      <span className="block text-xs text-gray-500 mt-0.5">Moderniza tu web con auditoría gratuita</span>
+                    </Link>
+                  </div>
                 </div>
               </div>
               
@@ -307,6 +316,12 @@ export default function EmpresaNav({ currentPage = '' }) {
                         {seccion.nombre}
                       </Link>
                     ))}
+                    <Link 
+                      href="/contrata/migracion-web" 
+                      className="block py-1 text-sm text-gray-600 hover:text-orange-600 font-medium"
+                    >
+                      🌐 Migración Web
+                    </Link>
                   </div>
                 </div>
                 
