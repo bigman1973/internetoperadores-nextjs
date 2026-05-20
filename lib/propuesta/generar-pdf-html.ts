@@ -89,7 +89,7 @@ export function generarPDFHtml(
   const cronogramaHtml = valoracion.cronograma
     .map(
       (c) => `
-    <h4 class="fase-titulo">Fase ${c.fase}: ${c.titulo}</h4>
+    <h4 class="fase-titulo">Fase ${c.fase}: ${c.titulo} (${c.duracion || ''})</h4>
     <table class="tabla-partidas">
       <thead>
         <tr>
@@ -124,7 +124,14 @@ export function generarPDFHtml(
     .join('');
 
   const notasHtml = valoracion.notasCondiciones
-    .map((n, i) => `<p><strong>${i + 1}.</strong> ${n}</p>`)
+    .map((n) => {
+      // Si la nota ya empieza con número, no añadir otro
+      if (/^\d+\./.test(n)) {
+        const match = n.match(/^(\d+\.)\s*(.*)/);
+        return `<p><strong>${match?.[1]}</strong> ${match?.[2]}</p>`;
+      }
+      return `<p>${n}</p>`;
+    })
     .join('');
 
   return `<!DOCTYPE html>
@@ -640,10 +647,15 @@ export function generarPDFHtml(
         <tr><th>Concepto</th><th>Mensual</th></tr>
       </thead>
       <tbody>
-        <tr><td>Hosting + infraestructura</td><td>50€/mes</td></tr>
-        <tr><td>Mantenimiento correctivo + actualizaciones de seguridad</td><td>150€/mes</td></tr>
-        <tr><td>Soporte técnico (hasta 5h/mes)</td><td>200€/mes</td></tr>
-        <tr class="subtotal-row"><td><strong>Total mantenimiento</strong></td><td><strong>400€/mes</strong></td></tr>
+        ${(valoracion.mantenimiento || [
+          {concepto: 'Hosting + infraestructura (servidor cloud privado)', mensual: '50€/mes'},
+          {concepto: 'Mantenimiento correctivo + actualizaciones de seguridad', mensual: '150€/mes'},
+          {concepto: 'Soporte técnico (hasta 5h/mes)', mensual: '200€/mes'},
+          {concepto: 'Total mantenimiento', mensual: '400€/mes'}
+        ]).map((m, i, arr) => i === arr.length - 1 
+          ? `<tr class="subtotal-row"><td><strong>${m.concepto}</strong></td><td><strong>${m.mensual}</strong></td></tr>`
+          : `<tr><td>${m.concepto}</td><td>${m.mensual}</td></tr>`
+        ).join('')}
       </tbody>
     </table>
 
@@ -653,9 +665,9 @@ export function generarPDFHtml(
     </div>
     <div class="condiciones-box">
       <h4>Condiciones</h4>
-      <p><strong>Validez de la oferta:</strong> 30 días desde la fecha de emisión.</p>
-      <p><strong>IVA:</strong> Todos los importes son sin IVA (21%).</p>
-      <p><strong>Licencias:</strong> El coste de licencias de software de terceros no está incluido y corre a cargo del cliente.</p>
+      <p><strong>Validez de la oferta:</strong> ${valoracion.condiciones?.validez || '30 días desde la fecha de emisión'}.</p>
+      <p><strong>IVA:</strong> ${valoracion.condiciones?.iva || 'Todos los importes son sin IVA (21%)'}.</p>
+      <p><strong>Licencias:</strong> ${valoracion.condiciones?.licencias || 'El coste de licencias de software de terceros no está incluido y corre a cargo del cliente'}.</p>
     </div>
     <div class="page-footer">6</div>
   </div>
@@ -678,7 +690,7 @@ export function generarPDFHtml(
     </table>
     <div class="recuadro">
       <h4>Reunión de arranque propuesta</h4>
-      <p>Proponemos una reunión presencial o por videollamada con ${datosLead.contactoNombre} y el responsable de administración para validar los KPIs del dashboard y definir los criterios antes de iniciar el desarrollo.</p>
+      <p>${valoracion.reunionArranque || `Proponemos una reunión presencial o por videollamada con ${datosLead.contactoNombre} y el responsable de administración para validar los KPIs del dashboard y definir los criterios antes de iniciar el desarrollo.`}</p>
     </div>
     <div class="page-footer">7</div>
   </div>
