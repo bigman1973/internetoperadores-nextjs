@@ -80,6 +80,8 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [pdfUrl, setPdfUrl] = useState('');
   const [cuestionarioUrl, setCuestionarioUrl] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
+  const [propuestaGenerada, setPropuestaGenerada] = useState(false);
 
   useEffect(() => {
     fetchLead();
@@ -203,6 +205,34 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
     navigator.clipboard.writeText(cuestionarioUrl);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 2000);
+  };
+
+  const generarPropuesta = async () => {
+    setGenerandoPropuesta(true);
+    try {
+      const res = await fetch('/api/admin/leads/generar-propuesta', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setPropuestaGenerada(true);
+        fetchLead();
+        alert(`Propuesta generada: ${data.resumen.totalHoras}h / ${data.resumen.totalPrecio.toLocaleString('es-ES')}€`);
+      } else {
+        alert(`Error: ${data.error}`);
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      alert('Error al generar la propuesta');
+    } finally {
+      setGenerandoPropuesta(false);
+    }
+  };
+
+  const verPropuestaPDF = () => {
+    window.open(`/api/admin/leads/generar-propuesta/pdf?leadId=${leadId}`, '_blank');
   };
 
   if (loading) {
@@ -458,6 +488,33 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             </div>
           </div>
 
+          {/* Propuesta / Valoración */}
+          {lead.cuestionario && lead.cuestionario.estado === 'COMPLETADO' && (
+            <div className="bg-white rounded-lg border p-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Propuesta Automática</h3>
+              <div className="space-y-3">
+                <button
+                  onClick={generarPropuesta}
+                  disabled={generandoPropuesta}
+                  className="w-full bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+                >
+                  {generandoPropuesta ? '⏳ Generando con IA...' : '🤖 Generar Valoración con IA'}
+                </button>
+                {(lead.informePdfUrl || propuestaGenerada) && (
+                  <button
+                    onClick={verPropuestaPDF}
+                    className="w-full bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700"
+                  >
+                    📄 Ver / Descargar Propuesta PDF
+                  </button>
+                )}
+                {generandoPropuesta && (
+                  <p className="text-xs text-gray-500 text-center">Analizando respuestas y generando valoración... (30-60 seg)</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Enviar email */}
           {lead.cuestionario && (
             <div className="bg-white rounded-lg border p-6">
@@ -529,6 +586,12 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                 <span className="text-gray-500">Cuestionario completado</span>
                 <span className={lead.cuestionario?.estado === 'COMPLETADO' ? 'text-green-600' : 'text-gray-300'}>
                   {lead.cuestionario?.estado === 'COMPLETADO' ? '✓' : '○'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Propuesta generada</span>
+                <span className={lead.informePdfUrl ? 'text-green-600' : 'text-gray-300'}>
+                  {lead.informePdfUrl ? '✓' : '○'}
                 </span>
               </div>
             </div>

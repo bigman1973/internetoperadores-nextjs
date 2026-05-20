@@ -1,7 +1,68 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { generarValoracionConIA, DatosLead, RespuestaCuestionario } from '@/lib/propuesta/generar-valoracion';
+import { generarPDFHtml } from '@/lib/propuesta/generar-pdf-html';
 
 export const dynamic = 'force-dynamic';
+
+// Función que genera la propuesta en background
+async function generarPropuestaEnBackground(leadId: string, cuestionarioId: string) {
+  try {
+    const lead = await prisma.leadMigracionWeb.findUnique({
+      where: { id: leadId },
+      include: {
+        cuestionario: {
+          include: {
+            respuestas: { orderBy: { numeroPregunta: 'asc' } },
+          },
+        },
+      },
+    });
+
+    if (!lead || !lead.cuestionario) return;
+
+    const datosLead: DatosLead = {
+      empresa: lead.nombreEmpresa,
+      contactoNombre: lead.contacto || lead.cuestionario.contactoNombre || '',
+      contactoEmail: lead.email || lead.cuestionario.contactoEmail || '',
+      telefono: lead.telefono || '',
+      sector: lead.sector || lead.cuestionario.sector || '',
+      urlWebActual: lead.urlWebActual,
+      frustracionActual: lead.frustracionActual,
+      objetivos: lead.objetivos,
+      respuestasSector: lead.respuestasSector,
+      softwareActual: lead.softwareActual,
+      necesitaIntegracion: lead.necesitaIntegracion || false,
+      tieneApi: lead.tieneApi,
+      datosIntegracion: lead.datosIntegracion,
+      presupuesto: lead.presupuesto,
+      fechaLimite: lead.fechaLimite,
+    };
+
+    const respuestas: RespuestaCuestionario[] = lead.cuestionario.respuestas.map((r) => ({
+      bloque: r.bloque,
+      numeroPregunta: r.numeroPregunta,
+      pregunta: r.pregunta,
+      respuesta: r.respuesta,
+    }));
+
+    // Generar valoración con IA
+    const valoracion = await generarValoracionConIA(datosLead, respuestas);
+
+    // Actualizar el lead con la info de la propuesta generada
+    await prisma.leadMigracionWeb.update({
+      where: { id: leadId },
+      data: {
+        informePdfUrl: `propuesta-generada:${new Date().toISOString()}`,
+        notas: `Propuesta generada automáticamente. Total: ${valoracion.totalHoras}h / ${valoracion.totalPrecio.toLocaleString('es-ES')}€`,
+      },
+    });
+
+    console.log(`Propuesta generada para lead ${leadId}: ${valoracion.totalHoras}h / ${valoracion.totalPrecio}€`);
+  } catch (error) {
+    console.error('Error en generarPropuestaEnBackground:', error);
+  }
+}
 
 // GET: Obtener cuestionario por token (público, sin auth)
 export async function GET(
@@ -107,6 +168,11 @@ export async function POST(
       await prisma.leadMigracionWeb.update({
         where: { id: lead.id },
         data: { estado: 'CUESTIONARIO_COMPLETADO' },
+      });
+
+      // Generar propuesta automáticamente en background (no bloquea la respuesta al cliente)
+      generarPropuestaEnBackground(lead.id, cuestionario.id).catch((err) => {
+        console.error('Error generando propuesta en background:', err);
       });
     }
 
