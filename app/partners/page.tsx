@@ -141,7 +141,7 @@ export default function PartnersPage() {
               <a href="#formulario" className="bg-orange-500 hover:bg-orange-600 text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all shadow-lg hover:shadow-xl text-center">
                 Quiero ser Partner
               </a>
-              <a href="https://wa.me/34900123456?text=Hola%2C%20me%20interesa%20el%20programa%20de%20partners" target="_blank" className="border-2 border-white/30 hover:border-white text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all text-center">
+              <a href="https://wa.me/34900730034?text=Hola%2C%20me%20interesa%20el%20programa%20de%20partners" target="_blank" className="border-2 border-white/30 hover:border-white text-white px-8 py-4 rounded-lg font-semibold text-lg transition-all text-center">
                 Hablar por WhatsApp
               </a>
             </div>

@@ -73,7 +73,7 @@ export default function SoportePage() {
               <a href="tel:+34900730034" className="bg-orange-500 hover:bg-orange-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
                 <span className="text-xl">📞</span> Llamar ahora
               </a>
-              <a href="https://wa.me/34900123456?text=Hola%2C%20necesito%20soporte%20t%C3%A9cnico" target="_blank" className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
+              <a href="https://wa.me/34900730034?text=Hola%2C%20necesito%20soporte%20t%C3%A9cnico" target="_blank" className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
                 <span className="text-xl">💬</span> WhatsApp
               </a>
               <a href="mailto:soporte@internetoperadores.com" className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">

@@ -208,7 +208,7 @@ export default function CasosExitoPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20gratuita"
+                href="https://wa.me/34900730034?text=Hola,%20me%20interesa%20una%20auditoría%20gratuita"
                 className="inline-block px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold"
               >
                 Solicitar Auditoría Gratuita

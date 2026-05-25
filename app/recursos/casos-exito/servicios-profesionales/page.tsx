@@ -297,7 +297,7 @@ export default function CasoExitoPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20demo%20de%20Wildix%20para%20mi%20despacho"
+                href="https://wa.me/34900730034?text=Hola,%20me%20interesa%20una%20demo%20de%20Wildix%20para%20mi%20despacho"
                 className="inline-flex items-center justify-center bg-white text-orange-600 px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors"
               >
                 Solicitar Demo Gratuita

@@ -27,7 +27,7 @@ export default function MovilesPage() {
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 px-2">Tarifas móviles empresariales con las mejores condiciones. Flotas móviles, datos compartidos y gestión centralizada para tu empresa.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
               <Link href="/tarifas/empresa" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">Ver Tarifas Móviles</Link>
-              <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20tarifas%20móviles%20para%20empresas" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
+              <a href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20tarifas%20móviles%20para%20empresas" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
             </div>
           </div>
         </div>
@@ -68,7 +68,7 @@ export default function MovilesPage() {
             <p className="text-base sm:text-lg lg:text-xl text-orange-100 mb-6 sm:mb-8 px-2">Fijo, móvil e internet en una sola factura. Simplifica la gestión de tu empresa.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
               <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">Solicitar Propuesta</Link>
-              <a href="tel:+34655100400" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">Llamar: 655 100 400</a>
+              <a href="tel:+34900730034" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">Llamar: 900 730 034</a>
             </div>
           </div>
         </div>

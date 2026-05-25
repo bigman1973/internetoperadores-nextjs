@@ -211,7 +211,7 @@ export default function HerramientasPage() {
               <Link href="/contacto" className="px-8 py-4 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all font-bold text-lg">
                 Solicitar Estudio Gratuito
               </Link>
-              <a href="https://wa.me/34900123456" className="px-8 py-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-bold text-lg">
+              <a href="https://wa.me/34900730034" className="px-8 py-4 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-bold text-lg">
                 Consultar por WhatsApp
               </a>
             </div>

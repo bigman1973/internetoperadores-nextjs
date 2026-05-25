@@ -462,8 +462,8 @@ export default function MigracionWebPage() {
               <a href="tel:+34973228000" className="inline-block px-8 py-4 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-lg">
                 Llamar: 973 228 000
               </a>
-              <a href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20migración%20de%20mi%20web%20WordPress" target="_blank" rel="noopener noreferrer" className="inline-block px-8 py-4 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-lg">
-                WhatsApp: 655 100 400
+              <a href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20migración%20de%20mi%20web%20WordPress" target="_blank" rel="noopener noreferrer" className="inline-block px-8 py-4 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-lg">
+                WhatsApp: 900 730 034
               </a>
             </div>
           </div>

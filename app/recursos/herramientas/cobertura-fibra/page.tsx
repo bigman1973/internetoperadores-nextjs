@@ -244,7 +244,7 @@ export default function CoberturaFibraPage() {
                     <Link href="/contacto" className="px-6 py-3 bg-white text-orange-600 rounded-xl hover:bg-orange-50 transition-all font-semibold">
                       Solicitar Estudio Gratuito
                     </Link>
-                    <a href="https://wa.me/34900123456" className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold">
+                    <a href="https://wa.me/34900730034" className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold">
                       Consultar por WhatsApp
                     </a>
                   </div>

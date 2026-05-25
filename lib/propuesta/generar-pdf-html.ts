@@ -522,7 +522,7 @@ export function generarPDFHtml(
     <div class="portada-box">
       <h4>Preparado por Internet Operadores</h4>
       <p>David Pérez — Project Manager & IT Advisor</p>
-      <p>Tel.: 681 623 425 · david.perez@internetoperadores.es</p>
+      <p>Tel.: 900 730 034 · david.perez@internetoperadores.es</p>
     </div>
   </div>
 
@@ -705,7 +705,7 @@ export function generarPDFHtml(
       <div class="contacto-contra">
         <h3>David Pérez</h3>
         <p>Project Manager & IT Advisor</p>
-        <p>Tel.: 681 623 425</p>
+        <p>Tel.: 900 730 034</p>
         <p>david.perez@internetoperadores.es</p>
       </div>
       <div class="footer-contra">

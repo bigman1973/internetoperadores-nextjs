@@ -30,7 +30,7 @@ export default function Header() {
               <span className="hidden lg:inline text-sm">Paseo De La Habana 26 1-1. 28036, Madrid. España</span>
             </div>
             <a 
-              href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
+              href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
               className="bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold text-center"
               target="_blank"
               rel="noopener noreferrer"

@@ -32,7 +32,7 @@ export default function SanidadPage() {
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 px-2">Soluciones de protección de datos, comunicaciones seguras y conectividad crítica para clínicas, hospitales y centros médicos.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
               <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">Solicitar Auditoría Gratuita</Link>
-              <a href="https://wa.me/34655100400?text=Hola,%20tengo%20una%20clínica/centro%20médico%20y%20necesito%20información" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
+              <a href="https://wa.me/34900730034?text=Hola,%20tengo%20una%20clínica/centro%20médico%20y%20necesito%20información" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
             </div>
           </div>
         </div>
@@ -87,7 +87,7 @@ export default function SanidadPage() {
             <p className="text-base sm:text-lg lg:text-xl text-orange-100 mb-6 sm:mb-8 px-2">Te ayudamos a proteger los datos de tus pacientes con las máximas garantías.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
               <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">Solicitar Auditoría Gratuita</Link>
-              <a href="tel:+34655100400" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">Llamar: 655 100 400</a>
+              <a href="tel:+34900730034" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">Llamar: 900 730 034</a>
             </div>
           </div>
         </div>

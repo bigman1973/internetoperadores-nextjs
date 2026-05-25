@@ -65,7 +65,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
                 <Link href="/particular" className="text-orange-500 font-semibold">Particulares</Link>
               </div>
               <div className="flex items-center gap-4">
-                <a href="tel:+34655100400" className="text-gray-700 font-medium hover:text-orange-500">655 100 400</a>
+                <a href="tel:+34900730034" className="text-gray-700 font-medium hover:text-orange-500">900 730 034</a>
                 <Link href="/soporte" className="hidden sm:inline text-gray-600 hover:text-orange-500 font-medium">Soporte</Link>
               </div>
             </div>
@@ -155,8 +155,8 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
           <h2 className="text-3xl font-bold text-white mb-4">¿No encuentras lo que buscas?</h2>
           <p className="text-gray-400 text-lg mb-8">Contacta con nosotros y te ayudaremos a encontrar la tarifa perfecta para ti.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href="tel:+34655100400" className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
-              Llamar: 655 100 400
+            <a href="tel:+34900730034" className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
+              Llamar: 900 730 034
             </a>
             <Link href="/contacto" className="px-8 py-4 border-2 border-white text-white rounded-lg font-semibold hover:bg-white/10 transition-colors text-lg">
               Contactar

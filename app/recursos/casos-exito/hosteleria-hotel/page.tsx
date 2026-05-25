@@ -250,7 +250,7 @@ export default function CasoExitoPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a 
-                href="https://wa.me/34900123456?text=Hola,%20me%20interesa%20una%20auditoría%20WiFi%20para%20mi%20hotel"
+                href="https://wa.me/34900730034?text=Hola,%20me%20interesa%20una%20auditoría%20WiFi%20para%20mi%20hotel"
                 className="inline-flex items-center justify-center bg-white text-orange-600 px-8 py-4 rounded-xl font-bold hover:bg-gray-100 transition-colors"
               >
                 Solicitar Auditoría Gratuita
