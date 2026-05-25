@@ -172,6 +172,109 @@ export default function SoportePage() {
         </div>
       </section>
 
+      {/* Soporte Remoto - Control Remoto */}
+      <section id="control-remoto" className="py-16 bg-white">
+        <div className="container mx-auto px-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-12">
+              <span className="inline-block bg-blue-500/10 text-blue-600 text-sm font-semibold px-4 py-1.5 rounded-full mb-4">
+                Asistencia remota
+              </span>
+              <h2 className="text-3xl font-bold text-gray-900 mb-4">Control Remoto</h2>
+              <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+                Descarga nuestra aplicación de soporte remoto para que nuestro equipo técnico pueda acceder a tu equipo de forma segura y resolver incidencias al instante.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Windows */}
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-blue-600" fill="currentColor" viewBox="0 0 24 24"><path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></svg>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-1">Windows</h3>
+                  <p className="text-sm text-gray-500 mb-4">Windows 10 / 11</p>
+                  <div className="space-y-2">
+                    <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-WIN.exe" 
+                       className="block w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold text-sm transition-all">
+                      Descargar .EXE
+                    </a>
+                    <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-WIN-MSI.msi" 
+                       className="block w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all">
+                      Descargar .MSI
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* macOS */}
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-gray-800/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-gray-800" fill="currentColor" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11"/></svg>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-1">macOS</h3>
+                  <p className="text-sm text-gray-500 mb-4">Apple Silicon / Intel</p>
+                  <div className="space-y-2">
+                    <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-MAC_ARM.dmg" 
+                       className="block w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold text-sm transition-all">
+                      Apple Silicon (M1/M2/M3)
+                    </a>
+                    <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-MAC_X86.dmg" 
+                       className="block w-full bg-gray-200 hover:bg-gray-300 text-gray-700 py-2.5 px-4 rounded-lg font-semibold text-sm transition-all">
+                      Intel (x86)
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Linux */}
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-yellow-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-yellow-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.368 1.884 1.43.868.07 1.723-.26 2.456-.594.733-.34 1.455-.78 2.28-.67.825.108 1.663.468 2.37.602a2.7 2.7 0 001.57-.14c.424-.18.692-.467.856-.799.164-.332.183-.7.036-1.024-.147-.324-.42-.594-.763-.82-.068-.045-.14-.09-.215-.145.22-.09.478-.198.736-.395.643-.497.902-1.176.719-1.669-.183-.493-.654-.659-.926-.659-.272 0-.483.132-.483.132s.167-.088.167-.333c0-.2-.133-.333-.133-.333s.333.2.333-.067c0-.266-.333-.333-.333-.333s.333.067.333-.2c0-.266-.333-.333-.333-.333s.133.067.133-.133c0-.2-.2-.333-.2-.333s.133.067.133-.133c0-.2-.133-.267-.133-.267s.067.067.067-.133c0-.2-.133-.267-.133-.267s.067.067.067-.133c0-.2-.133-.267-.133-.267s.067.067.067-.133c0-.2-.133-.267-.133-.267s.067.067.067-.133c0-.2-.133-.267-.133-.267"/></svg>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-1">Linux</h3>
+                  <p className="text-sm text-gray-500 mb-4">Ubuntu / Debian</p>
+                  <div className="space-y-2">
+                    <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-LINUX.deb" 
+                       className="block w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold text-sm transition-all">
+                      Descargar .DEB
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              {/* Android */}
+              <div className="bg-gray-50 rounded-xl p-6 border border-gray-200 hover:border-orange-300 hover:shadow-md transition-all sm:col-span-2 lg:col-span-3">
+                <div className="text-center">
+                  <div className="w-16 h-16 bg-green-500/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg className="w-8 h-8 text-green-600" fill="currentColor" viewBox="0 0 24 24"><path d="M17.523 15.341a.996.996 0 010-1.992.996.996 0 010 1.992m-11.046 0a.996.996 0 010-1.992.996.996 0 010 1.992m11.405-6.02l1.997-3.46a.416.416 0 00-.152-.567.416.416 0 00-.567.152l-2.024 3.506C15.604 8.16 13.88 7.7 12 7.7s-3.604.46-5.136 1.252L4.84 5.446a.416.416 0 00-.567-.152.416.416 0 00-.152.567l1.997 3.46C2.688 11.187.343 14.445 0 18.3h24c-.344-3.855-2.688-7.113-6.118-8.979"/></svg>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-1">Android</h3>
+                  <p className="text-sm text-gray-500 mb-4">Smartphones y tablets</p>
+                  <a href="https://gjdfjawxpneglbivplfs.supabase.co/storage/v1/object/public/downloads/soporte-remoto/SAT_IO-ANDROID.apk" 
+                     className="inline-block bg-orange-500 hover:bg-orange-600 text-white py-2.5 px-8 rounded-lg font-semibold text-sm transition-all">
+                    Descargar .APK
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 bg-blue-50 rounded-xl p-6 border border-blue-100">
+              <h4 className="font-bold text-gray-900 mb-2">¿Cómo funciona?</h4>
+              <ol className="text-gray-600 space-y-2 text-sm">
+                <li><span className="font-semibold text-orange-500">1.</span> Descarga e instala la aplicación en tu dispositivo</li>
+                <li><span className="font-semibold text-orange-500">2.</span> Ejecuta la aplicación — se generará un ID y contraseña</li>
+                <li><span className="font-semibold text-orange-500">3.</span> Comunica el ID y contraseña a nuestro técnico por teléfono o chat</li>
+                <li><span className="font-semibold text-orange-500">4.</span> El técnico se conectará de forma segura a tu equipo para resolver la incidencia</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Formulario de ticket */}
       <section id="ticket" className="py-20 bg-gray-50">
         <div className="container mx-auto px-6">
