@@ -163,6 +163,7 @@ export function generarPDFHtml(
 
     .page:last-child {
       page-break-after: avoid;
+      min-height: auto;
     }
 
     /* PORTADA */
@@ -420,7 +421,7 @@ export function generarPDFHtml(
       align-items: center;
       text-align: center;
       color: white;
-      min-height: 297mm;
+      height: 247mm;
       margin: -25mm -20mm;
       padding: 25mm 20mm;
     }
