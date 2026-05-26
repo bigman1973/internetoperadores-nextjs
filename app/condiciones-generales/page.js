@@ -37,7 +37,7 @@ export default function CondicionesGenerales() {
           <section className="mb-10">
             <h2 className="text-2xl font-bold mb-4 text-gray-900">1. Objeto y alcance del servicio</h2>
             <p className="text-gray-700 mb-4">
-              Estas condiciones generales regulan el contrato de prestación de servicios de telecomunicaciones y servicios asociados entre <strong>Internet Operadores</strong> (en adelante, &quot;IO&quot;), con domicilio social en Paseo de la Habana, 9-11, 28036 Madrid y con CIF B25808619, y el cliente (en adelante, &quot;el Cliente&quot;).
+              Estas condiciones generales regulan el contrato de prestación de servicios de telecomunicaciones y servicios asociados entre <strong>Internet Operadores</strong> (en adelante, &quot;IO&quot;), con domicilio social en Paseo De La Habana 26 1-1, 28036 Madrid y con CIF B25808619, y el cliente (en adelante, &quot;el Cliente&quot;).
             </p>
             <p className="text-gray-700 mb-4">
               El objeto del contrato es la provisión de los servicios detallados en el contrato particular o propuesta económica aceptada por el Cliente, que puede incluir acceso a internet, telefonía fija, telefonía móvil, centralita virtual, hosting, backup, y otros servicios de telecomunicaciones.
@@ -141,7 +141,7 @@ export default function CondicionesGenerales() {
             
             <h3 className="text-lg font-semibold mb-2 text-gray-800">5.1. Responsable del tratamiento</h3>
             <p className="text-gray-700 mb-4">
-              Internet Operadores, con CIF B25808619 y domicilio en Paseo de la Habana, 9-11, 28036 Madrid. Contacto para cuestiones de privacidad: <a href="mailto:privacidad@internetoperadores.com" className="text-orange-500 hover:text-orange-600">privacidad@internetoperadores.com</a>.
+              Internet Operadores, con CIF B25808619 y domicilio en Paseo De La Habana 26 1-1, 28036 Madrid. Contacto para cuestiones de privacidad: <a href="mailto:privacidad@internetoperadores.com" className="text-orange-500 hover:text-orange-600">privacidad@internetoperadores.com</a>.
             </p>
 
             <h3 className="text-lg font-semibold mb-2 text-gray-800">5.2. Finalidad y base jurídica</h3>
@@ -214,7 +214,7 @@ export default function CondicionesGenerales() {
 
             <h3 className="text-lg font-semibold mb-2 text-gray-800">7.2. Baja voluntaria</h3>
             <p className="text-gray-700 mb-4">
-              El Cliente podrá solicitar la baja del servicio en cualquier momento con un preaviso de 2 días hábiles. Si existe compromiso de permanencia no cumplido, se aplicará la penalización proporcional correspondiente al tiempo restante.
+              El Cliente podrá solicitar la baja del servicio en cualquier momento, haciéndose efectiva en un plazo máximo de 2 días hábiles. Si existe compromiso de permanencia no cumplido, se aplicará la penalización proporcional correspondiente al tiempo restante.
             </p>
 
             <h3 className="text-lg font-semibold mb-2 text-gray-800">7.3. Resolución por incumplimiento</h3>
@@ -260,7 +260,7 @@ export default function CondicionesGenerales() {
           <section className="mb-10 bg-gray-50 p-6 rounded-lg border border-gray-200">
             <h2 className="text-xl font-bold mb-4 text-gray-900">Datos de contacto</h2>
             <p className="text-gray-700 mb-1"><strong>Internet Operadores</strong></p>
-            <p className="text-gray-700 mb-1">Paseo de la Habana, 9-11, 28036 Madrid</p>
+            <p className="text-gray-700 mb-1">Paseo De La Habana 26 1-1, 28036 Madrid</p>
             <p className="text-gray-700 mb-1">CIF: B25808619</p>
             <p className="text-gray-700 mb-1">Teléfono: <a href="tel:+34900730034" className="text-orange-500 hover:text-orange-600">+34 900 730 034</a></p>
             <p className="text-gray-700 mb-1">Email: <a href="mailto:info@internetoperadores.com" className="text-orange-500 hover:text-orange-600">info@internetoperadores.com</a></p>
