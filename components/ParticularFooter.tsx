@@ -94,6 +94,8 @@ export default function ParticularFooter() {
               <Link href="/politica-privacidad" className="hover:text-orange-400 transition-colors">Política de Privacidad</Link>
               <span className="hidden sm:inline">|</span>
               <Link href="/politica-cookies" className="hover:text-orange-400 transition-colors">Política de Cookies</Link>
+              <span className="hidden sm:inline">|</span>
+              <Link href="/condiciones-generales" className="hover:text-orange-400 transition-colors">Condiciones Generales</Link>
             </div>
           </div>
         </div>

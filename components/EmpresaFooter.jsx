@@ -100,6 +100,8 @@ export default function EmpresaFooter() {
               <span className="hidden sm:inline">|</span>
               <Link href="/politica-cookies" className="hover:text-orange-400 transition-colors">Política de Cookies</Link>
               <span className="hidden sm:inline">|</span>
+              <Link href="/condiciones-generales" className="hover:text-orange-400 transition-colors">Condiciones Generales</Link>
+              <span className="hidden sm:inline">|</span>
               <span>CEO: David Pérez</span>
             </div>
           </div>
