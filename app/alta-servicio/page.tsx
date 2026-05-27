@@ -46,6 +46,7 @@ interface FormData {
   numeroPortar: string
   operadorActual: string
   titularLineaDiferente: boolean
+  observaciones: string
 }
 
 function validarIBAN(iban: string): boolean {
@@ -116,6 +117,7 @@ function AltaServicioContent() {
     numeroPortar: '',
     operadorActual: '',
     titularLineaDiferente: false,
+    observaciones: '',
   })
 
   // Cargar tarifas si estamos en paso 0 (selector)
@@ -242,9 +244,10 @@ function AltaServicioContent() {
       const tarifaPrincipal = tarifasSeleccionadas[0]
       const tarifasAdicionales = tarifasSeleccionadas.slice(1)
       
-      const observaciones = tarifasAdicionales.length > 0
+      const obsAdicionales = tarifasAdicionales.length > 0
         ? `Servicios adicionales: ${tarifasAdicionales.map(t => `${t.nombreComercial || t.nombre} (${t.precioConIva}€/mes)`).join(', ')}`
-        : undefined
+        : ''
+      const observaciones = [obsAdicionales, formData.observaciones].filter(Boolean).join('\n') || undefined
 
       const res = await fetch('/api/altas/crear', {
         method: 'POST',
@@ -287,7 +290,7 @@ function AltaServicioContent() {
       <div className="bg-white border-b">
         <div className="max-w-3xl mx-auto px-4 py-6">
           <div className="flex items-center gap-3">
-            <span className="text-3xl font-black text-orange-500 italic">io</span>
+            <img src="/images/logo-internetoperadores.png" alt="Internet Operadores" className="h-10 w-auto" />
             <div>
               <h1 className="text-xl font-bold text-gray-900">Alta de Servicio</h1>
               <p className="text-sm text-gray-500">Internet Operadores</p>
@@ -746,6 +749,18 @@ function AltaServicioContent() {
                   )}
                 </div>
               )}
+
+              {/* Observaciones */}
+              <div className="mt-6">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+                <textarea
+                  value={formData.observaciones}
+                  onChange={(e) => updateField('observaciones', e.target.value)}
+                  rows={3}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-900 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  placeholder="Indica cualquier información adicional relevante para tu alta (horario preferido de instalación, instrucciones de acceso, etc.)"
+                />
+              </div>
 
               <div className="flex gap-3 mt-6">
                 <button onClick={() => setPaso(1)}

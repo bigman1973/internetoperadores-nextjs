@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - staging
-      - main
 
 jobs:
   update-historial:
@@ -35,6 +34,7 @@ jobs:
       - name: Update historial
         env:
           COMMIT_MESSAGES: ${{ steps.commits.outputs.messages }}
+          COMMIT_HASH: ${{ github.sha }}
           DB_HOST: ${{ secrets.DB_HOST }}
           DB_PORT: ${{ secrets.DB_PORT }}
           DB_USER: ${{ secrets.DB_USER }}

@@ -4,18 +4,21 @@
  * Se ejecuta con cada push a staging/main via GitHub Actions
  * 
  * Parsea los commits del push y crea registros en desarrollo_historial
- * Solo procesa commits con prefijos convencionales: feat, fix, refactor, perf, style
+ * Solo procesa commits con prefijos convencionales: feat, fix, refactor, perf, style, ui
+ * 
+ * Tabla: desarrollo_historial
+ * Columnas: id, fecha, tipo, descripcion, commit_hash, rama, titulo, estado, autor
  */
 
 const { Client } = require('pg');
 
 const COMMIT_PREFIXES = {
-  'feat': { tipo: 'ambas', estado: 'completado' },
-  'fix': { tipo: 'privada', estado: 'completado' },
-  'refactor': { tipo: 'privada', estado: 'completado' },
-  'perf': { tipo: 'privada', estado: 'completado' },
-  'style': { tipo: 'publica', estado: 'completado' },
-  'ui': { tipo: 'publica', estado: 'completado' },
+  'feat': { tipo: 'feat', estado: 'completado' },
+  'fix': { tipo: 'fix', estado: 'completado' },
+  'refactor': { tipo: 'refactor', estado: 'completado' },
+  'perf': { tipo: 'perf', estado: 'completado' },
+  'style': { tipo: 'style', estado: 'completado' },
+  'ui': { tipo: 'ui', estado: 'completado' },
 };
 
 function parseCommitMessage(message) {
@@ -28,21 +31,19 @@ function parseCommitMessage(message) {
   const description = match[3].trim();
   
   // Ignorar commits muy cortos o de merge
-  if (description.length < 10) return null;
+  if (description.length < 5) return null;
   if (description.toLowerCase().startsWith('merge')) return null;
   
   const config = COMMIT_PREFIXES[prefix];
   
   // Construir título legible
   let titulo = description;
-  // Capitalizar primera letra
   titulo = titulo.charAt(0).toUpperCase() + titulo.slice(1);
-  // Limitar a 255 caracteres
   if (titulo.length > 255) titulo = titulo.substring(0, 252) + '...';
   
   return {
     titulo,
-    descripcion: scope ? `Módulo: ${scope}. ${description}` : description,
+    descripcion: scope ? `[${scope}] ${description}` : description,
     tipo: config.tipo,
     estado: config.estado,
   };
@@ -50,6 +51,7 @@ function parseCommitMessage(message) {
 
 async function main() {
   const commitMessages = process.env.COMMIT_MESSAGES;
+  const commitHash = process.env.COMMIT_HASH || '';
   const branch = process.env.GITHUB_REF_NAME || 'staging';
   
   if (!commitMessages) {
@@ -95,9 +97,9 @@ async function main() {
       }
 
       await client.query(
-        `INSERT INTO desarrollo_historial (titulo, descripcion, tipo, estado, autor, fecha)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [reg.titulo, reg.descripcion, reg.tipo, reg.estado, 'Manus AI (auto)']
+        `INSERT INTO desarrollo_historial (titulo, descripcion, tipo, estado, autor, commit_hash, rama, fecha)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+        [reg.titulo, reg.descripcion, reg.tipo, reg.estado, 'Manus AI (auto)', commitHash, branch]
       );
       console.log(`  ✅ Insertado: ${reg.titulo}`);
     }
