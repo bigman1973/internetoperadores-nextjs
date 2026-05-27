@@ -34,12 +34,14 @@ interface DocRequerido {
 }
 
 const DOCS_PARTICULAR: DocRequerido[] = [
+  { tipo: 'CONTRATO_FIRMADO', label: 'Contrato firmado', descripcion: 'Contrato de servicio firmado por el titular (descargado del email que te enviamos)', obligatorio: true },
   { tipo: 'DNI_FRONTAL', label: 'DNI (cara frontal)', descripcion: 'Foto del DNI vigente por la cara frontal', obligatorio: true },
   { tipo: 'DNI_TRASERO', label: 'DNI (cara trasera)', descripcion: 'Foto del DNI vigente por la cara trasera', obligatorio: true },
   { tipo: 'TITULARIDAD_BANCARIA', label: 'Certificado de titularidad bancaria', descripcion: 'Certificado del banco o recibo donde aparezca el nombre del titular y todos los dígitos de la cuenta', obligatorio: true },
 ]
 
 const DOCS_EMPRESA: DocRequerido[] = [
+  { tipo: 'CONTRATO_FIRMADO', label: 'Contrato firmado', descripcion: 'Contrato de servicio firmado por el representante legal (descargado del email que te enviamos)', obligatorio: true },
   { tipo: 'CIF_EMPRESA', label: 'Tarjeta CIF de la empresa', descripcion: 'Tarjeta identificativa del CIF de la empresa', obligatorio: true },
   { tipo: 'DNI_FRONTAL', label: 'DNI del apoderado (frontal)', descripcion: 'Foto del DNI vigente del apoderado o persona con poderes (cara frontal)', obligatorio: true },
   { tipo: 'DNI_TRASERO', label: 'DNI del apoderado (trasera)', descripcion: 'Foto del DNI vigente del apoderado (cara trasera)', obligatorio: true },
