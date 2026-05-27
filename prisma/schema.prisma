@@ -616,3 +616,145 @@ enum EstadoCuestionario {
   COMPLETADO
   EXPIRADO
 }
+
+
+// ==========================================
+// SISTEMA DE ALTAS DE SERVICIO
+// ==========================================
+
+model AltaServicio {
+  id                    String              @id @default(uuid())
+  // Tipo de cliente
+  tipoCliente           TipoCliente         @map("tipo_cliente")
+  
+  // Datos del titular (particular)
+  nombre                String?
+  apellidos             String?
+  dni                   String?
+  
+  // Datos empresa
+  razonSocial           String?             @map("razon_social")
+  cif                   String?
+  nombreApoderado       String?             @map("nombre_apoderado")
+  dniApoderado          String?             @map("dni_apoderado")
+  
+  // Datos comunes
+  email                 String
+  telefono              String?
+  
+  // Dirección facturación
+  direccionFacturacion  String              @map("direccion_facturacion")
+  localidadFacturacion  String              @map("localidad_facturacion")
+  provinciaFacturacion  String              @map("provincia_facturacion")
+  cpFacturacion         String              @map("cp_facturacion")
+  
+  // Dirección instalación (puede ser diferente)
+  direccionInstalacion  String?             @map("direccion_instalacion")
+  localidadInstalacion  String?             @map("localidad_instalacion")
+  provinciaInstalacion  String?             @map("provincia_instalacion")
+  cpInstalacion         String?             @map("cp_instalacion")
+  
+  // Método de pago recurrente
+  metodoPago            MetodoPagoRecurrente @map("metodo_pago")
+  iban                  String?             // Solo si es SEPA
+  
+  // Pago cuota de alta (si aplica)
+  pagoAltaGateway       PaymentGateway?     @map("pago_alta_gateway")
+  pagoAltaStatus        PaymentStatus?      @map("pago_alta_status")
+  pagoAltaUrl           String?             @map("pago_alta_url")
+  pagoAltaTransactionId String?             @map("pago_alta_transaction_id")
+  
+  // Tarifa contratada
+  tarifaId              Int                 @map("tarifa_id")
+  tarifaNombre          String              @map("tarifa_nombre")
+  importeCuota          Decimal             @map("importe_cuota") @db.Decimal(10, 2)
+  importeAlta           Decimal?            @map("importe_alta") @db.Decimal(10, 2)
+  permanencia           String?
+  
+  // Portabilidad
+  esPortabilidad        Boolean             @default(false) @map("es_portabilidad")
+  numeroPortar          String?             @map("numero_portar")
+  operadorActual        String?             @map("operador_actual")
+  titularLineaDiferente Boolean             @default(false) @map("titular_linea_diferente")
+  
+  // Estado del alta
+  estado                EstadoAlta          @default(FORMULARIO_PENDIENTE)
+  
+  // Observaciones
+  observaciones         String?
+  
+  // Token para acceso del cliente (completar documentación)
+  token                 String              @unique @default(uuid())
+  
+  // Contrato generado
+  contratoPdfUrl        String?             @map("contrato_pdf_url")
+  contratoFirmado       Boolean             @default(false) @map("contrato_firmado")
+  
+  // Documentos
+  documentos            DocumentoAlta[]
+  
+  // Timestamps
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  completadoAt          DateTime?           @map("completado_at")
+  
+  @@index([estado])
+  @@index([tipoCliente])
+  @@index([email])
+  @@index([token])
+  @@index([createdAt])
+  @@map("altas_servicio")
+}
+
+model DocumentoAlta {
+  id              Int             @id @default(autoincrement())
+  altaId          String          @map("alta_id")
+  tipo            TipoDocumento   @map("tipo")
+  nombreArchivo   String          @map("nombre_archivo")
+  url             String          // URL del archivo en Vercel Blob
+  mimeType        String?         @map("mime_type")
+  tamano          Int?            // Tamaño en bytes
+  validado        Boolean         @default(false)
+  observaciones   String?
+  createdAt       DateTime        @default(now()) @map("created_at")
+  
+  alta            AltaServicio    @relation(fields: [altaId], references: [id], onDelete: Cascade)
+  
+  @@index([altaId])
+  @@index([tipo])
+  @@map("documentos_alta")
+}
+
+enum MetodoPagoRecurrente {
+  SEPA_DOMICILIACION
+  TARJETA_VIVID
+  CRYPTO_TRIPLE_A
+}
+
+enum EstadoAlta {
+  FORMULARIO_PENDIENTE
+  FORMULARIO_COMPLETADO
+  DOCUMENTACION_PENDIENTE
+  DOCUMENTACION_PARCIAL
+  DOCUMENTACION_COMPLETA
+  PAGO_PENDIENTE
+  PAGO_COMPLETADO
+  EN_REVISION
+  APROBADA
+  RECHAZADA
+  SERVICIO_ACTIVO
+  CANCELADA
+}
+
+enum TipoDocumento {
+  DNI_FRONTAL
+  DNI_TRASERO
+  CIF_EMPRESA
+  ESCRITURAS
+  TITULARIDAD_BANCARIA
+  FACTURA_OPERADOR_ACTUAL
+  DNI_TITULAR_LINEA
+  CIF_TITULAR_LINEA
+  ESCRITURAS_TITULAR_LINEA
+  OTRO
+}

@@ -1,0 +1,382 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useParams, useRouter } from 'next/navigation'
+import Link from 'next/link'
+
+interface AltaDetalle {
+  id: string
+  tipoCliente: 'PARTICULAR' | 'EMPRESA'
+  nombre?: string
+  apellidos?: string
+  dni?: string
+  razonSocial?: string
+  cif?: string
+  nombreApoderado?: string
+  dniApoderado?: string
+  email: string
+  telefono?: string
+  direccionFacturacion: string
+  localidadFacturacion: string
+  provinciaFacturacion: string
+  cpFacturacion: string
+  direccionInstalacion?: string
+  localidadInstalacion?: string
+  provinciaInstalacion?: string
+  cpInstalacion?: string
+  metodoPago: string
+  iban?: string
+  tarifaId: number
+  tarifaNombre: string
+  importeCuota: number
+  importeAlta?: number
+  permanencia?: string
+  esPortabilidad: boolean
+  numeroPortar?: string
+  operadorActual?: string
+  titularLineaDiferente: boolean
+  estado: string
+  token: string
+  observaciones?: string
+  contratoPdfUrl?: string
+  contratoFirmado: boolean
+  createdAt: string
+  updatedAt: string
+  completadoAt?: string
+  documentos: DocumentoInfo[]
+}
+
+interface DocumentoInfo {
+  id: number
+  tipo: string
+  nombreArchivo: string
+  url: string
+  mimeType?: string
+  tamano?: number
+  validado: boolean
+  observaciones?: string
+  createdAt: string
+}
+
+const TIPO_DOC_LABEL: Record<string, string> = {
+  DNI_FRONTAL: 'DNI (frontal)',
+  DNI_TRASERO: 'DNI (trasera)',
+  CIF_EMPRESA: 'CIF Empresa',
+  ESCRITURAS: 'Escrituras',
+  TITULARIDAD_BANCARIA: 'Titularidad bancaria',
+  FACTURA_OPERADOR_ACTUAL: 'Factura operador actual',
+  DNI_TITULAR_LINEA: 'DNI titular línea',
+  CIF_TITULAR_LINEA: 'CIF titular línea',
+  ESCRITURAS_TITULAR_LINEA: 'Escrituras titular línea',
+  OTRO: 'Otro',
+}
+
+export default function AltaDetallePage() {
+  const params = useParams()
+  const router = useRouter()
+  const [alta, setAlta] = useState<AltaDetalle | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+
+  useEffect(() => {
+    if (params.id) fetchAlta()
+  }, [params.id])
+
+  const fetchAlta = async () => {
+    try {
+      const res = await fetch(`/api/admin/altas/${params.id}`)
+      const data = await res.json()
+      if (res.ok) setAlta(data)
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const cambiarEstado = async (nuevoEstado: string) => {
+    setActionLoading(true)
+    try {
+      const res = await fetch(`/api/admin/altas/${params.id}/estado`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: nuevoEstado }),
+      })
+      if (res.ok) await fetchAlta()
+    } catch (err) {
+      console.error('Error:', err)
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  const validarDocumento = async (docId: number, validado: boolean) => {
+    try {
+      await fetch(`/api/admin/altas/${params.id}/documentos/${docId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ validado }),
+      })
+      await fetchAlta()
+    } catch (err) {
+      console.error('Error:', err)
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+      </div>
+    )
+  }
+
+  if (!alta) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-gray-500">Alta no encontrada</p>
+        <Link href="/admin/altas-pendientes" className="text-orange-600 hover:underline mt-2 inline-block">
+          Volver al listado
+        </Link>
+      </div>
+    )
+  }
+
+  const nombreCliente = alta.tipoCliente === 'EMPRESA'
+    ? alta.razonSocial
+    : `${alta.nombre} ${alta.apellidos}`
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/admin/altas-pendientes" className="text-gray-400 hover:text-gray-600">
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </Link>
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold text-gray-900">{nombreCliente}</h1>
+          <p className="text-sm text-gray-500">Alta #{alta.id.slice(0, 8)} · {alta.tarifaNombre}</p>
+        </div>
+        <div className="flex gap-2">
+          {alta.estado === 'DOCUMENTACION_COMPLETA' && (
+            <button onClick={() => cambiarEstado('EN_REVISION')} disabled={actionLoading}
+              className="px-4 py-2 bg-purple-500 text-white rounded-lg text-sm font-medium hover:bg-purple-600 disabled:opacity-50">
+              Marcar en revisión
+            </button>
+          )}
+          {alta.estado === 'EN_REVISION' && (
+            <>
+              <button onClick={() => cambiarEstado('APROBADA')} disabled={actionLoading}
+                className="px-4 py-2 bg-green-500 text-white rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50">
+                Aprobar
+              </button>
+              <button onClick={() => cambiarEstado('RECHAZADA')} disabled={actionLoading}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 disabled:opacity-50">
+                Rechazar
+              </button>
+            </>
+          )}
+          {alta.estado === 'APROBADA' && (
+            <button onClick={() => cambiarEstado('SERVICIO_ACTIVO')} disabled={actionLoading}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50">
+              Activar servicio
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Columna principal */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Datos del titular */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Datos del titular</h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-gray-500">Tipo</p>
+                <p className="font-medium">{alta.tipoCliente === 'EMPRESA' ? 'Empresa' : 'Particular'}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">{alta.tipoCliente === 'EMPRESA' ? 'CIF' : 'DNI'}</p>
+                <p className="font-medium">{alta.tipoCliente === 'EMPRESA' ? alta.cif : alta.dni}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Email</p>
+                <p className="font-medium">{alta.email}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Teléfono</p>
+                <p className="font-medium">{alta.telefono || '-'}</p>
+              </div>
+              {alta.tipoCliente === 'EMPRESA' && (
+                <>
+                  <div>
+                    <p className="text-gray-500">Apoderado</p>
+                    <p className="font-medium">{alta.nombreApoderado || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">DNI Apoderado</p>
+                    <p className="font-medium">{alta.dniApoderado || '-'}</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <h3 className="text-sm font-semibold text-gray-700 mt-6 mb-2">Dirección de facturación</h3>
+            <p className="text-sm text-gray-900">{alta.direccionFacturacion}</p>
+            <p className="text-sm text-gray-600">{alta.cpFacturacion} {alta.localidadFacturacion}, {alta.provinciaFacturacion}</p>
+
+            {alta.direccionInstalacion && (
+              <>
+                <h3 className="text-sm font-semibold text-gray-700 mt-4 mb-2">Dirección de instalación</h3>
+                <p className="text-sm text-gray-900">{alta.direccionInstalacion}</p>
+                <p className="text-sm text-gray-600">{alta.cpInstalacion} {alta.localidadInstalacion}, {alta.provinciaInstalacion}</p>
+              </>
+            )}
+          </div>
+
+          {/* Documentación */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Documentación ({alta.documentos.length} archivos)
+            </h2>
+            {alta.documentos.length === 0 ? (
+              <p className="text-gray-500 text-sm">El cliente aún no ha subido documentación.</p>
+            ) : (
+              <div className="space-y-3">
+                {alta.documentos.map(doc => (
+                  <div key={doc.id} className={`flex items-center gap-4 p-3 rounded-lg border ${
+                    doc.validado ? 'border-green-200 bg-green-50' : 'border-gray-200'
+                  }`}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900">
+                          {TIPO_DOC_LABEL[doc.tipo] || doc.tipo}
+                        </p>
+                        {doc.validado && (
+                          <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">✓ Validado</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">{doc.nombreArchivo} · {doc.tamano ? `${(doc.tamano / 1024).toFixed(0)} KB` : ''}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-orange-600 hover:text-orange-700 font-medium">
+                        Ver
+                      </a>
+                      <button
+                        onClick={() => validarDocumento(doc.id, !doc.validado)}
+                        className={`text-xs px-2 py-1 rounded font-medium ${
+                          doc.validado
+                            ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            : 'bg-green-100 text-green-700 hover:bg-green-200'
+                        }`}
+                      >
+                        {doc.validado ? 'Invalidar' : 'Validar'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Portabilidad */}
+          {alta.esPortabilidad && (
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Portabilidad</h2>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <p className="text-gray-500">Número a portar</p>
+                  <p className="font-medium">{alta.numeroPortar || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Operador actual</p>
+                  <p className="font-medium">{alta.operadorActual || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Titular diferente</p>
+                  <p className="font-medium">{alta.titularLineaDiferente ? 'Sí' : 'No'}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Columna lateral */}
+        <div className="space-y-6">
+          {/* Estado */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Estado actual</h3>
+            <span className={`inline-block text-sm px-3 py-1.5 rounded-full font-medium ${
+              (alta.estado === 'APROBADA' || alta.estado === 'SERVICIO_ACTIVO') ? 'bg-green-100 text-green-800' :
+              alta.estado === 'RECHAZADA' ? 'bg-red-100 text-red-700' :
+              alta.estado === 'EN_REVISION' ? 'bg-purple-100 text-purple-700' :
+              'bg-yellow-100 text-yellow-700'
+            }`}>
+              {alta.estado.replace(/_/g, ' ')}
+            </span>
+            <div className="mt-4 text-xs text-gray-500 space-y-1">
+              <p>Creada: {new Date(alta.createdAt).toLocaleString('es-ES')}</p>
+              <p>Actualizada: {new Date(alta.updatedAt).toLocaleString('es-ES')}</p>
+              {alta.completadoAt && <p>Completada: {new Date(alta.completadoAt).toLocaleString('es-ES')}</p>}
+            </div>
+          </div>
+
+          {/* Servicio */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Servicio</h3>
+            <p className="text-sm font-medium text-gray-900">{alta.tarifaNombre}</p>
+            <p className="text-lg font-bold text-orange-600 mt-1">{Number(alta.importeCuota).toFixed(2)}€/mes</p>
+            {alta.importeAlta && Number(alta.importeAlta) > 0 && (
+              <p className="text-sm text-gray-500">Alta: {Number(alta.importeAlta).toFixed(2)}€</p>
+            )}
+            {alta.permanencia && <p className="text-sm text-gray-500">Permanencia: {alta.permanencia}</p>}
+          </div>
+
+          {/* Pago */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Método de pago</h3>
+            <p className="text-sm font-medium text-gray-900">
+              {alta.metodoPago === 'SEPA_DOMICILIACION' && '🏦 Domiciliación SEPA'}
+              {alta.metodoPago === 'TARJETA_VIVID' && '💳 Tarjeta'}
+              {alta.metodoPago === 'CRYPTO_TRIPLE_A' && '🪙 Criptomonedas'}
+            </p>
+            {alta.iban && (
+              <p className="text-sm text-gray-600 font-mono mt-1">
+                {alta.iban.replace(/(.{4})/g, '$1 ').trim()}
+              </p>
+            )}
+          </div>
+
+          {/* Enlace documentación */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Enlace del cliente</h3>
+            <p className="text-xs text-gray-500 mb-2">Enlace para que el cliente complete/modifique su documentación:</p>
+            <div className="bg-gray-50 p-2 rounded text-xs font-mono break-all text-gray-600">
+              /alta-servicio/documentacion?token={alta.token}
+            </div>
+          </div>
+
+          {/* Contrato */}
+          <div className="bg-white rounded-xl shadow-sm border p-6">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">Contrato</h3>
+            <a
+              href={`/api/altas/contrato?altaId=${alta.id}&format=html`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-sm text-orange-600 hover:text-orange-700 font-medium"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              Ver contrato generado
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

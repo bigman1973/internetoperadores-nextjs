@@ -15,7 +15,8 @@ import {
   DocumentTextIcon,
   DocumentDuplicateIcon,
   BanknotesIcon,
-  RocketLaunchIcon
+  RocketLaunchIcon,
+  ClipboardDocumentListIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -53,6 +54,7 @@ const navigation = [
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
   { name: 'Clientes', href: '/admin/clientes', icon: UsersIcon },
   { name: 'Leads Web', href: '/admin/leads', icon: RocketLaunchIcon },
+  { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon },
   { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
   { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
