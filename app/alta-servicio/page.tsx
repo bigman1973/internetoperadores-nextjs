@@ -91,6 +91,8 @@ function AltaServicioContent() {
   const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaPublica[]>([])
   const [tarifasSeleccionadas, setTarifasSeleccionadas] = useState<TarifaPublica[]>([])
   const [tipoClienteSelector, setTipoClienteSelector] = useState<TipoCliente>(inferTipoCliente())
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([])
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('TODAS')
   const [formData, setFormData] = useState<FormData>({
     tipoCliente: inferTipoCliente(),
     nombre: '',
@@ -127,7 +129,10 @@ function AltaServicioContent() {
         .then(r => r.json())
         .then(data => {
           if (Array.isArray(data)) setTarifasDisponibles(data)
-          else if (data.tarifas) setTarifasDisponibles(data.tarifas)
+          else if (data.tarifas) {
+            setTarifasDisponibles(data.tarifas)
+            if (data.categorias) setCategoriasDisponibles(data.categorias)
+          }
         })
         .catch(() => {})
     }
@@ -363,15 +368,36 @@ function AltaServicioContent() {
 
               {/* Selector tipo cliente */}
               <div className="flex gap-2 mb-6">
-                <button onClick={() => { setTipoClienteSelector('PARTICULAR'); setTarifasSeleccionadas([]); updateField('tipoCliente', 'PARTICULAR') }}
+                <button onClick={() => { setTipoClienteSelector('PARTICULAR'); setTarifasSeleccionadas([]); setCategoriaFiltro('TODAS'); updateField('tipoCliente', 'PARTICULAR') }}
                   className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
                     tipoClienteSelector === 'PARTICULAR' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}>Particular</button>
-                <button onClick={() => { setTipoClienteSelector('EMPRESA'); setTarifasSeleccionadas([]); updateField('tipoCliente', 'EMPRESA') }}
+                <button onClick={() => { setTipoClienteSelector('EMPRESA'); setTarifasSeleccionadas([]); setCategoriaFiltro('TODAS'); updateField('tipoCliente', 'EMPRESA') }}
                   className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
                     tipoClienteSelector === 'EMPRESA' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}>Empresa</button>
               </div>
+
+              {/* Selector de categoría */}
+              {categoriasDisponibles.length > 1 && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <button
+                    onClick={() => setCategoriaFiltro('TODAS')}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                      categoriaFiltro === 'TODAS' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >Todas</button>
+                  {categoriasDisponibles.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoriaFiltro(cat)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
+                        categoriaFiltro === cat ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >{cat}</button>
+                  ))}
+                </div>
+              )}
 
               {/* Grid de tarifas */}
               {tarifasDisponibles.length === 0 ? (
@@ -380,8 +406,8 @@ function AltaServicioContent() {
                   <p className="text-sm text-gray-500">Cargando tarifas...</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
-                  {tarifasDisponibles.map(tarifa => {
+                <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                  {tarifasDisponibles.filter(t => categoriaFiltro === 'TODAS' || t.categoria === categoriaFiltro).map(tarifa => {
                     const isSelected = tarifasSeleccionadas.some(t => t.id === tarifa.id)
                     return (
                       <div
@@ -423,6 +449,13 @@ function AltaServicioContent() {
                     )
                   })}
                 </div>
+              )}
+
+              {/* Contador de tarifas visibles */}
+              {tarifasDisponibles.length > 0 && (
+                <p className="text-xs text-gray-400 mt-2 text-right">
+                  {tarifasDisponibles.filter(t => categoriaFiltro === 'TODAS' || t.categoria === categoriaFiltro).length} tarifas disponibles
+                </p>
               )}
 
               {/* Resumen selección */}

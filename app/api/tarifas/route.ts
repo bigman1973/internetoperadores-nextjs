@@ -16,8 +16,12 @@ export async function GET(request: NextRequest) {
       activa: true, // Solo tarifas activas
     };
     
-    if (tipoCliente) {
-      where.tipoCliente = tipoCliente;
+    // Usar publicarWebParticular/publicarWebEmpresa en lugar de tipoCliente
+    // para que muestre las mismas tarifas que la web pública
+    if (tipoCliente === 'PARTICULAR') {
+      where.publicarWebParticular = true;
+    } else if (tipoCliente === 'EMPRESA') {
+      where.publicarWebEmpresa = true;
     }
     
     if (categoria && categoria !== 'TODAS') {
@@ -30,10 +34,11 @@ export async function GET(request: NextRequest) {
     
     if (busqueda) {
       where.OR = [
-        { nombre: { contains: busqueda } },
-        { descripcionCorta: { contains: busqueda } },
-        { categoria: { contains: busqueda } },
-        { velocidad: { contains: busqueda } },
+        { nombre: { contains: busqueda, mode: 'insensitive' } },
+        { nombreComercial: { contains: busqueda, mode: 'insensitive' } },
+        { descripcionCorta: { contains: busqueda, mode: 'insensitive' } },
+        { categoria: { contains: busqueda, mode: 'insensitive' } },
+        { velocidad: { contains: busqueda, mode: 'insensitive' } },
       ];
     }
 
@@ -55,16 +60,20 @@ export async function GET(request: NextRequest) {
         permanencia: true,
         garantia: true,
         destacada: true,
+        subcategoria: true,
         // NO incluir: costeOperador, observaciones (internos)
       },
       orderBy: [
         { destacada: 'desc' },
         { orden: 'asc' },
-        { nombre: 'asc' },
+        { precioConIva: 'asc' },
       ],
     });
 
-    return NextResponse.json({ tarifas });
+    // Obtener categorías disponibles para el filtro
+    const categorias = [...new Set(tarifas.map(t => t.categoria))].sort();
+
+    return NextResponse.json({ tarifas, categorias });
 
   } catch (error) {
     console.error('Error obteniendo tarifas:', error);
