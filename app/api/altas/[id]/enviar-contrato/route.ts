@@ -94,6 +94,15 @@ export async function POST(
         data: { contratoPdfUrl: contratoUrl },
       })
 
+      // Registrar el envío en el historial
+      await prisma.envioContrato.create({
+        data: {
+          altaId: id,
+          enviadoA: alta.email,
+          enviadoPor: session.user?.email || null,
+        },
+      })
+
       return NextResponse.json({
         success: true,
         message: 'Contrato enviado por email al cliente',

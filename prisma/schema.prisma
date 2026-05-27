@@ -693,6 +693,9 @@ model AltaServicio {
   // Documentos
   documentos            DocumentoAlta[]
   
+  // Historial de envíos de contrato
+  enviosContrato        EnvioContrato[]
+  
   // Timestamps
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
@@ -756,5 +759,19 @@ enum TipoDocumento {
   DNI_TITULAR_LINEA
   CIF_TITULAR_LINEA
   ESCRITURAS_TITULAR_LINEA
+  CONTRATO_FIRMADO
   OTRO
+}
+
+model EnvioContrato {
+  id        Int      @id @default(autoincrement())
+  altaId    String   @map("alta_id")
+  enviadoA  String   @map("enviado_a")
+  enviadoPor String? @map("enviado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  alta      AltaServicio @relation(fields: [altaId], references: [id], onDelete: Cascade)
+
+  @@index([altaId])
+  @@map("envios_contrato")
 }
