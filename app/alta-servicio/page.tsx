@@ -172,8 +172,8 @@ function AltaServicioContent() {
     })
   }
 
-  const totalMensual = tarifasSeleccionadas.reduce((sum, t) => sum + t.precioConIva, 0)
-  const totalAltas = tarifasSeleccionadas.reduce((sum, t) => sum + (t.cuotaAlta || 0), 0)
+  const totalMensual = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.precioConIva || 0), 0)
+  const totalAltas = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.cuotaAlta || 0), 0)
 
   const updateField = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
