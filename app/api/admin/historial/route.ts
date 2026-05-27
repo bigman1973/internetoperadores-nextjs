@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const tipo = searchParams.get('tipo') || ''
     const estado = searchParams.get('estado') || ''
     const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
+    const limit = parseInt(searchParams.get('limit') || '500')
     const skip = (page - 1) * limit
 
     const where: any = {}

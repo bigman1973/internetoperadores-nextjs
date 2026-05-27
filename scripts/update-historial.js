@@ -13,12 +13,12 @@
 const { Client } = require('pg');
 
 const COMMIT_PREFIXES = {
-  'feat': { tipo: 'feat', estado: 'completado' },
-  'fix': { tipo: 'fix', estado: 'completado' },
-  'refactor': { tipo: 'refactor', estado: 'completado' },
-  'perf': { tipo: 'perf', estado: 'completado' },
-  'style': { tipo: 'style', estado: 'completado' },
-  'ui': { tipo: 'ui', estado: 'completado' },
+  'feat': { tipo: 'ambas', estado: 'completado' },
+  'fix': { tipo: 'privada', estado: 'completado' },
+  'refactor': { tipo: 'privada', estado: 'completado' },
+  'perf': { tipo: 'privada', estado: 'completado' },
+  'style': { tipo: 'publica', estado: 'completado' },
+  'ui': { tipo: 'publica', estado: 'completado' },
 };
 
 function parseCommitMessage(message) {
