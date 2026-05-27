@@ -2,9 +2,23 @@
 
 import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
+import { useCart } from '@/components/CartProvider'
 
 type TipoCliente = 'PARTICULAR' | 'EMPRESA'
 type MetodoPago = 'SEPA_DOMICILIACION' | 'TARJETA_VIVID' | 'CRYPTO_TRIPLE_A'
+
+interface TarifaPublica {
+  id: number
+  nombre: string
+  nombreComercial: string
+  descripcionCorta: string
+  precioConIva: number
+  precioSinIva: number
+  cuotaAlta: number | null
+  categoria: string
+  tipoCliente: string
+  destacada: boolean
+}
 
 interface FormData {
   tipoCliente: TipoCliente
@@ -54,15 +68,30 @@ function formatIBAN(value: string): string {
 function AltaServicioContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const tarifaId = searchParams.get('tarifaId')
-  const tipo = searchParams.get('tipo') as TipoCliente | null
+  const { items: cartItems, clearCart } = useCart()
+  const fromCart = searchParams.get('fromCart') === 'true'
+  const tarifaIdParam = searchParams.get('tarifaId')
+  const tipoParam = searchParams.get('tipo') as TipoCliente | null
 
-  const [paso, setPaso] = useState(1)
+  // Determinar tipo de cliente según la procedencia
+  const inferTipoCliente = (): TipoCliente => {
+    if (tipoParam) return tipoParam
+    if (fromCart && cartItems.length > 0) {
+      // Inferir del primer item del carrito
+      const cat = cartItems[0].categoria?.toUpperCase() || ''
+      if (cat.includes('EMPRESA') || cat.includes('PROFESIONAL')) return 'EMPRESA'
+    }
+    return 'PARTICULAR'
+  }
+
+  const [paso, setPaso] = useState(fromCart || tarifaIdParam ? 1 : 0) // 0 = selector tarifas
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [tarifaInfo, setTarifaInfo] = useState<any>(null)
+  const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaPublica[]>([])
+  const [tarifasSeleccionadas, setTarifasSeleccionadas] = useState<TarifaPublica[]>([])
+  const [tipoClienteSelector, setTipoClienteSelector] = useState<TipoCliente>(inferTipoCliente())
   const [formData, setFormData] = useState<FormData>({
-    tipoCliente: tipo || 'PARTICULAR',
+    tipoCliente: inferTipoCliente(),
     nombre: '',
     apellidos: '',
     dni: '',
@@ -89,14 +118,62 @@ function AltaServicioContent() {
     titularLineaDiferente: false,
   })
 
+  // Cargar tarifas si estamos en paso 0 (selector)
   useEffect(() => {
-    if (tarifaId) {
-      fetch(`/api/tarifas/${tarifaId}`)
+    if (paso === 0) {
+      fetch(`/api/tarifas?tipoCliente=${tipoClienteSelector}`)
         .then(r => r.json())
-        .then(data => { if (!data.error) setTarifaInfo(data) })
+        .then(data => {
+          if (Array.isArray(data)) setTarifasDisponibles(data)
+          else if (data.tarifas) setTarifasDisponibles(data.tarifas)
+        })
         .catch(() => {})
     }
-  }, [tarifaId])
+  }, [paso, tipoClienteSelector])
+
+  // Si viene del carrito, usar items del carrito como tarifas seleccionadas
+  useEffect(() => {
+    if (fromCart && cartItems.length > 0) {
+      const tarifasFromCart: TarifaPublica[] = cartItems.map(item => ({
+        id: item.tarifaId,
+        nombre: item.nombre,
+        nombreComercial: item.nombre,
+        descripcionCorta: item.descripcion || '',
+        precioConIva: item.precioConIva,
+        precioSinIva: item.precioSinIva,
+        cuotaAlta: item.cuotaAlta || null,
+        categoria: item.categoria || '',
+        tipoCliente: formData.tipoCliente,
+        destacada: false,
+      }))
+      setTarifasSeleccionadas(tarifasFromCart)
+    }
+  }, [fromCart, cartItems])
+
+  // Si viene con tarifaId, cargar esa tarifa
+  useEffect(() => {
+    if (tarifaIdParam) {
+      fetch(`/api/tarifas/${tarifaIdParam}`)
+        .then(r => r.json())
+        .then(data => {
+          if (!data.error) {
+            setTarifasSeleccionadas([data])
+          }
+        })
+        .catch(() => {})
+    }
+  }, [tarifaIdParam])
+
+  const toggleTarifa = (tarifa: TarifaPublica) => {
+    setTarifasSeleccionadas(prev => {
+      const exists = prev.find(t => t.id === tarifa.id)
+      if (exists) return prev.filter(t => t.id !== tarifa.id)
+      return [...prev, tarifa]
+    })
+  }
+
+  const totalMensual = tarifasSeleccionadas.reduce((sum, t) => sum + t.precioConIva, 0)
+  const totalAltas = tarifasSeleccionadas.reduce((sum, t) => sum + (t.cuotaAlta || 0), 0)
 
   const updateField = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -143,26 +220,52 @@ function AltaServicioContent() {
 
   const handleSubmit = async () => {
     if (!validarPaso2()) return
+    
+    // Verificar checkbox de condiciones
+    const checkbox = document.getElementById('aceptar-condiciones') as HTMLInputElement
+    if (!checkbox?.checked) {
+      setError('Debes aceptar las condiciones generales y la política de privacidad')
+      return
+    }
+
+    if (tarifasSeleccionadas.length === 0) {
+      setError('No hay servicios seleccionados')
+      return
+    }
+
     setLoading(true)
     setError('')
 
     try {
+      // Crear un alta por la primera tarifa (principal)
+      // Las adicionales se añaden como observaciones
+      const tarifaPrincipal = tarifasSeleccionadas[0]
+      const tarifasAdicionales = tarifasSeleccionadas.slice(1)
+      
+      const observaciones = tarifasAdicionales.length > 0
+        ? `Servicios adicionales: ${tarifasAdicionales.map(t => `${t.nombreComercial || t.nombre} (${t.precioConIva}€/mes)`).join(', ')}`
+        : undefined
+
       const res = await fetch('/api/altas/crear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...formData,
-          tarifaId,
+          tarifaId: tarifaPrincipal.id,
           iban: formData.iban.replace(/\s/g, ''),
           direccionInstalacion: formData.instalacionDiferente ? formData.direccionInstalacion : null,
           localidadInstalacion: formData.instalacionDiferente ? formData.localidadInstalacion : null,
           provinciaInstalacion: formData.instalacionDiferente ? formData.provinciaInstalacion : null,
           cpInstalacion: formData.instalacionDiferente ? formData.cpInstalacion : null,
+          observaciones,
         }),
       })
 
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
+
+      // Limpiar carrito si venía del carrito
+      if (fromCart) clearCart()
 
       // Si hay pago de alta pendiente, redirigir a pago
       if (data.pagoUrl) {
@@ -196,29 +299,46 @@ function AltaServicioContent() {
       {/* Progress */}
       <div className="max-w-3xl mx-auto px-4 py-4">
         <div className="flex items-center gap-2">
-          {['Método de pago', 'Tus datos', 'Confirmación'].map((label, idx) => (
-            <div key={idx} className="flex items-center gap-2 flex-1">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                paso >= idx + 1 ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
-              }`}>{idx + 1}</div>
-              <span className={`text-xs hidden sm:inline ${paso >= idx + 1 ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
-                {label}
-              </span>
-              {idx < 2 && <div className={`flex-1 h-0.5 ${paso > idx + 1 ? 'bg-orange-500' : 'bg-gray-200'}`} />}
-            </div>
-          ))}
+          {(paso === 0 ? ['Servicios', 'Método de pago', 'Tus datos', 'Confirmación'] : ['Método de pago', 'Tus datos', 'Confirmación']).map((label, idx) => {
+            const stepNum = paso === 0 ? idx : idx + 1
+            const isActive = paso === 0 ? idx === 0 : paso >= idx + 1
+            const totalSteps = paso === 0 ? 4 : 3
+            return (
+              <div key={idx} className="flex items-center gap-2 flex-1">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                  isActive ? 'bg-orange-500 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>{idx + 1}</div>
+                <span className={`text-xs hidden sm:inline ${isActive ? 'text-orange-600 font-medium' : 'text-gray-400'}`}>
+                  {label}
+                </span>
+                {idx < (paso === 0 ? 3 : 2) && <div className={`flex-1 h-0.5 ${
+                  (paso === 0 && idx < 0) || (paso > 0 && paso > idx + 1) ? 'bg-orange-500' : 'bg-gray-200'
+                }`} />}
+              </div>
+            )
+          })}
         </div>
       </div>
 
-      {/* Tarifa seleccionada */}
-      {tarifaInfo && (
+      {/* Servicios seleccionados (resumen lateral) */}
+      {paso > 0 && tarifasSeleccionadas.length > 0 && (
         <div className="max-w-3xl mx-auto px-4 mb-4">
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 flex justify-between items-center">
-            <div>
-              <p className="text-sm text-orange-700 font-medium">Tarifa seleccionada</p>
-              <p className="text-lg font-bold text-gray-900">{tarifaInfo.nombreComercial || tarifaInfo.nombre}</p>
-            </div>
-            <p className="text-xl font-bold text-orange-600">{Number(tarifaInfo.precioConIva).toFixed(2)}€<span className="text-sm font-normal">/mes</span></p>
+          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <p className="text-sm text-orange-700 font-medium mb-2">
+              {tarifasSeleccionadas.length === 1 ? 'Servicio seleccionado' : `${tarifasSeleccionadas.length} servicios seleccionados`}
+            </p>
+            {tarifasSeleccionadas.map(t => (
+              <div key={t.id} className="flex justify-between items-center py-1">
+                <p className="text-sm font-medium text-gray-900">{t.nombreComercial || t.nombre}</p>
+                <p className="text-sm font-bold text-orange-600">{Number(t.precioConIva).toFixed(2)}€/mes</p>
+              </div>
+            ))}
+            {tarifasSeleccionadas.length > 1 && (
+              <div className="flex justify-between items-center pt-2 mt-2 border-t border-orange-200">
+                <p className="text-sm font-bold text-gray-900">Total mensual</p>
+                <p className="text-lg font-bold text-orange-600">{totalMensual.toFixed(2)}€/mes</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -229,6 +349,105 @@ function AltaServicioContent() {
           {error && (
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
               {error}
+            </div>
+          )}
+
+          {/* PASO 0: Selector de tarifas */}
+          {paso === 0 && (
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 mb-1">Selecciona tus servicios</h2>
+              <p className="text-sm text-gray-500 mb-6">Elige uno o varios servicios para dar de alta</p>
+
+              {/* Selector tipo cliente */}
+              <div className="flex gap-2 mb-6">
+                <button onClick={() => { setTipoClienteSelector('PARTICULAR'); setTarifasSeleccionadas([]); updateField('tipoCliente', 'PARTICULAR') }}
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+                    tipoClienteSelector === 'PARTICULAR' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}>Particular</button>
+                <button onClick={() => { setTipoClienteSelector('EMPRESA'); setTarifasSeleccionadas([]); updateField('tipoCliente', 'EMPRESA') }}
+                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+                    tipoClienteSelector === 'EMPRESA' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}>Empresa</button>
+              </div>
+
+              {/* Grid de tarifas */}
+              {tarifasDisponibles.length === 0 ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-3"></div>
+                  <p className="text-sm text-gray-500">Cargando tarifas...</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                  {tarifasDisponibles.map(tarifa => {
+                    const isSelected = tarifasSeleccionadas.some(t => t.id === tarifa.id)
+                    return (
+                      <div
+                        key={tarifa.id}
+                        onClick={() => toggleTarifa(tarifa)}
+                        className={`p-4 border-2 rounded-lg cursor-pointer transition ${
+                          isSelected ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center ${
+                              isSelected ? 'border-orange-500 bg-orange-500' : 'border-gray-300'
+                            }`}>
+                              {isSelected && (
+                                <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{tarifa.nombreComercial || tarifa.nombre}</p>
+                              {tarifa.descripcionCorta && (
+                                <p className="text-xs text-gray-500 mt-0.5">{tarifa.descripcionCorta}</p>
+                              )}
+                              {tarifa.categoria && (
+                                <span className="text-xs text-orange-600 font-medium">{tarifa.categoria}</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-bold text-gray-900">{Number(tarifa.precioConIva).toFixed(2)}€<span className="text-xs font-normal text-gray-500">/mes</span></p>
+                            {tarifa.cuotaAlta && Number(tarifa.cuotaAlta) > 0 && (
+                              <p className="text-xs text-gray-500">Alta: {Number(tarifa.cuotaAlta).toFixed(2)}€</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Resumen selección */}
+              {tarifasSeleccionadas.length > 0 && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex justify-between items-center">
+                    <p className="text-sm text-green-800 font-medium">
+                      {tarifasSeleccionadas.length} {tarifasSeleccionadas.length === 1 ? 'servicio seleccionado' : 'servicios seleccionados'}
+                    </p>
+                    <p className="text-sm font-bold text-green-800">{totalMensual.toFixed(2)}€/mes</p>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  if (tarifasSeleccionadas.length === 0) {
+                    setError('Selecciona al menos un servicio')
+                    return
+                  }
+                  setError('')
+                  setPaso(1)
+                }}
+                disabled={tarifasSeleccionadas.length === 0}
+                className="mt-6 w-full bg-orange-500 text-white py-3 rounded-lg font-medium hover:bg-orange-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Continuar con el alta
+              </button>
             </div>
           )}
 
@@ -326,12 +545,20 @@ function AltaServicioContent() {
                 </div>
               )}
 
-              <button
-                onClick={() => { if (validarPaso1()) setPaso(2) }}
-                className="mt-6 w-full bg-orange-500 text-white py-3 rounded-lg font-medium hover:bg-orange-600 transition"
-              >
-                Continuar
-              </button>
+              <div className="flex gap-3 mt-6">
+                {paso === 1 && !fromCart && !tarifaIdParam && (
+                  <button onClick={() => setPaso(0)}
+                    className="px-6 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
+                    Atrás
+                  </button>
+                )}
+                <button
+                  onClick={() => { if (validarPaso1()) setPaso(2) }}
+                  className="flex-1 bg-orange-500 text-white py-3 rounded-lg font-medium hover:bg-orange-600 transition"
+                >
+                  Continuar
+                </button>
+              </div>
             </div>
           )}
 
@@ -341,17 +568,19 @@ function AltaServicioContent() {
               <h2 className="text-lg font-bold text-gray-900 mb-1">Datos del titular</h2>
               <p className="text-sm text-gray-500 mb-6">Introduce los datos del titular del servicio</p>
 
-              {/* Selector tipo cliente */}
-              <div className="flex gap-2 mb-6">
-                <button onClick={() => updateField('tipoCliente', 'PARTICULAR')}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
-                    formData.tipoCliente === 'PARTICULAR' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}>Particular</button>
-                <button onClick={() => updateField('tipoCliente', 'EMPRESA')}
-                  className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
-                    formData.tipoCliente === 'EMPRESA' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}>Empresa</button>
-              </div>
+              {/* Selector tipo cliente (solo si viene del selector de tarifas) */}
+              {!fromCart && !tipoParam && (
+                <div className="flex gap-2 mb-6">
+                  <button onClick={() => updateField('tipoCliente', 'PARTICULAR')}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+                      formData.tipoCliente === 'PARTICULAR' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>Particular</button>
+                  <button onClick={() => updateField('tipoCliente', 'EMPRESA')}
+                    className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
+                      formData.tipoCliente === 'EMPRESA' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}>Empresa</button>
+                </div>
+              )}
 
               {/* Campos particular */}
               {formData.tipoCliente === 'PARTICULAR' && (
@@ -571,18 +800,27 @@ function AltaServicioContent() {
                   </p>
                 </div>
 
-                {tarifaInfo && (
-                  <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
-                    <h3 className="text-xs font-bold text-orange-600 uppercase mb-2">Servicio contratado</h3>
-                    <p className="text-sm font-medium text-gray-900">{tarifaInfo.nombreComercial || tarifaInfo.nombre}</p>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-lg font-bold text-orange-600">{Number(tarifaInfo.precioConIva).toFixed(2)}€/mes</p>
-                      {tarifaInfo.cuotaAlta && Number(tarifaInfo.cuotaAlta) > 0 && (
-                        <p className="text-sm text-gray-600">Alta: {Number(tarifaInfo.cuotaAlta).toFixed(2)}€</p>
-                      )}
+                {/* Servicios contratados */}
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <h3 className="text-xs font-bold text-orange-600 uppercase mb-2">
+                    {tarifasSeleccionadas.length === 1 ? 'Servicio contratado' : 'Servicios contratados'}
+                  </h3>
+                  {tarifasSeleccionadas.map(t => (
+                    <div key={t.id} className="flex justify-between items-center py-1">
+                      <p className="text-sm font-medium text-gray-900">{t.nombreComercial || t.nombre}</p>
+                      <p className="text-sm font-bold text-orange-600">{Number(t.precioConIva).toFixed(2)}€/mes</p>
                     </div>
-                  </div>
-                )}
+                  ))}
+                  {tarifasSeleccionadas.length > 1 && (
+                    <div className="flex justify-between items-center pt-2 mt-2 border-t border-orange-200">
+                      <p className="text-sm font-bold text-gray-900">Total mensual</p>
+                      <p className="text-lg font-bold text-orange-600">{totalMensual.toFixed(2)}€/mes</p>
+                    </div>
+                  )}
+                  {totalAltas > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">Cuota de alta: {totalAltas.toFixed(2)}€ (pago único)</p>
+                  )}
+                </div>
 
                 {formData.esPortabilidad && (
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">

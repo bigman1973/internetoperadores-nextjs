@@ -20,14 +20,14 @@ export default function CarritoPage() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Tu carrito {itemCount > 0 && <span className="text-gray-400 text-lg font-normal">({itemCount} {itemCount === 1 ? 'producto' : 'productos'})</span>}
+            Servicios seleccionados {itemCount > 0 && <span className="text-gray-400 text-lg font-normal">({itemCount} {itemCount === 1 ? 'servicio' : 'servicios'})</span>}
           </h1>
           {items.length > 0 && (
             <button
               onClick={clearCart}
               className="text-sm text-red-500 hover:text-red-700 transition-colors"
             >
-              Vaciar carrito
+              Eliminar todo
             </button>
           )}
         </div>
@@ -37,17 +37,25 @@ export default function CarritoPage() {
           <div className="bg-white rounded-xl shadow-sm p-12 text-center">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Tu carrito está vacío</h2>
-            <p className="text-gray-500 mb-6">Explora nuestros productos y añade los que necesites.</p>
-            <Link
-              href="/tarifas/particular"
-              className="inline-block px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-semibold"
-            >
-              Ver productos
-            </Link>
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">No has seleccionado ningún servicio</h2>
+            <p className="text-gray-500 mb-6">Explora nuestras tarifas y selecciona los servicios que necesitas.</p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href="/tarifas/particular"
+                className="inline-block px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-semibold"
+              >
+                Tarifas Particular
+              </Link>
+              <Link
+                href="/tarifas/empresa"
+                className="inline-block px-6 py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors font-semibold"
+              >
+                Tarifas Empresa
+              </Link>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -83,7 +91,7 @@ export default function CarritoPage() {
                     <div className="flex items-center justify-between mt-4">
                       {/* Cantidad */}
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-gray-500">Cantidad:</span>
+                        <span className="text-sm text-gray-500">Líneas:</span>
                         <div className="flex items-center border border-gray-200 rounded-lg">
                           <button
                             onClick={() => updateQuantity(item.tarifaId, item.cantidad - 1)}
@@ -122,16 +130,16 @@ export default function CarritoPage() {
                 </div>
               ))}
 
-              {/* Seguir comprando */}
+              {/* Seguir añadiendo */}
               <div className="text-center pt-4">
                 <Link
                   href="/tarifas/particular"
                   className="inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                   </svg>
-                  Seguir comprando
+                  Añadir más servicios
                 </Link>
               </div>
             </div>
@@ -139,7 +147,7 @@ export default function CarritoPage() {
             {/* Resumen del pedido */}
             <div className="lg:col-span-1">
               <div className="bg-white rounded-xl shadow-sm p-6 sticky top-24">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">Resumen del pedido</h2>
+                <h2 className="text-lg font-bold text-gray-900 mb-4">Resumen de tu alta</h2>
 
                 <div className="space-y-3 border-b border-gray-100 pb-4 mb-4">
                   {items.filter(i => i.periodicidad === 'MENSUAL').length > 0 && (
@@ -156,24 +164,24 @@ export default function CarritoPage() {
                   )}
                   {totalAltas > 0 && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Altas (pago único)</span>
+                      <span className="text-gray-600">Cuotas de alta (pago único)</span>
                       <span className="font-medium">{formatCurrency(totalAltas)}</span>
                     </div>
                   )}
                 </div>
 
                 <div className="flex justify-between mb-6">
-                  <span className="font-bold text-gray-900">Total primer pago</span>
-                  <span className="font-bold text-xl text-orange-600">{formatCurrency(totalGeneral)}</span>
+                  <span className="font-bold text-gray-900">Total mensual</span>
+                  <span className="font-bold text-xl text-orange-600">{formatCurrency(totalConIva)}</span>
                 </div>
 
-                <p className="text-xs text-gray-500 mb-4">IVA incluido en todos los precios</p>
+                <p className="text-xs text-gray-500 mb-4">IVA incluido. No se realizará ningún cargo hasta la activación del servicio.</p>
 
                 <Link
-                  href="/contratar?fromCart=true"
+                  href="/alta-servicio?fromCart=true"
                   className="block w-full text-center py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-bold text-lg"
                 >
-                  Pasar por caja
+                  Proceder al alta
                 </Link>
 
                 <div className="mt-4 space-y-2">
@@ -181,19 +189,19 @@ export default function CarritoPage() {
                     <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    Pago seguro con tarjeta o crypto
+                    Sin cobro hasta activación del servicio
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    Sin compromiso de permanencia (en planes mensuales)
+                    Domiciliación SEPA o tarjeta
                   </div>
                   <div className="flex items-center gap-2 text-xs text-gray-500">
                     <svg className="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    1% descuento pagando con stablecoins
+                    Activación en 5-10 días hábiles
                   </div>
                 </div>
               </div>

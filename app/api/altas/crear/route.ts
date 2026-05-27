@@ -54,6 +54,8 @@ export async function POST(request: NextRequest) {
       numeroPortar,
       operadorActual,
       titularLineaDiferente,
+      // Observaciones (servicios adicionales)
+      observaciones,
     } = body
 
     // Validaciones
@@ -138,6 +140,7 @@ export async function POST(request: NextRequest) {
         numeroPortar: numeroPortar || null,
         operadorActual: operadorActual || null,
         titularLineaDiferente: titularLineaDiferente || false,
+        observaciones: observaciones || null,
         estado: 'FORMULARIO_COMPLETADO',
       },
     })
