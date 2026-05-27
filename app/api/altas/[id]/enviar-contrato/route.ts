@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { sendEmail } from '@/lib/email'
 
 export async function POST(
   request: Request,
@@ -80,35 +81,13 @@ export async function POST(
       </div>
     `
 
-    // Enviar con Resend si está configurado
-    const resendApiKey = process.env.RESEND_API_KEY
+    const result = await sendEmail({
+      to: alta.email,
+      subject: `Tu contrato con Internet Operadores - ${alta.tarifaNombre || 'Servicio'}`,
+      html: emailHtml,
+    })
 
-    if (resendApiKey) {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'Internet Operadores <noreply@internetoperadores.com>',
-          to: [alta.email],
-          subject: `Tu contrato con Internet Operadores - ${alta.tarifaNombre || 'Servicio'}`,
-          html: emailHtml,
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        console.error('Error Resend:', errorData)
-        return NextResponse.json({
-          success: false,
-          error: 'No se pudo enviar el email. Puede compartir el enlace manualmente.',
-          contratoUrl,
-          documentacionUrl,
-        })
-      }
-
+    if (result.success) {
       // Actualizar el alta para registrar que se envió el contrato
       await prisma.altaServicio.update({
         where: { id },
@@ -120,11 +99,9 @@ export async function POST(
         message: 'Contrato enviado por email al cliente',
       })
     } else {
-      // Sin Resend, devolver los links para envío manual
       return NextResponse.json({
-        success: true,
-        emailSent: false,
-        message: 'Resend no configurado. Copie los enlaces y envíelos manualmente.',
+        success: false,
+        error: result.error || 'No se pudo enviar el email',
         contratoUrl,
         documentacionUrl,
       })

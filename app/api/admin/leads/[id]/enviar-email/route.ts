@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { sendEmail } from '@/lib/email';
 
 export async function POST(
   request: Request,
@@ -34,7 +35,6 @@ export async function POST(
     const baseUrl = process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com';
     const cuestionarioUrl = `${baseUrl}/cuestionario/${lead.cuestionario.token}`;
 
-    // Enviar email usando Resend (o el servicio configurado)
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #EA580C; padding: 20px; text-align: center;">
@@ -56,36 +56,13 @@ export async function POST(
       </div>
     `;
 
-    // Intentar enviar con Resend si está configurado
-    const resendApiKey = process.env.RESEND_API_KEY;
-    
-    if (resendApiKey) {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          from: 'Internet Operadores <noreply@internetoperadores.com>',
-          to: [lead.email],
-          subject: asunto || `Informe de Auditoría Web - ${lead.nombreEmpresa}`,
-          html: emailHtml,
-        }),
-      });
+    const result = await sendEmail({
+      to: lead.email,
+      subject: asunto || `Informe de Auditoría Web - ${lead.nombreEmpresa}`,
+      html: emailHtml,
+    });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Error Resend:', errorData);
-        // Devolver el link igualmente aunque falle el email
-        return NextResponse.json({ 
-          success: false, 
-          emailError: 'No se pudo enviar el email. Puede copiar el link manualmente.',
-          cuestionarioUrl,
-          lead 
-        });
-      }
-
+    if (result.success) {
       // Actualizar estado del lead
       await prisma.leadMigracionWeb.update({
         where: { id },
@@ -103,21 +80,10 @@ export async function POST(
 
       return NextResponse.json({ success: true, cuestionarioUrl });
     } else {
-      // Sin Resend configurado, devolver el link para copiar manualmente
-      await prisma.leadMigracionWeb.update({
-        where: { id },
-        data: { 
-          estado: 'CUESTIONARIO_ENVIADO',
-          informePdfUrl: pdfUrl || lead.informePdfUrl,
-        },
-      });
-
       return NextResponse.json({ 
-        success: true, 
-        emailSent: false,
-        message: 'Resend no configurado. Copie el link y envíelo manualmente.',
+        success: false, 
+        emailError: result.error || 'No se pudo enviar el email. Puede copiar el link manualmente.',
         cuestionarioUrl,
-        emailHtml,
       });
     }
   } catch (error: any) {
