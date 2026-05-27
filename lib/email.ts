@@ -43,7 +43,7 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
 
   if (transporter) {
     try {
-      const fromEmail = process.env.SMTP_USER || 'info@internetoperadores.com'
+      const fromEmail = process.env.SMTP_FROM || process.env.SMTP_USER || 'info@internetoperadores.com'
       await transporter.sendMail({
         from: `"Internet Operadores" <${fromEmail}>`,
         to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
