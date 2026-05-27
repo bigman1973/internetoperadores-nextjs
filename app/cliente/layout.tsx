@@ -1,4 +1,3 @@
-"use client";
 import SessionProvider from '../../components/SessionProvider'
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
@@ -11,8 +10,8 @@ export default async function ClienteLayout({
 }) {
   const session = await getServerSession(authOptions)
 
-  // Si no hay sesión o el usuario no es de tipo cliente, redirigir al login
-  if (!session || session.user.userType !== 'cliente') {
+  // Si no hay sesión, redirigir al login
+  if (!session) {
     redirect('/login')
   }
 

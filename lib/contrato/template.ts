@@ -308,7 +308,18 @@ export function generarContratoHTML(data: ContratoData): string {
     <a href="https://www.usuariosteleco.gob.es/reclamaciones/Paginas/reclamaciones.asp">https://www.usuariosteleco.gob.es/reclamaciones/Paginas/reclamaciones.asp</a>
   </div>
 
-  <div class="firma-box" style="margin-top:40px">Firma Cliente<br><span style="font-size:8px">(todas las páginas)</span></div>
+  <div style="display:flex; justify-content:space-between; margin-top:40px;">
+    <div style="border:1px solid #333; padding:10px 20px; text-align:center; width:45%;">
+      <p style="font-size:10px; font-weight:600; margin-bottom:30px;">Por INTERNET OPERADORES SL</p>
+      <p style="font-size:11px; font-style:italic; color:#333;">David Pérez</p>
+      <p style="font-size:9px; color:#666;">Director General</p>
+      <p style="font-size:8px; color:#999; margin-top:4px;">[Firma digital]</p>
+    </div>
+    <div style="border:1px solid #333; padding:10px 20px; text-align:center; width:45%;">
+      <p style="font-size:10px; font-weight:600; margin-bottom:30px;">Firma Cliente</p>
+      <p style="font-size:8px; color:#666;">(todas las páginas)</p>
+    </div>
+  </div>
   <div class="clearfix"></div>
 </div>
 
