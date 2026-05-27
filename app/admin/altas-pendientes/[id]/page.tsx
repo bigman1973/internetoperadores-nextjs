@@ -217,7 +217,7 @@ export default function AltaDetallePage() {
         </Link>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-gray-900">{nombreCliente}</h1>
-          <p className="text-sm text-gray-500">Alta #{alta.id.slice(0, 8)} · {alta.tarifaNombre}</p>
+          <p className="text-sm text-gray-500">{alta.tarifaNombre}</p>
         </div>
         <div className="flex gap-2">
           {!editMode && (
@@ -279,17 +279,17 @@ export default function AltaDetallePage() {
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">Nombre</label>
                       <input type="text" value={editData.nombre || ''} onChange={e => setEditData({...editData, nombre: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">Apellidos</label>
                       <input type="text" value={editData.apellidos || ''} onChange={e => setEditData({...editData, apellidos: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">DNI</label>
                       <input type="text" value={editData.dni || ''} onChange={e => setEditData({...editData, dni: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                   </>
                 ) : (
@@ -297,64 +297,64 @@ export default function AltaDetallePage() {
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">Razón Social</label>
                       <input type="text" value={editData.razonSocial || ''} onChange={e => setEditData({...editData, razonSocial: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">CIF</label>
                       <input type="text" value={editData.cif || ''} onChange={e => setEditData({...editData, cif: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">Apoderado</label>
                       <input type="text" value={editData.nombreApoderado || ''} onChange={e => setEditData({...editData, nombreApoderado: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-gray-600 text-xs font-medium mb-1">DNI Apoderado</label>
                       <input type="text" value={editData.dniApoderado || ''} onChange={e => setEditData({...editData, dniApoderado: e.target.value})}
-                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                     </div>
                   </>
                 )}
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">Email</label>
                   <input type="email" value={editData.email || ''} onChange={e => setEditData({...editData, email: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">Teléfono</label>
                   <input type="text" value={editData.telefono || ''} onChange={e => setEditData({...editData, telefono: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-gray-600 text-xs font-medium mb-1">Dirección facturación</label>
                   <input type="text" value={editData.direccionFacturacion || ''} onChange={e => setEditData({...editData, direccionFacturacion: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">Localidad</label>
                   <input type="text" value={editData.localidadFacturacion || ''} onChange={e => setEditData({...editData, localidadFacturacion: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">Provincia</label>
                   <input type="text" value={editData.provinciaFacturacion || ''} onChange={e => setEditData({...editData, provinciaFacturacion: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">Código Postal</label>
                   <input type="text" value={editData.cpFacturacion || ''} onChange={e => setEditData({...editData, cpFacturacion: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-gray-600 text-xs font-medium mb-1">IBAN</label>
                   <input type="text" value={editData.iban || ''} onChange={e => setEditData({...editData, iban: e.target.value})}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-gray-600 text-xs font-medium mb-1">Observaciones</label>
                   <textarea value={editData.observaciones || ''} onChange={e => setEditData({...editData, observaciones: e.target.value})}
-                    rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="Notas internas o del cliente..." />
+                    rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900" placeholder="Notas internas o del cliente..." />
                 </div>
               </div>
             ) : (
