@@ -273,7 +273,6 @@ export function generarContratoHTML(data: ContratoData): string {
       900 730 034 | internetoperadores.com
     </div>
   </div>
-  <div class="doc-title">RESUMEN DEL CONTRATO</div>
 
   <div class="seccion-titulo">4. Importe Total de los Servicios Contratados <span style="font-weight:normal;font-size:8px;color:#64748b">(IVA incluido)</span></div>
   <div style="margin: 10px 0; font-size: 11px; line-height: 1.8; color: #1a1a2e;">
@@ -336,7 +335,6 @@ export function generarContratoHTML(data: ContratoData): string {
       900 730 034 | internetoperadores.com
     </div>
   </div>
-  <div class="doc-title">RESUMEN DEL CONTRATO</div>
 
   <div class="seccion-titulo">7. Protección de Datos</div>
   <div class="texto-legal">
