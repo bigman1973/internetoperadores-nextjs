@@ -79,7 +79,7 @@ async function getAccessToken(): Promise<string> {
 export async function sendEmail(options: EmailOptions): Promise<{ success: boolean; error?: string }> {
   try {
     const accessToken = await getAccessToken()
-    const fromEmail = process.env.EMAIL_FROM || 'administracion@internetoperadores.com'
+    const fromEmail = process.env.EMAIL_FROM || 'david.perez@internetoperadores.com'
 
     // Construir la lista de destinatarios
     const toRecipients = (Array.isArray(options.to) ? options.to : [options.to]).map(email => ({
