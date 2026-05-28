@@ -6,7 +6,6 @@ import prisma from '../../../lib/prisma';
 const SECCIONES_EMPRESA_LABELS: Record<string, string> = {
   'comunicaciones-unificadas': 'Comunicaciones Unificadas',
   'conectividad-avanzada': 'Conectividad Avanzada',
-  'moviles': 'Soluciones Móviles',
   'infraestructura-de-red': 'Infraestructura de Red',
   'mantenimiento-it': 'Mantenimiento IT',
   'migracion-web': 'Migración Web',
