@@ -93,6 +93,7 @@ function AltaServicioContent() {
   const [error, setError] = useState('')
   const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaPublica[]>([])
   const [tarifasSeleccionadas, setTarifasSeleccionadas] = useState<TarifaPublica[]>([])
+  const [cantidades, setCantidades] = useState<Record<number, number>>({}) // tarifaId -> cantidad
   const [tipoClienteSelector, setTipoClienteSelector] = useState<TipoCliente>(inferTipoCliente())
   const [seccionesDisponibles, setSeccionesDisponibles] = useState<{slug: string; label: string; count: number}[]>([])
   const [seccionFiltro, setSeccionFiltro] = useState<string>('TODAS')
@@ -189,8 +190,8 @@ function AltaServicioContent() {
     })
   }
 
-  const totalMensual = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.precioConIva || 0), 0)
-  const totalAltas = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.cuotaAlta || 0), 0)
+  const totalMensual = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.precioConIva || 0) * (cantidades[t.id] || 1), 0)
+  const totalAltas = tarifasSeleccionadas.reduce((sum, t) => sum + Number(t.cuotaAlta || 0) * (cantidades[t.id] || 1), 0)
 
   const updateField = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -260,9 +261,11 @@ function AltaServicioContent() {
       const tarifasAdicionales = tarifasSeleccionadas.slice(1)
       
       const obsAdicionales = tarifasAdicionales.length > 0
-        ? `Servicios adicionales: ${tarifasAdicionales.map(t => `${t.nombreComercial || t.nombre} (${t.precioConIva}€/mes)`).join(', ')}`
+        ? `Servicios adicionales: ${tarifasAdicionales.map(t => `${t.nombreComercial || t.nombre} x${cantidades[t.id] || 1} (${(Number(t.precioConIva) * (cantidades[t.id] || 1)).toFixed(2)}€/mes)`).join(', ')}`
         : ''
-      const observaciones = [obsAdicionales, formData.observaciones].filter(Boolean).join('\n') || undefined
+      const cantidadPrincipal = cantidades[tarifaPrincipal.id] || 1
+      const obsCantidad = cantidadPrincipal > 1 ? `Cantidad: ${cantidadPrincipal} unidades` : ''
+      const observaciones = [obsCantidad, obsAdicionales, formData.observaciones].filter(Boolean).join('\n') || undefined
 
       const res = await fetch('/api/altas/crear', {
         method: 'POST',
@@ -347,8 +350,11 @@ function AltaServicioContent() {
             </p>
             {tarifasSeleccionadas.map(t => (
               <div key={t.id} className="flex justify-between items-center py-1">
-                <p className="text-sm font-medium text-gray-900">{t.nombreComercial || t.nombre}</p>
-                <p className="text-sm font-bold text-orange-600">{Number(t.precioConIva).toFixed(2)}€/mes</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {t.nombreComercial || t.nombre}
+                  {(cantidades[t.id] || 1) > 1 && <span className="text-orange-600 ml-1">x{cantidades[t.id]}</span>}
+                </p>
+                <p className="text-sm font-bold text-orange-600">{(Number(t.precioConIva) * (cantidades[t.id] || 1)).toFixed(2)}€/mes</p>
               </div>
             ))}
             {tarifasSeleccionadas.length > 1 && (
@@ -497,6 +503,30 @@ function AltaServicioContent() {
                             <p className="font-bold text-gray-900">{Number(tarifa.precioConIva).toFixed(2)}€<span className="text-xs font-normal text-gray-500">/mes</span></p>
                             {tarifa.cuotaAlta && Number(tarifa.cuotaAlta) > 0 && (
                               <p className="text-xs text-gray-500">Alta: {Number(tarifa.cuotaAlta).toFixed(2)}€</p>
+                            )}
+                            {/* Selector de cantidad para empresas */}
+                            {isSelected && tipoClienteSelector === 'EMPRESA' && (
+                              <div className="mt-2 flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setCantidades(prev => ({ ...prev, [tarifa.id]: Math.max(1, (prev[tarifa.id] || 1) - 1) })) }}
+                                  className="w-6 h-6 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-bold flex items-center justify-center"
+                                >−</button>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  value={cantidades[tarifa.id] || 1}
+                                  onChange={(e) => { e.stopPropagation(); setCantidades(prev => ({ ...prev, [tarifa.id]: Math.max(1, parseInt(e.target.value) || 1) })) }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-12 h-6 text-center text-sm border border-gray-300 rounded text-gray-900"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); setCantidades(prev => ({ ...prev, [tarifa.id]: (prev[tarifa.id] || 1) + 1 })) }}
+                                  className="w-6 h-6 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 text-sm font-bold flex items-center justify-center"
+                                >+</button>
+                                <span className="text-xs text-gray-500 ml-1">uds</span>
+                              </div>
                             )}
                           </div>
                         </div>
