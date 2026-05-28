@@ -91,8 +91,8 @@ function AltaServicioContent() {
   const [tarifasDisponibles, setTarifasDisponibles] = useState<TarifaPublica[]>([])
   const [tarifasSeleccionadas, setTarifasSeleccionadas] = useState<TarifaPublica[]>([])
   const [tipoClienteSelector, setTipoClienteSelector] = useState<TipoCliente>(inferTipoCliente())
-  const [categoriasDisponibles, setCategoriasDisponibles] = useState<string[]>([])
-  const [categoriaFiltro, setCategoriaFiltro] = useState<string>('TODAS')
+  const [seccionesDisponibles, setSeccionesDisponibles] = useState<{slug: string; label: string; count: number}[]>([])
+  const [seccionFiltro, setSeccionFiltro] = useState<string>('TODAS')
   const [formData, setFormData] = useState<FormData>({
     tipoCliente: inferTipoCliente(),
     nombre: '',
@@ -125,18 +125,24 @@ function AltaServicioContent() {
   // Cargar tarifas si estamos en paso 0 (selector)
   useEffect(() => {
     if (paso === 0) {
-      fetch(`/api/tarifas?tipoCliente=${tipoClienteSelector}`)
+      const url = seccionFiltro === 'TODAS'
+        ? `/api/tarifas?tipoCliente=${tipoClienteSelector}`
+        : `/api/tarifas?tipoCliente=${tipoClienteSelector}&seccion=${seccionFiltro}`
+      fetch(url)
         .then(r => r.json())
         .then(data => {
-          if (Array.isArray(data)) setTarifasDisponibles(data)
-          else if (data.tarifas) {
+          if (data.tarifas) {
             setTarifasDisponibles(data.tarifas)
-            if (data.categorias) setCategoriasDisponibles(data.categorias)
+          } else if (Array.isArray(data)) {
+            setTarifasDisponibles(data)
+          }
+          if (data.secciones && seccionFiltro === 'TODAS') {
+            setSeccionesDisponibles(data.secciones)
           }
         })
         .catch(() => {})
     }
-  }, [paso, tipoClienteSelector])
+  }, [paso, tipoClienteSelector, seccionFiltro])
 
   // Si viene del carrito, usar items del carrito como tarifas seleccionadas
   useEffect(() => {
@@ -368,33 +374,33 @@ function AltaServicioContent() {
 
               {/* Selector tipo cliente */}
               <div className="flex gap-2 mb-6">
-                <button onClick={() => { setTipoClienteSelector('PARTICULAR'); setTarifasSeleccionadas([]); setCategoriaFiltro('TODAS'); updateField('tipoCliente', 'PARTICULAR') }}
+                <button onClick={() => { setTipoClienteSelector('PARTICULAR'); setTarifasSeleccionadas([]); setSeccionFiltro('TODAS'); updateField('tipoCliente', 'PARTICULAR') }}
                   className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
                     tipoClienteSelector === 'PARTICULAR' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}>Particular</button>
-                <button onClick={() => { setTipoClienteSelector('EMPRESA'); setTarifasSeleccionadas([]); setCategoriaFiltro('TODAS'); updateField('tipoCliente', 'EMPRESA') }}
+                <button onClick={() => { setTipoClienteSelector('EMPRESA'); setTarifasSeleccionadas([]); setSeccionFiltro('TODAS'); updateField('tipoCliente', 'EMPRESA') }}
                   className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition ${
                     tipoClienteSelector === 'EMPRESA' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}>Empresa</button>
               </div>
 
-              {/* Selector de categoría */}
-              {categoriasDisponibles.length > 1 && (
+              {/* Selector de sección/solución */}
+              {seccionesDisponibles.length > 1 && (
                 <div className="flex flex-wrap gap-2 mb-4">
                   <button
-                    onClick={() => setCategoriaFiltro('TODAS')}
+                    onClick={() => setSeccionFiltro('TODAS')}
                     className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                      categoriaFiltro === 'TODAS' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      seccionFiltro === 'TODAS' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                     }`}
-                  >Todas</button>
-                  {categoriasDisponibles.map(cat => (
+                  >Todas ({seccionesDisponibles.reduce((s, x) => s + x.count, 0)})</button>
+                  {seccionesDisponibles.map(sec => (
                     <button
-                      key={cat}
-                      onClick={() => setCategoriaFiltro(cat)}
+                      key={sec.slug}
+                      onClick={() => setSeccionFiltro(sec.slug)}
                       className={`px-3 py-1.5 rounded-full text-xs font-medium transition ${
-                        categoriaFiltro === cat ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        seccionFiltro === sec.slug ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       }`}
-                    >{cat}</button>
+                    >{sec.label} ({sec.count})</button>
                   ))}
                 </div>
               )}
@@ -407,7 +413,7 @@ function AltaServicioContent() {
                 </div>
               ) : (
                 <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
-                  {tarifasDisponibles.filter(t => categoriaFiltro === 'TODAS' || t.categoria === categoriaFiltro).map(tarifa => {
+                  {tarifasDisponibles.map(tarifa => {
                     const isSelected = tarifasSeleccionadas.some(t => t.id === tarifa.id)
                     return (
                       <div
@@ -454,7 +460,7 @@ function AltaServicioContent() {
               {/* Contador de tarifas visibles */}
               {tarifasDisponibles.length > 0 && (
                 <p className="text-xs text-gray-400 mt-2 text-right">
-                  {tarifasDisponibles.filter(t => categoriaFiltro === 'TODAS' || t.categoria === categoriaFiltro).length} tarifas disponibles
+                  {tarifasDisponibles.length} tarifas disponibles
                 </p>
               )}
 
