@@ -77,7 +77,7 @@ export default function TarifaCard({ tarifa }: { tarifa: TarifaCardProps }) {
             </li>
           ))}
         </ul>
-        <Link href="/contacto" className="block w-full py-3 text-center bg-white text-orange-500 rounded-lg font-semibold hover:bg-orange-50 transition-colors">
+        <Link href="/alta-servicio" className="block w-full py-3 text-center bg-white text-orange-500 rounded-lg font-semibold hover:bg-orange-50 transition-colors">
           Contratar
         </Link>
       </div>
@@ -101,7 +101,7 @@ export default function TarifaCard({ tarifa }: { tarifa: TarifaCardProps }) {
           </li>
         ))}
       </ul>
-      <Link href="/contacto" className="block w-full py-3 text-center border-2 border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors">
+      <Link href="/alta-servicio" className="block w-full py-3 text-center border-2 border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors">
         Contratar
       </Link>
     </div>

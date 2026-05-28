@@ -14,6 +14,7 @@ interface AddToCartButtonProps {
     cuotaAlta?: number | null
     tipoPeriodicidad?: number
     categoria?: string
+    tipoCliente?: string
   }
   className?: string
   variant?: 'primary' | 'secondary'
@@ -36,6 +37,7 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
       cuotaAlta: tarifa.cuotaAlta || undefined,
       periodicidad: (tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12) ? 'ANUAL' : 'MENSUAL',
       categoria: tarifa.categoria || undefined,
+      tipoCliente: (tarifa.tipoCliente === 'EMPRESA' ? 'EMPRESA' : 'PARTICULAR') as 'PARTICULAR' | 'EMPRESA',
     })
     setAdded(true)
     setTimeout(() => setAdded(false), 2000)

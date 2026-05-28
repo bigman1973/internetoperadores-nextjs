@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       destacada: true,
       subcategoria: true,
       seccionWebEmpresa: true,
+      caracteristicas: true,
     };
 
     let tarifas: any[] = [];

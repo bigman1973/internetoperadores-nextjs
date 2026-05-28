@@ -323,9 +323,7 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                               {tarifa.cuotaAlta && tarifa.cuotaAlta > 0 ? `${(tarifa.cuotaAlta * 1.21).toFixed(2)} €` : '—'}
                             </td>
                             <td className="px-6 py-4 text-center">
-                              <Link href="/contacto" className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                                Contratar
-                              </Link>
+                              <AddToCartButton tarifa={tarifa} compact />
                             </td>
                           </tr>
                         ))}

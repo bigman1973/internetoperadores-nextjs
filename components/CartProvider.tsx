@@ -11,6 +11,7 @@ export interface CartItem {
   cuotaAlta?: number
   periodicidad: 'MENSUAL' | 'ANUAL' | 'PUNTUAL'
   categoria?: string
+  tipoCliente?: 'PARTICULAR' | 'EMPRESA'
   cantidad: number
 }
 

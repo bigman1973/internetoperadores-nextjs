@@ -178,7 +178,7 @@ export default function CarritoPage() {
                 <p className="text-xs text-gray-500 mb-4">IVA incluido. No se realizará ningún cargo hasta la activación del servicio.</p>
 
                 <Link
-                  href="/alta-servicio?fromCart=true"
+                  href={`/alta-servicio?fromCart=true&tipo=${items[0]?.tipoCliente || 'PARTICULAR'}`}
                   className="block w-full text-center py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-bold text-lg"
                 >
                   Proceder al alta
