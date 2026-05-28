@@ -12,10 +12,13 @@ interface TarifaPublica {
   nombre: string
   nombreComercial: string
   descripcionCorta: string
+  descripcionLarga: string | null
+  velocidad: string | null
   precioConIva: number
   precioSinIva: number
   cuotaAlta: number | null
   categoria: string
+  subcategoria: string | null
   tipoCliente: string
   destacada: boolean
 }
@@ -439,9 +442,14 @@ function AltaServicioContent() {
                               {tarifa.descripcionCorta && (
                                 <p className="text-xs text-gray-500 mt-0.5">{tarifa.descripcionCorta}</p>
                               )}
-                              {tarifa.categoria && (
-                                <span className="text-xs text-orange-600 font-medium">{tarifa.categoria}</span>
-                              )}
+                              <div className="flex flex-wrap gap-2 mt-1">
+                                {tarifa.subcategoria && (
+                                  <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{tarifa.subcategoria}</span>
+                                )}
+                                {tarifa.velocidad && (
+                                  <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded">{tarifa.velocidad}</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="text-right">
