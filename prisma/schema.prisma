@@ -775,3 +775,23 @@ model EnvioContrato {
   @@index([altaId])
   @@map("envios_contrato")
 }
+
+model FacturacionHistorica {
+  id               Int      @id @default(autoincrement())
+  mes              Int
+  anio             Int
+  codigoCliente    Int      @map("codigo_cliente")
+  nombreCliente    String   @map("nombre_cliente") @db.VarChar(255)
+  numeroFactura    String   @map("numero_factura") @db.VarChar(50)
+  precioSinIva     Float    @map("precio_sin_iva") @default(0)
+  iva              Float    @default(0)
+  totalConIva      Float    @map("total_con_iva") @default(0)
+  totalDescuento   Float    @map("total_descuento") @default(0)
+  fechaFacturacion DateTime @map("fecha_facturacion") @db.Date
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@index([anio, mes])
+  @@index([codigoCliente])
+  @@index([anio])
+  @@map("facturacion_historica")
+}
