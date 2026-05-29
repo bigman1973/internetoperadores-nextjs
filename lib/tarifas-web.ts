@@ -35,6 +35,8 @@ export interface TarifaWeb {
   grupoProducto: string | null;
   varianteLabel: string | null;
   tipoPeriodicidad: number | null;
+  precioPeriodo: number | null;
+  precioPeriodoIva: number | null;
   orden: number;
   contratosActivos?: number;
   esPopular?: boolean;
@@ -75,6 +77,8 @@ const tarifaSelect = {
   grupoProducto: true,
   varianteLabel: true,
   tipoPeriodicidad: true,
+  precioPeriodo: true,
+  precioPeriodoIva: true,
   orden: true,
 };
 
@@ -89,6 +93,8 @@ function convertTarifa(t: any): TarifaWeb {
     grupoProducto: t.grupoProducto || null,
     varianteLabel: t.varianteLabel || null,
     tipoPeriodicidad: t.tipoPeriodicidad || null,
+    precioPeriodo: t.precioPeriodo ? Number(t.precioPeriodo) : null,
+    precioPeriodoIva: t.precioPeriodoIva ? Number(t.precioPeriodoIva) : null,
     orden: t.orden || 0,
     contratosActivos: 0,
     esPopular: false,

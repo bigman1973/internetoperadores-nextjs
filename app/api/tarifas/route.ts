@@ -48,6 +48,8 @@ export async function GET(request: NextRequest) {
       caracteristicas: true,
       tipoPeriodicidad: true,
       duracionPermanenciaMeses: true,
+      precioPeriodo: true,
+      precioPeriodoIva: true,
     };
 
     let tarifas: any[] = [];

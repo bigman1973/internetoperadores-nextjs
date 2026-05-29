@@ -17,6 +17,8 @@ interface TarifaWeb {
   permanencia: string | null;
   duracionPermanenciaMeses: number | null;
   tipoPeriodicidad: number | null;
+  precioPeriodo: number | null;
+  precioPeriodoIva: number | null;
   contratosActivos?: number;
   esPopular?: boolean;
   categoria: string;

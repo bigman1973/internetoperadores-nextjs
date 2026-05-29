@@ -305,13 +305,32 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                               {getDetalleConectividad(tarifa) || '—'}
                             </td>
                             <td className="px-6 py-4 text-right text-gray-700">
-                              {tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : '-'}
+                              {tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12 && tarifa.precioPeriodo
+                                ? `${tarifa.precioPeriodo.toFixed(2)} €`
+                                : tarifa.precioSinIva > 0 ? `${tarifa.precioSinIva.toFixed(2)} €` : '-'}
+                              {tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12 && (
+                                <span className="text-gray-400 text-[10px] block">/mes</span>
+                              )}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <span className="font-bold text-gray-900 text-lg">
-                                {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
-                              </span>
-                              {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
+                              {tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12 ? (
+                                <>
+                                  <span className="font-bold text-gray-900 text-lg">
+                                    {tarifa.precioPeriodoIva ? `${tarifa.precioPeriodoIva.toFixed(2)} €` : tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
+                                  </span>
+                                  <span className="text-gray-500 text-xs block">/mes</span>
+                                  <span className="text-gray-400 text-[10px] block">
+                                    Pago {tarifa.tipoPeriodicidad >= 36 ? 'trianual' : tarifa.tipoPeriodicidad >= 24 ? 'bianual' : 'anual'}: {tarifa.precioConIva.toFixed(2)} €
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-bold text-gray-900 text-lg">
+                                    {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)} €` : 'Consultar'}
+                                  </span>
+                                  {tarifa.precioConIva > 0 && <span className="text-gray-500 text-xs block">/mes</span>}
+                                </>
+                              )}
                             </td>
                             <td className="px-6 py-4 text-center text-sm text-gray-600">
                               —
@@ -359,14 +378,34 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
                             {getDetalleConectividad(tarifa)}
                           </p>
                         )}
-                        <div className="flex items-baseline gap-1 mb-4">
-                          <span className="text-3xl font-bold text-gray-900">
-                            {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)}` : 'Consultar'}
-                          </span>
-                          {tarifa.precioConIva > 0 && <span className="text-gray-500">€/mes</span>}
+                        <div className="flex items-baseline gap-1 mb-1">
+                          {tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12 ? (
+                            <>
+                              <span className="text-3xl font-bold text-gray-900">
+                                {tarifa.precioPeriodoIva ? tarifa.precioPeriodoIva.toFixed(2) : tarifa.precioConIva > 0 ? tarifa.precioConIva.toFixed(2) : 'Consultar'}
+                              </span>
+                              <span className="text-gray-500">€/mes</span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-3xl font-bold text-gray-900">
+                                {tarifa.precioConIva > 0 ? `${tarifa.precioConIva.toFixed(2)}` : 'Consultar'}
+                              </span>
+                              {tarifa.precioConIva > 0 && <span className="text-gray-500">€/mes</span>}
+                            </>
+                          )}
                         </div>
-                        {tarifa.precioSinIva > 0 && (
-                          <p className="text-xs text-gray-400 mb-2">{tarifa.precioSinIva.toFixed(2)} € sin IVA</p>
+                        {tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12 ? (
+                          <>
+                            {tarifa.precioPeriodo && <p className="text-xs text-gray-400 mb-1">{tarifa.precioPeriodo.toFixed(2)} €/mes sin IVA</p>}
+                            <p className="text-xs text-green-600 bg-green-50 inline-block px-2 py-0.5 rounded mb-2">
+                              Pago {tarifa.tipoPeriodicidad >= 36 ? 'trianual' : tarifa.tipoPeriodicidad >= 24 ? 'bianual' : 'anual'}: {tarifa.precioSinIva.toFixed(2)} € sin IVA ({tarifa.precioConIva.toFixed(2)} € con IVA)
+                            </p>
+                          </>
+                        ) : (
+                          tarifa.precioSinIva > 0 && (
+                            <p className="text-xs text-gray-400 mb-2">{tarifa.precioSinIva.toFixed(2)} € sin IVA</p>
+                          )
                         )}
                         {tarifa.garantia && (
                           <p className="text-xs text-gray-500 mb-1">
