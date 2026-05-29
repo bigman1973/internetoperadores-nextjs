@@ -195,7 +195,7 @@ export default function EstadisticasClient() {
     destroyCharts()
 
     const Chart = window.Chart
-    const { clientes2025, clientes2026, periodoComparado } = datosClientes
+    const { clientes2025, clientes2026, periodoComparado, periodoLabel2025: pL2025, periodoLabel2026: pL2026 } = datosClientes
 
     if (chartClientesRef.current && clientes2025.length > 0) {
       const ctx = chartClientesRef.current.getContext('2d')
@@ -208,14 +208,14 @@ export default function EstadisticasClient() {
           labels,
           datasets: [
             {
-              label: `2025 (${periodoComparado})`,
+              label: `2025 (${pL2025 || periodoComparado})`,
               data: topN.map((c: ClienteData) => c.total_periodo),
               backgroundColor: 'rgba(107, 114, 128, 0.6)',
               borderColor: '#6b7280',
               borderWidth: 1
             },
             {
-              label: `2026 (${periodoComparado})`,
+              label: `2026 (${pL2026 || periodoComparado})`,
               data: topN.map((c: ClienteData) => {
                 const c26 = clientes2026.find((x: ClienteData) => x.codigo_cliente === c.codigo_cliente)
                 return c26 ? c26.total_periodo : 0
@@ -232,7 +232,7 @@ export default function EstadisticasClient() {
           indexAxis: 'y',
           plugins: {
             legend: { position: 'top' },
-            title: { display: true, text: `Top 10 Clientes: Mismo período (${periodoComparado})`, font: { size: 14 } }
+            title: { display: true, text: `Top 10 Clientes: 2025 (${pL2025 || periodoComparado}) vs 2026 (${pL2026 || periodoComparado})`, font: { size: 14 } }
           },
           scales: {
             x: {
@@ -252,7 +252,7 @@ export default function EstadisticasClient() {
     destroyCharts()
 
     const Chart = window.Chart
-    const { distribucion2025, distribucion2026, periodoComparado } = datosCategorias
+    const { distribucion2025, distribucion2026, periodoComparado, periodoLabel2025: pL2025Cat, periodoLabel2026: pL2026Cat } = datosCategorias
 
     if (chartSegmentosRef.current) {
       const ctx = chartSegmentosRef.current.getContext('2d')
@@ -264,7 +264,7 @@ export default function EstadisticasClient() {
           labels: segmentos.map(s => s.replace(' (>50K)', '').replace(' (10K-50K)', '').replace(' (2K-10K)', '').replace(' (<2K)', '')),
           datasets: [
             {
-              label: `2025 (${periodoComparado})`,
+              label: `2025 (${pL2025Cat || periodoComparado})`,
               data: segmentos.map(s => {
                 const d = distribucion2025.find((x: any) => x.segmento === s)
                 return d ? d.total_segmento : 0
@@ -274,7 +274,7 @@ export default function EstadisticasClient() {
               borderWidth: 1
             },
             {
-              label: `2026 (${periodoComparado})`,
+              label: `2026 (${pL2026Cat || periodoComparado})`,
               data: segmentos.map(s => {
                 const d = distribucion2026.find((x: any) => x.segmento === s)
                 return d ? d.total_segmento : 0
@@ -290,7 +290,7 @@ export default function EstadisticasClient() {
           maintainAspectRatio: false,
           plugins: {
             legend: { position: 'top' },
-            title: { display: true, text: `Facturación por Segmento - Mismo período (${periodoComparado})`, font: { size: 14 } }
+            title: { display: true, text: `Facturación por Segmento: 2025 (${pL2025Cat || periodoComparado}) vs 2026 (${pL2026Cat || periodoComparado})`, font: { size: 14 } }
           },
           scales: {
             y: {
@@ -315,14 +315,15 @@ export default function EstadisticasClient() {
   const ultimoMes = datosMensual?.ultimoMes2026 || 4
   const mesEnCurso = datosMensual?.mesEnCurso || 5
   const primerMes2025 = datosMensual?.primerMes2025 || 1
-  const periodoComparadoMensual = datosMensual?.periodoComparado || `${MESES[0]} - ${MESES[ultimoMes - 1]}`
+  const periodoLabel2026 = datosMensual?.periodoLabel2026 || `Ene - ${MESES[ultimoMes - 1]}`
+  const periodoLabel2025 = datosMensual?.periodoLabel2025 || `${MESES[primerMes2025 - 1]} - ${MESES[ultimoMes - 1]}`
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Estadísticas de Facturación</h1>
-        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Meses cerrados ({periodoComparadoMensual})</p>
+        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — 2026: {periodoLabel2026} | 2025: {periodoLabel2025}</p>
         <p className="mt-0.5 text-xs text-amber-600">* {MESES[mesEnCurso - 1]} 2026 en curso (datos parciales, no incluido en la comparativa)</p>
       </div>
 
@@ -343,13 +344,13 @@ export default function EstadisticasClient() {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <KPICard
             icon={<BanknotesIcon className="h-6 w-6 text-orange-600" />}
-            label={`Facturación 2026 (${periodoComparadoMensual})`}
+            label={`Facturación 2026 (${periodoLabel2026})`}
             value={formatEur(acumulado2026)}
             variacion={calcVariacion(
               acumulado2026,
               datosMensual.totales.año2025MismoPeriodo?.total_sin_iva || 0
             )}
-            subtext={`vs ${periodoComparadoMensual} 2025`}
+            subtext={`vs ${periodoLabel2025} 2025`}
           />
           <KPICard
             icon={<ArrowTrendingUpIcon className="h-6 w-6 text-emerald-600" />}
@@ -360,13 +361,13 @@ export default function EstadisticasClient() {
           />
           <KPICard
             icon={<DocumentTextIcon className="h-6 w-6 text-blue-600" />}
-            label={`Facturas 2026 (${periodoComparadoMensual})`}
+            label={`Facturas 2026 (${periodoLabel2026})`}
             value={(facturas2026).toLocaleString()}
             variacion={calcVariacion(
               facturas2026,
               datosMensual.totales.año2025MismoPeriodo?.facturas || 0
             )}
-            subtext={`vs ${periodoComparadoMensual} 2025`}
+            subtext={`vs ${periodoLabel2025} 2025`}
           />
           <KPICard
             icon={<UsersIcon className="h-6 w-6 text-green-600" />}
@@ -500,7 +501,7 @@ export default function EstadisticasClient() {
               {/* Indicador de período */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                 <p className="text-sm text-blue-800">
-                  <strong>Comparativa justa:</strong> Solo se comparan meses cerrados ({datosClientes.periodoComparado}) en ambos años. {MESES[(datosClientes.mesEnCurso || 5) - 1]} está en curso y no se incluye.
+                  <strong>Nota:</strong> 2026 incluye {datosClientes.periodoLabel2026 || datosClientes.periodoComparado}. 2025 incluye {datosClientes.periodoLabel2025 || datosClientes.periodoComparado} (no hay datos de Ene 2025). {MESES[(datosClientes.mesEnCurso || 5) - 1]} 2026 en curso, no incluido.
                 </p>
               </div>
 
@@ -517,8 +518,8 @@ export default function EstadisticasClient() {
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2025 ({datosClientes.periodoComparado})</th>
-                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2026 ({datosClientes.periodoComparado})</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2025 ({datosClientes.periodoLabel2025 || datosClientes.periodoComparado})</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2026 ({datosClientes.periodoLabel2026 || datosClientes.periodoComparado})</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Var. Real</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">2025 Total</th>
                       <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase">Proy. 2026</th>
@@ -573,7 +574,7 @@ export default function EstadisticasClient() {
               {/* Indicador de período */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
                 <p className="text-sm text-blue-800">
-                  <strong>Comparativa justa:</strong> Solo se comparan meses cerrados ({datosCategorias.periodoComparado}) en ambos años. {MESES[(datosCategorias.mesEnCurso || 5) - 1]} está en curso y no se incluye.
+                  <strong>Nota:</strong> 2026 incluye {datosCategorias.periodoLabel2026 || datosCategorias.periodoComparado}. 2025 incluye {datosCategorias.periodoLabel2025 || datosCategorias.periodoComparado} (no hay datos de Ene 2025). {MESES[(datosCategorias.mesEnCurso || 5) - 1]} 2026 en curso, no incluido.
                 </p>
               </div>
 
@@ -587,7 +588,7 @@ export default function EstadisticasClient() {
               {/* Tabla distribución */}
               <div className="rounded-lg bg-white shadow border border-gray-200 overflow-hidden">
                 <div className="px-4 py-3 bg-gray-50 border-b">
-                  <h3 className="text-sm font-semibold text-gray-700">Distribución por Segmento — Período {datosCategorias.periodoComparado}</h3>
+                  <h3 className="text-sm font-semibold text-gray-700">Distribución por Segmento — 2025: {datosCategorias.periodoLabel2025 || datosCategorias.periodoComparado} | 2026: {datosCategorias.periodoLabel2026 || datosCategorias.periodoComparado}</h3>
                 </div>
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
