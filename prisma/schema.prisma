@@ -795,3 +795,16 @@ model FacturacionHistorica {
   @@index([anio])
   @@map("facturacion_historica")
 }
+
+model MagicLink {
+  id        Int      @id @default(autoincrement())
+  email     String
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([token])
+  @@index([email])
+  @@map("magic_links")
+}
