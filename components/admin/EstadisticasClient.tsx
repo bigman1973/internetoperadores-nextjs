@@ -314,13 +314,15 @@ export default function EstadisticasClient() {
   // Obtener último mes dinámicamente
   const ultimoMes = datosMensual?.ultimoMes2026 || 4
   const mesEnCurso = datosMensual?.mesEnCurso || 5
+  const primerMes2025 = datosMensual?.primerMes2025 || 1
+  const periodoComparadoMensual = datosMensual?.periodoComparado || `${MESES[0]} - ${MESES[ultimoMes - 1]}`
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Estadísticas de Facturación</h1>
-        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Meses cerrados ({MESES[0]} - {MESES[ultimoMes - 1]})</p>
+        <p className="mt-1 text-sm text-gray-500">Comparativa interanual 2025 vs 2026 — Meses cerrados ({periodoComparadoMensual})</p>
         <p className="mt-0.5 text-xs text-amber-600">* {MESES[mesEnCurso - 1]} 2026 en curso (datos parciales, no incluido en la comparativa)</p>
       </div>
 
@@ -341,13 +343,13 @@ export default function EstadisticasClient() {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <KPICard
             icon={<BanknotesIcon className="h-6 w-6 text-orange-600" />}
-            label={`Facturación 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
+            label={`Facturación 2026 (${periodoComparadoMensual})`}
             value={formatEur(acumulado2026)}
             variacion={calcVariacion(
               acumulado2026,
               datosMensual.totales.año2025MismoPeriodo?.total_sin_iva || 0
             )}
-            subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
+            subtext={`vs ${periodoComparadoMensual} 2025`}
           />
           <KPICard
             icon={<ArrowTrendingUpIcon className="h-6 w-6 text-emerald-600" />}
@@ -358,13 +360,13 @@ export default function EstadisticasClient() {
           />
           <KPICard
             icon={<DocumentTextIcon className="h-6 w-6 text-blue-600" />}
-            label={`Facturas 2026 (${MESES[0]}-${MESES[ultimoMes - 1]})`}
+            label={`Facturas 2026 (${periodoComparadoMensual})`}
             value={(facturas2026).toLocaleString()}
             variacion={calcVariacion(
               facturas2026,
               datosMensual.totales.año2025MismoPeriodo?.facturas || 0
             )}
-            subtext={`vs ${MESES[0]}-${MESES[ultimoMes - 1]} 2025`}
+            subtext={`vs ${periodoComparadoMensual} 2025`}
           />
           <KPICard
             icon={<UsersIcon className="h-6 w-6 text-green-600" />}
