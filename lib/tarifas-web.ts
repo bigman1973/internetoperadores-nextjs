@@ -34,6 +34,7 @@ export interface TarifaWeb {
   subcategoria: string | null;
   grupoProducto: string | null;
   varianteLabel: string | null;
+  tipoPeriodicidad: number | null;
   orden: number;
   contratosActivos?: number;
   esPopular?: boolean;
@@ -73,6 +74,7 @@ const tarifaSelect = {
   subcategoria: true,
   grupoProducto: true,
   varianteLabel: true,
+  tipoPeriodicidad: true,
   orden: true,
 };
 
@@ -86,6 +88,7 @@ function convertTarifa(t: any): TarifaWeb {
     subcategoria: t.subcategoria || null,
     grupoProducto: t.grupoProducto || null,
     varianteLabel: t.varianteLabel || null,
+    tipoPeriodicidad: t.tipoPeriodicidad || null,
     orden: t.orden || 0,
     contratosActivos: 0,
     esPopular: false,

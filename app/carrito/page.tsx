@@ -116,7 +116,7 @@ export default function CarritoPage() {
                         <p className="text-lg font-bold text-gray-900">
                           {formatCurrency(item.precioConIva * item.cantidad)}
                           <span className="text-xs text-gray-400 font-normal">
-                            /{item.periodicidad === 'ANUAL' ? 'año' : item.periodicidad === 'MENSUAL' ? 'mes' : ''}
+                            /{item.periodicidad === 'TRIANUAL' ? '3 años' : item.periodicidad === 'BIANUAL' ? '2 años' : item.periodicidad === 'ANUAL' ? 'año' : item.periodicidad === 'MENSUAL' ? 'mes' : ''}
                           </span>
                         </p>
                         {item.cuotaAlta && item.cuotaAlta > 0 && (
@@ -158,8 +158,20 @@ export default function CarritoPage() {
                   )}
                   {items.filter(i => i.periodicidad === 'ANUAL').length > 0 && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Cuotas anuales</span>
+                      <span className="text-gray-600">Pagos anuales</span>
                       <span className="font-medium">{formatCurrency(items.filter(i => i.periodicidad === 'ANUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/año</span>
+                    </div>
+                  )}
+                  {items.filter(i => i.periodicidad === 'BIANUAL').length > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Pagos bianuales</span>
+                      <span className="font-medium">{formatCurrency(items.filter(i => i.periodicidad === 'BIANUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/2 años</span>
+                    </div>
+                  )}
+                  {items.filter(i => i.periodicidad === 'TRIANUAL').length > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Pagos trianuales</span>
+                      <span className="font-medium">{formatCurrency(items.filter(i => i.periodicidad === 'TRIANUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/3 años</span>
                     </div>
                   )}
                   {totalAltas > 0 && (
@@ -170,10 +182,19 @@ export default function CarritoPage() {
                   )}
                 </div>
 
-                <div className="flex justify-between mb-6">
-                  <span className="font-bold text-gray-900">Total mensual</span>
-                  <span className="font-bold text-xl text-orange-600">{formatCurrency(totalConIva)}</span>
-                </div>
+                {items.filter(i => i.periodicidad === 'MENSUAL').length > 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="font-bold text-gray-900">Total mensual</span>
+                    <span className="font-bold text-xl text-orange-600">{formatCurrency(items.filter(i => i.periodicidad === 'MENSUAL').reduce((s, i) => s + i.precioConIva * i.cantidad, 0))}/mes</span>
+                  </div>
+                )}
+                {items.filter(i => i.periodicidad !== 'MENSUAL' && i.periodicidad !== 'PUNTUAL').length > 0 && items.filter(i => i.periodicidad === 'MENSUAL').length === 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="font-bold text-gray-900">Servicios seleccionados</span>
+                    <span className="font-bold text-lg text-orange-600">{items.length}</span>
+                  </div>
+                )}
+                <div className="mb-6"></div>
 
                 <p className="text-xs text-gray-500 mb-4">IVA incluido. No se realizará ningún cargo hasta la activación del servicio.</p>
 

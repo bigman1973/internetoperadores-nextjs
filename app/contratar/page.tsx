@@ -55,7 +55,11 @@ function ContratarContent() {
           setError('Producto no encontrado')
         } else {
           setTarifa(data)
-          if (data.tipoPeriodicidad && data.tipoPeriodicidad >= 12) {
+          if (data.tipoPeriodicidad && data.tipoPeriodicidad >= 36) {
+            setPeriodicidad('TRIANUAL')
+          } else if (data.tipoPeriodicidad && data.tipoPeriodicidad >= 24) {
+            setPeriodicidad('BIANUAL')
+          } else if (data.tipoPeriodicidad && data.tipoPeriodicidad >= 12) {
             setPeriodicidad('ANUAL')
           }
         }
@@ -500,7 +504,7 @@ function ContratarContent() {
                     )}
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">
-                        Cuota {periodicidad === 'ANUAL' ? 'anual' : periodicidad === 'MENSUAL' ? 'mensual' : ''}
+                        Cuota {periodicidad === 'TRIANUAL' ? 'trianual' : periodicidad === 'BIANUAL' ? 'bianual' : periodicidad === 'ANUAL' ? 'anual' : periodicidad === 'MENSUAL' ? 'mensual' : ''}
                       </span>
                       <span className="font-medium">{formatCurrency(importeCuota)}</span>
                     </div>

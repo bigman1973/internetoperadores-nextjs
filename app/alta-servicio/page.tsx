@@ -21,6 +21,8 @@ interface TarifaPublica {
   subcategoria: string | null
   tipoCliente: string
   destacada: boolean
+  tipoPeriodicidad?: number | null
+  duracionPermanenciaMeses?: number | null
   caracteristicas?: { incluyePlanAnterior: string | null; items: { titulo: string; descripcion: string }[] } | null
 }
 
@@ -354,13 +356,13 @@ function AltaServicioContent() {
                   {t.nombreComercial || t.nombre}
                   {(cantidades[t.id] || 1) > 1 && <span className="text-orange-600 ml-1">x{cantidades[t.id]}</span>}
                 </p>
-                <p className="text-sm font-bold text-orange-600">{(Number(t.precioConIva) * (cantidades[t.id] || 1)).toFixed(2)}€/mes</p>
+                <p className="text-sm font-bold text-orange-600">{(Number(t.precioConIva) * (cantidades[t.id] || 1)).toFixed(2)}€/{(t.tipoPeriodicidad || 1) >= 36 ? '3 años' : (t.tipoPeriodicidad || 1) >= 24 ? '2 años' : (t.tipoPeriodicidad || 1) >= 12 ? 'año' : 'mes'}</p>
               </div>
             ))}
-            {tarifasSeleccionadas.length > 1 && (
+            {tarifasSeleccionadas.filter(t => !t.tipoPeriodicidad || t.tipoPeriodicidad < 12).length > 1 && (
               <div className="flex justify-between items-center pt-2 mt-2 border-t border-orange-200">
                 <p className="text-sm font-bold text-gray-900">Total mensual</p>
-                <p className="text-lg font-bold text-orange-600">{totalMensual.toFixed(2)}€/mes</p>
+                <p className="text-lg font-bold text-orange-600">{tarifasSeleccionadas.filter(t => !t.tipoPeriodicidad || t.tipoPeriodicidad < 12).reduce((sum, t) => sum + Number(t.precioConIva || 0) * (cantidades[t.id] || 1), 0).toFixed(2)}€/mes</p>
               </div>
             )}
           </div>
@@ -550,7 +552,7 @@ function AltaServicioContent() {
                     <p className="text-sm text-green-800 font-medium">
                       {tarifasSeleccionadas.length} {tarifasSeleccionadas.length === 1 ? 'servicio seleccionado' : 'servicios seleccionados'}
                     </p>
-                    <p className="text-sm font-bold text-green-800">{totalMensual.toFixed(2)}€/mes</p>
+                    <p className="text-sm font-bold text-green-800">{tarifasSeleccionadas.every(t => !t.tipoPeriodicidad || t.tipoPeriodicidad < 12) ? `${totalMensual.toFixed(2)}€/mes` : `${tarifasSeleccionadas.length} servicio${tarifasSeleccionadas.length > 1 ? 's' : ''}`}</p>
                   </div>
                 </div>
               )}
@@ -941,13 +943,13 @@ function AltaServicioContent() {
                   {tarifasSeleccionadas.map(t => (
                     <div key={t.id} className="flex justify-between items-center py-1">
                       <p className="text-sm font-medium text-gray-900">{t.nombreComercial || t.nombre}</p>
-                      <p className="text-sm font-bold text-orange-600">{Number(t.precioConIva).toFixed(2)}€/mes</p>
+                      <p className="text-sm font-bold text-orange-600">{Number(t.precioConIva).toFixed(2)}€/{(t.tipoPeriodicidad || 1) >= 36 ? '3 años' : (t.tipoPeriodicidad || 1) >= 24 ? '2 años' : (t.tipoPeriodicidad || 1) >= 12 ? 'año' : 'mes'}</p>
                     </div>
                   ))}
-                  {tarifasSeleccionadas.length > 1 && (
+                  {tarifasSeleccionadas.filter(t => !t.tipoPeriodicidad || t.tipoPeriodicidad < 12).length > 1 && (
                     <div className="flex justify-between items-center pt-2 mt-2 border-t border-orange-200">
                       <p className="text-sm font-bold text-gray-900">Total mensual</p>
-                      <p className="text-lg font-bold text-orange-600">{totalMensual.toFixed(2)}€/mes</p>
+                      <p className="text-lg font-bold text-orange-600">{tarifasSeleccionadas.filter(t => !t.tipoPeriodicidad || t.tipoPeriodicidad < 12).reduce((sum, t) => sum + Number(t.precioConIva || 0) * (cantidades[t.id] || 1), 0).toFixed(2)}€/mes</p>
                     </div>
                   )}
                   {totalAltas > 0 && (

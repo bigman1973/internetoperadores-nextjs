@@ -27,6 +27,7 @@ interface TarifaWeb {
   precioConIva: number;
   permanencia: string | null;
   duracionPermanenciaMeses: number | null;
+  tipoPeriodicidad?: number | null;
   garantia: string | null;
   destacada: boolean;
   esMovil: boolean;

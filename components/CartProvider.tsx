@@ -9,7 +9,7 @@ export interface CartItem {
   precioConIva: number
   precioSinIva: number
   cuotaAlta?: number
-  periodicidad: 'MENSUAL' | 'ANUAL' | 'PUNTUAL'
+  periodicidad: 'MENSUAL' | 'ANUAL' | 'BIANUAL' | 'TRIANUAL' | 'PUNTUAL'
   categoria?: string
   tipoCliente?: 'PARTICULAR' | 'EMPRESA'
   cantidad: number

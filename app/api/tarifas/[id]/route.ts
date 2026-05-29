@@ -28,6 +28,7 @@ export async function GET(
         categoria: true,
         subcategoria: true,
         tipoPeriodicidad: true,
+        duracionPermanenciaMeses: true,
         tipoCliente: true,
         caracteristicas: true,
         grupoProducto: true,

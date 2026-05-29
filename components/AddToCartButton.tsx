@@ -12,13 +12,22 @@ interface AddToCartButtonProps {
     precioConIva: number
     precioSinIva: number
     cuotaAlta?: number | null
-    tipoPeriodicidad?: number
+    tipoPeriodicidad?: number | null
+    duracionPermanenciaMeses?: number | null
     categoria?: string
     tipoCliente?: string
   }
   className?: string
   variant?: 'primary' | 'secondary'
   compact?: boolean
+}
+
+function getPeriodicidad(tipoPeriodicidad?: number | null, duracionMeses?: number | null): CartItem['periodicidad'] {
+  const meses = tipoPeriodicidad || duracionMeses || 1;
+  if (meses >= 36) return 'TRIANUAL';
+  if (meses >= 24) return 'BIANUAL';
+  if (meses >= 12) return 'ANUAL';
+  return 'MENSUAL';
 }
 
 export default function AddToCartButton({ tarifa, className, variant = 'primary', compact = false }: AddToCartButtonProps) {
@@ -35,7 +44,7 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
       precioConIva: tarifa.precioConIva,
       precioSinIva: tarifa.precioSinIva,
       cuotaAlta: tarifa.cuotaAlta || undefined,
-      periodicidad: (tarifa.tipoPeriodicidad && tarifa.tipoPeriodicidad >= 12) ? 'ANUAL' : 'MENSUAL',
+      periodicidad: getPeriodicidad(tarifa.tipoPeriodicidad, tarifa.duracionPermanenciaMeses),
       categoria: tarifa.categoria || undefined,
       tipoCliente: (tarifa.tipoCliente === 'EMPRESA' ? 'EMPRESA' : 'PARTICULAR') as 'PARTICULAR' | 'EMPRESA',
     })

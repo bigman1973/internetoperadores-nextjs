@@ -46,6 +46,8 @@ export async function GET(request: NextRequest) {
       subcategoria: true,
       seccionWebEmpresa: true,
       caracteristicas: true,
+      tipoPeriodicidad: true,
+      duracionPermanenciaMeses: true,
     };
 
     let tarifas: any[] = [];
