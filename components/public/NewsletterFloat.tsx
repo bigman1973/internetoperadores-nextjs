@@ -7,6 +7,7 @@ export default function NewsletterFloat() {
   const [isOpen, setIsOpen] = useState(false);
   const [email, setEmail] = useState('');
   const [nombre, setNombre] = useState('');
+  const [telefono, setTelefono] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -30,13 +31,14 @@ export default function NewsletterFloat() {
       const res = await fetch('/api/newsletter/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, nombre, tipo }),
+        body: JSON.stringify({ email, nombre, telefono, tipo }),
       });
 
       if (res.ok) {
         setSuccess(true);
         setEmail('');
         setNombre('');
+        setTelefono('');
         setTimeout(() => {
           setIsOpen(false);
           setSuccess(false);
@@ -106,7 +108,7 @@ export default function NewsletterFloat() {
                     placeholder="Tu nombre"
                     value={nombre}
                     onChange={(e) => setNombre(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
                     required
                   />
                 </div>
@@ -116,8 +118,17 @@ export default function NewsletterFloat() {
                     placeholder="tu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
                     required
+                  />
+                </div>
+                <div>
+                  <input
+                    type="tel"
+                    placeholder="Teléfono (opcional)"
+                    value={telefono}
+                    onChange={(e) => setTelefono(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
                   />
                 </div>
                 {error && (

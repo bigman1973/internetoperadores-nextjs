@@ -8,7 +8,7 @@ const LISTA_NEWSLETTER_PARTICULARES = '490';
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, nombre, tipo } = await request.json();
+    const { email, nombre, telefono, tipo } = await request.json();
 
     if (!email || !nombre) {
       return NextResponse.json(
@@ -26,14 +26,19 @@ export async function POST(request: NextRequest) {
     }
 
     // 1. Crear o actualizar contacto en HubSpot
-    const contactPayload = {
-      properties: {
-        email,
-        firstname: nombre,
-        lifecyclestage: 'subscriber',
-        hs_lead_status: 'NEW',
-      },
+    const properties: Record<string, string> = {
+      email,
+      firstname: nombre,
+      lifecyclestage: 'subscriber',
+      hs_lead_status: 'NEW',
     };
+
+    // Añadir teléfono si se proporcionó
+    if (telefono && telefono.trim()) {
+      properties.phone = telefono.trim();
+    }
+
+    const contactPayload = { properties };
 
     const contactRes = await fetch(
       'https://api.hubapi.com/crm/v3/objects/contacts',
