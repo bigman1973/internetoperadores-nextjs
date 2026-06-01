@@ -40,6 +40,8 @@ export async function POST(request: NextRequest) {
 
     const contactPayload = { properties };
 
+    console.log('[Newsletter] Intentando crear contacto:', email);
+
     const contactRes = await fetch(
       'https://api.hubapi.com/crm/v3/objects/contacts',
       {
@@ -57,8 +59,15 @@ export async function POST(request: NextRequest) {
     if (contactRes.status === 409) {
       // Contacto ya existe - obtener su ID
       const conflictData = await contactRes.json();
+      console.log('[Newsletter] Contacto ya existe, buscando ID...');
       contactId = conflictData.message?.match(/Existing ID: (\d+)/)?.[1] || '';
       
+      if (!contactId) {
+        // Intentar extraer de la respuesta con otro patrón
+        const idMatch = JSON.stringify(conflictData).match(/(\d{8,})/);
+        contactId = idMatch?.[1] || '';
+      }
+
       if (!contactId) {
         // Buscar por email
         const searchRes = await fetch(
@@ -82,17 +91,108 @@ export async function POST(request: NextRequest) {
         );
         const searchData = await searchRes.json();
         contactId = searchData.results?.[0]?.id || '';
+        console.log('[Newsletter] Búsqueda por email, resultado:', contactId ? 'encontrado' : 'no encontrado');
+      }
+
+      // Si encontramos el contacto, actualizar sus propiedades
+      if (contactId) {
+        const updateProps: Record<string, string> = { firstname: nombre };
+        if (telefono && telefono.trim()) {
+          updateProps.phone = telefono.trim();
+        }
+        await fetch(
+          `https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `Bearer ${HUBSPOT_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ properties: updateProps }),
+          }
+        );
       }
     } else if (contactRes.ok) {
       const contactData = await contactRes.json();
       contactId = contactData.id;
+      console.log('[Newsletter] Contacto creado con ID:', contactId);
     } else {
-      const errData = await contactRes.json();
-      console.error('Error creando contacto:', errData);
-      return NextResponse.json(
-        { error: 'Error al registrar el contacto' },
-        { status: 500 }
-      );
+      const errText = await contactRes.text();
+      console.error('[Newsletter] Error creando contacto:', contactRes.status, errText);
+      
+      // Si es un error 401, el token ha expirado
+      if (contactRes.status === 401) {
+        return NextResponse.json(
+          { error: 'Token de HubSpot expirado. Contacte al administrador.' },
+          { status: 500 }
+        );
+      }
+
+      // Si es un error de propiedad (ej: lifecyclestage no se puede setear así), 
+      // intentar sin lifecyclestage y hs_lead_status
+      if (contactRes.status === 400) {
+        console.log('[Newsletter] Reintentando sin lifecyclestage...');
+        const simpleProperties: Record<string, string> = {
+          email,
+          firstname: nombre,
+        };
+        if (telefono && telefono.trim()) {
+          simpleProperties.phone = telefono.trim();
+        }
+
+        const retryRes = await fetch(
+          'https://api.hubapi.com/crm/v3/objects/contacts',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${HUBSPOT_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ properties: simpleProperties }),
+          }
+        );
+
+        if (retryRes.status === 409) {
+          // Contacto ya existe - buscar por email
+          const searchRes = await fetch(
+            `https://api.hubapi.com/crm/v3/objects/contacts/search`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${HUBSPOT_TOKEN}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                filterGroups: [{
+                  filters: [{
+                    propertyName: 'email',
+                    operator: 'EQ',
+                    value: email,
+                  }],
+                }],
+              }),
+            }
+          );
+          const searchData = await searchRes.json();
+          contactId = searchData.results?.[0]?.id || '';
+        } else if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          contactId = retryData.id;
+          console.log('[Newsletter] Contacto creado (retry) con ID:', contactId);
+        } else {
+          const retryErr = await retryRes.text();
+          console.error('[Newsletter] Error en retry:', retryRes.status, retryErr);
+          return NextResponse.json(
+            { error: 'Error al registrar el contacto' },
+            { status: 500 }
+          );
+        }
+      } else {
+        return NextResponse.json(
+          { error: 'Error al registrar el contacto' },
+          { status: 500 }
+        );
+      }
     }
 
     if (!contactId) {
@@ -107,6 +207,8 @@ export async function POST(request: NextRequest) {
       ? LISTA_NEWSLETTER_PARTICULARES
       : LISTA_NEWSLETTER_EMPRESAS;
 
+    console.log('[Newsletter] Añadiendo contacto', contactId, 'a lista', listaId);
+
     const addToListRes = await fetch(
       `https://api.hubapi.com/crm/v3/lists/${listaId}/memberships/add`,
       {
@@ -120,14 +222,15 @@ export async function POST(request: NextRequest) {
     );
 
     if (!addToListRes.ok) {
-      const listErr = await addToListRes.json();
-      console.error('Error añadiendo a lista:', listErr);
-      // No fallar si el contacto ya está en la lista
+      const listErr = await addToListRes.text();
+      console.error('[Newsletter] Error añadiendo a lista:', addToListRes.status, listErr);
+      // No fallar si el contacto ya está en la lista o hay error de lista
     }
 
+    console.log('[Newsletter] Suscripción completada para:', email);
     return NextResponse.json({ success: true, contactId });
   } catch (error) {
-    console.error('Error en suscripción newsletter:', error);
+    console.error('[Newsletter] Error en suscripción newsletter:', error);
     return NextResponse.json(
       { error: 'Error interno del servidor' },
       { status: 500 }
