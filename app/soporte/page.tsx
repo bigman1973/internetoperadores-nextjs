@@ -91,7 +91,7 @@ export default function SoportePage() {
           <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl mx-auto">
             {[
               { icono: '📞', titulo: 'Teléfono 24/7', dato: '900 730 034', desc: 'Línea directa con técnicos especializados. Sin esperas, sin menús interminables.', horario: '24 horas, 365 días' },
-              { icono: '💬', titulo: 'WhatsApp', dato: '+34 6XX XXX XXX', desc: 'Envía capturas, vídeos y describe tu incidencia de forma rápida y cómoda.', horario: '24 horas, 365 días' },
+              { icono: '💬', titulo: 'WhatsApp', dato: '900 730 034', desc: 'Envía capturas, vídeos y describe tu incidencia de forma rápida y cómoda.', horario: '24 horas, 365 días' },
               { icono: '✉️', titulo: 'Email', dato: 'soporte@internetoperadores.com', desc: 'Para incidencias no urgentes o consultas técnicas que requieran documentación.', horario: 'Respuesta < 4h laborables' },
               { icono: '🎫', titulo: 'Ticket Web', dato: 'Formulario abajo', desc: 'Abre un ticket desde esta página y haz seguimiento del estado de tu incidencia.', horario: 'Respuesta < 2h laborables' }
             ].map((c, i) => (

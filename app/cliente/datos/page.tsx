@@ -153,7 +153,7 @@ export default function DatosPage() {
           <a href="mailto:administracion@internetoperadores.com" className="font-medium underline">
             administracion@internetoperadores.com
           </a>{' '}
-          o llama al <a href="tel:+34973282828" className="font-medium underline">973 28 28 28</a>.
+          o llama al <a href="tel:+34900730034" className="font-medium underline">900 730 034</a>.
         </p>
       </div>
     </div>

@@ -12,7 +12,7 @@ export default function SoportePage() {
       {/* Canales de contacto */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <a
-          href="tel:+34973282828"
+          href="tel:+34900730034"
           className="bg-white rounded-xl border border-gray-200 p-6 hover:border-orange-300 transition-colors group"
         >
           <div className="p-3 bg-green-50 rounded-lg w-fit mb-4 group-hover:bg-green-100 transition-colors">
@@ -21,8 +21,8 @@ export default function SoportePage() {
             </svg>
           </div>
           <h3 className="font-semibold text-gray-900 mb-1">Teléfono</h3>
-          <p className="text-orange-600 font-medium">973 28 28 28</p>
-          <p className="text-xs text-gray-500 mt-2">Lunes a viernes, 9:00 - 18:00</p>
+          <p className="text-orange-600 font-medium">900 730 034</p>
+          <p className="text-xs text-gray-500 mt-2">24 horas, 365 días</p>
         </a>
 
         <a
@@ -40,7 +40,7 @@ export default function SoportePage() {
         </a>
 
         <a
-          href="https://wa.me/34973282828"
+          href="https://wa.me/34900730034"
           target="_blank"
           rel="noopener noreferrer"
           className="bg-white rounded-xl border border-gray-200 p-6 hover:border-orange-300 transition-colors group"
@@ -51,8 +51,8 @@ export default function SoportePage() {
             </svg>
           </div>
           <h3 className="font-semibold text-gray-900 mb-1">WhatsApp</h3>
-          <p className="text-orange-600 font-medium">Enviar mensaje</p>
-          <p className="text-xs text-gray-500 mt-2">Chat directo con soporte</p>
+          <p className="text-orange-600 font-medium">900 730 034</p>
+          <p className="text-xs text-gray-500 mt-2">Envía capturas, vídeos y describe tu incidencia. 24h, 365 días</p>
         </a>
       </div>
 
