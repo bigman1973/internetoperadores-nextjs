@@ -19,6 +19,7 @@ interface Contrato {
   observaciones: string | null;
   activo: boolean;
   conceptoFacturacion: string | null;
+  periodicidad: string;
 }
 
 interface ServiciosData {
@@ -68,11 +69,15 @@ export default function ServiciosPage() {
 
   const getCategoriaIcon = (cat: string | null) => {
     const catLower = (cat || '').toLowerCase();
-    if (catLower.includes('internet') || catLower.includes('fibra')) return '🌐';
-    if (catLower.includes('móvil') || catLower.includes('movil')) return '📱';
-    if (catLower.includes('fij') || catLower.includes('voz')) return '📞';
-    if (catLower.includes('hosting') || catLower.includes('cloud')) return '☁️';
-    if (catLower.includes('centralita') || catLower.includes('pbx')) return '🏢';
+    if (catLower.includes('internet')) return '🌐';
+    if (catLower.includes('móvil') || catLower.includes('movil') || catLower.includes('telefonía m')) return '📱';
+    if (catLower.includes('fij') || catLower.includes('telefonía f')) return '📞';
+    if (catLower.includes('hosting') || catLower.includes('email')) return '✉️';
+    if (catLower.includes('cloud') || catLower.includes('backup')) return '☁️';
+    if (catLower.includes('comunicacion') || catLower.includes('pbx')) return '🏢';
+    if (catLower.includes('seguridad')) return '🔒';
+    if (catLower.includes('mantenimiento')) return '🔧';
+    if (catLower.includes('equipo')) return '💻';
     return '📋';
   };
 
@@ -106,9 +111,10 @@ export default function ServiciosPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {data.porCategoria.map(cat => (
               <div key={cat.categoria} className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">{cat.categoria}</p>
+                <p className="text-lg mb-1">{getCategoriaIcon(cat.categoria)}</p>
+                <p className="text-xs font-medium text-gray-700">{cat.categoria}</p>
                 <p className="text-lg font-bold text-gray-900">{cat.count}</p>
-                <p className="text-xs text-gray-500">{cat.total.toFixed(2)} €/mes</p>
+                <p className="text-xs text-gray-500">{cat.total.toFixed(2)} €</p>
               </div>
             ))}
           </div>
@@ -171,9 +177,12 @@ export default function ServiciosPage() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-gray-900">{c.precio.toFixed(2)} €<span className="text-sm font-normal text-gray-500">/mes</span></p>
+                  <p className="text-lg font-bold text-gray-900">
+                    {c.precio.toFixed(2)} €
+                    <span className="text-sm font-normal text-gray-500">{c.periodicidad || '/mes'}</span>
+                  </p>
                   {c.conceptoFacturacion && (
-                    <p className="text-xs text-gray-400">{c.conceptoFacturacion}</p>
+                    <p className="text-xs text-gray-400 max-w-[200px]">{c.conceptoFacturacion}</p>
                   )}
                 </div>
               </div>

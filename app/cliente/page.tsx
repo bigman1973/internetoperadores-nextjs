@@ -213,7 +213,7 @@ export default function ClienteDashboard() {
                     <p className="text-sm font-medium text-gray-900">{s.titulo}</p>
                     <p className="text-xs text-gray-500">{s.tarifa}</p>
                   </div>
-                  <span className="text-sm font-semibold text-gray-900">{s.precio.toFixed(2)} €/mes</span>
+                  <span className="text-sm font-semibold text-gray-900">{s.precio.toFixed(2)} €{s.periodicidad || '/mes'}</span>
                 </div>
               ))
             )}
