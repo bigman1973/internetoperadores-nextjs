@@ -198,6 +198,16 @@ function LoginForm() {
             </button>
           </div>
         </form>
+
+        {/* Enlace a la web pública */}
+        <div className="mt-8 text-center">
+          <a
+            href="https://www.internetoperadores.com"
+            className="text-sm text-gray-500 hover:text-orange-600 transition-colors"
+          >
+            ← Ir a la web de Internet Operadores
+          </a>
+        </div>
       </div>
     </div>
   )
