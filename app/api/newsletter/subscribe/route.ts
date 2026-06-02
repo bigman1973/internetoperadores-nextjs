@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const HUBSPOT_TOKEN = process.env.HUBSPOT_API_KEY || '';
-const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
+const HUBSPOT_TOKEN = (process.env.HUBSPOT_API_KEY || '').trim();
+const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 
 // IDs de las listas de HubSpot (ILS IDs)
 const HUBSPOT_LISTA_EMPRESAS = '489';
@@ -27,7 +27,7 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
   };
 
   if (telefono && telefono.trim()) {
-    attributes.SMS = telefono.trim();
+    attributes.TELEFONO = telefono.trim();
   }
 
   try {
@@ -35,8 +35,9 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
     const createRes = await fetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: {
+        'accept': 'application/json',
         'api-key': BREVO_API_KEY,
-        'Content-Type': 'application/json',
+        'content-type': 'application/json',
       },
       body: JSON.stringify({
         email,
@@ -45,6 +46,8 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
         updateEnabled: true, // Si ya existe, actualiza y añade a la lista
       }),
     });
+
+    console.log('[Newsletter] Brevo create response status:', createRes.status);
 
     if (createRes.ok || createRes.status === 204) {
       console.log('[Newsletter] Contacto añadido/actualizado en Brevo:', email);
