@@ -6,13 +6,14 @@ import EmpresaFooter from '../../components/EmpresaFooter';
 
 export default function ContactoPage() {
   const [formData, setFormData] = useState({
+    tipoUsuario: 'empresa',
     nombre: '',
     empresa: '',
     email: '',
     telefono: '',
-    empleados: '',
-    servicio: '',
+    motivo: '',
     mensaje: '',
+    newsletter: false,
     acepta: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -29,13 +30,14 @@ export default function ContactoPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          tipoUsuario: formData.tipoUsuario,
           nombre: formData.nombre,
           empresa: formData.empresa,
           email: formData.email,
           telefono: formData.telefono,
-          empleados: formData.empleados,
-          servicio: formData.servicio,
+          motivo: formData.motivo,
           mensaje: formData.mensaje,
+          newsletter: formData.newsletter,
           origen: 'Formulario de contacto'
         })
       });
@@ -46,7 +48,7 @@ export default function ContactoPage() {
 
       setIsSubmitted(true);
     } catch (err) {
-      setError('Ha ocurrido un error. Por favor, inténtelo de nuevo o contacte por WhatsApp.');
+      setError('Ha ocurrido un error. Por favor, inténtelo de nuevo.');
     } finally {
       setIsSubmitting(false);
     }
@@ -75,7 +77,7 @@ export default function ContactoPage() {
               Contacta con nosotros
             </h1>
             <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">
-              Cuéntanos las necesidades de tu empresa y te prepararemos una propuesta personalizada sin compromiso.
+              Estamos aquí para ayudarte. Cuéntanos en qué podemos asistirte y te responderemos lo antes posible.
             </p>
           </div>
         </div>
@@ -91,10 +93,40 @@ export default function ContactoPage() {
               <div className="lg:col-span-2">
                 {!isSubmitted ? (
                   <div className="bg-white border-2 border-gray-200 rounded-2xl p-6 sm:p-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Solicitar presupuesto</h2>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Envíanos tu consulta</h2>
                     <p className="text-gray-600 mb-6">Complete el formulario y le responderemos en menos de 24 horas laborables.</p>
                     
                     <form onSubmit={handleSubmit} className="space-y-5">
+                      
+                      {/* Selector Particular / Empresa */}
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">Soy...</label>
+                        <div className="flex rounded-lg bg-gray-100 p-1">
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, tipoUsuario: 'empresa' }))}
+                            className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
+                              formData.tipoUsuario === 'empresa'
+                                ? 'bg-white text-gray-900 shadow'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            Empresa
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, tipoUsuario: 'particular' }))}
+                            className={`flex-1 rounded-md px-4 py-2.5 text-sm font-semibold transition-colors ${
+                              formData.tipoUsuario === 'particular'
+                                ? 'bg-white text-gray-900 shadow'
+                                : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                          >
+                            Particular
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label htmlFor="nombre" className="block text-sm font-semibold text-gray-700 mb-1">
@@ -111,27 +143,28 @@ export default function ContactoPage() {
                             placeholder="Juan García López"
                           />
                         </div>
-                        <div>
-                          <label htmlFor="empresa" className="block text-sm font-semibold text-gray-700 mb-1">
-                            Empresa *
-                          </label>
-                          <input
-                            type="text"
-                            id="empresa"
-                            name="empresa"
-                            required
-                            value={formData.empresa}
-                            onChange={handleChange}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900"
-                            placeholder="Mi Empresa S.L."
-                          />
-                        </div>
+                        {formData.tipoUsuario === 'empresa' && (
+                          <div>
+                            <label htmlFor="empresa" className="block text-sm font-semibold text-gray-700 mb-1">
+                              Empresa
+                            </label>
+                            <input
+                              type="text"
+                              id="empresa"
+                              name="empresa"
+                              value={formData.empresa}
+                              onChange={handleChange}
+                              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900"
+                              placeholder="Mi Empresa S.L."
+                            />
+                          </div>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-1">
-                            Email corporativo *
+                            Email *
                           </label>
                           <input
                             type="email"
@@ -141,7 +174,7 @@ export default function ContactoPage() {
                             value={formData.email}
                             onChange={handleChange}
                             className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900"
-                            placeholder="juan@miempresa.com"
+                            placeholder="juan@ejemplo.com"
                           />
                         </div>
                         <div>
@@ -161,52 +194,30 @@ export default function ContactoPage() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label htmlFor="empleados" className="block text-sm font-semibold text-gray-700 mb-1">
-                            Numero de empleados
-                          </label>
-                          <select
-                            id="empleados"
-                            name="empleados"
-                            value={formData.empleados}
-                            onChange={handleChange}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900 bg-white"
-                          >
-                            <option value="">Seleccionar</option>
-                            <option value="1-10">1 - 10 empleados</option>
-                            <option value="11-50">11 - 50 empleados</option>
-                            <option value="51-200">51 - 200 empleados</option>
-                            <option value="201-500">201 - 500 empleados</option>
-                            <option value="500+">Más de 500 empleados</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label htmlFor="servicio" className="block text-sm font-semibold text-gray-700 mb-1">
-                            Servicio de interés
-                          </label>
-                          <select
-                            id="servicio"
-                            name="servicio"
-                            value={formData.servicio}
-                            onChange={handleChange}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900 bg-white"
-                          >
-                            <option value="">Seleccionar</option>
-                            <option value="conectividad">Conectividad avanzada (Fibra, MPLS, SD-WAN)</option>
-                            <option value="comunicaciones">Comunicaciones unificadas (VoIP, Teams)</option>
-                            <option value="infraestructura">Infraestructura de red (WiFi, Switching)</option>
-                            <option value="mantenimiento">Mantenimiento IT</option>
-                            <option value="moviles">Líneas móviles empresariales</option>
-                            <option value="exagrid">ExaGrid (Backup y recuperación)</option>
-                            <option value="varios">Varios servicios / No estoy seguro</option>
-                          </select>
-                        </div>
+                      {/* Motivo de contacto */}
+                      <div>
+                        <label htmlFor="motivo" className="block text-sm font-semibold text-gray-700 mb-1">
+                          Motivo de contacto *
+                        </label>
+                        <select
+                          id="motivo"
+                          name="motivo"
+                          required
+                          value={formData.motivo}
+                          onChange={handleChange}
+                          className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900 bg-white"
+                        >
+                          <option value="">Seleccionar motivo</option>
+                          <option value="comercial">Comercial — Información o presupuesto</option>
+                          <option value="administracion">Administración — Facturación o contratos</option>
+                          <option value="tecnico">Técnico — Soporte o incidencia</option>
+                          <option value="direccion">Dirección — Sugerencias o reclamaciones</option>
+                        </select>
                       </div>
 
                       <div>
                         <label htmlFor="mensaje" className="block text-sm font-semibold text-gray-700 mb-1">
-                          Cuéntanos tu necesidad
+                          Mensaje
                         </label>
                         <textarea
                           id="mensaje"
@@ -215,10 +226,26 @@ export default function ContactoPage() {
                           value={formData.mensaje}
                           onChange={handleChange}
                           className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-orange-500 focus:outline-none text-gray-900 resize-none"
-                          placeholder="Describe brevemente qué necesitas: tipo de conexión, número de sedes, servicios actuales, problemas que quieres resolver..."
+                          placeholder="Cuéntanos en qué podemos ayudarte..."
                         />
                       </div>
 
+                      {/* Newsletter opt-in */}
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          id="newsletter"
+                          name="newsletter"
+                          checked={formData.newsletter}
+                          onChange={handleChange}
+                          className="h-4 w-4 text-orange-600 rounded mt-1 accent-orange-600"
+                        />
+                        <label htmlFor="newsletter" className="text-sm text-gray-600">
+                          Quiero suscribirme al newsletter y recibir novedades, ofertas y contenido de interés.
+                        </label>
+                      </div>
+
+                      {/* Privacidad */}
                       <div className="flex items-start gap-3">
                         <input
                           type="checkbox"
@@ -230,7 +257,7 @@ export default function ContactoPage() {
                           className="h-4 w-4 text-orange-600 rounded mt-1 accent-orange-600"
                         />
                         <label htmlFor="acepta" className="text-sm text-gray-600">
-                          Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y consiento el tratamiento de mis datos para recibir información comercial. *
+                          Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y consiento el tratamiento de mis datos para gestionar mi consulta. *
                         </label>
                       </div>
 
@@ -246,7 +273,7 @@ export default function ContactoPage() {
                             <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
                             Enviando...
                           </span>
-                        ) : 'Solicitar Presupuesto'}
+                        ) : 'Enviar consulta'}
                       </button>
                     </form>
                   </div>
@@ -257,18 +284,18 @@ export default function ContactoPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Solicitud enviada correctamente</h2>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Mensaje enviado correctamente</h2>
                     <p className="text-gray-600 mb-6">
-                      Hemos recibido su solicitud. Nuestro equipo comercial se pondrá en contacto con usted en menos de 24 horas laborables.
+                      Hemos recibido su consulta. Nuestro equipo se pondrá en contacto con usted lo antes posible.
                     </p>
                     <p className="text-sm text-gray-500 mb-8">
-                      Si necesita una respuesta urgente, puede llamarnos directamente o contactar por WhatsApp.
+                      Si necesita una respuesta urgente, puede llamarnos directamente.
                     </p>
                     <div className="flex flex-col sm:flex-row gap-4 justify-center">
                       <a href="tel:+34900730034" className="px-6 py-3 bg-orange-600 text-white rounded-xl hover:bg-orange-700 transition-all font-semibold">
-                        Llamar ahora
+                        Llamar al 900 730 034
                       </a>
-                      <a href="https://wa.me/34900900900" className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold">
+                      <a href="https://wa.me/34900730034?text=Hola%2C%20acabo%20de%20enviar%20un%20formulario%20de%20contacto" target="_blank" rel="noopener noreferrer" className="px-6 py-3 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold">
                         WhatsApp
                       </a>
                     </div>
@@ -289,7 +316,7 @@ export default function ContactoPage() {
                     <h3 className="font-bold text-gray-900">Teléfono</h3>
                   </div>
                   <a href="tel:+34900730034" className="text-xl font-bold text-orange-600 hover:text-orange-700">
-                    900 900 900
+                    900 730 034
                   </a>
                   <p className="text-sm text-gray-500 mt-1">Lunes a Viernes, 9:00 - 19:00</p>
                 </div>
@@ -304,10 +331,10 @@ export default function ContactoPage() {
                     </div>
                     <h3 className="font-bold text-gray-900">WhatsApp</h3>
                   </div>
-                  <a href="https://wa.me/34900900900" className="inline-block px-5 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold text-sm">
+                  <a href="https://wa.me/34900730034?text=Hola%2C%20necesito%20informaci%C3%B3n" target="_blank" rel="noopener noreferrer" className="inline-block px-5 py-2.5 bg-green-500 text-white rounded-xl hover:bg-green-600 transition-all font-semibold text-sm">
                     Iniciar conversación
                   </a>
-                  <p className="text-sm text-gray-500 mt-2">Respuesta inmediata en horario laboral</p>
+                  <p className="text-sm text-gray-500 mt-2">Respuesta en horario laboral</p>
                 </div>
 
                 {/* Email */}
@@ -320,20 +347,10 @@ export default function ContactoPage() {
                     </div>
                     <h3 className="font-bold text-gray-900">Email</h3>
                   </div>
-                  <a href="mailto:comercial@internetoperadores.com" className="text-orange-600 hover:text-orange-700 font-medium">
-                    comercial@internetoperadores.com
-                  </a>
-                </div>
-
-                {/* Soporte 24/7 */}
-                <div className="bg-orange-600 rounded-2xl p-6 text-white">
-                  <h3 className="font-bold text-lg mb-2">Soporte técnico 24/7</h3>
-                  <p className="text-orange-100 text-sm mb-4">
-                    Si ya es cliente y necesita soporte técnico, nuestro equipo está disponible las 24 horas.
-                  </p>
-                  <a href="tel:+34900730034" className="inline-block px-5 py-2.5 bg-white text-orange-600 rounded-xl hover:bg-orange-50 transition-all font-semibold text-sm">
-                    900 900 901 (Soporte)
-                  </a>
+                  <div className="space-y-1 text-sm">
+                    <p><span className="text-gray-500">Comercial:</span> <a href="mailto:comercial@internetoperadores.com" className="text-orange-600 hover:text-orange-700 font-medium">comercial@internetoperadores.com</a></p>
+                    <p><span className="text-gray-500">Soporte:</span> <a href="mailto:sat@internetoperadores.com" className="text-orange-600 hover:text-orange-700 font-medium">sat@internetoperadores.com</a></p>
+                  </div>
                 </div>
 
                 {/* Dirección */}
@@ -381,8 +398,8 @@ export default function ContactoPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="font-bold text-gray-900 mb-1">Soporte 24/7</h3>
-                <p className="text-sm text-gray-600">Equipo técnico disponible todos los días del año</p>
+                <h3 className="font-bold text-gray-900 mb-1">Respuesta rápida</h3>
+                <p className="text-sm text-gray-600">Contestamos en menos de 24 horas laborables</p>
               </div>
               <div className="bg-white rounded-xl p-6 text-center shadow-sm">
                 <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-4">
