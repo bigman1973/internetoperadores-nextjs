@@ -27,7 +27,7 @@ function formatCurrency(value: number): string {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
 }
 
-export default function ProductosSolucionDynamic({ solucion, solucionNombre }: { solucion: string; solucionNombre: string }) {
+export default function ProductosSolucionDynamic({ solucion, solucionNombre, ctaHref = '/contacto' }: { solucion: string; solucionNombre: string; ctaHref?: string }) {
   const [tarifas, setTarifas] = useState<TarifaWeb[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -174,7 +174,7 @@ export default function ProductosSolucionDynamic({ solucion, solucionNombre }: {
                   </div>
 
                   <Link
-                    href="/contacto"
+                    href={ctaHref}
                     className={`block w-full text-center py-3 rounded-lg font-semibold transition-all ${
                       tarifa.esPopular
                         ? 'bg-white text-orange-600 hover:bg-orange-50'

@@ -272,7 +272,7 @@ export default function ComunicacionesUnificadasPage() {
       </section>
 
       {/* Productos dinámicos */}
-      <ProductosSolucionDynamic solucion="comunicaciones-unificadas" solucionNombre="Comunicaciones Unificadas" />
+      <ProductosSolucionDynamic solucion="comunicaciones-unificadas" solucionNombre="Comunicaciones Unificadas" ctaHref="#propuesta" />
 
       {/* Formulario de solicitud */}
       <section id="propuesta" className="py-12 sm:py-16 lg:py-20 bg-gray-900">
