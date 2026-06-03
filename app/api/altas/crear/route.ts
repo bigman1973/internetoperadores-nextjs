@@ -69,7 +69,7 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoCliente }: { n
       await fetch(`https://api.hubapi.com/crm/v3/lists/${lists.hubspot}/memberships/add`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${HUBSPOT_TOKEN}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordIdsToAdd: [contactId] }),
+        body: JSON.stringify([contactId]),
       })
     }
   } catch (e: any) {

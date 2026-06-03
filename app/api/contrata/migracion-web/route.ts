@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_AUDITORIA = '499';
+const HUBSPOT_LIST_AUDITORIA = '501'; // Lista IO-MIGRACION-WEB
 const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
@@ -58,7 +58,7 @@ async function addToHubSpot(email: string, nombre: string, empresa: string, tele
       await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordIdsToAdd: [contactId] }),
+        body: JSON.stringify([contactId]),
       });
     }
 

@@ -94,7 +94,7 @@ async function subscribeNewsletter({ nombre, email, telefono, tipoUsuario }) {
           'Authorization': `Bearer ${HUBSPOT_TOKEN}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ recordIdsToAdd: [contactId] }),
+        body: JSON.stringify([contactId]),
       });
     }
   } catch (e) {
