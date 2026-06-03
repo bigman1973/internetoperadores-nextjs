@@ -125,7 +125,7 @@ export default function GuiaWifiEmpresarial() {
                         required
                         value={formData.nombre}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="Juan García"
                       />
                     </div>
@@ -141,7 +141,7 @@ export default function GuiaWifiEmpresarial() {
                         required
                         value={formData.email}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="juan@empresa.com"
                       />
                     </div>
@@ -157,7 +157,7 @@ export default function GuiaWifiEmpresarial() {
                         className="h-4 w-4 text-orange-600 focus:ring-orange-500 border-gray-300 rounded mt-1"
                       />
                       <p className="text-sm text-gray-600">
-                        Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y recibir comunicaciones comerciales.
+                        Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y suscribirme al newsletter de empresas para descargar esta guía. *
                       </p>
                     </div>
 

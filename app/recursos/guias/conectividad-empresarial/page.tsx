@@ -154,7 +154,7 @@ export default function GuiaConectividadEmpresarial() {
                         required
                         value={formData.nombre}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="Juan García"
                       />
                     </div>
@@ -170,7 +170,7 @@ export default function GuiaConectividadEmpresarial() {
                         required
                         value={formData.email}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="juan@empresa.com"
                       />
                     </div>
@@ -186,7 +186,7 @@ export default function GuiaConectividadEmpresarial() {
                         required
                         value={formData.empresa}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="Nombre de su empresa"
                       />
                     </div>
@@ -201,7 +201,7 @@ export default function GuiaConectividadEmpresarial() {
                         name="telefono"
                         value={formData.telefono}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="600 000 000"
                       />
                     </div>
@@ -216,7 +216,7 @@ export default function GuiaConectividadEmpresarial() {
                         name="cargo"
                         value={formData.cargo}
                         onChange={handleChange}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition-colors text-gray-900"
                         placeholder="Director IT, Gerente..."
                       />
                     </div>
@@ -233,7 +233,7 @@ export default function GuiaConectividadEmpresarial() {
                       />
                       <label htmlFor="acepta" className="text-sm text-gray-600">
                         Acepto la <Link href="/politica-privacidad" className="text-orange-500 hover:underline">política de privacidad</Link> y 
-                        recibir comunicaciones comerciales de Internet Operadores. *
+                        suscribirme al newsletter de empresas para descargar esta guía. *
                       </label>
                     </div>
                     
