@@ -23,45 +23,121 @@ async function sendBrevoEmail(to: { email: string; name: string }, subject: stri
 }
 
 async function addToHubSpot(email: string, nombre: string, empresa: string, telefono: string, listIds: string[], nota: string) {
-  try {
-    const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
-    });
-    const searchData = await searchRes.json();
-    let contactId: string;
+  if (!HUBSPOT_API_KEY) {
+    console.warn('[UCAAS] HUBSPOT_API_KEY no configurada');
+    return false;
+  }
 
-    if (searchData.results && searchData.results.length > 0) {
-      contactId = searchData.results[0].id;
-      await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
-        method: 'PATCH',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { firstname: nombre, company: empresa, phone: telefono } }),
-      });
-    } else {
-      const createRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ properties: { email, firstname: nombre, company: empresa, phone: telefono } }),
-      });
-      const createData = await createRes.json();
-      contactId = createData.id;
+  try {
+    // 1. Crear contacto en HubSpot
+    const properties: Record<string, string> = {
+      email,
+      firstname: nombre,
+      company: empresa,
+      lifecyclestage: 'subscriber',
+      hs_lead_status: 'NEW',
+    };
+    if (telefono && telefono.trim()) {
+      properties.phone = telefono.trim();
     }
 
+    console.log('[UCAAS] Creando contacto en HubSpot:', email);
+
+    const contactRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ properties }),
+    });
+
+    let contactId: string = '';
+
+    if (contactRes.status === 409) {
+      // Contacto ya existe - obtener su ID
+      const conflictData = await contactRes.json();
+      contactId = conflictData.message?.match(/Existing ID: (\d+)/)?.[1] || '';
+
+      if (!contactId) {
+        const idMatch = JSON.stringify(conflictData).match(/(\d{8,})/);
+        contactId = idMatch?.[1] || '';
+      }
+
+      if (!contactId) {
+        // Buscar por email
+        const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
+        });
+        const searchData = await searchRes.json();
+        contactId = searchData.results?.[0]?.id || '';
+      }
+
+      // Actualizar propiedades del contacto existente
+      if (contactId) {
+        const updateProps: Record<string, string> = { firstname: nombre, company: empresa };
+        if (telefono && telefono.trim()) updateProps.phone = telefono.trim();
+        await fetch(`https://api.hubapi.com/crm/v3/objects/contacts/${contactId}`, {
+          method: 'PATCH',
+          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ properties: updateProps }),
+        });
+      }
+      console.log('[UCAAS] Contacto existente encontrado:', contactId);
+    } else if (contactRes.ok) {
+      const contactData = await contactRes.json();
+      contactId = contactData.id;
+      console.log('[UCAAS] Contacto creado con ID:', contactId);
+    } else {
+      const errText = await contactRes.text();
+      console.error('[UCAAS] Error HubSpot creando contacto:', contactRes.status, errText);
+
+      // Si es error 400, reintentar sin lifecyclestage
+      if (contactRes.status === 400) {
+        const simpleProps: Record<string, string> = { email, firstname: nombre, company: empresa };
+        if (telefono && telefono.trim()) simpleProps.phone = telefono.trim();
+
+        const retryRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ properties: simpleProps }),
+        });
+
+        if (retryRes.status === 409) {
+          const searchRes = await fetch('https://api.hubapi.com/crm/v3/objects/contacts/search', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
+          });
+          const searchData = await searchRes.json();
+          contactId = searchData.results?.[0]?.id || '';
+        } else if (retryRes.ok) {
+          const retryData = await retryRes.json();
+          contactId = retryData.id;
+        }
+      }
+    }
+
+    if (!contactId) {
+      console.error('[UCAAS] No se pudo obtener contactId para:', email);
+      return false;
+    }
+
+    // 2. Añadir a listas
     for (const listId of listIds) {
       const listRes = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
         method: 'PUT',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify([contactId]),
       });
-      console.log(`HubSpot lista ${listId} response:`, listRes.status, await listRes.text());
+      const listText = await listRes.text();
+      console.log(`[UCAAS] Lista ${listId} response: ${listRes.status} - ${listText}`);
     }
 
+    // 3. Crear nota
     if (nota) {
       await fetch('https://api.hubapi.com/crm/v3/objects/notes', {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           properties: { hs_note_body: nota, hs_timestamp: new Date().toISOString() },
           associations: [{ to: { id: contactId }, types: [{ associationCategory: 'HUBSPOT_DEFINED', associationTypeId: 202 }] }],
@@ -70,12 +146,16 @@ async function addToHubSpot(email: string, nombre: string, empresa: string, tele
     }
 
     return true;
-  } catch { return false; }
+  } catch (error) {
+    console.error('[UCAAS] Error HubSpot:', error);
+    return false;
+  }
 }
 
 async function addToBrevoNewsletter(email: string, nombre: string, empresa: string, telefono: string) {
   try {
-    const res = await fetch('https://api.brevo.com/v3/contacts', {
+    // Intentar crear el contacto
+    const createRes = await fetch('https://api.brevo.com/v3/contacts', {
       method: 'POST',
       headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -85,7 +165,23 @@ async function addToBrevoNewsletter(email: string, nombre: string, empresa: stri
         updateEnabled: true,
       }),
     });
-    return res.ok || res.status === 204;
+
+    if (createRes.ok || createRes.status === 204) return true;
+
+    // Si ya existe, añadir a la lista
+    if (createRes.status === 400) {
+      const errData = await createRes.json();
+      if (errData.code === 'duplicate_parameter') {
+        const addRes = await fetch(`https://api.brevo.com/v3/contacts/lists/${BREVO_LIST_NEWSLETTER_EMPRESAS}/contacts/add`, {
+          method: 'POST',
+          headers: { 'api-key': BREVO_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emails: [email] }),
+        });
+        return addRes.ok;
+      }
+    }
+
+    return false;
   } catch { return false; }
 }
 
@@ -177,8 +273,8 @@ export async function POST(request: Request) {
           </div>
           <p style="color: #4b5563; line-height: 1.6;">Si tienes alguna duda, no dudes en contactarnos:</p>
           <ul style="color: #4b5563;">
-            <li>📞 900 730 034</li>
-            <li>📧 comercial@internetoperadores.com</li>
+            <li>Tel: 900 730 034</li>
+            <li>Email: comercial@internetoperadores.com</li>
           </ul>
           <p style="color: #4b5563;">Gracias por confiar en Internet Operadores.</p>
         </div>
