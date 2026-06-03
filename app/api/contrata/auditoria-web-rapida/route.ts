@@ -119,6 +119,7 @@ export async function POST(request: Request) {
         urlWebActual: urlWeb || null,
         frustracionActual: mensaje || null,
         comoNosConocio: 'Formulario rápido - Página Soluciones',
+        origenFormulario: 'rapido',
         estado: 'NUEVO',
         prioridad: 'MEDIA',
       },
