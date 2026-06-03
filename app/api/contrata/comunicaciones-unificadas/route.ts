@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
-const HUBSPOT_LIST_COMUNICACIONES = '489'; // TEMP: usando 489 (Newsletter Empresas) para test
+const HUBSPOT_LIST_COMUNICACIONES = '500'; // Lista "IO-UCAAS"
 const HUBSPOT_LIST_NEWSLETTER_EMPRESAS = '489';
 const BREVO_LIST_NEWSLETTER_EMPRESAS = 30;
 
