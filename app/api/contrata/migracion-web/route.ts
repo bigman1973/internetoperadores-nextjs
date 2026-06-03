@@ -257,7 +257,7 @@ export async function POST(request: Request) {
     integrationPromises.push(addToBrevoNewsletter(email, contacto, nombreEmpresa, telefono || ''));
 
     // Ejecutar todo en paralelo sin bloquear
-    Promise.allSettled([...emailPromises, ...integrationPromises]).catch(() => {});
+    await Promise.allSettled([...emailPromises, ...integrationPromises]);
 
     return NextResponse.json({ success: true, id: lead.id }, { status: 201 });
   } catch (error: any) {

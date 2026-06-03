@@ -202,8 +202,8 @@ export async function POST(request: Request) {
       addToBrevoNewsletter(email, nombre, empresa, telefono || ''),
     ];
 
-    // Ejecutar sin bloquear la respuesta
-    Promise.allSettled([...emailPromises, ...integrationPromises]).catch(() => {});
+    // Ejecutar todas las integraciones antes de responder
+    await Promise.allSettled([...emailPromises, ...integrationPromises]);
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error: any) {

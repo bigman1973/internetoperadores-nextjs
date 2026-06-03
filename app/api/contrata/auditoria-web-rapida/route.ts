@@ -212,7 +212,7 @@ export async function POST(request: Request) {
     ];
 
     // Ejecutar sin bloquear la respuesta
-    Promise.allSettled([...emailPromises, ...integrationPromises]).catch(() => {});
+    await Promise.allSettled([...emailPromises, ...integrationPromises]);
 
     return NextResponse.json({ success: true, id: lead.id }, { status: 201 });
   } catch (error: any) {
