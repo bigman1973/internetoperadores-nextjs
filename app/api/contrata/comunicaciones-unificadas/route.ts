@@ -50,11 +50,12 @@ async function addToHubSpot(email: string, nombre: string, empresa: string, tele
     }
 
     for (const listId of listIds) {
-      await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
+      const listRes = await fetch(`https://api.hubapi.com/crm/v3/lists/${listId}/memberships/add`, {
         method: 'PUT',
         headers: { 'Authorization': `Bearer ${HUBSPOT_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordIdsToAdd: [contactId] }),
+        body: JSON.stringify([contactId]),
       });
+      console.log(`HubSpot lista ${listId} response:`, listRes.status, await listRes.text());
     }
 
     if (nota) {
