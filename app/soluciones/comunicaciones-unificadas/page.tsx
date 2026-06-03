@@ -3,6 +3,7 @@ import Link from 'next/link';
 import EmpresaNav from '../../../components/EmpresaNav';
 import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
+import { useState } from 'react';
 
 const partners = [
   {
@@ -67,7 +68,78 @@ const beneficios = [
   }
 ];
 
+const funcionalidadesOpciones = [
+  'Llamadas internas y externas',
+  'Videoconferencia',
+  'Chat corporativo',
+  'Grabación de llamadas',
+  'IVR (menú de opciones)',
+  'Integración con CRM',
+  'Softphone (app móvil)',
+  'Fax virtual',
+];
+
 export default function ComunicacionesUnificadasPage() {
+  const [formData, setFormData] = useState({
+    nombre: '',
+    empresa: '',
+    email: '',
+    telefono: '',
+    numEmpleados: '',
+    centralitaActual: '',
+    funcionalidades: [] as string[],
+    modalidadTrabajo: '',
+    operadorActual: '',
+    comentarios: '',
+    newsletter: false,
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleFuncionalidadChange = (func: string) => {
+    setFormData(prev => ({
+      ...prev,
+      funcionalidades: prev.funcionalidades.includes(func)
+        ? prev.funcionalidades.filter(f => f !== func)
+        : [...prev.funcionalidades, func]
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const response = await fetch('/api/contrata/comunicaciones-unificadas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: formData.nombre,
+          email: formData.email,
+          empresa: formData.empresa,
+          telefono: formData.telefono,
+          numEmpleados: formData.numEmpleados,
+          centralitaActual: formData.centralitaActual,
+          funcionalidades: formData.funcionalidades,
+          modalidadTrabajo: formData.modalidadTrabajo,
+          operadorActual: formData.operadorActual,
+          comentarios: formData.comentarios,
+        }),
+      });
+      if (response.ok) {
+        setIsSubmitted(true);
+      } else {
+        const data = await response.json();
+        setError(data.error || 'Error al enviar el formulario');
+      }
+    } catch {
+      setError('Error de conexión. Inténtalo de nuevo.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-white">
       <EmpresaNav currentPage="soluciones" />
@@ -95,9 +167,9 @@ export default function ComunicacionesUnificadasPage() {
               Centralita virtual, videoconferencia, chat empresarial y colaboración en una sola plataforma. No te atamos a un fabricante: elegimos la mejor solución para tu empresa.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
-              <Link href="/contacto" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
-                Solicitar Demo Gratuita
-              </Link>
+              <a href="#propuesta" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">
+                Solicitar Propuesta Gratuita
+              </a>
               <a href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20Comunicaciones%20Unificadas" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">
                 Hablar con un experto
               </a>
@@ -199,21 +271,185 @@ export default function ComunicacionesUnificadasPage() {
         </div>
       </section>
 
-      {/* CTA Final */}
+      {/* Productos dinámicos */}
       <ProductosSolucionDynamic solucion="comunicaciones-unificadas" solucionNombre="Comunicaciones Unificadas" />
+
+      {/* Formulario de solicitud */}
+      <section id="propuesta" className="py-12 sm:py-16 lg:py-20 bg-gray-900">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-start">
+              <div>
+                <div className="inline-block bg-orange-500/20 text-orange-400 px-4 py-2 rounded-full text-sm font-semibold mb-6 border border-orange-500/30">
+                  Sin compromiso
+                </div>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-6">Solicita tu propuesta personalizada</h2>
+                <p className="text-gray-400 mb-8">Cuéntanos sobre tu empresa y te prepararemos una propuesta a medida con la mejor solución de comunicaciones unificadas para tu caso.</p>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    <div>
+                      <div className="text-white font-semibold">Comparativa personalizada</div>
+                      <div className="text-sm text-gray-400">Wildix, Zoom o Teams: te recomendamos la mejor opción para tu caso</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    <div>
+                      <div className="text-white font-semibold">Presupuesto detallado</div>
+                      <div className="text-sm text-gray-400">Coste por usuario/mes, sin sorpresas ni costes ocultos</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    <div>
+                      <div className="text-white font-semibold">Demo gratuita</div>
+                      <div className="text-sm text-gray-400">Prueba la plataforma antes de decidir, sin compromiso</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                    <div>
+                      <div className="text-white font-semibold">Plan de migración</div>
+                      <div className="text-sm text-gray-400">Cronograma detallado con mínimo impacto en tu operativa</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl p-6 sm:p-8">
+                {isSubmitted ? (
+                  <div className="text-center py-8">
+                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Solicitud recibida</h3>
+                    <p className="text-gray-600">Te hemos enviado un email de confirmación. Nuestro equipo de comunicaciones analizará tus necesidades y te contactará en menos de 24 horas con una propuesta personalizada.</p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <h3 className="text-xl font-bold text-gray-900 mb-1">Datos de contacto</h3>
+                    <p className="text-sm text-gray-500 mb-3">Cuéntanos quién eres para preparar tu propuesta.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+                        <input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="Tu nombre" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Empresa *</label>
+                        <input type="text" required value={formData.empresa} onChange={(e) => setFormData({...formData, empresa: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="Nombre de tu empresa" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+                        <input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="tu@empresa.com" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+                        <input type="tel" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="600 000 000" />
+                      </div>
+                    </div>
+
+                    <hr className="my-4 border-gray-200" />
+                    <h3 className="text-lg font-bold text-gray-900 mb-1">Sobre tu empresa</h3>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Nº empleados con comunicaciones *</label>
+                        <select required value={formData.numEmpleados} onChange={(e) => setFormData({...formData, numEmpleados: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900">
+                          <option value="">Seleccionar...</option>
+                          <option value="1-5">1-5 empleados</option>
+                          <option value="6-15">6-15 empleados</option>
+                          <option value="16-30">16-30 empleados</option>
+                          <option value="31-50">31-50 empleados</option>
+                          <option value="51-100">51-100 empleados</option>
+                          <option value="+100">Más de 100</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">¿Tienen centralita actualmente?</label>
+                        <select value={formData.centralitaActual} onChange={(e) => setFormData({...formData, centralitaActual: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900">
+                          <option value="">Seleccionar...</option>
+                          <option value="No tenemos">No tenemos</option>
+                          <option value="Sí, analógica">Sí, analógica</option>
+                          <option value="Sí, IP (VoIP)">Sí, IP (VoIP)</option>
+                          <option value="Sí, virtual en la nube">Sí, virtual en la nube</option>
+                          <option value="No lo sé">No lo sé</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">¿Qué funcionalidades necesitan?</label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {funcionalidadesOpciones.map((func) => (
+                          <label key={func} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={formData.funcionalidades.includes(func)}
+                              onChange={() => handleFuncionalidadChange(func)}
+                              className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                            />
+                            {func}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Modalidad de trabajo</label>
+                        <select value={formData.modalidadTrabajo} onChange={(e) => setFormData({...formData, modalidadTrabajo: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900">
+                          <option value="">Seleccionar...</option>
+                          <option value="Todo presencial, una sede">Todo presencial, una sede</option>
+                          <option value="Presencial, varias sedes">Presencial, varias sedes</option>
+                          <option value="Híbrido (oficina + remoto)">Híbrido (oficina + remoto)</option>
+                          <option value="Mayoría en remoto">Mayoría en remoto</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Operador actual</label>
+                        <input type="text" value={formData.operadorActual} onChange={(e) => setFormData({...formData, operadorActual: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="Ej: Movistar, Vodafone..." />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Comentarios adicionales</label>
+                      <textarea rows={3} value={formData.comentarios} onChange={(e) => setFormData({...formData, comentarios: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900 resize-none" placeholder="Cuéntanos cualquier necesidad específica..." />
+                    </div>
+
+                    <div className="flex items-start gap-2">
+                      <input type="checkbox" required checked={formData.newsletter} onChange={(e) => setFormData({...formData, newsletter: e.target.checked})} className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                      <label className="text-xs text-gray-500">Acepto recibir la propuesta personalizada y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</label>
+                    </div>
+                    {error && <p className="text-red-600 text-sm">{error}</p>}
+                    <button type="submit" disabled={isSubmitting} className="w-full px-6 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                      {isSubmitting ? 'Enviando...' : 'Solicitar Propuesta Gratuita'}
+                    </button>
+                    <p className="text-xs text-gray-400 text-center">Sin compromiso. Te contactaremos en menos de 24h.</p>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Final */}
       <section className="py-12 sm:py-16 lg:py-20 bg-orange-600">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-4 sm:mb-6 px-2">
-              ¿Listo para unificar tus comunicaciones?
+              ¿Prefieres hablar directamente?
             </h2>
             <p className="text-base sm:text-lg lg:text-xl text-orange-100 mb-6 sm:mb-8 px-2">
-              Solicita una demo gratuita y descubre cómo podemos transformar las comunicaciones de tu empresa.
+              Nuestro equipo de expertos en comunicaciones está disponible para resolver cualquier duda.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
-              <Link href="/contacto" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
-                Solicitar Demo Gratuita
-              </Link>
+              <a href="#propuesta" className="inline-block px-8 py-4 sm:px-10 sm:py-5 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-base sm:text-lg">
+                Solicitar Propuesta Gratuita
+              </a>
               <a href="tel:+34900730034" className="inline-block px-8 py-4 sm:px-10 sm:py-5 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-base sm:text-lg">
                 Llamar: 900 730 034
               </a>
