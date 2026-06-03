@@ -17,11 +17,9 @@ export async function POST(request) {
 
     // Enviar email con Brevo
     const brevoApiKey = process.env.BREVO_API_KEY;
-    const emailDestino = process.env.EMAIL_NOTIFICACIONES || 'tu-email@ejemplo.com';
 
     if (!brevoApiKey) {
       console.error('⚠️ BREVO_API_KEY no configurada');
-      // Continuar sin enviar email
       return NextResponse.json({ success: true, warning: 'Email no configurado' });
     }
 
@@ -31,37 +29,38 @@ export async function POST(request) {
         email: 'noreply@internetoperadores.com'
       },
       to: [
-        {
-          email: emailDestino,
-          name: 'Administrador'
-        }
+        { email: 'administracion@internetoperadores.com', name: 'Administración' },
+        { email: 'comercial@internetoperadores.com', name: 'Comercial' }
       ],
       subject: `🧾 Nuevos Datos Fiscales - ${razonSocial}`,
       htmlContent: `
-        <h2>Nueva solicitud de factura</h2>
-        <p>Se han recibido nuevos datos fiscales de un cliente.</p>
-        
-        <h3>Detalles del pago:</h3>
-        <ul>
-          <li><strong>Session ID de Stripe:</strong> ${sessionId}</li>
-        </ul>
-
-        <h3>Datos fiscales:</h3>
-        <ul>
-          <li><strong>CIF/NIF:</strong> ${cif}</li>
-          <li><strong>Razón Social:</strong> ${razonSocial}</li>
-          <li><strong>Dirección:</strong> ${direccion}</li>
-          <li><strong>Código Postal:</strong> ${codigoPostal}</li>
-          <li><strong>Ciudad:</strong> ${ciudad}</li>
-          <li><strong>País:</strong> ${pais}</li>
-        </ul>
-
-        <p><strong>Acción requerida:</strong> Generar y enviar factura al cliente.</p>
-        
-        <hr>
-        <p style="color: #666; font-size: 12px;">
-          Para ver más detalles del pago, accede a tu dashboard de Stripe y busca la sesión: ${sessionId}
-        </p>
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #1f2937; padding: 20px; text-align: center;">
+            <h1 style="color: #f97316; margin: 0; font-size: 20px;">Internet Operadores</h1>
+            <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Datos fiscales recibidos</p>
+          </div>
+          <div style="padding: 24px; background: white; border: 1px solid #e5e7eb;">
+            <h2 style="color: #1f2937; margin: 0 0 16px 0; font-size: 18px;">Nueva solicitud de factura</h2>
+            <p style="color: #4b5563; line-height: 1.6;">Se han recibido nuevos datos fiscales de un cliente tras completar un pago.</p>
+            <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 16px 0; border: 1px solid #e5e7eb;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">CIF/NIF:</td><td style="color: #1f2937;">${cif}</td></tr>
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">Razón Social:</td><td style="color: #1f2937;">${razonSocial}</td></tr>
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">Dirección:</td><td style="color: #1f2937;">${direccion}</td></tr>
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">Código Postal:</td><td style="color: #1f2937;">${codigoPostal}</td></tr>
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">Ciudad:</td><td style="color: #1f2937;">${ciudad}</td></tr>
+                <tr><td style="padding: 8px 0; color: #374151; font-weight: bold;">País:</td><td style="color: #1f2937;">${pais}</td></tr>
+              </table>
+            </div>
+            <div style="background: #fef3c7; padding: 12px; border-radius: 8px; margin: 16px 0; border: 1px solid #fcd34d;">
+              <p style="margin: 0; color: #92400e; font-size: 14px;"><strong>⚠️ Acción requerida:</strong> Generar y enviar factura al cliente.</p>
+            </div>
+            <p style="color: #6b7280; font-size: 13px;">Referencia de pago (Session ID): ${sessionId}</p>
+          </div>
+          <div style="background: #f9fafb; padding: 12px; text-align: center; border-top: 1px solid #e5e7eb;">
+            <p style="margin: 0; color: #9ca3af; font-size: 12px;">Internet Operadores © 2026</p>
+          </div>
+        </div>
       `
     };
 
