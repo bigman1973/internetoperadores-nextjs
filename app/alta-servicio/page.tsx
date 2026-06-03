@@ -269,6 +269,7 @@ function AltaServicioContent() {
       const obsCantidad = cantidadPrincipal > 1 ? `Cantidad: ${cantidadPrincipal} unidades` : ''
       const observaciones = [obsCantidad, obsAdicionales, formData.observaciones].filter(Boolean).join('\n') || undefined
 
+      const newsletterCheckbox = document.getElementById('newsletter-optin') as HTMLInputElement
       const res = await fetch('/api/altas/crear', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -281,6 +282,7 @@ function AltaServicioContent() {
           provinciaInstalacion: formData.instalacionDiferente ? formData.provinciaInstalacion : null,
           cpInstalacion: formData.instalacionDiferente ? formData.cpInstalacion : null,
           observaciones,
+          newsletter: newsletterCheckbox?.checked || false,
         }),
       })
 
@@ -975,7 +977,7 @@ function AltaServicioContent() {
                 </p>
               </div>
 
-              <div className="mt-4 space-y-2">
+              <div className="mt-4 space-y-3">
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input type="checkbox" id="aceptar-condiciones" className="mt-1 w-4 h-4 accent-orange-500" />
                   <span className="text-xs text-gray-600">
@@ -984,6 +986,12 @@ function AltaServicioContent() {
                     {' '}y la{' '}
                     <a href="/politica-privacidad" target="_blank" className="text-orange-600 underline">Política de Privacidad</a>.
                     {formData.metodoPago === 'SEPA_DOMICILIACION' && ' Autorizo la domiciliación SEPA en la cuenta indicada.'}
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" id="newsletter-optin" className="mt-1 w-4 h-4 accent-orange-500" />
+                  <span className="text-xs text-gray-600">
+                    Quiero recibir el newsletter con novedades, ofertas y actualizaciones de Internet Operadores.
                   </span>
                 </label>
               </div>
