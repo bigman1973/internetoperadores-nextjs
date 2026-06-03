@@ -450,6 +450,7 @@ model Order {
   createdAt            DateTime            @default(now()) @map("created_at")
   updatedAt            DateTime            @updatedAt @map("updated_at")
   paidAt               DateTime?           @map("paid_at")
+  abandonedNotifiedAt  DateTime?           @map("abandoned_notified_at")
 
   @@index([customerEmail])
   @@index([paymentStatus])
@@ -473,6 +474,7 @@ enum PaymentStatus {
   FAILED
   CANCELLED
   REFUNDED
+  ABANDONED
 }
 
 enum ReconciliationStatus {

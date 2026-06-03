@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { verifyWebhookSignature, type VividWebhookPayload } from '@/lib/payments/vivid'
+import { sendPaymentSuccessEmails } from '@/lib/payments/notifications'
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,6 +40,22 @@ export async function POST(request: NextRequest) {
         },
       })
       console.log(`Vivid webhook: pago exitoso para pedido ${order.id}`)
+
+      // Enviar emails de confirmación (no bloquea la respuesta)
+      sendPaymentSuccessEmails({
+        id: order.id,
+        customerEmail: order.customerEmail,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        customerCompany: order.customerCompany,
+        customerType: order.customerType,
+        tarifaNombre: order.tarifaNombre,
+        importeAlta: order.importeAlta ? Number(order.importeAlta) : null,
+        importeCuota: Number(order.importeCuota),
+        importeTotal: Number(order.importeTotal),
+        periodicidad: order.periodicidad,
+        paymentGateway: order.paymentGateway,
+      })
     } else if (status === 'STATUS_FAILED' || status === 'STATUS_CANCELLED') {
       await prisma.order.update({
         where: { id: order.id },

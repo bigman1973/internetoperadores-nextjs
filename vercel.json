@@ -1,5 +1,11 @@
 {
   "version": 2,
   "framework": "nextjs",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "crons": [
+    {
+      "path": "/api/cron/abandoned-carts",
+      "schedule": "*/10 * * * *"
+    }
+  ]
 }

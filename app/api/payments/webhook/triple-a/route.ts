@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { type TripleAWebhookPayload } from '@/lib/payments/triple-a'
+import { sendPaymentSuccessEmails } from '@/lib/payments/notifications'
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,6 +40,22 @@ export async function POST(request: NextRequest) {
           },
         })
         console.log(`Triple-A webhook: pago exitoso para pedido ${order.id}`)
+
+        // Enviar emails de confirmación (no bloquea la respuesta)
+        sendPaymentSuccessEmails({
+          id: order.id,
+          customerEmail: order.customerEmail,
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          customerCompany: order.customerCompany,
+          customerType: order.customerType,
+          tarifaNombre: order.tarifaNombre,
+          importeAlta: order.importeAlta ? Number(order.importeAlta) : null,
+          importeCuota: Number(order.importeCuota),
+          importeTotal: Number(order.importeTotal),
+          periodicidad: order.periodicidad,
+          paymentGateway: order.paymentGateway,
+        })
         break
 
       case 'expired':
