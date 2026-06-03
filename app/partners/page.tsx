@@ -13,6 +13,7 @@ export default function PartnersPage() {
     sector: '',
     numClientes: '',
     mensaje: '',
+    newsletter: false,
     acepta: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +25,7 @@ export default function PartnersPage() {
     setIsSubmitting(true);
     setError('');
     try {
-      const response = await fetch('/api/contacto', {
+      const response = await fetch('/api/partners', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -32,10 +33,10 @@ export default function PartnersPage() {
           empresa: formData.empresa,
           email: formData.email,
           telefono: formData.telefono,
-          empleados: formData.numClientes,
-          servicio: `Partner - ${formData.sector}`,
+          sector: formData.sector,
+          numClientes: formData.numClientes,
           mensaje: formData.mensaje,
-          origen: 'Programa de Partners'
+          newsletter: formData.newsletter
         })
       });
       if (!response.ok) throw new Error('Error al enviar');
@@ -328,9 +329,10 @@ export default function PartnersPage() {
               <div className="bg-green-50 border border-green-200 rounded-xl p-12 text-center">
                 <div className="text-6xl mb-4">🎉</div>
                 <h3 className="text-2xl font-bold text-green-800 mb-4">Solicitud recibida</h3>
-                <p className="text-green-700 text-lg mb-6">
+                <p className="text-green-700 text-lg mb-2">
                   Nuestro equipo de canal se pondrá en contacto contigo en menos de 24 horas para explicarte todos los detalles del programa.
                 </p>
+                <p className="text-green-600 mb-6">Hemos enviado un email de confirmación con los detalles de tu solicitud.</p>
                 <Link href="/" className="text-orange-500 hover:text-orange-600 font-semibold">
                   Volver al inicio
                 </Link>
@@ -344,27 +346,27 @@ export default function PartnersPage() {
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre completo *</label>
                     <input type="text" name="nombre" value={formData.nombre} onChange={handleChange} required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Empresa *</label>
                     <input type="text" name="empresa" value={formData.empresa} onChange={handleChange} required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Email *</label>
                     <input type="email" name="email" value={formData.email} onChange={handleChange} required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Teléfono *</label>
                     <input type="tel" name="telefono" value={formData.telefono} onChange={handleChange} required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Sector de tu negocio *</label>
                     <select name="sector" value={formData.sector} onChange={handleChange} required
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 bg-white">
                       <option value="">Seleccionar sector</option>
                       <option value="gestoria">Gestoría / Asesoría</option>
                       <option value="seguros">Correduría de Seguros</option>
@@ -378,7 +380,7 @@ export default function PartnersPage() {
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">N.º aprox. de clientes empresariales</label>
                     <select name="numClientes" value={formData.numClientes} onChange={handleChange}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 bg-white">
                       <option value="">Seleccionar rango</option>
                       <option value="1-50">1 - 50 clientes</option>
                       <option value="51-200">51 - 200 clientes</option>
@@ -391,12 +393,23 @@ export default function PartnersPage() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Mensaje (opcional)</label>
                   <textarea name="mensaje" value={formData.mensaje} onChange={handleChange} rows={4}
                     placeholder="Cuéntanos sobre tu negocio y qué te interesa del programa..."
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                 </div>
+                {/* Newsletter opt-in */}
                 <div className="mt-6">
                   <label className="flex items-start gap-3">
+                    <input type="checkbox" name="newsletter" checked={formData.newsletter} onChange={handleChange}
+                      className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500 accent-orange-600" />
+                    <span className="text-sm text-gray-600">
+                      Quiero suscribirme al newsletter de partners y recibir novedades, oportunidades y formación.
+                    </span>
+                  </label>
+                </div>
+                {/* Privacidad */}
+                <div className="mt-4">
+                  <label className="flex items-start gap-3">
                     <input type="checkbox" name="acepta" checked={formData.acepta} onChange={handleChange} required
-                      className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500" />
+                      className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500 accent-orange-600" />
                     <span className="text-sm text-gray-600">
                       Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link> y consiento el tratamiento de mis datos para recibir información sobre el programa de partners. *
                     </span>
