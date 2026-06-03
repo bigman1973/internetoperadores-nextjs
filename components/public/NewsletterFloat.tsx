@@ -18,9 +18,10 @@ export default function NewsletterFloat() {
     return null;
   }
 
-  // Detectar si es sección de particulares
+  // Detectar el tipo de newsletter según la sección
   const isParticular = pathname.startsWith('/particular') || pathname.startsWith('/movil') || pathname.startsWith('/internet') || pathname.startsWith('/tarifas');
-  const tipo = isParticular ? 'particulares' : 'empresas';
+  const isPartner = pathname.startsWith('/partners');
+  const tipo = isPartner ? 'partners' : isParticular ? 'particulares' : 'empresas';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,14 +80,16 @@ export default function NewsletterFloat() {
       {isOpen && (
         <div className="fixed bottom-24 right-6 z-50 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden animate-in slide-in-from-bottom-4">
           {/* Header */}
-          <div className={`px-5 py-4 ${isParticular ? 'bg-blue-600' : 'bg-[#1a1a2e]'}`}>
+          <div className={`px-5 py-4 ${isPartner ? 'bg-gray-800' : isParticular ? 'bg-blue-600' : 'bg-[#1a1a2e]'}`}>
             <h3 className="text-white font-semibold text-lg">
-              Newsletter {isParticular ? 'Particulares' : 'Empresas'}
+              Newsletter {isPartner ? 'Partners' : isParticular ? 'Particulares' : 'Empresas'}
             </h3>
             <p className="text-white/80 text-sm mt-1">
-              {isParticular
-                ? 'Recibe ofertas exclusivas de fibra y móvil'
-                : 'Novedades en soluciones IT y telecomunicaciones'}
+              {isPartner
+                ? 'Oportunidades, formación y novedades del programa'
+                : isParticular
+                  ? 'Recibe ofertas exclusivas de fibra y móvil'
+                  : 'Novedades en soluciones IT y telecomunicaciones'}
             </p>
           </div>
 
@@ -140,9 +143,11 @@ export default function NewsletterFloat() {
                   className={`w-full py-2.5 rounded-lg text-white font-medium text-sm transition-colors ${
                     loading
                       ? 'bg-gray-400 cursor-not-allowed'
-                      : isParticular
-                        ? 'bg-blue-600 hover:bg-blue-700'
-                        : 'bg-[#E85D2A] hover:bg-[#d04d1f]'
+                      : isPartner
+                        ? 'bg-gray-800 hover:bg-gray-900'
+                        : isParticular
+                          ? 'bg-blue-600 hover:bg-blue-700'
+                          : 'bg-[#E85D2A] hover:bg-[#d04d1f]'
                   }`}
                 >
                   {loading ? 'Suscribiendo...' : 'Suscribirme'}

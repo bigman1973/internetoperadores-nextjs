@@ -6,10 +6,12 @@ const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 // IDs de las listas de HubSpot (ILS IDs)
 const HUBSPOT_LISTA_EMPRESAS = '489';
 const HUBSPOT_LISTA_PARTICULARES = '490';
+const HUBSPOT_LISTA_PARTNERS = '495';
 
 // IDs de las listas de Brevo
 const BREVO_LISTA_EMPRESAS = 30;
 const BREVO_LISTA_PARTICULARES = 31;
+const BREVO_LISTA_PARTNERS = 32;
 
 /**
  * Crea o actualiza un contacto en Brevo y lo añade a la lista correspondiente
@@ -20,7 +22,7 @@ async function addToBrevo(email: string, nombre: string, telefono: string, tipo:
     return { success: false, error: 'BREVO_API_KEY no configurada' };
   }
 
-  const listId = tipo === 'particulares' ? BREVO_LISTA_PARTICULARES : BREVO_LISTA_EMPRESAS;
+  const listId = tipo === 'partners' ? BREVO_LISTA_PARTNERS : tipo === 'particulares' ? BREVO_LISTA_PARTICULARES : BREVO_LISTA_EMPRESAS;
 
   const attributes: Record<string, string> = {
     NOMBRE: nombre,
@@ -229,7 +231,7 @@ async function addToHubSpot(email: string, nombre: string, telefono: string, tip
     }
 
     // 2. Añadir contacto a la lista correspondiente
-    const listaId = tipo === 'particulares' ? HUBSPOT_LISTA_PARTICULARES : HUBSPOT_LISTA_EMPRESAS;
+    const listaId = tipo === 'partners' ? HUBSPOT_LISTA_PARTNERS : tipo === 'particulares' ? HUBSPOT_LISTA_PARTICULARES : HUBSPOT_LISTA_EMPRESAS;
 
     await fetch(`https://api.hubapi.com/crm/v3/lists/${listaId}/memberships/add`, {
       method: 'PUT',
