@@ -148,6 +148,15 @@ export async function POST(request: Request) {
       </div>
     `;
 
+    // Construir URL del wizard con datos pre-rellenados
+    const wizardParams = new URLSearchParams();
+    if (empresa) wizardParams.set('empresa', empresa);
+    if (nombre) wizardParams.set('contacto', nombre);
+    if (email) wizardParams.set('email', email);
+    if (telefono) wizardParams.set('telefono', telefono);
+    if (urlWeb) wizardParams.set('url', urlWeb);
+    const wizardUrl = `https://www.internetoperadores.com/contrata/migracion-web?${wizardParams.toString()}`;
+
     const emailInteresadoHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #1a1a2e; padding: 20px; text-align: center;">
@@ -159,6 +168,12 @@ export async function POST(request: Request) {
           <p style="color: #4b5563; line-height: 1.6;">Hemos recibido tu solicitud de <strong>auditoría web gratuita</strong> para <strong>${empresa}</strong>.</p>
           <p style="color: #4b5563; line-height: 1.6;">Nuestro equipo de desarrollo web analizará tu sitio y te contactará en un plazo máximo de <strong>48 horas</strong> con un informe detallado de seguridad, rendimiento y oportunidades de mejora.</p>
           ${urlWeb ? `<div style="background: #f0f9ff; border-left: 4px solid #f97316; padding: 15px; margin: 20px 0;"><p style="margin: 0; color: #374151;"><strong>Web a analizar:</strong> <a href="${urlWeb}" style="color: #f97316;">${urlWeb}</a></p></div>` : ''}
+          <div style="background: #fff7ed; border: 2px solid #f97316; border-radius: 12px; padding: 24px; margin: 24px 0; text-align: center;">
+            <p style="margin: 0 0 8px 0; font-size: 18px; font-weight: bold; color: #1f2937;">Siguiente paso: Prepáranos tu propuesta</p>
+            <p style="margin: 0 0 16px 0; color: #4b5563; font-size: 14px;">Para poder preparar una propuesta personalizada y precisa, necesitamos conocer algunos detalles más sobre tu proyecto. Completa este breve cuestionario (3-5 minutos):</p>
+            <a href="${wizardUrl}" style="display: inline-block; background: #f97316; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Completar cuestionario</a>
+            <p style="margin: 12px 0 0 0; color: #9ca3af; font-size: 12px;">Tus datos ya están pre-rellenados, solo tienes que completar las preguntas adicionales.</p>
+          </div>
           <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0 0 8px 0; font-weight: bold; color: #374151;">¿Qué incluye la auditoría?</p>
             <ul style="margin: 0; padding-left: 20px; color: #4b5563;">

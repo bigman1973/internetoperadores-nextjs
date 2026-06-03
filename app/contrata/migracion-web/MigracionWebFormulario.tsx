@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 
 // ===== TIPOS =====
@@ -157,12 +158,33 @@ const PASOS = [
   'Confirmación',
 ];
 
-export default function MigracionWebFormulario() {
+function MigracionWebFormularioContent() {
+  const searchParams = useSearchParams();
   const [paso, setPaso] = useState(1);
   const [formData, setFormData] = useState<FormData>(initialFormData);
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState('');
+
+  // Pre-rellenar datos desde parámetros URL (viene del formulario rápido)
+  useEffect(() => {
+    const empresa = searchParams.get('empresa');
+    const contacto = searchParams.get('contacto');
+    const email = searchParams.get('email');
+    const telefono = searchParams.get('telefono');
+    const url = searchParams.get('url');
+
+    if (empresa || contacto || email) {
+      setFormData(prev => ({
+        ...prev,
+        ...(empresa && { nombreEmpresa: decodeURIComponent(empresa) }),
+        ...(contacto && { contacto: decodeURIComponent(contacto) }),
+        ...(email && { email: decodeURIComponent(email) }),
+        ...(telefono && { telefono: decodeURIComponent(telefono) }),
+        ...(url && { urlWebActual: decodeURIComponent(url) }),
+      }));
+    }
+  }, [searchParams]);
 
   const totalPasos = calcularTotalPasos();
 
@@ -807,5 +829,17 @@ export default function MigracionWebFormulario() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function MigracionWebFormulario() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
+      </div>
+    }>
+      <MigracionWebFormularioContent />
+    </Suspense>
   );
 }
