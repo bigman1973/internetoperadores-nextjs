@@ -107,7 +107,7 @@ export default function MigracionWebPage() {
     telefono: '',
     urlWeb: '',
     mensaje: '',
-    acepta: false
+    newsletter: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -119,7 +119,7 @@ export default function MigracionWebPage() {
     setError('');
 
     try {
-      const response = await fetch('/api/guias-lead', {
+      const response = await fetch('/api/contrata/auditoria-web-rapida', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -127,8 +127,8 @@ export default function MigracionWebPage() {
           email: formData.email,
           empresa: formData.empresa,
           telefono: formData.telefono,
-          cargo: formData.urlWeb,
-          guia: 'Auditoría Web Gratuita - Migración WordPress'
+          urlWeb: formData.urlWeb,
+          mensaje: formData.mensaje,
         })
       });
 
@@ -402,7 +402,7 @@ export default function MigracionWebPage() {
                       <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                     </div>
                     <h3 className="text-xl font-bold text-gray-900 mb-2">Solicitud recibida</h3>
-                    <p className="text-gray-600">Hemos recibido tu solicitud. Nuestro equipo analizará tu web y te contactará en menos de 24 horas con el informe de auditoría.</p>
+                    <p className="text-gray-600">Hemos recibido tu solicitud. Te hemos enviado un email de confirmación. Nuestro equipo analizará tu web y te contactará en un plazo máximo de 48 horas con el informe de auditoría.</p>
                   </div>
                 ) : (
                   <form onSubmit={handleSubmit} className="space-y-4">
@@ -410,34 +410,34 @@ export default function MigracionWebPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
-                        <input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm" placeholder="Tu nombre" />
+                        <input type="text" required value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="Tu nombre" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Empresa *</label>
-                        <input type="text" required value={formData.empresa} onChange={(e) => setFormData({...formData, empresa: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm" placeholder="Nombre de tu empresa" />
+                        <input type="text" required value={formData.empresa} onChange={(e) => setFormData({...formData, empresa: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="Nombre de tu empresa" />
                       </div>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
-                        <input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm" placeholder="tu@empresa.com" />
+                        <input type="email" required value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="tu@empresa.com" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
-                        <input type="tel" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm" placeholder="600 000 000" />
+                        <input type="tel" value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="600 000 000" />
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">URL de tu web actual *</label>
-                      <input type="url" required value={formData.urlWeb} onChange={(e) => setFormData({...formData, urlWeb: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm" placeholder="https://tuweb.com" />
+                      <input type="url" required value={formData.urlWeb} onChange={(e) => setFormData({...formData, urlWeb: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900" placeholder="https://tuweb.com" />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">¿Qué problemas tienes con tu web actual?</label>
-                      <textarea rows={3} value={formData.mensaje} onChange={(e) => setFormData({...formData, mensaje: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm resize-none" placeholder="Cuéntanos brevemente qué te gustaría mejorar..." />
+                      <textarea rows={3} value={formData.mensaje} onChange={(e) => setFormData({...formData, mensaje: e.target.value})} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-sm text-gray-900 resize-none" placeholder="Cuéntanos brevemente qué te gustaría mejorar..." />
                     </div>
                     <div className="flex items-start gap-2">
-                      <input type="checkbox" required checked={formData.acepta} onChange={(e) => setFormData({...formData, acepta: e.target.checked})} className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
-                      <label className="text-xs text-gray-500">Acepto la política de privacidad y consiento el tratamiento de mis datos para recibir la auditoría web gratuita.</label>
+                      <input type="checkbox" required checked={formData.newsletter} onChange={(e) => setFormData({...formData, newsletter: e.target.checked})} className="mt-1 rounded border-gray-300 text-orange-600 focus:ring-orange-500" />
+                      <label className="text-xs text-gray-500">Acepto recibir la auditoría web gratuita y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</label>
                     </div>
                     {error && <p className="text-red-600 text-sm">{error}</p>}
                     <button type="submit" disabled={isSubmitting} className="w-full px-6 py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-lg disabled:opacity-50 disabled:cursor-not-allowed">
@@ -459,8 +459,8 @@ export default function MigracionWebPage() {
             <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-4 sm:mb-6">¿Prefieres hablar directamente?</h2>
             <p className="text-base sm:text-lg text-orange-100 mb-8">Nuestro equipo está disponible para resolver cualquier duda sobre el proceso de migración.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
-              <a href="tel:+34973228000" className="inline-block px-8 py-4 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-lg">
-                Llamar: 973 228 000
+              <a href="tel:+34900730034" className="inline-block px-8 py-4 bg-white text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-bold text-lg">
+                Llamar: 900 730 034
               </a>
               <a href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20migración%20de%20mi%20web%20WordPress" target="_blank" rel="noopener noreferrer" className="inline-block px-8 py-4 border-2 border-white text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-lg">
                 WhatsApp: 900 730 034
