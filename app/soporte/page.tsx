@@ -10,9 +10,11 @@ export default function SoportePage() {
     empresa: '',
     email: '',
     telefono: '',
+    tipoUsuario: '',
     tipo: '',
     prioridad: '',
     descripcion: '',
+    newsletter: false,
     acepta: false
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -24,7 +26,7 @@ export default function SoportePage() {
     setIsSubmitting(true);
     setError('');
     try {
-      const response = await fetch('/api/contacto', {
+      const response = await fetch('/api/soporte', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -32,9 +34,11 @@ export default function SoportePage() {
           empresa: ticketData.empresa,
           email: ticketData.email,
           telefono: ticketData.telefono,
-          servicio: `Soporte - ${ticketData.tipo}`,
-          mensaje: `[Prioridad: ${ticketData.prioridad}] ${ticketData.descripcion}`,
-          origen: 'Centro de Soporte'
+          tipoUsuario: ticketData.tipoUsuario,
+          tipo: ticketData.tipo,
+          prioridad: ticketData.prioridad,
+          descripcion: ticketData.descripcion,
+          newsletter: ticketData.newsletter
         })
       });
       if (!response.ok) throw new Error('Error al enviar');
@@ -76,7 +80,7 @@ export default function SoportePage() {
               <a href="https://wa.me/34900730034?text=Hola%2C%20necesito%20soporte%20t%C3%A9cnico" target="_blank" className="bg-green-600 hover:bg-green-700 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
                 <span className="text-xl">💬</span> WhatsApp
               </a>
-              <a href="mailto:soporte@internetoperadores.com" className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
+              <a href="mailto:sat@internetoperadores.com" className="bg-gray-700 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all flex items-center justify-center gap-2">
                 <span className="text-xl">✉️</span> Email
               </a>
             </div>
@@ -92,7 +96,7 @@ export default function SoportePage() {
             {[
               { icono: '📞', titulo: 'Teléfono 24/7', dato: '900 730 034', desc: 'Línea directa con técnicos especializados. Sin esperas, sin menús interminables.', horario: '24 horas, 365 días' },
               { icono: '💬', titulo: 'WhatsApp', dato: '900 730 034', desc: 'Envía capturas, vídeos y describe tu incidencia de forma rápida y cómoda.', horario: '24 horas, 365 días' },
-              { icono: '✉️', titulo: 'Email', dato: 'soporte@internetoperadores.com', desc: 'Para incidencias no urgentes o consultas técnicas que requieran documentación.', horario: 'Respuesta < 4h laborables' },
+              { icono: '✉️', titulo: 'Email', dato: 'sat@internetoperadores.com', desc: 'Para incidencias no urgentes o consultas técnicas que requieran documentación.', horario: 'Respuesta < 4h laborables' },
               { icono: '🎫', titulo: 'Ticket Web', dato: 'Formulario abajo', desc: 'Abre un ticket desde esta página y haz seguimiento del estado de tu incidencia.', horario: 'Respuesta < 2h laborables' }
             ].map((c, i) => (
               <div key={i} className="bg-gray-50 rounded-xl p-6 border border-gray-100 text-center">
@@ -301,27 +305,37 @@ export default function SoportePage() {
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Nombre *</label>
                       <input type="text" name="nombre" value={ticketData.nombre} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                     </div>
                     <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Empresa *</label>
-                      <input type="text" name="empresa" value={ticketData.empresa} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Empresa</label>
+                      <input type="text" name="empresa" value={ticketData.empresa} onChange={handleChange}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Email *</label>
                       <input type="email" name="email" value={ticketData.email} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Teléfono *</label>
                       <input type="tel" name="telefono" value={ticketData.telefono} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Soy... *</label>
+                      <select name="tipoUsuario" value={ticketData.tipoUsuario} onChange={handleChange} required
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 bg-white">
+                        <option value="">Seleccionar tipo</option>
+                        <option value="particular">Particular</option>
+                        <option value="empresa">Empresa</option>
+                        <option value="partner">Partner</option>
+                      </select>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de incidencia *</label>
                       <select name="tipo" value={ticketData.tipo} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 bg-white">
                         <option value="">Seleccionar tipo</option>
                         <option value="conectividad">Conectividad / Internet</option>
                         <option value="telefonia">Telefonía / VoIP</option>
@@ -335,7 +349,7 @@ export default function SoportePage() {
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Prioridad *</label>
                       <select name="prioridad" value={ticketData.prioridad} onChange={handleChange} required
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500">
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900 bg-white">
                         <option value="">Seleccionar prioridad</option>
                         <option value="critica">Crítica - Servicio caído</option>
                         <option value="alta">Alta - Degradación severa</option>
@@ -348,12 +362,23 @@ export default function SoportePage() {
                     <label className="block text-sm font-semibold text-gray-700 mb-2">Descripción de la incidencia *</label>
                     <textarea name="descripcion" value={ticketData.descripcion} onChange={handleChange} rows={5} required
                       placeholder="Describe el problema con el mayor detalle posible: qué ocurre, desde cuándo, qué equipos están afectados..."
-                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500" />
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900" />
                   </div>
+                  {/* Newsletter opt-in */}
                   <div className="mt-6">
                     <label className="flex items-start gap-3">
+                      <input type="checkbox" name="newsletter" checked={ticketData.newsletter} onChange={handleChange}
+                        className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500 accent-orange-600" />
+                      <span className="text-sm text-gray-600">
+                        Quiero suscribirme al newsletter y recibir novedades y ofertas.
+                      </span>
+                    </label>
+                  </div>
+                  {/* Privacidad */}
+                  <div className="mt-4">
+                    <label className="flex items-start gap-3">
                       <input type="checkbox" name="acepta" checked={ticketData.acepta} onChange={handleChange} required
-                        className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500" />
+                        className="mt-1 h-4 w-4 text-orange-500 border-gray-300 rounded focus:ring-orange-500 accent-orange-600" />
                       <span className="text-sm text-gray-600">
                         Acepto la <Link href="/politica-privacidad" className="underline hover:text-orange-600">política de privacidad</Link>. *
                       </span>
