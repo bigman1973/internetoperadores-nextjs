@@ -11,6 +11,7 @@ interface FormData {
   email: string;
   telefono: string;
   urlWebActual: string;
+  newsletter: boolean;
   // Paso 2
   sector: string;
   sectorOtro: string;
@@ -43,6 +44,7 @@ const initialFormData: FormData = {
   email: '',
   telefono: '',
   urlWebActual: '',
+  newsletter: true,
   sector: '',
   sectorOtro: '',
   numPaginas: '',
@@ -304,7 +306,7 @@ export default function MigracionWebFormulario() {
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Solicitud enviada correctamente</h2>
           <p className="text-gray-600 mb-6">
-            Hemos recibido tu solicitud de auditoría web. Nuestro equipo revisará la información y
+            Hemos recibido tu solicitud de auditoría web. Te hemos enviado un email de confirmación con el resumen de tu solicitud. Nuestro equipo revisará la información y
             recibirás tu propuesta personalizada en un plazo máximo de <strong>5 días laborables</strong>.
           </p>
           <a href="/" className="inline-block bg-orange-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-600 transition-colors">
@@ -743,11 +745,23 @@ export default function MigracionWebFormulario() {
                   )}
                 </div>
               </div>
-              <div className="mt-6">
+              <div className="mt-6 space-y-3">
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input type="checkbox" className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500" required />
                   <span className="text-sm text-gray-600">
-                    Acepto la <a href="/privacidad" className="text-orange-500 underline">política de privacidad</a> y consiento el tratamiento de mis datos para recibir la propuesta solicitada.
+                    Acepto la <a href="/privacidad" className="text-orange-500 underline">política de privacidad</a> y consiento el tratamiento de mis datos para recibir la propuesta solicitada. *
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.newsletter}
+                    onChange={(e) => updateField('newsletter', e.target.checked)}
+                    className="mt-1 w-4 h-4 text-orange-500 rounded focus:ring-orange-500"
+                    required
+                  />
+                  <span className="text-sm text-gray-600">
+                    Suscribirme al newsletter de empresas para recibir novedades y ofertas. *
                   </span>
                 </label>
               </div>
