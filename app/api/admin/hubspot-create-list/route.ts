@@ -4,6 +4,44 @@ const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
 
 // Endpoint temporal para crear listas en HubSpot
 // Uso: POST /api/admin/hubspot-create-list { "name": "IO-UCAAS", "secret": "crear-lista-2026" }
+// GET: buscar lista por nombre
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const name = url.searchParams.get('name');
+    const secret = url.searchParams.get('secret');
+
+    if (secret !== 'crear-lista-2026') {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    // Buscar lista por nombre
+    const res = await fetch('https://api.hubapi.com/crm/v3/lists/search', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${HUBSPOT_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: name || '',
+        count: 50,
+      }),
+    });
+
+    const data = await res.json();
+    console.log('[HubSpot] Search lists response:', res.status);
+
+    if (res.ok) {
+      const lists = data.lists?.map((l: any) => ({ listId: l.listId, name: l.name, listVersion: l.listVersion })) || [];
+      return NextResponse.json({ success: true, lists });
+    } else {
+      return NextResponse.json({ success: false, status: res.status, error: data }, { status: res.status });
+    }
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const { name, secret } = await request.json();
