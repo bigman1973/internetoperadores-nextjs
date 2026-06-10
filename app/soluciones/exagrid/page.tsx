@@ -38,7 +38,8 @@ const valorPartner = [
   { titulo: 'Dimensionamiento Personalizado', descripcion: 'Nuestros ingenieros certificados analizan tu entorno y calculan el appliance ExaGrid exacto que necesitas. Sin sobredimensionar, sin quedarte corto.' },
   { titulo: 'POC Gratuito', descripcion: 'Prueba ExaGrid en tu entorno real antes de decidir. Instalamos un equipo de demostración para que compruebes el rendimiento con tus propios datos.' },
   { titulo: 'Instalación e Integración', descripcion: 'Configuramos ExaGrid integrado con tu software de backup (Veeam, Veritas, Commvault...) y tu infraestructura existente. Llave en mano.' },
-  { titulo: 'Soporte Local en España', descripcion: 'Equipo técnico propio para soporte post-venta, mantenimiento preventivo, renovaciones y upgrades. Sin intermediarios ni call centers.' }
+  { titulo: 'Soporte Local en España', descripcion: 'Equipo técnico propio para soporte post-venta, mantenimiento preventivo, renovaciones y upgrades. Sin intermediarios ni call centers.' },
+  { titulo: 'Backup Gestionado 24/7', descripcion: 'No solo instalamos ExaGrid. Monitorizamos tus copias día y noche, verificamos que son recuperables con tests periódicos, y te enviamos informes de estado. Tú te olvidas, nosotros vigilamos.' }
 ];
 
 const casosUso = [
@@ -357,7 +358,7 @@ export default function ExagridPage() {
                     <div className="border-t border-gray-200 pt-6 mb-6">
                       <label className="block text-sm font-medium text-gray-700 mb-3">Necesidades principales</label>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {['Velocidad de backup/restore', 'Protección contra ransomware', 'Escalabilidad sin límites', 'Reducción de costes de almacenamiento', 'Disaster Recovery', 'Cumplimiento normativo (GDPR/ENS/ISO)'].map(nec => (
+                        {['Velocidad de backup/restore', 'Protección contra ransomware', 'Escalabilidad sin límites', 'Reducción de costes de almacenamiento', 'Disaster Recovery', 'Cumplimiento normativo (GDPR/ENS/ISO)', 'Backup gestionado (monitorización + verificación + informes)'].map(nec => (
                           <label key={nec} className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 cursor-pointer">
                             <input type="checkbox" checked={formData.necesidades.includes(nec)} onChange={() => handleNecesidad(nec)} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500" />
                             <span className="text-sm text-gray-700">{nec}</span>
