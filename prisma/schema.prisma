@@ -882,6 +882,11 @@ model ClienteMigracionAdamo {
   fechaAlta         DateTime?             @map("fecha_alta") @db.Date
   precioOperador    Decimal?              @map("precio_operador") @db.Decimal(10, 2)
   precioCliente     Decimal?              @map("precio_cliente") @db.Decimal(10, 2)
+  // Otros servicios contratados
+  otrosServicios    Json?                 @map("otros_servicios") @db.JsonB
+  totalContratos    Int                   @default(0) @map("total_contratos")
+  facturacionMensual Decimal?             @map("facturacion_mensual") @db.Decimal(10, 2)
+  prioridad         PrioridadMigracion    @default(NORMAL)
   // Gestión de migración
   estado            EstadoMigracionAdamo  @default(PENDIENTE)
   alternativaOfrecida String?             @map("alternativa_ofrecida")
@@ -905,4 +910,10 @@ enum EstadoMigracionAdamo {
   MIGRADO
   BAJA
   EN_NEGOCIACION
+}
+
+enum PrioridadMigracion {
+  ALTA
+  NORMAL
+  BAJA
 }

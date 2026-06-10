@@ -2,6 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 
+interface OtroServicio {
+  titulo: string
+  precio: number
+}
+
 interface ClienteAdamo {
   id: number
   nombre: string
@@ -11,6 +16,10 @@ interface ClienteAdamo {
   fechaAlta: string | null
   precioOperador: number | null
   precioCliente: number | null
+  otrosServicios: OtroServicio[] | null
+  totalContratos: number
+  facturacionMensual: number | null
+  prioridad: string
   estado: string
   alternativaOfrecida: string | null
   precioAlternativa: number | null
@@ -24,6 +33,8 @@ interface Stats {
   porEstado: { estado: string; _count: { estado: number } }[]
   ingresosMensuales: number
   costeMensual: number
+  totalFacturacion: number
+  clientesAlta: number
 }
 
 const ESTADOS = [
@@ -35,8 +46,18 @@ const ESTADOS = [
   { value: 'BAJA', label: 'Baja', color: 'bg-red-100 text-red-800' },
 ]
 
+const PRIORIDADES = [
+  { value: 'ALTA', label: 'Alta', color: 'bg-red-100 text-red-800' },
+  { value: 'NORMAL', label: 'Normal', color: 'bg-gray-100 text-gray-800' },
+  { value: 'BAJA', label: 'Baja', color: 'bg-green-100 text-green-700' },
+]
+
 function getEstadoInfo(estado: string) {
   return ESTADOS.find(e => e.value === estado) || { value: estado, label: estado, color: 'bg-gray-100 text-gray-800' }
+}
+
+function getPrioridadInfo(prioridad: string) {
+  return PRIORIDADES.find(p => p.value === prioridad) || { value: prioridad, label: prioridad, color: 'bg-gray-100 text-gray-800' }
 }
 
 export default function MigracionAdamoClient() {
@@ -46,6 +67,7 @@ export default function MigracionAdamoClient() {
   const [loading, setLoading] = useState(true)
   const [filtroEstado, setFiltroEstado] = useState('todos')
   const [filtroMunicipio, setFiltroMunicipio] = useState('todos')
+  const [filtroPrioridad, setFiltroPrioridad] = useState('todos')
   const [buscar, setBuscar] = useState('')
   const [selectedCliente, setSelectedCliente] = useState<ClienteAdamo | null>(null)
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -59,6 +81,7 @@ export default function MigracionAdamoClient() {
     const params = new URLSearchParams()
     if (filtroEstado !== 'todos') params.set('estado', filtroEstado)
     if (filtroMunicipio !== 'todos') params.set('municipio', filtroMunicipio)
+    if (filtroPrioridad !== 'todos') params.set('prioridad', filtroPrioridad)
     if (buscar) params.set('buscar', buscar)
 
     try {
@@ -71,7 +94,7 @@ export default function MigracionAdamoClient() {
       console.error('Error fetching data:', error)
     }
     setLoading(false)
-  }, [filtroEstado, filtroMunicipio, buscar])
+  }, [filtroEstado, filtroMunicipio, filtroPrioridad, buscar])
 
   useEffect(() => {
     fetchData()
@@ -149,7 +172,7 @@ export default function MigracionAdamoClient() {
 
       {/* KPIs */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">Total</p>
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -166,9 +189,13 @@ export default function MigracionAdamoClient() {
             <p className="text-xs text-gray-500 uppercase">Migrados</p>
             <p className="text-2xl font-bold text-green-600">{getCountByEstado('MIGRADO')}</p>
           </div>
+          <div className="bg-white border rounded-lg p-4 border-red-200">
+            <p className="text-xs text-gray-500 uppercase">Prioridad Alta</p>
+            <p className="text-2xl font-bold text-red-600">{stats.clientesAlta || 0}</p>
+          </div>
           <div className="bg-white border rounded-lg p-4">
-            <p className="text-xs text-gray-500 uppercase">Ingresos/mes</p>
-            <p className="text-2xl font-bold text-gray-900">{Number(stats.ingresosMensuales).toFixed(0)}€</p>
+            <p className="text-xs text-gray-500 uppercase">Fact. mensual total</p>
+            <p className="text-2xl font-bold text-gray-900">{Number(stats.totalFacturacion || 0).toFixed(0)}€</p>
           </div>
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">Coste ADAMO/mes</p>
@@ -179,7 +206,7 @@ export default function MigracionAdamoClient() {
 
       {/* Filtros */}
       <div className="bg-white border rounded-lg p-4 mb-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
           <div>
             <label className="text-xs text-gray-500 block mb-1">Buscar</label>
             <input
@@ -216,6 +243,19 @@ export default function MigracionAdamoClient() {
               ))}
             </select>
           </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Prioridad</label>
+            <select
+              value={filtroPrioridad}
+              onChange={(e) => setFiltroPrioridad(e.target.value)}
+              className="w-full border rounded px-3 py-2 text-sm"
+            >
+              <option value="todos">Todas</option>
+              {PRIORIDADES.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-end">
             {selectedIds.length > 0 && (
               <div className="flex gap-2">
@@ -224,14 +264,14 @@ export default function MigracionAdamoClient() {
                   disabled={saving}
                   className="px-3 py-2 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
                 >
-                  Marcar contactados ({selectedIds.length})
+                  Contactados ({selectedIds.length})
                 </button>
                 <button
                   onClick={() => handleBulkUpdate('BAJA')}
                   disabled={saving}
                   className="px-3 py-2 bg-red-600 text-white text-xs rounded hover:bg-red-700"
                 >
-                  Dar de baja ({selectedIds.length})
+                  Baja ({selectedIds.length})
                 </button>
               </div>
             )}
@@ -242,7 +282,7 @@ export default function MigracionAdamoClient() {
       {/* Tabla + Detalle */}
       <div className="flex gap-4">
         {/* Tabla */}
-        <div className={`bg-white border rounded-lg overflow-hidden ${selectedCliente ? 'w-2/3' : 'w-full'}`}>
+        <div className={`bg-white border rounded-lg overflow-hidden ${selectedCliente ? 'w-3/5' : 'w-full'}`}>
           {loading ? (
             <div className="p-8 text-center text-gray-500">Cargando...</div>
           ) : (
@@ -262,16 +302,19 @@ export default function MigracionAdamoClient() {
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tarifa</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Municipio</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Precio</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Servicios</th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prioridad</th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {clientes.map((cliente) => {
                     const estadoInfo = getEstadoInfo(cliente.estado)
+                    const prioridadInfo = getPrioridadInfo(cliente.prioridad)
                     return (
                       <tr
                         key={cliente.id}
-                        className={`hover:bg-gray-50 cursor-pointer ${selectedCliente?.id === cliente.id ? 'bg-orange-50' : ''}`}
+                        className={`hover:bg-gray-50 cursor-pointer ${selectedCliente?.id === cliente.id ? 'bg-orange-50' : ''} ${cliente.prioridad === 'ALTA' ? 'border-l-4 border-l-red-400' : ''}`}
                         onClick={() => openDetail(cliente)}
                       >
                         <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
@@ -284,12 +327,27 @@ export default function MigracionAdamoClient() {
                         </td>
                         <td className="px-3 py-3">
                           <div className="font-medium text-gray-900 text-xs">{cliente.nombre}</div>
-                          <div className="text-xs text-gray-500 truncate max-w-[200px]">{cliente.direccion}</div>
+                          <div className="text-xs text-gray-500 truncate max-w-[180px]">{cliente.direccion}</div>
                         </td>
                         <td className="px-3 py-3 text-xs text-gray-700">{cliente.tarifa || '-'}</td>
                         <td className="px-3 py-3 text-xs text-gray-700">{cliente.municipio || '-'}</td>
                         <td className="px-3 py-3 text-xs">
                           <span className="font-medium">{cliente.precioCliente != null ? `${Number(cliente.precioCliente).toFixed(2)}€` : '-'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-xs">
+                          {cliente.totalContratos > 1 ? (
+                            <div>
+                              <span className="font-bold text-orange-600">{cliente.totalContratos}</span>
+                              <span className="text-gray-500 ml-1">({Number(cliente.facturacionMensual || 0).toFixed(0)}€/mes)</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">Solo fibra</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${prioridadInfo.color}`}>
+                            {prioridadInfo.label}
+                          </span>
                         </td>
                         <td className="px-3 py-3">
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${estadoInfo.color}`}>
@@ -310,9 +368,16 @@ export default function MigracionAdamoClient() {
 
         {/* Panel detalle */}
         {selectedCliente && (
-          <div className="w-1/3 bg-white border rounded-lg p-4 sticky top-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+          <div className="w-2/5 bg-white border rounded-lg p-4 sticky top-4 max-h-[calc(100vh-200px)] overflow-y-auto">
             <div className="flex justify-between items-start mb-4">
-              <h3 className="font-bold text-gray-900 text-sm">{selectedCliente.nombre}</h3>
+              <div>
+                <h3 className="font-bold text-gray-900 text-sm">{selectedCliente.nombre}</h3>
+                {selectedCliente.prioridad === 'ALTA' && (
+                  <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 mt-1">
+                    PRIORIDAD ALTA — Tiene más servicios
+                  </span>
+                )}
+              </div>
               <button
                 onClick={() => setSelectedCliente(null)}
                 className="text-gray-400 hover:text-gray-600 text-lg"
@@ -324,7 +389,7 @@ export default function MigracionAdamoClient() {
             {/* Info actual */}
             <div className="space-y-3 mb-4">
               <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-500 mb-1">Servicio actual</p>
+                <p className="text-xs text-gray-500 mb-1">Servicio ADAMO afectado</p>
                 <p className="text-sm font-medium">{selectedCliente.tarifa || 'Sin tarifa'}</p>
                 <p className="text-xs text-gray-500 mt-1">{selectedCliente.direccion}</p>
                 <p className="text-xs text-gray-500">{selectedCliente.municipio}</p>
@@ -339,11 +404,27 @@ export default function MigracionAdamoClient() {
                   <p className="text-sm font-bold text-red-600">{selectedCliente.precioOperador != null ? `${Number(selectedCliente.precioOperador).toFixed(2)}€` : '-'}</p>
                 </div>
               </div>
-              <div className="bg-gray-50 rounded p-3">
-                <p className="text-xs text-gray-500">Fecha alta</p>
-                <p className="text-sm">{selectedCliente.fechaAlta ? new Date(selectedCliente.fechaAlta).toLocaleDateString('es-ES') : '-'}</p>
-              </div>
             </div>
+
+            {/* Otros servicios contratados */}
+            {selectedCliente.otrosServicios && selectedCliente.otrosServicios.length > 0 && (
+              <div className="mb-4">
+                <div className="bg-orange-50 border border-orange-200 rounded p-3">
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-xs font-bold text-orange-800 uppercase">Otros servicios contratados</p>
+                    <span className="text-xs font-bold text-orange-600">{Number(selectedCliente.facturacionMensual || 0).toFixed(2)}€/mes total</span>
+                  </div>
+                  <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                    {selectedCliente.otrosServicios.map((servicio, idx) => (
+                      <div key={idx} className="flex justify-between items-center text-xs">
+                        <span className="text-gray-700 truncate mr-2">{servicio.titulo}</span>
+                        <span className="font-medium text-gray-900 whitespace-nowrap">{servicio.precio.toFixed(2)}€</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Estado */}
             <div className="mb-4">

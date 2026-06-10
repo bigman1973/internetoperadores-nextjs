@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const estado = searchParams.get('estado')
   const municipio = searchParams.get('municipio')
+  const prioridad = searchParams.get('prioridad')
   const buscar = searchParams.get('buscar')
 
   const where: any = {}
@@ -24,6 +25,10 @@ export async function GET(request: Request) {
     where.municipio = municipio
   }
 
+  if (prioridad && prioridad !== 'todos') {
+    where.prioridad = prioridad
+  }
+
   if (buscar) {
     where.OR = [
       { nombre: { contains: buscar, mode: 'insensitive' } },
@@ -34,7 +39,11 @@ export async function GET(request: Request) {
 
   const clientes = await prisma.clienteMigracionAdamo.findMany({
     where,
-    orderBy: { nombre: 'asc' },
+    orderBy: [
+      { prioridad: 'asc' }, // ALTA primero (A antes que N)
+      { facturacionMensual: 'desc' }, // Mayor facturación primero
+      { nombre: 'asc' },
+    ],
   })
 
   // Estadísticas
@@ -44,11 +53,17 @@ export async function GET(request: Request) {
   })
 
   const totalClientes = await prisma.clienteMigracionAdamo.count()
+  const clientesAlta = await prisma.clienteMigracionAdamo.count({
+    where: { prioridad: 'ALTA' },
+  })
   const ingresosMensuales = await prisma.clienteMigracionAdamo.aggregate({
     _sum: { precioCliente: true },
   })
   const costeMensual = await prisma.clienteMigracionAdamo.aggregate({
     _sum: { precioOperador: true },
+  })
+  const totalFacturacion = await prisma.clienteMigracionAdamo.aggregate({
+    _sum: { facturacionMensual: true },
   })
 
   // Municipios únicos para filtro
@@ -66,6 +81,8 @@ export async function GET(request: Request) {
       porEstado: stats,
       ingresosMensuales: ingresosMensuales._sum.precioCliente || 0,
       costeMensual: costeMensual._sum.precioOperador || 0,
+      totalFacturacion: totalFacturacion._sum.facturacionMensual || 0,
+      clientesAlta,
     },
     municipios: municipios.map(m => m.municipio).filter(Boolean),
   })
