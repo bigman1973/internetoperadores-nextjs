@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
@@ -300,8 +301,29 @@ export async function POST(request: Request) {
     // Brevo: newsletter empresas
     const brevoPromise = addToBrevoNewsletter(email, nombre, empresa, telefono);
 
+    // Guardar en BD
+    const dbPromise = prisma.leadSolucion.create({
+      data: {
+        tipo: 'MOVILES',
+        nombre,
+        email,
+        empresa,
+        telefono: telefono || null,
+        datos: {
+          numLineas: numLineas || null,
+          operadorActual: operadorActual || null,
+          consumoDatos: consumoDatos || null,
+          permanenciaActual: permanenciaActual || null,
+          tipoDispositivos: tipoDispositivos || null,
+          necesidades: necesidades || [],
+          perfilUsuarios: perfilUsuarios || null,
+          comentarios: comentarios || null,
+        },
+      },
+    }).catch(err => console.error('[MOVILES] Error guardando en BD:', err));
+
     // Ejecutar todo en paralelo y esperar
-    await Promise.allSettled([...emailPromises, hubspotPromise, brevoPromise]);
+    await Promise.allSettled([...emailPromises, hubspotPromise, brevoPromise, dbPromise]);
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error) {

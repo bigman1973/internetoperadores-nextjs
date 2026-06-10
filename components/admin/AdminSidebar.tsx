@@ -3,7 +3,7 @@
 import { useState, useEffect, createContext, useContext } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { XMarkIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
 import { 
   HomeIcon, 
   CreditCardIcon, 
@@ -16,7 +16,10 @@ import {
   DocumentDuplicateIcon,
   BanknotesIcon,
   RocketLaunchIcon,
-  ClipboardDocumentListIcon
+  ClipboardDocumentListIcon,
+  InboxStackIcon,
+  GlobeAltIcon,
+  QueueListIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -49,11 +52,37 @@ interface AdminSidebarProps {
   }
 }
 
-const navigation = [
+interface NavItem {
+  name: string
+  href: string
+  icon: any
+  roles?: string[]
+}
+
+interface NavGroup {
+  name: string
+  icon: any
+  children: NavItem[]
+}
+
+type NavEntry = NavItem | NavGroup
+
+function isGroup(entry: NavEntry): entry is NavGroup {
+  return 'children' in entry
+}
+
+const navigation: NavEntry[] = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon },
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
   { name: 'Clientes', href: '/admin/clientes', icon: UsersIcon },
-  { name: 'Leads Web', href: '/admin/leads', icon: RocketLaunchIcon },
+  {
+    name: 'Leads',
+    icon: InboxStackIcon,
+    children: [
+      { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon },
+      { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon },
+    ],
+  },
   { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon },
   { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
   { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },
@@ -66,10 +95,97 @@ const navigation = [
 
 function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
   const pathname = usePathname()
+  const [openGroups, setOpenGroups] = useState<string[]>([])
 
-  const canAccess = (item: typeof navigation[0]) => {
+  // Auto-abrir el grupo si la ruta actual está dentro
+  useEffect(() => {
+    navigation.forEach((entry) => {
+      if (isGroup(entry)) {
+        const isChildActive = entry.children.some(
+          (child) => pathname === child.href || pathname.startsWith(child.href + '/')
+        )
+        if (isChildActive && !openGroups.includes(entry.name)) {
+          setOpenGroups((prev) => [...prev, entry.name])
+        }
+      }
+    })
+  }, [pathname])
+
+  const toggleGroup = (name: string) => {
+    setOpenGroups((prev) =>
+      prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]
+    )
+  }
+
+  const canAccess = (item: NavItem) => {
     if (!item.roles) return true
     return item.roles.includes(user.role || '')
+  }
+
+  const renderNavItem = (item: NavItem, isChild = false) => {
+    const isActive = pathname === item.href || 
+      (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
+      (item.href === '/admin' && pathname === '/admin')
+    
+    return (
+      <li key={item.name}>
+        <Link
+          href={item.href}
+          onClick={onNavigate}
+          className={`
+            group flex gap-x-3 rounded-md p-2 text-sm font-semibold leading-6
+            ${isChild ? 'pl-10' : ''}
+            ${isActive
+              ? 'bg-orange-50 text-orange-600'
+              : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
+            }
+          `}
+        >
+          <item.icon
+            className={`h-6 w-6 shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
+            aria-hidden="true"
+          />
+          {item.name}
+        </Link>
+      </li>
+    )
+  }
+
+  const renderNavGroup = (group: NavGroup) => {
+    const isOpen = openGroups.includes(group.name)
+    const isChildActive = group.children.some(
+      (child) => pathname === child.href || pathname.startsWith(child.href + '/')
+    )
+
+    return (
+      <li key={group.name}>
+        <button
+          onClick={() => toggleGroup(group.name)}
+          className={`
+            w-full group flex items-center gap-x-3 rounded-md p-2 text-sm font-semibold leading-6
+            ${isChildActive
+              ? 'text-orange-600'
+              : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
+            }
+          `}
+        >
+          <group.icon
+            className={`h-6 w-6 shrink-0 ${isChildActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
+            aria-hidden="true"
+          />
+          {group.name}
+          <ChevronDownIcon
+            className={`ml-auto h-4 w-4 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${isChildActive ? 'text-orange-600' : 'text-gray-400'}`}
+            aria-hidden="true"
+          />
+        </button>
+        {isOpen && (
+          <ul className="mt-1 space-y-1">
+            {group.children.filter(canAccess).map((child) => renderNavItem(child, true))}
+          </ul>
+        )}
+      </li>
+    )
   }
 
   return (
@@ -89,31 +205,12 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
         <ul role="list" className="flex flex-1 flex-col gap-y-7">
           <li>
             <ul role="list" className="-mx-2 space-y-1">
-              {navigation.filter(canAccess).map((item) => {
-                const isActive = pathname === item.href || 
-                  (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
-                  (item.href === '/admin' && pathname === '/admin')
-                return (
-                  <li key={item.name}>
-                    <Link
-                      href={item.href}
-                      onClick={onNavigate}
-                      className={`
-                        group flex gap-x-3 rounded-md p-2 text-sm font-semibold leading-6
-                        ${isActive
-                          ? 'bg-orange-50 text-orange-600'
-                          : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
-                        }
-                      `}
-                    >
-                      <item.icon
-                        className={`h-6 w-6 shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
-                        aria-hidden="true"
-                      />
-                      {item.name}
-                    </Link>
-                  </li>
-                )
+              {navigation.map((entry) => {
+                if (isGroup(entry)) {
+                  return renderNavGroup(entry)
+                }
+                if (!canAccess(entry)) return null
+                return renderNavItem(entry)
               })}
             </ul>
           </li>

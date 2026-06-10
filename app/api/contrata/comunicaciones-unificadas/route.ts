@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 const BREVO_API_KEY = (process.env.BREVO_API_KEY || '').trim();
 const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
@@ -298,8 +299,27 @@ export async function POST(request: Request) {
       addToBrevoNewsletter(email, nombre, empresa, telefono || ''),
     ];
 
+    // Guardar en BD
+    const dbPromise = prisma.leadSolucion.create({
+      data: {
+        tipo: 'COMUNICACIONES_UNIFICADAS',
+        nombre,
+        email,
+        empresa,
+        telefono: telefono || null,
+        datos: {
+          numEmpleados: numEmpleados || null,
+          centralitaActual: centralitaActual || null,
+          funcionalidades: funcionalidades || [],
+          modalidadTrabajo: modalidadTrabajo || null,
+          operadorActual: operadorActual || null,
+          comentarios: comentarios || null,
+        },
+      },
+    }).catch(err => console.error('[COMUNICACIONES-UNIFICADAS] Error guardando en BD:', err));
+
     // Ejecutar todas las integraciones antes de responder
-    await Promise.allSettled([...emailPromises, ...integrationPromises]);
+    await Promise.allSettled([...emailPromises, ...integrationPromises, dbPromise]);
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (error: any) {

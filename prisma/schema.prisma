@@ -813,3 +813,58 @@ model MagicLink {
   @@index([email])
   @@map("magic_links")
 }
+
+
+// ==========================================
+// SISTEMA DE LEADS - SOLUCIONES EMPRESARIALES
+// ==========================================
+
+model LeadSolucion {
+  id              String            @id @default(uuid())
+  // Tipo de solución (origen del formulario)
+  tipo            TipoSolucion
+  // Datos de contacto
+  nombre          String
+  email           String
+  empresa         String
+  telefono        String?
+  // Datos específicos del formulario (JSON flexible)
+  datos           Json              @db.JsonB
+  // Estado comercial
+  estado          EstadoLeadSolucion @default(NUEVO)
+  prioridad       PrioridadLead     @default(MEDIA)
+  // Gestión
+  notas           String?
+  asignadoA       Int?              @map("asignado_a")
+  // Presupuesto (preparado para futuro)
+  presupuestoUrl  String?           @map("presupuesto_url")
+  presupuestoEnviadoAt DateTime?    @map("presupuesto_enviado_at")
+  // Timestamps
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([tipo])
+  @@index([estado])
+  @@index([email])
+  @@index([createdAt])
+  @@map("leads_soluciones")
+}
+
+enum TipoSolucion {
+  EXAGRID
+  INFRAESTRUCTURA_RED
+  MANTENIMIENTO_IT
+  MOVILES
+  COMUNICACIONES_UNIFICADAS
+  CONECTIVIDAD_AVANZADA
+}
+
+enum EstadoLeadSolucion {
+  NUEVO
+  CONTACTADO
+  EN_PROCESO
+  PRESUPUESTO_ENVIADO
+  CERRADO_GANADO
+  CERRADO_PERDIDO
+  DESCARTADO
+}
