@@ -74,6 +74,24 @@ export async function GET(request: Request) {
     orderBy: { municipio: 'asc' },
   })
 
+  // Tarifas de fibra disponibles para ofrecer como alternativa
+  const tarifas = await prisma.tarifa.findMany({
+    where: {
+      activa: true,
+      categoria: 'INTERNET',
+      subcategoria: 'Fibra',
+    },
+    select: {
+      id: true,
+      nombre: true,
+      precioSinIva: true,
+      precioConIva: true,
+      tipoCliente: true,
+      velocidad: true,
+    },
+    orderBy: { precioSinIva: 'asc' },
+  })
+
   return NextResponse.json({
     clientes,
     stats: {
@@ -85,6 +103,7 @@ export async function GET(request: Request) {
       clientesAlta,
     },
     municipios: municipios.map(m => m.municipio).filter(Boolean),
+    tarifas,
   })
 }
 

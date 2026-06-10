@@ -28,6 +28,15 @@ interface ClienteAdamo {
   fechaResolucion: string | null
 }
 
+interface TarifaDisponible {
+  id: number
+  nombre: string
+  precioSinIva: string
+  precioConIva: string
+  tipoCliente: string
+  velocidad: string | null
+}
+
 interface Stats {
   total: number
   porEstado: { estado: string; _count: { estado: number } }[]
@@ -64,6 +73,7 @@ export default function MigracionAdamoClient() {
   const [clientes, setClientes] = useState<ClienteAdamo[]>([])
   const [stats, setStats] = useState<Stats | null>(null)
   const [municipios, setMunicipios] = useState<string[]>([])
+  const [tarifas, setTarifas] = useState<TarifaDisponible[]>([])
   const [loading, setLoading] = useState(true)
   const [filtroEstado, setFiltroEstado] = useState('todos')
   const [filtroMunicipio, setFiltroMunicipio] = useState('todos')
@@ -90,6 +100,7 @@ export default function MigracionAdamoClient() {
       setClientes(data.clientes || [])
       setStats(data.stats || null)
       setMunicipios(data.municipios || [])
+      setTarifas(data.tarifas || [])
     } catch (error) {
       console.error('Error fetching data:', error)
     }
@@ -441,19 +452,40 @@ export default function MigracionAdamoClient() {
               </select>
             </div>
 
-            {/* Alternativa ofrecida */}
+            {/* Selector de tarifa alternativa */}
             <div className="mb-4">
-              <label className="text-xs text-gray-500 block mb-1">Alternativa ofrecida</label>
-              <input
-                type="text"
+              <label className="text-xs text-gray-500 block mb-1">Tarifa alternativa a ofrecer</label>
+              <select
                 value={editAlternativa}
-                onChange={(e) => setEditAlternativa(e.target.value)}
-                placeholder="Ej: Fibra 300 Digi, 4G Movistar..."
+                onChange={(e) => {
+                  const selected = tarifas.find(t => t.nombre === e.target.value)
+                  setEditAlternativa(e.target.value)
+                  if (selected) {
+                    setEditPrecioAlt(Number(selected.precioSinIva).toFixed(2))
+                  }
+                }}
                 className="w-full border rounded px-3 py-2 text-sm"
-              />
+              >
+                <option value="">— Seleccionar tarifa —</option>
+                {tarifas.map(t => (
+                  <option key={t.id} value={t.nombre}>
+                    {t.nombre} — {Number(t.precioSinIva).toFixed(2)}€ (sin IVA) / {Number(t.precioConIva).toFixed(2)}€ (con IVA)
+                  </option>
+                ))}
+                <option value="__otro">Otra alternativa (manual)...</option>
+              </select>
+              {editAlternativa === '__otro' && (
+                <input
+                  type="text"
+                  value={editAlternativa === '__otro' ? '' : editAlternativa}
+                  onChange={(e) => setEditAlternativa(e.target.value)}
+                  placeholder="Ej: Fibra 300 Digi, 4G Movistar..."
+                  className="w-full border rounded px-3 py-2 text-sm mt-2"
+                />
+              )}
             </div>
 
-            {/* Precio alternativa */}
+            {/* Precio alternativa + comparativa */}
             <div className="mb-4">
               <label className="text-xs text-gray-500 block mb-1">Precio alternativa (sin IVA)</label>
               <input
@@ -464,6 +496,25 @@ export default function MigracionAdamoClient() {
                 placeholder="0.00"
                 className="w-full border rounded px-3 py-2 text-sm"
               />
+              {editPrecioAlt && selectedCliente.precioCliente != null && (
+                <div className="mt-2 p-2 bg-gray-50 rounded text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Precio actual:</span>
+                    <span className="font-medium">{Number(selectedCliente.precioCliente).toFixed(2)}€</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Precio nuevo:</span>
+                    <span className="font-medium">{Number(editPrecioAlt).toFixed(2)}€</span>
+                  </div>
+                  <div className="flex justify-between border-t mt-1 pt-1">
+                    <span className="text-gray-500 font-medium">Diferencia:</span>
+                    <span className={`font-bold ${Number(editPrecioAlt) > Number(selectedCliente.precioCliente) ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number(editPrecioAlt) > Number(selectedCliente.precioCliente) ? '+' : ''}
+                      {(Number(editPrecioAlt) - Number(selectedCliente.precioCliente)).toFixed(2)}€/mes
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Notas */}
