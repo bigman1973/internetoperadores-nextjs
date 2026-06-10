@@ -869,3 +869,40 @@ enum EstadoLeadSolucion {
   CERRADO_PERDIDO
   DESCARTADO
 }
+
+
+// ============ MIGRACIÓN ADAMO ============
+
+model ClienteMigracionAdamo {
+  id                Int                   @id @default(autoincrement())
+  nombre            String
+  tarifa            String?
+  direccion         String?
+  municipio         String?
+  fechaAlta         DateTime?             @map("fecha_alta") @db.Date
+  precioOperador    Decimal?              @map("precio_operador") @db.Decimal(10, 2)
+  precioCliente     Decimal?              @map("precio_cliente") @db.Decimal(10, 2)
+  // Gestión de migración
+  estado            EstadoMigracionAdamo  @default(PENDIENTE)
+  alternativaOfrecida String?             @map("alternativa_ofrecida")
+  precioAlternativa Decimal?              @map("precio_alternativa") @db.Decimal(10, 2)
+  notas             String?
+  fechaContacto     DateTime?             @map("fecha_contacto")
+  fechaResolucion   DateTime?             @map("fecha_resolucion")
+  // Timestamps
+  createdAt         DateTime              @default(now()) @map("created_at")
+  updatedAt         DateTime              @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@index([municipio])
+  @@map("clientes_migracion_adamo")
+}
+
+enum EstadoMigracionAdamo {
+  PENDIENTE
+  CONTACTADO
+  OFERTA_ENVIADA
+  MIGRADO
+  BAJA
+  EN_NEGOCIACION
+}

@@ -19,7 +19,9 @@ import {
   ClipboardDocumentListIcon,
   InboxStackIcon,
   GlobeAltIcon,
-  QueueListIcon
+  QueueListIcon,
+  SignalIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -74,7 +76,14 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 const navigation: NavEntry[] = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon },
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
-  { name: 'Clientes', href: '/admin/clientes', icon: UsersIcon },
+  {
+    name: 'Clientes',
+    icon: UsersIcon,
+    children: [
+      { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon },
+      { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon },
+    ],
+  },
   {
     name: 'Leads',
     icon: InboxStackIcon,
