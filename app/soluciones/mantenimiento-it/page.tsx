@@ -5,17 +5,45 @@ import EmpresaFooter from '../../../components/EmpresaFooter';
 import ProductosSolucionDynamic from '../../../components/public/ProductosSolucionDynamic';
 import { useState } from 'react';
 
-const planes = [
-  { nombre: 'Básico', precio: 'Desde 199€/mes', descripcion: 'Para pequeñas empresas', caracteristicas: ['Hasta 10 equipos', 'Soporte 8x5', 'Monitorización básica', 'Tiempo respuesta 8h'] },
-  { nombre: 'Profesional', precio: 'Desde 499€/mes', descripcion: 'Para empresas en crecimiento', caracteristicas: ['Hasta 50 equipos', 'Soporte 12x5', 'Monitorización avanzada', 'Tiempo respuesta 4h'], destacado: true },
-  { nombre: 'Enterprise', precio: 'A medida', descripcion: 'Para grandes organizaciones', caracteristicas: ['Equipos ilimitados', 'Soporte 24x7', 'Monitorización proactiva', 'Tiempo respuesta 1h'] }
+const servicios = [
+  {
+    titulo: 'Soporte y Mantenimiento Preventivo',
+    descripcion: 'Mantenimiento proactivo de tu infraestructura IT. Actualizaciones, parches de seguridad, revisiones periódicas y resolución de incidencias antes de que afecten a tu negocio.',
+    caracteristicas: ['Actualizaciones y parches', 'Revisiones periódicas', 'Helpdesk multicanal', 'Documentación del entorno']
+  },
+  {
+    titulo: 'Guardias IT',
+    descripcion: 'Cobertura fuera de horario laboral para empresas que no paran. Tu equipo IT descansa y nosotros vigilamos: noches, fines de semana y festivos con técnicos especializados.',
+    caracteristicas: ['Técnicos asignados a tu empresa', 'Acceso remoto preconfigurado (VPN)', 'Escalado presencial si es necesario', 'SLA de respuesta garantizado']
+  },
+  {
+    titulo: 'Outsourcing IT',
+    descripcion: 'Externaliza parte o todo tu departamento IT. Accede a un equipo multidisciplinar certificado por una cuota mensual predecible, sin costes de contratación.',
+    caracteristicas: ['Equipo certificado Microsoft/Cisco/VMware', 'Complemento o sustitución del IT interno', 'Coste mensual fijo y predecible', 'Escalabilidad sin fricciones']
+  },
+  {
+    titulo: 'Monitorización 24/7',
+    descripcion: 'Vigilancia continua de servidores, red y servicios críticos. Detectamos y resolvemos alertas antes de que se conviertan en incidencias que paralicen tu actividad.',
+    caracteristicas: ['NOC propio', 'Alertas en tiempo real', 'Resolución proactiva', 'Informes mensuales de estado']
+  }
 ];
 
-const servicios = [
-  { titulo: 'Monitorización 24/7', descripcion: 'Vigilamos tu infraestructura en tiempo real. Detectamos problemas antes de que afecten a tu negocio.' },
-  { titulo: 'Helpdesk', descripcion: 'Soporte técnico para tus usuarios. Resolvemos incidencias por teléfono, email o acceso remoto.' },
-  { titulo: 'Mantenimiento Preventivo', descripcion: 'Actualizaciones, parches de seguridad y revisiones periódicas para evitar problemas.' },
-  { titulo: 'Backup y Recuperación', descripcion: 'Copias de seguridad automatizadas y planes de recuperación ante desastres.' }
+const casosUso = [
+  { perfil: 'Fábrica 24h', necesidad: 'Producción que no para + equipo IT saturado', solucion: 'Guardias IT nocturnas + monitorización' },
+  { perfil: 'Pyme sin IT interno', necesidad: 'No tiene departamento IT propio', solucion: 'Outsourcing IT completo + helpdesk' },
+  { perfil: 'Empresa en crecimiento', necesidad: 'IT interno pequeño y desbordado', solucion: 'Outsourcing parcial + soporte preventivo' },
+  { perfil: 'Multi-sede', necesidad: 'Varias oficinas + coordinación compleja', solucion: 'Monitorización 24/7 + soporte centralizado' },
+];
+
+const serviciosInteres = [
+  'Soporte y mantenimiento preventivo',
+  'Guardias IT (cobertura fuera de horario)',
+  'Outsourcing IT (externalización parcial o total)',
+  'Monitorización 24/7',
+  'Helpdesk para usuarios',
+  'Gestión de backups y recuperación',
+  'Ciberseguridad gestionada',
+  'Gestión de parches y actualizaciones',
 ];
 
 export default function MantenimientoITPage() {
@@ -26,16 +54,26 @@ export default function MantenimientoITPage() {
     telefono: '',
     numEquipos: '',
     numServidores: '',
-    backupActual: '',
-    antivirusCorporativo: '',
-    horarioSoporte: '',
-    sistemaOperativo: '',
+    serviciosInteres: [] as string[],
+    coberturaHoraria: '',
+    equipoITInterno: '',
+    produccion24h: '',
+    sistemasCriticos: '',
     comentarios: '',
     newsletter: false,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [error, setError] = useState('');
+
+  const handleServicioChange = (servicio: string) => {
+    setFormData(prev => ({
+      ...prev,
+      serviciosInteres: prev.serviciosInteres.includes(servicio)
+        ? prev.serviciosInteres.filter(s => s !== servicio)
+        : [...prev.serviciosInteres, servicio]
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,10 +90,11 @@ export default function MantenimientoITPage() {
           telefono: formData.telefono,
           numEquipos: formData.numEquipos,
           numServidores: formData.numServidores,
-          backupActual: formData.backupActual,
-          antivirusCorporativo: formData.antivirusCorporativo,
-          horarioSoporte: formData.horarioSoporte,
-          sistemaOperativo: formData.sistemaOperativo,
+          serviciosInteres: formData.serviciosInteres,
+          coberturaHoraria: formData.coberturaHoraria,
+          equipoITInterno: formData.equipoITInterno,
+          produccion24h: formData.produccion24h,
+          sistemasCriticos: formData.sistemasCriticos,
           comentarios: formData.comentarios,
         }),
       });
@@ -84,9 +123,9 @@ export default function MantenimientoITPage() {
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               Volver a Soluciones
             </Link>
-            <div className="inline-block bg-orange-100 text-orange-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold mb-4 sm:mb-6">SLA garantizado</div>
+            <div className="inline-block bg-orange-100 text-orange-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full text-xs sm:text-sm font-semibold mb-4 sm:mb-6">Servicios IT Gestionados</div>
             <h1 className="text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-bold text-gray-900 mb-4 sm:mb-6">Mantenimiento IT</h1>
-            <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 px-2">Mantenimiento preventivo y correctivo de tu infraestructura IT. Monitorización 24/7, helpdesk y respuesta ante incidentes con SLA garantizado.</p>
+            <p className="text-base sm:text-lg lg:text-xl text-gray-600 mb-6 sm:mb-8 px-2">Soporte preventivo, guardias fuera de horario, outsourcing IT y monitorización 24/7. Tu infraestructura siempre operativa con SLA garantizado.</p>
             <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4 px-4">
               <a href="#soporte" className="px-6 py-3 sm:px-8 sm:py-4 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-base sm:text-lg">Solicitar Propuesta</a>
               <a href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20Mantenimiento%20IT" target="_blank" rel="noopener noreferrer" className="px-6 py-3 sm:px-8 sm:py-4 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-base sm:text-lg">Hablar con un experto</a>
@@ -99,7 +138,7 @@ export default function MantenimientoITPage() {
       <section className="py-8 sm:py-12 bg-white border-b">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 sm:gap-8 max-w-4xl mx-auto">
-            {[{valor:'99.9%',label:'Uptime',desc:'Garantizado por SLA'},{valor:'<4h',label:'Respuesta',desc:'Tiempo máximo'},{valor:'24/7',label:'Monitorización',desc:'NOC propio'},{valor:'+500',label:'Equipos',desc:'Gestionados'}].map((b,i)=>(
+            {[{valor:'99.9%',label:'Uptime',desc:'Garantizado por SLA'},{valor:'<1h',label:'Respuesta',desc:'Incidencias críticas'},{valor:'24/7',label:'Monitorización',desc:'NOC propio'},{valor:'365',label:'Días/año',desc:'Cobertura de guardias'}].map((b,i)=>(
               <div key={i} className="text-center"><div className="text-3xl sm:text-4xl font-bold text-orange-600 mb-1 sm:mb-2">{b.valor}</div><div className="font-semibold text-gray-900 mb-1">{b.label}</div><div className="text-xs sm:text-sm text-gray-500">{b.desc}</div></div>
             ))}
           </div>
@@ -110,39 +149,143 @@ export default function MantenimientoITPage() {
       <section className="py-12 sm:py-16 lg:py-20 bg-white">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center mb-10 sm:mb-12 lg:mb-16">
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 px-2">Servicios Incluidos</h2>
-            <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">Todo lo que necesitas para mantener tu infraestructura IT funcionando al máximo rendimiento.</p>
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 px-2">Nuestros Servicios IT Gestionados</h2>
+            <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">Cuatro pilares para mantener tu empresa operativa sin preocupaciones. Combínalos según tus necesidades.</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8 max-w-5xl mx-auto">
             {servicios.map((s,i)=>(
               <div key={i} className="bg-white border-2 border-gray-200 rounded-xl p-6 sm:p-8 hover:border-orange-500 hover:shadow-lg transition-all">
                 <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-3 sm:mb-4">{s.titulo}</h3>
-                <p className="text-sm sm:text-base text-gray-600">{s.descripcion}</p>
+                <p className="text-sm sm:text-base text-gray-600 mb-4">{s.descripcion}</p>
+                <ul className="space-y-2">
+                  {s.caracteristicas.map((c,j)=>(
+                    <li key={j} className="flex items-center gap-2 text-sm text-gray-700">
+                      <svg className="w-4 h-4 text-orange-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Planes */}
+      {/* Casos de uso */}
       <section className="py-12 sm:py-16 lg:py-20 bg-gradient-to-br from-orange-50 via-white to-orange-50">
         <div className="container mx-auto px-4 sm:px-6">
           <div className="max-w-4xl mx-auto text-center mb-10 sm:mb-12 lg:mb-16">
-            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 px-2">Planes de Mantenimiento</h2>
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 px-2">¿En qué situación está tu empresa?</h2>
+            <p className="text-base sm:text-lg lg:text-xl text-gray-600 px-2">Cada empresa tiene necesidades diferentes. Identificamos tu perfil y te proponemos la combinación de servicios ideal.</p>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8 max-w-5xl mx-auto">
-            {planes.map((p,i)=>(
-              <div key={i} className={`bg-white rounded-xl sm:rounded-2xl p-6 sm:p-8 ${p.destacado ? 'border-2 border-orange-500 shadow-xl' : 'border border-gray-200 shadow-lg'}`}>
-                {p.destacado && <div className="bg-orange-500 text-white text-xs font-semibold px-3 py-1 rounded-full inline-block mb-4">Más popular</div>}
-                <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{p.nombre}</h3>
-                <div className="text-2xl sm:text-3xl font-bold text-orange-600 mb-2">{p.precio}</div>
-                <p className="text-sm text-gray-500 mb-6">{p.descripcion}</p>
-                <ul className="space-y-3 mb-6">
-                  {p.caracteristicas.map((c,j)=>(<li key={j} className="flex items-center gap-2 text-sm text-gray-600"><svg className="w-4 h-4 text-orange-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>{c}</li>))}
-                </ul>
-                <a href="#soporte" className={`block text-center px-6 py-3 rounded-lg font-semibold transition-all ${p.destacado ? 'bg-orange-600 text-white hover:bg-orange-700' : 'border-2 border-orange-600 text-orange-600 hover:bg-orange-50'}`}>Solicitar información</a>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 max-w-5xl mx-auto">
+            {casosUso.map((c,i)=>(
+              <div key={i} className="bg-white rounded-xl p-5 sm:p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all">
+                <div className="text-2xl mb-3">{['🏭','💼','📈','🏢'][i]}</div>
+                <h4 className="font-bold text-gray-900 mb-2">{c.perfil}</h4>
+                <p className="text-sm text-gray-500 mb-3">{c.necesidad}</p>
+                <p className="text-sm font-semibold text-orange-600">{c.solucion}</p>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Bloque Guardias IT destacado */}
+      <section className="py-12 sm:py-16 lg:py-20 bg-gray-900">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+              <div>
+                <div className="inline-block bg-orange-500/20 text-orange-400 px-4 py-2 rounded-full text-sm font-semibold mb-6 border border-orange-500/30">
+                  Servicio destacado
+                </div>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-4">Guardias IT: tu equipo descansa, nosotros vigilamos</h2>
+                <p className="text-gray-400 mb-6">Empresas que producen 24 horas necesitan soporte IT fuera del horario laboral. Externalizamos las guardias nocturnas y de fin de semana para que tu equipo IT pueda desconectar.</p>
+                <div className="space-y-4">
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <p className="text-gray-300"><strong className="text-white">Técnicos asignados</strong> que conocen tu infraestructura, no un call center genérico</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <p className="text-gray-300"><strong className="text-white">Acceso remoto preconfigurado</strong> para intervención inmediata vía VPN</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <p className="text-gray-300"><strong className="text-white">Escalado presencial</strong> si la incidencia no se resuelve en remoto</p>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                    <p className="text-gray-300"><strong className="text-white">SLA garantizado</strong> con tiempos de respuesta comprometidos por contrato</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-800 rounded-2xl p-6 sm:p-8 border border-gray-700">
+                <h3 className="text-xl font-bold text-white mb-4">Caso real</h3>
+                <p className="text-gray-400 mb-4">Empresa de fabricación de piezas de automoción con producción 24h. Su equipo IT se turnaba para cubrir incidencias nocturnas, generando agotamiento y rotación.</p>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-orange-500 font-bold text-lg">Antes:</span>
+                    <span className="text-gray-300 text-sm">Equipo IT interno haciendo guardias por turnos, sin descanso real</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-orange-500 font-bold text-lg">Ahora:</span>
+                    <span className="text-gray-300 text-sm">Guardias externalizadas con nosotros. Su equipo descansa y la producción no se detiene</span>
+                  </div>
+                </div>
+                <div className="mt-6 pt-6 border-t border-gray-700">
+                  <p className="text-gray-500 text-sm italic">&ldquo;Desde que externalizamos las guardias nocturnas, nuestro equipo IT rinde mucho mejor durante el día y hemos reducido la rotación a cero.&rdquo;</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Bloque Outsourcing IT */}
+      <section className="py-12 sm:py-16 lg:py-20 bg-white">
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="max-w-5xl mx-auto">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+              <div className="order-2 lg:order-1 bg-orange-50 rounded-2xl p-6 sm:p-8 border border-orange-100">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">¿Qué puedes externalizar?</h3>
+                <div className="space-y-3">
+                  {[
+                    { area: 'Helpdesk completo', desc: 'Atención a usuarios L1/L2' },
+                    { area: 'Administración de sistemas', desc: 'Servidores, AD, backups' },
+                    { area: 'Gestión de red', desc: 'Switches, WiFi, firewall' },
+                    { area: 'Seguridad IT', desc: 'Antivirus, parches, auditorías' },
+                    { area: 'Proyectos puntuales', desc: 'Migraciones, despliegues, nuevas sedes' },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-start gap-3 bg-white rounded-lg p-3 border border-orange-100">
+                      <svg className="w-5 h-5 text-orange-600 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                      <div>
+                        <p className="font-semibold text-gray-900 text-sm">{item.area}</p>
+                        <p className="text-xs text-gray-500">{item.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="order-1 lg:order-2">
+                <div className="inline-block bg-orange-100 text-orange-700 px-4 py-2 rounded-full text-sm font-semibold mb-6">
+                  Outsourcing IT
+                </div>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 mb-4">Externaliza tu departamento IT, total o parcialmente</h2>
+                <p className="text-gray-600 mb-6">No necesitas un equipo IT completo en plantilla. Accede a técnicos certificados en múltiples áreas por un coste mensual fijo. Complementa tu equipo actual o déjanos gestionar toda tu IT.</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-2xl font-bold text-orange-600">-40%</div>
+                    <div className="text-xs text-gray-500 mt-1">Coste vs equipo interno equivalente</div>
+                  </div>
+                  <div className="text-center p-4 bg-gray-50 rounded-lg">
+                    <div className="text-2xl font-bold text-orange-600">0</div>
+                    <div className="text-xs text-gray-500 mt-1">Costes de contratación y formación</div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -159,8 +302,8 @@ export default function MantenimientoITPage() {
                 <div className="inline-block bg-orange-500/20 text-orange-400 px-4 py-2 rounded-full text-sm font-semibold mb-6 border border-orange-500/30">
                   Sin compromiso
                 </div>
-                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-6">Solicita tu propuesta de mantenimiento</h2>
-                <p className="text-gray-400 mb-8">Analizamos tu infraestructura actual y te proponemos un plan de mantenimiento a medida con SLA garantizado.</p>
+                <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-6">Solicita tu propuesta de servicios IT</h2>
+                <p className="text-gray-400 mb-8">Analizamos tu situación actual y te proponemos la combinación de servicios ideal: mantenimiento, guardias, outsourcing o monitorización.</p>
                 <div className="space-y-4">
                   <div className="flex items-start gap-3">
                     <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -168,7 +311,7 @@ export default function MantenimientoITPage() {
                   </div>
                   <div className="flex items-start gap-3">
                     <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    <div><p className="text-white font-semibold">Plan preventivo personalizado</p><p className="text-gray-400 text-sm">Mantenimiento adaptado a tu negocio y horarios</p></div>
+                    <div><p className="text-white font-semibold">Propuesta modular</p><p className="text-gray-400 text-sm">Elige los servicios que necesitas, sin paquetes cerrados</p></div>
                   </div>
                   <div className="flex items-start gap-3">
                     <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
@@ -176,7 +319,7 @@ export default function MantenimientoITPage() {
                   </div>
                   <div className="flex items-start gap-3">
                     <svg className="w-5 h-5 text-orange-500 flex-shrink-0 mt-1" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                    <div><p className="text-white font-semibold">Equipo técnico certificado</p><p className="text-gray-400 text-sm">Microsoft, Cisco, VMware y más</p></div>
+                    <div><p className="text-white font-semibold">Equipo técnico certificado</p><p className="text-gray-400 text-sm">Microsoft, Cisco, VMware, Fortinet y más</p></div>
                   </div>
                 </div>
               </div>
@@ -223,11 +366,12 @@ export default function MantenimientoITPage() {
                         <label className="block text-sm font-medium text-gray-700 mb-1">Nº de equipos/PCs</label>
                         <select value={formData.numEquipos} onChange={e => setFormData({...formData, numEquipos: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
                           <option value="">Seleccionar...</option>
-                          <option value="1-5 equipos">1-5 equipos</option>
-                          <option value="6-15 equipos">6-15 equipos</option>
-                          <option value="16-50 equipos">16-50 equipos</option>
+                          <option value="1-10 equipos">1-10 equipos</option>
+                          <option value="11-25 equipos">11-25 equipos</option>
+                          <option value="26-50 equipos">26-50 equipos</option>
                           <option value="51-100 equipos">51-100 equipos</option>
-                          <option value="+100 equipos">+100 equipos</option>
+                          <option value="101-250 equipos">101-250 equipos</option>
+                          <option value="+250 equipos">+250 equipos</option>
                         </select>
                       </div>
                       <div>
@@ -245,49 +389,66 @@ export default function MantenimientoITPage() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">¿Tenéis backup actualmente?</label>
-                        <select value={formData.backupActual} onChange={e => setFormData({...formData, backupActual: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Cobertura horaria necesaria</label>
+                        <select value={formData.coberturaHoraria} onChange={e => setFormData({...formData, coberturaHoraria: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
                           <option value="">Seleccionar...</option>
-                          <option value="Sí, en la nube">Sí, en la nube</option>
-                          <option value="Sí, local (NAS/disco)">Sí, local (NAS/disco)</option>
-                          <option value="Sí, mixto">Sí, mixto (local + nube)</option>
-                          <option value="No tenemos backup">No tenemos backup</option>
-                          <option value="No lo sé">No lo sé</option>
+                          <option value="8x5 (L-V horario oficina)">8x5 (L-V horario oficina)</option>
+                          <option value="12x7 (horario extendido)">12x7 (horario extendido)</option>
+                          <option value="24x7 (cobertura total)">24x7 (cobertura total)</option>
+                          <option value="Solo guardias fuera de horario">Solo guardias fuera de horario</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">¿Antivirus corporativo?</label>
-                        <select value={formData.antivirusCorporativo} onChange={e => setFormData({...formData, antivirusCorporativo: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">¿Producción 24h?</label>
+                        <select value={formData.produccion24h} onChange={e => setFormData({...formData, produccion24h: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
                           <option value="">Seleccionar...</option>
-                          <option value="Sí, gestionado centralmente">Sí, gestionado centralmente</option>
-                          <option value="Sí, pero individual">Sí, pero individual en cada equipo</option>
-                          <option value="No tenemos">No tenemos</option>
-                          <option value="No lo sé">No lo sé</option>
+                          <option value="Sí, producción continua 24h">Sí, producción continua 24h</option>
+                          <option value="Parcial (turnos mañana/tarde)">Parcial (turnos mañana/tarde)</option>
+                          <option value="No, solo horario laboral">No, solo horario laboral</option>
                         </select>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Horario de soporte necesario</label>
-                        <select value={formData.horarioSoporte} onChange={e => setFormData({...formData, horarioSoporte: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">¿Tenéis equipo IT interno?</label>
+                        <select value={formData.equipoITInterno} onChange={e => setFormData({...formData, equipoITInterno: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
                           <option value="">Seleccionar...</option>
-                          <option value="8x5 (L-V horario oficina)">8x5 (L-V horario oficina)</option>
-                          <option value="12x5 (L-V ampliado)">12x5 (L-V ampliado)</option>
-                          <option value="12x7 (todos los días)">12x7 (todos los días)</option>
-                          <option value="24x7">24x7</option>
+                          <option value="Sí, quiero complementarlo">Sí, quiero complementarlo</option>
+                          <option value="Sí, pero está desbordado">Sí, pero está desbordado</option>
+                          <option value="No, necesito cobertura completa">No, necesito cobertura completa</option>
+                          <option value="Tenemos un proveedor pero queremos cambiar">Tenemos un proveedor pero queremos cambiar</option>
                         </select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Sistema operativo principal</label>
-                        <select value={formData.sistemaOperativo} onChange={e => setFormData({...formData, sistemaOperativo: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Sistemas críticos</label>
+                        <select value={formData.sistemasCriticos} onChange={e => setFormData({...formData, sistemasCriticos: e.target.value})} className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-gray-900">
                           <option value="">Seleccionar...</option>
-                          <option value="Windows">Windows</option>
-                          <option value="macOS">macOS</option>
-                          <option value="Linux">Linux</option>
-                          <option value="Mixto">Mixto (varios SO)</option>
+                          <option value="ERP / software de gestión">ERP / software de gestión</option>
+                          <option value="Correo y Microsoft 365">Correo y Microsoft 365</option>
+                          <option value="Servidor de ficheros">Servidor de ficheros</option>
+                          <option value="Web / ecommerce">Web / ecommerce</option>
+                          <option value="SCADA / sistemas industriales (OT)">SCADA / sistemas industriales (OT)</option>
+                          <option value="Varios de los anteriores">Varios de los anteriores</option>
                         </select>
                       </div>
+                    </div>
+
+                    <hr className="my-6 border-gray-200" />
+                    <h3 className="text-lg font-bold text-gray-900 mb-3">Servicios de interés</h3>
+                    <p className="text-sm text-gray-500 mb-4">Selecciona los que te interesen (puedes marcar varios)</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
+                      {serviciosInteres.map((s, i) => (
+                        <label key={i} className="flex items-center gap-2 cursor-pointer p-2 rounded-lg hover:bg-orange-50 transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={formData.serviciosInteres.includes(s)}
+                            onChange={() => handleServicioChange(s)}
+                            className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                          />
+                          <span className="text-sm text-gray-700">{s}</span>
+                        </label>
+                      ))}
                     </div>
 
                     <div className="mb-4">
@@ -298,14 +459,14 @@ export default function MantenimientoITPage() {
                     <div className="mb-6">
                       <label className="flex items-start gap-2 cursor-pointer">
                         <input type="checkbox" required checked={formData.newsletter} onChange={e => setFormData({...formData, newsletter: e.target.checked})} className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 mt-0.5" />
-                        <span className="text-xs text-gray-600">Acepto recibir la propuesta de mantenimiento y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
+                        <span className="text-xs text-gray-600">Acepto recibir la propuesta de servicios IT y suscribirme al newsletter de Internet Operadores con novedades y consejos para empresas. Puedo darme de baja en cualquier momento.</span>
                       </label>
                     </div>
 
                     {error && <p className="text-red-600 text-sm mb-4">{error}</p>}
 
                     <button type="submit" disabled={isSubmitting} className="w-full px-6 py-3.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-bold text-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                      {isSubmitting ? 'Enviando...' : 'Solicitar Propuesta de Mantenimiento'}
+                      {isSubmitting ? 'Enviando...' : 'Solicitar Propuesta de Servicios IT'}
                     </button>
                     <p className="text-center text-xs text-gray-500 mt-3">Sin compromiso. Te contactaremos en menos de 24h.</p>
                   </form>

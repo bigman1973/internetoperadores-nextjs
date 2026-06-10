@@ -181,7 +181,7 @@ async function addToBrevoNewsletter(email: string, nombre: string, empresa: stri
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { nombre, email, empresa, telefono, numEquipos, numServidores, backupActual, antivirusCorporativo, horarioSoporte, sistemaOperativo, comentarios } = body;
+    const { nombre, email, empresa, telefono, numEquipos, numServidores, serviciosInteres, coberturaHoraria, equipoITInterno, produccion24h, sistemasCriticos, comentarios } = body;
 
     // Validaciones
     if (!nombre || !email || !empresa) {
@@ -198,12 +198,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // Normalizar servicios de interés
+    const serviciosTexto = Array.isArray(serviciosInteres) ? serviciosInteres.join(', ') : (serviciosInteres || 'No indicado');
+
     // === EMAILS ===
     const emailComercialHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #1a1a2e; padding: 20px; text-align: center;">
-          <h1 style="color: #f97316; margin: 0; font-size: 20px;">Nueva Solicitud de Mantenimiento IT</h1>
-          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Formulario - Página Soluciones</p>
+          <h1 style="color: #f97316; margin: 0; font-size: 20px;">Nueva Solicitud de Servicios IT Gestionados</h1>
+          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Formulario Mantenimiento IT - Página Soluciones</p>
         </div>
         <div style="padding: 24px; background: #f9f9f9;">
           <table style="width: 100%; border-collapse: collapse;">
@@ -213,17 +216,23 @@ export async function POST(request: Request) {
             <tr><td style="padding: 10px; font-weight: bold; color: #374151;">Teléfono:</td><td style="padding: 10px; color: #1f2937;">${telefono || 'No proporcionado'}</td></tr>
           </table>
           <div style="margin-top: 16px; padding: 16px; background: white; border-radius: 8px; border: 1px solid #e5e7eb;">
-            <h3 style="margin: 0 0 12px 0; color: #f97316; font-size: 16px;">Datos de infraestructura</h3>
+            <h3 style="margin: 0 0 12px 0; color: #f97316; font-size: 16px;">Infraestructura y necesidades</h3>
             <table style="width: 100%; border-collapse: collapse;">
               <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Nº equipos/PCs:</td><td style="padding: 8px; color: #1f2937;">${numEquipos || 'No indicado'}</td></tr>
               <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Nº servidores:</td><td style="padding: 8px; color: #1f2937;">${numServidores || 'No indicado'}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Backup actual:</td><td style="padding: 8px; color: #1f2937;">${backupActual || 'No indicado'}</td></tr>
-              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Antivirus corporativo:</td><td style="padding: 8px; color: #1f2937;">${antivirusCorporativo || 'No indicado'}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Horario soporte:</td><td style="padding: 8px; color: #1f2937;">${horarioSoporte || 'No indicado'}</td></tr>
-              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Sistema operativo:</td><td style="padding: 8px; color: #1f2937;">${sistemaOperativo || 'No indicado'}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Cobertura horaria:</td><td style="padding: 8px; color: #1f2937;">${coberturaHoraria || 'No indicado'}</td></tr>
+              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Producción 24h:</td><td style="padding: 8px; color: #1f2937;">${produccion24h || 'No indicado'}</td></tr>
+              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Equipo IT interno:</td><td style="padding: 8px; color: #1f2937;">${equipoITInterno || 'No indicado'}</td></tr>
+              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Sistemas críticos:</td><td style="padding: 8px; color: #1f2937;">${sistemasCriticos || 'No indicado'}</td></tr>
             </table>
-            ${comentarios ? `<div style="margin-top: 12px; padding: 12px; background: #f9fafb; border-radius: 6px;"><p style="margin: 0 0 4px 0; font-weight: bold; color: #374151;">Comentarios:</p><p style="margin: 0; color: #4b5563;">${comentarios}</p></div>` : ''}
           </div>
+          ${serviciosTexto !== 'No indicado' ? `
+          <div style="margin-top: 16px; padding: 16px; background: #fff7ed; border-radius: 8px; border: 1px solid #fed7aa;">
+            <h3 style="margin: 0 0 8px 0; color: #ea580c; font-size: 14px;">Servicios de interés:</h3>
+            <p style="margin: 0; color: #1f2937; font-size: 14px;">${serviciosTexto}</p>
+          </div>
+          ` : ''}
+          ${comentarios ? `<div style="margin-top: 12px; padding: 12px; background: white; border-radius: 6px; border: 1px solid #e5e7eb;"><p style="margin: 0 0 4px 0; font-weight: bold; color: #374151;">Comentarios:</p><p style="margin: 0; color: #4b5563;">${comentarios}</p></div>` : ''}
           <p style="margin-top: 20px;"><a href="https://www.internetoperadores.com/admin" style="background: #f97316; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Ver en el panel</a></p>
         </div>
         <div style="background: #f9fafb; padding: 12px; text-align: center; border-top: 1px solid #e5e7eb;">
@@ -236,30 +245,30 @@ export async function POST(request: Request) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #1a1a2e; padding: 20px; text-align: center;">
           <h1 style="color: #f97316; margin: 0; font-size: 20px;">Solicitud recibida</h1>
-          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Mantenimiento IT</p>
+          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Servicios IT Gestionados</p>
         </div>
         <div style="padding: 24px;">
           <p style="color: #4b5563; line-height: 1.6;">Hola <strong>${nombre}</strong>,</p>
-          <p style="color: #4b5563; line-height: 1.6;">Hemos recibido tu solicitud de <strong>Mantenimiento IT</strong> para <strong>${empresa}</strong>.</p>
+          <p style="color: #4b5563; line-height: 1.6;">Hemos recibido tu solicitud de <strong>Servicios IT Gestionados</strong> para <strong>${empresa}</strong>.</p>
           <p style="color: #4b5563; line-height: 1.6;">Nuestro equipo técnico analizará tu infraestructura y te contactará en un plazo máximo de <strong>24 horas</strong> con una propuesta personalizada.</p>
           <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 20px 0;">
             <p style="margin: 0 0 8px 0; font-weight: bold; color: #374151;">Resumen de tu solicitud:</p>
             <ul style="margin: 0; padding-left: 20px; color: #4b5563; line-height: 1.8;">
               <li>Equipos/PCs: <strong>${numEquipos || 'No indicado'}</strong></li>
               <li>Servidores: <strong>${numServidores || 'No indicado'}</strong></li>
-              <li>Backup actual: <strong>${backupActual || 'No indicado'}</strong></li>
-              <li>Antivirus: <strong>${antivirusCorporativo || 'No indicado'}</strong></li>
-              <li>Horario soporte: <strong>${horarioSoporte || 'No indicado'}</strong></li>
+              <li>Cobertura horaria: <strong>${coberturaHoraria || 'No indicado'}</strong></li>
+              <li>Producción 24h: <strong>${produccion24h || 'No indicado'}</strong></li>
+              <li>Equipo IT interno: <strong>${equipoITInterno || 'No indicado'}</strong></li>
+              ${serviciosTexto !== 'No indicado' ? `<li>Servicios de interés: <strong>${serviciosTexto}</strong></li>` : ''}
             </ul>
           </div>
           <div style="background: #fff7ed; border: 2px solid #f97316; border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
             <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: bold; color: #1f2937;">¿Qué incluirá tu propuesta?</p>
             <ul style="margin: 12px 0 0 0; padding-left: 20px; color: #4b5563; text-align: left; line-height: 1.8;">
               <li>Auditoría de tu infraestructura actual</li>
-              <li>Plan de mantenimiento preventivo personalizado</li>
-              <li>Soporte técnico con SLA garantizado</li>
-              <li>Monitorización proactiva 24/7</li>
-              <li>Gestión de backups y seguridad</li>
+              <li>Plan de servicios IT adaptado a tu empresa</li>
+              <li>SLA con tiempos de respuesta garantizados</li>
+              <li>Presupuesto mensual sin sorpresas</li>
             </ul>
           </div>
           <p style="color: #4b5563; line-height: 1.6;">Si tienes alguna duda, no dudes en contactarnos:</p>
@@ -277,13 +286,13 @@ export async function POST(request: Request) {
 
     // Enviar emails
     const emailPromises = [
-      sendBrevoEmail({ email: 'comercial@internetoperadores.com', name: 'Comercial IO' }, `Nueva solicitud Mantenimiento IT - ${empresa}`, emailComercialHtml),
-      sendBrevoEmail({ email: 'victor@internetoperadores.com', name: 'Victor' }, `Nueva solicitud Mantenimiento IT - ${empresa}`, emailComercialHtml),
-      sendBrevoEmail({ email, name: nombre }, `Tu solicitud de Mantenimiento IT ha sido recibida - Internet Operadores`, emailInteresadoHtml),
+      sendBrevoEmail({ email: 'comercial@internetoperadores.com', name: 'Comercial IO' }, `Nueva solicitud Servicios IT Gestionados - ${empresa}`, emailComercialHtml),
+      sendBrevoEmail({ email: 'victor@internetoperadores.com', name: 'Victor' }, `Nueva solicitud Servicios IT Gestionados - ${empresa}`, emailComercialHtml),
+      sendBrevoEmail({ email, name: nombre }, `Tu solicitud de Servicios IT ha sido recibida - Internet Operadores`, emailInteresadoHtml),
     ];
 
     // HubSpot: lista Mantenimiento IT + Newsletter Empresas
-    const notaHubspot = `Solicitud de Mantenimiento IT\n- Equipos/PCs: ${numEquipos || 'No indicado'}\n- Servidores: ${numServidores || 'No indicado'}\n- Backup actual: ${backupActual || 'No indicado'}\n- Antivirus: ${antivirusCorporativo || 'No indicado'}\n- Horario soporte: ${horarioSoporte || 'No indicado'}\n- Sistema operativo: ${sistemaOperativo || 'No indicado'}\n- Comentarios: ${comentarios || 'Sin comentarios'}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`;
+    const notaHubspot = `Solicitud de Servicios IT Gestionados\n- Equipos/PCs: ${numEquipos || 'No indicado'}\n- Servidores: ${numServidores || 'No indicado'}\n- Cobertura horaria: ${coberturaHoraria || 'No indicado'}\n- Producción 24h: ${produccion24h || 'No indicado'}\n- Equipo IT interno: ${equipoITInterno || 'No indicado'}\n- Sistemas críticos: ${sistemasCriticos || 'No indicado'}\n- Servicios de interés: ${serviciosTexto}\n- Comentarios: ${comentarios || 'Sin comentarios'}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`;
 
     const hubspotPromise = addToHubSpot(email, nombre, empresa, telefono, [HUBSPOT_LIST_MANTENIMIENTO, HUBSPOT_LIST_NEWSLETTER_EMPRESAS], notaHubspot);
 
