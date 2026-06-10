@@ -857,6 +857,7 @@ enum TipoSolucion {
   MOVILES
   COMUNICACIONES_UNIFICADAS
   CONECTIVIDAD_AVANZADA
+  MIGRACION_WEB
 }
 
 enum EstadoLeadSolucion {
