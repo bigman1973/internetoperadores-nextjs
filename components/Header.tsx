@@ -10,7 +10,7 @@ export default function Header() {
   const soluciones = [
     { nombre: 'Comunicaciones Unificadas', href: '/soluciones/comunicaciones-unificadas', descripcion: 'UCaaS - Wildix & Zoom' },
     { nombre: 'Conectividad Avanzada', href: '/soluciones/conectividad-avanzada', descripcion: 'Respaldo, MPLS, Internacional' },
-    { nombre: 'Soluciones Móviles', href: '/soluciones/moviles', descripcion: 'Tarifas empresariales' },
+    { nombre: 'Soluciones Móviles', href: '/soluciones/moviles', descripcion: 'Movilidad Empresarial' },
     { nombre: 'Infraestructura de Red', href: '/soluciones/infraestructura-red', descripcion: 'WiFi y redes - Ruckus' },
     { nombre: 'Mantenimiento IT', href: '/soluciones/mantenimiento-it', descripcion: 'Soporte y prevención' },
     { nombre: 'ExaGrid', href: '/exagrid', descripcion: 'Backup empresarial' },

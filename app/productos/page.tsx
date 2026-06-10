@@ -20,7 +20,7 @@ const productos = [
   {
     id: 'moviles',
     titulo: 'Telefonía Móvil',
-    subtitulo: 'Tarifas empresariales',
+    subtitulo: 'Movilidad Empresarial',
     descripcion: 'Tarifas móviles para empresas con las mejores condiciones del mercado. Flotas, datos compartidos y gestión centralizada de líneas.',
     icono: (
       <svg className="w-8 h-8 sm:w-10 sm:h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
