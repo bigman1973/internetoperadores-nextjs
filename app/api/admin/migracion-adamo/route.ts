@@ -66,6 +66,29 @@ export async function GET(request: Request) {
     _sum: { facturacionMensual: true },
   })
 
+  // Facturación ADAMO: suma de precioCliente (lo que cobráis por las fibras ADAMO)
+  const factAdamo = await prisma.clienteMigracionAdamo.aggregate({
+    _sum: { precioCliente: true },
+  })
+
+  // Clientes que ya tienen tarifa alternativa seleccionada con precio
+  const clientesConAlternativa = await prisma.clienteMigracionAdamo.findMany({
+    where: { precioAlternativa: { not: null } },
+    select: { precioAlternativa: true, precioOperador: true },
+  })
+
+  // Coste nueva tarifa: para simplificar, usamos precioOperador de la tarifa seleccionada
+  // Como no tenemos el coste del operador de la nueva tarifa en el modelo,
+  // calculamos la facturación nueva (lo que cobraremos) con precioAlternativa
+  const factNuevaTarifa = clientesConAlternativa.reduce((sum, c) => sum + (c.precioAlternativa || 0), 0)
+  
+  // Coste nueva tarifa: buscamos las tarifas seleccionadas para obtener su coste
+  // Por ahora usamos un ratio estimado del 60% (coste/precio) similar al de ADAMO
+  const costeAdamoTotal = costeMensual._sum.precioOperador || 0
+  const factAdamoTotal = factAdamo._sum.precioCliente || 0
+  const ratioCoste = factAdamoTotal > 0 ? costeAdamoTotal / factAdamoTotal : 0.6
+  const costeNuevaTarifa = factNuevaTarifa * ratioCoste
+
   // Municipios únicos para filtro
   const municipios = await prisma.clienteMigracionAdamo.findMany({
     select: { municipio: true },
@@ -92,6 +115,11 @@ export async function GET(request: Request) {
     orderBy: { precioSinIva: 'asc' },
   })
 
+  // Facturación total post-migración:
+  // Fact. Mensual Total - Fact. ADAMO actual + Fact. nueva tarifa
+  const factTotalActual = totalFacturacion._sum.facturacionMensual || 0
+  const factPostMigracion = factTotalActual - factAdamoTotal + factNuevaTarifa
+
   return NextResponse.json({
     clientes,
     stats: {
@@ -99,8 +127,13 @@ export async function GET(request: Request) {
       porEstado: stats,
       ingresosMensuales: ingresosMensuales._sum.precioCliente || 0,
       costeMensual: costeMensual._sum.precioOperador || 0,
-      totalFacturacion: totalFacturacion._sum.facturacionMensual || 0,
+      totalFacturacion: factTotalActual,
       clientesAlta,
+      factAdamo: factAdamoTotal,
+      costeNuevaTarifa: Math.round(costeNuevaTarifa * 100) / 100,
+      factNuevaTarifa: Math.round(factNuevaTarifa * 100) / 100,
+      factPostMigracion: Math.round(factPostMigracion * 100) / 100,
+      clientesConAlternativa: clientesConAlternativa.length,
     },
     municipios: municipios.map(m => m.municipio).filter(Boolean),
     tarifas,

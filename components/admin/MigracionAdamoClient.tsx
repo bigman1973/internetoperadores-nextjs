@@ -48,6 +48,11 @@ interface Stats {
   costeMensual: number
   totalFacturacion: number
   clientesAlta: number
+  factAdamo: number
+  costeNuevaTarifa: number
+  factNuevaTarifa: number
+  factPostMigracion: number
+  clientesConAlternativa: number
 }
 
 const ESTADOS = [
@@ -256,8 +261,9 @@ export default function MigracionAdamoClient() {
       </div>
 
       {/* KPIs */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-6">
+      {stats && (<>
+        {/* Fila 1: Estado de gestión */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-3">
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">Total</p>
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -287,7 +293,38 @@ export default function MigracionAdamoClient() {
             <p className="text-2xl font-bold text-red-600">{Number(stats.costeMensual).toFixed(0)}€</p>
           </div>
         </div>
-      )}
+
+        {/* Fila 2: Facturación migración */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
+          <div className="bg-white border rounded-lg p-4 border-orange-200">
+            <p className="text-xs text-gray-500 uppercase">Fact. ADAMO</p>
+            <p className="text-2xl font-bold text-orange-600">{Number(stats.factAdamo || 0).toFixed(0)}€</p>
+            <p className="text-xs text-gray-400">Lo que cobráis por fibras ADAMO</p>
+          </div>
+          <div className="bg-white border rounded-lg p-4 border-blue-200">
+            <p className="text-xs text-gray-500 uppercase">Coste nueva tarifa</p>
+            <p className="text-2xl font-bold text-blue-600">{Number(stats.costeNuevaTarifa || 0).toFixed(0)}€</p>
+            <p className="text-xs text-gray-400">Coste operador alternativa</p>
+          </div>
+          <div className="bg-white border rounded-lg p-4 border-green-200">
+            <p className="text-xs text-gray-500 uppercase">Fact. nueva tarifa</p>
+            <p className="text-2xl font-bold text-green-600">{Number(stats.factNuevaTarifa || 0).toFixed(0)}€</p>
+            <p className="text-xs text-gray-400">{stats.clientesConAlternativa || 0} clientes con tarifa</p>
+          </div>
+          <div className="bg-white border rounded-lg p-4 border-purple-200">
+            <p className="text-xs text-gray-500 uppercase">Fact. post-migración</p>
+            <p className="text-2xl font-bold text-purple-600">{Number(stats.factPostMigracion || 0).toFixed(0)}€</p>
+            <p className="text-xs text-gray-400">Facturación total estimada</p>
+          </div>
+          <div className="bg-white border rounded-lg p-4">
+            <p className="text-xs text-gray-500 uppercase">Diferencia</p>
+            <p className={`text-2xl font-bold ${(stats.factPostMigracion || 0) >= (stats.totalFacturacion || 0) ? 'text-green-600' : 'text-red-600'}`}>
+              {((stats.factPostMigracion || 0) - (stats.totalFacturacion || 0)) >= 0 ? '+' : ''}{((stats.factPostMigracion || 0) - (stats.totalFacturacion || 0)).toFixed(0)}€
+            </p>
+            <p className="text-xs text-gray-400">vs facturación actual</p>
+          </div>
+        </div>
+      </>)}
 
       {/* Filtros */}
       <div className="bg-white border rounded-lg p-4 mb-4">
