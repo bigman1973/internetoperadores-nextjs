@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   // Coste nueva tarifa: para simplificar, usamos precioOperador de la tarifa seleccionada
   // Como no tenemos el coste del operador de la nueva tarifa en el modelo,
   // calculamos la facturación nueva (lo que cobraremos) con precioAlternativa
-  const factNuevaTarifa = clientesConAlternativa.reduce((sum, c) => sum + (c.precioAlternativa || 0), 0)
+  const factNuevaTarifa = clientesConAlternativa.reduce((sum, c) => sum + (Number(c.precioAlternativa) || 0), 0)
   
   // Coste nueva tarifa: buscamos las tarifas seleccionadas para obtener su coste
   // Por ahora usamos un ratio estimado del 60% (coste/precio) similar al de ADAMO
@@ -117,8 +117,8 @@ export async function GET(request: Request) {
 
   // Facturación total post-migración:
   // Fact. Mensual Total - Fact. ADAMO actual + Fact. nueva tarifa
-  const factTotalActual = totalFacturacion._sum.facturacionMensual || 0
-  const factPostMigracion = factTotalActual - factAdamoTotal + factNuevaTarifa
+  const factTotalActual = Number(totalFacturacion._sum.facturacionMensual) || 0
+  const factPostMigracion = factTotalActual - Number(factAdamoTotal) + factNuevaTarifa
 
   return NextResponse.json({
     clientes,
@@ -157,7 +157,7 @@ export async function PATCH(request: Request) {
   if (estado) updateData.estado = estado
   if (notas !== undefined) updateData.notas = notas
   if (alternativaOfrecida !== undefined) updateData.alternativaOfrecida = alternativaOfrecida
-  if (precioAlternativa !== undefined) updateData.precioAlternativa = precioAlternativa
+  if (precioAlternativa !== undefined) updateData.precioAlternativa = precioAlternativa !== null ? parseFloat(precioAlternativa) : null
 
   if (estado === 'CONTACTADO' && !updateData.fechaContacto) {
     updateData.fechaContacto = new Date()
