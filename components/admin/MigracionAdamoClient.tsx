@@ -117,31 +117,72 @@ export default function MigracionAdamoClient() {
     fetchData()
   }, [fetchData])
 
-  const handleEnviarEmail = async (clienteId: number, email: string) => {
-    if (!email || !email.includes('@')) {
-      alert('Introduce un email válido')
+  const handleEnviarEmail = async (clienteId: number, emailsRaw: string) => {
+    const emails = emailsRaw.split(',').map(e => e.trim()).filter(e => e.includes('@'))
+    if (emails.length === 0) {
+      alert('Introduce al menos un email válido')
       return
     }
-    if (!confirm(`¿Enviar email de migración a ${email}?`)) return
+    if (!confirm(`¿Enviar email de migración a: ${emails.join(', ')}?`)) return
     
     setSendingEmail(true)
-    try {
-      const res = await fetch('/api/admin/migracion-adamo/enviar-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clienteId, email }),
-      })
-      const data = await res.json()
-      if (res.ok) {
-        alert('✅ Email enviado correctamente')
-        await fetchData()
-      } else {
-        alert(`❌ Error: ${data.error || 'No se pudo enviar'}`)
+    let enviados = 0
+    let errores = 0
+    for (const email of emails) {
+      try {
+        const res = await fetch('/api/admin/migracion-adamo/enviar-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clienteId, email }),
+        })
+        if (res.ok) enviados++
+        else errores++
+      } catch {
+        errores++
       }
-    } catch {
-      alert('❌ Error de conexión')
     }
+    if (errores === 0) {
+      alert(`✅ Email enviado a ${enviados} destinatario${enviados > 1 ? 's' : ''}`)
+    } else {
+      alert(`⚠️ Enviados: ${enviados}, Errores: ${errores}`)
+    }
+    await fetchData()
     setSendingEmail(false)
+  }
+
+  const handleResetCliente = async (id: number) => {
+    if (!confirm('¿Resetear este cliente? Se borrarán email enviado, respuesta, alternativa y notas.')) return
+    setSaving(true)
+    try {
+      await fetch('/api/admin/migracion-adamo', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
+          estado: 'PENDIENTE',
+          emailEnviado: false,
+          fechaEmailEnviado: null,
+          respuestaCliente: null,
+          fechaRespuesta: null,
+          token: null,
+          alternativaOfrecida: null,
+          precioAlternativa: null,
+          notas: null,
+          fechaContacto: null,
+          fechaResolucion: null,
+        }),
+      })
+      setEditNotas('')
+      setEditAlternativa('')
+      setEditPrecioAlt('')
+      setEmailInput('')
+      await fetchData()
+      setSelectedCliente(null)
+      alert('✅ Cliente reseteado')
+    } catch {
+      alert('❌ Error al resetear')
+    }
+    setSaving(false)
   }
 
   const handleUpdateCliente = async (id: number, updates: any) => {
@@ -611,8 +652,8 @@ export default function MigracionAdamoClient() {
                   type="email"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  placeholder="email@cliente.com"
-                  className="flex-1 border rounded px-3 py-2 text-sm"
+                    placeholder="email@cliente.com, otro@email.com"
+                    className="flex-1 border rounded px-3 py-2 text-sm"
                 />
                 <button
                   onClick={() => handleEnviarEmail(selectedCliente.id, emailInput)}
@@ -641,6 +682,17 @@ export default function MigracionAdamoClient() {
                 )}
               </div>
             )}
+
+            {/* Resetear */}
+            <div className="mt-4 pt-4 border-t">
+              <button
+                onClick={() => handleResetCliente(selectedCliente.id)}
+                disabled={saving}
+                className="w-full py-2 border border-red-300 text-red-600 text-xs rounded font-medium hover:bg-red-50 disabled:opacity-50"
+              >
+                🗑️ Resetear cliente (borrar datos de gestión)
+              </button>
+            </div>
           </div>
         )}
       </div>
