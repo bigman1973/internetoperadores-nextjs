@@ -147,17 +147,24 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json()
-  const { id, estado, notas, alternativaOfrecida, precioAlternativa } = body
+  const { id, estado, notas, alternativaOfrecida, precioAlternativa, emailEnviado, fechaEmailEnviado, respuestaCliente, fechaRespuesta, token, fechaContacto, fechaResolucion } = body
 
   if (!id) {
     return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
   }
 
   const updateData: any = {}
-  if (estado) updateData.estado = estado
+  if (estado !== undefined) updateData.estado = estado
   if (notas !== undefined) updateData.notas = notas
   if (alternativaOfrecida !== undefined) updateData.alternativaOfrecida = alternativaOfrecida
-  if (precioAlternativa !== undefined) updateData.precioAlternativa = precioAlternativa !== null ? parseFloat(precioAlternativa) : null
+  if (precioAlternativa !== undefined) updateData.precioAlternativa = precioAlternativa !== null ? parseFloat(String(precioAlternativa)) : null
+  if (emailEnviado !== undefined) updateData.emailEnviado = emailEnviado
+  if (fechaEmailEnviado !== undefined) updateData.fechaEmailEnviado = fechaEmailEnviado
+  if (respuestaCliente !== undefined) updateData.respuestaCliente = respuestaCliente
+  if (fechaRespuesta !== undefined) updateData.fechaRespuesta = fechaRespuesta
+  if (token !== undefined) updateData.token = token
+  if (fechaContacto !== undefined) updateData.fechaContacto = fechaContacto
+  if (fechaResolucion !== undefined) updateData.fechaResolucion = fechaResolucion
 
   if (estado === 'CONTACTADO' && !updateData.fechaContacto) {
     updateData.fechaContacto = new Date()

@@ -262,8 +262,8 @@ export default function MigracionAdamoClient() {
 
       {/* KPIs */}
       {stats && (<>
-        {/* Fila 1: Estado de gestión */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-3">
+        {/* Fila 1: Situación actual (fija) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-3">
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">Total</p>
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -288,19 +288,19 @@ export default function MigracionAdamoClient() {
             <p className="text-xs text-gray-500 uppercase">Fact. mensual total</p>
             <p className="text-2xl font-bold text-gray-900">{Number(stats.totalFacturacion || 0).toFixed(0)}€</p>
           </div>
+          <div className="bg-white border rounded-lg p-4 border-orange-200">
+            <p className="text-xs text-gray-500 uppercase">Fact. ADAMO</p>
+            <p className="text-2xl font-bold text-orange-600">{Number(stats.factAdamo || 0).toFixed(0)}€</p>
+            <p className="text-xs text-gray-400">Lo que cobráis por fibras ADAMO</p>
+          </div>
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">Coste ADAMO/mes</p>
             <p className="text-2xl font-bold text-red-600">{Number(stats.costeMensual).toFixed(0)}€</p>
           </div>
         </div>
 
-        {/* Fila 2: Facturación migración */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
-          <div className="bg-white border rounded-lg p-4 border-orange-200">
-            <p className="text-xs text-gray-500 uppercase">Fact. ADAMO</p>
-            <p className="text-2xl font-bold text-orange-600">{Number(stats.factAdamo || 0).toFixed(0)}€</p>
-            <p className="text-xs text-gray-400">Lo que cobráis por fibras ADAMO</p>
-          </div>
+        {/* Fila 2: Post-migración (se actualiza al asignar tarifas) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-white border rounded-lg p-4 border-blue-200">
             <p className="text-xs text-gray-500 uppercase">Coste nueva tarifa</p>
             <p className="text-2xl font-bold text-blue-600">{Number(stats.costeNuevaTarifa || 0).toFixed(0)}€</p>
