@@ -578,9 +578,9 @@ export default function MigracionAdamoClient() {
             {/* Enviar correo */}
             <div className="mt-4 pt-4 border-t">
               <label className="text-xs text-gray-500 block mb-1">Enviar correo al cliente</label>
-              {selectedCliente.emailEnviado ? (
+              {selectedCliente.emailEnviado && (
                 <div className="bg-green-50 border border-green-200 rounded p-3 mb-2">
-                  <p className="text-xs text-green-800 font-medium">✅ Email enviado</p>
+                  <p className="text-xs text-green-800 font-medium">✅ Último email enviado</p>
                   {selectedCliente.fechaEmailEnviado && (
                     <p className="text-xs text-green-600">{new Date(selectedCliente.fechaEmailEnviado).toLocaleString('es-ES')}</p>
                   )}
@@ -605,24 +605,23 @@ export default function MigracionAdamoClient() {
                     <p className="text-xs text-yellow-700 mt-1">⏳ Pendiente de respuesta</p>
                   )}
                 </div>
-              ) : (
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder="email@cliente.com"
-                    className="flex-1 border rounded px-3 py-2 text-sm"
-                  />
-                  <button
-                    onClick={() => handleEnviarEmail(selectedCliente.id, emailInput)}
-                    disabled={sendingEmail || !emailInput}
-                    className="px-4 py-2 bg-blue-600 text-white text-xs rounded font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
-                  >
-                    {sendingEmail ? '...' : '📧 Enviar'}
-                  </button>
-                </div>
               )}
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="email@cliente.com"
+                  className="flex-1 border rounded px-3 py-2 text-sm"
+                />
+                <button
+                  onClick={() => handleEnviarEmail(selectedCliente.id, emailInput)}
+                  disabled={sendingEmail || !emailInput}
+                  className="px-4 py-2 bg-blue-600 text-white text-xs rounded font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                >
+                  {sendingEmail ? '...' : selectedCliente.emailEnviado ? '📧 Reenviar' : '📧 Enviar'}
+                </button>
+              </div>
               <p className="text-xs text-gray-400 mt-1">
                 {editAlternativa && editAlternativa !== '__otro' && editAlternativa !== ''
                   ? `Se enviará con tarifa: ${editAlternativa}`
