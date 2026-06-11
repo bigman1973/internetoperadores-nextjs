@@ -26,6 +26,10 @@ interface ClienteAdamo {
   notas: string | null
   fechaContacto: string | null
   fechaResolucion: string | null
+  emailEnviado: boolean
+  fechaEmailEnviado: string | null
+  respuestaCliente: string | null
+  fechaRespuesta: string | null
 }
 
 interface TarifaDisponible {
@@ -85,6 +89,8 @@ export default function MigracionAdamoClient() {
   const [editAlternativa, setEditAlternativa] = useState('')
   const [editPrecioAlt, setEditPrecioAlt] = useState('')
   const [saving, setSaving] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailInput, setEmailInput] = useState('')
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -110,6 +116,33 @@ export default function MigracionAdamoClient() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  const handleEnviarEmail = async (clienteId: number, email: string) => {
+    if (!email || !email.includes('@')) {
+      alert('Introduce un email válido')
+      return
+    }
+    if (!confirm(`¿Enviar email de migración a ${email}?`)) return
+    
+    setSendingEmail(true)
+    try {
+      const res = await fetch('/api/admin/migracion-adamo/enviar-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clienteId, email }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        alert('✅ Email enviado correctamente')
+        await fetchData()
+      } else {
+        alert(`❌ Error: ${data.error || 'No se pudo enviar'}`)
+      }
+    } catch {
+      alert('❌ Error de conexión')
+    }
+    setSendingEmail(false)
+  }
 
   const handleUpdateCliente = async (id: number, updates: any) => {
     setSaving(true)
@@ -541,6 +574,62 @@ export default function MigracionAdamoClient() {
             >
               {saving ? 'Guardando...' : 'Guardar cambios'}
             </button>
+
+            {/* Enviar correo */}
+            <div className="mt-4 pt-4 border-t">
+              <label className="text-xs text-gray-500 block mb-1">Enviar correo al cliente</label>
+              {selectedCliente.emailEnviado ? (
+                <div className="bg-green-50 border border-green-200 rounded p-3 mb-2">
+                  <p className="text-xs text-green-800 font-medium">✅ Email enviado</p>
+                  {selectedCliente.fechaEmailEnviado && (
+                    <p className="text-xs text-green-600">{new Date(selectedCliente.fechaEmailEnviado).toLocaleString('es-ES')}</p>
+                  )}
+                  {selectedCliente.respuestaCliente && (
+                    <div className="mt-2 pt-2 border-t border-green-200">
+                      <p className="text-xs font-medium text-green-800">Respuesta del cliente:</p>
+                      <p className={`text-sm font-bold mt-1 ${
+                        selectedCliente.respuestaCliente === 'ACEPTAR' ? 'text-green-700' :
+                        selectedCliente.respuestaCliente === 'LLAMAR' ? 'text-orange-700' :
+                        'text-red-700'
+                      }`}>
+                        {selectedCliente.respuestaCliente === 'ACEPTAR' && '✅ Acepta la tarifa'}
+                        {selectedCliente.respuestaCliente === 'LLAMAR' && '📞 Quiere que le llamen'}
+                        {selectedCliente.respuestaCliente === 'BAJA' && '❌ Quiere dar de baja'}
+                      </p>
+                      {selectedCliente.fechaRespuesta && (
+                        <p className="text-xs text-green-600 mt-1">{new Date(selectedCliente.fechaRespuesta).toLocaleString('es-ES')}</p>
+                      )}
+                    </div>
+                  )}
+                  {!selectedCliente.respuestaCliente && (
+                    <p className="text-xs text-yellow-700 mt-1">⏳ Pendiente de respuesta</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    placeholder="email@cliente.com"
+                    className="flex-1 border rounded px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={() => handleEnviarEmail(selectedCliente.id, emailInput)}
+                    disabled={sendingEmail || !emailInput}
+                    className="px-4 py-2 bg-blue-600 text-white text-xs rounded font-medium hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {sendingEmail ? '...' : '📧 Enviar'}
+                  </button>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-1">
+                {editAlternativa && editAlternativa !== '__otro' && editAlternativa !== ''
+                  ? `Se enviará con tarifa: ${editAlternativa}`
+                  : 'Se enviará email genérico (sin tarifa seleccionada)'
+                }
+              </p>
+            </div>
 
             {/* Fechas de gestión */}
             {(selectedCliente.fechaContacto || selectedCliente.fechaResolucion) && (

@@ -894,6 +894,12 @@ model ClienteMigracionAdamo {
   notas             String?
   fechaContacto     DateTime?             @map("fecha_contacto")
   fechaResolucion   DateTime?             @map("fecha_resolucion")
+  // Email y respuesta
+  token             String?               @unique
+  emailEnviado      Boolean               @default(false) @map("email_enviado")
+  fechaEmailEnviado DateTime?             @map("fecha_email_enviado")
+  respuestaCliente  String?               @map("respuesta_cliente") // ACEPTAR, LLAMAR, BAJA
+  fechaRespuesta    DateTime?             @map("fecha_respuesta")
   // Timestamps
   createdAt         DateTime              @default(now()) @map("created_at")
   updatedAt         DateTime              @updatedAt @map("updated_at")
