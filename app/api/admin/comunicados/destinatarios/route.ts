@@ -40,12 +40,12 @@ export async function POST(request: Request) {
 
   // Filtrar por contratos/facturación
   if (tieneFacturacion === 'con' || (tarifa && tarifa !== '')) {
-    where.ispGestionId = {
+    where.clienteIdIsp = {
       in: await getClienteIdsConContratos(true, tarifa || undefined),
     }
   } else if (tieneFacturacion === 'sin') {
     const idsConContrato = await getClienteIdsConContratos(true, undefined)
-    where.ispGestionId = { notIn: idsConContrato }
+    where.clienteIdIsp = { notIn: idsConContrato }
   }
 
   // Contar

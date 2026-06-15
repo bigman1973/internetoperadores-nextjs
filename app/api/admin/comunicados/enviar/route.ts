@@ -164,14 +164,14 @@ export async function POST(request: Request) {
       select: { clienteId: true },
       distinct: ['clienteId'],
     })
-    where.ispGestionId = { in: contratos.map(c => c.clienteId) }
+    where.clienteIdIsp = { in: contratos.map(c => c.clienteId) }
   } else if (filtros.tieneFacturacion === 'sin') {
     const contratosActivos = await prisma.contratoServicio.findMany({
       where: { activo: true },
       select: { clienteId: true },
       distinct: ['clienteId'],
     })
-    where.ispGestionId = { notIn: contratosActivos.map(c => c.clienteId) }
+    where.clienteIdIsp = { notIn: contratosActivos.map(c => c.clienteId) }
   }
 
   // Obtener todos los clientes que coinciden
