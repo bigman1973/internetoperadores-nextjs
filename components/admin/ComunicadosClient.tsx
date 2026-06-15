@@ -451,7 +451,7 @@ export default function ComunicadosClient() {
                   <select
                     value={filtros.estado}
                     onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
                   >
                     <option value="todos">Todos</option>
                     <option value="activo">Solo activos</option>
@@ -465,7 +465,7 @@ export default function ComunicadosClient() {
                   <select
                     value={filtros.tipo}
                     onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
                   >
                     <option value="todos">Todos</option>
                     <option value="empresa">Empresas</option>
@@ -479,7 +479,7 @@ export default function ComunicadosClient() {
                   <select
                     value={filtros.tieneFacturacion}
                     onChange={(e) => setFiltros({ ...filtros, tieneFacturacion: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
                   >
                     <option value="todos">Todos</option>
                     <option value="con">Con facturación activa</option>
@@ -493,7 +493,7 @@ export default function ComunicadosClient() {
                   <select
                     value={filtros.municipio}
                     onChange={(e) => setFiltros({ ...filtros, municipio: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
                   >
                     <option value="">Todos</option>
                     {opcionesFiltro?.municipios.map(m => (
@@ -508,7 +508,7 @@ export default function ComunicadosClient() {
                   <select
                     value={filtros.tarifa}
                     onChange={(e) => setFiltros({ ...filtros, tarifa: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
                   >
                     <option value="">Todas las tarifas</option>
                     {opcionesFiltro?.tarifas.map(t => (
