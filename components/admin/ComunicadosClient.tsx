@@ -54,7 +54,7 @@ Durante este periodo, es posible que experimente una degradación temporal del s
 
 Estas tareas de mantenimiento son necesarias para garantizar la calidad y estabilidad de su conexión. Pedimos disculpas por las molestias.
 
-Si tiene cualquier duda, no dude en contactarnos en el 973 621 541 o en comercial@internetoperadores.com.
+Si tiene cualquier duda, no dude en contactarnos en el 900 730 034 o en comercial@internetoperadores.com.
 
 Atentamente,
 El equipo de Internet Operadores`,
@@ -75,7 +75,7 @@ Nuestro equipo técnico ya está trabajando para resolver la situación lo antes
 
 Pedimos disculpas por las molestias ocasionadas.
 
-Si necesita asistencia urgente, puede contactarnos en el 973 621 541.
+Si necesita asistencia urgente, puede contactarnos en el 900 730 034.
 
 Atentamente,
 El equipo de Internet Operadores`,
@@ -92,7 +92,7 @@ Todos los servicios funcionan con normalidad.
 
 Pedimos disculpas por las molestias ocasionadas y agradecemos su paciencia.
 
-Si detecta cualquier anomalía, no dude en contactarnos en el 973 621 541.
+Si detecta cualquier anomalía, no dude en contactarnos en el 900 730 034.
 
 Atentamente,
 El equipo de Internet Operadores`,
@@ -109,7 +109,7 @@ Nos complace informarle de una novedad en nuestros servicios:
 
 Esta mejora está disponible desde [FECHA] y no requiere ninguna acción por su parte.
 
-Si desea más información o tiene alguna consulta, estamos a su disposición en el 973 621 541 o en comercial@internetoperadores.com.
+Si desea más información o tiene alguna consulta, estamos a su disposición en el 900 730 034 o en comercial@internetoperadores.com.
 
 Atentamente,
 El equipo de Internet Operadores`,
@@ -544,7 +544,7 @@ export default function ComunicadosClient() {
                 value={asunto}
                 onChange={(e) => setAsunto(e.target.value)}
                 placeholder="Ej: Mantenimiento programado — 16 de junio"
-                className="w-full border rounded-lg px-4 py-2.5 text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-500"
+                className="w-full border rounded-lg px-4 py-2.5 text-base text-gray-900 focus:ring-2 focus:ring-orange-200 focus:border-orange-500"
               />
             </div>
 
@@ -593,7 +593,7 @@ export default function ComunicadosClient() {
                       : 'Instrucciones para mejorar. Ej: "Hazlo más formal" o "Añade que pueden llamar si tienen dudas"'
                     }
                     rows={3}
-                    className="w-full border border-purple-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 bg-white"
+                    className="w-full border border-purple-200 rounded-lg px-3 py-2.5 text-base text-gray-900 focus:ring-2 focus:ring-purple-200 focus:border-purple-400 bg-white"
                   />
                   <div className="flex justify-end mt-2">
                     <button
@@ -619,7 +619,7 @@ export default function ComunicadosClient() {
                 onChange={(e) => setContenido(e.target.value)}
                 placeholder="Escribe aquí el contenido del comunicado...&#10;&#10;Usa doble salto de línea para separar párrafos."
                 rows={14}
-                className="w-full border rounded-lg px-4 py-3 text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-500 font-mono"
+                className="w-full border rounded-lg px-4 py-3 text-base text-gray-900 focus:ring-2 focus:ring-orange-200 focus:border-orange-500"
               />
               <p className="text-xs text-gray-400 mt-2">Doble Enter para nuevo párrafo. El formato se aplica automáticamente en el email.</p>
             </div>

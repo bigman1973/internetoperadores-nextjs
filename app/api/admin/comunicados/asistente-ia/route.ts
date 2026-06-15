@@ -24,7 +24,7 @@ Reglas:
 - Si es un mantenimiento, incluye: fecha, hora inicio/fin, servicios afectados, disculpas
 - Si es una incidencia, incluye: qué pasa, desde cuándo, qué estamos haciendo, disculpas
 - Firma siempre como "El equipo de Internet Operadores"
-- El teléfono de contacto es 973 621 541 y el email comercial@internetoperadores.com
+- El teléfono de contacto es 900 730 034 y el email comercial@internetoperadores.com
 - NO incluyas asunto en el cuerpo, solo el contenido del mensaje
 - Genera SOLO el contenido del email (sin HTML, sin asunto separado)
 

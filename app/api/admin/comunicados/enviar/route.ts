@@ -44,7 +44,7 @@ function generarHtmlComunicado(contenido: string, tipo: string): string {
   </div>
   <div style="background-color:#f8f8f8;padding:20px 40px;border-top:1px solid #eee;">
     <p style="font-size:12px;color:#888;margin:0;text-align:center;">
-      Internet Operadores · Tel: 973 621 541 · comercial@internetoperadores.com
+      Internet Operadores · Tel: 900 730 034 · comercial@internetoperadores.com
     </p>
     <p style="font-size:11px;color:#aaa;margin:8px 0 0 0;text-align:center;">
       Recibes este email porque eres cliente de Internet Operadores.
