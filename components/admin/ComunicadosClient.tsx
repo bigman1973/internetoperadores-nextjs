@@ -21,13 +21,13 @@ interface FiltrosState {
   tipo: string
   municipio: string
   tieneFacturacion: string
-  categoriaContrato: string
+  tarifa: string
 }
 
 interface OpcionesFiltro {
   municipios: { value: string; count: number }[]
-  categorias: { value: string; count: number }[]
-  stats: { totalClientes: number; totalActivos: number; totalEmpresas: number; totalParticulares: number }
+  tarifas: { value: string; count: number }[]
+  stats: { totalClientes: number; totalActivos: number; totalEmpresas: number; totalParticulares: number; totalConFacturacion: number }
 }
 
 const TIPOS = [
@@ -132,7 +132,7 @@ export default function ComunicadosClient() {
     tipo: 'todos',
     municipio: '',
     tieneFacturacion: 'todos',
-    categoriaContrato: '',
+    tarifa: '',
   })
   const [totalDestinatarios, setTotalDestinatarios] = useState<number | null>(null)
   const [muestraDestinatarios, setMuestraDestinatarios] = useState<any[]>([])
@@ -364,7 +364,7 @@ export default function ComunicadosClient() {
     setTipo('MANTENIMIENTO')
     setAsunto('')
     setContenido('')
-    setFiltros({ estado: 'activo', tipo: 'todos', municipio: '', tieneFacturacion: 'todos', categoriaContrato: '' })
+    setFiltros({ estado: 'activo', tipo: 'todos', municipio: '', tieneFacturacion: 'todos', tarifa: '' })
     setShowPreview(false)
     setPreviewHtml('')
     setShowIA(false)
@@ -502,17 +502,17 @@ export default function ComunicadosClient() {
                   </select>
                 </div>
 
-                {/* Categoría de contrato */}
+                {/* Tarifa / Servicio */}
                 <div className="col-span-2 md:col-span-2">
-                  <label className="text-xs text-gray-500 block mb-1">Tipo de contrato/servicio</label>
+                  <label className="text-xs text-gray-500 block mb-1">Tarifa / Servicio contratado</label>
                   <select
-                    value={filtros.categoriaContrato}
-                    onChange={(e) => setFiltros({ ...filtros, categoriaContrato: e.target.value })}
+                    value={filtros.tarifa}
+                    onChange={(e) => setFiltros({ ...filtros, tarifa: e.target.value })}
                     className="w-full border rounded-lg px-3 py-2 text-sm"
                   >
-                    <option value="">Todos los contratos</option>
-                    {opcionesFiltro?.categorias.map(c => (
-                      <option key={c.value} value={c.value}>{c.value} ({c.count})</option>
+                    <option value="">Todas las tarifas</option>
+                    {opcionesFiltro?.tarifas.map(t => (
+                      <option key={t.value} value={t.value}>{t.value} ({t.count})</option>
                     ))}
                   </select>
                 </div>

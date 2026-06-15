@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { estado, tipo, municipio, tieneFacturacion, categoriaContrato, soloConEmail } = body
+  const { estado, tipo, municipio, tieneFacturacion, tarifa } = body
 
   // Construir filtro para ClienteWeb
   const where: Prisma.ClienteWebWhereInput = {}
@@ -22,7 +22,6 @@ export async function POST(request: Request) {
   } else if (estado === 'baja') {
     where.activo = false
   }
-  // si es 'todos' no filtramos
 
   // Tipo: empresa / particular / todos
   if (tipo === 'empresa') {
@@ -36,26 +35,17 @@ export async function POST(request: Request) {
     where.municipio = { contains: municipio, mode: 'insensitive' }
   }
 
-  // Solo con email válido (siempre recomendado para envío)
-  if (soloConEmail !== false) {
-    where.email = { not: '', contains: '@' }
-  }
+  // Solo con email válido
+  where.email = { not: '', contains: '@' }
 
-  // Filtrar por si tiene contratos activos con facturación
-  if (tieneFacturacion === 'con') {
-    // Clientes que tienen al menos un contrato activo
+  // Filtrar por contratos/facturación
+  if (tieneFacturacion === 'con' || (tarifa && tarifa !== '')) {
     where.ispGestionId = {
-      in: await getClienteIdsConContratos(true, categoriaContrato),
+      in: await getClienteIdsConContratos(true, tarifa || undefined),
     }
   } else if (tieneFacturacion === 'sin') {
-    where.ispGestionId = {
-      notIn: await getClienteIdsConContratos(true, undefined),
-    }
-  } else if (categoriaContrato && categoriaContrato !== '') {
-    // Si hay filtro de categoría de contrato pero no de facturación
-    where.ispGestionId = {
-      in: await getClienteIdsConContratos(true, categoriaContrato),
-    }
+    const idsConContrato = await getClienteIdsConContratos(true, undefined)
+    where.ispGestionId = { notIn: idsConContrato }
   }
 
   // Contar
@@ -72,11 +62,11 @@ export async function POST(request: Request) {
   return NextResponse.json({ total, muestra })
 }
 
-async function getClienteIdsConContratos(activo: boolean, categoria?: string): Promise<string[]> {
+async function getClienteIdsConContratos(activo: boolean, tarifa?: string): Promise<string[]> {
   const contratoWhere: Prisma.ContratoServicioWhereInput = { activo }
   
-  if (categoria && categoria !== '') {
-    contratoWhere.categoria = { contains: categoria, mode: 'insensitive' }
+  if (tarifa && tarifa !== '') {
+    contratoWhere.tarifa = { contains: tarifa, mode: 'insensitive' }
   }
 
   const contratos = await prisma.contratoServicio.findMany({
@@ -88,14 +78,14 @@ async function getClienteIdsConContratos(activo: boolean, categoria?: string): P
   return contratos.map(c => c.clienteId)
 }
 
-// GET para obtener las opciones de filtro (municipios, categorías de contrato)
+// GET para obtener las opciones de filtro
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
-  // Obtener municipios únicos
+  // Obtener municipios únicos de clientes activos
   const municipiosRaw = await prisma.clienteWeb.groupBy({
     by: ['municipio'],
     where: { activo: true, municipio: { not: null } },
@@ -108,27 +98,34 @@ export async function GET() {
     .filter(m => m.municipio && m.municipio.trim() !== '')
     .map(m => ({ value: m.municipio!, count: m._count.id }))
 
-  // Obtener categorías de contrato únicas
-  const categoriasRaw = await prisma.contratoServicio.groupBy({
-    by: ['categoria'],
-    where: { activo: true, categoria: { not: null } },
+  // Obtener tarifas únicas de contratos activos
+  const tarifasRaw = await prisma.contratoServicio.groupBy({
+    by: ['tarifa'],
+    where: { activo: true },
     _count: { id: true },
     orderBy: { _count: { id: 'desc' } },
   })
 
-  const categorias = categoriasRaw
-    .filter(c => c.categoria && c.categoria.trim() !== '')
-    .map(c => ({ value: c.categoria!, count: c._count.id }))
+  const tarifas = tarifasRaw
+    .filter(t => t.tarifa && t.tarifa.trim() !== '')
+    .map(t => ({ value: t.tarifa!, count: t._count.id }))
 
   // Stats generales
   const totalClientes = await prisma.clienteWeb.count()
   const totalActivos = await prisma.clienteWeb.count({ where: { activo: true } })
   const totalEmpresas = await prisma.clienteWeb.count({ where: { activo: true, personaFisica: false } })
   const totalParticulares = await prisma.clienteWeb.count({ where: { activo: true, personaFisica: true } })
+  const totalConFacturacion = await getClienteIdsConContratos(true, undefined)
 
   return NextResponse.json({
     municipios,
-    categorias,
-    stats: { totalClientes, totalActivos, totalEmpresas, totalParticulares },
+    tarifas,
+    stats: {
+      totalClientes,
+      totalActivos,
+      totalEmpresas,
+      totalParticulares,
+      totalConFacturacion: totalConFacturacion.length,
+    },
   })
 }

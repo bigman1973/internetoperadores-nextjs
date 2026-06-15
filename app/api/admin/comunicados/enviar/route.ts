@@ -154,10 +154,10 @@ export async function POST(request: Request) {
   where.email = { not: '', contains: '@' }
 
   // Filtro por contratos
-  if (filtros.tieneFacturacion === 'con' || filtros.categoriaContrato) {
+  if (filtros.tieneFacturacion === 'con' || filtros.tarifa) {
     const contratoWhere: Prisma.ContratoServicioWhereInput = { activo: true }
-    if (filtros.categoriaContrato) {
-      contratoWhere.categoria = { contains: filtros.categoriaContrato, mode: 'insensitive' }
+    if (filtros.tarifa) {
+      contratoWhere.tarifa = { contains: filtros.tarifa, mode: 'insensitive' }
     }
     const contratos = await prisma.contratoServicio.findMany({
       where: contratoWhere,
