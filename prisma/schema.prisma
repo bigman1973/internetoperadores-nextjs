@@ -926,21 +926,22 @@ enum PrioridadMigracion {
 
 // ===== COMUNICADOS A CLIENTES =====
 model Comunicado {
-  id              Int                @id @default(autoincrement())
-  tipo            TipoComunicado     @default(MANTENIMIENTO)
-  asunto          String
-  contenido       String             @db.Text
-  // Destinatarios
-  destinatarios   DestinatariosComunicado @default(TODOS)
+  id                    Int                @id @default(autoincrement())
+  tipo                  TipoComunicado     @default(MANTENIMIENTO)
+  asunto                String
+  contenido             String             @db.Text
+  // Destinatarios - filtros guardados como JSON
+  destinatarios         DestinatariosComunicado @default(TODOS)
+  filtrosDestinatarios  String?            @map("filtros_destinatarios") @db.Text
   // Estado del envío
-  estado          EstadoComunicado   @default(BORRADOR)
-  fechaEnvio      DateTime?          @map("fecha_envio")
-  totalEnviados   Int                @default(0) @map("total_enviados")
+  estado                EstadoComunicado   @default(BORRADOR)
+  fechaEnvio            DateTime?          @map("fecha_envio")
+  totalEnviados         Int                @default(0) @map("total_enviados")
   // Quién lo creó
-  creadoPor       String?            @map("creado_por")
+  creadoPor             String?            @map("creado_por")
   // Timestamps
-  createdAt       DateTime           @default(now()) @map("created_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
 
   @@index([estado])
   @@index([tipo])

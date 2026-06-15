@@ -8,6 +8,7 @@ interface Comunicado {
   asunto: string
   contenido: string
   destinatarios: string
+  filtrosDestinatarios: string | null
   estado: string
   fechaEnvio: string | null
   totalEnviados: number
@@ -15,17 +16,25 @@ interface Comunicado {
   createdAt: string
 }
 
+interface FiltrosState {
+  estado: string
+  tipo: string
+  municipio: string
+  tieneFacturacion: string
+  categoriaContrato: string
+}
+
+interface OpcionesFiltro {
+  municipios: { value: string; count: number }[]
+  categorias: { value: string; count: number }[]
+  stats: { totalClientes: number; totalActivos: number; totalEmpresas: number; totalParticulares: number }
+}
+
 const TIPOS = [
   { value: 'MANTENIMIENTO', label: 'Mantenimiento', color: 'bg-amber-100 text-amber-800', icon: '🔧' },
   { value: 'INCIDENCIA', label: 'Incidencia', color: 'bg-red-100 text-red-800', icon: '⚠️' },
   { value: 'NOVEDAD', label: 'Novedad', color: 'bg-blue-100 text-blue-800', icon: '🆕' },
   { value: 'COMERCIAL', label: 'Comercial', color: 'bg-green-100 text-green-800', icon: '📢' },
-]
-
-const DESTINATARIOS = [
-  { value: 'TODOS', label: 'Todos los clientes (Empresas + Particulares)', desc: 'Listas #23 + #24 (~255 contactos)' },
-  { value: 'EMPRESAS', label: 'Solo Empresas', desc: 'Lista #23 (~75 contactos)' },
-  { value: 'PARTICULARES', label: 'Solo Particulares', desc: 'Lista #24 (~180 contactos)' },
 ]
 
 const PLANTILLAS = [
@@ -89,7 +98,7 @@ Atentamente,
 El equipo de Internet Operadores`,
   },
   {
-    nombre: 'Novedad / Mejora de servicio',
+    nombre: 'Novedad / Mejora',
     tipo: 'NOVEDAD',
     asunto: 'Novedad — [TÍTULO DE LA MEJORA]',
     contenido: `Estimado cliente,
@@ -116,11 +125,29 @@ export default function ComunicadosClient() {
   const [tipo, setTipo] = useState('MANTENIMIENTO')
   const [asunto, setAsunto] = useState('')
   const [contenido, setContenido] = useState('')
-  const [destinatarios, setDestinatarios] = useState('TODOS')
+  
+  // Filtros de destinatarios
+  const [filtros, setFiltros] = useState<FiltrosState>({
+    estado: 'activo',
+    tipo: 'todos',
+    municipio: '',
+    tieneFacturacion: 'todos',
+    categoriaContrato: '',
+  })
+  const [totalDestinatarios, setTotalDestinatarios] = useState<number | null>(null)
+  const [muestraDestinatarios, setMuestraDestinatarios] = useState<any[]>([])
+  const [opcionesFiltro, setOpcionesFiltro] = useState<OpcionesFiltro | null>(null)
+  const [contando, setContando] = useState(false)
   
   // Preview
   const [previewHtml, setPreviewHtml] = useState('')
   const [showPreview, setShowPreview] = useState(false)
+  
+  // Asistente IA
+  const [showIA, setShowIA] = useState(false)
+  const [iaInstrucciones, setIaInstrucciones] = useState('')
+  const [iaAccion, setIaAccion] = useState<'generar' | 'mejorar'>('generar')
+  const [iaLoading, setIaLoading] = useState(false)
   
   // Estados de acción
   const [saving, setSaving] = useState(false)
@@ -138,9 +165,44 @@ export default function ComunicadosClient() {
     setLoading(false)
   }, [])
 
+  const fetchOpciones = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/comunicados/destinatarios')
+      const data = await res.json()
+      setOpcionesFiltro(data)
+    } catch (error) {
+      console.error('Error opciones:', error)
+    }
+  }, [])
+
+  const contarDestinatarios = useCallback(async () => {
+    setContando(true)
+    try {
+      const res = await fetch('/api/admin/comunicados/destinatarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(filtros),
+      })
+      const data = await res.json()
+      setTotalDestinatarios(data.total)
+      setMuestraDestinatarios(data.muestra || [])
+    } catch (error) {
+      console.error('Error conteo:', error)
+    }
+    setContando(false)
+  }, [filtros])
+
   useEffect(() => {
     fetchComunicados()
-  }, [fetchComunicados])
+    fetchOpciones()
+  }, [fetchComunicados, fetchOpciones])
+
+  useEffect(() => {
+    if (vista === 'nuevo') {
+      const timer = setTimeout(() => contarDestinatarios(), 300)
+      return () => clearTimeout(timer)
+    }
+  }, [filtros, vista, contarDestinatarios])
 
   const handlePlantilla = (plantilla: typeof PLANTILLAS[0]) => {
     setTipo(plantilla.tipo)
@@ -167,6 +229,38 @@ export default function ComunicadosClient() {
     }
   }
 
+  const handleIA = async () => {
+    if (!iaInstrucciones.trim()) {
+      alert('Escribe las instrucciones para la IA')
+      return
+    }
+    setIaLoading(true)
+    try {
+      const res = await fetch('/api/admin/comunicados/asistente-ia', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: iaAccion,
+          instrucciones: iaInstrucciones,
+          contenidoActual: contenido,
+          tipo,
+        }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        if (data.contenido) setContenido(data.contenido)
+        if (data.asunto && iaAccion === 'generar') setAsunto(data.asunto)
+        setShowIA(false)
+        setIaInstrucciones('')
+      } else {
+        alert(`Error: ${data.error}`)
+      }
+    } catch (error) {
+      alert('Error al comunicar con la IA')
+    }
+    setIaLoading(false)
+  }
+
   const handleGuardarBorrador = async () => {
     if (!asunto || !contenido) {
       alert('Rellena el asunto y el contenido')
@@ -177,18 +271,18 @@ export default function ComunicadosClient() {
       const res = await fetch('/api/admin/comunicados', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo, asunto, contenido, destinatarios }),
+        body: JSON.stringify({ tipo, asunto, contenido, destinatarios: 'TODOS', filtros }),
       })
       if (res.ok) {
-        alert('✅ Comunicado guardado como borrador')
+        alert('Comunicado guardado como borrador')
         setVista('historial')
         resetFormulario()
         await fetchComunicados()
       } else {
-        alert('❌ Error al guardar')
+        alert('Error al guardar')
       }
     } catch {
-      alert('❌ Error al guardar')
+      alert('Error al guardar')
     }
     setSaving(false)
   }
@@ -198,8 +292,11 @@ export default function ComunicadosClient() {
       alert('Rellena el asunto y el contenido')
       return
     }
-    const destLabel = DESTINATARIOS.find(d => d.value === destinatarios)?.label || destinatarios
-    if (!confirm(`¿Enviar este comunicado a: ${destLabel}?\n\nAsunto: ${asunto}\n\nEsta acción no se puede deshacer.`)) return
+    if (totalDestinatarios === 0) {
+      alert('No hay destinatarios con los filtros seleccionados')
+      return
+    }
+    if (!confirm(`¿Enviar este comunicado a ${totalDestinatarios} clientes?\n\nAsunto: ${asunto}\n\nEsta acción no se puede deshacer.`)) return
 
     setSending(true)
     try {
@@ -207,10 +304,10 @@ export default function ComunicadosClient() {
       const saveRes = await fetch('/api/admin/comunicados', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipo, asunto, contenido, destinatarios }),
+        body: JSON.stringify({ tipo, asunto, contenido, destinatarios: 'TODOS', filtros }),
       })
       if (!saveRes.ok) {
-        alert('❌ Error al guardar el comunicado')
+        alert('Error al guardar el comunicado')
         setSending(false)
         return
       }
@@ -225,15 +322,15 @@ export default function ComunicadosClient() {
       const sendData = await sendRes.json()
 
       if (sendRes.ok) {
-        alert(`✅ ${sendData.message}`)
+        alert(sendData.message)
         setVista('historial')
         resetFormulario()
         await fetchComunicados()
       } else {
-        alert(`❌ Error al enviar: ${sendData.error || 'Error desconocido'}`)
+        alert(`Error al enviar: ${sendData.error || 'Error desconocido'}`)
       }
     } catch (error) {
-      alert('❌ Error al enviar')
+      alert('Error al enviar')
     }
     setSending(false)
   }
@@ -241,8 +338,7 @@ export default function ComunicadosClient() {
   const handleEnviarBorrador = async (id: number) => {
     const comunicado = comunicados.find(c => c.id === id)
     if (!comunicado) return
-    const destLabel = DESTINATARIOS.find(d => d.value === comunicado.destinatarios)?.label || comunicado.destinatarios
-    if (!confirm(`¿Enviar el comunicado "${comunicado.asunto}" a: ${destLabel}?`)) return
+    if (!confirm(`¿Enviar el comunicado "${comunicado.asunto}"?`)) return
 
     setSending(true)
     try {
@@ -253,13 +349,13 @@ export default function ComunicadosClient() {
       })
       const data = await res.json()
       if (res.ok) {
-        alert(`✅ ${data.message}`)
+        alert(data.message)
         await fetchComunicados()
       } else {
-        alert(`❌ Error: ${data.error}`)
+        alert(`Error: ${data.error}`)
       }
     } catch {
-      alert('❌ Error al enviar')
+      alert('Error al enviar')
     }
     setSending(false)
   }
@@ -268,22 +364,18 @@ export default function ComunicadosClient() {
     setTipo('MANTENIMIENTO')
     setAsunto('')
     setContenido('')
-    setDestinatarios('TODOS')
+    setFiltros({ estado: 'activo', tipo: 'todos', municipio: '', tieneFacturacion: 'todos', categoriaContrato: '' })
     setShowPreview(false)
     setPreviewHtml('')
+    setShowIA(false)
+    setIaInstrucciones('')
   }
 
-  const getTipoInfo = (tipo: string) => {
-    return TIPOS.find(t => t.value === tipo) || TIPOS[0]
-  }
+  const getTipoInfo = (t: string) => TIPOS.find(x => x.value === t) || TIPOS[0]
 
   const formatFecha = (fecha: string) => {
     return new Date(fecha).toLocaleString('es-ES', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     })
   }
 
@@ -293,7 +385,7 @@ export default function ComunicadosClient() {
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Comunicados</h1>
-          <p className="text-gray-500 mt-1">Envía comunicados masivos a tus clientes por email</p>
+          <p className="text-gray-500 mt-1">Envía comunicados a tus clientes desde los datos reales de ISPGestión</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -337,34 +429,111 @@ export default function ComunicadosClient() {
               </div>
             </div>
 
-            {/* Destinatarios */}
+            {/* Destinatarios con filtros */}
             <div className="bg-white border rounded-lg p-4">
-              <label className="text-sm font-medium text-gray-700 block mb-2">Destinatarios</label>
-              <div className="space-y-2">
-                {DESTINATARIOS.map(d => (
-                  <label
-                    key={d.value}
-                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                      destinatarios === d.value
-                        ? 'border-orange-500 bg-orange-50 ring-1 ring-orange-200'
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="destinatarios"
-                      value={d.value}
-                      checked={destinatarios === d.value}
-                      onChange={(e) => setDestinatarios(e.target.value)}
-                      className="text-orange-600 focus:ring-orange-500"
-                    />
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{d.label}</p>
-                      <p className="text-xs text-gray-500">{d.desc}</p>
-                    </div>
-                  </label>
-                ))}
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-medium text-gray-700">Destinatarios</label>
+                <div className="flex items-center gap-2">
+                  {contando ? (
+                    <span className="text-xs text-gray-400">Contando...</span>
+                  ) : totalDestinatarios !== null ? (
+                    <span className="text-sm font-bold text-orange-600 bg-orange-50 px-3 py-1 rounded-full">
+                      {totalDestinatarios} clientes
+                    </span>
+                  ) : null}
+                </div>
               </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {/* Estado */}
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Estado</label>
+                  <select
+                    value={filtros.estado}
+                    onChange={(e) => setFiltros({ ...filtros, estado: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="activo">Solo activos</option>
+                    <option value="baja">Solo dados de baja</option>
+                  </select>
+                </div>
+
+                {/* Tipo cliente */}
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Tipo cliente</label>
+                  <select
+                    value={filtros.tipo}
+                    onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="empresa">Empresas</option>
+                    <option value="particular">Particulares</option>
+                  </select>
+                </div>
+
+                {/* Facturación */}
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Facturación</label>
+                  <select
+                    value={filtros.tieneFacturacion}
+                    onChange={(e) => setFiltros({ ...filtros, tieneFacturacion: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="con">Con facturación activa</option>
+                    <option value="sin">Sin facturación</option>
+                  </select>
+                </div>
+
+                {/* Municipio */}
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Municipio</label>
+                  <select
+                    value={filtros.municipio}
+                    onChange={(e) => setFiltros({ ...filtros, municipio: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Todos</option>
+                    {opcionesFiltro?.municipios.map(m => (
+                      <option key={m.value} value={m.value}>{m.value} ({m.count})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Categoría de contrato */}
+                <div className="col-span-2 md:col-span-2">
+                  <label className="text-xs text-gray-500 block mb-1">Tipo de contrato/servicio</label>
+                  <select
+                    value={filtros.categoriaContrato}
+                    onChange={(e) => setFiltros({ ...filtros, categoriaContrato: e.target.value })}
+                    className="w-full border rounded-lg px-3 py-2 text-sm"
+                  >
+                    <option value="">Todos los contratos</option>
+                    {opcionesFiltro?.categorias.map(c => (
+                      <option key={c.value} value={c.value}>{c.value} ({c.count})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Muestra de destinatarios */}
+              {muestraDestinatarios.length > 0 && (
+                <div className="mt-3 pt-3 border-t">
+                  <p className="text-xs text-gray-500 mb-1">Muestra de destinatarios:</p>
+                  <div className="flex flex-wrap gap-1">
+                    {muestraDestinatarios.map((d: any) => (
+                      <span key={d.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
+                        {d.nombre}
+                      </span>
+                    ))}
+                    {totalDestinatarios && totalDestinatarios > 10 && (
+                      <span className="text-xs text-gray-400">+{totalDestinatarios - 10} más</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Asunto */}
@@ -379,9 +548,72 @@ export default function ComunicadosClient() {
               />
             </div>
 
-            {/* Contenido */}
+            {/* Contenido + IA */}
             <div className="bg-white border rounded-lg p-4">
-              <label className="text-sm font-medium text-gray-700 block mb-2">Contenido del mensaje</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700">Contenido del mensaje</label>
+                <button
+                  onClick={() => setShowIA(!showIA)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    showIA
+                      ? 'bg-purple-100 text-purple-700 ring-1 ring-purple-300'
+                      : 'bg-purple-50 text-purple-600 hover:bg-purple-100'
+                  }`}
+                >
+                  ✨ Asistente IA
+                </button>
+              </div>
+
+              {/* Panel del Asistente IA */}
+              {showIA && (
+                <div className="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex gap-2 mb-3">
+                    <button
+                      onClick={() => setIaAccion('generar')}
+                      className={`px-3 py-1.5 rounded text-xs font-medium ${
+                        iaAccion === 'generar' ? 'bg-purple-600 text-white' : 'bg-white text-purple-700 border border-purple-300'
+                      }`}
+                    >
+                      Generar desde cero
+                    </button>
+                    <button
+                      onClick={() => setIaAccion('mejorar')}
+                      className={`px-3 py-1.5 rounded text-xs font-medium ${
+                        iaAccion === 'mejorar' ? 'bg-purple-600 text-white' : 'bg-white text-purple-700 border border-purple-300'
+                      }`}
+                    >
+                      Mejorar redactado actual
+                    </button>
+                  </div>
+                  <textarea
+                    value={iaInstrucciones}
+                    onChange={(e) => setIaInstrucciones(e.target.value)}
+                    placeholder={iaAccion === 'generar'
+                      ? 'Describe qué quieres comunicar. Ej: "Mañana 16 de junio de 23:00 a 4:00 del 17 haremos mantenimiento, posible degradación del servicio de internet"'
+                      : 'Instrucciones para mejorar. Ej: "Hazlo más formal" o "Añade que pueden llamar si tienen dudas"'
+                    }
+                    rows={3}
+                    className="w-full border border-purple-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-purple-200 focus:border-purple-400 bg-white"
+                  />
+                  <div className="flex justify-end mt-2">
+                    <button
+                      onClick={handleIA}
+                      disabled={iaLoading || !iaInstrucciones.trim()}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {iaLoading ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          Generando...
+                        </>
+                      ) : (
+                        <>✨ {iaAccion === 'generar' ? 'Generar texto' : 'Mejorar texto'}</>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <textarea
                 value={contenido}
                 onChange={(e) => setContenido(e.target.value)}
@@ -398,29 +630,55 @@ export default function ComunicadosClient() {
                 onClick={handlePreview}
                 className="px-4 py-2.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
               >
-                👁️ Vista previa
+                Vista previa
               </button>
               <button
                 onClick={handleGuardarBorrador}
                 disabled={saving}
                 className="px-4 py-2.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 disabled:opacity-50"
               >
-                {saving ? 'Guardando...' : '💾 Guardar borrador'}
+                {saving ? 'Guardando...' : 'Guardar borrador'}
               </button>
               <button
                 onClick={handleGuardarYEnviar}
-                disabled={sending}
+                disabled={sending || totalDestinatarios === 0}
                 className="px-5 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
               >
-                {sending ? 'Enviando...' : '📨 Enviar ahora'}
+                {sending ? 'Enviando...' : `Enviar a ${totalDestinatarios || 0} clientes`}
               </button>
             </div>
           </div>
 
-          {/* Columna derecha: Plantillas */}
+          {/* Columna derecha: Plantillas + Info */}
           <div className="space-y-4">
+            {/* Stats rápidos */}
+            {opcionesFiltro?.stats && (
+              <div className="bg-white border rounded-lg p-4">
+                <h3 className="text-sm font-bold text-gray-900 mb-2">Clientes en el panel</h3>
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  <div className="bg-gray-50 rounded p-2">
+                    <p className="text-lg font-bold text-gray-900">{opcionesFiltro.stats.totalActivos}</p>
+                    <p className="text-xs text-gray-500">Activos</p>
+                  </div>
+                  <div className="bg-gray-50 rounded p-2">
+                    <p className="text-lg font-bold text-gray-900">{opcionesFiltro.stats.totalClientes}</p>
+                    <p className="text-xs text-gray-500">Total</p>
+                  </div>
+                  <div className="bg-blue-50 rounded p-2">
+                    <p className="text-lg font-bold text-blue-700">{opcionesFiltro.stats.totalEmpresas}</p>
+                    <p className="text-xs text-gray-500">Empresas</p>
+                  </div>
+                  <div className="bg-green-50 rounded p-2">
+                    <p className="text-lg font-bold text-green-700">{opcionesFiltro.stats.totalParticulares}</p>
+                    <p className="text-xs text-gray-500">Particulares</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Plantillas */}
             <div className="bg-white border rounded-lg p-4">
-              <h3 className="text-sm font-bold text-gray-900 mb-3">Plantillas predefinidas</h3>
+              <h3 className="text-sm font-bold text-gray-900 mb-3">Plantillas</h3>
               <div className="space-y-2">
                 {PLANTILLAS.map((p, idx) => {
                   const tipoInfo = getTipoInfo(p.tipo)
@@ -440,11 +698,12 @@ export default function ComunicadosClient() {
               </div>
             </div>
 
+            {/* Consejos */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <h4 className="text-sm font-bold text-blue-900 mb-2">Consejos</h4>
               <ul className="text-xs text-blue-800 space-y-1.5">
-                <li>• Usa las plantillas como base y personaliza</li>
-                <li>• Reemplaza los campos entre [CORCHETES]</li>
+                <li>• Usa el Asistente IA para generar o mejorar textos</li>
+                <li>• Filtra destinatarios por tipo, zona o contrato</li>
                 <li>• Revisa la vista previa antes de enviar</li>
                 <li>• Los emails se envían desde comercial@internetoperadores.com</li>
                 <li>• Puedes guardar como borrador y enviar después</li>
@@ -460,36 +719,25 @@ export default function ComunicadosClient() {
           <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between p-4 border-b">
               <h3 className="text-lg font-bold text-gray-900">Vista previa del email</h3>
-              <button
-                onClick={() => setShowPreview(false)}
-                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
-              >
-                &times;
-              </button>
+              <button onClick={() => setShowPreview(false)} className="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
             </div>
             <div className="flex-1 overflow-auto p-4 bg-gray-100">
               <div className="text-xs text-gray-500 mb-2">
                 <strong>De:</strong> Internet Operadores &lt;comercial@internetoperadores.com&gt;<br/>
                 <strong>Asunto:</strong> {asunto}<br/>
-                <strong>Para:</strong> {DESTINATARIOS.find(d => d.value === destinatarios)?.label}
+                <strong>Para:</strong> {totalDestinatarios} clientes
               </div>
-              <div
-                dangerouslySetInnerHTML={{ __html: previewHtml }}
-                className="border rounded-lg overflow-hidden"
-              />
+              <div dangerouslySetInnerHTML={{ __html: previewHtml }} className="border rounded-lg overflow-hidden" />
             </div>
             <div className="p-4 border-t flex justify-end gap-3">
-              <button
-                onClick={() => setShowPreview(false)}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200"
-              >
+              <button onClick={() => setShowPreview(false)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">
                 Cerrar
               </button>
               <button
                 onClick={() => { setShowPreview(false); handleGuardarYEnviar() }}
                 className="px-5 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700"
               >
-                📨 Enviar ahora
+                Enviar a {totalDestinatarios} clientes
               </button>
             </div>
           </div>
@@ -504,10 +752,7 @@ export default function ComunicadosClient() {
           ) : comunicados.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-gray-500 mb-4">No hay comunicados todavía</p>
-              <button
-                onClick={() => setVista('nuevo')}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700"
-              >
+              <button onClick={() => setVista('nuevo')} className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700">
                 Crear primer comunicado
               </button>
             </div>
@@ -518,7 +763,6 @@ export default function ComunicadosClient() {
                   <tr>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Asunto</th>
-                    <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Destinatarios</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Enviados</th>
@@ -537,11 +781,6 @@ export default function ComunicadosClient() {
                         </td>
                         <td className="px-4 py-3">
                           <p className="text-sm font-medium text-gray-900 truncate max-w-[300px]">{c.asunto}</p>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="text-xs text-gray-600">
-                            {c.destinatarios === 'TODOS' ? 'Todos' : c.destinatarios === 'EMPRESAS' ? 'Empresas' : 'Particulares'}
-                          </span>
                         </td>
                         <td className="px-4 py-3">
                           {c.estado === 'ENVIADO' ? (

@@ -23,7 +23,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { tipo, asunto, contenido, destinatarios } = body
+  const { tipo, asunto, contenido, destinatarios, filtros } = body
 
   if (!asunto || !contenido) {
     return NextResponse.json({ error: 'Asunto y contenido son requeridos' }, { status: 400 })
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
       asunto,
       contenido,
       destinatarios: destinatarios || 'TODOS',
+      filtrosDestinatarios: filtros ? JSON.stringify(filtros) : null,
       estado: 'BORRADOR',
       creadoPor: session.user?.email || 'admin',
     },
