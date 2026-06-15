@@ -21,7 +21,8 @@ import {
   GlobeAltIcon,
   QueueListIcon,
   SignalIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  MegaphoneIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -92,6 +93,7 @@ const navigation: NavEntry[] = [
       { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon },
     ],
   },
+  { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon },
   { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon },
   { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
   { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },

@@ -923,3 +923,44 @@ enum PrioridadMigracion {
   NORMAL
   BAJA
 }
+
+// ===== COMUNICADOS A CLIENTES =====
+model Comunicado {
+  id              Int                @id @default(autoincrement())
+  tipo            TipoComunicado     @default(MANTENIMIENTO)
+  asunto          String
+  contenido       String             @db.Text
+  // Destinatarios
+  destinatarios   DestinatariosComunicado @default(TODOS)
+  // Estado del envío
+  estado          EstadoComunicado   @default(BORRADOR)
+  fechaEnvio      DateTime?          @map("fecha_envio")
+  totalEnviados   Int                @default(0) @map("total_enviados")
+  // Quién lo creó
+  creadoPor       String?            @map("creado_por")
+  // Timestamps
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@index([tipo])
+  @@map("comunicados")
+}
+
+enum TipoComunicado {
+  MANTENIMIENTO
+  INCIDENCIA
+  NOVEDAD
+  COMERCIAL
+}
+
+enum EstadoComunicado {
+  BORRADOR
+  ENVIADO
+}
+
+enum DestinatariosComunicado {
+  TODOS
+  EMPRESAS
+  PARTICULARES
+}
