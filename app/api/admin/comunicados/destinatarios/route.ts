@@ -4,6 +4,23 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
+// Categorías de servicios (misma lógica que contratos)
+const CATEGORIAS_SERVICIO: Record<string, string[]> = {
+  'Móvil': ['CANARIO', 'CACATUA', 'PERIQUITO', 'PERDIU', 'VOLIBRI', 'NINFA', 'TRENCALOS', 'TRENCALÒS', 'TTB', 'SÓLO MÓVIL', 'SOLO MOVIL', 'LÍNEA MÓVIL', 'LINEA MOVIL'],
+  'Fibra': ['FIBRA', 'ADAMO', 'T-FIBRA', 'CM- FIBRA', 'AN-FIBRA', 'FTTH'],
+  '4G / Inalámbrico': ['4G', 'T-INFINITO', 'IO 4G', 'STARLINK'],
+  'Convergente': ['CONVERGENTE', 'LIFE ONE', 'LIFE ORIGINAL'],
+  'Línea Fija': ['LINEA FIJA', 'LÍNEA FIJA', 'LINEA DE FAX'],
+  'IP Fija': ['IP FIJA', 'POOL IP'],
+  'Centralita / PBX': ['PBX', 'WILDIX', 'CENTRALITA'],
+  'Hosting / Cloud': ['DOMINIO', 'HOSTING', 'GOOGLE', 'BUZON', 'BUZÓN', 'SERVIDOR', 'BACKUP', 'CLOUD'],
+  'WiFi / Hotspot': ['HOTSPOT', 'WIFI', 'WIFI4EU'],
+  'Mantenimiento IT': ['MANTENIMIENTO'],
+  'VPN': ['VPN', 'MACROLAN'],
+  'TV': ['TV', 'PLATAFORMA'],
+  'Terminales': ['TERMINAL', 'DECT'],
+}
+
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
   if (!session) {
@@ -11,7 +28,9 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json()
-  const { estado, tipo, municipio, tieneFacturacion, tarifa } = body
+  const { estado, tipo, municipio, tieneFacturacion, tarifas, categorias } = body
+  // tarifas: string[] — tarifas individuales seleccionadas
+  // categorias: string[] — categorías seleccionadas (se expanden a keywords)
 
   // Construir filtro para ClienteWeb
   const where: Prisma.ClienteWebWhereInput = {}
@@ -38,13 +57,15 @@ export async function POST(request: Request) {
   // Solo con email válido
   where.email = { not: '', contains: '@' }
 
-  // Filtrar por contratos/facturación
-  if (tieneFacturacion === 'con' || (tarifa && tarifa !== '')) {
+  // Filtrar por contratos/facturación/tarifas/categorías
+  const tieneFiltroTarifas = (tarifas && tarifas.length > 0) || (categorias && categorias.length > 0)
+  
+  if (tieneFacturacion === 'con' || tieneFiltroTarifas) {
     where.clienteIdIsp = {
-      in: await getClienteIdsConContratos(true, tarifa || undefined),
+      in: await getClienteIdsConContratos(true, tarifas || [], categorias || []),
     }
   } else if (tieneFacturacion === 'sin') {
-    const idsConContrato = await getClienteIdsConContratos(true, undefined)
+    const idsConContrato = await getClienteIdsConContratos(true, [], [])
     where.clienteIdIsp = { notIn: idsConContrato }
   }
 
@@ -62,11 +83,33 @@ export async function POST(request: Request) {
   return NextResponse.json({ total, muestra })
 }
 
-async function getClienteIdsConContratos(activo: boolean, tarifa?: string): Promise<string[]> {
+async function getClienteIdsConContratos(activo: boolean, tarifas: string[], categorias: string[]): Promise<string[]> {
   const contratoWhere: Prisma.ContratoServicioWhereInput = { activo }
   
-  if (tarifa && tarifa !== '') {
-    contratoWhere.tarifa = { contains: tarifa, mode: 'insensitive' }
+  // Construir condiciones OR para tarifas individuales y categorías
+  const orConditions: Prisma.ContratoServicioWhereInput[] = []
+
+  // Tarifas individuales seleccionadas (match exacto por contains)
+  if (tarifas && tarifas.length > 0) {
+    for (const tarifa of tarifas) {
+      orConditions.push({ tarifa: { equals: tarifa, mode: 'insensitive' } })
+    }
+  }
+
+  // Categorías seleccionadas (se expanden a keywords con LIKE)
+  if (categorias && categorias.length > 0) {
+    for (const cat of categorias) {
+      const keywords = CATEGORIAS_SERVICIO[cat]
+      if (keywords) {
+        for (const kw of keywords) {
+          orConditions.push({ tarifa: { contains: kw, mode: 'insensitive' } })
+        }
+      }
+    }
+  }
+
+  if (orConditions.length > 0) {
+    contratoWhere.OR = orConditions
   }
 
   const contratos = await prisma.contratoServicio.findMany({
@@ -110,16 +153,47 @@ export async function GET() {
     .filter(t => t.tarifa && t.tarifa.trim() !== '')
     .map(t => ({ value: t.tarifa!, count: t._count.id }))
 
+  // Agrupar tarifas por categoría para el frontend
+  const tarifasPorCategoria: Record<string, { value: string; count: number }[]> = {}
+  for (const cat of Object.keys(CATEGORIAS_SERVICIO)) {
+    tarifasPorCategoria[cat] = []
+  }
+  tarifasPorCategoria['Otros'] = []
+
+  for (const t of tarifas) {
+    let asignada = false
+    for (const [cat, keywords] of Object.entries(CATEGORIAS_SERVICIO)) {
+      if (keywords.some(kw => t.value.toUpperCase().includes(kw.toUpperCase()))) {
+        tarifasPorCategoria[cat].push(t)
+        asignada = true
+        break
+      }
+    }
+    if (!asignada) {
+      tarifasPorCategoria['Otros'].push(t)
+    }
+  }
+
+  // Contar contratos por categoría
+  const categoriasConConteo = Object.entries(tarifasPorCategoria)
+    .filter(([, items]) => items.length > 0)
+    .map(([cat, items]) => ({
+      nombre: cat,
+      totalContratos: items.reduce((sum, t) => sum + t.count, 0),
+      tarifas: items,
+    }))
+
   // Stats generales
   const totalClientes = await prisma.clienteWeb.count()
   const totalActivos = await prisma.clienteWeb.count({ where: { activo: true } })
   const totalEmpresas = await prisma.clienteWeb.count({ where: { activo: true, personaFisica: false } })
   const totalParticulares = await prisma.clienteWeb.count({ where: { activo: true, personaFisica: true } })
-  const totalConFacturacion = await getClienteIdsConContratos(true, undefined)
+  const totalConFacturacion = await getClienteIdsConContratos(true, [], [])
 
   return NextResponse.json({
     municipios,
     tarifas,
+    categoriasServicio: categoriasConConteo,
     stats: {
       totalClientes,
       totalActivos,

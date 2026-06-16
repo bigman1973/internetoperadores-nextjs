@@ -21,12 +21,20 @@ interface FiltrosState {
   tipo: string
   municipio: string
   tieneFacturacion: string
-  tarifa: string
+  tarifas: string[]
+  categorias: string[]
+}
+
+interface CategoriaServicio {
+  nombre: string
+  totalContratos: number
+  tarifas: { value: string; count: number }[]
 }
 
 interface OpcionesFiltro {
   municipios: { value: string; count: number }[]
   tarifas: { value: string; count: number }[]
+  categoriasServicio: CategoriaServicio[]
   stats: { totalClientes: number; totalActivos: number; totalEmpresas: number; totalParticulares: number; totalConFacturacion: number }
 }
 
@@ -132,8 +140,10 @@ export default function ComunicadosClient() {
     tipo: 'todos',
     municipio: '',
     tieneFacturacion: 'todos',
-    tarifa: '',
+    tarifas: [],
+    categorias: [],
   })
+  const [showTarifas, setShowTarifas] = useState(false)
   const [totalDestinatarios, setTotalDestinatarios] = useState<number | null>(null)
   const [muestraDestinatarios, setMuestraDestinatarios] = useState<any[]>([])
   const [opcionesFiltro, setOpcionesFiltro] = useState<OpcionesFiltro | null>(null)
@@ -364,7 +374,8 @@ export default function ComunicadosClient() {
     setTipo('MANTENIMIENTO')
     setAsunto('')
     setContenido('')
-    setFiltros({ estado: 'activo', tipo: 'todos', municipio: '', tieneFacturacion: 'todos', tarifa: '' })
+    setFiltros({ estado: 'activo', tipo: 'todos', municipio: '', tieneFacturacion: 'todos', tarifas: [], categorias: [] })
+    setShowTarifas(false)
     setShowPreview(false)
     setPreviewHtml('')
     setShowIA(false)
@@ -502,20 +513,87 @@ export default function ComunicadosClient() {
                   </select>
                 </div>
 
-                {/* Tarifa / Servicio */}
-                <div className="col-span-2 md:col-span-2">
-                  <label className="text-xs text-gray-500 block mb-1">Tarifa / Servicio contratado</label>
-                  <select
-                    value={filtros.tarifa}
-                    onChange={(e) => setFiltros({ ...filtros, tarifa: e.target.value })}
-                    className="w-full border rounded-lg px-3 py-2.5 text-base text-gray-900"
-                  >
-                    <option value="">Todas las tarifas</option>
-                    {opcionesFiltro?.tarifas.map(t => (
-                      <option key={t.value} value={t.value}>{t.value} ({t.count})</option>
-                    ))}
-                  </select>
+              </div>
+
+              {/* Categorías de servicio - chips */}
+              <div className="mt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-gray-500">Filtrar por tipo de servicio (categoría)</label>
+                  {filtros.categorias.length > 0 && (
+                    <button
+                      onClick={() => setFiltros({ ...filtros, categorias: [] })}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      Limpiar categorías
+                    </button>
+                  )}
                 </div>
+                <div className="flex flex-wrap gap-2">
+                  {opcionesFiltro?.categoriasServicio.map(cat => (
+                    <button
+                      key={cat.nombre}
+                      onClick={() => {
+                        const nuevas = filtros.categorias.includes(cat.nombre)
+                          ? filtros.categorias.filter(c => c !== cat.nombre)
+                          : [...filtros.categorias, cat.nombre]
+                        setFiltros({ ...filtros, categorias: nuevas })
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                        filtros.categorias.includes(cat.nombre)
+                          ? 'bg-orange-500 text-white shadow-sm'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {cat.nombre} ({cat.totalContratos})
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tarifas individuales - expandible */}
+              <div className="mt-3">
+                <button
+                  onClick={() => setShowTarifas(!showTarifas)}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  <span>{showTarifas ? '▼' : '▶'}</span>
+                  Seleccionar tarifas individuales {filtros.tarifas.length > 0 && `(${filtros.tarifas.length} seleccionadas)`}
+                </button>
+                {showTarifas && (
+                  <div className="mt-2 max-h-48 overflow-y-auto border rounded-lg p-3 bg-gray-50">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs text-gray-500">Haz clic para seleccionar/deseleccionar</span>
+                      {filtros.tarifas.length > 0 && (
+                        <button
+                          onClick={() => setFiltros({ ...filtros, tarifas: [] })}
+                          className="text-xs text-red-500 hover:text-red-700"
+                        >
+                          Limpiar tarifas
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {opcionesFiltro?.tarifas.map(t => (
+                        <button
+                          key={t.value}
+                          onClick={() => {
+                            const nuevas = filtros.tarifas.includes(t.value)
+                              ? filtros.tarifas.filter(x => x !== t.value)
+                              : [...filtros.tarifas, t.value]
+                            setFiltros({ ...filtros, tarifas: nuevas })
+                          }}
+                          className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                            filtros.tarifas.includes(t.value)
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-white text-gray-700 border border-gray-300 hover:border-blue-400'
+                          }`}
+                        >
+                          {t.value} ({t.count})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Muestra de destinatarios */}

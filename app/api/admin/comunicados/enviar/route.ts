@@ -153,12 +153,53 @@ export async function POST(request: Request) {
   // Solo clientes con email válido
   where.email = { not: '', contains: '@' }
 
-  // Filtro por contratos
-  if (filtros.tieneFacturacion === 'con' || filtros.tarifa) {
+  // Categorías de servicios (misma lógica que contratos)
+  const CATEGORIAS_SERVICIO: Record<string, string[]> = {
+    'Móvil': ['CANARIO', 'CACATUA', 'PERIQUITO', 'PERDIU', 'VOLIBRI', 'NINFA', 'TRENCALOS', 'TRENCALÒS', 'TTB', 'SÓLO MÓVIL', 'SOLO MOVIL', 'LÍNEA MÓVIL', 'LINEA MOVIL'],
+    'Fibra': ['FIBRA', 'ADAMO', 'T-FIBRA', 'CM- FIBRA', 'AN-FIBRA', 'FTTH'],
+    '4G / Inalámbrico': ['4G', 'T-INFINITO', 'IO 4G', 'STARLINK'],
+    'Convergente': ['CONVERGENTE', 'LIFE ONE', 'LIFE ORIGINAL'],
+    'Línea Fija': ['LINEA FIJA', 'LÍNEA FIJA', 'LINEA DE FAX'],
+    'IP Fija': ['IP FIJA', 'POOL IP'],
+    'Centralita / PBX': ['PBX', 'WILDIX', 'CENTRALITA'],
+    'Hosting / Cloud': ['DOMINIO', 'HOSTING', 'GOOGLE', 'BUZON', 'BUZÓN', 'SERVIDOR', 'BACKUP', 'CLOUD'],
+    'WiFi / Hotspot': ['HOTSPOT', 'WIFI', 'WIFI4EU'],
+    'Mantenimiento IT': ['MANTENIMIENTO'],
+    'VPN': ['VPN', 'MACROLAN'],
+    'TV': ['TV', 'PLATAFORMA'],
+    'Terminales': ['TERMINAL', 'DECT'],
+  }
+
+  // Filtro por contratos (soporta múltiples tarifas y categorías)
+  const tieneFiltroTarifas = (filtros.tarifas && filtros.tarifas.length > 0) || (filtros.categorias && filtros.categorias.length > 0)
+  
+  if (filtros.tieneFacturacion === 'con' || tieneFiltroTarifas) {
     const contratoWhere: Prisma.ContratoServicioWhereInput = { activo: true }
-    if (filtros.tarifa) {
-      contratoWhere.tarifa = { contains: filtros.tarifa, mode: 'insensitive' }
+    const orConditions: Prisma.ContratoServicioWhereInput[] = []
+
+    // Tarifas individuales
+    if (filtros.tarifas && filtros.tarifas.length > 0) {
+      for (const tarifa of filtros.tarifas) {
+        orConditions.push({ tarifa: { equals: tarifa, mode: 'insensitive' } })
+      }
     }
+
+    // Categorías (se expanden a keywords)
+    if (filtros.categorias && filtros.categorias.length > 0) {
+      for (const cat of filtros.categorias) {
+        const keywords = CATEGORIAS_SERVICIO[cat]
+        if (keywords) {
+          for (const kw of keywords) {
+            orConditions.push({ tarifa: { contains: kw, mode: 'insensitive' } })
+          }
+        }
+      }
+    }
+
+    if (orConditions.length > 0) {
+      contratoWhere.OR = orConditions
+    }
+
     const contratos = await prisma.contratoServicio.findMany({
       where: contratoWhere,
       select: { clienteId: true },
