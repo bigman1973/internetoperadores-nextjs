@@ -26,6 +26,7 @@ interface ClienteAdamo {
   notas: string | null
   fechaContacto: string | null
   fechaResolucion: string | null
+  email: string | null
   emailEnviado: boolean
   fechaEmailEnviado: string | null
   respuestaCliente: string | null
@@ -129,7 +130,7 @@ export default function MigracionAdamoClient() {
       return
     }
     
-    // Guardar automáticamente la tarifa/notas antes de enviar
+    // Guardar automáticamente la tarifa/notas/email antes de enviar
     try {
       await fetch('/api/admin/migracion-adamo', {
         method: 'PATCH',
@@ -139,6 +140,7 @@ export default function MigracionAdamoClient() {
           notas: editNotas || null,
           alternativaOfrecida: editAlternativa || null,
           precioAlternativa: editPrecioAlt ? parseFloat(editPrecioAlt) : null,
+          email: emailInput || null,
         }),
       })
     } catch (error) {
@@ -267,6 +269,7 @@ export default function MigracionAdamoClient() {
     setEditNotas(cliente.notas || '')
     setEditAlternativa(cliente.alternativaOfrecida || '')
     setEditPrecioAlt(cliente.precioAlternativa?.toString() || '')
+    setEmailInput(cliente.email || '')
   }
 
   const getCountByEstado = (estado: string) => {

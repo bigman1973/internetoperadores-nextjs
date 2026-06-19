@@ -894,6 +894,8 @@ model ClienteMigracionAdamo {
   notas             String?
   fechaContacto     DateTime?             @map("fecha_contacto")
   fechaResolucion   DateTime?             @map("fecha_resolucion")
+  // Email del cliente
+  email             String?
   // Email y respuesta
   token             String?               @unique
   emailEnviado      Boolean               @default(false) @map("email_enviado")

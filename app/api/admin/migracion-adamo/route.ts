@@ -147,7 +147,7 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json()
-  const { id, estado, notas, alternativaOfrecida, precioAlternativa, emailEnviado, fechaEmailEnviado, respuestaCliente, fechaRespuesta, token, fechaContacto, fechaResolucion } = body
+  const { id, estado, notas, alternativaOfrecida, precioAlternativa, email, emailEnviado, fechaEmailEnviado, respuestaCliente, fechaRespuesta, token, fechaContacto, fechaResolucion } = body
 
   if (!id) {
     return NextResponse.json({ error: 'ID requerido' }, { status: 400 })
@@ -165,6 +165,7 @@ export async function PATCH(request: Request) {
   if (token !== undefined) updateData.token = token
   if (fechaContacto !== undefined) updateData.fechaContacto = fechaContacto
   if (fechaResolucion !== undefined) updateData.fechaResolucion = fechaResolucion
+  if (email !== undefined) updateData.email = email
 
   if (estado === 'CONTACTADO' && !updateData.fechaContacto) {
     updateData.fechaContacto = new Date()
