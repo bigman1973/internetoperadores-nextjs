@@ -98,8 +98,8 @@ function RespuestaContent() {
           <div className="text-4xl mb-4">⚠️</div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Enlace no válido</h1>
           <p className="text-gray-600 mb-6">Este enlace no es válido o ha expirado. Si necesitas ayuda, contacta con nosotros.</p>
-          <a href="tel:973621541" className="inline-block bg-orange-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-600">
-            Llamar al 973 621 541
+          <a href="tel:900730034" className="inline-block bg-orange-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-600">
+            Llamar al 900 730 034
           </a>
         </div>
       </div>
@@ -113,8 +113,8 @@ function RespuestaContent() {
           <div className="text-4xl mb-4">❌</div>
           <h1 className="text-xl font-bold text-gray-900 mb-2">Error</h1>
           <p className="text-gray-600 mb-6">{mensaje}</p>
-          <a href="tel:973621541" className="inline-block bg-orange-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-600">
-            Llamar al 973 621 541
+          <a href="tel:900730034" className="inline-block bg-orange-500 text-white px-6 py-3 rounded-lg font-medium hover:bg-orange-600">
+            Llamar al 900 730 034
           </a>
         </div>
       </div>
@@ -133,7 +133,7 @@ function RespuestaContent() {
         
         <div className="bg-gray-50 rounded-lg p-4 mb-6">
           <p className="text-sm text-gray-500 mb-1">¿Necesitas contactarnos?</p>
-          <p className="text-lg font-bold text-gray-900">973 621 541</p>
+          <p className="text-lg font-bold text-gray-900">900 730 034</p>
           <p className="text-sm text-gray-500">comercial@internetoperadores.com</p>
         </div>
 

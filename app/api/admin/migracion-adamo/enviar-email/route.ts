@@ -68,7 +68,7 @@ function getEmailHtmlGenerico(nombre: string, token: string): string {
   <!-- Footer -->
   <div style="background-color:#f8f8f8;padding:20px 40px;border-top:1px solid #eee;">
     <p style="font-size:12px;color:#888;margin:0;text-align:center;">
-      Internet Operadores · Tel: 973 621 541 · comercial@internetoperadores.com
+      Internet Operadores · Tel: 900 730 034 · comercial@internetoperadores.com
     </p>
   </div>
 </div>
@@ -146,7 +146,7 @@ function getEmailHtmlConTarifa(nombre: string, tarifa: string, precioSinIva: num
   <!-- Footer -->
   <div style="background-color:#f8f8f8;padding:20px 40px;border-top:1px solid #eee;">
     <p style="font-size:12px;color:#888;margin:0;text-align:center;">
-      Internet Operadores · Tel: 973 621 541 · comercial@internetoperadores.com
+      Internet Operadores · Tel: 900 730 034 · comercial@internetoperadores.com
     </p>
   </div>
 </div>

@@ -128,7 +128,30 @@ export default function MigracionAdamoClient() {
       alert('Introduce al menos un email válido')
       return
     }
-    if (!confirm(`¿Enviar email de migración a: ${emails.join(', ')}?`)) return
+    
+    // Guardar automáticamente la tarifa/notas antes de enviar
+    try {
+      await fetch('/api/admin/migracion-adamo', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: clienteId,
+          notas: editNotas || null,
+          alternativaOfrecida: editAlternativa || null,
+          precioAlternativa: editPrecioAlt ? parseFloat(editPrecioAlt) : null,
+        }),
+      })
+    } catch (error) {
+      console.error('Error guardando antes de enviar:', error)
+      alert('Error al guardar los datos. Inténtalo de nuevo.')
+      return
+    }
+
+    const tipoEmail = editAlternativa && editAlternativa !== '__otro' && editAlternativa !== '' && editPrecioAlt
+      ? `con propuesta de tarifa: ${editAlternativa} (${editPrecioAlt}€)`
+      : 'genérico (sin tarifa seleccionada)'
+
+    if (!confirm(`¿Enviar email de migración a: ${emails.join(', ')}?\n\nTipo: ${tipoEmail}`)) return
     
     setSendingEmail(true)
     let enviados = 0
