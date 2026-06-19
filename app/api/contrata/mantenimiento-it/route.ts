@@ -182,7 +182,7 @@ async function addToBrevoNewsletter(email: string, nombre: string, empresa: stri
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { nombre, email, empresa, telefono, numEquipos, numServidores, serviciosInteres, coberturaHoraria, equipoITInterno, produccion24h, sistemasCriticos, comentarios } = body;
+    const { nombre, email, empresa, telefono, tipoNegocio, numEquipos, numServidores, serviciosInteres, coberturaHoraria, equipoITInterno, produccion24h, sistemasCriticos, comentarios, softwareEspecifico, backupCiberseguridad, numSedes, presupuestoOrientativo } = body;
 
     // Validaciones
     if (!nombre || !email || !empresa) {
@@ -199,17 +199,30 @@ export async function POST(request: Request) {
       );
     }
 
+    // Etiqueta tipo de negocio para emails
+    const tipoNegocioLabels: Record<string, string> = {
+      'FARMACIA': 'Farmacia / Centro médico',
+      'HORECA': 'HORECA (hostelería, restauración)',
+      'PYME': 'PYME (hasta 20 empleados)',
+      'MEDIANA_GRANDE': 'Mediana / Gran empresa (+20 empleados)',
+    };
+    const tipoNegocioLabel = tipoNegocioLabels[tipoNegocio] || tipoNegocio || 'No indicado';
+
     // Normalizar servicios de interés
     const serviciosTexto = Array.isArray(serviciosInteres) ? serviciosInteres.join(', ') : (serviciosInteres || 'No indicado');
+    const softwareTexto = Array.isArray(softwareEspecifico) ? softwareEspecifico.join(', ') : (softwareEspecifico || 'No indicado');
 
     // === EMAILS ===
     const emailComercialHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #1a1a2e; padding: 20px; text-align: center;">
           <h1 style="color: #f97316; margin: 0; font-size: 20px;">Nueva Solicitud de Servicios IT Gestionados</h1>
-          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Formulario Mantenimiento IT - Página Soluciones</p>
+          <p style="color: #9ca3af; margin: 8px 0 0 0; font-size: 14px;">Formulario Mantenimiento IT - ${tipoNegocioLabel}</p>
         </div>
         <div style="padding: 24px; background: #f9f9f9;">
+          <div style="background: #fff7ed; border: 2px solid #f97316; border-radius: 8px; padding: 12px; margin-bottom: 16px; text-align: center;">
+            <p style="margin: 0; font-weight: bold; color: #ea580c; font-size: 15px;">Tipo de negocio: ${tipoNegocioLabel}</p>
+          </div>
           <table style="width: 100%; border-collapse: collapse;">
             <tr style="background: #f3f4f6;"><td style="padding: 10px; font-weight: bold; color: #374151;">Nombre:</td><td style="padding: 10px; color: #1f2937;">${nombre}</td></tr>
             <tr><td style="padding: 10px; font-weight: bold; color: #374151;">Empresa:</td><td style="padding: 10px; color: #1f2937;">${empresa}</td></tr>
@@ -220,11 +233,15 @@ export async function POST(request: Request) {
             <h3 style="margin: 0 0 12px 0; color: #f97316; font-size: 16px;">Infraestructura y necesidades</h3>
             <table style="width: 100%; border-collapse: collapse;">
               <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Nº equipos/PCs:</td><td style="padding: 8px; color: #1f2937;">${numEquipos || 'No indicado'}</td></tr>
-              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Nº servidores:</td><td style="padding: 8px; color: #1f2937;">${numServidores || 'No indicado'}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Cobertura horaria:</td><td style="padding: 8px; color: #1f2937;">${coberturaHoraria || 'No indicado'}</td></tr>
-              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Producción 24h:</td><td style="padding: 8px; color: #1f2937;">${produccion24h || 'No indicado'}</td></tr>
-              <tr><td style="padding: 8px; font-weight: bold; color: #374151;">Equipo IT interno:</td><td style="padding: 8px; color: #1f2937;">${equipoITInterno || 'No indicado'}</td></tr>
-              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Sistemas críticos:</td><td style="padding: 8px; color: #1f2937;">${sistemasCriticos || 'No indicado'}</td></tr>
+              <tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Cobertura horaria:</td><td style="padding: 8px; color: #1f2937;">${coberturaHoraria || 'No indicado'}</td></tr>
+              ${numServidores ? `<tr><td style="padding: 8px; font-weight: bold; color: #374151;">Nº servidores:</td><td style="padding: 8px; color: #1f2937;">${numServidores}</td></tr>` : ''}
+              ${softwareTexto !== 'No indicado' ? `<tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Software específico:</td><td style="padding: 8px; color: #1f2937;">${softwareTexto}</td></tr>` : ''}
+              ${produccion24h ? `<tr><td style="padding: 8px; font-weight: bold; color: #374151;">Producción/servicio:</td><td style="padding: 8px; color: #1f2937;">${produccion24h}</td></tr>` : ''}
+              ${backupCiberseguridad ? `<tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Backup/Ciberseguridad:</td><td style="padding: 8px; color: #1f2937;">${backupCiberseguridad}</td></tr>` : ''}
+              ${numSedes ? `<tr><td style="padding: 8px; font-weight: bold; color: #374151;">Nº sedes:</td><td style="padding: 8px; color: #1f2937;">${numSedes}</td></tr>` : ''}
+              ${equipoITInterno ? `<tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Equipo IT interno:</td><td style="padding: 8px; color: #1f2937;">${equipoITInterno}</td></tr>` : ''}
+              ${sistemasCriticos ? `<tr><td style="padding: 8px; font-weight: bold; color: #374151;">Sistemas críticos:</td><td style="padding: 8px; color: #1f2937;">${sistemasCriticos}</td></tr>` : ''}
+              ${presupuestoOrientativo ? `<tr style="background: #f9fafb;"><td style="padding: 8px; font-weight: bold; color: #374151;">Presupuesto orientativo:</td><td style="padding: 8px; color: #1f2937;">${presupuestoOrientativo}</td></tr>` : ''}
             </table>
           </div>
           ${serviciosTexto !== 'No indicado' ? `
@@ -293,7 +310,7 @@ export async function POST(request: Request) {
     ];
 
     // HubSpot: lista Mantenimiento IT + Newsletter Empresas
-    const notaHubspot = `Solicitud de Servicios IT Gestionados\n- Equipos/PCs: ${numEquipos || 'No indicado'}\n- Servidores: ${numServidores || 'No indicado'}\n- Cobertura horaria: ${coberturaHoraria || 'No indicado'}\n- Producción 24h: ${produccion24h || 'No indicado'}\n- Equipo IT interno: ${equipoITInterno || 'No indicado'}\n- Sistemas críticos: ${sistemasCriticos || 'No indicado'}\n- Servicios de interés: ${serviciosTexto}\n- Comentarios: ${comentarios || 'Sin comentarios'}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`;
+    const notaHubspot = `Solicitud de Servicios IT Gestionados\nTipo de negocio: ${tipoNegocioLabel}\n- Equipos/PCs: ${numEquipos || 'No indicado'}\n- Cobertura horaria: ${coberturaHoraria || 'No indicado'}\n${numServidores ? `- Servidores: ${numServidores}\n` : ''}${softwareTexto !== 'No indicado' ? `- Software específico: ${softwareTexto}\n` : ''}${produccion24h ? `- Producción/servicio: ${produccion24h}\n` : ''}${backupCiberseguridad ? `- Backup/Ciberseguridad: ${backupCiberseguridad}\n` : ''}${numSedes ? `- Nº sedes: ${numSedes}\n` : ''}${equipoITInterno ? `- Equipo IT interno: ${equipoITInterno}\n` : ''}${sistemasCriticos ? `- Sistemas críticos: ${sistemasCriticos}\n` : ''}${presupuestoOrientativo ? `- Presupuesto orientativo: ${presupuestoOrientativo}\n` : ''}- Servicios de interés: ${serviciosTexto}\n- Comentarios: ${comentarios || 'Sin comentarios'}\n\nFecha: ${new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}`;
 
     const hubspotPromise = addToHubSpot(email, nombre, empresa, telefono, [HUBSPOT_LIST_MANTENIMIENTO, HUBSPOT_LIST_NEWSLETTER_EMPRESAS], notaHubspot);
 
@@ -309,13 +326,29 @@ export async function POST(request: Request) {
         empresa,
         telefono: telefono || null,
         datos: {
+          tipoNegocio: tipoNegocio || null,
           numEquipos: numEquipos || null,
-          numServidores: numServidores || null,
-          serviciosInteres: serviciosInteres || [],
           coberturaHoraria: coberturaHoraria || null,
-          equipoITInterno: equipoITInterno || null,
-          produccion24h: produccion24h || null,
-          sistemasCriticos: sistemasCriticos || null,
+          // Campos Farmacia/HORECA
+          ...(tipoNegocio === 'FARMACIA' || tipoNegocio === 'HORECA' ? {
+            softwareEspecifico: softwareEspecifico || [],
+            produccion24h: produccion24h || null,
+          } : {}),
+          // Campos PYME
+          ...(tipoNegocio === 'PYME' ? {
+            numServidores: numServidores || null,
+            serviciosInteres: serviciosInteres || [],
+            backupCiberseguridad: backupCiberseguridad || null,
+          } : {}),
+          // Campos Mediana/Grande
+          ...(tipoNegocio === 'MEDIANA_GRANDE' ? {
+            numServidores: numServidores || null,
+            numSedes: numSedes || null,
+            equipoITInterno: equipoITInterno || null,
+            sistemasCriticos: sistemasCriticos || null,
+            presupuestoOrientativo: presupuestoOrientativo || null,
+            serviciosInteres: serviciosInteres || [],
+          } : {}),
           comentarios: comentarios || null,
         },
       },
