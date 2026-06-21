@@ -82,6 +82,8 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [copiado, setCopiado] = useState(false);
   const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
   const [propuestaGenerada, setPropuestaGenerada] = useState(false);
+  const [syncingHS, setSyncingHS] = useState(false);
+  const [hubspotMsg, setHubspotMsg] = useState('');
 
   useEffect(() => {
     fetchLead();
@@ -233,6 +235,24 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
 
   const verPropuestaPDF = () => {
     window.open(`/api/admin/leads/generar-propuesta/pdf?leadId=${leadId}`, '_blank');
+  };
+
+  const syncHubspot = async () => {
+    setSyncingHS(true);
+    setHubspotMsg('');
+    try {
+      const res = await fetch(`/api/admin/leads/${leadId}/hubspot-deal`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setHubspotMsg(`✓ Deal ${data.created ? 'creado' : 'actualizado'} en HubSpot`);
+      } else {
+        setHubspotMsg(`✗ ${data.error || 'Error al sincronizar'}`);
+      }
+    } catch (err) {
+      setHubspotMsg('✗ Error de conexión');
+    } finally {
+      setSyncingHS(false);
+    }
   };
 
   if (loading) {
@@ -556,44 +576,84 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             </button>
           </div>
 
-          {/* Estado del proceso */}
+          {/* Proceso de Venta */}
           <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Estado del proceso</h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-gray-500">Formulario recibido</span>
-                <span className="text-green-600">✓</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Cuestionario creado</span>
-                <span className={lead.cuestionario ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.cuestionario ? '✓' : '○'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">PDF adjuntado</span>
-                <span className={lead.informePdfUrl ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.informePdfUrl ? '✓' : '○'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Email enviado</span>
-                <span className={lead.cuestionario?.fechaEnvio ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.cuestionario?.fechaEnvio ? '✓' : '○'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Cuestionario completado</span>
-                <span className={lead.cuestionario?.estado === 'COMPLETADO' ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.cuestionario?.estado === 'COMPLETADO' ? '✓' : '○'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">Propuesta generada</span>
-                <span className={lead.informePdfUrl ? 'text-green-600' : 'text-gray-300'}>
-                  {lead.informePdfUrl ? '✓' : '○'}
-                </span>
-              </div>
+            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Proceso de Venta</h3>
+            <div className="space-y-0">
+              {[
+                { id: 'NUEVO', label: '1. Lead nuevo', action: 'Revisar formulario' },
+                { id: 'EN_REVISION', label: '2. Análisis técnico', action: 'Crear cuestionario + auditoría' },
+                { id: 'AUDITORIA_ENVIADA', label: '3. Auditoría enviada', action: 'Enviar email con PDF + cuestionario' },
+                { id: 'CUESTIONARIO_ENVIADO', label: '4. Cuestionario enviado', action: 'Esperar respuestas del cliente' },
+                { id: 'CUESTIONARIO_COMPLETADO', label: '5. Cuestionario completado', action: 'Generar propuesta económica' },
+                { id: 'PROPUESTA_ENVIADA', label: '6. Propuesta enviada', action: 'Seguimiento comercial' },
+                { id: 'CERRADO_GANADO', label: '7. Ganado', action: 'Iniciar migración' },
+              ].map((paso, idx) => {
+                const estadoOrden = ['NUEVO', 'EN_REVISION', 'AUDITORIA_ENVIADA', 'CUESTIONARIO_ENVIADO', 'CUESTIONARIO_COMPLETADO', 'PROPUESTA_ENVIADA', 'CERRADO_GANADO'];
+                const estadoActualIdx = estadoOrden.indexOf(lead.estado);
+                const pasoIdx = estadoOrden.indexOf(paso.id);
+                const completado = pasoIdx < estadoActualIdx;
+                const activo = pasoIdx === estadoActualIdx;
+                return (
+                  <div key={paso.id} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        completado ? 'bg-green-500 text-white' :
+                        activo ? 'bg-orange-500 text-white ring-4 ring-orange-100' :
+                        'bg-gray-200 text-gray-500'
+                      }`}>
+                        {completado ? (
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        ) : idx + 1}
+                      </div>
+                      {idx < 6 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
+                    </div>
+                    <div className={`pb-4 ${activo ? 'text-gray-900' : completado ? 'text-gray-600' : 'text-gray-400'}`}>
+                      <p className={`text-xs font-semibold ${activo ? 'text-orange-700' : ''}`}>{paso.label}</p>
+                      {activo && <p className="text-[10px] text-orange-600 mt-0.5">→ {paso.action}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {lead.estado === 'CERRADO_PERDIDO' && (
+              <div className="mt-2 px-3 py-2 bg-red-50 rounded-lg text-xs text-red-700 font-medium text-center">Oportunidad perdida</div>
+            )}
+            {lead.estado === 'DESCARTADO' && (
+              <div className="mt-2 px-3 py-2 bg-gray-50 rounded-lg text-xs text-gray-700 font-medium text-center">Lead descartado</div>
+            )}
+          </div>
+
+          {/* Acciones rápidas */}
+          <div className="bg-white rounded-lg border p-6">
+            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Acciones</h3>
+            <div className="space-y-2">
+              <a
+                href="https://outlook.office.com/bookwithme/user/fbd2ec5013e94a2ebe031317c9afc0a7@lfgd.es/meetingtype/hyWyrJkZTk2szZxF8tCJoA2?bookingcode=9ff50d17-71aa-4749-a605-faf5ae47d47b&anonymous&ismsaljsauthenabled&ep=mlink"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-all font-medium text-xs text-center flex items-center justify-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                Agendar reunión (Bookings)
+              </a>
+              <button
+                onClick={syncHubspot}
+                disabled={syncingHS}
+                className="w-full px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-all font-medium text-xs flex items-center justify-center gap-2"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                {syncingHS ? 'Sincronizando...' : 'Sincronizar con HubSpot'}
+              </button>
+              {hubspotMsg && <p className="text-[10px] text-center text-gray-500">{hubspotMsg}</p>}
+              <button
+                disabled={true}
+                className="w-full px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed font-medium text-xs flex items-center justify-center gap-2"
+                title="Funcionalidad de firma digital próximamente"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                Firma de contrato (próximamente)
+              </button>
             </div>
           </div>
         </div>
