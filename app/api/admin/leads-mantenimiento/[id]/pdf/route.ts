@@ -14,6 +14,11 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
     day: 'numeric',
   });
 
+  const cuestionarioToken = datos.cuestionarioTecnico?.token || '';
+  const cuestionarioUrl = cuestionarioToken 
+    ? `www.internetoperadores.com/cuestionario-mantenimiento/${cuestionarioToken}` 
+    : '';
+
   const serviciosHtml = (oferta.serviciosRecomendados || [])
     .map((s: string, i: number) => `
       <tr>
@@ -30,88 +35,22 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       </div>`)
     .join('');
 
-  const pasosHtml = (oferta.siguientesPasos || [])
-    .map((p: string, i: number) => `
-      <tr>
-        <td style="width:30px;text-align:center;font-weight:700;color:#E87A2E;">${i + 1}</td>
-        <td>${p}</td>
-      </tr>`)
-    .join('');
-
-  // Cuestionario técnico avanzado para guardias nocturnas y 24/7
-  const cuestionarioAvanzado = [
-    {
-      seccion: 'INFRAESTRUCTURA ACTUAL',
-      preguntas: [
-        '¿Cuántos servidores físicos y virtuales tienen actualmente? ¿Qué sistema operativo utilizan?',
-        '¿Tienen infraestructura en la nube (AWS, Azure, Google Cloud)? ¿Qué servicios?',
-        '¿Cuál es la topología de red actual? (switches, firewalls, VPN, SD-WAN...)',
-        '¿Tienen sistema de virtualización? (VMware, Hyper-V, Proxmox...)',
-        '¿Qué solución de backup utilizan actualmente? ¿Se prueban las restauraciones periódicamente?',
-      ]
-    },
-    {
-      seccion: 'SISTEMAS CRÍTICOS Y PRODUCCIÓN 24H',
-      preguntas: [
-        '¿Qué sistemas son imprescindibles para mantener la producción? (ERP, SCADA, MES, PLCs...)',
-        '¿Cuál es el tiempo máximo de parada aceptable (RTO) para cada sistema crítico?',
-        '¿Tienen redundancia en los sistemas de producción? (servidores en HA, doble línea de internet...)',
-        '¿Qué pasa actualmente si un sistema crítico falla durante la noche? ¿Quién responde?',
-        '¿Tienen documentado un plan de contingencia o disaster recovery?',
-      ]
-    },
-    {
-      seccion: 'COBERTURA NOCTURNA Y GUARDIAS 24/7',
-      preguntas: [
-        '¿En qué horario exacto necesitan cobertura nocturna? (ej: 22:00 a 06:00, fines de semana...)',
-        '¿Qué tipo de incidencias suelen ocurrir fuera de horario? (caídas de red, fallos de servidor, errores ERP...)',
-        '¿Necesitan presencia física nocturna o es suficiente con soporte remoto + desplazamiento si es necesario?',
-        '¿Cuál es el tiempo de respuesta máximo aceptable para incidencias nocturnas? (15min, 30min, 1h...)',
-        '¿Tienen personal de planta/fábrica que pueda ejecutar instrucciones básicas guiadas por teléfono?',
-        '¿Necesitan monitorización proactiva 24/7 con alertas automáticas o solo respuesta reactiva?',
-      ]
-    },
-    {
-      seccion: 'INTEGRACIÓN CON EQUIPO IT INTERNO',
-      preguntas: [
-        '¿Cuántas personas forman su equipo IT interno? ¿Qué horario cubren?',
-        '¿Qué herramientas de ticketing/gestión utilizan actualmente? (ServiceNow, Jira, Freshdesk...)',
-        '¿Cómo prefieren el protocolo de escalado? (niveles, tiempos, contactos de guardia...)',
-        '¿Necesitan informes periódicos de las actuaciones nocturnas? ¿Con qué frecuencia?',
-        '¿Tienen acceso VPN configurado para soporte remoto externo?',
-      ]
-    },
-    {
-      seccion: 'SLA Y EXPECTATIVAS',
-      preguntas: [
-        '¿Qué SLA de disponibilidad necesitan para sus sistemas críticos? (99.5%, 99.9%, 99.99%...)',
-        '¿Tienen penalizaciones contractuales con sus clientes por paradas de producción?',
-        '¿Cuál es el coste estimado por hora de parada de producción para su empresa?',
-        '¿Necesitan un período de transición/onboarding? ¿De cuánto tiempo?',
-        '¿Prefieren contrato anual con revisión o compromiso a más largo plazo?',
-      ]
-    },
-  ];
-
-  const cuestionarioHtml = cuestionarioAvanzado.map(seccion => `
-    <div class="cuestionario-seccion">
-      <h3 class="bloque-titulo">${seccion.seccion}</h3>
-      <table class="tabla-cuestionario">
-        <tbody>
-          ${seccion.preguntas.map((p, i) => `
-            <tr>
-              <td class="pregunta-num">${i + 1}</td>
-              <td class="pregunta-texto">${p}</td>
-            </tr>
-            <tr>
-              <td></td>
-              <td class="respuesta-espacio"></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </div>
-  `).join('');
+  // Determinar tipo de empresa para personalizar el mensaje
+  const esGrande = datos.tipoNegocio === 'MEDIANA_GRANDE';
+  const esFarmacia = datos.tipoNegocio === 'FARMACIA';
+  const esHoreca = datos.tipoNegocio === 'HORECA';
+  
+  // Texto personalizado según tipo
+  let contextoSector = '';
+  if (esFarmacia) {
+    contextoSector = 'Sabemos que en una farmacia cada minuto de sistema caído es una venta perdida y un paciente que se va a la de al lado. Su TPV, el robot de dispensación, la conexión con el Colegio de Farmacéuticos... todo tiene que funcionar. Siempre.';
+  } else if (esHoreca) {
+    contextoSector = 'En hostelería y restauración, un TPV que no funciona en hora punta es un desastre. Comandas perdidas, cocina parada, clientes esperando. Entendemos que su tecnología tiene que ser invisible: funcionar sin que nadie tenga que pensar en ella.';
+  } else if (esGrande) {
+    contextoSector = `Con ${datos.numEquipos || 'múltiples'} equipos, ${datos.numServidores || 'varios'} servidores y la necesidad de cobertura ${datos.coberturaHoraria || 'extendida'}, su empresa necesita un partner IT que no solo apague fuegos, sino que los prevenga. Un equipo que conozca su infraestructura como la palma de su mano.`;
+  } else {
+    contextoSector = 'Sabemos que para una PYME, la tecnología tiene que funcionar sin complicaciones. No necesita un departamento IT entero, necesita un partner que responda cuando las cosas fallan y que se asegure de que fallen lo menos posible.';
+  }
 
   return `<!DOCTYPE html>
 <html lang="es">
@@ -120,14 +59,14 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Propuesta Mantenimiento IT - ${lead.empresa}</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
     body {
       font-family: 'Inter', sans-serif;
       font-size: 11px;
-      line-height: 1.5;
+      line-height: 1.6;
       color: #333;
     }
 
@@ -150,7 +89,7 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       display: flex;
       flex-direction: column;
       justify-content: flex-start;
-      padding-top: 35mm;
+      padding-top: 30mm;
     }
 
     .logo-text {
@@ -165,39 +104,50 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
     }
 
     .portada h1 {
-      font-size: 32px;
-      font-weight: 700;
-      color: #E87A2E;
+      font-size: 34px;
+      font-weight: 800;
+      color: #1a1a1a;
       margin-top: 30px;
-      line-height: 1.2;
+      line-height: 1.15;
     }
 
-    .portada h2 {
-      font-size: 18px;
-      font-weight: 600;
-      color: #333;
-      margin-top: 8px;
+    .portada h1 em {
+      color: #E87A2E;
+      font-style: normal;
     }
 
     .portada-subtitulo {
-      font-size: 14px;
-      color: #666;
-      margin-top: 5px;
+      font-size: 15px;
+      color: #555;
+      margin-top: 8px;
+      font-weight: 500;
     }
 
-    .portada-cita {
-      border-left: 3px solid #E87A2E;
-      padding-left: 15px;
+    .portada-claim {
       margin-top: 30px;
-      font-style: italic;
-      color: #555;
+      background: linear-gradient(135deg, #fff8f3 0%, #fff 100%);
+      border: 2px solid #E87A2E;
+      border-radius: 12px;
+      padding: 25px;
+    }
+
+    .portada-claim h3 {
+      color: #E87A2E;
+      font-size: 14px;
+      margin-bottom: 10px;
+      font-weight: 700;
+    }
+
+    .portada-claim p {
       font-size: 12px;
-      line-height: 1.6;
+      color: #444;
+      line-height: 1.7;
     }
 
     .portada-datos {
-      margin-top: 40px;
+      margin-top: 35px;
       font-size: 12px;
+      color: #555;
     }
 
     .portada-datos p {
@@ -208,23 +158,30 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       color: #333;
     }
 
-    .portada-box {
-      margin-top: 35px;
-      border: 2px solid #E87A2E;
+    .portada-badge {
+      margin-top: 30px;
+      display: flex;
+      gap: 15px;
+    }
+
+    .badge-item {
+      background: #f5f5f5;
       border-radius: 8px;
-      padding: 20px;
+      padding: 12px 16px;
+      text-align: center;
+      flex: 1;
     }
 
-    .portada-box h4 {
+    .badge-item .num {
+      font-size: 20px;
+      font-weight: 800;
       color: #E87A2E;
-      font-size: 13px;
-      margin-bottom: 8px;
     }
 
-    .portada-box p {
-      font-size: 11px;
-      color: #555;
-      margin-bottom: 3px;
+    .badge-item .label {
+      font-size: 9px;
+      color: #666;
+      margin-top: 3px;
     }
 
     /* HEADER */
@@ -258,18 +215,23 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
     h2.seccion-titulo {
       font-size: 20px;
       font-weight: 700;
-      color: #E87A2E;
+      color: #1a1a1a;
       margin-bottom: 15px;
       padding-bottom: 8px;
       border-bottom: 1px solid #eee;
     }
 
+    h2.seccion-titulo em {
+      color: #E87A2E;
+      font-style: normal;
+    }
+
     h3.bloque-titulo {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
       color: #333;
-      margin: 18px 0 10px 0;
-      padding-left: 10px;
+      margin: 20px 0 10px 0;
+      padding-left: 12px;
       border-left: 3px solid #E87A2E;
     }
 
@@ -278,7 +240,7 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       width: 100%;
       border-collapse: collapse;
       margin-bottom: 15px;
-      font-size: 10px;
+      font-size: 10.5px;
     }
 
     table thead tr {
@@ -305,8 +267,8 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
 
     /* PROPUESTA VALOR */
     .propuesta-valor {
-      font-size: 11px;
-      line-height: 1.7;
+      font-size: 11.5px;
+      line-height: 1.8;
       color: #444;
       margin-bottom: 20px;
       text-align: justify;
@@ -318,9 +280,9 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       align-items: flex-start;
       gap: 10px;
       margin-bottom: 12px;
-      padding: 10px 15px;
+      padding: 12px 15px;
       background: #f8faf8;
-      border-radius: 6px;
+      border-radius: 8px;
       border-left: 3px solid #28a745;
     }
 
@@ -338,9 +300,9 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
 
     /* ESTIMACIÓN */
     .estimacion-box {
-      background: #fff9f5;
+      background: linear-gradient(135deg, #fff9f5 0%, #fff 100%);
       border: 2px solid #E87A2E;
-      border-radius: 10px;
+      border-radius: 12px;
       padding: 25px;
       text-align: center;
       margin: 25px 0;
@@ -354,8 +316,8 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
 
     .estimacion-box .rango {
       font-size: 36px;
-      font-weight: 700;
-      color: #333;
+      font-weight: 800;
+      color: #1a1a1a;
     }
 
     .estimacion-box .rango-unidad {
@@ -370,38 +332,137 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       margin-top: 10px;
     }
 
-    /* CUESTIONARIO */
-    .cuestionario-seccion {
+    /* DIFERENCIACIÓN */
+    .diferencia-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .diferencia-item {
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    .diferencia-item.malo {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+    }
+
+    .diferencia-item.bueno {
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+    }
+
+    .diferencia-item h4 {
+      font-size: 11px;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    .diferencia-item.malo h4 { color: #dc2626; }
+    .diferencia-item.bueno h4 { color: #16a34a; }
+
+    .diferencia-item ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .diferencia-item ul li {
+      font-size: 10px;
+      color: #555;
+      margin-bottom: 4px;
+      padding-left: 15px;
+      position: relative;
+    }
+
+    .diferencia-item.malo ul li::before { content: "✗"; position: absolute; left: 0; color: #dc2626; font-weight: 700; }
+    .diferencia-item.bueno ul li::before { content: "✓"; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+
+    /* CTA */
+    .cta-box {
+      background: #E87A2E;
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      color: white;
+      margin: 25px 0;
+    }
+
+    .cta-box h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 10px;
+    }
+
+    .cta-box p {
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 15px;
+      line-height: 1.6;
+    }
+
+    .cta-box .url {
+      background: white;
+      color: #E87A2E;
+      font-weight: 700;
+      font-size: 13px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      display: inline-block;
+    }
+
+    .cta-box .tiempo {
+      margin-top: 12px;
+      font-size: 11px;
+      opacity: 0.8;
+    }
+
+    /* PROCESO */
+    .proceso-pasos {
+      margin: 20px 0;
+    }
+
+    .paso {
+      display: flex;
+      align-items: flex-start;
+      gap: 15px;
       margin-bottom: 20px;
     }
 
-    .tabla-cuestionario {
-      width: 100%;
-    }
-
-    .tabla-cuestionario td {
-      border-bottom: none;
-      padding: 5px 10px;
-    }
-
-    .pregunta-num {
-      width: 25px;
+    .paso-num {
+      width: 36px;
+      height: 36px;
+      background: #E87A2E;
+      color: white;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       font-weight: 700;
-      color: #E87A2E;
-      vertical-align: top;
-      padding-top: 8px !important;
+      font-size: 14px;
+      flex-shrink: 0;
     }
 
-    .pregunta-texto {
-      font-size: 10.5px;
+    .paso-content h4 {
+      font-size: 12px;
+      font-weight: 700;
       color: #333;
-      padding-top: 8px !important;
+      margin-bottom: 3px;
     }
 
-    .respuesta-espacio {
-      border-bottom: 1px solid #ddd !important;
-      height: 30px;
-      padding-bottom: 0 !important;
+    .paso-content p {
+      font-size: 10.5px;
+      color: #666;
+      line-height: 1.5;
+    }
+
+    .paso-highlight {
+      background: #fff8f3;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      padding: 12px 15px;
     }
 
     /* CONTRAPORTADA */
@@ -470,9 +531,9 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
     }
 
     .confidencial {
-      background: #f0f0f0;
-      border-radius: 4px;
-      padding: 8px 15px;
+      background: #f5f5f5;
+      border-radius: 6px;
+      padding: 10px 15px;
       font-size: 9px;
       color: #666;
       text-align: center;
@@ -491,13 +552,13 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
   <div class="page portada">
     <div class="logo-text">internet<span>operadores</span></div>
     
-    <h1>Propuesta de Servicios<br>Mantenimiento IT</h1>
-    <h2>${lead.empresa}</h2>
-    <p class="portada-subtitulo">Servicios IT Gestionados — Cobertura ${datos.coberturaHoraria || '24/7'}</p>
+    <h1>Su IT, <em>resuelto.</em><br>Sin reuniones innecesarias.</h1>
+    <p class="portada-subtitulo">Propuesta personalizada de Mantenimiento IT para ${lead.empresa}</p>
 
-    <div class="portada-cita">
-      "Garantizamos la continuidad operativa de su negocio con un equipo técnico especializado, 
-      monitorización proactiva y tiempos de respuesta garantizados por SLA."
+    <div class="portada-claim">
+      <h3>¿POR QUÉ RECIBE ESTE DOCUMENTO?</h3>
+      <p>${contextoSector}</p>
+      <p style="margin-top:10px;">Hemos analizado la información que nos ha proporcionado y le presentamos una <strong>propuesta inicial personalizada</strong>. No es un catálogo genérico: está pensada para su realidad.</p>
     </div>
 
     <div class="portada-datos">
@@ -505,51 +566,125 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       <p><strong>Email:</strong> ${lead.email}</p>
       ${lead.telefono ? `<p><strong>Teléfono:</strong> ${lead.telefono}</p>` : ''}
       <p><strong>Fecha:</strong> ${fecha}</p>
-      <p><strong>Referencia:</strong> PROP-MIT-${lead.id.substring(0, 8).toUpperCase()}</p>
+      <p><strong>Ref:</strong> PROP-MIT-${lead.id.substring(0, 8).toUpperCase()}</p>
     </div>
 
-    <div class="portada-box">
-      <h4>RESUMEN EJECUTIVO</h4>
-      <p><strong>Tipo de servicio:</strong> Mantenimiento IT Gestionado — Mediana/Gran Empresa</p>
-      <p><strong>Equipos a gestionar:</strong> ${datos.numEquipos || 'A determinar'}</p>
-      <p><strong>Servidores:</strong> ${datos.numServidores || 'A determinar'}</p>
-      <p><strong>Cobertura:</strong> ${datos.coberturaHoraria || '24x7'}</p>
-      <p><strong>Sistemas críticos:</strong> ${datos.sistemasCriticos || 'A determinar en auditoría'}</p>
-      <p><strong>Estimación mensual:</strong> ${oferta.estimacionRango ? `${oferta.estimacionRango.min?.toLocaleString('es-ES')} - ${oferta.estimacionRango.max?.toLocaleString('es-ES')} €/mes` : 'A determinar tras auditoría'}</p>
+    <div class="portada-badge">
+      <div class="badge-item">
+        <div class="num">+20</div>
+        <div class="label">años de experiencia</div>
+      </div>
+      <div class="badge-item">
+        <div class="num">99.7%</div>
+        <div class="label">disponibilidad SLA</div>
+      </div>
+      <div class="badge-item">
+        <div class="num">&lt;2h</div>
+        <div class="label">tiempo respuesta</div>
+      </div>
+      <div class="badge-item">
+        <div class="num">0€</div>
+        <div class="label">compromiso inicial</div>
+      </div>
     </div>
 
     <div class="page-footer">Documento confidencial — Internet Operadores © ${new Date().getFullYear()}</div>
   </div>
 
-  <!-- PÁGINA 2: PROPUESTA DE VALOR -->
+  <!-- PÁGINA 2: POR QUÉ SOMOS DIFERENTES -->
   <div class="page">
     <div class="header">
       <div class="header-logo">internet<span>operadores</span></div>
-      <div class="header-slogan">SERVICIOS IT GESTIONADOS</div>
+      <div class="header-slogan">MANTENIMIENTO IT GESTIONADO</div>
     </div>
 
-    <h2 class="seccion-titulo">Propuesta de valor</h2>
-    <div class="propuesta-valor">
-      ${(oferta.propuestaValor || '').split('\n').filter((p: string) => p.trim()).map((p: string) => `<p style="margin-bottom:12px">${p}</p>`).join('')}
+    <h2 class="seccion-titulo">Por qué hacemos las cosas <em>diferente</em></h2>
+    
+    <p style="font-size:12px;color:#444;line-height:1.8;margin-bottom:20px;">
+      Seguramente ya ha contactado con otras empresas de IT. Y seguramente le habrán dicho: 
+      <em>"Agendemos una reunión para conocer sus necesidades"</em>. Después otra reunión. Y otra. 
+      Y al final, un presupuesto genérico que podría ser para cualquier empresa.
+    </p>
+    <p style="font-size:12px;color:#444;line-height:1.8;margin-bottom:25px;">
+      <strong>Nosotros no trabajamos así.</strong> Respetamos su tiempo porque sabemos que dirigir 
+      ${esFarmacia ? 'una farmacia' : esHoreca ? 'un negocio de hostelería' : 'una empresa'} 
+      ya es suficientemente exigente como para perderlo en reuniones que no aportan valor.
+    </p>
+
+    <div class="diferencia-grid">
+      <div class="diferencia-item malo">
+        <h4>Lo que hace la competencia</h4>
+        <ul>
+          <li>Reunión "para conocernos" (1-2h)</li>
+          <li>Segunda reunión "técnica" (1-2h)</li>
+          <li>Esperar 2-3 semanas al presupuesto</li>
+          <li>Presupuesto genérico de catálogo</li>
+          <li>Tercera reunión "para explicarlo"</li>
+          <li>Total: 3-4 semanas perdidas</li>
+        </ul>
+      </div>
+      <div class="diferencia-item bueno">
+        <h4>Lo que hacemos nosotros</h4>
+        <ul>
+          <li>Analizamos sus datos (ya hecho ✓)</li>
+          <li>Le enviamos propuesta inicial (este PDF ✓)</li>
+          <li>Usted rellena cuestionario técnico (10 min)</li>
+          <li>Le damos precio cerrado en 48h</li>
+          <li>Una sola reunión: para firmar</li>
+          <li>Total: 3-5 días y a trabajar</li>
+        </ul>
+      </div>
     </div>
 
-    <h2 class="seccion-titulo" style="margin-top:30px">¿Por qué Internet Operadores?</h2>
-    ${puntosHtml}
+    <div style="background:#f8f9fa;border-radius:10px;padding:20px;margin-top:20px;">
+      <h3 style="font-size:13px;color:#333;margin-bottom:10px;">¿Por qué le pedimos un cuestionario técnico?</h3>
+      <p style="font-size:11px;color:#555;line-height:1.7;margin-bottom:8px;">
+        Porque queremos darle un <strong>precio real y cerrado</strong>, no una estimación que luego suba. 
+        Para eso necesitamos conocer exactamente qué tiene y qué necesita. El cuestionario:
+      </p>
+      <ul style="list-style:none;padding:0;margin:0;">
+        <li style="font-size:11px;color:#555;padding:4px 0 4px 20px;position:relative;">
+          <span style="position:absolute;left:0;color:#E87A2E;font-weight:700;">→</span>
+          Se completa en <strong>10-15 minutos</strong> (no necesita agendar nada)
+        </li>
+        <li style="font-size:11px;color:#555;padding:4px 0 4px 20px;position:relative;">
+          <span style="position:absolute;left:0;color:#E87A2E;font-weight:700;">→</span>
+          Puede hacerlo <strong>cuando le venga bien</strong> (no hay prisa, no hay horario)
+        </li>
+        <li style="font-size:11px;color:#555;padding:4px 0 4px 20px;position:relative;">
+          <span style="position:absolute;left:0;color:#E87A2E;font-weight:700;">→</span>
+          Nos permite dimensionar <strong>exactamente</strong> lo que necesita (ni más, ni menos)
+        </li>
+        <li style="font-size:11px;color:#555;padding:4px 0 4px 20px;position:relative;">
+          <span style="position:absolute;left:0;color:#E87A2E;font-weight:700;">→</span>
+          El resultado: <strong>precio cerrado en 48h</strong> sin sorpresas ni letra pequeña
+        </li>
+      </ul>
+    </div>
 
     <div class="page-footer">Propuesta Mantenimiento IT — ${lead.empresa} — Pág. 2</div>
   </div>
 
-  <!-- PÁGINA 3: SERVICIOS Y ESTIMACIÓN -->
+  <!-- PÁGINA 3: PROPUESTA DE VALOR + SERVICIOS -->
   <div class="page">
     <div class="header">
       <div class="header-logo">internet<span>operadores</span></div>
-      <div class="header-slogan">SERVICIOS IT GESTIONADOS</div>
+      <div class="header-slogan">MANTENIMIENTO IT GESTIONADO</div>
     </div>
 
-    <h2 class="seccion-titulo">Servicios recomendados</h2>
-    <p style="font-size:11px;color:#555;margin-bottom:15px;">
-      Basándonos en las necesidades identificadas para ${lead.empresa}, recomendamos los siguientes servicios:
-    </p>
+    <h2 class="seccion-titulo">Lo que hemos preparado para <em>${lead.empresa}</em></h2>
+    
+    ${oferta.propuestaValor ? `
+    <div class="propuesta-valor">
+      ${(oferta.propuestaValor || '').split('\n').filter((p: string) => p.trim()).map((p: string) => `<p style="margin-bottom:12px">${p}</p>`).join('')}
+    </div>` : `
+    <div class="propuesta-valor">
+      <p style="margin-bottom:12px">Basándonos en la información que nos ha proporcionado, hemos diseñado una propuesta de mantenimiento IT que se adapta a las necesidades específicas de ${lead.empresa}.</p>
+      <p style="margin-bottom:12px">Nuestro equipo técnico certificado (Microsoft, Cisco, VMware, Fortinet) le ofrece un servicio integral con técnicos asignados que conocerán su infraestructura, tiempos de respuesta garantizados por contrato y monitorización proactiva 24/7.</p>
+    </div>`}
+
+    ${oferta.serviciosRecomendados?.length > 0 ? `
+    <h3 class="bloque-titulo">Servicios incluidos en su plan</h3>
     <table>
       <thead>
         <tr>
@@ -560,151 +695,104 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       <tbody>
         ${serviciosHtml}
       </tbody>
-    </table>
+    </table>` : ''}
 
+    ${oferta.tipo === 'OFERTA_AUTOMATICA' && oferta.tarifaRecomendada ? `
+    <div class="estimacion-box">
+      <h3>Plan recomendado para ${lead.empresa}</h3>
+      <p style="font-size:13px;font-weight:600;color:#333;margin-bottom:5px;">${oferta.tarifaRecomendada.nombre}</p>
+      <div class="rango">
+        ${oferta.tarifaRecomendada.precioMensual}
+        <span class="rango-unidad"> €/mes</span>
+      </div>
+      <p class="nota">${oferta.tarifaRecomendada.horasIncluidas}h incluidas · Nivel ${oferta.nivelRecomendado} · ${oferta.modalidadRecomendada} · Sin permanencia</p>
+      ${oferta.condiciones ? `<p class="nota" style="margin-top:5px;">SLA: ${oferta.condiciones.sla} · Horas excedidas: ${oferta.condiciones.horasExcedidas}</p>` : ''}
+    </div>` : ''}
+
+    ${oferta.tipo === 'PROPUESTA_MEDIDA' && oferta.estimacionRango ? `
     <div class="estimacion-box">
       <h3>Estimación económica mensual</h3>
       <div class="rango">
-        ${oferta.estimacionRango ? `${oferta.estimacionRango.min?.toLocaleString('es-ES')} — ${oferta.estimacionRango.max?.toLocaleString('es-ES')}` : 'A determinar'}
+        ${oferta.estimacionRango.min?.toLocaleString('es-ES')} — ${oferta.estimacionRango.max?.toLocaleString('es-ES')}
         <span class="rango-unidad"> €/mes</span>
       </div>
-      <p class="nota">${oferta.estimacionRango?.nota || 'El importe final se determinará tras la auditoría técnica y la definición del alcance exacto de los servicios.'}</p>
-    </div>
+      <p class="nota">${oferta.estimacionRango.nota || 'Precio final cerrado tras completar el cuestionario técnico (10 min).'}</p>
+    </div>` : ''}
 
-    <h2 class="seccion-titulo" style="margin-top:25px">Siguientes pasos</h2>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:30px">#</th>
-          <th>Acción</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${pasosHtml}
-      </tbody>
-    </table>
-
-    <div class="confidencial">
-      Este documento es confidencial y está destinado exclusivamente a ${lead.empresa}. 
-      Los precios indicados son orientativos y están sujetos a la auditoría técnica previa.
-      Validez de la propuesta: 30 días desde la fecha de emisión.
-    </div>
+    ${puntosHtml ? `
+    <h3 class="bloque-titulo">¿Por qué Internet Operadores?</h3>
+    ${puntosHtml}` : ''}
 
     <div class="page-footer">Propuesta Mantenimiento IT — ${lead.empresa} — Pág. 3</div>
   </div>
 
-  <!-- PÁGINA 4: CUESTIONARIO TÉCNICO AVANZADO (portada) -->
+  <!-- PÁGINA 4: SIGUIENTE PASO + CTA -->
   <div class="page">
     <div class="header">
       <div class="header-logo">internet<span>operadores</span></div>
-      <div class="header-slogan">CUESTIONARIO TÉCNICO AVANZADO</div>
+      <div class="header-slogan">SIGUIENTE PASO</div>
     </div>
 
-    <h2 class="seccion-titulo">Cuestionario técnico previo a la auditoría</h2>
-    <p style="font-size:11px;color:#555;margin-bottom:8px;line-height:1.6;">
-      Para poder dimensionar correctamente el servicio de <strong>guardias IT 24/7</strong> y 
-      <strong>cobertura nocturna</strong> que necesita ${lead.empresa}, necesitamos conocer en detalle 
-      su infraestructura actual y requisitos específicos. Por favor, complete este cuestionario 
-      con la mayor precisión posible.
+    <h2 class="seccion-titulo">Su siguiente paso: <em>10 minutos</em> para un precio cerrado</h2>
+    
+    <p style="font-size:12px;color:#444;line-height:1.8;margin-bottom:25px;">
+      Ya tiene la propuesta inicial. Ahora solo necesitamos <strong>10 minutos de su tiempo</strong> 
+      para darle un precio definitivo sin sorpresas. Así de simple:
     </p>
-    <p style="font-size:10px;color:#888;margin-bottom:8px;">
-      Puede responder directamente sobre este documento o enviarnos las respuestas por email a 
-      <strong>comercial@internetoperadores.com</strong>
-    </p>
-    ${datos.cuestionarioTecnico?.token ? `
-    <div style="background:#fff3e0;border:2px solid #E87A2E;border-radius:8px;padding:12px 15px;margin-bottom:20px;">
-      <p style="font-size:11px;color:#333;margin:0;"><strong>Tambi\u00e9n puede completarlo online:</strong></p>
-      <p style="font-size:12px;color:#E87A2E;font-weight:700;margin:5px 0 0 0;">www.internetoperadores.com/cuestionario-mantenimiento/${datos.cuestionarioTecnico.token}</p>
-    </div>` : ''}
 
-    ${cuestionarioAvanzado.slice(0, 2).map(seccion => `
-      <div class="cuestionario-seccion">
-        <h3 class="bloque-titulo">${seccion.seccion}</h3>
-        <table class="tabla-cuestionario">
-          <tbody>
-            ${seccion.preguntas.map((p, i) => `
-              <tr>
-                <td class="pregunta-num">${i + 1}</td>
-                <td class="pregunta-texto">${p}</td>
-              </tr>
-              <tr>
-                <td></td>
-                <td class="respuesta-espacio"></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+    <div class="proceso-pasos">
+      <div class="paso">
+        <div class="paso-num">1</div>
+        <div class="paso-content paso-highlight">
+          <h4>Rellene el cuestionario técnico online</h4>
+          <p>10-15 minutos, cuando le venga bien. Sin agendar nada. Preguntas concretas sobre su infraestructura actual para dimensionar el servicio exacto que necesita.</p>
+        </div>
       </div>
-    `).join('')}
-
-    <div class="page-footer">Cuestionario Técnico — ${lead.empresa} — Pág. 4</div>
-  </div>
-
-  <!-- PÁGINA 5: CUESTIONARIO (continuación) -->
-  <div class="page">
-    <div class="header">
-      <div class="header-logo">internet<span>operadores</span></div>
-      <div class="header-slogan">CUESTIONARIO TÉCNICO AVANZADO</div>
+      <div class="paso">
+        <div class="paso-num">2</div>
+        <div class="paso-content">
+          <h4>Reciba su presupuesto a precio cerrado (48h)</h4>
+          <p>Nuestro equipo técnico analiza sus respuestas y le envía un presupuesto definitivo. Sin letra pequeña, sin costes ocultos, sin "depende".</p>
+        </div>
+      </div>
+      <div class="paso">
+        <div class="paso-num">3</div>
+        <div class="paso-content">
+          <h4>Decida con tranquilidad</h4>
+          <p>Sin presión, sin permanencia. Si le encaja, arrancamos. Si no, tan amigos. Así de fácil.</p>
+        </div>
+      </div>
     </div>
 
-    ${cuestionarioAvanzado.slice(2, 4).map(seccion => `
-      <div class="cuestionario-seccion">
-        <h3 class="bloque-titulo">${seccion.seccion}</h3>
-        <table class="tabla-cuestionario">
-          <tbody>
-            ${seccion.preguntas.map((p, i) => `
-              <tr>
-                <td class="pregunta-num">${i + 1}</td>
-                <td class="pregunta-texto">${p}</td>
-              </tr>
-              <tr>
-                <td></td>
-                <td class="respuesta-espacio"></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `).join('')}
+    ${cuestionarioUrl ? `
+    <div class="cta-box">
+      <h3>Complete el cuestionario ahora</h3>
+      <p>No necesita agendar nada. Puede hacerlo desde el móvil, la tablet o el ordenador.<br>Cuando tenga un rato libre, en 10 minutos lo tiene hecho.</p>
+      <div class="url">${cuestionarioUrl}</div>
+      <p class="tiempo">⏱ Tiempo estimado: 10-15 minutos · 📱 Compatible con móvil · 🔒 Datos 100% confidenciales</p>
+    </div>` : `
+    <div class="cta-box">
+      <h3>¿Listo para dar el siguiente paso?</h3>
+      <p>Contacte con nosotros y le enviaremos el enlace a su cuestionario técnico personalizado.<br>En 48h tendrá su precio cerrado.</p>
+      <div class="url">900 730 034 (gratuito) · comercial@internetoperadores.com</div>
+      <p class="tiempo">Sin compromiso · Sin permanencia · Sin reuniones innecesarias</p>
+    </div>`}
 
-    <div class="page-footer">Cuestionario Técnico — ${lead.empresa} — Pág. 5</div>
-  </div>
-
-  <!-- PÁGINA 6: CUESTIONARIO (final) + SLA -->
-  <div class="page">
-    <div class="header">
-      <div class="header-logo">internet<span>operadores</span></div>
-      <div class="header-slogan">CUESTIONARIO TÉCNICO AVANZADO</div>
+    <div style="margin-top:25px;background:#f9fafb;border-radius:8px;padding:15px;border:1px solid #e5e7eb;">
+      <p style="font-size:11px;color:#555;text-align:center;margin:0;">
+        <strong>¿Prefiere hablar primero?</strong> Sin problema. Llámenos al <strong>900 730 034</strong> (gratuito) 
+        o escríbanos a <strong>comercial@internetoperadores.com</strong>. Pero le prometemos que con el cuestionario 
+        iremos más rápido y le daremos un precio más ajustado.
+      </p>
     </div>
 
-    ${cuestionarioAvanzado.slice(4).map(seccion => `
-      <div class="cuestionario-seccion">
-        <h3 class="bloque-titulo">${seccion.seccion}</h3>
-        <table class="tabla-cuestionario">
-          <tbody>
-            ${seccion.preguntas.map((p, i) => `
-              <tr>
-                <td class="pregunta-num">${i + 1}</td>
-                <td class="pregunta-texto">${p}</td>
-              </tr>
-              <tr>
-                <td></td>
-                <td class="respuesta-espacio"></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      </div>
-    `).join('')}
-
-    <div style="margin-top:25px;background:#f9f9f9;border:1px solid #ddd;border-radius:6px;padding:15px;">
-      <h4 style="color:#E87A2E;font-size:11px;margin-bottom:8px;">INFORMACIÓN ADICIONAL</h4>
-      <p style="font-size:10px;color:#555;margin-bottom:4px;">• Puede adjuntar diagramas de red, inventarios o cualquier documentación técnica relevante.</p>
-      <p style="font-size:10px;color:#555;margin-bottom:4px;">• Si prefiere realizar esta revisión en una reunión presencial o por videollamada, indíquenoslo.</p>
-      <p style="font-size:10px;color:#555;margin-bottom:4px;">• Toda la información proporcionada será tratada con total confidencialidad.</p>
+    <div class="confidencial" style="margin-top:25px;">
+      Este documento es confidencial y está destinado exclusivamente a ${lead.empresa}. 
+      Los precios indicados son orientativos hasta completar el cuestionario técnico.
+      Validez: 30 días desde la fecha de emisión.
     </div>
 
-    <div class="page-footer">Cuestionario Técnico — ${lead.empresa} — Pág. 6</div>
+    <div class="page-footer">Propuesta Mantenimiento IT — ${lead.empresa} — Pág. 4</div>
   </div>
 
   <!-- CONTRAPORTADA -->
@@ -721,7 +809,7 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       </div>
       <div class="footer-contra">
         <p>Internet Operadores — Partner tecnológico de confianza</p>
-        <p>Especialistas en servicios IT gestionados para empresas</p>
+        <p>Más de 20 años cuidando la tecnología de empresas como la suya</p>
       </div>
     </div>
   </div>

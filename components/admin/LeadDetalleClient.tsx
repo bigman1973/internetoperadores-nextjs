@@ -94,6 +94,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [emailCuerpo, setEmailCuerpo] = useState('');
   const [enviandoEmail, setEnviandoEmail] = useState(false);
 
+  // Auditoría states
+  const [generandoAuditoria, setGenerandoAuditoria] = useState(false);
+  const [auditoriaGenerada, setAuditoriaGenerada] = useState(false);
+  const [auditoria, setAuditoria] = useState<any>(null);
+
   // Propuesta states
   const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
   const [propuestaGenerada, setPropuestaGenerada] = useState(false);
@@ -122,7 +127,12 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.lead.cuestionario.token}`);
       }
       if (data.lead?.informePdfUrl && data.lead.informePdfUrl.startsWith('<!')) {
-        setPropuestaGenerada(true);
+        if (data.lead.informePdfUrl.includes('Auditor\u00eda Web') || data.lead.informePdfUrl.includes('Auditor\u00eda web')) {
+          setAuditoriaGenerada(true);
+        }
+        if (data.lead.informePdfUrl.includes('generar-valoracion') || data.lead?.cuestionario?.estado === 'COMPLETADO') {
+          setPropuestaGenerada(true);
+        }
       }
     } catch (err) {
       console.error('Error:', err);
@@ -188,25 +198,30 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       ? `${baseUrl}/cuestionario/${lead.cuestionario.token}`
       : '';
 
-    setEmailAsunto(`Informe de Auditoría Web - ${lead.nombreEmpresa}`);
+    setEmailAsunto(`Auditoría Web Personalizada - ${lead.nombreEmpresa}`);
     setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
   <div style="background-color: #EA580C; padding: 20px; text-align: center;">
     <h1 style="color: white; margin: 0; font-size: 22px;">Internet Operadores</h1>
-    <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 12px;">Migración Web Profesional</p>
+    <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 12px;">Desarrollo Web Profesional</p>
   </div>
   <div style="padding: 30px; background-color: #f9f9f9;">
     <p>Estimado/a <strong>${lead.contacto}</strong>,</p>
-    <p>Gracias por su interés en nuestros servicios de migración web para <strong>${lead.nombreEmpresa}</strong>.</p>
-    <p>Hemos analizado su web actual y adjunto a este email encontrará nuestra <strong>propuesta personalizada</strong> con la valoración técnica y económica del proyecto.</p>
-    ${cuestionarioLink ? `<p>Para poder ofrecerle un presupuesto definitivo ajustado a sus necesidades reales, le agradeceríamos que completara el siguiente <strong>cuestionario técnico</strong> (5-10 minutos):</p>
-    <div style="text-align: center; margin: 25px 0;">
-      <a href="${cuestionarioLink}" style="background-color: #EA580C; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario Técnico</a>
-    </div>` : ''}
-    <p>Una vez recibamos sus respuestas, en un plazo de <strong>48 horas</strong> le enviaremos una propuesta a precio cerrado y coordinaremos una reunión para resolver cualquier duda.</p>
+    <p>Gracias por confiar en Internet Operadores para la transformación digital de <strong>${lead.nombreEmpresa}</strong>.</p>
+    <p>Hemos analizado la información que nos proporcionó y le adjuntamos su <strong>auditoría web personalizada</strong>: un diagnóstico de su situación actual, los problemas detectados, las oportunidades de mejora y una estimación inicial de inversión.</p>
+    <div style="background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 700; color: #333;">\u00bfPor qu\u00e9 le pedimos un cuestionario?</p>
+      <p style="margin: 0; font-size: 13px; color: #555;">Porque no queremos hacerle perder el tiempo en reuniones innecesarias. Nuestra competencia le citar\u00e1 a 2-3 reuniones antes de darle un precio. Nosotros solo necesitamos <strong>10 minutos de su tiempo</strong> para darle un presupuesto cerrado en 48h.</p>
+    </div>
+    ${cuestionarioLink ? `<p style="text-align: center; font-size: 13px; color: #444;">Puede completarlo cuando tenga un rato libre, sin prisa:</p>
+    <div style="text-align: center; margin: 20px 0;">
+      <a href="${cuestionarioLink}" style="background-color: #EA580C; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario (10 min)</a>
+    </div>
+    <p style="text-align: center; font-size: 11px; color: #888;">Compatible con m\u00f3vil \u00b7 Sin agendar nada \u00b7 Datos 100% confidenciales</p>` : ''}
+    <p style="margin-top: 20px;">Una vez recibamos sus respuestas, en <strong>48 horas</strong> tendr\u00e1 un presupuesto a precio cerrado. Sin sorpresas, sin letra peque\u00f1a.</p>
     <hr style="border: none; border-top: 1px solid #ddd; margin: 25px 0;" />
-    <p style="color: #666; font-size: 13px;">Quedamos a su disposición para cualquier consulta:</p>
+    <p style="color: #666; font-size: 13px;">\u00bfPrefiere hablar primero? Sin problema:</p>
     <p style="color: #666; font-size: 13px;"><strong>900 730 034</strong> (gratuito) | <strong>comercial@internetoperadores.com</strong></p>
-    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnológico de confianza</p>
+    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores \u2014 Partner tecnol\u00f3gico de confianza \u2014 +20 a\u00f1os</p>
   </div>
 </div>`);
     setMostrarEmailModal(true);
@@ -234,6 +249,40 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       setMensaje('Error de conexión al enviar email');
     } finally {
       setEnviandoEmail(false);
+    }
+  };
+
+  // Generar auditoría inicial con IA
+  const handleGenerarAuditoria = async () => {
+    setGenerandoAuditoria(true);
+    setMensaje('');
+    try {
+      const res = await fetch(`/api/admin/leads/${leadId}/generar-auditoria`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAuditoriaGenerada(true);
+        setAuditoria(data.auditoria);
+        setMensaje(`Auditoría generada: ${data.auditoria?.estimacionAlcance?.tipo || 'Web'} (${data.auditoria?.estimacionAlcance?.rangoInversion?.min?.toLocaleString('es-ES')}-${data.auditoria?.estimacionAlcance?.rangoInversion?.max?.toLocaleString('es-ES')}€)`);
+        fetchLead();
+        setTimeout(() => setMensaje(''), 5000);
+      } else {
+        setMensaje(`Error: ${data.error}`);
+      }
+    } catch {
+      setMensaje('Error al generar la auditoría');
+    } finally {
+      setGenerandoAuditoria(false);
+    }
+  };
+
+  const verAuditoriaPDF = () => {
+    // El HTML está cacheado en informePdfUrl, abrimos en nueva pestaña
+    const w = window.open('', '_blank');
+    if (w && lead?.informePdfUrl?.startsWith('<!')) {
+      w.document.write(lead.informePdfUrl);
+      w.document.close();
     }
   };
 
@@ -473,9 +522,9 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Proceso de Venta</h3>
             <div className="space-y-0">
               {[
-                { id: 'NUEVO', label: '1. Lead nuevo', action: 'Revisar formulario' },
-                { id: 'EN_REVISION', label: '2. Análisis técnico', action: 'Crear cuestionario + auditoría' },
-                { id: 'AUDITORIA_ENVIADA', label: '3. Auditoría enviada', action: 'Enviar email con PDF + cuestionario' },
+                { id: 'NUEVO', label: '1. Lead recibido', action: 'Generar auditoría web' },
+                { id: 'EN_REVISION', label: '2. Auditoría generada', action: 'Crear cuestionario + enviar email' },
+                { id: 'AUDITORIA_ENVIADA', label: '3. Auditoría enviada', action: 'Esperar cuestionario del cliente' },
                 { id: 'CUESTIONARIO_ENVIADO', label: '4. Cuestionario enviado', action: 'Esperar respuestas del cliente' },
                 { id: 'CUESTIONARIO_COMPLETADO', label: '5. Cuestionario completado', action: 'Generar propuesta económica' },
                 { id: 'PROPUESTA_ENVIADA', label: '6. Propuesta enviada', action: 'Seguimiento comercial' },
@@ -525,6 +574,36 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Acciones</h3>
 
+            {/* Paso 0: Generar auditoría inicial */}
+            <button
+              onClick={handleGenerarAuditoria}
+              disabled={generandoAuditoria}
+              className={`w-full px-4 py-2.5 rounded-lg transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3 ${
+                auditoriaGenerada
+                  ? 'border border-orange-300 text-orange-700 hover:bg-orange-50'
+                  : 'bg-orange-600 text-white hover:bg-orange-700'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              {generandoAuditoria ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Generando auditoría...
+                </span>
+              ) : auditoriaGenerada ? 'Regenerar Auditoría' : '\u2460 Generar Auditoría Web'}
+            </button>
+
+            {/* Descargar PDF auditoría */}
+            {auditoriaGenerada && (
+              <button
+                onClick={verAuditoriaPDF}
+                className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Descargar PDF Auditoría
+              </button>
+            )}
+
             {/* Paso 1: Crear cuestionario */}
             {!lead.cuestionario && (
               <button
@@ -538,7 +617,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                     Creando...
                   </span>
                 ) : (
-                  '\u2460 Generar Cuestionario Técnico'
+                  '\u2461 Generar Cuestionario Técnico'
                 )}
               </button>
             )}
@@ -576,7 +655,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                 className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-                &#9313; Enviar propuesta por email
+                &#9314; Enviar auditoría por email
               </button>
             )}
 
@@ -597,7 +676,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                   <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                   Generando con IA...
                 </span>
-              ) : '\u2462 Generar propuesta económica'}
+              ) : '\u2463 Generar propuesta económica'}
             </button>
             {!cuestionarioCompletado && (
               <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Pendiente: cuestionario técnico del cliente</p>
@@ -610,7 +689,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                 className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                &#9315; Descargar PDF Propuesta
+                &#9316; Descargar PDF Propuesta
               </button>
             )}
 
@@ -622,7 +701,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
               className="w-full px-4 py-2.5 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              &#9316; Agendar reunión (Bookings)
+              &#9317; Agendar reunión (Bookings)
             </a>
 
             {/* Firma de contrato (previsto) */}
@@ -632,7 +711,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
               title="Funcionalidad de firma digital próximamente"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-              &#9318; Firma de contrato
+              &#9319; Firma de contrato
             </button>
             <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Próximamente: firma digital integrada</p>
 
