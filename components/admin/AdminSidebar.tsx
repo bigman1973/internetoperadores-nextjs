@@ -22,7 +22,8 @@ import {
   QueueListIcon,
   SignalIcon,
   ArrowPathIcon,
-  MegaphoneIcon
+  MegaphoneIcon,
+  WrenchScrewdriverIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -90,6 +91,7 @@ const navigation: NavEntry[] = [
     icon: InboxStackIcon,
     children: [
       { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon },
+      { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon },
       { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon },
     ],
   },
