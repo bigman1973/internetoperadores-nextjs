@@ -13,9 +13,11 @@ const PIPELINE_NAME = 'IO-mantenimiento IT';
 const ESTADO_TO_STAGE: Record<string, string> = {
   NUEVO: 'Lead nuevo',
   EN_PROCESO: 'Propuesta enviada',
+  CUESTIONARIO_COMPLETADO: 'Cuestionario completado',
   PRESUPUESTO_ENVIADO: 'Oferta precio cerrado',
   PROPUESTA_PREACEPTADA: 'Propuesta pre-aceptada',
   REUNION_AGENDADA: 'Reunión/Visita agendada',
+  CONTRATO_FIRMADO: 'Ganado',
   GANADO: 'Ganado',
   PERDIDO: 'Perdido',
 };
@@ -65,9 +67,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: `Stage "${stageLabel}" no encontrado en el pipeline` }, { status: 400 });
     }
 
-    // Calcular amount
+    // Calcular amount - priorizar propuesta económica cerrada sobre estimación de rango
     let amount = '';
-    if (oferta?.estimacionRango) {
+    if (datos?.propuestaEconomica?.totalAnualEstimado) {
+      amount = String(Math.round(datos.propuestaEconomica.totalAnualEstimado));
+    } else if (datos?.propuestaEconomica?.totalMensual) {
+      amount = String(Math.round(datos.propuestaEconomica.totalMensual * 12));
+    } else if (oferta?.estimacionRango) {
       const avg = ((oferta.estimacionRango.min || 0) + (oferta.estimacionRango.max || 0)) / 2;
       amount = String(Math.round(avg * 12)); // Valor anual
     }

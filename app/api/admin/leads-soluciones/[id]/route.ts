@@ -49,6 +49,26 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       data: updateData,
     });
 
+    // Sincronizar con HubSpot si es un lead de mantenimiento IT y tiene deal creado
+    if (estado && lead.tipo === 'MANTENIMIENTO_IT') {
+      const datos = lead.datos as any;
+      if (datos?.hubspotDealId) {
+        try {
+          const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+          await fetch(`${baseUrl}/api/admin/leads-mantenimiento/${id}/hubspot-deal`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Cookie': request.headers.get('cookie') || '',
+            },
+          });
+        } catch (hubspotError) {
+          console.error('[HUBSPOT-SYNC] Error al sincronizar:', hubspotError);
+          // No bloquear el guardado si falla HubSpot
+        }
+      }
+    }
+
     return NextResponse.json(lead);
   } catch (error: any) {
     console.error('Error al actualizar lead:', error);

@@ -24,9 +24,11 @@ interface Lead {
 const estadoColors: Record<string, string> = {
   NUEVO: 'bg-blue-100 text-blue-800',
   EN_PROCESO: 'bg-yellow-100 text-yellow-800',
+  CUESTIONARIO_COMPLETADO: 'bg-cyan-100 text-cyan-800',
   PRESUPUESTO_ENVIADO: 'bg-purple-100 text-purple-800',
   PROPUESTA_PREACEPTADA: 'bg-emerald-100 text-emerald-800',
   REUNION_AGENDADA: 'bg-indigo-100 text-indigo-800',
+  CONTRATO_FIRMADO: 'bg-green-100 text-green-800',
   GANADO: 'bg-green-100 text-green-800',
   PERDIDO: 'bg-red-100 text-red-800',
   DESCARTADO: 'bg-gray-100 text-gray-800',
@@ -63,6 +65,9 @@ export default function LeadDetallePage() {
   const [mostrarEmailModal, setMostrarEmailModal] = useState(false);
   const [emailAsunto, setEmailAsunto] = useState('');
   const [emailCuerpo, setEmailCuerpo] = useState('');
+  const [propuestaEconomica, setPropuestaEconomica] = useState<any>(null);
+  const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
+  const [syncingHubspot, setSyncingHubspot] = useState(false);
   const [enviandoEmail, setEnviandoEmail] = useState(false);
 
   useEffect(() => {
@@ -167,6 +172,10 @@ export default function LeadDetallePage() {
       if (data.datos?.ofertaGenerada) {
         setOferta(data.datos.ofertaGenerada);
       }
+      // Si ya tiene propuesta económica
+      if (data.datos?.propuestaEconomica) {
+        setPropuestaEconomica(data.datos.propuestaEconomica);
+      }
     } catch {
       setMensaje('Error al cargar el lead');
     } finally {
@@ -194,6 +203,50 @@ export default function LeadDetallePage() {
       setMensaje('Error de conexión');
     } finally {
       setGenerandoOferta(false);
+    }
+  };
+
+  const handleGenerarPropuestaEconomica = async () => {
+    setGenerandoPropuesta(true);
+    setMensaje('');
+    try {
+      const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/propuesta-economica`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setPropuestaEconomica(data.propuesta);
+        setEstado('PRESUPUESTO_ENVIADO');
+        setMensaje('Propuesta económica generada correctamente');
+        fetchLead();
+      } else {
+        setMensaje(data.error || 'Error al generar propuesta económica');
+      }
+    } catch {
+      setMensaje('Error de conexión');
+    } finally {
+      setGenerandoPropuesta(false);
+    }
+  };
+
+  const handleSyncHubspot = async () => {
+    setSyncingHubspot(true);
+    setMensaje('');
+    try {
+      const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/hubspot-deal`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setMensaje(`HubSpot sincronizado (${data.action === 'created' ? 'deal creado' : 'deal actualizado'})`);
+        fetchLead();
+      } else {
+        setMensaje(data.error || 'Error al sincronizar con HubSpot');
+      }
+    } catch {
+      setMensaje('Error de conexión con HubSpot');
+    } finally {
+      setSyncingHubspot(false);
     }
   };
 
@@ -582,10 +635,62 @@ export default function LeadDetallePage() {
 
         {/* Columna lateral */}
         <div className="space-y-6">
-          {/* Acciones */}
+          {/* Proceso de Venta */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Proceso de Venta</h3>
+            
+            {/* Timeline visual del proceso */}
+            <div className="space-y-0">
+              {[
+                { id: 'NUEVO', label: '1. Lead nuevo', action: 'Generar propuesta a medida', estados: ['NUEVO'] },
+                { id: 'EN_PROCESO', label: '2. Propuesta enviada', action: 'Enviar email con propuesta + cuestionario', estados: ['EN_PROCESO'] },
+                { id: 'CUESTIONARIO_COMPLETADO', label: '3. Cuestionario completado', action: 'Generar propuesta económica', estados: ['CUESTIONARIO_COMPLETADO'] },
+                { id: 'PRESUPUESTO_ENVIADO', label: '4. Oferta precio cerrado', action: 'Enviar propuesta económica', estados: ['PRESUPUESTO_ENVIADO'] },
+                { id: 'PROPUESTA_PREACEPTADA', label: '5. Propuesta pre-aceptada', action: 'Agendar reunión/visita', estados: ['PROPUESTA_PREACEPTADA'] },
+                { id: 'REUNION_AGENDADA', label: '6. Reunión/Visita', action: 'Verificar instalaciones', estados: ['REUNION_AGENDADA'] },
+                { id: 'CONTRATO_FIRMADO', label: '7. Firma de contrato', action: 'Firmar contrato', estados: ['CONTRATO_FIRMADO'] },
+                { id: 'GANADO', label: '8. Ganado', action: 'Cerrado', estados: ['GANADO'] },
+              ].map((paso, idx) => {
+                const estadoOrden = ['NUEVO', 'EN_PROCESO', 'CUESTIONARIO_COMPLETADO', 'PRESUPUESTO_ENVIADO', 'PROPUESTA_PREACEPTADA', 'REUNION_AGENDADA', 'CONTRATO_FIRMADO', 'GANADO'];
+                const estadoActualIdx = estadoOrden.indexOf(estado);
+                const pasoIdx = estadoOrden.indexOf(paso.id);
+                const completado = pasoIdx < estadoActualIdx;
+                const activo = pasoIdx === estadoActualIdx;
+                const pendiente = pasoIdx > estadoActualIdx;
+                
+                return (
+                  <div key={paso.id} className="flex items-start gap-3">
+                    <div className="flex flex-col items-center">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        completado ? 'bg-green-500 text-white' :
+                        activo ? 'bg-orange-500 text-white ring-4 ring-orange-100' :
+                        'bg-gray-200 text-gray-500'
+                      }`}>
+                        {completado ? (
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                        ) : idx + 1}
+                      </div>
+                      {idx < 7 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
+                    </div>
+                    <div className={`pb-4 ${activo ? 'text-gray-900' : pendiente ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <p className={`text-xs font-semibold ${activo ? 'text-orange-700' : ''}`}>{paso.label}</p>
+                      {activo && <p className="text-[10px] text-orange-600 mt-0.5">→ {paso.action}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {estado === 'PERDIDO' && (
+              <div className="mt-2 px-3 py-2 bg-red-50 rounded-lg text-xs text-red-700 font-medium text-center">Oportunidad perdida</div>
+            )}
+          </div>
+
+          {/* Acciones del paso actual */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Acciones</h3>
 
+            {/* Paso 1: Generar propuesta */}
             {!oferta && lead.tipo === 'MANTENIMIENTO_IT' && tipoNegocio && (
               <button
                 onClick={handleGenerarOferta}
@@ -598,7 +703,7 @@ export default function LeadDetallePage() {
                     Generando...
                   </span>
                 ) : (
-                  esGrande ? 'Generar Propuesta a Medida' : 'Generar Oferta Automática'
+                  esGrande ? '① Generar Propuesta a Medida' : '① Generar Oferta Automática'
                 )}
               </button>
             )}
@@ -607,41 +712,96 @@ export default function LeadDetallePage() {
               <button
                 onClick={handleGenerarOferta}
                 disabled={generandoOferta}
-                className="w-full px-4 py-2.5 border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-50 transition-all font-medium text-sm disabled:opacity-50 mb-3"
+                className="w-full px-4 py-2 border border-orange-300 text-orange-700 rounded-lg hover:bg-orange-50 transition-all font-medium text-xs disabled:opacity-50 mb-3"
               >
-                {generandoOferta ? 'Regenerando...' : 'Regenerar oferta'}
+                {generandoOferta ? 'Regenerando...' : 'Regenerar propuesta'}
               </button>
             )}
 
+            {/* Paso 2: Enviar propuesta + cuestionario */}
             {oferta && (
+              <>
+                <a
+                  href={`/api/admin/leads-mantenimiento/${params.id}/pdf`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  ② Descargar PDF Propuesta
+                </a>
+                <button
+                  onClick={prepararEmail}
+                  className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                  ② Enviar propuesta por email
+                </button>
+              </>
+            )}
+
+            {/* Paso 3: Propuesta económica (solo si cuestionario completado) */}
+            <button
+              onClick={handleGenerarPropuestaEconomica}
+              disabled={generandoPropuesta || cuestionarioInfo?.estado !== 'COMPLETADO'}
+              className={`w-full px-4 py-2.5 rounded-lg transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3 ${
+                cuestionarioInfo?.estado === 'COMPLETADO'
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }`}
+              title={cuestionarioInfo?.estado !== 'COMPLETADO' ? 'Disponible cuando el cliente complete el cuestionario técnico' : ''}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+              {generandoPropuesta ? 'Generando...' : '③ Generar propuesta económica'}
+            </button>
+            {cuestionarioInfo?.estado !== 'COMPLETADO' && (
+              <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Pendiente: cuestionario técnico del cliente</p>
+            )}
+
+            {/* Descargar propuesta económica PDF */}
+            {propuestaEconomica && (
               <a
-                href={`/api/admin/leads-mantenimiento/${params.id}/pdf`}
+                href={`/api/admin/leads-mantenimiento/${params.id}/propuesta-economica`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+                className="w-full px-4 py-2.5 bg-red-700 text-white rounded-lg hover:bg-red-800 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Descargar PDF Propuesta + Cuestionario
+                ④ Descargar PDF Propuesta Económica
               </a>
             )}
 
-            <button
-              onClick={prepararEmail}
-              className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
-              Enviar propuesta por email
-            </button>
-
+            {/* Paso 5: Agendar reunión */}
             <a
               href="https://outlook.office.com/bookwithme/user/fbd2ec5013e94a2ebe031317c9afc0a7@lfgd.es/meetingtype/hyWyrJkZTk2szZxF8tCJoA2?bookingcode=9ff50d17-71aa-4749-a605-faf5ae47d47b&anonymous&ismsaljsauthenabled&ep=mlink"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full px-4 py-2.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-all font-medium text-sm text-center flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-              Agendar reunión (Bookings)
+              ⑤ Agendar reunión (Bookings)
             </a>
+
+            {/* Paso 7: Firma de contrato (previsto) */}
+            <button
+              disabled={true}
+              className="w-full px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed font-medium text-sm flex items-center justify-center gap-2 mb-3"
+              title="Funcionalidad de firma digital próximamente"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+              ⑦ Firma de contrato
+            </button>
+            <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Próximamente: firma digital integrada</p>
+
+            {/* Sincronizar HubSpot */}
+            <button
+              onClick={handleSyncHubspot}
+              disabled={syncingHubspot}
+              className="w-full px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-all font-medium text-xs flex items-center justify-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              {syncingHubspot ? 'Sincronizando...' : 'Sincronizar con HubSpot'}
+            </button>
           </div>
 
           {/* Cuestionario Técnico */}
@@ -733,12 +893,14 @@ export default function LeadDetallePage() {
                   onChange={e => setEstado(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-orange-500"
                 >
-                  <option value="NUEVO">Nuevo</option>
-                  <option value="EN_PROCESO">En proceso</option>
-                  <option value="PRESUPUESTO_ENVIADO">Presupuesto enviado</option>
-                  <option value="PROPUESTA_PREACEPTADA">Propuesta pre-aceptada</option>
-                  <option value="REUNION_AGENDADA">Reunión agendada</option>
-                  <option value="GANADO">Ganado</option>
+                  <option value="NUEVO">1. Lead nuevo</option>
+                  <option value="EN_PROCESO">2. Propuesta enviada</option>
+                  <option value="CUESTIONARIO_COMPLETADO">3. Cuestionario completado</option>
+                  <option value="PRESUPUESTO_ENVIADO">4. Oferta precio cerrado</option>
+                  <option value="PROPUESTA_PREACEPTADA">5. Propuesta pre-aceptada</option>
+                  <option value="REUNION_AGENDADA">6. Reunión/Visita agendada</option>
+                  <option value="CONTRATO_FIRMADO">7. Contrato firmado</option>
+                  <option value="GANADO">8. Ganado</option>
                   <option value="PERDIDO">Perdido</option>
                   <option value="DESCARTADO">Descartado</option>
                 </select>
