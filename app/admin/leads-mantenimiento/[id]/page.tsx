@@ -25,6 +25,8 @@ const estadoColors: Record<string, string> = {
   NUEVO: 'bg-blue-100 text-blue-800',
   EN_PROCESO: 'bg-yellow-100 text-yellow-800',
   PRESUPUESTO_ENVIADO: 'bg-purple-100 text-purple-800',
+  PROPUESTA_PREACEPTADA: 'bg-emerald-100 text-emerald-800',
+  REUNION_AGENDADA: 'bg-indigo-100 text-indigo-800',
   GANADO: 'bg-green-100 text-green-800',
   PERDIDO: 'bg-red-100 text-red-800',
   DESCARTADO: 'bg-gray-100 text-gray-800',
@@ -58,6 +60,10 @@ export default function LeadDetallePage() {
   const [mensaje, setMensaje] = useState('');
   const [cuestionarioInfo, setCuestionarioInfo] = useState<any>(null);
   const [generandoLink, setGenerandoLink] = useState(false);
+  const [mostrarEmailModal, setMostrarEmailModal] = useState(false);
+  const [emailAsunto, setEmailAsunto] = useState('');
+  const [emailCuerpo, setEmailCuerpo] = useState('');
+  const [enviandoEmail, setEnviandoEmail] = useState(false);
 
   useEffect(() => {
     fetchLead();
@@ -72,6 +78,61 @@ export default function LeadDetallePage() {
         setCuestionarioInfo(data);
       }
     } catch {}
+  };
+
+  const prepararEmail = () => {
+    if (!lead) return;
+    const datos = lead.datos || {};
+    const cuestionarioToken = datos.cuestionarioTecnico?.token || cuestionarioInfo?.token;
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const cuestionarioUrl = cuestionarioToken ? `${baseUrl}/cuestionario-mantenimiento/${cuestionarioToken}` : '';
+    const pdfUrl = `${baseUrl}/api/admin/leads-mantenimiento/${lead.id}/pdf`;
+
+    setEmailAsunto(`Propuesta Servicios Mantenimiento IT - ${lead.empresa}`);
+    setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+  <div style="background-color: #E87A2E; padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 22px;">Internet Operadores</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 12px;">Servicios IT Gestionados</p>
+  </div>
+  <div style="padding: 30px; background-color: #f9f9f9;">
+    <p>Estimado/a <strong>${lead.nombre}</strong>,</p>
+    <p>Gracias por su inter\u00e9s en nuestros servicios de Mantenimiento IT para <strong>${lead.empresa}</strong>.</p>
+    <p>Adjunto a este email encontrar\u00e1 nuestra <strong>propuesta personalizada</strong> con los servicios recomendados y una estimaci\u00f3n econ\u00f3mica basada en las necesidades que nos ha indicado.</p>
+    ${cuestionarioUrl ? `<p>Para poder ofrecerle un presupuesto definitivo ajustado a su infraestructura real, le agradecer\u00edamos que completara el siguiente <strong>cuestionario t\u00e9cnico</strong> (10-15 minutos):</p>
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="${cuestionarioUrl}" style="background-color: #E87A2E; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario T\u00e9cnico</a>
+    </div>` : ''}
+    <p>Una vez recibamos sus respuestas, en un plazo de <strong>48 horas</strong> le enviaremos una propuesta a precio cerrado y coordinaremos una reuni\u00f3n para resolver cualquier duda.</p>
+    <hr style="border: none; border-top: 1px solid #ddd; margin: 25px 0;" />
+    <p style="color: #666; font-size: 13px;">Quedamos a su disposici\u00f3n para cualquier consulta:</p>
+    <p style="color: #666; font-size: 13px;"><strong>900 730 034</strong> (gratuito) | <strong>comercial@internetoperadores.com</strong></p>
+    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnol\u00f3gico de confianza</p>
+  </div>
+</div>`);
+    setMostrarEmailModal(true);
+  };
+
+  const handleEnviarEmail = async () => {
+    setEnviandoEmail(true);
+    try {
+      const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/enviar-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asunto: emailAsunto, cuerpoHtml: emailCuerpo }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMensaje('Email enviado correctamente');
+        setMostrarEmailModal(false);
+        setTimeout(() => setMensaje(''), 4000);
+      } else {
+        setMensaje(`Error: ${data.error || 'No se pudo enviar'}`);
+      }
+    } catch {
+      setMensaje('Error de conexi\u00f3n al enviar email');
+    } finally {
+      setEnviandoEmail(false);
+    }
   };
 
   const handleGenerarLink = async () => {
@@ -564,23 +625,23 @@ export default function LeadDetallePage() {
               </a>
             )}
 
-            <a
-              href={`mailto:${lead.email}?subject=Propuesta Servicios IT - ${lead.empresa}&body=Hola ${lead.nombre},%0A%0AAdjunto te envío la propuesta de servicios IT para ${lead.empresa}.%0A%0AQuedo a tu disposición para cualquier consulta.%0A%0ASaludos,%0AInternet Operadores%0ATel: 900 730 034`}
-              className="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium text-sm text-center block mb-3"
+            <button
+              onClick={prepararEmail}
+              className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
             >
-              Enviar email al lead
-            </a>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+              Enviar propuesta por email
+            </button>
 
-            {esGrande && (
-              <a
-                href={`https://teams.microsoft.com/l/chat/0/0?users=${lead.email}&message=Hola ${lead.nombre}, soy del equipo técnico de Internet Operadores. Me gustaría agendar una reunión para hablar sobre vuestra infraestructura IT.`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full px-4 py-2.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-all font-medium text-sm text-center block"
-              >
-                Contactar por Teams
-              </a>
-            )}
+            <a
+              href="https://outlook.office.com/bookwithme/user/fbd2ec5013e94a2ebe031317c9afc0a7@lfgd.es/meetingtype/hyWyrJkZTk2szZxF8tCJoA2?bookingcode=9ff50d17-71aa-4749-a605-faf5ae47d47b&anonymous&ismsaljsauthenabled&ep=mlink"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full px-4 py-2.5 border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-all font-medium text-sm text-center flex items-center justify-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              Agendar reunión (Bookings)
+            </a>
           </div>
 
           {/* Cuestionario Técnico */}
@@ -675,6 +736,8 @@ export default function LeadDetallePage() {
                   <option value="NUEVO">Nuevo</option>
                   <option value="EN_PROCESO">En proceso</option>
                   <option value="PRESUPUESTO_ENVIADO">Presupuesto enviado</option>
+                  <option value="PROPUESTA_PREACEPTADA">Propuesta pre-aceptada</option>
+                  <option value="REUNION_AGENDADA">Reunión agendada</option>
                   <option value="GANADO">Ganado</option>
                   <option value="PERDIDO">Perdido</option>
                   <option value="DESCARTADO">Descartado</option>
@@ -728,6 +791,82 @@ export default function LeadDetallePage() {
           </div>
         </div>
       </div>
+
+      {/* Modal de previsualización de email */}
+      {mostrarEmailModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">Revisar email antes de enviar</h3>
+                <button onClick={() => setMostrarEmailModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">Destinatario: <strong>{lead.email}</strong></p>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Asunto</label>
+                <input
+                  type="text"
+                  value={emailAsunto}
+                  onChange={e => setEmailAsunto(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Vista previa del email</label>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <iframe
+                    srcDoc={emailCuerpo}
+                    className="w-full h-80 border-0"
+                    title="Vista previa email"
+                  />
+                </div>
+              </div>
+
+              <details className="text-xs">
+                <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Editar HTML del email</summary>
+                <textarea
+                  value={emailCuerpo}
+                  onChange={e => setEmailCuerpo(e.target.value)}
+                  rows={10}
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-orange-500"
+                />
+              </details>
+
+              <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700">
+                <p className="font-medium">Se adjuntará automáticamente:</p>
+                <p className="mt-1">• Propuesta PDF (HTML) con el documento vendedor completo</p>
+                <p>• El email incluye el link al cuestionario técnico online</p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-200 flex items-center justify-between">
+              <button
+                onClick={() => setMostrarEmailModal(false)}
+                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleEnviarEmail}
+                disabled={enviandoEmail}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
+              >
+                {enviandoEmail ? (
+                  <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Enviando...</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg> Enviar email</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
