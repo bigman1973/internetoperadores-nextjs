@@ -49,11 +49,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       }
     }
 
-    // Enviar email
+    // Enviar email con copia oculta a comercial y david.perez
     const result = await sendEmail({
       to: lead.email,
       subject: asunto,
       html: cuerpoHtml,
+      bcc: ['comercial@internetoperadores.com', 'david.perez@internetoperadores.com'],
       ...(pdfAttachment ? { attachments: [pdfAttachment] } : {}),
     });
 

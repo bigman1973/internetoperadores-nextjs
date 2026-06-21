@@ -8,6 +8,7 @@ interface EmailOptions {
   to: string | string[]
   subject: string
   html: string
+  bcc?: string | string[]
   attachments?: Array<{
     filename: string
     content?: Buffer | string
@@ -108,6 +109,13 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
       }
     }) || []
 
+    // Construir BCC si se especifica
+    const bccRecipients = options.bcc
+      ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]).map(email => ({
+          emailAddress: { address: email },
+        }))
+      : []
+
     // Construir el payload del mensaje
     const mailPayload: any = {
       message: {
@@ -120,6 +128,7 @@ export async function sendEmail(options: EmailOptions): Promise<{ success: boole
           emailAddress: { address: fromEmail },
         },
         toRecipients,
+        ...(bccRecipients.length > 0 ? { bccRecipients } : {}),
       },
       saveToSentItems: true,
     }
