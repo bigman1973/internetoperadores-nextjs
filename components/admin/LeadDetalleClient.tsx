@@ -87,7 +87,6 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [creandoCuestionario, setCreandoCuestionario] = useState(false);
   const [cuestionarioUrl, setCuestionarioUrl] = useState('');
   const [copiado, setCopiado] = useState(false);
-  const [pdfUrl, setPdfUrl] = useState('');
 
   // Email modal states
   const [mostrarEmailModal, setMostrarEmailModal] = useState(false);
@@ -123,7 +122,6 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.lead.cuestionario.token}`);
       }
       if (data.lead?.informePdfUrl) {
-        setPdfUrl(data.lead.informePdfUrl);
         setPropuestaGenerada(true);
       }
     } catch (err) {
@@ -151,21 +149,6 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       setMensaje('Error al guardar');
     } finally {
       setGuardando(false);
-    }
-  };
-
-  const guardarPdfUrl = async () => {
-    try {
-      await fetch(`/api/admin/leads/${leadId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ informePdfUrl: pdfUrl }),
-      });
-      setMensaje('URL del PDF guardada');
-      fetchLead();
-      setTimeout(() => setMensaje(''), 3000);
-    } catch {
-      setMensaje('Error al guardar URL');
     }
   };
 
@@ -662,41 +645,6 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               {syncingHubspot ? 'Sincronizando...' : 'Sincronizar con HubSpot'}
             </button>
-          </div>
-
-          {/* Informe PDF */}
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Informe PDF de Auditoría</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">URL del PDF:</label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={pdfUrl}
-                  onChange={(e) => setPdfUrl(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={guardarPdfUrl}
-                  className="text-xs bg-gray-600 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700"
-                >
-                  Guardar URL
-                </button>
-                {lead.informePdfUrl && (
-                  <a
-                    href={lead.informePdfUrl}
-                    target="_blank"
-                    rel="noopener"
-                    className="text-xs bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg hover:bg-orange-200"
-                  >
-                    Ver PDF
-                  </a>
-                )}
-              </div>
-            </div>
           </div>
 
           {/* Gestión */}
