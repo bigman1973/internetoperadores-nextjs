@@ -5,15 +5,16 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request, { params }: { params: { id: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
+    const { id } = await params;
     const lead = await prisma.leadSolucion.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!lead) {
@@ -27,13 +28,14 @@ export async function GET(request: Request, { params }: { params: { id: string }
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
+    const { id } = await params;
     const body = await request.json();
     const { estado, prioridad, notas } = body;
 
@@ -43,7 +45,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (notas !== undefined) updateData.notas = notas;
 
     const lead = await prisma.leadSolucion.update({
-      where: { id: params.id },
+      where: { id },
       data: updateData,
     });
 
@@ -54,15 +56,16 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
+    const { id } = await params;
     await prisma.leadSolucion.delete({
-      where: { id: params.id },
+      where: { id },
     });
 
     return NextResponse.json({ success: true });

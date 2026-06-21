@@ -308,16 +308,17 @@ function generarCuestionarioTecnico(datos: any): string[] {
   return preguntas;
 }
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
+    const { id } = await params;
     // Obtener el lead
     const lead = await prisma.leadSolucion.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!lead) {
@@ -369,7 +370,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     };
 
     await prisma.leadSolucion.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         datos: datosActualizados,
         estado: 'EN_PROCESO',
