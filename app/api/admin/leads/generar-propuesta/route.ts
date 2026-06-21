@@ -72,12 +72,14 @@ export async function POST(request: Request) {
     // Generar HTML del PDF
     const htmlContent = generarPDFHtml(valoracion, datosLead);
 
-    // Guardar la valoración JSON y el HTML en el lead
+    // Cachear el HTML generado para servir instantáneamente en descargas posteriores
+    const notaActual = lead.notas || '';
+    const nuevaNota = `[${new Date().toLocaleDateString('es-ES')} ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}] Propuesta generada: ${valoracion.totalHoras}h / ${valoracion.totalPrecio.toLocaleString('es-ES')}€`;
     await prisma.leadMigracionWeb.update({
       where: { id: leadId },
       data: {
-        informePdfUrl: `data:valoracion:${leadId}`, // Marcador para indicar que hay propuesta generada
-        notas: `Propuesta generada automáticamente el ${new Date().toLocaleDateString('es-ES')}. Total: ${valoracion.totalHoras}h / ${valoracion.totalPrecio.toLocaleString('es-ES')}€`,
+        informePdfUrl: htmlContent, // HTML cacheado para descarga instantánea
+        notas: nuevaNota + (notaActual ? '\n' + notaActual : ''),
       },
     });
 

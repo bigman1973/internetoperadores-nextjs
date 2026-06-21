@@ -121,7 +121,7 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         const baseUrl = window.location.origin;
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.lead.cuestionario.token}`);
       }
-      if (data.lead?.informePdfUrl) {
+      if (data.lead?.informePdfUrl && data.lead.informePdfUrl.startsWith('<!')) {
         setPropuestaGenerada(true);
       }
     } catch (err) {

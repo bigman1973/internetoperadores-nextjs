@@ -7,10 +7,12 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 // GET: Obtener el HTML de la propuesta para renderizar como PDF
+// Cachea el resultado en informePdfUrl para servir instantáneamente en llamadas posteriores
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const leadId = searchParams.get('leadId');
+    const regenerar = searchParams.get('regenerar') === '1';
 
     if (!leadId) {
       return NextResponse.json({ error: 'leadId es requerido' }, { status: 400 });
@@ -34,6 +36,15 @@ export async function GET(request: Request) {
 
     if (!lead.cuestionario || lead.cuestionario.estado !== 'COMPLETADO') {
       return NextResponse.json({ error: 'Cuestionario no completado' }, { status: 400 });
+    }
+
+    // Si ya hay HTML cacheado y no se pide regenerar, servirlo directamente
+    if (!regenerar && lead.informePdfUrl && lead.informePdfUrl.startsWith('<!')) {
+      return new NextResponse(lead.informePdfUrl, {
+        headers: {
+          'Content-Type': 'text/html; charset=utf-8',
+        },
+      });
     }
 
     // Preparar datos para la IA
@@ -67,6 +78,14 @@ export async function GET(request: Request) {
 
     // Generar HTML del PDF
     const htmlContent = generarPDFHtml(valoracion, datosLead);
+
+    // Cachear el HTML generado en informePdfUrl para servir instantáneamente la próxima vez
+    await prisma.leadMigracionWeb.update({
+      where: { id: leadId },
+      data: {
+        informePdfUrl: htmlContent,
+      },
+    });
 
     // Devolver como HTML para que el navegador pueda imprimir a PDF
     return new NextResponse(htmlContent, {
