@@ -329,7 +329,26 @@ export async function POST(request: Request, { params }: { params: { id: string 
     }
 
     const datos = lead.datos as any;
-    const tipoNegocio = datos?.tipoNegocio;
+    let tipoNegocio = datos?.tipoNegocio;
+
+    // Auto-detectar tipo para leads antiguos sin tipoNegocio
+    if (!tipoNegocio) {
+      const numEquipos = datos?.numEquipos || '';
+      const numServidores = datos?.numServidores || '';
+      const equipoIT = datos?.equipoITInterno || '';
+      const cobertura = datos?.coberturaHoraria || '';
+      
+      // Si tiene +20 equipos, servidores, equipo IT interno o 24x7 → Mediana/Grande
+      if (numEquipos.includes('51-100') || numEquipos.includes('+100') || numEquipos.includes('21-50') ||
+          numServidores.includes('3-5') || numServidores.includes('+5') ||
+          equipoIT.includes('complementar') || cobertura.includes('24x7')) {
+        tipoNegocio = 'MEDIANA_GRANDE';
+      } else {
+        tipoNegocio = 'PYME'; // Default para leads sin tipo
+      }
+      // Guardar el tipo detectado
+      datos.tipoNegocio = tipoNegocio;
+    }
 
     let oferta: any;
 

@@ -147,7 +147,21 @@ export default function LeadDetallePage() {
   }
 
   const datos = lead.datos || {};
-  const tipoNegocio = datos.tipoNegocio || '';
+  // Auto-detectar tipo para leads antiguos sin tipoNegocio
+  let tipoNegocio = datos.tipoNegocio || '';
+  if (!tipoNegocio && lead.tipo === 'MANTENIMIENTO_IT') {
+    const numEquipos = datos.numEquipos || '';
+    const numServidores = datos.numServidores || '';
+    const equipoIT = datos.equipoITInterno || '';
+    const cobertura = datos.coberturaHoraria || '';
+    if (numEquipos.includes('51-100') || numEquipos.includes('+100') || numEquipos.includes('21-50') ||
+        numServidores.includes('3-5') || numServidores.includes('+5') ||
+        equipoIT.includes('complementar') || cobertura.includes('24x7')) {
+      tipoNegocio = 'MEDIANA_GRANDE';
+    } else if (numEquipos) {
+      tipoNegocio = 'PYME';
+    }
+  }
   const esGrande = tipoNegocio === 'MEDIANA_GRANDE';
 
   return (
