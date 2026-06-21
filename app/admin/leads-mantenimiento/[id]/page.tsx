@@ -56,10 +56,42 @@ export default function LeadDetallePage() {
   const [prioridad, setPrioridad] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [mensaje, setMensaje] = useState('');
+  const [cuestionarioInfo, setCuestionarioInfo] = useState<any>(null);
+  const [generandoLink, setGenerandoLink] = useState(false);
 
   useEffect(() => {
     fetchLead();
+    fetchCuestionario();
   }, []);
+
+  const fetchCuestionario = async () => {
+    try {
+      const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/cuestionario`);
+      if (res.ok) {
+        const data = await res.json();
+        setCuestionarioInfo(data);
+      }
+    } catch {}
+  };
+
+  const handleGenerarLink = async () => {
+    setGenerandoLink(true);
+    try {
+      const res = await fetch(`/api/admin/leads-mantenimiento/${params.id}/cuestionario`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCuestionarioInfo({ ...cuestionarioInfo, token: data.token, estado: data.estado });
+        setMensaje('Link del cuestionario generado');
+        setTimeout(() => setMensaje(''), 3000);
+      }
+    } catch {
+      setMensaje('Error al generar link');
+    } finally {
+      setGenerandoLink(false);
+    }
+  };
 
   const fetchLead = async () => {
     try {
@@ -550,6 +582,83 @@ export default function LeadDetallePage() {
               </a>
             )}
           </div>
+
+          {/* Cuestionario Técnico */}
+          {esGrande && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Cuestionario Técnico</h3>
+
+              {!cuestionarioInfo?.token ? (
+                <div>
+                  <p className="text-xs text-gray-500 mb-3">Genera un link único para que el cliente rellene el cuestionario técnico online.</p>
+                  <button
+                    onClick={handleGenerarLink}
+                    disabled={generandoLink}
+                    className="w-full px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-medium text-sm disabled:opacity-50"
+                  >
+                    {generandoLink ? 'Generando...' : 'Generar link cuestionario'}
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${
+                      cuestionarioInfo.estado === 'COMPLETADO' ? 'bg-green-500' : 'bg-yellow-500'
+                    }`}></span>
+                    <span className="text-xs font-medium text-gray-700">
+                      {cuestionarioInfo.estado === 'COMPLETADO' ? 'Completado' : 'Pendiente de respuesta'}
+                    </span>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-3">
+                    <p className="text-xs text-gray-500 mb-1">Link para el cliente:</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${typeof window !== 'undefined' ? window.location.origin : ''}/cuestionario-mantenimiento/${cuestionarioInfo.token}`}
+                        className="flex-1 px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-700 truncate"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/cuestionario-mantenimiento/${cuestionarioInfo.token}`);
+                          setMensaje('Link copiado al portapapeles');
+                          setTimeout(() => setMensaje(''), 3000);
+                        }}
+                        className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-xs font-medium text-gray-700 transition-all flex-shrink-0"
+                      >
+                        Copiar
+                      </button>
+                    </div>
+                  </div>
+
+                  {cuestionarioInfo.estado === 'COMPLETADO' && cuestionarioInfo.respuestas && (
+                    <div className="mt-3">
+                      <p className="text-xs text-green-700 font-medium mb-2">
+                        Completado el {new Date(cuestionarioInfo.completadoAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
+                      </p>
+                      <details className="text-xs">
+                        <summary className="cursor-pointer text-indigo-600 font-medium hover:text-indigo-800">Ver respuestas ({Object.keys(cuestionarioInfo.respuestas).length} secciones)</summary>
+                        <div className="mt-2 space-y-3 max-h-96 overflow-y-auto">
+                          {Object.entries(cuestionarioInfo.respuestas).map(([seccion, preguntas]: [string, any]) => (
+                            <div key={seccion} className="bg-gray-50 rounded-lg p-3">
+                              <p className="font-semibold text-gray-700 mb-2 capitalize">{seccion.replace(/_/g, ' ')}</p>
+                              {preguntas.map((item: any, i: number) => (
+                                <div key={i} className="mb-2">
+                                  <p className="text-gray-500 text-[10px]">{item.pregunta}</p>
+                                  <p className="text-gray-900 font-medium">{item.respuesta || <span className="italic text-gray-400">Sin respuesta</span>}</p>
+                                </div>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Gestión */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">

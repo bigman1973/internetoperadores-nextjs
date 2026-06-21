@@ -607,10 +607,15 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       su infraestructura actual y requisitos específicos. Por favor, complete este cuestionario 
       con la mayor precisión posible.
     </p>
-    <p style="font-size:10px;color:#888;margin-bottom:20px;">
+    <p style="font-size:10px;color:#888;margin-bottom:8px;">
       Puede responder directamente sobre este documento o enviarnos las respuestas por email a 
-      <strong>soluciones@internetoperadores.com</strong>
+      <strong>comercial@internetoperadores.com</strong>
     </p>
+    ${datos.cuestionarioTecnico?.token ? `
+    <div style="background:#fff3e0;border:2px solid #E87A2E;border-radius:8px;padding:12px 15px;margin-bottom:20px;">
+      <p style="font-size:11px;color:#333;margin:0;"><strong>Tambi\u00e9n puede completarlo online:</strong></p>
+      <p style="font-size:12px;color:#E87A2E;font-weight:700;margin:5px 0 0 0;">www.internetoperadores.com/cuestionario-mantenimiento/${datos.cuestionarioTecnico.token}</p>
+    </div>` : ''}
 
     ${cuestionarioAvanzado.slice(0, 2).map(seccion => `
       <div class="cuestionario-seccion">
@@ -711,7 +716,7 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       <div class="contacto-contra">
         <h3>¿Hablamos?</h3>
         <p>900 730 034 (gratuito)</p>
-        <p>soluciones@internetoperadores.com</p>
+        <p>comercial@internetoperadores.com</p>
         <p>www.internetoperadores.com</p>
       </div>
       <div class="footer-contra">
