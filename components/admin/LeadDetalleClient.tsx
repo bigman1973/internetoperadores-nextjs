@@ -59,31 +59,48 @@ const ESTADOS = [
   { value: 'EN_REVISION', label: 'En revisión', color: 'bg-yellow-100 text-yellow-800' },
   { value: 'AUDITORIA_ENVIADA', label: 'Auditoría enviada', color: 'bg-indigo-100 text-indigo-800' },
   { value: 'CUESTIONARIO_ENVIADO', label: 'Cuestionario enviado', color: 'bg-purple-100 text-purple-800' },
-  { value: 'CUESTIONARIO_COMPLETADO', label: 'Cuestionario completado', color: 'bg-green-100 text-green-800' },
+  { value: 'CUESTIONARIO_COMPLETADO', label: 'Cuestionario completado', color: 'bg-cyan-100 text-cyan-800' },
   { value: 'PROPUESTA_ENVIADA', label: 'Propuesta enviada', color: 'bg-orange-100 text-orange-800' },
-  { value: 'CERRADO_GANADO', label: 'Cerrado (ganado)', color: 'bg-emerald-100 text-emerald-800' },
+  { value: 'PROPUESTA_PREACEPTADA', label: 'Propuesta pre-aceptada', color: 'bg-emerald-100 text-emerald-800' },
+  { value: 'REUNION_AGENDADA', label: 'Reunión agendada', color: 'bg-indigo-100 text-indigo-800' },
+  { value: 'CERRADO_GANADO', label: 'Cerrado (ganado)', color: 'bg-green-100 text-green-800' },
   { value: 'CERRADO_PERDIDO', label: 'Cerrado (perdido)', color: 'bg-red-100 text-red-800' },
   { value: 'DESCARTADO', label: 'Descartado', color: 'bg-gray-100 text-gray-800' },
 ];
+
+const prioridadColors: Record<string, string> = {
+  BAJA: 'bg-gray-100 text-gray-700',
+  MEDIA: 'bg-blue-100 text-blue-700',
+  ALTA: 'bg-orange-100 text-orange-700',
+  URGENTE: 'bg-red-100 text-red-700',
+};
 
 export default function LeadDetalleClient({ leadId }: { leadId: string }) {
   const [lead, setLead] = useState<Lead | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notas, setNotas] = useState('');
-  const [guardandoNotas, setGuardandoNotas] = useState(false);
+  const [estado, setEstado] = useState('');
+  const [prioridad, setPrioridad] = useState('');
+  const [guardando, setGuardando] = useState(false);
+  const [mensaje, setMensaje] = useState('');
   const [creandoCuestionario, setCreandoCuestionario] = useState(false);
-  const [enviandoEmail, setEnviandoEmail] = useState(false);
-  const [showEmailModal, setShowEmailModal] = useState(false);
-  const [emailAsunto, setEmailAsunto] = useState('');
-  const [emailMensaje, setEmailMensaje] = useState('');
-  const [pdfUrl, setPdfUrl] = useState('');
   const [cuestionarioUrl, setCuestionarioUrl] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState('');
+
+  // Email modal states
+  const [mostrarEmailModal, setMostrarEmailModal] = useState(false);
+  const [emailAsunto, setEmailAsunto] = useState('');
+  const [emailCuerpo, setEmailCuerpo] = useState('');
+  const [enviandoEmail, setEnviandoEmail] = useState(false);
+
+  // Propuesta states
   const [generandoPropuesta, setGenerandoPropuesta] = useState(false);
   const [propuestaGenerada, setPropuestaGenerada] = useState(false);
-  const [syncingHS, setSyncingHS] = useState(false);
-  const [hubspotMsg, setHubspotMsg] = useState('');
+
+  // HubSpot
+  const [syncingHubspot, setSyncingHubspot] = useState(false);
 
   useEffect(() => {
     fetchLead();
@@ -99,12 +116,15 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       const data = await res.json();
       setLead(data.lead);
       setNotas(data.lead?.notas || '');
+      setEstado(data.lead?.estado || 'NUEVO');
+      setPrioridad(data.lead?.prioridad || 'MEDIA');
       if (data.lead?.cuestionario) {
         const baseUrl = window.location.origin;
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.lead.cuestionario.token}`);
       }
       if (data.lead?.informePdfUrl) {
         setPdfUrl(data.lead.informePdfUrl);
+        setPropuestaGenerada(true);
       }
     } catch (err) {
       console.error('Error:', err);
@@ -114,31 +134,23 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
     }
   };
 
-  const cambiarEstado = async (nuevoEstado: string) => {
+  const handleGuardar = async () => {
+    setGuardando(true);
     try {
-      await fetch(`/api/admin/leads/${leadId}`, {
+      const res = await fetch(`/api/admin/leads/${leadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: nuevoEstado }),
+        body: JSON.stringify({ estado, prioridad, notas }),
       });
-      fetchLead();
-    } catch (err) {
-      console.error('Error:', err);
-    }
-  };
-
-  const guardarNotas = async () => {
-    setGuardandoNotas(true);
-    try {
-      await fetch(`/api/admin/leads/${leadId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notas }),
-      });
-    } catch (err) {
-      console.error('Error:', err);
+      if (res.ok) {
+        setMensaje('Guardado correctamente');
+        fetchLead();
+        setTimeout(() => setMensaje(''), 3000);
+      }
+    } catch {
+      setMensaje('Error al guardar');
     } finally {
-      setGuardandoNotas(false);
+      setGuardando(false);
     }
   };
 
@@ -149,9 +161,11 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ informePdfUrl: pdfUrl }),
       });
+      setMensaje('URL del PDF guardada');
       fetchLead();
-    } catch (err) {
-      console.error('Error:', err);
+      setTimeout(() => setMensaje(''), 3000);
+    } catch {
+      setMensaje('Error al guardar URL');
     }
   };
 
@@ -165,52 +179,85 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       if (data.cuestionario) {
         const baseUrl = window.location.origin;
         setCuestionarioUrl(`${baseUrl}/cuestionario/${data.cuestionario.token}`);
+        setMensaje('Cuestionario creado correctamente');
         fetchLead();
+        setTimeout(() => setMensaje(''), 3000);
       }
-    } catch (err) {
-      console.error('Error:', err);
+    } catch {
+      setMensaje('Error al crear cuestionario');
     } finally {
       setCreandoCuestionario(false);
-    }
-  };
-
-  const enviarEmail = async () => {
-    setEnviandoEmail(true);
-    try {
-      const res = await fetch(`/api/admin/leads/${leadId}/enviar-email`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asunto: emailAsunto || `Informe de Auditoría Web - ${lead?.nombreEmpresa}`,
-          mensaje: emailMensaje,
-          pdfUrl: pdfUrl || lead?.informePdfUrl,
-        }),
-      });
-      const data = await res.json();
-      if (data.cuestionarioUrl) {
-        setCuestionarioUrl(data.cuestionarioUrl);
-      }
-      setShowEmailModal(false);
-      fetchLead();
-      alert(data.emailSent === false
-        ? 'Cuestionario listo. Resend no configurado - copie el link manualmente.'
-        : 'Email enviado correctamente');
-    } catch (err) {
-      console.error('Error:', err);
-      alert('Error al enviar el email');
-    } finally {
-      setEnviandoEmail(false);
     }
   };
 
   const copiarLink = () => {
     navigator.clipboard.writeText(cuestionarioUrl);
     setCopiado(true);
-    setTimeout(() => setCopiado(false), 2000);
+    setMensaje('Link copiado al portapapeles');
+    setTimeout(() => { setCopiado(false); setMensaje(''); }, 3000);
   };
 
-  const generarPropuesta = async () => {
+  // Preparar email con previsualización HTML
+  const prepararEmail = () => {
+    if (!lead) return;
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const cuestionarioLink = lead.cuestionario
+      ? `${baseUrl}/cuestionario/${lead.cuestionario.token}`
+      : '';
+
+    setEmailAsunto(`Informe de Auditoría Web - ${lead.nombreEmpresa}`);
+    setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+  <div style="background-color: #EA580C; padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 22px;">Internet Operadores</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 12px;">Migración Web Profesional</p>
+  </div>
+  <div style="padding: 30px; background-color: #f9f9f9;">
+    <p>Estimado/a <strong>${lead.contacto}</strong>,</p>
+    <p>Gracias por su interés en nuestros servicios de migración web para <strong>${lead.nombreEmpresa}</strong>.</p>
+    <p>Hemos analizado su web actual y adjunto a este email encontrará nuestra <strong>propuesta personalizada</strong> con la valoración técnica y económica del proyecto.</p>
+    ${cuestionarioLink ? `<p>Para poder ofrecerle un presupuesto definitivo ajustado a sus necesidades reales, le agradeceríamos que completara el siguiente <strong>cuestionario técnico</strong> (5-10 minutos):</p>
+    <div style="text-align: center; margin: 25px 0;">
+      <a href="${cuestionarioLink}" style="background-color: #EA580C; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario Técnico</a>
+    </div>` : ''}
+    <p>Una vez recibamos sus respuestas, en un plazo de <strong>48 horas</strong> le enviaremos una propuesta a precio cerrado y coordinaremos una reunión para resolver cualquier duda.</p>
+    <hr style="border: none; border-top: 1px solid #ddd; margin: 25px 0;" />
+    <p style="color: #666; font-size: 13px;">Quedamos a su disposición para cualquier consulta:</p>
+    <p style="color: #666; font-size: 13px;"><strong>900 730 034</strong> (gratuito) | <strong>comercial@internetoperadores.com</strong></p>
+    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnológico de confianza</p>
+  </div>
+</div>`);
+    setMostrarEmailModal(true);
+  };
+
+  // Enviar email con cuerpoHtml
+  const handleEnviarEmail = async () => {
+    setEnviandoEmail(true);
+    try {
+      const res = await fetch(`/api/admin/leads/${leadId}/enviar-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asunto: emailAsunto, cuerpoHtml: emailCuerpo }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMensaje('Email enviado correctamente');
+        setMostrarEmailModal(false);
+        fetchLead();
+        setTimeout(() => setMensaje(''), 4000);
+      } else {
+        setMensaje(`Error: ${data.error || 'No se pudo enviar'}`);
+      }
+    } catch {
+      setMensaje('Error de conexión al enviar email');
+    } finally {
+      setEnviandoEmail(false);
+    }
+  };
+
+  // Generar propuesta económica con IA
+  const handleGenerarPropuesta = async () => {
     setGenerandoPropuesta(true);
+    setMensaje('');
     try {
       const res = await fetch('/api/admin/leads/generar-propuesta', {
         method: 'POST',
@@ -220,14 +267,14 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
       const data = await res.json();
       if (data.success) {
         setPropuestaGenerada(true);
+        setMensaje(`Propuesta generada: ${data.resumen?.totalHoras || '?'}h / ${data.resumen?.totalPrecio?.toLocaleString('es-ES') || '?'}€`);
         fetchLead();
-        alert(`Propuesta generada: ${data.resumen.totalHoras}h / ${data.resumen.totalPrecio.toLocaleString('es-ES')}€`);
+        setTimeout(() => setMensaje(''), 5000);
       } else {
-        alert(`Error: ${data.error}`);
+        setMensaje(`Error: ${data.error}`);
       }
-    } catch (err) {
-      console.error('Error:', err);
-      alert('Error al generar la propuesta');
+    } catch {
+      setMensaje('Error al generar la propuesta');
     } finally {
       setGenerandoPropuesta(false);
     }
@@ -237,186 +284,196 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
     window.open(`/api/admin/leads/generar-propuesta/pdf?leadId=${leadId}`, '_blank');
   };
 
-  const syncHubspot = async () => {
-    setSyncingHS(true);
-    setHubspotMsg('');
+  // Sincronizar con HubSpot
+  const handleSyncHubspot = async () => {
+    setSyncingHubspot(true);
+    setMensaje('');
     try {
       const res = await fetch(`/api/admin/leads/${leadId}/hubspot-deal`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
-        setHubspotMsg(`✓ Deal ${data.created ? 'creado' : 'actualizado'} en HubSpot`);
+        setMensaje(`HubSpot sincronizado (deal ${data.created ? 'creado' : 'actualizado'})`);
+        fetchLead();
       } else {
-        setHubspotMsg(`✗ ${data.error || 'Error al sincronizar'}`);
+        setMensaje(data.error || 'Error al sincronizar con HubSpot');
       }
-    } catch (err) {
-      setHubspotMsg('✗ Error de conexión');
+    } catch {
+      setMensaje('Error de conexión con HubSpot');
     } finally {
-      setSyncingHS(false);
+      setSyncingHubspot(false);
+      setTimeout(() => setMensaje(''), 4000);
     }
   };
 
   if (loading) {
-    return <div className="p-6 text-center text-gray-400">Cargando...</div>;
+    return (
+      <div className="p-6">
+        <div className="animate-pulse space-y-4">
+          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+          <div className="h-64 bg-gray-200 rounded"></div>
+        </div>
+      </div>
+    );
   }
 
   if (error || !lead) {
-    return <div className="p-6 text-center text-red-500">{error || 'Lead no encontrado'}</div>;
+    return (
+      <div className="p-6">
+        <p className="text-red-600">{error || 'Lead no encontrado'}</p>
+        <Link href="/admin/leads" className="text-orange-600 hover:underline mt-4 inline-block">
+          Volver a leads migración web
+        </Link>
+      </div>
+    );
   }
 
   const estadoActual = ESTADOS.find(e => e.value === lead.estado);
+  const cuestionarioCompletado = lead.cuestionario?.estado === 'COMPLETADO';
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/admin/leads" className="text-gray-400 hover:text-gray-600">
-          ← Volver
-        </Link>
-        <div className="flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+        <div>
+          <Link href="/admin/leads" className="text-sm text-gray-500 hover:text-orange-600 mb-2 inline-flex items-center gap-1">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            Volver a leads migración web
+          </Link>
           <h1 className="text-2xl font-bold text-gray-900">{lead.nombreEmpresa}</h1>
-          <p className="text-sm text-gray-500">Lead recibido el {new Date(lead.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+          <p className="text-gray-600">{lead.contacto} — {lead.email}</p>
         </div>
-        <div className="flex gap-2 items-center">
-          <span className={`px-2 py-1 rounded-full text-xs font-medium ${estadoActual?.color || 'bg-gray-100 text-gray-800'}`}>
-            {estadoActual?.label || lead.estado}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${estadoActual?.color || 'bg-gray-100 text-gray-800'}`}>
+            {estadoActual?.label || lead.estado.replace(/_/g, ' ')}
           </span>
-          <select
-            value={lead.estado}
-            onChange={(e) => cambiarEstado(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
-            {ESTADOS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
-          </select>
+          <span className={`px-3 py-1 rounded-full text-xs font-semibold ${prioridadColors[lead.prioridad] || 'bg-gray-100 text-gray-700'}`}>
+            {lead.prioridad}
+          </span>
         </div>
       </div>
+
+      {mensaje && (
+        <div className={`mb-4 p-3 rounded-lg text-sm ${mensaje.includes('Error') || mensaje.includes('✗') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+          {mensaje}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Columna principal */}
         <div className="lg:col-span-2 space-y-6">
           {/* Datos del lead */}
-          <div className="bg-white rounded-lg border p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Datos del Formulario</h2>
-            <div className="grid grid-cols-2 gap-4">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Datos del Formulario</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500 font-medium">Empresa</label>
-                <p className="text-sm text-gray-900">{lead.nombreEmpresa}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Contacto</p>
+                <p className="text-sm text-gray-900 font-medium">{lead.contacto}</p>
+                <p className="text-sm text-gray-600">{lead.email}</p>
+                {lead.telefono && <p className="text-sm text-gray-600">{lead.telefono}</p>}
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Contacto</label>
-                <p className="text-sm text-gray-900">{lead.contacto}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Empresa</p>
+                <p className="text-sm text-gray-900 font-medium">{lead.nombreEmpresa}</p>
+                <p className="text-sm text-gray-600 capitalize">{lead.sectorOtro || lead.sector || 'Sin sector'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Email</label>
-                <p className="text-sm text-gray-900">
-                  <a href={`mailto:${lead.email}`} className="text-orange-600 hover:underline">{lead.email}</a>
-                </p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Web actual</p>
+                {lead.urlWebActual ? (
+                  <a href={lead.urlWebActual} target="_blank" rel="noopener" className="text-sm text-orange-600 hover:underline">{lead.urlWebActual}</a>
+                ) : <p className="text-sm text-gray-400">No indicada</p>}
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Teléfono</label>
-                <p className="text-sm text-gray-900">{lead.telefono || '-'}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Presupuesto</p>
+                <p className="text-sm text-gray-900">{lead.presupuesto || 'No indicado'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Web actual</label>
-                <p className="text-sm">
-                  {lead.urlWebActual ? (
-                    <a href={lead.urlWebActual} target="_blank" rel="noopener" className="text-orange-600 hover:underline">{lead.urlWebActual}</a>
-                  ) : '-'}
-                </p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Plazo / Fecha límite</p>
+                <p className="text-sm text-gray-900">{lead.fechaLimite || 'No indicado'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Sector</label>
-                <p className="text-sm text-gray-900 capitalize">{lead.sectorOtro || lead.sector || '-'}</p>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Presupuesto</label>
-                <p className="text-sm text-gray-900">{lead.presupuesto || '-'}</p>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Plazo / Fecha límite</label>
-                <p className="text-sm text-gray-900">{lead.fechaLimite || '-'}</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Páginas web actual</p>
+                <p className="text-sm text-gray-900">{lead.numPaginas || 'No indicado'}</p>
               </div>
             </div>
 
+            {/* Funcionalidades */}
+            <div className="mt-4 flex flex-wrap gap-2">
+              {lead.tieneBlog && <span className="px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-full">Blog</span>}
+              {lead.tieneTienda && <span className="px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-full">Tienda online</span>}
+              {lead.tieneFormularios && <span className="px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-full">Formularios</span>}
+              {lead.tieneAreaPrivada && <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded-full">Área privada</span>}
+            </div>
+
             {/* Detalles adicionales */}
-            <div className="mt-6 space-y-4 border-t pt-4">
-              {lead.numPaginas && (
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Páginas web actual</label>
-                  <p className="text-sm text-gray-900">{lead.numPaginas}</p>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                {lead.tieneBlog && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Blog</span>}
-                {lead.tieneTienda && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Tienda online</span>}
-                {lead.tieneFormularios && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Formularios</span>}
-                {lead.tieneAreaPrivada && <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs">Área privada</span>}
-              </div>
+            <div className="mt-4 space-y-3 border-t pt-4">
               {lead.frustracionActual && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Frustración principal</label>
-                  <p className="text-sm text-gray-900">{lead.frustracionActual}</p>
+                  <p className="text-xs text-gray-500 uppercase font-medium">Frustración principal</p>
+                  <p className="text-sm text-gray-900 mt-1 bg-gray-50 p-3 rounded-lg">{lead.frustracionActual}</p>
                 </div>
               )}
-              {lead.objetivos && (
+              {lead.objetivos && Array.isArray(lead.objetivos) && lead.objetivos.length > 0 && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Objetivos</label>
-                  <div className="text-sm text-gray-900 mt-1">
-                    {(Array.isArray(lead.objetivos) ? lead.objetivos : []).map((obj: string, i: number) => (
-                      <span key={i} className="inline-block bg-orange-50 text-orange-700 px-2 py-1 rounded text-xs mr-2 mb-1">
-                        {obj}
-                      </span>
+                  <p className="text-xs text-gray-500 uppercase font-medium">Objetivos</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {lead.objetivos.map((obj: string, i: number) => (
+                      <span key={i} className="px-2 py-0.5 bg-orange-50 text-orange-700 text-xs rounded-full">{obj}</span>
                     ))}
                   </div>
                 </div>
               )}
               {lead.respuestasSector && typeof lead.respuestasSector === 'object' && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Respuestas sector ({lead.sector})</label>
-                  <div className="bg-gray-50 rounded p-3 mt-1 space-y-2">
+                  <p className="text-xs text-gray-500 uppercase font-medium">Respuestas sector ({lead.sector})</p>
+                  <div className="bg-gray-50 rounded-lg p-3 mt-1 space-y-1">
                     {Object.entries(lead.respuestasSector).map(([key, val]) => (
-                      <div key={key}>
-                        <span className="text-xs text-gray-500">{key}:</span>
-                        <span className="text-sm text-gray-900 ml-2">{String(val)}</span>
+                      <div key={key} className="flex gap-2 text-sm">
+                        <span className="text-gray-500">{key}:</span>
+                        <span className="text-gray-900">{String(val)}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
               {lead.necesitaIntegracion && (
-                <div className="border-t pt-4">
-                  <label className="text-xs text-gray-500 font-medium">Integración software</label>
-                  <div className="space-y-1 mt-1">
-                    {lead.softwareActual && <p className="text-sm text-gray-900">Software: {lead.softwareActual}</p>}
-                    {lead.tieneApi && <p className="text-sm text-gray-900">API: {lead.tieneApi}</p>}
-                    {lead.datosIntegracion && <p className="text-sm text-gray-900">Datos: {lead.datosIntegracion}</p>}
-                    {lead.proveedorActual && <p className="text-sm text-gray-900">Proveedor: {lead.proveedorActual}</p>}
+                <div>
+                  <p className="text-xs text-gray-500 uppercase font-medium">Integración software</p>
+                  <div className="bg-gray-50 rounded-lg p-3 mt-1 space-y-1 text-sm">
+                    {lead.softwareActual && <p><span className="text-gray-500">Software:</span> {lead.softwareActual}</p>}
+                    {lead.tieneApi && <p><span className="text-gray-500">API:</span> {lead.tieneApi}</p>}
+                    {lead.datosIntegracion && <p><span className="text-gray-500">Datos:</span> {lead.datosIntegracion}</p>}
+                    {lead.proveedorActual && <p><span className="text-gray-500">Proveedor:</span> {lead.proveedorActual}</p>}
                   </div>
                 </div>
               )}
               {lead.comoNosConocio && (
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Cómo nos conoció</label>
+                  <p className="text-xs text-gray-500 uppercase font-medium">Cómo nos conoció</p>
                   <p className="text-sm text-gray-900">{lead.comoNosConocio}</p>
                 </div>
               )}
             </div>
+            <p className="text-xs text-gray-400 mt-4">
+              Recibido: {new Date(lead.createdAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
+            </p>
           </div>
 
           {/* Respuestas del cuestionario técnico */}
           {lead.cuestionario && lead.cuestionario.respuestas && lead.cuestionario.respuestas.length > 0 && (
-            <div className="bg-white rounded-lg border p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Respuestas del Cuestionario Técnico
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Respuestas del Cuestionario Técnico</h2>
                 {lead.cuestionario.fechaCompletado && (
-                  <span className="ml-2 text-xs font-normal text-green-600">
-                    Completado el {new Date(lead.cuestionario.fechaCompletado).toLocaleDateString('es-ES')}
+                  <span className="text-xs text-green-600 font-medium">
+                    Completado el {new Date(lead.cuestionario.fechaCompletado).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}
                   </span>
                 )}
-              </h2>
-              <div className="space-y-4">
+              </div>
+              <div className="space-y-3 max-h-96 overflow-y-auto">
                 {lead.cuestionario.respuestas.map((resp) => (
-                  <div key={resp.id} className="border-b pb-3 last:border-b-0">
-                    <p className="text-xs text-orange-600 font-medium mb-1">{resp.bloque}</p>
+                  <div key={resp.id} className="border-b border-gray-100 pb-3 last:border-b-0">
+                    <p className="text-xs text-orange-600 font-medium mb-0.5">{resp.bloque}</p>
                     <p className="text-sm font-medium text-gray-700">{resp.pregunta}</p>
                     <p className="text-sm text-gray-900 mt-1">{resp.respuesta}</p>
                   </div>
@@ -426,158 +483,10 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
           )}
         </div>
 
-        {/* Sidebar */}
+        {/* Columna lateral */}
         <div className="space-y-6">
-          {/* Link del cuestionario */}
-          <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Cuestionario Técnico</h3>
-            {!lead.cuestionario ? (
-              <button
-                onClick={crearCuestionario}
-                disabled={creandoCuestionario}
-                className="w-full bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
-              >
-                {creandoCuestionario ? 'Creando...' : '📋 Generar Cuestionario'}
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-xs text-green-700 font-medium mb-2">Cuestionario creado</p>
-                  <p className="text-xs text-green-600 mb-2">
-                    Estado: {lead.cuestionario.estado === 'COMPLETADO' ? '✅ Completado' : '⏳ Pendiente de respuesta'}
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={cuestionarioUrl}
-                      readOnly
-                      className="flex-1 text-xs border rounded px-2 py-1 bg-white truncate"
-                    />
-                    <button
-                      onClick={copiarLink}
-                      className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700 whitespace-nowrap"
-                    >
-                      {copiado ? '✓ Copiado' : 'Copiar'}
-                    </button>
-                  </div>
-                </div>
-                <a
-                  href={cuestionarioUrl}
-                  target="_blank"
-                  rel="noopener"
-                  className="block text-center text-xs text-orange-600 hover:underline"
-                >
-                  Abrir cuestionario en nueva pestaña →
-                </a>
-              </div>
-            )}
-          </div>
-
-          {/* PDF del informe */}
-          <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Informe PDF de Auditoría</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">URL del PDF:</label>
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={pdfUrl}
-                  onChange={(e) => setPdfUrl(e.target.value)}
-                  className="w-full border rounded px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={guardarPdfUrl}
-                  className="text-xs bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700"
-                >
-                  Guardar URL
-                </button>
-                {lead.informePdfUrl && (
-                  <a
-                    href={lead.informePdfUrl}
-                    target="_blank"
-                    rel="noopener"
-                    className="text-xs bg-orange-100 text-orange-700 px-3 py-1 rounded hover:bg-orange-200"
-                  >
-                    📄 Ver PDF
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Propuesta / Valoración */}
-          {lead.cuestionario && lead.cuestionario.estado === 'COMPLETADO' && (
-            <div className="bg-white rounded-lg border p-6">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">Propuesta Automática</h3>
-              <div className="space-y-3">
-                <button
-                  onClick={generarPropuesta}
-                  disabled={generandoPropuesta}
-                  className="w-full bg-orange-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
-                >
-                  {generandoPropuesta ? '⏳ Generando con IA...' : '🤖 Generar Valoración con IA'}
-                </button>
-                {(lead.informePdfUrl || propuestaGenerada) && (
-                  <button
-                    onClick={verPropuestaPDF}
-                    className="w-full bg-green-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700"
-                  >
-                    📄 Ver / Descargar Propuesta PDF
-                  </button>
-                )}
-                {generandoPropuesta && (
-                  <p className="text-xs text-gray-500 text-center">Analizando respuestas y generando valoración... (30-60 seg)</p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Enviar email */}
-          {lead.cuestionario && (
-            <div className="bg-white rounded-lg border p-6">
-              <h3 className="text-sm font-semibold text-gray-900 mb-4">Enviar al Cliente</h3>
-              <button
-                onClick={() => {
-                  setEmailAsunto(`Informe de Auditoría Web - ${lead.nombreEmpresa}`);
-                  setEmailMensaje('');
-                  setShowEmailModal(true);
-                }}
-                disabled={enviandoEmail}
-                className="w-full bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-              >
-                📧 Enviar Email con PDF + Link
-              </button>
-              {lead.cuestionario.fechaEnvio && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Último envío: {new Date(lead.cuestionario.fechaEnvio).toLocaleDateString('es-ES')}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Notas internas */}
-          <div className="bg-white rounded-lg border p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Notas internas</h3>
-            <textarea
-              value={notas}
-              onChange={(e) => setNotas(e.target.value)}
-              placeholder="Añadir notas sobre este lead..."
-              className="w-full border rounded-lg px-3 py-2 text-sm h-32 resize-none"
-            />
-            <button
-              onClick={guardarNotas}
-              disabled={guardandoNotas}
-              className="mt-2 text-xs bg-gray-600 text-white px-3 py-1 rounded hover:bg-gray-700 disabled:opacity-50"
-            >
-              {guardandoNotas ? 'Guardando...' : 'Guardar notas'}
-            </button>
-          </div>
-
           {/* Proceso de Venta */}
-          <div className="bg-white rounded-lg border p-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Proceso de Venta</h3>
             <div className="space-y-0">
               {[
@@ -587,13 +496,17 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                 { id: 'CUESTIONARIO_ENVIADO', label: '4. Cuestionario enviado', action: 'Esperar respuestas del cliente' },
                 { id: 'CUESTIONARIO_COMPLETADO', label: '5. Cuestionario completado', action: 'Generar propuesta económica' },
                 { id: 'PROPUESTA_ENVIADA', label: '6. Propuesta enviada', action: 'Seguimiento comercial' },
-                { id: 'CERRADO_GANADO', label: '7. Ganado', action: 'Iniciar migración' },
+                { id: 'PROPUESTA_PREACEPTADA', label: '7. Propuesta pre-aceptada', action: 'Agendar reunión' },
+                { id: 'REUNION_AGENDADA', label: '8. Reunión agendada', action: 'Cerrar contrato' },
+                { id: 'CERRADO_GANADO', label: '9. Ganado', action: 'Iniciar migración' },
               ].map((paso, idx) => {
-                const estadoOrden = ['NUEVO', 'EN_REVISION', 'AUDITORIA_ENVIADA', 'CUESTIONARIO_ENVIADO', 'CUESTIONARIO_COMPLETADO', 'PROPUESTA_ENVIADA', 'CERRADO_GANADO'];
+                const estadoOrden = ['NUEVO', 'EN_REVISION', 'AUDITORIA_ENVIADA', 'CUESTIONARIO_ENVIADO', 'CUESTIONARIO_COMPLETADO', 'PROPUESTA_ENVIADA', 'PROPUESTA_PREACEPTADA', 'REUNION_AGENDADA', 'CERRADO_GANADO'];
                 const estadoActualIdx = estadoOrden.indexOf(lead.estado);
                 const pasoIdx = estadoOrden.indexOf(paso.id);
                 const completado = pasoIdx < estadoActualIdx;
                 const activo = pasoIdx === estadoActualIdx;
+                const pendiente = pasoIdx > estadoActualIdx;
+
                 return (
                   <div key={paso.id} className="flex items-start gap-3">
                     <div className="flex flex-col items-center">
@@ -606,16 +519,17 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
                           <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
                         ) : idx + 1}
                       </div>
-                      {idx < 6 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
+                      {idx < 8 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
                     </div>
-                    <div className={`pb-4 ${activo ? 'text-gray-900' : completado ? 'text-gray-600' : 'text-gray-400'}`}>
+                    <div className={`pb-4 ${activo ? 'text-gray-900' : pendiente ? 'text-gray-400' : 'text-gray-600'}`}>
                       <p className={`text-xs font-semibold ${activo ? 'text-orange-700' : ''}`}>{paso.label}</p>
-                      {activo && <p className="text-[10px] text-orange-600 mt-0.5">→ {paso.action}</p>}
+                      {activo && <p className="text-[10px] text-orange-600 mt-0.5">&rarr; {paso.action}</p>}
                     </div>
                   </div>
                 );
               })}
             </div>
+
             {lead.estado === 'CERRADO_PERDIDO' && (
               <div className="mt-2 px-3 py-2 bg-red-50 rounded-lg text-xs text-red-700 font-medium text-center">Oportunidad perdida</div>
             )}
@@ -624,97 +538,307 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
             )}
           </div>
 
-          {/* Acciones rápidas */}
-          <div className="bg-white rounded-lg border p-6">
+          {/* Acciones del paso actual */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Acciones</h3>
-            <div className="space-y-2">
-              <a
-                href="https://outlook.office.com/bookwithme/user/fbd2ec5013e94a2ebe031317c9afc0a7@lfgd.es/meetingtype/hyWyrJkZTk2szZxF8tCJoA2?bookingcode=9ff50d17-71aa-4749-a605-faf5ae47d47b&anonymous&ismsaljsauthenabled&ep=mlink"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full px-4 py-2 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-all font-medium text-xs text-center flex items-center justify-center gap-2"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                Agendar reunión (Bookings)
-              </a>
+
+            {/* Paso 1: Crear cuestionario */}
+            {!lead.cuestionario && (
               <button
-                onClick={syncHubspot}
-                disabled={syncingHS}
-                className="w-full px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-all font-medium text-xs flex items-center justify-center gap-2"
+                onClick={crearCuestionario}
+                disabled={creandoCuestionario}
+                className="w-full px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm disabled:opacity-50 disabled:cursor-not-allowed mb-3"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-                {syncingHS ? 'Sincronizando...' : 'Sincronizar con HubSpot'}
+                {creandoCuestionario ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                    Creando...
+                  </span>
+                ) : (
+                  '\u2460 Generar Cuestionario Técnico'
+                )}
               </button>
-              {hubspotMsg && <p className="text-[10px] text-center text-gray-500">{hubspotMsg}</p>}
+            )}
+
+            {/* Cuestionario link */}
+            {lead.cuestionario && (
+              <div className="bg-gray-50 rounded-lg p-3 mb-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`w-2 h-2 rounded-full ${cuestionarioCompletado ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+                  <span className="text-xs font-medium text-gray-700">
+                    Cuestionario: {cuestionarioCompletado ? 'Completado' : 'Pendiente'}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={cuestionarioUrl}
+                    className="flex-1 px-2 py-1.5 bg-white border border-gray-300 rounded text-xs text-gray-700 truncate"
+                  />
+                  <button
+                    onClick={copiarLink}
+                    className="px-2 py-1.5 bg-gray-200 hover:bg-gray-300 rounded text-xs font-medium text-gray-700 transition-all flex-shrink-0"
+                  >
+                    {copiado ? '✓' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Paso 2: Enviar email con propuesta + cuestionario */}
+            {lead.cuestionario && (
               <button
-                disabled={true}
-                className="w-full px-4 py-2 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed font-medium text-xs flex items-center justify-center gap-2"
-                title="Funcionalidad de firma digital próximamente"
+                onClick={prepararEmail}
+                className="w-full px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
               >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                Firma de contrato (próximamente)
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                &#9313; Enviar propuesta por email
               </button>
+            )}
+
+            {/* Paso 3: Generar propuesta económica (solo si cuestionario completado) */}
+            <button
+              onClick={handleGenerarPropuesta}
+              disabled={generandoPropuesta || !cuestionarioCompletado}
+              className={`w-full px-4 py-2.5 rounded-lg transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3 ${
+                cuestionarioCompletado
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                  : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              }`}
+              title={!cuestionarioCompletado ? 'Disponible cuando el cliente complete el cuestionario técnico' : ''}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+              {generandoPropuesta ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Generando con IA...
+                </span>
+              ) : '\u2462 Generar propuesta económica'}
+            </button>
+            {!cuestionarioCompletado && (
+              <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Pendiente: cuestionario técnico del cliente</p>
+            )}
+
+            {/* Descargar propuesta PDF */}
+            {propuestaGenerada && (
+              <button
+                onClick={verPropuestaPDF}
+                className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                &#9315; Descargar PDF Propuesta
+              </button>
+            )}
+
+            {/* Paso 5: Agendar reunión */}
+            <a
+              href="https://outlook.office.com/bookwithme/user/fbd2ec5013e94a2ebe031317c9afc0a7@lfgd.es/meetingtype/hyWyrJkZTk2szZxF8tCJoA2?bookingcode=9ff50d17-71aa-4749-a605-faf5ae47d47b&anonymous&ismsaljsauthenabled&ep=mlink"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full px-4 py-2.5 border border-indigo-300 text-indigo-700 rounded-lg hover:bg-indigo-50 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+              &#9316; Agendar reunión (Bookings)
+            </a>
+
+            {/* Firma de contrato (previsto) */}
+            <button
+              disabled={true}
+              className="w-full px-4 py-2.5 bg-gray-100 text-gray-400 rounded-lg cursor-not-allowed font-medium text-sm flex items-center justify-center gap-2 mb-3"
+              title="Funcionalidad de firma digital próximamente"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+              &#9318; Firma de contrato
+            </button>
+            <p className="text-[10px] text-gray-400 -mt-2 mb-3 text-center">Próximamente: firma digital integrada</p>
+
+            {/* Sincronizar HubSpot */}
+            <button
+              onClick={handleSyncHubspot}
+              disabled={syncingHubspot}
+              className="w-full px-4 py-2 border border-gray-300 text-gray-600 rounded-lg hover:bg-gray-50 transition-all font-medium text-xs flex items-center justify-center gap-2"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              {syncingHubspot ? 'Sincronizando...' : 'Sincronizar con HubSpot'}
+            </button>
+          </div>
+
+          {/* Informe PDF */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Informe PDF de Auditoría</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">URL del PDF:</label>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={pdfUrl}
+                  onChange={(e) => setPdfUrl(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={guardarPdfUrl}
+                  className="text-xs bg-gray-600 text-white px-3 py-1.5 rounded-lg hover:bg-gray-700"
+                >
+                  Guardar URL
+                </button>
+                {lead.informePdfUrl && (
+                  <a
+                    href={lead.informePdfUrl}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-xs bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg hover:bg-orange-200"
+                  >
+                    Ver PDF
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Gestión */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Gestión</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
+                <select
+                  value={estado}
+                  onChange={e => setEstado(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-orange-500"
+                >
+                  {ESTADOS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Prioridad</label>
+                <select
+                  value={prioridad}
+                  onChange={e => setPrioridad(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-orange-500"
+                >
+                  <option value="BAJA">Baja</option>
+                  <option value="MEDIA">Media</option>
+                  <option value="ALTA">Alta</option>
+                  <option value="URGENTE">Urgente</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Notas internas</label>
+                <textarea
+                  value={notas}
+                  onChange={e => setNotas(e.target.value)}
+                  rows={4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-orange-500"
+                  placeholder="Notas sobre este lead..."
+                />
+              </div>
+
+              <button
+                onClick={handleGuardar}
+                disabled={guardando}
+                className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all font-medium text-sm disabled:opacity-50"
+              >
+                {guardando ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
+          </div>
+
+          {/* Info */}
+          <div className="bg-gray-50 rounded-xl border border-gray-200 p-4">
+            <h4 className="text-xs font-bold text-gray-500 uppercase mb-2">Información</h4>
+            <div className="space-y-2 text-xs text-gray-600">
+              <p><span className="font-medium">ID:</span> {lead.id.slice(0, 8)}...</p>
+              <p><span className="font-medium">Creado:</span> {new Date(lead.createdAt).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}</p>
+              {lead.cuestionario?.fechaEnvio && (
+                <p><span className="font-medium">Email enviado:</span> {new Date(lead.cuestionario.fechaEnvio).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}</p>
+              )}
+              {lead.cuestionario?.fechaCompletado && (
+                <p><span className="font-medium">Cuestionario completado:</span> {new Date(lead.cuestionario.fechaCompletado).toLocaleString('es-ES', { timeZone: 'Europe/Madrid' })}</p>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Modal enviar email */}
-      {showEmailModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Enviar Email al Cliente</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Destinatario</label>
-                <p className="text-sm text-gray-900">{lead.email}</p>
+      {/* Modal de previsualización de email */}
+      {mostrarEmailModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">Revisar email antes de enviar</h3>
+                <button onClick={() => setMostrarEmailModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
               </div>
+              <p className="text-sm text-gray-500 mt-1">Destinatario: <strong>{lead.email}</strong></p>
+              <p className="text-xs text-gray-400 mt-0.5">BCC: comercial@internetoperadores.com, david.perez@internetoperadores.com</p>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Asunto</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Asunto</label>
                 <input
                   type="text"
                   value={emailAsunto}
-                  onChange={(e) => setEmailAsunto(e.target.value)}
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
+                  onChange={e => setEmailAsunto(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Mensaje personalizado (opcional)</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Vista previa del email</label>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <iframe
+                    srcDoc={emailCuerpo}
+                    className="w-full h-80 border-0"
+                    title="Vista previa email"
+                  />
+                </div>
+              </div>
+
+              <details className="text-xs">
+                <summary className="cursor-pointer text-gray-500 hover:text-gray-700">Editar HTML del email</summary>
                 <textarea
-                  value={emailMensaje}
-                  onChange={(e) => setEmailMensaje(e.target.value)}
-                  placeholder="Si lo deja vacío se usará el mensaje por defecto..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm h-24 resize-none"
+                  value={emailCuerpo}
+                  onChange={e => setEmailCuerpo(e.target.value)}
+                  rows={10}
+                  className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-orange-500"
                 />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">URL del PDF de auditoría</label>
-                <input
-                  type="url"
-                  value={pdfUrl || lead.informePdfUrl || ''}
-                  onChange={(e) => setPdfUrl(e.target.value)}
-                  placeholder="https://..."
-                  className="w-full border rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="bg-gray-50 rounded-lg p-3">
-                <p className="text-xs text-gray-500 mb-1">Link del cuestionario que se incluirá:</p>
-                <p className="text-xs text-orange-600 break-all">{cuestionarioUrl}</p>
+              </details>
+
+              <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700">
+                <p className="font-medium">Información adicional:</p>
+                <p className="mt-1">&#8226; El email incluye el link al cuestionario técnico online</p>
+                <p>&#8226; Se enviará con copia oculta (BCC) a comercial@ y david.perez@</p>
+                <p>&#8226; El estado del lead se actualizará automáticamente</p>
               </div>
             </div>
-            <div className="flex justify-end gap-3 mt-6">
+
+            <div className="p-6 border-t border-gray-200 flex items-center justify-between">
               <button
-                onClick={() => setShowEmailModal(false)}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                onClick={() => setMostrarEmailModal(false)}
+                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-medium"
               >
                 Cancelar
               </button>
               <button
-                onClick={enviarEmail}
+                onClick={handleEnviarEmail}
                 disabled={enviandoEmail}
-                className="px-4 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50"
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50 flex items-center gap-2"
               >
-                {enviandoEmail ? 'Enviando...' : 'Enviar Email'}
+                {enviandoEmail ? (
+                  <><svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Enviando...</>
+                ) : (
+                  <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg> Enviar email</>
+                )}
               </button>
             </div>
           </div>
