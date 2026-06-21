@@ -520,6 +520,18 @@ export default function LeadDetallePage() {
               </button>
             )}
 
+            {oferta && (
+              <a
+                href={`/api/admin/leads-mantenimiento/${params.id}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full px-4 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-all font-medium text-sm text-center flex items-center justify-center gap-2 mb-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Descargar PDF Propuesta + Cuestionario
+              </a>
+            )}
+
             <a
               href={`mailto:${lead.email}?subject=Propuesta Servicios IT - ${lead.empresa}&body=Hola ${lead.nombre},%0A%0AAdjunto te envío la propuesta de servicios IT para ${lead.empresa}.%0A%0AQuedo a tu disposición para cualquier consulta.%0A%0ASaludos,%0AInternet Operadores%0ATel: 900 730 034`}
               className="w-full px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-all font-medium text-sm text-center block mb-3"
