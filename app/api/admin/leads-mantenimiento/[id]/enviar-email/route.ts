@@ -79,6 +79,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         data: {
           datos: datosActualizados,
           estado: lead.estado === 'NUEVO' ? 'EN_PROCESO' : lead.estado,
+          fechaEmailEnviado: new Date(),
+          fechaCuestionarioEnviado: new Date(),
         },
       });
 

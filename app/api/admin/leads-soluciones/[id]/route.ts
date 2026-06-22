@@ -40,7 +40,24 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { estado, prioridad, notas } = body;
 
     const updateData: any = {};
-    if (estado) updateData.estado = estado;
+    if (estado) {
+      updateData.estado = estado;
+      // Registrar fecha automáticamente al cambiar estado (trazabilidad proceso de venta)
+      const ahora = new Date();
+      const fechaMap: Record<string, string> = {
+        'EN_PROCESO': 'fechaEmailEnviado',
+        'CUESTIONARIO_COMPLETADO': 'fechaCuestionarioCompletado',
+        'PRESUPUESTO_ENVIADO': 'fechaPropuestaEnviada',
+        'PROPUESTA_PREACEPTADA': 'fechaPropuestaAceptada',
+        'REUNION_AGENDADA': 'fechaReunionAgendada',
+        'CONTRATO_FIRMADO': 'fechaContratoFirmado',
+        'GANADO': 'fechaCierre',
+        'PERDIDO': 'fechaCierre',
+      };
+      if (fechaMap[estado]) {
+        updateData[fechaMap[estado]] = ahora;
+      }
+    }
     if (prioridad) updateData.prioridad = prioridad;
     if (notas !== undefined) updateData.notas = notas;
 

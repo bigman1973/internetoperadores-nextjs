@@ -88,6 +88,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       where: { id: lead.id },
       data: {
         datos: datosActualizados,
+        estado: 'CUESTIONARIO_COMPLETADO',
+        fechaCuestionarioCompletado: new Date(),
         // Actualizar prioridad a ALTA si estaba en MEDIA
         ...(lead.prioridad === 'MEDIA' ? { prioridad: 'ALTA' } : {}),
       },

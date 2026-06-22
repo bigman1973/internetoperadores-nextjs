@@ -374,6 +374,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       data: {
         datos: datosActualizados,
         estado: 'EN_PROCESO',
+        fechaOfertaGenerada: new Date(),
       },
     });
 

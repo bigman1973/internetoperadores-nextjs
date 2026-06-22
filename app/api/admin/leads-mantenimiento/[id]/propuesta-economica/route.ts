@@ -176,7 +176,10 @@ Responde EXCLUSIVAMENTE en JSON válido con esta estructura:
 
     await prisma.leadSolucion.update({
       where: { id },
-      data: { datos: datosActualizados },
+      data: {
+        datos: datosActualizados,
+        fechaPropuestaGenerada: new Date(),
+      },
     });
 
     return NextResponse.json({ success: true, propuesta: datosActualizados.propuestaEconomica });
