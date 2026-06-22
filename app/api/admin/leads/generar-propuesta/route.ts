@@ -80,6 +80,7 @@ export async function POST(request: Request) {
       data: {
         informePdfUrl: htmlContent, // HTML cacheado para descarga instantánea
         notas: nuevaNota + (notaActual ? '\n' + notaActual : ''),
+        fechaPropuestaGenerada: new Date(),
       },
     });
 

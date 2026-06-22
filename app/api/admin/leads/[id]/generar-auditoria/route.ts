@@ -124,6 +124,7 @@ Responde SOLO con el JSON, sin markdown ni explicaciones. Los precios deben ser 
         informePdfUrl: htmlInforme,
         estado: lead.estado === 'NUEVO' ? 'EN_REVISION' : lead.estado,
         notas: nuevaNota + (notaActual ? '\n' + notaActual : ''),
+        fechaAuditoriaGenerada: new Date(),
       },
     });
 

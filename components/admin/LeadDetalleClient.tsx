@@ -50,6 +50,15 @@ interface Lead {
   comoNosConocio: string | null;
   notas: string | null;
   informePdfUrl: string | null;
+  // Fechas del proceso de venta
+  fechaAuditoriaGenerada: string | null;
+  fechaAuditoriaEnviada: string | null;
+  fechaCuestionarioEnviado: string | null;
+  fechaPropuestaGenerada: string | null;
+  fechaPropuestaEnviada: string | null;
+  fechaPropuestaAceptada: string | null;
+  fechaReunionAgendada: string | null;
+  fechaCierre: string | null;
   createdAt: string;
   cuestionario: Cuestionario | null;
 }
@@ -521,45 +530,60 @@ export default function LeadDetalleClient({ leadId }: { leadId: string }) {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase">Proceso de Venta</h3>
             <div className="space-y-0">
-              {[
-                { id: 'NUEVO', label: '1. Lead recibido', action: 'Generar auditoría web' },
-                { id: 'EN_REVISION', label: '2. Auditoría generada', action: 'Crear cuestionario + enviar email' },
-                { id: 'AUDITORIA_ENVIADA', label: '3. Auditoría enviada', action: 'Esperar cuestionario del cliente' },
-                { id: 'CUESTIONARIO_ENVIADO', label: '4. Cuestionario enviado', action: 'Esperar respuestas del cliente' },
-                { id: 'CUESTIONARIO_COMPLETADO', label: '5. Cuestionario completado', action: 'Generar propuesta económica' },
-                { id: 'PROPUESTA_ENVIADA', label: '6. Propuesta enviada', action: 'Seguimiento comercial' },
-                { id: 'PROPUESTA_PREACEPTADA', label: '7. Propuesta pre-aceptada', action: 'Agendar reunión' },
-                { id: 'REUNION_AGENDADA', label: '8. Reunión agendada', action: 'Cerrar contrato' },
-                { id: 'CERRADO_GANADO', label: '9. Ganado', action: 'Iniciar migración' },
-              ].map((paso, idx) => {
-                const estadoOrden = ['NUEVO', 'EN_REVISION', 'AUDITORIA_ENVIADA', 'CUESTIONARIO_ENVIADO', 'CUESTIONARIO_COMPLETADO', 'PROPUESTA_ENVIADA', 'PROPUESTA_PREACEPTADA', 'REUNION_AGENDADA', 'CERRADO_GANADO'];
-                const estadoActualIdx = estadoOrden.indexOf(lead.estado);
-                const pasoIdx = estadoOrden.indexOf(paso.id);
-                const completado = pasoIdx < estadoActualIdx;
-                const activo = pasoIdx === estadoActualIdx;
-                const pendiente = pasoIdx > estadoActualIdx;
+              {(() => {
+                const formatFecha = (fecha: string | null | undefined) => {
+                  if (!fecha) return null;
+                  const d = new Date(fecha);
+                  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', timeZone: 'Europe/Madrid' }) + ' ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' });
+                };
 
-                return (
-                  <div key={paso.id} className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                        completado ? 'bg-green-500 text-white' :
-                        activo ? 'bg-orange-500 text-white ring-4 ring-orange-100' :
-                        'bg-gray-200 text-gray-500'
-                      }`}>
-                        {completado ? (
-                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                        ) : idx + 1}
+                const pasos = [
+                  { id: 'NUEVO', label: '1. Lead recibido', action: 'Generar auditoría web', fecha: lead.createdAt },
+                  { id: 'EN_REVISION', label: '2. Auditoría generada', action: 'Crear cuestionario + enviar email', fecha: lead.fechaAuditoriaGenerada },
+                  { id: 'AUDITORIA_ENVIADA', label: '3. Auditoría enviada', action: 'Esperar cuestionario del cliente', fecha: lead.fechaAuditoriaEnviada },
+                  { id: 'CUESTIONARIO_ENVIADO', label: '4. Cuestionario enviado', action: 'Esperar respuestas del cliente', fecha: lead.fechaCuestionarioEnviado || lead.cuestionario?.fechaEnvio },
+                  { id: 'CUESTIONARIO_COMPLETADO', label: '5. Cuestionario completado', action: 'Generar propuesta económica', fecha: lead.cuestionario?.fechaCompletado },
+                  { id: 'PROPUESTA_ENVIADA', label: '6. Propuesta enviada', action: 'Seguimiento comercial', fecha: lead.fechaPropuestaEnviada },
+                  { id: 'PROPUESTA_PREACEPTADA', label: '7. Propuesta pre-aceptada', action: 'Agendar reunión', fecha: lead.fechaPropuestaAceptada },
+                  { id: 'REUNION_AGENDADA', label: '8. Reunión agendada', action: 'Cerrar contrato', fecha: lead.fechaReunionAgendada },
+                  { id: 'CERRADO_GANADO', label: '9. Ganado', action: 'Iniciar migración', fecha: lead.fechaCierre },
+                ];
+
+                const estadoOrden = pasos.map(p => p.id);
+                const estadoActualIdx = estadoOrden.indexOf(lead.estado);
+
+                return pasos.map((paso, idx) => {
+                  const pasoIdx = estadoOrden.indexOf(paso.id);
+                  const completado = pasoIdx < estadoActualIdx;
+                  const activo = pasoIdx === estadoActualIdx;
+                  const pendiente = pasoIdx > estadoActualIdx;
+                  const fechaFormateada = formatFecha(paso.fecha);
+
+                  return (
+                    <div key={paso.id} className="flex items-start gap-3">
+                      <div className="flex flex-col items-center">
+                        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                          completado ? 'bg-green-500 text-white' :
+                          activo ? 'bg-orange-500 text-white ring-4 ring-orange-100' :
+                          'bg-gray-200 text-gray-500'
+                        }`}>
+                          {completado ? (
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                          ) : idx + 1}
+                        </div>
+                        {idx < 8 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
                       </div>
-                      {idx < 8 && <div className={`w-0.5 h-6 ${completado ? 'bg-green-300' : 'bg-gray-200'}`}></div>}
+                      <div className={`pb-4 ${activo ? 'text-gray-900' : pendiente ? 'text-gray-400' : 'text-gray-600'}`}>
+                        <p className={`text-xs font-semibold ${activo ? 'text-orange-700' : ''}`}>{paso.label}</p>
+                        {fechaFormateada && (completado || activo) && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{fechaFormateada}</p>
+                        )}
+                        {activo && <p className="text-[10px] text-orange-600 mt-0.5">&rarr; {paso.action}</p>}
+                      </div>
                     </div>
-                    <div className={`pb-4 ${activo ? 'text-gray-900' : pendiente ? 'text-gray-400' : 'text-gray-600'}`}>
-                      <p className={`text-xs font-semibold ${activo ? 'text-orange-700' : ''}`}>{paso.label}</p>
-                      {activo && <p className="text-[10px] text-orange-600 mt-0.5">&rarr; {paso.action}</p>}
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
 
             {lead.estado === 'CERRADO_PERDIDO' && (

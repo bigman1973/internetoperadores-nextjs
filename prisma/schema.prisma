@@ -535,6 +535,15 @@ model LeadMigracionWeb {
   cuestionario      CuestionarioPrivado? @relation(fields: [cuestionarioId], references: [id])
   // Informe generado
   informePdfUrl     String?             @map("informe_pdf_url")
+  // Fechas del proceso de venta
+  fechaAuditoriaGenerada  DateTime?     @map("fecha_auditoria_generada")
+  fechaAuditoriaEnviada   DateTime?     @map("fecha_auditoria_enviada")
+  fechaCuestionarioEnviado DateTime?    @map("fecha_cuestionario_enviado")
+  fechaPropuestaGenerada  DateTime?     @map("fecha_propuesta_generada")
+  fechaPropuestaEnviada   DateTime?     @map("fecha_propuesta_enviada")
+  fechaPropuestaAceptada  DateTime?     @map("fecha_propuesta_aceptada")
+  fechaReunionAgendada    DateTime?     @map("fecha_reunion_agendada")
+  fechaCierre             DateTime?     @map("fecha_cierre")
   // Recordatorio wizard
   recordatorioEnviado DateTime?         @map("recordatorio_enviado")
   origenFormulario  String?             @map("origen_formulario")

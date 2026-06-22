@@ -53,7 +53,24 @@ export async function PATCH(
     const { estado, prioridad, notas, informePdfUrl } = body;
 
     const data: any = {};
-    if (estado) data.estado = estado;
+    if (estado) {
+      data.estado = estado;
+      // Registrar fecha automáticamente al cambiar estado
+      const ahora = new Date();
+      const fechaMap: Record<string, string> = {
+        'EN_REVISION': 'fechaAuditoriaGenerada',
+        'AUDITORIA_ENVIADA': 'fechaAuditoriaEnviada',
+        'CUESTIONARIO_ENVIADO': 'fechaCuestionarioEnviado',
+        'PROPUESTA_ENVIADA': 'fechaPropuestaEnviada',
+        'PROPUESTA_PREACEPTADA': 'fechaPropuestaAceptada',
+        'REUNION_AGENDADA': 'fechaReunionAgendada',
+        'CERRADO_GANADO': 'fechaCierre',
+        'CERRADO_PERDIDO': 'fechaCierre',
+      };
+      if (fechaMap[estado]) {
+        data[fechaMap[estado]] = ahora;
+      }
+    }
     if (prioridad) data.prioridad = prioridad;
     if (notas !== undefined) data.notas = notas;
     if (informePdfUrl !== undefined) data.informePdfUrl = informePdfUrl;

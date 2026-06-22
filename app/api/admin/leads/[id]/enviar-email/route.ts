@@ -92,12 +92,22 @@ export async function POST(
         nuevoEstado = 'PROPUESTA_ENVIADA';
       }
 
+      // Registrar fecha según la acción
+      const fechasUpdate: any = {};
+      if (nuevoEstado === 'AUDITORIA_ENVIADA') {
+        fechasUpdate.fechaAuditoriaEnviada = new Date();
+        fechasUpdate.fechaCuestionarioEnviado = new Date();
+      } else if (nuevoEstado === 'PROPUESTA_ENVIADA') {
+        fechasUpdate.fechaPropuestaEnviada = new Date();
+      }
+
       await prisma.leadMigracionWeb.update({
         where: { id },
         data: {
           estado: nuevoEstado,
           notas: nuevasNotas,
           informePdfUrl: pdfUrl || lead.informePdfUrl,
+          ...fechasUpdate,
         },
       });
 
