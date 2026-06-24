@@ -128,6 +128,40 @@ export default function LeadDetallePage() {
     setMostrarEmailModal(true);
   };
 
+  // Preparar email con propuesta económica final
+  const prepararEmailPropuestaEconomica = () => {
+    if (!lead) return;
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    const pdfUrl = `${baseUrl}/api/admin/leads-mantenimiento/${lead.id}/propuesta-economica`;
+
+    setEmailAsunto(`Propuesta Económica Definitiva - ${lead.empresa} | Internet Operadores`);
+    setEmailCuerpo(`<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+  <div style="background-color: #E87A2E; padding: 20px; text-align: center;">
+    <h1 style="color: white; margin: 0; font-size: 22px;">Internet Operadores</h1>
+    <p style="color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 12px;">Propuesta Económica Definitiva</p>
+  </div>
+  <div style="padding: 30px; background-color: #f9f9f9;">
+    <p>Estimado/a <strong>${lead.nombre}</strong>,</p>
+    <p>Gracias por completar el cuestionario técnico. Hemos analizado en detalle su infraestructura y le presentamos nuestra <strong>propuesta económica a precio cerrado</strong> para el servicio de Mantenimiento IT de <strong>${lead.empresa}</strong>.</p>
+    <div style="background: #fff; border: 2px solid #E87A2E; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+      <p style="margin: 0 0 12px 0; font-weight: 700; color: #333; font-size: 16px;">Su propuesta está lista</p>
+      <p style="margin: 0 0 15px 0; font-size: 13px; color: #555;">Incluye desglose de servicios, SLA garantizado, precio mensual cerrado y condiciones.</p>
+      <a href="${pdfUrl}" style="background-color: #E87A2E; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Ver Propuesta Completa</a>
+    </div>
+    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 15px; margin: 20px 0;">
+      <p style="margin: 0 0 8px 0; font-weight: 700; color: #166534;">¿Qué incluye?</p>
+      <p style="margin: 0; font-size: 13px; color: #166534;">✓ Servicios de mantenimiento detallados<br/>✓ SLA con tiempos de respuesta garantizados<br/>✓ Precio mensual cerrado sin sorpresas<br/>✓ Soporte remoto y presencial<br/>✓ Monitorización proactiva 24/7</p>
+    </div>
+    <p style="margin-top: 20px;">Si tiene cualquier duda o desea comentar algún punto, estamos a su disposición para una reunión. Puede agendar directamente desde el enlace de la propuesta.</p>
+    <hr style="border: none; border-top: 1px solid #ddd; margin: 25px 0;" />
+    <p style="color: #666; font-size: 13px;">¿Prefiere hablar directamente?</p>
+    <p style="color: #666; font-size: 13px;"><strong>900 730 034</strong> (gratuito) | <strong>comercial@internetoperadores.com</strong></p>
+    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnológico de confianza — +20 años</p>
+  </div>
+</div>`);
+    setMostrarEmailModal(true);
+  };
+
   const handleEnviarEmail = async () => {
     setEnviandoEmail(true);
     try {
@@ -795,6 +829,17 @@ export default function LeadDetallePage() {
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                 ④ Descargar PDF Propuesta Económica
               </a>
+            )}
+
+            {/* Enviar propuesta económica por email */}
+            {propuestaEconomica && (
+              <button
+                onClick={prepararEmailPropuestaEconomica}
+                className="w-full px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-medium text-sm flex items-center justify-center gap-2 mb-3"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                ④ Enviar propuesta económica por email
+              </button>
             )}
 
             {/* Paso 5: Agendar reunión */}
