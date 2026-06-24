@@ -70,18 +70,27 @@ function generarHTMLPropuestaMantenimiento(lead: any): string {
       color: #333;
     }
 
+    @page { size: A4; margin: 0; }
+    @media print {
+      .page { height: 297mm; page-break-after: always; page-break-inside: avoid; overflow: hidden; }
+      .page:last-child { page-break-after: auto; }
+      body { margin: 0; padding: 0; }
+    }
+
     .page {
       width: 210mm;
-      min-height: 297mm;
+      height: 297mm;
       padding: 25mm 20mm;
       margin: 0 auto;
       position: relative;
       page-break-after: always;
+      page-break-inside: avoid;
+      overflow: hidden;
+      box-sizing: border-box;
     }
 
     .page:last-child {
-      page-break-after: avoid;
-      min-height: auto;
+      page-break-after: auto;
     }
 
     /* PORTADA */

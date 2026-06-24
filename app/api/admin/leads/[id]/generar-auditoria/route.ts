@@ -216,8 +216,10 @@ function generarHTMLAuditoria(lead: any, auditoria: any): string {
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Inter', sans-serif; font-size: 11px; line-height: 1.6; color: #333; }
-    .page { width: 210mm; min-height: 297mm; padding: 25mm 20mm; margin: 0 auto; position: relative; page-break-after: always; }
-    .page:last-child { page-break-after: avoid; min-height: auto; }
+    @page { size: A4; margin: 0; }
+    @media print { .page { height: 297mm; page-break-after: always; page-break-inside: avoid; overflow: hidden; } .page:last-child { page-break-after: auto; } body { margin: 0; padding: 0; } }
+    .page { width: 210mm; height: 297mm; padding: 25mm 20mm; margin: 0 auto; position: relative; page-break-after: always; page-break-inside: avoid; overflow: hidden; box-sizing: border-box; }
+    .page:last-child { page-break-after: auto; }
     .portada { display: flex; flex-direction: column; justify-content: flex-start; padding-top: 30mm; }
     .logo-text { font-size: 22px; font-weight: 300; color: #333; }
     .logo-text span { color: #EA580C; font-weight: 700; }

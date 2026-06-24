@@ -220,7 +220,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #1a1a1a; line-height: 1.5; }
-    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 25mm 20mm; position: relative; }
+    @page { size: A4; margin: 0; }
+    @media print { .page { height: 297mm; page-break-after: always; page-break-inside: avoid; overflow: hidden; } .page:last-child { page-break-after: auto; } body { margin: 0; padding: 0; } }
+    .page { width: 210mm; height: 297mm; margin: 0 auto; padding: 25mm 20mm; position: relative; page-break-after: always; page-break-inside: avoid; overflow: hidden; box-sizing: border-box; }
+    .page:last-child { page-break-after: auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 3px solid #E87A2E; }
     .logo { font-size: 24px; font-weight: 800; }
     .logo span { color: #E87A2E; }
