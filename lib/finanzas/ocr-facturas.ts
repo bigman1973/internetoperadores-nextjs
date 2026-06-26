@@ -2,6 +2,9 @@
  * OCR de facturas usando GPT-4o Vision
  * Extrae datos estructurados de PDFs e imágenes de facturas
  * Incluye líneas de detalle con precio para imputación por cliente
+ * 
+ * IMPORTANTE: Envía PDFs directamente a la API (sin conversión a imagen)
+ * Compatible con Vercel serverless (sin dependencias nativas)
  */
 
 import OpenAI from 'openai';
@@ -33,37 +36,41 @@ export interface DatosFactura {
   concepto: string | null;
   confianza: number; // 0-1
   lineas: LineaDetalle[];
+  esInternacional: boolean; // factura intracomunitaria/internacional sin IVA
+  paisOrigen: string | null; // país del emisor si es internacional
 }
 
 /**
- * Extrae datos de una factura a partir de imágenes (base64)
- * Soporta múltiples páginas para facturas largas
+ * Extrae datos de una factura a partir de un PDF o imagen (base64)
+ * Soporta envío directo de PDF a GPT-4o (sin conversión a imagen)
  */
 export async function extraerDatosFactura(
-  imageBase64: string | string[],
+  fileBase64: string | string[],
   mimeType: string = 'image/png',
   nombreArchivo?: string
 ): Promise<DatosFactura> {
   const systemPrompt = `Eres un experto en contabilidad española. Extraes datos de facturas recibidas con máxima precisión.
 SIEMPRE devuelves un JSON válido con los siguientes campos:
 - proveedor: nombre del emisor de la factura (empresa que factura)
-- cif: CIF/NIF del emisor (formato español: B12345678, o formato extranjero si aplica)
+- cif: CIF/NIF/VAT del emisor (formato español: B12345678, o formato extranjero si aplica: EE, DE, FR, etc.)
 - numFactura: número de factura exacto tal como aparece en el documento
 - fecha: fecha de emisión de la factura en formato YYYY-MM-DD (IMPORTANTE: lee el año exacto del documento, no inventes)
 - base: base imponible total (número decimal, sin símbolo €)
-- tipoIva: porcentaje de IVA principal aplicado (21, 10, 4, 0)
-- importeIva: importe total del IVA (número decimal)
-- tipoIrpf: porcentaje de IRPF retenido (15, 7, 0). Solo aplica a facturas de profesionales/autónomos
+- tipoIva: porcentaje de IVA principal aplicado (21, 10, 4, 0). Si es factura intracomunitaria sin IVA, pon 0
+- importeIva: importe total del IVA (número decimal). Si no hay IVA, pon 0
+- tipoIrpf: porcentaje de IRPF retenido (15, 7, 0). Solo aplica a facturas de profesionales/autónomos españoles
 - importeIrpf: importe del IRPF retenido (número decimal, positivo)
 - total: importe total de la factura (número decimal)
 - concepto: descripción general del servicio/producto facturado
 - confianza: tu nivel de confianza en la extracción (0.0 a 1.0)
+- esInternacional: true si el emisor es una empresa extranjera (no española) o si es factura intracomunitaria
+- paisOrigen: código ISO del país del emisor si es internacional (EE, DE, FR, NL, US, etc.), null si es española
 - lineas: array de líneas de detalle de la factura. Cada línea tiene:
   - descripcion: texto descriptivo de la línea (servicio, producto, concepto)
-  - cliente: si en la descripción aparece un nombre de empresa, persona, municipio, o referencia a un cliente final, ponlo aquí. Si no hay referencia a cliente, pon null
+  - cliente: si en la descripción aparece un nombre de empresa, persona, municipio, número de teléfono, o referencia a un cliente final, ponlo aquí. Si no hay referencia a cliente, pon null
   - cantidad: cantidad (número)
   - precioUnitario: precio por unidad (número decimal)
-  - iva: porcentaje de IVA de esta línea
+  - iva: porcentaje de IVA de esta línea (0 si es intracomunitaria/exenta)
   - importe: importe total de la línea (cantidad × precioUnitario)
 
 REGLAS IMPORTANTES:
@@ -74,45 +81,57 @@ REGLAS IMPORTANTES:
 - Si la factura está en otro idioma, traduce el concepto al español
 - En las líneas de detalle, incluye TODAS las líneas con precio que aparezcan
 - Si una línea menciona un nombre de cliente, municipio, empresa destinataria, número de teléfono asociado a un servicio, o referencia de contrato, extráelo en el campo "cliente"
-- Si es un documento que no es una factura (cesión de créditos, contrato, etc.), indica confianza 0.1 y pon lo que puedas
+- FACTURAS INTERNACIONALES: Si el emisor no es español (CIF no empieza por letra española, o tiene VAT de otro país), marca esInternacional=true y tipoIva=0
+- Si es un documento que no es una factura (cesión de créditos, contrato, albarán, etc.), indica confianza 0.1 y pon lo que puedas
 - Responde SOLO con el JSON, sin markdown ni explicaciones`;
 
   const userPrompt = nombreArchivo 
     ? `Extrae los datos de esta factura. El nombre del archivo es: "${nombreArchivo}". Incluye TODAS las líneas de detalle con precio.`
     : 'Extrae los datos de esta factura. Incluye TODAS las líneas de detalle con precio.';
 
-  // Preparar las imágenes (puede ser una o varias páginas)
-  const images = Array.isArray(imageBase64) ? imageBase64 : [imageBase64];
+  // Preparar el contenido del mensaje
+  const content: any[] = [{ type: 'text', text: userPrompt }];
+
+  // Si es un array (múltiples imágenes de páginas), enviar todas
+  const files = Array.isArray(fileBase64) ? fileBase64 : [fileBase64];
   
-  const imageContent: any[] = images.map(img => ({
-    type: 'image_url',
-    image_url: {
-      url: `data:${mimeType};base64,${img}`,
-      detail: 'high',
-    },
-  }));
+  for (const file of files) {
+    if (mimeType === 'application/pdf') {
+      // Enviar PDF directamente (soportado desde marzo 2025)
+      content.push({
+        type: 'file',
+        file: {
+          filename: nombreArchivo || 'factura.pdf',
+          file_data: `data:application/pdf;base64,${file}`,
+        },
+      });
+    } else {
+      // Enviar como imagen
+      content.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${mimeType};base64,${file}`,
+          detail: 'high',
+        },
+      });
+    }
+  }
 
   try {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: userPrompt },
-            ...imageContent,
-          ],
-        },
+        { role: 'user', content },
       ],
       max_tokens: 4000,
       temperature: 0.1,
     });
 
-    const content = response.choices[0]?.message?.content || '';
+    const responseContent = response.choices[0]?.message?.content || '';
     
     // Limpiar posible markdown
-    const jsonStr = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const jsonStr = responseContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     
     const datos = JSON.parse(jsonStr) as DatosFactura;
     
@@ -127,6 +146,8 @@ REGLAS IMPORTANTES:
     if (isNaN(datos.tipoIrpf)) datos.tipoIrpf = 0;
     if (isNaN(datos.confianza)) datos.confianza = 0.5;
     if (!Array.isArray(datos.lineas)) datos.lineas = [];
+    if (typeof datos.esInternacional !== 'boolean') datos.esInternacional = false;
+    if (!datos.paisOrigen) datos.paisOrigen = null;
     
     return datos;
   } catch (error: any) {
@@ -151,6 +172,8 @@ REGLAS IMPORTANTES:
       concepto: `Error OCR: ${error.message}`,
       confianza: 0,
       lineas: [],
+      esInternacional: false,
+      paisOrigen: null,
     };
   }
 }
@@ -196,62 +219,24 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
     concepto: null,
     confianza: 0.2,
     lineas: [],
+    esInternacional: false,
+    paisOrigen: null,
   };
 }
 
 /**
- * Convierte un PDF a múltiples imágenes base64 (una por página)
- * Usa pdf2image (Python) para la conversión
+ * Convierte un PDF a base64 para envío directo a la API
+ * Ya no necesita conversión a imagen - GPT-4o acepta PDFs directamente
+ */
+export function pdfToBase64(pdfBuffer: Buffer): string {
+  return pdfBuffer.toString('base64');
+}
+
+/**
+ * @deprecated Usar pdfToBase64 en su lugar. GPT-4o acepta PDFs directamente.
+ * Mantenida por compatibilidad con scripts existentes.
  */
 export async function pdfToBase64Images(pdfBuffer: Buffer, maxPages: number = 5): Promise<string[]> {
-  // Escribir PDF temporal
-  const fs = await import('fs');
-  const path = await import('path');
-  const { execSync } = await import('child_process');
-  
-  const tmpDir = '/tmp/ocr-pdf';
-  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-  
-  const pdfPath = path.join(tmpDir, `factura-${Date.now()}.pdf`);
-  fs.writeFileSync(pdfPath, pdfBuffer);
-  
-  try {
-    // Convertir PDF a PNG usando pdftoppm (poppler-utils)
-    const outputPrefix = path.join(tmpDir, `page-${Date.now()}`);
-    execSync(`pdftoppm -png -r 200 -l ${maxPages} "${pdfPath}" "${outputPrefix}"`, { timeout: 30000 });
-    
-    // Leer las imágenes generadas
-    const images: string[] = [];
-    for (let i = 1; i <= maxPages; i++) {
-      // pdftoppm genera archivos como page-XXX-1.png, page-XXX-2.png, etc.
-      const patterns = [
-        `${outputPrefix}-${i}.png`,
-        `${outputPrefix}-${String(i).padStart(2, '0')}.png`,
-        `${outputPrefix}-${String(i).padStart(3, '0')}.png`,
-      ];
-      
-      let found = false;
-      for (const imgPath of patterns) {
-        if (fs.existsSync(imgPath)) {
-          const imgBuffer = fs.readFileSync(imgPath);
-          images.push(imgBuffer.toString('base64'));
-          fs.unlinkSync(imgPath); // Limpiar
-          found = true;
-          break;
-        }
-      }
-      if (!found && i > 1) break; // No hay más páginas
-    }
-    
-    // Limpiar PDF temporal
-    fs.unlinkSync(pdfPath);
-    
-    return images;
-  } catch (error: any) {
-    console.error('Error convirtiendo PDF a imágenes:', error.message);
-    // Fallback: enviar el PDF como base64 directamente (solo primera página)
-    const base64 = pdfBuffer.toString('base64');
-    try { require('fs').unlinkSync(pdfPath); } catch {}
-    return [base64];
-  }
+  // Simplemente devolver el PDF como base64 - GPT-4o lo acepta directamente
+  return [pdfBuffer.toString('base64')];
 }

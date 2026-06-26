@@ -1070,6 +1070,9 @@ model FacturaRecibida {
   ocrConfianza    Float?   @map("ocr_confianza") // 0-1 confianza del OCR
   datosOcrRaw     String?  @map("datos_ocr_raw") // JSON con datos extraídos
   lineasDetalle   String?  @map("lineas_detalle") // JSON [{descripcion, cliente, precio, iva, importe}]
+  // Internacional
+  esInternacional Boolean  @default(false) @map("es_internacional") // Factura intracomunitaria/internacional
+  paisOrigen      String?  @map("pais_origen") // Código ISO del país del emisor si es internacional
   // Pago
   formaPago       String?  @map("forma_pago") // transferencia, confirming, domiciliacion, etc.
   confirmingProveedor String? @map("confirming_proveedor") // Draxton, etc. (para conciliación)

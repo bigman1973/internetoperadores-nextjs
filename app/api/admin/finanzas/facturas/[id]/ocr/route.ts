@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAccessToken, downloadFile } from '@/lib/finanzas/microsoft-graph';
-import { extraerDatosFactura, pdfToBase64Images } from '@/lib/finanzas/ocr-facturas';
+import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas';
 
 /**
  * POST /api/admin/finanzas/facturas/[id]/ocr
  * Reintentar OCR para una factura individual
- * Descarga el PDF de OneDrive, lo procesa con GPT-4o y actualiza los datos
+ * Descarga el PDF de OneDrive, lo envía directamente a GPT-4o y actualiza los datos
+ * 
+ * Compatible con Vercel serverless (sin dependencias nativas como poppler)
  */
+export const maxDuration = 60; // Permitir hasta 60s para PDFs grandes
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -37,28 +41,31 @@ export async function POST(
     await getAccessToken(); // Asegurar que tenemos token
     const fileBuffer = await downloadFile(DRIVE_ID, factura.oneDriveItemId);
 
-    // Convertir PDF a imágenes (hasta 5 páginas para facturas con muchas líneas)
+    // Determinar tipo de archivo
     const fileName = factura.archivoOneDrive || '';
-    const isPdf = fileName.toLowerCase().endsWith('.pdf');
+    const ext = fileName.split('.').pop()?.toLowerCase();
     
-    let images: string[];
+    let fileBase64: string;
     let mimeType: string;
 
-    if (isPdf) {
-      images = await pdfToBase64Images(fileBuffer, 5);
+    if (ext === 'pdf') {
+      // Enviar PDF directamente a GPT-4o (soportado desde marzo 2025)
+      fileBase64 = fileBuffer.toString('base64');
+      mimeType = 'application/pdf';
+    } else if (ext === 'png') {
+      fileBase64 = fileBuffer.toString('base64');
       mimeType = 'image/png';
+    } else if (ext === 'jpg' || ext === 'jpeg') {
+      fileBase64 = fileBuffer.toString('base64');
+      mimeType = 'image/jpeg';
     } else {
-      images = [fileBuffer.toString('base64')];
-      const ext = fileName.split('.').pop()?.toLowerCase();
-      mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+      // Intentar como PDF por defecto
+      fileBase64 = fileBuffer.toString('base64');
+      mimeType = 'application/pdf';
     }
 
-    if (images.length === 0) {
-      return NextResponse.json({ error: 'No se pudo convertir el archivo a imagen' }, { status: 500 });
-    }
-
-    // Ejecutar OCR con GPT-4o (todas las páginas)
-    const datos = await extraerDatosFactura(images, mimeType, fileName);
+    // Ejecutar OCR con GPT-4o (envío directo del PDF)
+    const datos = await extraerDatosFactura(fileBase64, mimeType, fileName);
 
     // Buscar coincidencias de clientes en las líneas de detalle
     let lineasConClientes = datos.lineas || [];
@@ -75,7 +82,7 @@ export async function POST(
         numFactura: datos.numFactura || factura.numFactura,
         fecha: datos.fecha ? new Date(datos.fecha) : factura.fecha,
         base: datos.base || 0,
-        tipoIva: datos.tipoIva || 21,
+        tipoIva: datos.tipoIva ?? 21,
         importeIva: datos.importeIva || 0,
         tipoIrpf: datos.tipoIrpf || 0,
         importeIrpf: datos.importeIrpf || 0,
@@ -95,8 +102,13 @@ export async function POST(
         cif: datos.cif,
         numFactura: datos.numFactura,
         fecha: datos.fecha,
+        base: datos.base,
+        tipoIva: datos.tipoIva,
+        importeIva: datos.importeIva,
         total: datos.total,
         confianza: datos.confianza,
+        esInternacional: datos.esInternacional,
+        paisOrigen: datos.paisOrigen,
         numLineas: lineasConClientes.length,
         lineas: lineasConClientes,
       },
