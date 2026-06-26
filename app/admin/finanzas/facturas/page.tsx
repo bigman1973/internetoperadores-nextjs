@@ -346,7 +346,7 @@ export default function FacturasPage() {
                     <tr key={f.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatFecha(f.fecha)}</td>
                       <td className="px-4 py-3">
-                        <div className="text-sm font-medium text-gray-900">{f.proveedor}</div>
+                        <a href={`/admin/finanzas/facturas/${f.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline">{f.proveedor}</a>
                         {f.cif && <div className="text-xs text-gray-400">{f.cif}</div>}
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">{f.numFactura || '—'}</td>
@@ -377,7 +377,7 @@ export default function FacturasPage() {
                           {estadoInfo.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-center">
                           {f.archivoOneDrive && (
                             <a
@@ -393,14 +393,14 @@ export default function FacturasPage() {
                           {f.estado === 'PENDIENTE_REVISION' && (
                             <>
                               <button
-                                onClick={() => actualizarEstado(f.id, 'VALIDADA')}
+                                onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'VALIDADA'); }}
                                 className="text-green-600 hover:text-green-800"
                                 title="Validar"
                               >
                                 <CheckCircleIcon className="h-5 w-5" />
                               </button>
                               <button
-                                onClick={() => actualizarEstado(f.id, 'RECHAZADA')}
+                                onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'RECHAZADA'); }}
                                 className="text-red-400 hover:text-red-600"
                                 title="Rechazar"
                               >
