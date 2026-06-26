@@ -4,11 +4,17 @@ import { getAccessToken } from '@/lib/finanzas/microsoft-graph';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
+
+    if (!id) {
+      return NextResponse.json({ error: 'ID no proporcionado' }, { status: 400 });
+    }
+
     const factura = await prisma.facturaRecibida.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: { oneDriveItemId: true, archivoOneDrive: true },
     });
 
