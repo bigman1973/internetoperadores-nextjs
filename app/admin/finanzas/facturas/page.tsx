@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
   ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon 
@@ -55,6 +56,7 @@ const ESTADOS = {
 };
 
 export default function FacturasPage() {
+  const router = useRouter();
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -341,7 +343,7 @@ export default function FacturasPage() {
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
                   return (
-                    <tr key={f.id} className="hover:bg-gray-50">
+                    <tr key={f.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatFecha(f.fecha)}</td>
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{f.proveedor}</div>

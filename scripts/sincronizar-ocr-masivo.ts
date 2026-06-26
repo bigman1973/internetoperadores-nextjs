@@ -107,11 +107,11 @@ async function procesarConOCR(pdfBuffer: Buffer, fileName: string): Promise<any>
   try {
     const imageContent = images.map(img => ({
       type: 'image_url' as const,
-      image_url: { url: `data:image/png;base64,${img}`, detail: 'low' as const }
+      image_url: { url: `data:image/png;base64,${img}`, detail: 'auto' as const }
     }));
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
         {
           role: 'system',
@@ -133,7 +133,9 @@ IMPORTANTE:
 - Si es un documento de cesión de créditos/confirming, el proveedor es "Draxton" o quien cede
 - Los importes SIEMPRE en euros con 2 decimales
 - Si no puedes extraer algún campo, usa null
-- El concepto debe ser descriptivo y útil para clasificación contable`
+- El concepto debe ser descriptivo y útil para clasificación contable
+- ATENCIÓN CON LAS FECHAS: Estas facturas son del año 2026. Si ves una fecha que parece 2020, 2022 o 2023, es muy probable que sea 2026. Lee con cuidado el año. Los números de factura con "2026" o "26" confirman que es 2026.
+- El formato de fecha DEBE ser YYYY-MM-DD`
         },
         {
           role: 'user',
