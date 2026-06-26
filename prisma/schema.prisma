@@ -1069,6 +1069,7 @@ model FacturaRecibida {
   ocrCompletado   Boolean  @default(false) @map("ocr_completado")
   ocrConfianza    Float?   @map("ocr_confianza") // 0-1 confianza del OCR
   datosOcrRaw     String?  @map("datos_ocr_raw") // JSON con datos extraídos
+  lineasDetalle   String?  @map("lineas_detalle") // JSON [{descripcion, cliente, precio, iva, importe}]
   // Pago
   formaPago       String?  @map("forma_pago") // transferencia, confirming, domiciliacion, etc.
   confirmingProveedor String? @map("confirming_proveedor") // Draxton, etc. (para conciliación)

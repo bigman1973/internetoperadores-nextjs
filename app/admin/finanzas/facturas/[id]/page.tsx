@@ -4,8 +4,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
   ArrowLeftIcon, PencilIcon, DocumentTextIcon,
-  MagnifyingGlassIcon, CheckIcon, XMarkIcon
+  MagnifyingGlassIcon, CheckIcon, XMarkIcon,
+  ArrowPathIcon
 } from '@heroicons/react/24/outline';
+
+interface LineaDetalle {
+  descripcion: string;
+  cliente: string | null;
+  clienteId?: number;
+  clienteNombreBd?: string;
+  clienteMatch?: boolean;
+  cantidad: number;
+  precioUnitario: number;
+  iva: number;
+  importe: number;
+}
 
 interface Factura {
   id: string;
@@ -31,6 +44,7 @@ interface Factura {
   ocrCompletado: boolean;
   ocrConfianza: number | null;
   datosOcrRaw: string | null;
+  lineasDetalle: string | null;
   formaPago: string | null;
   confirmingProveedor: string | null;
   createdAt: string;
@@ -94,6 +108,11 @@ export default function FacturaDetallePage() {
   const [editData, setEditData] = useState<Partial<Factura>>({});
   const [showPdf, setShowPdf] = useState(true);
 
+  // OCR
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [lineas, setLineas] = useState<LineaDetalle[]>([]);
+
   // Imputación inteligente
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [selectedCategoria, setSelectedCategoria] = useState<string>('');
@@ -126,6 +145,14 @@ export default function FacturaDetallePage() {
         setEditData(json.factura);
         setSelectedCategoria(json.factura.imputacion || '');
         setSelectedCliente(json.factura.clienteImputado || '');
+        // Parsear líneas de detalle
+        if (json.factura.lineasDetalle) {
+          try {
+            setLineas(JSON.parse(json.factura.lineasDetalle));
+          } catch { setLineas([]); }
+        } else {
+          setLineas([]);
+        }
         // Buscar sugerencia de imputación
         fetchSugerencia(json.factura.proveedor, json.factura.cif);
         // Buscar vinculaciones existentes
@@ -170,6 +197,25 @@ export default function FacturaDetallePage() {
     }
   }
 
+  async function reintentarOcr() {
+    setOcrLoading(true);
+    setOcrResult(null);
+    try {
+      const res = await fetch(`/api/admin/finanzas/facturas/${params.id}/ocr`, { method: 'POST' });
+      const json = await res.json();
+      if (json.success) {
+        setOcrResult({ success: true, datos: json.datos });
+        // Refrescar la factura con los nuevos datos
+        await fetchFactura();
+      } else {
+        setOcrResult({ success: false, error: json.error });
+      }
+    } catch (e: any) {
+      setOcrResult({ success: false, error: e.message });
+    }
+    setOcrLoading(false);
+  }
+
   async function buscarClientes(q: string) {
     setClienteQuery(q);
     if (q.length < 2) { setClienteResults([]); return; }
@@ -187,7 +233,6 @@ export default function FacturaDetallePage() {
     setShowClienteSearch(false);
     setClienteQuery('');
     setClienteResults([]);
-    // Cargar facturas emitidas de este cliente
     try {
       const res = await fetch(`/api/admin/finanzas/imputacion?action=facturas-cliente&cliente=${encodeURIComponent(cliente)}`);
       const json = await res.json();
@@ -200,7 +245,6 @@ export default function FacturaDetallePage() {
   async function guardarImputacion() {
     setSaving(true);
     try {
-      // Guardar imputación via API dedicada
       const res = await fetch('/api/admin/finanzas/imputacion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -214,7 +258,6 @@ export default function FacturaDetallePage() {
       });
 
       if (res.ok) {
-        // Contar facturas del mismo proveedor sin imputar
         const countRes = await fetch(`/api/admin/finanzas/facturas?proveedor=${encodeURIComponent(factura!.proveedor)}&sinImputar=true&count=true`);
         const countJson = await countRes.json();
         const count = countJson.total || 0;
@@ -223,7 +266,6 @@ export default function FacturaDetallePage() {
           setFacturasProveedorCount(count);
           setShowModalAplicar(true);
         } else {
-          // Refrescar factura
           fetchFactura();
           setEditing(false);
         }
@@ -392,6 +434,61 @@ export default function FacturaDetallePage() {
         </div>
       </div>
 
+      {/* Banner OCR */}
+      {!factura.ocrCompletado && factura.oneDriveItemId && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-red-800">
+              ⚠️ Esta factura no tiene datos OCR extraídos
+            </p>
+            <p className="text-xs text-red-600 mt-0.5">
+              Pulsa &quot;Reintentar OCR&quot; para extraer proveedor, importes y líneas de detalle del PDF
+            </p>
+          </div>
+          <button
+            onClick={reintentarOcr}
+            disabled={ocrLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`h-4 w-4 ${ocrLoading ? 'animate-spin' : ''}`} />
+            {ocrLoading ? 'Procesando...' : 'Reintentar OCR'}
+          </button>
+        </div>
+      )}
+
+      {/* Banner OCR completado pero se puede reintentar */}
+      {factura.ocrCompletado && factura.oneDriveItemId && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between">
+          <p className="text-xs text-gray-600">
+            OCR completado (confianza: {Math.round((factura.ocrConfianza || 0) * 100)}%)
+          </p>
+          <button
+            onClick={reintentarOcr}
+            disabled={ocrLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-md hover:bg-gray-100 disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`h-3.5 w-3.5 ${ocrLoading ? 'animate-spin' : ''}`} />
+            {ocrLoading ? 'Procesando...' : 'Reintentar OCR'}
+          </button>
+        </div>
+      )}
+
+      {/* Resultado OCR */}
+      {ocrResult && (
+        <div className={`rounded-lg p-4 border ${ocrResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          {ocrResult.success ? (
+            <div>
+              <p className="text-sm font-medium text-green-800">✓ OCR completado correctamente</p>
+              <p className="text-xs text-green-600 mt-1">
+                {ocrResult.datos.proveedor} — {formatEUR(ocrResult.datos.total)} — {ocrResult.datos.numLineas} líneas de detalle
+              </p>
+            </div>
+          ) : (
+            <p className="text-sm text-red-800">Error: {ocrResult.error}</p>
+          )}
+        </div>
+      )}
+
       {/* Banner de sugerencia de imputación */}
       {sugerencia && !factura.imputacion && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
@@ -419,7 +516,7 @@ export default function FacturaDetallePage() {
         </div>
       )}
 
-      {!sugerencia && !factura.imputacion && (
+      {!sugerencia && !factura.imputacion && factura.ocrCompletado && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-sm font-medium text-yellow-800">
             ⚠️ Esta factura no tiene imputación. Asigna una categoría abajo para clasificarla.
@@ -522,11 +619,77 @@ export default function FacturaDetallePage() {
             </div>
           </div>
 
+          {/* LÍNEAS DE DETALLE */}
+          {lineas.length > 0 && (
+            <div className="bg-white rounded-xl border p-5">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
+                Líneas de detalle ({lineas.length})
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b text-left">
+                      <th className="pb-2 font-medium text-gray-500">Descripción</th>
+                      <th className="pb-2 font-medium text-gray-500">Cliente detectado</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">Cant.</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">P. Unit.</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">IVA</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {lineas.map((linea, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="py-2 pr-2 max-w-[200px]">
+                          <span className="text-gray-900 line-clamp-2">{linea.descripcion}</span>
+                        </td>
+                        <td className="py-2 pr-2">
+                          {linea.cliente ? (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                              linea.clienteMatch 
+                                ? 'bg-green-100 text-green-700' 
+                                : 'bg-blue-100 text-blue-700'
+                            }`}>
+                              {linea.clienteMatch && <CheckIcon className="h-3 w-3" />}
+                              {linea.clienteNombreBd || linea.cliente}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="py-2 text-right text-gray-700">{linea.cantidad}</td>
+                        <td className="py-2 text-right text-gray-700">{formatEUR(linea.precioUnitario)}</td>
+                        <td className="py-2 text-right text-gray-500">{linea.iva}%</td>
+                        <td className="py-2 text-right font-medium text-gray-900">{formatEUR(linea.importe)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t font-medium">
+                      <td colSpan={5} className="pt-2 text-right text-gray-700">Total líneas:</td>
+                      <td className="pt-2 text-right text-gray-900">
+                        {formatEUR(lineas.reduce((sum, l) => sum + (l.importe || 0), 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              {lineas.some(l => l.clienteMatch) && (
+                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <p className="text-xs text-green-700">
+                    <CheckIcon className="h-3.5 w-3.5 inline mr-1" />
+                    {lineas.filter(l => l.clienteMatch).length} líneas coinciden con clientes de la base de datos.
+                    Puedes imputar esta factura a &quot;Cliente (Ventas)&quot; y vincularla a las facturas emitidas correspondientes.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* IMPUTACIÓN INTELIGENTE */}
           <div className="bg-white rounded-xl border p-5">
             <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Imputación</h2>
             
-            {/* Selector de categoría */}
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-gray-500 mb-2 block">Categoría de imputación</label>
@@ -557,7 +720,7 @@ export default function FacturaDetallePage() {
                 </div>
               </div>
 
-              {/* Búsqueda de cliente (solo si categoría = Cliente (Ventas)) */}
+              {/* Búsqueda de cliente */}
               {(showClienteSearch || selectedCategoria === 'Cliente (Ventas)') && (
                 <div className="border-t pt-4">
                   <label className="text-xs text-gray-500 mb-2 block">Seleccionar cliente</label>
@@ -701,7 +864,6 @@ export default function FacturaDetallePage() {
                       <div key={v.id} className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                         <div>
                           <span className="text-xs font-mono text-blue-600">{v.facturaEmitida.numFactura}</span>
-                          <span className="text-xs text-gray-500 ml-2">{v.facturaEmitida.cliente}</span>
                         </div>
                         <span className="text-xs font-medium text-blue-700">{formatEUR(v.facturaEmitida.total)}</span>
                       </div>
