@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
-  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon 
+  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon 
 } from '@heroicons/react/24/outline';
 
 interface Factura {
@@ -327,15 +327,16 @@ export default function FacturasPage() {
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">IVA</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Total</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Imputación</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Carpeta</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
+                <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
               ) : (
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
@@ -357,29 +358,55 @@ export default function FacturasPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
+                        {f.carpetaOrigen && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            f.carpetaOrigen === 'T1' ? 'bg-emerald-50 text-emerald-700' :
+                            f.carpetaOrigen === 'T2' ? 'bg-teal-50 text-teal-700' :
+                            f.carpetaOrigen === 'Confirming' ? 'bg-purple-50 text-purple-700' :
+                            f.carpetaOrigen === 'Materiales' ? 'bg-yellow-50 text-yellow-700' :
+                            'bg-gray-50 text-gray-600'
+                          }`}>
+                            {f.carpetaOrigen}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-center">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${estadoInfo.color}`}>
                           {estadoInfo.label}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-center">
-                        {f.estado === 'PENDIENTE_REVISION' && (
-                          <div className="flex gap-1 justify-center">
-                            <button
-                              onClick={() => actualizarEstado(f.id, 'VALIDADA')}
-                              className="text-green-600 hover:text-green-800"
-                              title="Validar"
+                        <div className="flex gap-1 justify-center">
+                          {f.archivoOneDrive && (
+                            <a
+                              href={`/api/admin/finanzas/facturas/${f.id}/pdf`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-500 hover:text-blue-700"
+                              title="Ver PDF"
                             >
-                              <CheckCircleIcon className="h-5 w-5" />
-                            </button>
-                            <button
-                              onClick={() => actualizarEstado(f.id, 'RECHAZADA')}
-                              className="text-red-400 hover:text-red-600"
-                              title="Rechazar"
-                            >
-                              <XCircleIcon className="h-5 w-5" />
-                            </button>
-                          </div>
-                        )}
+                              <EyeIcon className="h-5 w-5" />
+                            </a>
+                          )}
+                          {f.estado === 'PENDIENTE_REVISION' && (
+                            <>
+                              <button
+                                onClick={() => actualizarEstado(f.id, 'VALIDADA')}
+                                className="text-green-600 hover:text-green-800"
+                                title="Validar"
+                              >
+                                <CheckCircleIcon className="h-5 w-5" />
+                              </button>
+                              <button
+                                onClick={() => actualizarEstado(f.id, 'RECHAZADA')}
+                                className="text-red-400 hover:text-red-600"
+                                title="Rechazar"
+                              >
+                                <XCircleIcon className="h-5 w-5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
