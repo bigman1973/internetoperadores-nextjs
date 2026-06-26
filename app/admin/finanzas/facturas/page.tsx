@@ -30,9 +30,19 @@ interface Factura {
   archivoOneDrive?: string;
 }
 
+interface CarpetaStatus {
+  total: number;
+  nuevos: number;
+  yaImportados: number;
+}
+
 interface SyncStatus {
-  pendientes: { total: number; nuevos: number; yaImportados: number };
-  materiales: { total: number; nuevos: number; yaImportados: number };
+  pendientes: CarpetaStatus;
+  materiales: CarpetaStatus;
+  trimestre1: CarpetaStatus;
+  trimestre2: CarpetaStatus;
+  trimestre3: CarpetaStatus;
+  trimestre4: CarpetaStatus;
   totalNuevos: number;
 }
 
@@ -138,7 +148,7 @@ export default function FacturasPage() {
         </div>
         <div className="flex gap-2">
           <button 
-            onClick={() => sincronizarOneDrive('ambas')}
+            onClick={() => sincronizarOneDrive('todas')}
             disabled={syncing}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -159,7 +169,7 @@ export default function FacturasPage() {
       {/* Panel de sincronización OneDrive */}
       {syncStatus && syncStatus.totalNuevos > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3">
               <CloudArrowDownIcon className="h-6 w-6 text-blue-600" />
               <div>
@@ -167,26 +177,52 @@ export default function FacturasPage() {
                   {syncStatus.totalNuevos} facturas nuevas en OneDrive
                 </p>
                 <p className="text-xs text-blue-600 mt-0.5">
-                  {syncStatus.pendientes.nuevos > 0 && `${syncStatus.pendientes.nuevos} en "Pendiente de contabilizar"`}
-                  {syncStatus.pendientes.nuevos > 0 && syncStatus.materiales.nuevos > 0 && ' · '}
-                  {syncStatus.materiales.nuevos > 0 && `${syncStatus.materiales.nuevos} en "Compra de materiales"`}
+                  {[  
+                    syncStatus.pendientes?.nuevos > 0 && `${syncStatus.pendientes.nuevos} Pendientes`,
+                    syncStatus.materiales?.nuevos > 0 && `${syncStatus.materiales.nuevos} Materiales`,
+                    syncStatus.trimestre1?.nuevos > 0 && `${syncStatus.trimestre1.nuevos} T1`,
+                    syncStatus.trimestre2?.nuevos > 0 && `${syncStatus.trimestre2.nuevos} T2`,
+                    syncStatus.trimestre3?.nuevos > 0 && `${syncStatus.trimestre3.nuevos} T3`,
+                    syncStatus.trimestre4?.nuevos > 0 && `${syncStatus.trimestre4.nuevos} T4`,
+                  ].filter(Boolean).join(' · ')}
                 </p>
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <button
+                onClick={() => sincronizarOneDrive('todas')}
+                disabled={syncing}
+                className="text-xs px-3 py-1.5 bg-blue-600 border border-blue-600 rounded-md text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Todas ({syncStatus.totalNuevos})
+              </button>
               <button
                 onClick={() => sincronizarOneDrive('pendiente')}
-                disabled={syncing || syncStatus.pendientes.nuevos === 0}
+                disabled={syncing || !syncStatus.pendientes?.nuevos}
                 className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
-                Solo Pendientes ({syncStatus.pendientes.nuevos})
+                Pendientes ({syncStatus.pendientes?.nuevos || 0})
               </button>
               <button
                 onClick={() => sincronizarOneDrive('materiales')}
-                disabled={syncing || syncStatus.materiales.nuevos === 0}
+                disabled={syncing || !syncStatus.materiales?.nuevos}
                 className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
-                Solo Materiales ({syncStatus.materiales.nuevos})
+                Materiales ({syncStatus.materiales?.nuevos || 0})
+              </button>
+              <button
+                onClick={() => sincronizarOneDrive('trimestre1')}
+                disabled={syncing || !syncStatus.trimestre1?.nuevos}
+                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                T1 ({syncStatus.trimestre1?.nuevos || 0})
+              </button>
+              <button
+                onClick={() => sincronizarOneDrive('trimestre2')}
+                disabled={syncing || !syncStatus.trimestre2?.nuevos}
+                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                T2 ({syncStatus.trimestre2?.nuevos || 0})
               </button>
             </div>
           </div>

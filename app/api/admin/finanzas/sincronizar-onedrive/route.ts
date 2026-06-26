@@ -23,6 +23,16 @@ async function getDriveId(): Promise<string> {
   return driveId;
 }
 
+// Mapeo de carpetas con sus imputaciones por defecto y estado inicial
+const CARPETAS_CONFIG: Record<string, { nombre: string; imputacion: string; estadoInicial: 'PENDIENTE_REVISION' | 'CONTABILIZADA' }> = {
+  pendiente: { nombre: CARPETAS.PENDIENTE_CONTABILIZAR, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
+  materiales: { nombre: CARPETAS.COMPRA_MATERIALES, imputacion: 'Compra materiales', estadoInicial: 'PENDIENTE_REVISION' },
+  trimestre1: { nombre: CARPETAS.TRIMESTRE_1, imputacion: 'Estructura', estadoInicial: 'CONTABILIZADA' },
+  trimestre2: { nombre: CARPETAS.TRIMESTRE_2, imputacion: 'Estructura', estadoInicial: 'CONTABILIZADA' },
+  trimestre3: { nombre: CARPETAS.TRIMESTRE_3, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
+  trimestre4: { nombre: CARPETAS.TRIMESTRE_4, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
+};
+
 /**
  * GET: Obtiene el estado de sincronización (archivos pendientes sin procesar)
  */
@@ -37,14 +47,6 @@ export async function GET() {
     });
     const idsImportados = new Set(facturasExistentes.map(f => f.oneDriveItemId!));
     
-    // Listar archivos en "Pendiente de contabilizar"
-    const pendientePath = `${FACTURAS_BASE_PATH}/${CARPETAS.PENDIENTE_CONTABILIZAR}`;
-    const archivosPendientes = await listFolderContents(driveId, pendientePath);
-    
-    // Listar archivos en "Compra de materiales"
-    const materialesPath = `${FACTURAS_BASE_PATH}/${CARPETAS.COMPRA_MATERIALES}`;
-    const archivosMateriales = await listFolderContents(driveId, materialesPath);
-    
     // Filtrar solo PDFs/imágenes no importados
     const filtrar = (items: any[]) => items.filter((item: any) => {
       if (item.folder) return false;
@@ -52,22 +54,36 @@ export async function GET() {
       const esFactura = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'tiff'].includes(ext || '');
       return esFactura && !idsImportados.has(item.id);
     });
+
+    const contarArchivos = (items: any[]) => items.filter((i: any) => !i.folder).length;
     
-    const pendientesNuevos = filtrar(archivosPendientes);
-    const materialesNuevos = filtrar(archivosMateriales);
+    // Listar todas las carpetas
+    const resultado: Record<string, { total: number; nuevos: number; yaImportados: number }> = {};
+    let totalNuevos = 0;
+
+    for (const [key, config] of Object.entries(CARPETAS_CONFIG)) {
+      try {
+        const fullPath = `${FACTURAS_BASE_PATH}/${config.nombre}`;
+        const archivos = await listFolderContents(driveId, fullPath);
+        const totalArchivos = contarArchivos(archivos);
+        const nuevos = filtrar(archivos);
+        resultado[key] = {
+          total: totalArchivos,
+          nuevos: nuevos.length,
+          yaImportados: totalArchivos - nuevos.length,
+        };
+        totalNuevos += nuevos.length;
+      } catch (e) {
+        resultado[key] = { total: 0, nuevos: 0, yaImportados: 0 };
+      }
+    }
     
     return NextResponse.json({
-      pendientes: {
-        total: archivosPendientes.filter((i: any) => !i.folder).length,
-        nuevos: pendientesNuevos.length,
-        yaImportados: archivosPendientes.filter((i: any) => !i.folder).length - pendientesNuevos.length,
-      },
-      materiales: {
-        total: archivosMateriales.filter((i: any) => !i.folder).length,
-        nuevos: materialesNuevos.length,
-        yaImportados: archivosMateriales.filter((i: any) => !i.folder).length - materialesNuevos.length,
-      },
-      totalNuevos: pendientesNuevos.length + materialesNuevos.length,
+      ...resultado,
+      // Mantener compatibilidad con frontend anterior
+      pendientes: resultado.pendiente,
+      materiales: resultado.materiales,
+      totalNuevos,
     });
   } catch (error: any) {
     console.error('Error en GET sincronizar-onedrive:', error);
@@ -77,12 +93,12 @@ export async function GET() {
 
 /**
  * POST: Ejecuta la sincronización (descarga + OCR)
- * Body: { carpeta?: 'pendiente' | 'materiales' | 'ambas', limite?: number }
+ * Body: { carpeta?: 'pendiente' | 'materiales' | 'trimestre1' | 'trimestre2' | 'trimestre3' | 'trimestre4' | 'todas', limite?: number }
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const carpeta = body.carpeta || 'ambas';
+    const carpeta = body.carpeta || 'todas';
     const limite = Math.min(body.limite || 10, 20); // Máximo 20 por llamada (coste API)
     
     const driveId = await getDriveId();
@@ -102,9 +118,11 @@ export async function POST(req: NextRequest) {
       total?: number;
       error?: string;
     }> = [];
+
+    let totalProcesados = 0;
     
     // Función para procesar archivos de una carpeta
-    async function procesarCarpeta(carpetaNombre: string, imputacionDefault: string) {
+    async function procesarCarpeta(carpetaNombre: string, imputacionDefault: string, estadoInicial: string) {
       const fullPath = `${FACTURAS_BASE_PATH}/${carpetaNombre}`;
       const items = await listFolderContents(driveId, fullPath);
       
@@ -114,10 +132,8 @@ export async function POST(req: NextRequest) {
         return ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'tiff'].includes(ext || '');
       });
       
-      let procesados = 0;
-      
       for (const archivo of archivos) {
-        if (procesados >= limite) break;
+        if (totalProcesados >= limite) break;
         
         // Saltar si ya está importado
         if (idsImportados.has(archivo.id)) {
@@ -154,7 +170,7 @@ export async function POST(req: NextRequest) {
               importeIrpf: datos.importeIrpf,
               total: datos.total,
               concepto: datos.concepto,
-              estado: 'PENDIENTE_REVISION',
+              estado: estadoInicial as any,
               imputacion: imputacionDefault,
               archivoOneDrive: `${fullPath}/${archivo.name}`,
               oneDriveItemId: archivo.id,
@@ -174,7 +190,7 @@ export async function POST(req: NextRequest) {
             total: datos.total,
           });
           
-          procesados++;
+          totalProcesados++;
         } catch (error: any) {
           console.error(`Error procesando ${archivo.name}:`, error.message);
           resultados.push({
@@ -183,17 +199,31 @@ export async function POST(req: NextRequest) {
             estado: 'error',
             error: error.message,
           });
-          procesados++;
+          totalProcesados++;
         }
       }
     }
     
-    // Procesar según carpeta seleccionada
-    if (carpeta === 'pendiente' || carpeta === 'ambas') {
-      await procesarCarpeta(CARPETAS.PENDIENTE_CONTABILIZAR, 'Estructura');
-    }
-    if (carpeta === 'materiales' || carpeta === 'ambas') {
-      await procesarCarpeta(CARPETAS.COMPRA_MATERIALES, 'Compra materiales');
+    // Determinar qué carpetas procesar
+    if (carpeta === 'todas') {
+      // Procesar todas las carpetas en orden
+      for (const [key, config] of Object.entries(CARPETAS_CONFIG)) {
+        if (totalProcesados >= limite) break;
+        await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial);
+      }
+    } else if (CARPETAS_CONFIG[carpeta]) {
+      const config = CARPETAS_CONFIG[carpeta];
+      await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial);
+    } else {
+      // Compatibilidad: 'ambas' = pendiente + materiales
+      if (carpeta === 'ambas' || carpeta === 'pendiente') {
+        const c = CARPETAS_CONFIG.pendiente;
+        await procesarCarpeta(c.nombre, c.imputacion, c.estadoInicial);
+      }
+      if (carpeta === 'ambas' || carpeta === 'materiales') {
+        const c = CARPETAS_CONFIG.materiales;
+        await procesarCarpeta(c.nombre, c.imputacion, c.estadoInicial);
+      }
     }
     
     const exitosos = resultados.filter(r => r.estado === 'ok').length;
