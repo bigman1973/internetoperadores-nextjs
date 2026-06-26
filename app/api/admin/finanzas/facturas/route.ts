@@ -11,11 +11,21 @@ export async function GET(req: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
 
+    const sinImputar = searchParams.get('sinImputar');
+    const countOnly = searchParams.get('count');
+
     const where: any = {};
     if (estado) where.estado = estado;
     if (proveedor) where.proveedor = { contains: proveedor, mode: 'insensitive' };
     if (desde) where.fecha = { ...where.fecha, gte: new Date(desde) };
     if (hasta) where.fecha = { ...where.fecha, lte: new Date(hasta) };
+    if (sinImputar === 'true') where.imputacion = null;
+
+    // Si solo necesitan el count (para el modal de "aplicar a todas")
+    if (countOnly === 'true') {
+      const total = await prisma.facturaRecibida.count({ where });
+      return NextResponse.json({ total });
+    }
 
     const [facturas, total] = await Promise.all([
       prisma.facturaRecibida.findMany({

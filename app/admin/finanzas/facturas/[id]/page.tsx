@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
-  ArrowLeftIcon, CheckCircleIcon, XCircleIcon, PencilIcon,
-  DocumentTextIcon, ClockIcon
+  ArrowLeftIcon, PencilIcon, DocumentTextIcon,
+  MagnifyingGlassIcon, CheckIcon, XMarkIcon
 } from '@heroicons/react/24/outline';
 
 interface Factura {
@@ -37,18 +37,44 @@ interface Factura {
   updatedAt: string;
 }
 
+interface Categoria {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  color: string | null;
+  tipo: string;
+}
+
+interface ClienteOption {
+  cliente: string;
+  cif: string | null;
+}
+
+interface FacturaEmitida {
+  id: string;
+  numFactura: string;
+  fecha: string;
+  concepto: string | null;
+  lineas: string | null;
+  base: number;
+  total: number;
+  serie: string | null;
+}
+
+interface Vinculacion {
+  id: string;
+  facturaRecibidaId: string;
+  facturaEmitidaId: string;
+  porcentaje: number;
+  facturaEmitida: FacturaEmitida | null;
+}
+
 const ESTADOS = {
   PENDIENTE_REVISION: { label: 'Pendiente de revisión', color: 'bg-amber-100 text-amber-700 border-amber-200' },
   VALIDADA: { label: 'Validada', color: 'bg-green-100 text-green-700 border-green-200' },
   CONTABILIZADA: { label: 'Contabilizada', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   RECHAZADA: { label: 'Rechazada', color: 'bg-red-100 text-red-700 border-red-200' },
 };
-
-const IMPUTACIONES = [
-  'Estructura', 'Operadora', 'Draxton', 'Comercial', 'Técnico', 
-  'Administración', 'Marketing', 'I+D', 'Formación', 'Vehículos',
-  'Dietas', 'Desplazamientos', 'Material oficina', 'Seguros'
-];
 
 const DEPARTAMENTOS = [
   'Dirección', 'Administración', 'Comercial', 'Técnico', 'Soporte', 'Marketing'
@@ -68,8 +94,26 @@ export default function FacturaDetallePage() {
   const [editData, setEditData] = useState<Partial<Factura>>({});
   const [showPdf, setShowPdf] = useState(true);
 
+  // Imputación inteligente
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [selectedCategoria, setSelectedCategoria] = useState<string>('');
+  const [showClienteSearch, setShowClienteSearch] = useState(false);
+  const [clienteQuery, setClienteQuery] = useState('');
+  const [clienteResults, setClienteResults] = useState<ClienteOption[]>([]);
+  const [selectedCliente, setSelectedCliente] = useState<string>('');
+  const [facturasCliente, setFacturasCliente] = useState<FacturaEmitida[]>([]);
+  const [selectedFacturasEmitidas, setSelectedFacturasEmitidas] = useState<string[]>([]);
+  const [vinculaciones, setVinculaciones] = useState<Vinculacion[]>([]);
+  const [sugerencia, setSugerencia] = useState<any>(null);
+
+  // Modal de aplicar a todas
+  const [showModalAplicar, setShowModalAplicar] = useState(false);
+  const [facturasProveedorCount, setFacturasProveedorCount] = useState(0);
+  const [aplicandoTodas, setAplicandoTodas] = useState(false);
+
   useEffect(() => {
     fetchFactura();
+    fetchCategorias();
   }, [params.id]);
 
   async function fetchFactura() {
@@ -80,11 +124,141 @@ export default function FacturaDetallePage() {
       if (json.factura) {
         setFactura(json.factura);
         setEditData(json.factura);
+        setSelectedCategoria(json.factura.imputacion || '');
+        setSelectedCliente(json.factura.clienteImputado || '');
+        // Buscar sugerencia de imputación
+        fetchSugerencia(json.factura.proveedor, json.factura.cif);
+        // Buscar vinculaciones existentes
+        fetchVinculaciones(json.factura.id);
       }
     } catch (e) {
       console.error('Error:', e);
     }
     setLoading(false);
+  }
+
+  async function fetchCategorias() {
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion?action=categorias');
+      const json = await res.json();
+      setCategorias(json.categorias || []);
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  async function fetchSugerencia(proveedor: string, cif: string | null) {
+    try {
+      const params = new URLSearchParams({ action: 'sugerencia', proveedor });
+      if (cif) params.set('cif', cif);
+      const res = await fetch(`/api/admin/finanzas/imputacion?${params}`);
+      const json = await res.json();
+      setSugerencia(json.regla);
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  async function fetchVinculaciones(facturaId: string) {
+    try {
+      const res = await fetch(`/api/admin/finanzas/imputacion?action=vinculaciones&facturaRecibidaId=${facturaId}`);
+      const json = await res.json();
+      setVinculaciones(json.vinculaciones || []);
+      setSelectedFacturasEmitidas((json.vinculaciones || []).map((v: any) => v.facturaEmitidaId));
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  async function buscarClientes(q: string) {
+    setClienteQuery(q);
+    if (q.length < 2) { setClienteResults([]); return; }
+    try {
+      const res = await fetch(`/api/admin/finanzas/imputacion?action=buscar-clientes&q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      setClienteResults(json.clientes || []);
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  async function seleccionarCliente(cliente: string) {
+    setSelectedCliente(cliente);
+    setShowClienteSearch(false);
+    setClienteQuery('');
+    setClienteResults([]);
+    // Cargar facturas emitidas de este cliente
+    try {
+      const res = await fetch(`/api/admin/finanzas/imputacion?action=facturas-cliente&cliente=${encodeURIComponent(cliente)}`);
+      const json = await res.json();
+      setFacturasCliente(json.facturas || []);
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  async function guardarImputacion() {
+    setSaving(true);
+    try {
+      // Guardar imputación via API dedicada
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'imputar',
+          facturaRecibidaId: factura!.id,
+          categoria: selectedCategoria,
+          clienteNombre: selectedCategoria === 'Cliente (Ventas)' ? selectedCliente : null,
+          facturaEmitidaIds: selectedCategoria === 'Cliente (Ventas)' ? selectedFacturasEmitidas : [],
+        }),
+      });
+
+      if (res.ok) {
+        // Contar facturas del mismo proveedor sin imputar
+        const countRes = await fetch(`/api/admin/finanzas/facturas?proveedor=${encodeURIComponent(factura!.proveedor)}&sinImputar=true&count=true`);
+        const countJson = await countRes.json();
+        const count = countJson.total || 0;
+
+        if (count > 0) {
+          setFacturasProveedorCount(count);
+          setShowModalAplicar(true);
+        } else {
+          // Refrescar factura
+          fetchFactura();
+          setEditing(false);
+        }
+      }
+    } catch (e) {
+      console.error('Error:', e);
+    }
+    setSaving(false);
+  }
+
+  async function aplicarATodas() {
+    setAplicandoTodas(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'imputar-todas-proveedor',
+          proveedor: factura!.proveedor,
+          cif: factura!.cif,
+          categoria: selectedCategoria,
+          clienteNombre: selectedCategoria === 'Cliente (Ventas)' ? selectedCliente : null,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setShowModalAplicar(false);
+        fetchFactura();
+        setEditing(false);
+        alert(`Imputación aplicada a ${json.actualizadas || 0} facturas de ${factura!.proveedor}`);
+      }
+    } catch (e) {
+      console.error('Error:', e);
+    }
+    setAplicandoTodas(false);
   }
 
   async function guardarCambios() {
@@ -105,8 +279,6 @@ export default function FacturaDetallePage() {
           importeIrpf: parseFloat(String(editData.importeIrpf)) || 0,
           total: parseFloat(String(editData.total)) || 0,
           concepto: editData.concepto,
-          imputacion: editData.imputacion,
-          clienteImputado: editData.clienteImputado,
           departamento: editData.departamento,
           formaPago: editData.formaPago,
           deducibleIva: editData.deducibleIva,
@@ -145,6 +317,10 @@ export default function FacturaDetallePage() {
 
   function formatFecha(str: string) {
     return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
+  function formatFechaCorta(str: string) {
+    return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: '2-digit' });
   }
 
   if (loading) {
@@ -209,12 +385,59 @@ export default function FacturaDetallePage() {
                 disabled={saving}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
-                {saving ? 'Guardando...' : 'Guardar'}
+                {saving ? 'Guardando...' : 'Guardar datos'}
               </button>
             </div>
           )}
         </div>
       </div>
+
+      {/* Banner de sugerencia de imputación */}
+      {sugerencia && !factura.imputacion && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-amber-800">
+              Este proveedor no tiene imputación asignada
+            </p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              Sugerencia basada en regla existente: <strong>{sugerencia.categoria}</strong>
+              {sugerencia.clienteNombre && ` → ${sugerencia.clienteNombre}`}
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setSelectedCategoria(sugerencia.categoria);
+              if (sugerencia.clienteNombre) {
+                setSelectedCliente(sugerencia.clienteNombre);
+                seleccionarCliente(sugerencia.clienteNombre);
+              }
+            }}
+            className="px-3 py-1.5 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700"
+          >
+            Aplicar sugerencia
+          </button>
+        </div>
+      )}
+
+      {!sugerencia && !factura.imputacion && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <p className="text-sm font-medium text-yellow-800">
+            ⚠️ Esta factura no tiene imputación. Asigna una categoría abajo para clasificarla.
+          </p>
+        </div>
+      )}
+
+      {factura.imputacion && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-green-800">
+              Imputada a: <strong>{factura.imputacion}</strong>
+              {factura.clienteImputado && ` → ${factura.clienteImputado}`}
+            </p>
+          </div>
+          <span className="text-green-600"><CheckIcon className="h-5 w-5" /></span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Columna izquierda: Datos */}
@@ -226,12 +449,7 @@ export default function FacturaDetallePage() {
               <div>
                 <label className="text-xs text-gray-500">Proveedor</label>
                 {editing ? (
-                  <input
-                    type="text"
-                    value={editData.proveedor || ''}
-                    onChange={e => setEditData({...editData, proveedor: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  />
+                  <input type="text" value={editData.proveedor || ''} onChange={e => setEditData({...editData, proveedor: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
                 ) : (
                   <p className="text-sm font-medium text-gray-900 mt-1">{factura.proveedor}</p>
                 )}
@@ -239,12 +457,7 @@ export default function FacturaDetallePage() {
               <div>
                 <label className="text-xs text-gray-500">CIF/NIF</label>
                 {editing ? (
-                  <input
-                    type="text"
-                    value={editData.cif || ''}
-                    onChange={e => setEditData({...editData, cif: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  />
+                  <input type="text" value={editData.cif || ''} onChange={e => setEditData({...editData, cif: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
                 ) : (
                   <p className="text-sm font-medium text-gray-900 mt-1">{factura.cif || '—'}</p>
                 )}
@@ -252,12 +465,7 @@ export default function FacturaDetallePage() {
               <div>
                 <label className="text-xs text-gray-500">Nº Factura</label>
                 {editing ? (
-                  <input
-                    type="text"
-                    value={editData.numFactura || ''}
-                    onChange={e => setEditData({...editData, numFactura: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  />
+                  <input type="text" value={editData.numFactura || ''} onChange={e => setEditData({...editData, numFactura: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
                 ) : (
                   <p className="text-sm font-medium text-gray-900 mt-1">{factura.numFactura || '—'}</p>
                 )}
@@ -265,12 +473,7 @@ export default function FacturaDetallePage() {
               <div>
                 <label className="text-xs text-gray-500">Fecha emisión</label>
                 {editing ? (
-                  <input
-                    type="date"
-                    value={editData.fecha ? new Date(editData.fecha).toISOString().slice(0, 10) : ''}
-                    onChange={e => setEditData({...editData, fecha: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  />
+                  <input type="date" value={editData.fecha ? new Date(editData.fecha).toISOString().slice(0, 10) : ''} onChange={e => setEditData({...editData, fecha: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
                 ) : (
                   <p className="text-sm font-medium text-gray-900 mt-1">{formatFecha(factura.fecha)}</p>
                 )}
@@ -285,66 +488,24 @@ export default function FacturaDetallePage() {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-600">Base imponible</span>
                 {editing ? (
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editData.base || 0}
-                    onChange={e => setEditData({...editData, base: parseFloat(e.target.value)})}
-                    className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right"
-                  />
+                  <input type="number" step="0.01" value={editData.base || 0} onChange={e => setEditData({...editData, base: parseFloat(e.target.value)})} className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right" />
                 ) : (
                   <span className="text-sm font-medium">{formatEUR(factura.base)}</span>
                 )}
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">
-                  IVA ({editing ? (
-                    <input
-                      type="number"
-                      step="0.5"
-                      value={editData.tipoIva || 21}
-                      onChange={e => setEditData({...editData, tipoIva: parseFloat(e.target.value)})}
-                      className="w-14 px-2 py-0.5 border rounded text-xs text-center"
-                    />
-                  ) : (
-                    `${factura.tipoIva}%`
-                  )})
-                </span>
+                <span className="text-sm text-gray-600">IVA ({factura.tipoIva}%)</span>
                 {editing ? (
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editData.importeIva || 0}
-                    onChange={e => setEditData({...editData, importeIva: parseFloat(e.target.value)})}
-                    className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right"
-                  />
+                  <input type="number" step="0.01" value={editData.importeIva || 0} onChange={e => setEditData({...editData, importeIva: parseFloat(e.target.value)})} className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right" />
                 ) : (
                   <span className="text-sm font-medium text-green-700">+{formatEUR(factura.importeIva)}</span>
                 )}
               </div>
-              {(factura.tipoIrpf > 0 || factura.importeIrpf > 0 || editing) && (
+              {(factura.importeIrpf > 0 || editing) && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">
-                    IRPF ({editing ? (
-                      <input
-                        type="number"
-                        step="0.5"
-                        value={editData.tipoIrpf || 0}
-                        onChange={e => setEditData({...editData, tipoIrpf: parseFloat(e.target.value)})}
-                        className="w-14 px-2 py-0.5 border rounded text-xs text-center"
-                      />
-                    ) : (
-                      `${factura.tipoIrpf}%`
-                    )})
-                  </span>
+                  <span className="text-sm text-gray-600">IRPF ({factura.tipoIrpf}%)</span>
                   {editing ? (
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={editData.importeIrpf || 0}
-                      onChange={e => setEditData({...editData, importeIrpf: parseFloat(e.target.value)})}
-                      className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right"
-                    />
+                    <input type="number" step="0.01" value={editData.importeIrpf || 0} onChange={e => setEditData({...editData, importeIrpf: parseFloat(e.target.value)})} className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right" />
                   ) : (
                     <span className="text-sm font-medium text-red-600">-{formatEUR(factura.importeIrpf)}</span>
                   )}
@@ -353,13 +514,7 @@ export default function FacturaDetallePage() {
               <div className="border-t pt-3 flex justify-between items-center">
                 <span className="text-sm font-semibold text-gray-900">TOTAL</span>
                 {editing ? (
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={editData.total || 0}
-                    onChange={e => setEditData({...editData, total: parseFloat(e.target.value)})}
-                    className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right font-bold"
-                  />
+                  <input type="number" step="0.01" value={editData.total || 0} onChange={e => setEditData({...editData, total: parseFloat(e.target.value)})} className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right font-bold" />
                 ) : (
                   <span className="text-lg font-bold text-gray-900">{formatEUR(factura.total)}</span>
                 )}
@@ -367,139 +522,193 @@ export default function FacturaDetallePage() {
             </div>
           </div>
 
-          {/* Clasificación e imputación */}
+          {/* IMPUTACIÓN INTELIGENTE */}
           <div className="bg-white rounded-xl border p-5">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Clasificación e imputación</h2>
-            <div className="grid grid-cols-2 gap-4">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Imputación</h2>
+            
+            {/* Selector de categoría */}
+            <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-500">Concepto</label>
-                {editing ? (
-                  <textarea
-                    value={editData.concepto || ''}
-                    onChange={e => setEditData({...editData, concepto: e.target.value})}
-                    rows={2}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  />
-                ) : (
-                  <p className="text-sm text-gray-900 mt-1">{factura.concepto || '—'}</p>
-                )}
+                <label className="text-xs text-gray-500 mb-2 block">Categoría de imputación</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {categorias.map(cat => (
+                    <button
+                      key={cat.id}
+                      onClick={() => {
+                        setSelectedCategoria(cat.nombre);
+                        if (cat.nombre === 'Cliente (Ventas)') {
+                          setShowClienteSearch(true);
+                        } else {
+                          setShowClienteSearch(false);
+                          setSelectedCliente('');
+                          setFacturasCliente([]);
+                        }
+                      }}
+                      className={`px-3 py-2 text-sm rounded-lg border text-left transition-all ${
+                        selectedCategoria === cat.nombre
+                          ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium ring-1 ring-blue-500'
+                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700'
+                      }`}
+                    >
+                      <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ backgroundColor: cat.color || '#6B7280' }}></span>
+                      {cat.nombre}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500">Imputación</label>
-                {editing ? (
-                  <select
-                    value={editData.imputacion || ''}
-                    onChange={e => setEditData({...editData, imputacion: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  >
-                    <option value="">Sin imputar</option>
-                    {IMPUTACIONES.map(i => <option key={i} value={i}>{i}</option>)}
-                  </select>
-                ) : (
-                  <p className="text-sm font-medium text-gray-900 mt-1">
-                    {factura.imputacion ? (
-                      <span className="px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 text-xs">{factura.imputacion}</span>
-                    ) : '—'}
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-500">Departamento</label>
-                {editing ? (
-                  <select
-                    value={editData.departamento || ''}
-                    onChange={e => setEditData({...editData, departamento: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  >
-                    <option value="">Sin asignar</option>
-                    {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                ) : (
-                  <p className="text-sm text-gray-900 mt-1">{factura.departamento || '—'}</p>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-500">Cliente imputado</label>
-                {editing ? (
-                  <input
-                    type="text"
-                    value={editData.clienteImputado || ''}
-                    onChange={e => setEditData({...editData, clienteImputado: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                    placeholder="Nombre del cliente"
-                  />
-                ) : (
-                  <p className="text-sm text-gray-900 mt-1">{factura.clienteImputado || '—'}</p>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-500">Forma de pago</label>
-                {editing ? (
-                  <select
-                    value={editData.formaPago || ''}
-                    onChange={e => setEditData({...editData, formaPago: e.target.value})}
-                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
-                  >
-                    <option value="">Sin especificar</option>
-                    {FORMAS_PAGO.map(fp => <option key={fp} value={fp}>{fp}</option>)}
-                  </select>
-                ) : (
-                  <p className="text-sm text-gray-900 mt-1">{factura.formaPago || '—'}</p>
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-500">IVA deducible</label>
-                {editing ? (
-                  <div className="mt-2">
-                    <input
-                      type="checkbox"
-                      checked={editData.deducibleIva ?? true}
-                      onChange={e => setEditData({...editData, deducibleIva: e.target.checked})}
-                      className="rounded border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-600">Sí, deducible</span>
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-900 mt-1">{factura.deducibleIva ? 'Sí' : 'No'}</p>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* Metadatos */}
-          <div className="bg-gray-50 rounded-xl border p-5">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Información del sistema</h2>
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div>
-                <span className="text-gray-500">Carpeta origen:</span>
-                <span className="ml-2 font-medium">{factura.carpetaOrigen || '—'}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Archivo:</span>
-                <span className="ml-2 font-medium truncate">{factura.archivoOneDrive || '—'}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">OCR:</span>
-                <span className="ml-2 font-medium">
-                  {factura.ocrCompletado ? (
-                    <span className="text-green-600">Completado ({Math.round((factura.ocrConfianza || 0) * 100)}%)</span>
+              {/* Búsqueda de cliente (solo si categoría = Cliente (Ventas)) */}
+              {(showClienteSearch || selectedCategoria === 'Cliente (Ventas)') && (
+                <div className="border-t pt-4">
+                  <label className="text-xs text-gray-500 mb-2 block">Seleccionar cliente</label>
+                  {selectedCliente ? (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-4 py-2">
+                      <span className="text-sm font-medium text-green-800">{selectedCliente}</span>
+                      <button onClick={() => { setSelectedCliente(''); setFacturasCliente([]); }} className="text-green-600 hover:text-green-800">
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
                   ) : (
-                    <span className="text-amber-600">Pendiente</span>
+                    <div className="relative">
+                      <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                      <input
+                        type="text"
+                        value={clienteQuery}
+                        onChange={e => buscarClientes(e.target.value)}
+                        placeholder="Buscar cliente..."
+                        className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+                      />
+                      {clienteResults.length > 0 && (
+                        <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {clienteResults.map((c, i) => (
+                            <button
+                              key={i}
+                              onClick={() => seleccionarCliente(c.cliente)}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 border-b last:border-0"
+                            >
+                              <span className="font-medium">{c.cliente}</span>
+                              {c.cif && <span className="text-gray-400 ml-2 text-xs">{c.cif}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
-                </span>
+
+                  {/* Facturas emitidas del cliente seleccionado */}
+                  {facturasCliente.length > 0 && (
+                    <div className="mt-3">
+                      <label className="text-xs text-gray-500 mb-2 block">
+                        Vincular a facturas emitidas ({facturasCliente.length} facturas)
+                      </label>
+                      <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                        {facturasCliente.map(fe => (
+                          <label key={fe.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selectedFacturasEmitidas.includes(fe.id)}
+                              onChange={e => {
+                                if (e.target.checked) {
+                                  setSelectedFacturasEmitidas([...selectedFacturasEmitidas, fe.id]);
+                                } else {
+                                  setSelectedFacturasEmitidas(selectedFacturasEmitidas.filter(id => id !== fe.id));
+                                }
+                              }}
+                              className="rounded border-gray-300"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs font-mono text-gray-500">{fe.numFactura}</span>
+                                <span className="text-xs text-gray-400">{formatFechaCorta(fe.fecha)}</span>
+                                <span className="text-xs font-medium text-gray-700">{formatEUR(fe.total)}</span>
+                              </div>
+                              {fe.concepto && (
+                                <p className="text-xs text-gray-500 truncate mt-0.5">{fe.concepto}</p>
+                              )}
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Concepto y otros campos */}
+              <div className="border-t pt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs text-gray-500">Concepto</label>
+                  {editing ? (
+                    <textarea value={editData.concepto || ''} onChange={e => setEditData({...editData, concepto: e.target.value})} rows={2} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
+                  ) : (
+                    <p className="text-sm text-gray-900 mt-1">{factura.concepto || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Departamento</label>
+                  {editing ? (
+                    <select value={editData.departamento || ''} onChange={e => setEditData({...editData, departamento: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm">
+                      <option value="">Sin asignar</option>
+                      {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-gray-900 mt-1">{factura.departamento || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Forma de pago</label>
+                  {editing ? (
+                    <select value={editData.formaPago || ''} onChange={e => setEditData({...editData, formaPago: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm">
+                      <option value="">Sin especificar</option>
+                      {FORMAS_PAGO.map(fp => <option key={fp} value={fp}>{fp}</option>)}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-gray-900 mt-1">{factura.formaPago || '—'}</p>
+                  )}
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">IVA deducible</label>
+                  {editing ? (
+                    <div className="mt-2">
+                      <input type="checkbox" checked={editData.deducibleIva ?? true} onChange={e => setEditData({...editData, deducibleIva: e.target.checked})} className="rounded border-gray-300" />
+                      <span className="ml-2 text-sm text-gray-600">Sí</span>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-900 mt-1">{factura.deducibleIva ? 'Sí' : 'No'}</p>
+                  )}
+                </div>
               </div>
-              <div>
-                <span className="text-gray-500">Confirming:</span>
-                <span className="ml-2 font-medium">{factura.confirmingProveedor || '—'}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Creada:</span>
-                <span className="ml-2 font-medium">{new Date(factura.createdAt).toLocaleString('es-ES')}</span>
-              </div>
-              <div>
-                <span className="text-gray-500">Actualizada:</span>
-                <span className="ml-2 font-medium">{new Date(factura.updatedAt).toLocaleString('es-ES')}</span>
-              </div>
+
+              {/* Botón guardar imputación */}
+              {selectedCategoria && selectedCategoria !== factura.imputacion && (
+                <div className="border-t pt-4">
+                  <button
+                    onClick={guardarImputacion}
+                    disabled={saving}
+                    className="w-full px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium text-sm disabled:opacity-50"
+                  >
+                    {saving ? 'Guardando...' : `Imputar a "${selectedCategoria}"${selectedCliente ? ` → ${selectedCliente}` : ''}`}
+                  </button>
+                </div>
+              )}
+
+              {/* Vinculaciones existentes */}
+              {vinculaciones.length > 0 && (
+                <div className="border-t pt-4">
+                  <label className="text-xs text-gray-500 mb-2 block">Facturas emitidas vinculadas</label>
+                  <div className="space-y-2">
+                    {vinculaciones.map(v => v.facturaEmitida && (
+                      <div key={v.id} className="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                        <div>
+                          <span className="text-xs font-mono text-blue-600">{v.facturaEmitida.numFactura}</span>
+                          <span className="text-xs text-gray-500 ml-2">{v.facturaEmitida.cliente}</span>
+                        </div>
+                        <span className="text-xs font-medium text-blue-700">{formatEUR(v.facturaEmitida.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -523,27 +732,30 @@ export default function FacturaDetallePage() {
               ))}
             </div>
           </div>
+
+          {/* Metadatos */}
+          <div className="bg-gray-50 rounded-xl border p-5">
+            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Información del sistema</h2>
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div><span className="text-gray-500">Carpeta:</span><span className="ml-2 font-medium">{factura.carpetaOrigen || '—'}</span></div>
+              <div><span className="text-gray-500">Archivo:</span><span className="ml-2 font-medium truncate">{factura.archivoOneDrive || '—'}</span></div>
+              <div><span className="text-gray-500">OCR:</span><span className="ml-2 font-medium">{factura.ocrCompletado ? <span className="text-green-600">OK ({Math.round((factura.ocrConfianza || 0) * 100)}%)</span> : <span className="text-amber-600">Pendiente</span>}</span></div>
+              <div><span className="text-gray-500">Confirming:</span><span className="ml-2 font-medium">{factura.confirmingProveedor || '—'}</span></div>
+            </div>
+          </div>
         </div>
 
         {/* Columna derecha: PDF */}
         <div className="space-y-4">
-          <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="bg-white rounded-xl border overflow-hidden sticky top-4">
             <div className="flex items-center justify-between px-4 py-3 border-b bg-gray-50">
               <h2 className="text-sm font-semibold text-gray-900">Documento original</h2>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setShowPdf(!showPdf)}
-                  className="text-xs px-3 py-1 border rounded-md hover:bg-gray-100"
-                >
+                <button onClick={() => setShowPdf(!showPdf)} className="text-xs px-3 py-1 border rounded-md hover:bg-gray-100">
                   {showPdf ? 'Ocultar' : 'Mostrar'}
                 </button>
                 {factura.oneDriveItemId && (
-                  <a
-                    href={`/api/admin/finanzas/facturas/${factura.id}/pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                  >
+                  <a href={`/api/admin/finanzas/facturas/${factura.id}/pdf`} target="_blank" rel="noopener noreferrer" className="text-xs px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700">
                     Abrir en nueva pestaña
                   </a>
                 )}
@@ -551,11 +763,7 @@ export default function FacturaDetallePage() {
             </div>
             {showPdf && factura.oneDriveItemId ? (
               <div className="w-full" style={{ height: 'calc(100vh - 200px)', minHeight: '600px' }}>
-                <iframe
-                  src={`/api/admin/finanzas/facturas/${factura.id}/pdf`}
-                  className="w-full h-full"
-                  title="Factura PDF"
-                />
+                <iframe src={`/api/admin/finanzas/facturas/${factura.id}/pdf`} className="w-full h-full" title="Factura PDF" />
               </div>
             ) : !factura.oneDriveItemId ? (
               <div className="p-8 text-center text-gray-400">
@@ -566,6 +774,37 @@ export default function FacturaDetallePage() {
           </div>
         </div>
       </div>
+
+      {/* Modal: Aplicar a todas las facturas del proveedor */}
+      {showModalAplicar && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Aplicar a todas</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Hay <strong>{facturasProveedorCount}</strong> facturas más de <strong>{factura.proveedor}</strong> sin imputar.
+              ¿Quieres aplicar la imputación <strong>&quot;{selectedCategoria}&quot;</strong> a todas?
+            </p>
+            <p className="text-xs text-gray-500 mb-6">
+              Esto también creará una regla automática para que las futuras facturas de este proveedor se imputen automáticamente.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowModalAplicar(false); fetchFactura(); setEditing(false); }}
+                className="flex-1 px-4 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50"
+              >
+                Solo esta factura
+              </button>
+              <button
+                onClick={aplicarATodas}
+                disabled={aplicandoTodas}
+                className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+              >
+                {aplicandoTodas ? 'Aplicando...' : `Aplicar a todas (${facturasProveedorCount})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

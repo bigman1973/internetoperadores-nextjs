@@ -1235,3 +1235,50 @@ model FacturaEmitida {
   @@index([serie])
   @@map("facturas_emitidas")
 }
+
+// Categorías de imputación predefinidas + ampliables
+model CategoriaImputacion {
+  id          String   @id @default(uuid())
+  nombre      String   @unique // "Estructura", "Operadora", "Cliente (Ventas)", etc.
+  descripcion String?
+  color       String?  // Color para UI
+  tipo        String   @default("gasto") // "gasto", "cliente", "financiero"
+  activa      Boolean  @default(true)
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("categorias_imputacion")
+}
+
+// Vinculación entre factura recibida y factura(s) emitida(s) para analítica de rentabilidad
+model VinculacionFactura {
+  id                String   @id @default(uuid())
+  facturaRecibidaId String   @map("factura_recibida_id")
+  facturaEmitidaId  String   @map("factura_emitida_id")
+  porcentaje        Float    @default(100) // % del coste imputado a esta factura emitida
+  notas             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@unique([facturaRecibidaId, facturaEmitidaId])
+  @@index([facturaRecibidaId])
+  @@index([facturaEmitidaId])
+  @@map("vinculaciones_facturas")
+}
+
+// Reglas de imputación automática por proveedor (para auto-clasificar futuras facturas)
+model ReglaImputacionProveedor {
+  id            String   @id @default(uuid())
+  proveedorCif  String?  @map("proveedor_cif") // CIF del proveedor
+  proveedorNombre String @map("proveedor_nombre") // Nombre (para matching fuzzy)
+  categoriaId   String   @map("categoria_id") // ID de CategoriaImputacion
+  categoria     String   // Nombre de la categoría (desnormalizado para rapidez)
+  clienteNombre String?  @map("cliente_nombre") // Si es "Cliente (Ventas)", el nombre del cliente
+  activa        Boolean  @default(true)
+  vecesAplicada Int      @default(1) @map("veces_aplicada")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@unique([proveedorCif])
+  @@index([proveedorNombre])
+  @@map("reglas_imputacion_proveedor")
+}
