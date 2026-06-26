@@ -1,7 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect, useCallback } from 'react';
+import { 
+  DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
+  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon 
+} from '@heroicons/react/24/outline';
 
 interface Factura {
   id: string;
@@ -21,6 +24,16 @@ interface Factura {
   clienteImputado: string | null;
   departamento: string | null;
   deducibleIva: boolean;
+  ocrCompletado?: boolean;
+  ocrConfianza?: number;
+  carpetaOrigen?: string;
+  archivoOneDrive?: string;
+}
+
+interface SyncStatus {
+  pendientes: { total: number; nuevos: number; yaImportados: number };
+  materiales: { total: number; nuevos: number; yaImportados: number };
+  totalNuevos: number;
 }
 
 const ESTADOS = {
@@ -37,10 +50,20 @@ export default function FacturasPage() {
   const [loading, setLoading] = useState(true);
   const [resumen, setResumen] = useState<any>(null);
   const [filtroEstado, setFiltroEstado] = useState('');
+  
+  // Sincronización OneDrive
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
+  const [checkingSync, setCheckingSync] = useState(false);
 
   useEffect(() => {
     fetchFacturas();
   }, [page, filtroEstado]);
+
+  useEffect(() => {
+    checkSyncStatus();
+  }, []);
 
   async function fetchFacturas() {
     setLoading(true);
@@ -53,6 +76,40 @@ export default function FacturasPage() {
     setTotal(json.total || 0);
     setResumen(json.resumenFiscal || null);
     setLoading(false);
+  }
+
+  async function checkSyncStatus() {
+    setCheckingSync(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/sincronizar-onedrive');
+      if (res.ok) {
+        const data = await res.json();
+        setSyncStatus(data);
+      }
+    } catch (e) {
+      console.error('Error checking sync status:', e);
+    }
+    setCheckingSync(false);
+  }
+
+  async function sincronizarOneDrive(carpeta: string = 'ambas') {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch('/api/admin/finanzas/sincronizar-onedrive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carpeta, limite: 10 }),
+      });
+      const data = await res.json();
+      setSyncResult(data);
+      // Refrescar facturas y estado
+      fetchFacturas();
+      checkSyncStatus();
+    } catch (e: any) {
+      setSyncResult({ error: e.message });
+    }
+    setSyncing(false);
   }
 
   async function actualizarEstado(id: string, estado: string) {
@@ -79,11 +136,96 @@ export default function FacturasPage() {
           <h1 className="text-2xl font-bold text-gray-900">Facturas Recibidas</h1>
           <p className="text-sm text-gray-500 mt-1">{total} facturas registradas</p>
         </div>
-        <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 flex items-center gap-2">
-          <ArrowUpTrayIcon className="h-4 w-4" />
-          Subir Factura
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => sincronizarOneDrive('ambas')}
+            disabled={syncing}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {syncing ? (
+              <ArrowPathIcon className="h-4 w-4 animate-spin" />
+            ) : (
+              <CloudArrowDownIcon className="h-4 w-4" />
+            )}
+            {syncing ? 'Sincronizando...' : 'Sincronizar OneDrive'}
+          </button>
+          <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 flex items-center gap-2">
+            <ArrowUpTrayIcon className="h-4 w-4" />
+            Subir Factura
+          </button>
+        </div>
       </div>
+
+      {/* Panel de sincronización OneDrive */}
+      {syncStatus && syncStatus.totalNuevos > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CloudArrowDownIcon className="h-6 w-6 text-blue-600" />
+              <div>
+                <p className="text-sm font-medium text-blue-900">
+                  {syncStatus.totalNuevos} facturas nuevas en OneDrive
+                </p>
+                <p className="text-xs text-blue-600 mt-0.5">
+                  {syncStatus.pendientes.nuevos > 0 && `${syncStatus.pendientes.nuevos} en "Pendiente de contabilizar"`}
+                  {syncStatus.pendientes.nuevos > 0 && syncStatus.materiales.nuevos > 0 && ' · '}
+                  {syncStatus.materiales.nuevos > 0 && `${syncStatus.materiales.nuevos} en "Compra de materiales"`}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => sincronizarOneDrive('pendiente')}
+                disabled={syncing || syncStatus.pendientes.nuevos === 0}
+                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                Solo Pendientes ({syncStatus.pendientes.nuevos})
+              </button>
+              <button
+                onClick={() => sincronizarOneDrive('materiales')}
+                disabled={syncing || syncStatus.materiales.nuevos === 0}
+                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                Solo Materiales ({syncStatus.materiales.nuevos})
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resultado de sincronización */}
+      {syncResult && (
+        <div className={`rounded-lg p-4 border ${syncResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+          {syncResult.error ? (
+            <p className="text-sm text-red-700">Error: {syncResult.error}</p>
+          ) : (
+            <div>
+              <p className="text-sm font-medium text-green-800">{syncResult.mensaje}</p>
+              {syncResult.resultados && syncResult.resultados.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {syncResult.resultados.slice(0, 5).map((r: any, i: number) => (
+                    <p key={i} className="text-xs text-green-700">
+                      {r.estado === 'ok' ? '✅' : '❌'} {r.archivo} 
+                      {r.proveedor && ` → ${r.proveedor}`}
+                      {r.total ? ` (${formatEUR(r.total)})` : ''}
+                      {r.error && ` - ${r.error}`}
+                    </p>
+                  ))}
+                  {syncResult.resultados.length > 5 && (
+                    <p className="text-xs text-green-600">... y {syncResult.resultados.length - 5} más</p>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={() => setSyncResult(null)}
+                className="mt-2 text-xs text-green-600 underline"
+              >
+                Cerrar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Resumen fiscal */}
       {resumen && (
@@ -108,7 +250,7 @@ export default function FacturasPage() {
       )}
 
       {/* Filtros */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button
           onClick={() => { setFiltroEstado(''); setPage(1); }}
           className={`px-3 py-1.5 text-sm rounded-lg border ${!filtroEstado ? 'bg-orange-50 border-orange-200 text-orange-700' : 'text-gray-600'}`}
@@ -134,6 +276,7 @@ export default function FacturasPage() {
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Nº Factura</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Base</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">IVA</th>
@@ -145,9 +288,9 @@ export default function FacturasPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
               ) : (
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
@@ -158,7 +301,8 @@ export default function FacturasPage() {
                         <div className="text-sm font-medium text-gray-900">{f.proveedor}</div>
                         {f.cif && <div className="text-xs text-gray-400">{f.cif}</div>}
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{f.concepto || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{f.numFactura || '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">{f.concepto || '—'}</td>
                       <td className="px-4 py-3 text-sm text-right">{formatEUR(f.base)}</td>
                       <td className="px-4 py-3 text-sm text-right text-green-700">{formatEUR(f.importeIva)}</td>
                       <td className="px-4 py-3 text-sm font-medium text-right">{formatEUR(f.total)}</td>

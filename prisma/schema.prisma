@@ -1063,6 +1063,7 @@ model FacturaRecibida {
   // Archivo
   archivoUrl      String?  @map("archivo_url")
   archivoOneDrive String?  @map("archivo_onedrive") // Ruta en OneDrive
+  oneDriveItemId  String?  @unique @map("onedrive_item_id") // ID del item en OneDrive
   carpetaOrigen   String?  @map("carpeta_origen") // Pendiente, Trimestre 1, etc.
   // OCR
   ocrCompletado   Boolean  @default(false) @map("ocr_completado")
