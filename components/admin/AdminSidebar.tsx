@@ -23,7 +23,8 @@ import {
   SignalIcon,
   ArrowPathIcon,
   MegaphoneIcon,
-  WrenchScrewdriverIcon
+  WrenchScrewdriverIcon,
+  CalculatorIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -99,6 +100,16 @@ const navigation: NavEntry[] = [
   { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon },
   { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
   { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },
+  {
+    name: 'Finanzas',
+    icon: CalculatorIcon,
+    children: [
+      { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon },
+      { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon },
+      { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon },
+      { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon },
+    ],
+  },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
