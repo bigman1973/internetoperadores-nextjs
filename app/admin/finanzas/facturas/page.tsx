@@ -43,6 +43,7 @@ interface SyncStatus {
   trimestre2: CarpetaStatus;
   trimestre3: CarpetaStatus;
   trimestre4: CarpetaStatus;
+  confirming_draxton: CarpetaStatus;
   totalNuevos: number;
 }
 
@@ -184,6 +185,7 @@ export default function FacturasPage() {
                     syncStatus.trimestre2?.nuevos > 0 && `${syncStatus.trimestre2.nuevos} T2`,
                     syncStatus.trimestre3?.nuevos > 0 && `${syncStatus.trimestre3.nuevos} T3`,
                     syncStatus.trimestre4?.nuevos > 0 && `${syncStatus.trimestre4.nuevos} T4`,
+                    syncStatus.confirming_draxton?.nuevos > 0 && `${syncStatus.confirming_draxton.nuevos} Confirming`,
                   ].filter(Boolean).join(' · ')}
                 </p>
               </div>
@@ -223,6 +225,13 @@ export default function FacturasPage() {
                 className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
               >
                 T2 ({syncStatus.trimestre2?.nuevos || 0})
+              </button>
+              <button
+                onClick={() => sincronizarOneDrive('confirming_draxton')}
+                disabled={syncing || !syncStatus.confirming_draxton?.nuevos}
+                className="text-xs px-3 py-1.5 bg-white border border-purple-200 rounded-md text-purple-700 hover:bg-purple-100 disabled:opacity-50"
+              >
+                Confirming Draxton ({syncStatus.confirming_draxton?.nuevos || 0})
               </button>
             </div>
           </div>

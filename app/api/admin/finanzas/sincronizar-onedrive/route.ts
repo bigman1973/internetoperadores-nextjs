@@ -31,6 +31,7 @@ const CARPETAS_CONFIG: Record<string, { nombre: string; imputacion: string; esta
   trimestre2: { nombre: CARPETAS.TRIMESTRE_2, imputacion: 'Estructura', estadoInicial: 'CONTABILIZADA' },
   trimestre3: { nombre: CARPETAS.TRIMESTRE_3, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
   trimestre4: { nombre: CARPETAS.TRIMESTRE_4, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
+  confirming_draxton: { nombre: CARPETAS.CONFIRMING_DRAXTON, imputacion: 'Draxton', estadoInicial: 'CONTABILIZADA' },
 };
 
 /**
@@ -122,7 +123,7 @@ export async function POST(req: NextRequest) {
     let totalProcesados = 0;
     
     // Función para procesar archivos de una carpeta
-    async function procesarCarpeta(carpetaNombre: string, imputacionDefault: string, estadoInicial: string) {
+    async function procesarCarpeta(carpetaNombre: string, imputacionDefault: string, estadoInicial: string, carpetaKey?: string) {
       const fullPath = `${FACTURAS_BASE_PATH}/${carpetaNombre}`;
       const items = await listFolderContents(driveId, fullPath);
       
@@ -156,6 +157,11 @@ export async function POST(req: NextRequest) {
           const base64 = fileBuffer.toString('base64');
           const datos = await extraerDatosFactura(base64, mimeType, archivo.name);
           
+          // Determinar forma de pago según carpeta
+          const esConfirming = carpetaKey?.startsWith('confirming');
+          const formaPago = esConfirming ? 'confirming' : undefined;
+          const confirmingProveedor = carpetaKey === 'confirming_draxton' ? 'Draxton' : undefined;
+
           // Crear factura en BD
           await prisma.facturaRecibida.create({
             data: {
@@ -179,6 +185,8 @@ export async function POST(req: NextRequest) {
               ocrConfianza: datos.confianza,
               datosOcrRaw: JSON.stringify(datos),
               deducibleIva: true,
+              formaPago,
+              confirmingProveedor,
             },
           });
           
@@ -209,11 +217,11 @@ export async function POST(req: NextRequest) {
       // Procesar todas las carpetas en orden
       for (const [key, config] of Object.entries(CARPETAS_CONFIG)) {
         if (totalProcesados >= limite) break;
-        await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial);
+        await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial, key);
       }
     } else if (CARPETAS_CONFIG[carpeta]) {
       const config = CARPETAS_CONFIG[carpeta];
-      await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial);
+      await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial, carpeta);
     } else {
       // Compatibilidad: 'ambas' = pendiente + materiales
       if (carpeta === 'ambas' || carpeta === 'pendiente') {

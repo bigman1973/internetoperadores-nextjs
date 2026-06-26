@@ -12,6 +12,7 @@
  * - 4. Trimestre 2 2026
  * - 5. Trimestre 3 2026
  * - 6. Trimestre 4 2026
+ * - Confirming Draxton 2026 (facturas pagadas por confirming)
  */
 
 function getTenantId() { return process.env.MICROSOFT_GRAPH_TENANT_ID || ''; }
@@ -196,6 +197,7 @@ export const CARPETAS = {
   TRIMESTRE_2: '4. Trimestre 2 2026',
   TRIMESTRE_3: '5. Trimestre 3 2026',
   TRIMESTRE_4: '6. Trimestre 4 2026',
+  CONFIRMING_DRAXTON: 'Confirming Draxton 2026',
 };
 
 /**
