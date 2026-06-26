@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx';
 import {
   parseSantanderXLSX,
   parseSantanderTXT,
+  parseCaixaBankXLS,
   parseCaixaGuissonaCSV,
   parseBBVACSV,
   parseVividCSV,
@@ -42,6 +43,13 @@ export async function POST(req: NextRequest) {
           const content = buffer.toString('utf-8');
           movimientos = parseSantanderTXT(content);
         }
+        break;
+      }
+      case 'caixabank': {
+        const workbook = XLSX.read(buffer, { type: 'buffer' });
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
+        movimientos = parseCaixaBankXLS(rows);
         break;
       }
       case 'guissona': {
@@ -95,6 +103,7 @@ export async function POST(req: NextRequest) {
       // Intentar determinar por formato
       const bancoMap: Record<string, string> = {
         santander: 'Santander',
+        caixabank: 'CaixaBank',
         bbva: 'BBVA',
         guissona: 'Caixa Guissona',
         vivid: 'Vivid',

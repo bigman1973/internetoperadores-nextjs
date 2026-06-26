@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
       orderBy: { banco: 'asc' },
     });
 
-    // 2. IVA Soportado (facturas recibidas)
+    // 2. Facturas recibidas (IVA Soportado)
     const facturasRecibidas = await prisma.facturaRecibida.findMany({
       where: {
         fecha: { gte: desde, lte: hasta },
@@ -38,7 +38,29 @@ export async function GET(req: NextRequest) {
     const irpfRetenido = facturasRecibidas.reduce((sum, f) => sum + f.importeIrpf, 0);
     const totalCompras = facturasRecibidas.reduce((sum, f) => sum + f.total, 0);
 
-    // 3. Movimientos por categoría
+    // 3. Facturas emitidas (IVA Repercutido)
+    const facturasEmitidas = await prisma.facturaEmitida.findMany({
+      where: {
+        fecha: { gte: desde, lte: hasta },
+        estado: { not: 'ANULADA' },
+      },
+    });
+
+    const ivaRepercutido = facturasEmitidas.reduce((sum, f) => sum + f.importeIva, 0);
+    const baseImponibleVentas = facturasEmitidas.reduce((sum, f) => sum + f.base, 0);
+    const totalVentas = facturasEmitidas.reduce((sum, f) => sum + f.total, 0);
+    const totalCobrado = facturasEmitidas.reduce((sum, f) => sum + f.importeCobrado, 0);
+    const pendienteCobro = totalVentas - totalCobrado;
+
+    // Facturas emitidas por estado
+    const facturasEmitidasPorEstado: Record<string, { count: number; total: number }> = {};
+    for (const f of facturasEmitidas) {
+      if (!facturasEmitidasPorEstado[f.estado]) facturasEmitidasPorEstado[f.estado] = { count: 0, total: 0 };
+      facturasEmitidasPorEstado[f.estado].count++;
+      facturasEmitidasPorEstado[f.estado].total += f.total;
+    }
+
+    // 4. Movimientos por categoría
     const movimientos = await prisma.movimientoBancario.findMany({
       where: {
         fechaOperacion: { gte: desde, lte: hasta },
@@ -58,7 +80,7 @@ export async function GET(req: NextRequest) {
       porCategoria[cat].count++;
     }
 
-    // 4. Movimientos por mes
+    // 5. Movimientos por mes
     const porMes: Record<string, { ingresos: number; gastos: number }> = {};
     for (const mov of movimientos) {
       const mes = `${mov.fechaOperacion.getFullYear()}-${String(mov.fechaOperacion.getMonth() + 1).padStart(2, '0')}`;
@@ -67,20 +89,28 @@ export async function GET(req: NextRequest) {
       else porMes[mes].gastos += Math.abs(mov.importe);
     }
 
-    // 5. Estadísticas de conciliación
+    // 6. Estadísticas de conciliación
     const totalMovimientos = movimientos.length;
     const conciliados = movimientos.filter(m => m.conciliado).length;
     const sinCategorizar = movimientos.filter(m => !m.categoria).length;
 
-    // 6. Facturas pendientes de revisión
+    // 7. Alertas
     const facturasPendientes = await prisma.facturaRecibida.count({
       where: { estado: 'PENDIENTE_REVISION' },
     });
 
-    // 7. Previsión de liquidación IVA trimestral
-    // IVA a pagar = IVA Repercutido - IVA Soportado
-    // (IVA repercutido vendrá de ISP Gestión, por ahora estimamos con ingresos)
-    const ivaRepercutidoEstimado = ingresos * 0.21 / 1.21; // Estimación si los ingresos incluyen IVA
+    const facturasImpagadas = facturasEmitidas.filter(f => f.estado === 'IMPAGADA').length;
+    const facturasVencidas = facturasEmitidas.filter(f => 
+      f.fechaVencimiento && new Date(f.fechaVencimiento) < new Date() && 
+      f.estado !== 'COBRADA' && f.estado !== 'ANULADA'
+    ).length;
+
+    // 8. Top gastos por categoría (para el gráfico de tarjeta/restaurantes/etc.)
+    const gastosPorTipo: Record<string, number> = {};
+    for (const mov of movimientos.filter(m => m.importe < 0)) {
+      const tipo = mov.tipoPago || 'Otros';
+      gastosPorTipo[tipo] = (gastosPorTipo[tipo] || 0) + Math.abs(mov.importe);
+    }
 
     return NextResponse.json({
       periodo: {
@@ -101,11 +131,20 @@ export async function GET(req: NextRequest) {
       },
       fiscal: {
         ivaSoportado: Math.round(ivaSoportado * 100) / 100,
-        ivaRepercutidoEstimado: Math.round(ivaRepercutidoEstimado * 100) / 100,
-        ivaAPagar: Math.round((ivaRepercutidoEstimado - ivaSoportado) * 100) / 100,
+        ivaRepercutido: Math.round(ivaRepercutido * 100) / 100,
+        ivaAPagar: Math.round((ivaRepercutido - ivaSoportado) * 100) / 100,
         irpfRetenido: Math.round(irpfRetenido * 100) / 100,
         baseImponibleCompras: Math.round(baseImponibleCompras * 100) / 100,
         totalCompras: Math.round(totalCompras * 100) / 100,
+        baseImponibleVentas: Math.round(baseImponibleVentas * 100) / 100,
+        totalVentas: Math.round(totalVentas * 100) / 100,
+      },
+      ventas: {
+        totalFacturado: Math.round(totalVentas * 100) / 100,
+        totalCobrado: Math.round(totalCobrado * 100) / 100,
+        pendienteCobro: Math.round(pendienteCobro * 100) / 100,
+        numFacturas: facturasEmitidas.length,
+        porEstado: facturasEmitidasPorEstado,
       },
       flujo: {
         ingresos: Math.round(ingresos * 100) / 100,
@@ -114,6 +153,7 @@ export async function GET(req: NextRequest) {
         porMes,
       },
       categorias: porCategoria,
+      gastosPorTipo,
       conciliacion: {
         totalMovimientos,
         conciliados,
@@ -123,6 +163,8 @@ export async function GET(req: NextRequest) {
       },
       alertas: {
         facturasPendientes,
+        facturasImpagadas,
+        facturasVencidas,
         movimientosSinCategorizar: sinCategorizar,
       },
     });

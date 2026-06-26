@@ -1184,3 +1184,54 @@ enum EstadoCompraMaterial {
   GARANTIA_VENCIDA
   DEVUELTA
 }
+
+enum EstadoFacturaEmitida {
+  EMITIDA
+  ENVIADA
+  COBRADA_PARCIAL
+  COBRADA
+  IMPAGADA
+  ANULADA
+}
+
+model FacturaEmitida {
+  id              String   @id @default(uuid())
+  cliente         String   // Nombre del cliente
+  cif             String?  // CIF/NIF del cliente
+  numFactura      String   @unique @map("num_factura") // Ej: CLL26/1234
+  serie           String?  // Serie de facturación (CLL, INST, etc.)
+  fecha           DateTime
+  fechaVencimiento DateTime? @map("fecha_vencimiento")
+  // Importes
+  base            Float    // Base imponible
+  tipoIva         Float    @default(21) @map("tipo_iva")
+  importeIva      Float    @map("importe_iva")
+  tipoIrpf        Float    @default(0) @map("tipo_irpf")
+  importeIrpf     Float    @default(0) @map("importe_irpf")
+  total           Float
+  // Detalle
+  concepto        String?  // Descripción/concepto de la factura
+  lineas          String?  // JSON con líneas de detalle
+  // Clasificación
+  estado          EstadoFacturaEmitida @default(EMITIDA)
+  imputacion      String?  // Estructura, Operadora, Draxton, Vola, etc.
+  formaCobro      String?  @map("forma_cobro") // Remesa, Transferencia, Confirming, Efectivo
+  // Cobro
+  importeCobrado  Float    @default(0) @map("importe_cobrado")
+  fechaCobro      DateTime? @map("fecha_cobro")
+  // Remesa
+  remesaRef       String?  @map("remesa_ref") // Referencia de remesa SEPA
+  // Origen
+  origenSistema   String?  @map("origen_sistema") // ISPGestion, Manual, etc.
+  idExterno       String?  @unique @map("id_externo") // ID en sistema externo
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([cliente])
+  @@index([estado])
+  @@index([fecha])
+  @@index([imputacion])
+  @@index([serie])
+  @@map("facturas_emitidas")
+}

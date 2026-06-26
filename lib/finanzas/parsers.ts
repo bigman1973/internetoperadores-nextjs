@@ -401,6 +401,91 @@ export function parseNorma43(content: string): MovimientoParsed[] {
 }
 
 // =============================================
+// PARSER CAIXABANK (XLS formato TT*.XLS)
+// =============================================
+/**
+ * CaixaBank exporta XLS con estructura:
+ * - Fila 1: "MOVIMIENTOS DESDE : DD/MM/YYYY HASTA: DD/MM/YYYY"
+ * - Fila 3: Cabeceras (Número de cuenta, Oficina, Divisa, F. Operación, F. Valor, Ingreso (+), Gasto (-), Saldo (+), Saldo (-), Concepto común, Concepto propio, Referencia 1, Referencia 2, Concepto complementario 1-10)
+ * - Fila 4+: Datos
+ */
+export function parseCaixaBankXLS(rows: any[][]): MovimientoParsed[] {
+  const movimientos: MovimientoParsed[] = [];
+  
+  // Buscar fila de cabecera (contiene "Número de cuenta" o "F. Operación")
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(rows.length, 10); i++) {
+    const row = rows[i];
+    if (row && row.some((cell: any) => String(cell || '').includes('Operaci'))) {
+      headerRow = i;
+      break;
+    }
+  }
+  
+  if (headerRow === -1) return movimientos;
+  
+  // Procesar filas de datos
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || !row[1]) continue; // Col 1 = Número de cuenta
+    
+    // Col 4 = F. Operación, Col 5 = F. Valor
+    const fechaOpStr = String(row[4] || '').trim();
+    const fechaValStr = String(row[5] || '').trim();
+    if (!fechaOpStr || fechaOpStr === 'NaN') continue;
+    
+    const fechaOp = parseFechaES(fechaOpStr);
+    const fechaVal = parseFechaES(fechaValStr) || fechaOp;
+    if (!fechaOp) continue;
+    
+    // Col 6 = Ingreso (+), Col 7 = Gasto (-)
+    const ingreso = parseFloat(String(row[6] || '0'));
+    const gasto = parseFloat(String(row[7] || '0'));
+    const importe = !isNaN(ingreso) && ingreso > 0 ? ingreso : (!isNaN(gasto) && gasto > 0 ? -gasto : 0);
+    if (importe === 0) continue;
+    
+    // Col 8 = Saldo (+), Col 9 = Saldo (-)
+    const saldoPos = parseFloat(String(row[8] || '0'));
+    const saldoNeg = parseFloat(String(row[9] || '0'));
+    const saldo = !isNaN(saldoPos) && saldoPos > 0 ? saldoPos : (!isNaN(saldoNeg) && saldoNeg > 0 ? -saldoNeg : null);
+    
+    // Col 10 = Concepto común, Col 11 = Concepto propio
+    const conceptoComun = String(row[10] || '').trim();
+    const conceptoPropio = String(row[11] || '').trim();
+    
+    // Col 14 = Concepto complementario 1 (principal)
+    const compl1 = String(row[14] || '').trim();
+    // Col 18 = Concepto complementario 5 (descripción adicional)
+    const compl5 = String(row[18] || '').trim();
+    // Col 22 = Concepto complementario 9 (ordenante/beneficiario)
+    const compl9 = String(row[22] || '').trim();
+    // Col 23 = Concepto complementario 10
+    const compl10 = String(row[23] || '').trim();
+    
+    // Construir concepto legible
+    const partes = [compl1, compl5, compl9, compl10].filter(p => p && p !== 'NaN');
+    const concepto = partes.length > 0 ? partes.join(' | ') : `CC:${conceptoComun}/${conceptoPropio}`;
+    
+    // Col 13 = Referencia 2 (BIC, etc.)
+    const referencia = String(row[13] || '').trim() || null;
+    
+    movimientos.push({
+      fechaOperacion: fechaOp,
+      fechaValor: fechaVal!,
+      concepto: concepto.substring(0, 500),
+      importe,
+      saldo,
+      referencia: referencia !== 'NaN' ? referencia : null,
+      codigoOperacion: conceptoComun || null,
+      infoAdicional: conceptoPropio || null,
+      hashUnico: generarHash('caixabank', fechaOp.toISOString(), concepto, importe, saldo),
+    });
+  }
+  
+  return movimientos;
+}
+
+// =============================================
 // UTILIDADES
 // =============================================
 
@@ -475,6 +560,8 @@ export function detectarFormato(filename: string, content?: string): string {
   if (lower.includes('wise') || lower.includes('extracto')) return 'wise';
   if (lower.includes('u266') || lower.includes('guissona')) return 'guissona';
   if (lower.includes('santander') || lower.includes('movimientoscuenta')) return 'santander';
+  if (lower.startsWith('tt') && (lower.endsWith('.xls') || lower.endsWith('.xlsx'))) return 'caixabank';
+  if (lower.includes('caixabank') || lower.includes('caixa_bank')) return 'caixabank';
   
   // Intentar detectar por contenido
   if (content) {

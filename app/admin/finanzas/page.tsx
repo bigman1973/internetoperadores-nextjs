@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BanknotesIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { BanknotesIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationTriangleIcon, DocumentTextIcon, CreditCardIcon } from '@heroicons/react/24/outline';
 
 interface DashboardData {
   periodo: { year: number; trimestre: number | null; desde: string; hasta: string };
   saldos: { cuentas: any[]; total: number };
-  fiscal: { ivaSoportado: number; ivaRepercutidoEstimado: number; ivaAPagar: number; irpfRetenido: number; baseImponibleCompras: number; totalCompras: number };
+  fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
+  ventas: { totalFacturado: number; totalCobrado: number; pendienteCobro: number; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
   flujo: { ingresos: number; gastos: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }> };
   categorias: Record<string, { ingresos: number; gastos: number; count: number }>;
+  gastosPorTipo: Record<string, number>;
   conciliacion: { totalMovimientos: number; conciliados: number; pendientes: number; sinCategorizar: number; porcentajeConciliado: number };
-  alertas: { facturasPendientes: number; movimientosSinCategorizar: number };
+  alertas: { facturasPendientes: number; facturasImpagadas: number; facturasVencidas: number; movimientosSinCategorizar: number };
 }
 
 export default function FinanzasDashboard() {
@@ -54,30 +56,28 @@ export default function FinanzasDashboard() {
     );
   }
 
-  if (!data) return <div className="p-8 text-red-600">Error cargando datos</div>;
+  if (!data) return <div className="p-8 text-gray-500">Error cargando dashboard</div>;
+
+  // Ordenar categorías de gastos por importe
+  const categoriasOrdenadas = Object.entries(data.categorias)
+    .filter(([, v]) => v.gastos > 0)
+    .sort((a, b) => b[1].gastos - a[1].gastos);
+
+  // Ordenar gastos por tipo
+  const tiposGastoOrdenados = Object.entries(data.gastosPorTipo || {})
+    .sort((a, b) => b[1] - a[1]);
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
+      {/* Header con filtros */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Control Financiero</h1>
-          <p className="text-sm text-gray-500 mt-1">Tesorería, IVA/IRPF y conciliación bancaria en tiempo real</p>
-        </div>
+        <h1 className="text-2xl font-bold text-gray-900">Control Financiero</h1>
         <div className="flex gap-2">
-          <select
-            value={year}
-            onChange={(e) => setYear(parseInt(e.target.value))}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
+          <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="border rounded-lg px-3 py-1.5 text-sm">
             <option value={2026}>2026</option>
             <option value={2025}>2025</option>
           </select>
-          <select
-            value={trimestre}
-            onChange={(e) => setTrimestre(e.target.value)}
-            className="border rounded-lg px-3 py-2 text-sm"
-          >
+          <select value={trimestre} onChange={e => setTrimestre(e.target.value)} className="border rounded-lg px-3 py-1.5 text-sm">
             <option value="">Todo el año</option>
             <option value="1">T1 (Ene-Mar)</option>
             <option value="2">T2 (Abr-Jun)</option>
@@ -88,105 +88,164 @@ export default function FinanzasDashboard() {
       </div>
 
       {/* Alertas */}
-      {(data.alertas.facturasPendientes > 0 || data.alertas.movimientosSinCategorizar > 10) && (
+      {(data.alertas.facturasPendientes > 0 || data.alertas.facturasImpagadas > 0 || data.alertas.facturasVencidas > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-          <ExclamationTriangleIcon className="h-5 w-5 text-amber-600" />
-          <div className="text-sm text-amber-800">
-            {data.alertas.facturasPendientes > 0 && (
-              <span className="mr-4"><strong>{data.alertas.facturasPendientes}</strong> facturas pendientes de revisión</span>
-            )}
-            {data.alertas.movimientosSinCategorizar > 10 && (
-              <span><strong>{data.alertas.movimientosSinCategorizar}</strong> movimientos sin categorizar</span>
-            )}
+          <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0" />
+          <div className="flex gap-4 text-sm text-amber-800">
+            {data.alertas.facturasPendientes > 0 && <span>{data.alertas.facturasPendientes} facturas pendientes de revisión</span>}
+            {data.alertas.facturasImpagadas > 0 && <span className="text-red-700 font-medium">{data.alertas.facturasImpagadas} facturas impagadas</span>}
+            {data.alertas.facturasVencidas > 0 && <span className="text-red-700">{data.alertas.facturasVencidas} facturas vencidas sin cobrar</span>}
+            {data.alertas.movimientosSinCategorizar > 0 && <span>{data.alertas.movimientosSinCategorizar} movimientos sin categorizar</span>}
           </div>
         </div>
       )}
 
       {/* KPIs principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Saldo Total Bancos</p>
-            <BanknotesIcon className="h-5 w-5 text-blue-500" />
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <BanknotesIcon className="h-4 w-4 text-gray-400" />
+            <p className="text-xs text-gray-500">Saldo Total</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">{formatEUR(data.saldos.total)}</p>
+          <p className="text-xl font-bold text-gray-900">{formatEUR(data.saldos.total)}</p>
           <div className="mt-2 space-y-1">
             {data.saldos.cuentas.map(c => (
-              <div key={c.id} className="flex justify-between text-xs text-gray-500">
-                <span>{c.alias || c.banco}</span>
-                <span>{c.saldo ? formatEUR(c.saldo) : '—'}</span>
+              <div key={c.id} className="flex justify-between text-xs">
+                <span className="text-gray-500">{c.banco}</span>
+                <span className="text-gray-700">{c.saldo ? formatEUR(c.saldo) : '—'}</span>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">IVA Soportado</p>
-            <ArrowTrendingDownIcon className="h-5 w-5 text-green-500" />
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowTrendingUpIcon className="h-4 w-4 text-green-500" />
+            <p className="text-xs text-gray-500">Ingresos</p>
           </div>
-          <p className="text-2xl font-bold text-green-700 mt-2">{formatEUR(data.fiscal.ivaSoportado)}</p>
-          <p className="text-xs text-gray-500 mt-1">Base imponible: {formatEUR(data.fiscal.baseImponibleCompras)}</p>
-          <p className="text-xs text-gray-500">IRPF retenido: {formatEUR(data.fiscal.irpfRetenido)}</p>
+          <p className="text-xl font-bold text-green-600">{formatEUR(data.flujo.ingresos)}</p>
+          <p className="text-xs text-gray-400 mt-1">Neto: {formatEUR(data.flujo.neto)}</p>
         </div>
-
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Flujo Neto</p>
-            {data.flujo.neto >= 0 ? (
-              <ArrowTrendingUpIcon className="h-5 w-5 text-green-500" />
-            ) : (
-              <ArrowTrendingDownIcon className="h-5 w-5 text-red-500" />
-            )}
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowTrendingDownIcon className="h-4 w-4 text-red-500" />
+            <p className="text-xs text-gray-500">Gastos</p>
           </div>
-          <p className={`text-2xl font-bold mt-2 ${data.flujo.neto >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-            {formatEUR(data.flujo.neto)}
-          </p>
-          <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Ingresos: {formatEUR(data.flujo.ingresos)}</span>
-          </div>
-          <div className="flex justify-between text-xs text-gray-500">
-            <span>Gastos: {formatEUR(data.flujo.gastos)}</span>
-          </div>
+          <p className="text-xl font-bold text-red-600">{formatEUR(data.flujo.gastos)}</p>
+          <p className="text-xs text-gray-400 mt-1">{data.conciliacion.totalMovimientos} movimientos</p>
         </div>
-
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Conciliación</p>
-            <div className={`text-xs font-medium px-2 py-0.5 rounded-full ${data.conciliacion.porcentajeConciliado > 80 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-              {data.conciliacion.porcentajeConciliado}%
-            </div>
+        <div className="bg-white rounded-xl border p-4">
+          <div className="flex items-center gap-2 mb-1">
+            <DocumentTextIcon className="h-4 w-4 text-blue-500" />
+            <p className="text-xs text-gray-500">Facturado</p>
           </div>
-          <p className="text-2xl font-bold text-gray-900 mt-2">{data.conciliacion.conciliados}/{data.conciliacion.totalMovimientos}</p>
-          <p className="text-xs text-gray-500 mt-1">{data.conciliacion.pendientes} pendientes · {data.conciliacion.sinCategorizar} sin categorizar</p>
+          <p className="text-xl font-bold text-blue-600">{formatEUR(data.ventas.totalFacturado)}</p>
+          <p className="text-xs text-amber-600 mt-1">Pte cobro: {formatEUR(data.ventas.pendienteCobro)}</p>
         </div>
       </div>
 
-      {/* Flujo por mes + Categorías */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Flujo mensual */}
+      {/* Fiscal + Ventas */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* IVA */}
         <div className="bg-white rounded-xl border p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Flujo de Caja Mensual</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Liquidación IVA</h3>
           <div className="space-y-2">
-            {Object.entries(data.flujo.porMes).sort().map(([mes, vals]) => {
-              const neto = vals.ingresos - vals.gastos;
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">IVA Repercutido (ventas)</span>
+              <span className="font-medium text-green-700">{formatEUR(data.fiscal.ivaRepercutido)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">IVA Soportado (compras)</span>
+              <span className="font-medium text-red-700">-{formatEUR(data.fiscal.ivaSoportado)}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between text-sm font-bold">
+              <span>IVA a pagar</span>
+              <span className={data.fiscal.ivaAPagar >= 0 ? 'text-red-700' : 'text-green-700'}>
+                {formatEUR(data.fiscal.ivaAPagar)}
+              </span>
+            </div>
+            <div className="flex justify-between text-xs text-gray-400 mt-2">
+              <span>IRPF retenido</span>
+              <span>{formatEUR(data.fiscal.irpfRetenido)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Ventas */}
+        <div className="bg-white rounded-xl border p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Facturas Emitidas</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Total facturado ({data.ventas.numFacturas} facturas)</span>
+              <span className="font-medium">{formatEUR(data.ventas.totalFacturado)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Cobrado</span>
+              <span className="font-medium text-green-700">{formatEUR(data.ventas.totalCobrado)}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Pendiente de cobro</span>
+              <span className="font-medium text-amber-700">{formatEUR(data.ventas.pendienteCobro)}</span>
+            </div>
+            {Object.entries(data.ventas.porEstado).length > 0 && (
+              <div className="border-t pt-2 flex flex-wrap gap-2">
+                {Object.entries(data.ventas.porEstado).map(([estado, info]) => (
+                  <span key={estado} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                    {estado}: {info.count}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Flujo mensual */}
+      <div className="bg-white rounded-xl border p-5">
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Flujo de Caja Mensual</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b">
+                <th className="text-left py-2 text-xs text-gray-500">Mes</th>
+                <th className="text-right py-2 text-xs text-gray-500">Ingresos</th>
+                <th className="text-right py-2 text-xs text-gray-500">Gastos</th>
+                <th className="text-right py-2 text-xs text-gray-500">Neto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(data.flujo.porMes).sort().map(([mes, vals]) => (
+                <tr key={mes} className="border-b border-gray-50">
+                  <td className="py-2 text-gray-700">{mes}</td>
+                  <td className="py-2 text-right text-green-700">{formatEUR(vals.ingresos)}</td>
+                  <td className="py-2 text-right text-red-700">{formatEUR(vals.gastos)}</td>
+                  <td className={`py-2 text-right font-medium ${vals.ingresos - vals.gastos >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                    {formatEUR(vals.ingresos - vals.gastos)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Gastos por categoría y por tipo */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Por categoría */}
+        <div className="bg-white rounded-xl border p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Gastos por Categoría</h3>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {categoriasOrdenadas.map(([cat, vals]) => {
+              const pct = data.flujo.gastos > 0 ? (vals.gastos / data.flujo.gastos * 100) : 0;
               return (
-                <div key={mes} className="flex items-center gap-3">
-                  <span className="text-xs text-gray-500 w-16">{mes}</span>
-                  <div className="flex-1 flex items-center gap-2">
-                    <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden flex">
-                      <div
-                        className="bg-green-400 h-full"
-                        style={{ width: `${Math.min((vals.ingresos / (vals.ingresos + vals.gastos)) * 100, 100)}%` }}
-                      />
-                      <div
-                        className="bg-red-400 h-full"
-                        style={{ width: `${Math.min((vals.gastos / (vals.ingresos + vals.gastos)) * 100, 100)}%` }}
-                      />
+                <div key={cat} className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="text-gray-700">{cat}</span>
+                      <span className="text-gray-500">{formatEUR(vals.gastos)} ({pct.toFixed(1)}%)</span>
                     </div>
-                    <span className={`text-xs font-medium w-20 text-right ${neto >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatEUR(neto)}
-                    </span>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div className="bg-red-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
+                    </div>
                   </div>
                 </div>
               );
@@ -194,49 +253,54 @@ export default function FinanzasDashboard() {
           </div>
         </div>
 
-        {/* Categorías */}
+        {/* Por tipo de pago */}
         <div className="bg-white rounded-xl border p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Gastos por Categoría</h3>
-          <div className="space-y-2 max-h-64 overflow-y-auto">
-            {Object.entries(data.categorias)
-              .filter(([_, v]) => v.gastos > 0)
-              .sort((a, b) => b[1].gastos - a[1].gastos)
-              .map(([cat, vals]) => (
-                <div key={cat} className="flex items-center justify-between py-1 border-b border-gray-50">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-orange-400" />
-                    <span className="text-sm text-gray-700">{cat}</span>
-                    <span className="text-xs text-gray-400">({vals.count})</span>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Gastos por Tipo de Pago</h3>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {tiposGastoOrdenados.map(([tipo, importe]) => {
+              const pct = data.flujo.gastos > 0 ? (importe / data.flujo.gastos * 100) : 0;
+              return (
+                <div key={tipo} className="flex items-center gap-2">
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs mb-0.5">
+                      <span className="text-gray-700">{tipo}</span>
+                      <span className="text-gray-500">{formatEUR(importe)} ({pct.toFixed(1)}%)</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5">
+                      <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
+                    </div>
                   </div>
-                  <span className="text-sm font-medium text-red-600">{formatEUR(-vals.gastos)}</span>
                 </div>
-              ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Previsión fiscal */}
+      {/* Conciliación */}
       <div className="bg-white rounded-xl border p-5">
-        <h3 className="text-sm font-semibold text-gray-900 mb-4">Previsión Fiscal {trimestre ? `T${trimestre}` : year}</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="text-center p-4 bg-blue-50 rounded-lg">
-            <p className="text-xs text-blue-600 uppercase font-medium">IVA Repercutido (est.)</p>
-            <p className="text-xl font-bold text-blue-800 mt-1">{formatEUR(data.fiscal.ivaRepercutidoEstimado)}</p>
+        <h3 className="text-sm font-semibold text-gray-900 mb-3">Estado de Conciliación</h3>
+        <div className="grid grid-cols-4 gap-4">
+          <div>
+            <p className="text-xs text-gray-500">Total movimientos</p>
+            <p className="text-lg font-bold">{data.conciliacion.totalMovimientos}</p>
           </div>
-          <div className="text-center p-4 bg-green-50 rounded-lg">
-            <p className="text-xs text-green-600 uppercase font-medium">IVA Soportado</p>
-            <p className="text-xl font-bold text-green-800 mt-1">{formatEUR(data.fiscal.ivaSoportado)}</p>
+          <div>
+            <p className="text-xs text-gray-500">Conciliados</p>
+            <p className="text-lg font-bold text-green-600">{data.conciliacion.conciliados}</p>
           </div>
-          <div className={`text-center p-4 rounded-lg ${data.fiscal.ivaAPagar > 0 ? 'bg-red-50' : 'bg-green-50'}`}>
-            <p className={`text-xs uppercase font-medium ${data.fiscal.ivaAPagar > 0 ? 'text-red-600' : 'text-green-600'}`}>
-              IVA a {data.fiscal.ivaAPagar > 0 ? 'Pagar' : 'Compensar'}
-            </p>
-            <p className={`text-xl font-bold mt-1 ${data.fiscal.ivaAPagar > 0 ? 'text-red-800' : 'text-green-800'}`}>
-              {formatEUR(Math.abs(data.fiscal.ivaAPagar))}
-            </p>
+          <div>
+            <p className="text-xs text-gray-500">Pendientes</p>
+            <p className="text-lg font-bold text-amber-600">{data.conciliacion.pendientes}</p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500">% Conciliado</p>
+            <p className="text-lg font-bold text-blue-600">{data.conciliacion.porcentajeConciliado}%</p>
           </div>
         </div>
-        <p className="text-xs text-gray-400 mt-3 text-center">* IVA repercutido estimado a partir de ingresos bancarios. Se actualizará con datos reales de ISP Gestión.</p>
+        <div className="mt-3 w-full bg-gray-200 rounded-full h-3">
+          <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${data.conciliacion.porcentajeConciliado}%` }}></div>
+        </div>
       </div>
     </div>
   );
