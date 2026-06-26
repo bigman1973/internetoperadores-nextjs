@@ -25,6 +25,7 @@ export interface LineaDetalle {
 export interface DatosFactura {
   proveedor: string;
   cif: string | null;
+  domicilioProveedor: string | null; // Dirección fiscal del proveedor
   numFactura: string | null;
   fecha: string; // YYYY-MM-DD
   base: number;
@@ -52,7 +53,8 @@ export async function extraerDatosFactura(
   const systemPrompt = `Eres un experto en contabilidad española. Extraes datos de facturas recibidas con máxima precisión.
 SIEMPRE devuelves un JSON válido con los siguientes campos:
 - proveedor: nombre del emisor de la factura (empresa que factura)
-- cif: CIF/NIF/VAT del emisor (formato español: B12345678, o formato extranjero si aplica: EE, DE, FR, etc.)
+- cif: CIF/NIF/VAT del emisor (formato español: B12345678, o formato extranjero si aplica: EE, DE, FR, NL, etc.)
+- domicilioProveedor: dirección fiscal completa del emisor tal como aparece en la factura (calle, número, ciudad, código postal, país). Si no aparece, pon null
 - numFactura: número de factura exacto tal como aparece en el documento
 - fecha: fecha de emisión de la factura en formato YYYY-MM-DD (IMPORTANTE: lee el año exacto del documento, no inventes)
 - base: base imponible total (número decimal, sin símbolo €)
@@ -63,11 +65,11 @@ SIEMPRE devuelves un JSON válido con los siguientes campos:
 - total: importe total de la factura (número decimal)
 - concepto: descripción general del servicio/producto facturado
 - confianza: tu nivel de confianza en la extracción (0.0 a 1.0)
-- esInternacional: true si el emisor es una empresa extranjera (no española) o si es factura intracomunitaria
-- paisOrigen: código ISO del país del emisor si es internacional (EE, DE, FR, NL, US, etc.), null si es española
-- lineas: array de líneas de detalle de la factura. Cada línea tiene:
-  - descripcion: texto descriptivo de la línea (servicio, producto, concepto)
-  - cliente: si en la descripción aparece un nombre de empresa, persona, municipio, número de teléfono, o referencia a un cliente final, ponlo aquí. Si no hay referencia a cliente, pon null
+- esInternacional: true si el emisor NO es una empresa española. Indicadores: CIF/VAT no español (no empieza por A-Z español seguido de 8 dígitos), dirección en otro país, moneda diferente, idioma extranjero, o mención "reverse charge", "intra-community supply", "VAT exempt Art. 44/196 Directive"
+- paisOrigen: código ISO de 2 letras del país del emisor si es internacional (EE=Estonia, DE=Alemania, FR=Francia, NL=Holanda, US=EEUU, GB=Reino Unido, IT=Italia, PT=Portugal, etc.), null si es española
+- lineas: array de TODAS las líneas de detalle de la factura. Cada línea tiene:
+  - descripcion: texto descriptivo COMPLETO de la línea (servicio, producto, concepto). Incluye toda la información relevante
+  - cliente: si en la descripción aparece un nombre de empresa, persona, municipio, número de teléfono, o referencia a un cliente final, ponlo aquí. Si NO hay referencia clara a un cliente, pon null (NO inventes)
   - cantidad: cantidad (número)
   - precioUnitario: precio por unidad (número decimal)
   - iva: porcentaje de IVA de esta línea (0 si es intracomunitaria/exenta)
@@ -78,16 +80,23 @@ REGLAS IMPORTANTES:
 - Si no puedes leer un campo, pon null (excepto números que van a 0)
 - El total debe ser: base + importeIva - importeIrpf
 - Fechas siempre en formato YYYY-MM-DD
-- Si la factura está en otro idioma, traduce el concepto al español
-- En las líneas de detalle, incluye TODAS las líneas con precio que aparezcan
+- Si la factura está en otro idioma, traduce el concepto al español pero mantén las descripciones de línea en el idioma original
+- En las líneas de detalle, incluye ABSOLUTAMENTE TODAS las líneas con precio que aparezcan, incluso si no tienen cliente asociado
 - Si una línea menciona un nombre de cliente, municipio, empresa destinataria, número de teléfono asociado a un servicio, o referencia de contrato, extráelo en el campo "cliente"
-- FACTURAS INTERNACIONALES: Si el emisor no es español (CIF no empieza por letra española, o tiene VAT de otro país), marca esInternacional=true y tipoIva=0
+- Si una línea NO menciona ningún cliente, pon cliente: null. NO inventes clientes.
+- FACTURAS INTERNACIONALES: 
+  * Si el CIF/VAT empieza por código de país no español (EE, DE, FR, NL, etc.) → esInternacional=true
+  * Si la dirección del emisor es de otro país → esInternacional=true
+  * Si dice "reverse charge", "VAT exempt", "intra-community" → esInternacional=true
+  * Si el idioma principal NO es español → probablemente internacional
+  * Empresas conocidas internacionales: Wildix (Estonia/Italia), Hetzner (Alemania), OVH (Francia), AWS (Irlanda), Google Cloud (Irlanda), Microsoft (Irlanda), Cloudflare (EEUU)
+- DOMICILIO: Extrae la dirección fiscal del emisor completa. Suele aparecer en la cabecera de la factura junto al nombre y CIF
 - Si es un documento que no es una factura (cesión de créditos, contrato, albarán, etc.), indica confianza 0.1 y pon lo que puedas
 - Responde SOLO con el JSON, sin markdown ni explicaciones`;
 
   const userPrompt = nombreArchivo 
-    ? `Extrae los datos de esta factura. El nombre del archivo es: "${nombreArchivo}". Incluye TODAS las líneas de detalle con precio.`
-    : 'Extrae los datos de esta factura. Incluye TODAS las líneas de detalle con precio.';
+    ? `Extrae los datos de esta factura. El nombre del archivo es: "${nombreArchivo}". Incluye TODAS las líneas de detalle con precio, tengan o no cliente asociado.`
+    : 'Extrae los datos de esta factura. Incluye TODAS las líneas de detalle con precio, tengan o no cliente asociado.';
 
   // Preparar el contenido del mensaje
   const content: any[] = [{ type: 'text', text: userPrompt }];
@@ -148,6 +157,7 @@ REGLAS IMPORTANTES:
     if (!Array.isArray(datos.lineas)) datos.lineas = [];
     if (typeof datos.esInternacional !== 'boolean') datos.esInternacional = false;
     if (!datos.paisOrigen) datos.paisOrigen = null;
+    if (!datos.domicilioProveedor) datos.domicilioProveedor = null;
     
     return datos;
   } catch (error: any) {
@@ -161,6 +171,7 @@ REGLAS IMPORTANTES:
     return {
       proveedor: 'ERROR_OCR',
       cif: null,
+      domicilioProveedor: null,
       numFactura: null,
       fecha: new Date().toISOString().split('T')[0],
       base: 0,
@@ -208,6 +219,7 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
   return {
     proveedor,
     cif: null,
+    domicilioProveedor: null,
     numFactura,
     fecha,
     base: 0,

@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { 
   ArrowLeftIcon, PencilIcon, DocumentTextIcon,
   MagnifyingGlassIcon, CheckIcon, XMarkIcon,
-  ArrowPathIcon
+  ArrowPathIcon, GlobeAltIcon, UserIcon
 } from '@heroicons/react/24/outline';
 
 interface LineaDetalle {
@@ -24,6 +24,7 @@ interface Factura {
   id: string;
   proveedor: string;
   cif: string | null;
+  domicilioProveedor: string | null;
   numFactura: string | null;
   fecha: string;
   base: number;
@@ -38,6 +39,8 @@ interface Factura {
   clienteImputado: string | null;
   departamento: string | null;
   deducibleIva: boolean;
+  esInternacional: boolean;
+  paisOrigen: string | null;
   archivoOneDrive: string | null;
   oneDriveItemId: string | null;
   carpetaOrigen: string | null;
@@ -98,6 +101,12 @@ const FORMAS_PAGO = [
   'transferencia', 'confirming', 'domiciliacion', 'tarjeta', 'efectivo', 'compensacion'
 ];
 
+const PAISES: Record<string, string> = {
+  EE: 'Estonia', DE: 'Alemania', FR: 'Francia', NL: 'Holanda', IT: 'Italia',
+  PT: 'Portugal', GB: 'Reino Unido', US: 'EEUU', IE: 'Irlanda', BE: 'Bélgica',
+  AT: 'Austria', CH: 'Suiza', PL: 'Polonia', SE: 'Suecia', DK: 'Dinamarca',
+};
+
 export default function FacturaDetallePage() {
   const params = useParams();
   const router = useRouter();
@@ -112,6 +121,14 @@ export default function FacturaDetallePage() {
   const [ocrLoading, setOcrLoading] = useState(false);
   const [ocrResult, setOcrResult] = useState<any>(null);
   const [lineas, setLineas] = useState<LineaDetalle[]>([]);
+
+  // Edición de líneas (imputación por línea)
+  const [editingLineas, setEditingLineas] = useState(false);
+  const [editableLineas, setEditableLineas] = useState<LineaDetalle[]>([]);
+  const [lineaClienteSearch, setLineaClienteSearch] = useState<number | null>(null);
+  const [lineaClienteQuery, setLineaClienteQuery] = useState('');
+  const [lineaClienteResults, setLineaClienteResults] = useState<ClienteOption[]>([]);
+  const [savingLineas, setSavingLineas] = useState(false);
 
   // Imputación inteligente
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -148,10 +165,13 @@ export default function FacturaDetallePage() {
         // Parsear líneas de detalle
         if (json.factura.lineasDetalle) {
           try {
-            setLineas(JSON.parse(json.factura.lineasDetalle));
-          } catch { setLineas([]); }
+            const parsed = JSON.parse(json.factura.lineasDetalle);
+            setLineas(parsed);
+            setEditableLineas(JSON.parse(JSON.stringify(parsed)));
+          } catch { setLineas([]); setEditableLineas([]); }
         } else {
           setLineas([]);
+          setEditableLineas([]);
         }
         // Buscar sugerencia de imputación
         fetchSugerencia(json.factura.proveedor, json.factura.cif);
@@ -226,6 +246,68 @@ export default function FacturaDetallePage() {
     } catch (e) {
       console.error('Error:', e);
     }
+  }
+
+  async function buscarClientesLinea(q: string, lineaIdx: number) {
+    setLineaClienteQuery(q);
+    if (q.length < 2) { setLineaClienteResults([]); return; }
+    try {
+      const res = await fetch(`/api/admin/finanzas/imputacion?action=buscar-clientes&q=${encodeURIComponent(q)}`);
+      const json = await res.json();
+      setLineaClienteResults(json.clientes || []);
+    } catch (e) {
+      console.error('Error:', e);
+    }
+  }
+
+  function asignarClienteLinea(lineaIdx: number, clienteNombre: string) {
+    const nuevasLineas = [...editableLineas];
+    nuevasLineas[lineaIdx] = {
+      ...nuevasLineas[lineaIdx],
+      cliente: clienteNombre,
+      clienteMatch: true,
+      clienteNombreBd: clienteNombre,
+    };
+    setEditableLineas(nuevasLineas);
+    setLineaClienteSearch(null);
+    setLineaClienteQuery('');
+    setLineaClienteResults([]);
+  }
+
+  function quitarClienteLinea(lineaIdx: number) {
+    const nuevasLineas = [...editableLineas];
+    nuevasLineas[lineaIdx] = {
+      ...nuevasLineas[lineaIdx],
+      cliente: null,
+      clienteMatch: false,
+      clienteNombreBd: undefined,
+      clienteId: undefined,
+    };
+    setEditableLineas(nuevasLineas);
+  }
+
+  async function guardarLineas() {
+    setSavingLineas(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'guardar-lineas',
+          facturaRecibidaId: factura!.id,
+          lineas: editableLineas,
+        }),
+      });
+      if (res.ok) {
+        setLineas(JSON.parse(JSON.stringify(editableLineas)));
+        setEditingLineas(false);
+        // Refrescar factura
+        await fetchFactura();
+      }
+    } catch (e) {
+      console.error('Error guardando líneas:', e);
+    }
+    setSavingLineas(false);
   }
 
   async function seleccionarCliente(cliente: string) {
@@ -312,6 +394,7 @@ export default function FacturaDetallePage() {
         body: JSON.stringify({
           proveedor: editData.proveedor,
           cif: editData.cif,
+          domicilioProveedor: editData.domicilioProveedor,
           numFactura: editData.numFactura,
           fecha: editData.fecha,
           base: parseFloat(String(editData.base)) || 0,
@@ -324,6 +407,8 @@ export default function FacturaDetallePage() {
           departamento: editData.departamento,
           formaPago: editData.formaPago,
           deducibleIva: editData.deducibleIva,
+          esInternacional: editData.esInternacional,
+          paisOrigen: editData.paisOrigen,
         }),
       });
       if (res.ok) {
@@ -383,6 +468,8 @@ export default function FacturaDetallePage() {
   }
 
   const estadoInfo = ESTADOS[factura.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
+  const totalLineasConCliente = lineas.filter(l => l.cliente).reduce((sum, l) => sum + (l.importe || 0), 0);
+  const totalLineasSinCliente = lineas.filter(l => !l.cliente).reduce((sum, l) => sum + (l.importe || 0), 0);
 
   return (
     <div className="p-6 space-y-6">
@@ -396,7 +483,15 @@ export default function FacturaDetallePage() {
             <ArrowLeftIcon className="h-5 w-5 text-gray-600" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">{factura.proveedor}</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-gray-900">{factura.proveedor}</h1>
+              {factura.esInternacional && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700 border border-purple-200">
+                  <GlobeAltIcon className="h-3.5 w-3.5" />
+                  Internacional {factura.paisOrigen ? `(${PAISES[factura.paisOrigen] || factura.paisOrigen})` : ''}
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-500 mt-0.5">
               {factura.numFactura ? `Factura ${factura.numFactura}` : 'Sin número'} · {formatFecha(factura.fecha)}
             </p>
@@ -439,7 +534,7 @@ export default function FacturaDetallePage() {
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-red-800">
-              ⚠️ Esta factura no tiene datos OCR extraídos
+              Esta factura no tiene datos OCR extraídos
             </p>
             <p className="text-xs text-red-600 mt-0.5">
               Pulsa &quot;Reintentar OCR&quot; para extraer proveedor, importes y líneas de detalle del PDF
@@ -478,9 +573,10 @@ export default function FacturaDetallePage() {
         <div className={`rounded-lg p-4 border ${ocrResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
           {ocrResult.success ? (
             <div>
-              <p className="text-sm font-medium text-green-800">✓ OCR completado correctamente</p>
+              <p className="text-sm font-medium text-green-800">OCR completado correctamente</p>
               <p className="text-xs text-green-600 mt-1">
                 {ocrResult.datos.proveedor} — {formatEUR(ocrResult.datos.total)} — {ocrResult.datos.numLineas} líneas de detalle
+                {ocrResult.datos.esInternacional && ` — Internacional (${PAISES[ocrResult.datos.paisOrigen] || ocrResult.datos.paisOrigen})`}
               </p>
             </div>
           ) : (
@@ -494,10 +590,10 @@ export default function FacturaDetallePage() {
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-center justify-between">
           <div>
             <p className="text-sm font-medium text-amber-800">
-              Este proveedor no tiene imputación asignada
+              Sugerencia de imputación basada en regla existente
             </p>
             <p className="text-xs text-amber-600 mt-0.5">
-              Sugerencia basada en regla existente: <strong>{sugerencia.categoria}</strong>
+              <strong>{sugerencia.categoria}</strong>
               {sugerencia.clienteNombre && ` → ${sugerencia.clienteNombre}`}
             </p>
           </div>
@@ -519,7 +615,7 @@ export default function FacturaDetallePage() {
       {!sugerencia && !factura.imputacion && factura.ocrCompletado && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-sm font-medium text-yellow-800">
-            ⚠️ Esta factura no tiene imputación. Asigna una categoría abajo para clasificarla.
+            Esta factura no tiene imputación. Asigna una categoría abajo para clasificarla.
           </p>
         </div>
       )}
@@ -541,7 +637,15 @@ export default function FacturaDetallePage() {
         <div className="space-y-6">
           {/* Datos del proveedor */}
           <div className="bg-white rounded-xl border p-5">
-            <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">Datos del proveedor</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">Datos del proveedor</h2>
+              {factura.esInternacional && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700">
+                  <GlobeAltIcon className="h-3 w-3" />
+                  {PAISES[factura.paisOrigen || ''] || factura.paisOrigen || 'Internacional'}
+                </span>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-gray-500">Proveedor</label>
@@ -552,11 +656,19 @@ export default function FacturaDetallePage() {
                 )}
               </div>
               <div>
-                <label className="text-xs text-gray-500">CIF/NIF</label>
+                <label className="text-xs text-gray-500">CIF/NIF/VAT</label>
                 {editing ? (
                   <input type="text" value={editData.cif || ''} onChange={e => setEditData({...editData, cif: e.target.value})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
                 ) : (
                   <p className="text-sm font-medium text-gray-900 mt-1">{factura.cif || '—'}</p>
+                )}
+              </div>
+              <div className="col-span-2">
+                <label className="text-xs text-gray-500">Domicilio fiscal</label>
+                {editing ? (
+                  <input type="text" value={editData.domicilioProveedor || ''} onChange={e => setEditData({...editData, domicilioProveedor: e.target.value})} placeholder="Dirección completa del proveedor" className="w-full mt-1 px-3 py-2 border rounded-lg text-sm" />
+                ) : (
+                  <p className="text-sm text-gray-900 mt-1">{factura.domicilioProveedor || <span className="text-gray-400 italic">Sin domicilio — Reintentar OCR para extraerlo</span>}</p>
                 )}
               </div>
               <div>
@@ -575,6 +687,26 @@ export default function FacturaDetallePage() {
                   <p className="text-sm font-medium text-gray-900 mt-1">{formatFecha(factura.fecha)}</p>
                 )}
               </div>
+              {editing && (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500">Internacional</label>
+                    <div className="mt-2">
+                      <input type="checkbox" checked={editData.esInternacional ?? false} onChange={e => setEditData({...editData, esInternacional: e.target.checked})} className="rounded border-gray-300" />
+                      <span className="ml-2 text-sm text-gray-600">Factura intracomunitaria/internacional</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">País origen</label>
+                    <select value={editData.paisOrigen || ''} onChange={e => setEditData({...editData, paisOrigen: e.target.value || null})} className="w-full mt-1 px-3 py-2 border rounded-lg text-sm">
+                      <option value="">España (nacional)</option>
+                      {Object.entries(PAISES).map(([code, name]) => (
+                        <option key={code} value={code}>{name} ({code})</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -595,7 +727,7 @@ export default function FacturaDetallePage() {
                 {editing ? (
                   <input type="number" step="0.01" value={editData.importeIva || 0} onChange={e => setEditData({...editData, importeIva: parseFloat(e.target.value)})} className="w-32 px-3 py-1.5 border rounded-lg text-sm text-right" />
                 ) : (
-                  <span className="text-sm font-medium text-green-700">+{formatEUR(factura.importeIva)}</span>
+                  <span className={`text-sm font-medium ${factura.importeIva === 0 ? 'text-gray-400' : 'text-green-700'}`}>+{formatEUR(factura.importeIva)}</span>
                 )}
               </div>
               {(factura.importeIrpf > 0 || editing) && (
@@ -619,18 +751,60 @@ export default function FacturaDetallePage() {
             </div>
           </div>
 
-          {/* LÍNEAS DE DETALLE */}
+          {/* LÍNEAS DE DETALLE - MEJORADO */}
           {lineas.length > 0 && (
             <div className="bg-white rounded-xl border p-5">
-              <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-4">
-                Líneas de detalle ({lineas.length})
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-gray-900 uppercase tracking-wide">
+                  Líneas de detalle ({lineas.length})
+                </h2>
+                <div className="flex items-center gap-2">
+                  {!editingLineas ? (
+                    <button
+                      onClick={() => { setEditingLineas(true); setEditableLineas(JSON.parse(JSON.stringify(lineas))); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-md hover:bg-gray-100 text-gray-600"
+                    >
+                      <PencilIcon className="h-3.5 w-3.5" />
+                      Editar clientes
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => { setEditingLineas(false); setEditableLineas(JSON.parse(JSON.stringify(lineas))); }}
+                        className="px-3 py-1.5 text-xs border rounded-md hover:bg-gray-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={guardarLineas}
+                        disabled={savingLineas}
+                        className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {savingLineas ? 'Guardando...' : 'Guardar cambios'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Resumen de imputación */}
+              <div className="flex gap-4 mb-4 text-xs">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                  <span className="text-green-700">Con cliente: <strong>{formatEUR(totalLineasConCliente)}</strong></span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="w-2 h-2 rounded-full bg-amber-500"></div>
+                  <span className="text-amber-700">Sin cliente: <strong>{formatEUR(totalLineasSinCliente)}</strong></span>
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-2 font-medium text-gray-500">Descripción</th>
-                      <th className="pb-2 font-medium text-gray-500">Cliente detectado</th>
+                      <th className="pb-2 font-medium text-gray-500 w-[35%]">Descripción</th>
+                      <th className="pb-2 font-medium text-gray-500 w-[30%]">Cliente asignado</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">Cant.</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">P. Unit.</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">IVA</th>
@@ -638,29 +812,92 @@ export default function FacturaDetallePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {lineas.map((linea, i) => (
-                      <tr key={i} className="hover:bg-gray-50">
-                        <td className="py-2 pr-2 max-w-[200px]">
-                          <span className="text-gray-900 line-clamp-2">{linea.descripcion}</span>
+                    {(editingLineas ? editableLineas : lineas).map((linea, i) => (
+                      <tr key={i} className={`hover:bg-gray-50 ${!linea.cliente ? 'bg-amber-50/30' : ''}`}>
+                        <td className="py-2.5 pr-2">
+                          <span className="text-gray-900 leading-tight block">{linea.descripcion}</span>
                         </td>
-                        <td className="py-2 pr-2">
-                          {linea.cliente ? (
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
-                              linea.clienteMatch 
-                                ? 'bg-green-100 text-green-700' 
-                                : 'bg-blue-100 text-blue-700'
-                            }`}>
-                              {linea.clienteMatch && <CheckIcon className="h-3 w-3" />}
-                              {linea.clienteNombreBd || linea.cliente}
-                            </span>
+                        <td className="py-2.5 pr-2">
+                          {editingLineas ? (
+                            // Modo edición: selector de cliente
+                            <div className="relative">
+                              {linea.cliente ? (
+                                <div className="flex items-center gap-1">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                                    linea.clienteMatch ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {linea.clienteMatch && <CheckIcon className="h-3 w-3" />}
+                                    <span className="max-w-[120px] truncate">{linea.clienteNombreBd || linea.cliente}</span>
+                                  </span>
+                                  <button
+                                    onClick={() => quitarClienteLinea(i)}
+                                    className="p-0.5 text-red-400 hover:text-red-600"
+                                    title="Quitar cliente"
+                                  >
+                                    <XMarkIcon className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              ) : lineaClienteSearch === i ? (
+                                <div>
+                                  <input
+                                    type="text"
+                                    value={lineaClienteQuery}
+                                    onChange={e => buscarClientesLinea(e.target.value, i)}
+                                    placeholder="Buscar cliente..."
+                                    className="w-full px-2 py-1 border rounded text-xs"
+                                    autoFocus
+                                  />
+                                  {lineaClienteResults.length > 0 && (
+                                    <div className="absolute z-20 w-56 mt-1 bg-white border rounded-lg shadow-lg max-h-36 overflow-y-auto">
+                                      {lineaClienteResults.map((c, ci) => (
+                                        <button
+                                          key={ci}
+                                          onClick={() => asignarClienteLinea(i, c.cliente)}
+                                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50 border-b last:border-0"
+                                        >
+                                          <span className="font-medium">{c.cliente}</span>
+                                          {c.cif && <span className="text-gray-400 ml-1">{c.cif}</span>}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={() => { setLineaClienteSearch(null); setLineaClienteQuery(''); setLineaClienteResults([]); }}
+                                    className="mt-1 text-xs text-gray-400 hover:text-gray-600"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setLineaClienteSearch(i); setLineaClienteQuery(''); setLineaClienteResults([]); }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-dashed border-gray-300 rounded hover:border-blue-400 hover:text-blue-600 text-gray-400"
+                                >
+                                  <UserIcon className="h-3 w-3" />
+                                  Asignar cliente
+                                </button>
+                              )}
+                            </div>
                           ) : (
-                            <span className="text-gray-400">—</span>
+                            // Modo lectura
+                            linea.cliente ? (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
+                                linea.clienteMatch 
+                                  ? 'bg-green-100 text-green-700' 
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}>
+                                {linea.clienteMatch && <CheckIcon className="h-3 w-3" />}
+                                {linea.clienteNombreBd || linea.cliente}
+                              </span>
+                            ) : (
+                              <span className="text-amber-500 text-xs italic">Sin asignar</span>
+                            )
                           )}
                         </td>
-                        <td className="py-2 text-right text-gray-700">{linea.cantidad}</td>
-                        <td className="py-2 text-right text-gray-700">{formatEUR(linea.precioUnitario)}</td>
-                        <td className="py-2 text-right text-gray-500">{linea.iva}%</td>
-                        <td className="py-2 text-right font-medium text-gray-900">{formatEUR(linea.importe)}</td>
+                        <td className="py-2.5 text-right text-gray-700">{linea.cantidad}</td>
+                        <td className="py-2.5 text-right text-gray-700">{formatEUR(linea.precioUnitario)}</td>
+                        <td className="py-2.5 text-right text-gray-500">{linea.iva}%</td>
+                        <td className="py-2.5 text-right font-medium text-gray-900">{formatEUR(linea.importe)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -674,13 +911,25 @@ export default function FacturaDetallePage() {
                   </tfoot>
                 </table>
               </div>
-              {lineas.some(l => l.clienteMatch) && (
-                <div className="mt-3 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-xs text-green-700">
-                    <CheckIcon className="h-3.5 w-3.5 inline mr-1" />
-                    {lineas.filter(l => l.clienteMatch).length} líneas coinciden con clientes de la base de datos.
-                    Puedes imputar esta factura a &quot;Cliente (Ventas)&quot; y vincularla a las facturas emitidas correspondientes.
-                  </p>
+
+              {/* Resumen de imputación por cliente */}
+              {lineas.some(l => l.cliente) && (
+                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <p className="text-xs font-medium text-blue-800 mb-2">Resumen por cliente:</p>
+                  <div className="space-y-1">
+                    {Object.entries(
+                      lineas.reduce((acc, l) => {
+                        const key = l.cliente || '(Sin asignar)';
+                        acc[key] = (acc[key] || 0) + (l.importe || 0);
+                        return acc;
+                      }, {} as Record<string, number>)
+                    ).sort((a, b) => b[1] - a[1]).map(([cliente, total]) => (
+                      <div key={cliente} className="flex items-center justify-between text-xs">
+                        <span className={cliente === '(Sin asignar)' ? 'text-amber-600 italic' : 'text-blue-700'}>{cliente}</span>
+                        <span className="font-medium text-blue-900">{formatEUR(total)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -903,6 +1152,7 @@ export default function FacturaDetallePage() {
               <div><span className="text-gray-500">Archivo:</span><span className="ml-2 font-medium truncate">{factura.archivoOneDrive || '—'}</span></div>
               <div><span className="text-gray-500">OCR:</span><span className="ml-2 font-medium">{factura.ocrCompletado ? <span className="text-green-600">OK ({Math.round((factura.ocrConfianza || 0) * 100)}%)</span> : <span className="text-amber-600">Pendiente</span>}</span></div>
               <div><span className="text-gray-500">Confirming:</span><span className="ml-2 font-medium">{factura.confirmingProveedor || '—'}</span></div>
+              <div><span className="text-gray-500">Internacional:</span><span className="ml-2 font-medium">{factura.esInternacional ? <span className="text-purple-600">Sí ({PAISES[factura.paisOrigen || ''] || factura.paisOrigen || '?'})</span> : 'No'}</span></div>
             </div>
           </div>
         </div>

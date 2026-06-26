@@ -259,6 +259,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, actualizadas: result.count });
     }
 
+    // Guardar imputación de clientes por línea (actualizar lineasDetalle con clientes asignados)
+    if (action === 'guardar-lineas') {
+      const { facturaRecibidaId, lineas } = body;
+
+      if (!facturaRecibidaId || !Array.isArray(lineas)) {
+        return NextResponse.json({ error: 'facturaRecibidaId y lineas son requeridos' }, { status: 400 });
+      }
+
+      // Actualizar las líneas de detalle con los clientes asignados
+      await prisma.facturaRecibida.update({
+        where: { id: facturaRecibidaId },
+        data: {
+          lineasDetalle: JSON.stringify(lineas),
+        },
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     // Crear nueva categoría de imputación
     if (action === 'crear-categoria') {
       const { nombre, descripcion, tipo } = body;

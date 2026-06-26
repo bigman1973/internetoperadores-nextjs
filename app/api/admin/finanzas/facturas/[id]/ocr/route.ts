@@ -79,6 +79,7 @@ export async function POST(
       data: {
         proveedor: datos.proveedor !== 'DESCONOCIDO' ? datos.proveedor : factura.proveedor,
         cif: datos.cif || factura.cif,
+        domicilioProveedor: datos.domicilioProveedor || (factura as any).domicilioProveedor || null,
         numFactura: datos.numFactura || factura.numFactura,
         fecha: datos.fecha ? new Date(datos.fecha) : factura.fecha,
         base: datos.base || 0,
@@ -92,6 +93,8 @@ export async function POST(
         ocrConfianza: datos.confianza,
         datosOcrRaw: JSON.stringify(datos),
         lineasDetalle: lineasConClientes.length > 0 ? JSON.stringify(lineasConClientes) : null,
+        esInternacional: datos.esInternacional || false,
+        paisOrigen: datos.paisOrigen || null,
       },
     });
 
@@ -100,6 +103,7 @@ export async function POST(
       datos: {
         proveedor: datos.proveedor,
         cif: datos.cif,
+        domicilioProveedor: datos.domicilioProveedor,
         numFactura: datos.numFactura,
         fecha: datos.fecha,
         base: datos.base,
@@ -127,20 +131,27 @@ async function enriquecerLineasConClientes(lineas: any[]): Promise<any[]> {
   const clientes = await prisma.clienteWeb.findMany({
     where: { activo: true },
     select: { id: true, nombre: true, nombreComercial: true, codigo: true },
-    take: 1000,
+    take: 2000,
   });
 
   return lineas.map(linea => {
     if (linea.cliente) {
       // Intentar hacer match con un cliente de la BD
+      const clienteNorm = (linea.cliente || '').toLowerCase().trim();
+      
       const clienteMatch = clientes.find(c => {
-        const nombreLower = (linea.cliente || '').toLowerCase();
+        const nombreBd = c.nombre.toLowerCase().trim();
+        const comercialBd = (c.nombreComercial || '').toLowerCase().trim();
+        
+        // Match exacto o parcial
         return (
-          c.nombre.toLowerCase().includes(nombreLower) ||
-          nombreLower.includes(c.nombre.toLowerCase()) ||
-          (c.nombreComercial && (
-            c.nombreComercial.toLowerCase().includes(nombreLower) ||
-            nombreLower.includes(c.nombreComercial.toLowerCase())
+          nombreBd === clienteNorm ||
+          comercialBd === clienteNorm ||
+          nombreBd.includes(clienteNorm) ||
+          clienteNorm.includes(nombreBd) ||
+          (comercialBd && (
+            comercialBd.includes(clienteNorm) ||
+            clienteNorm.includes(comercialBd)
           ))
         );
       });

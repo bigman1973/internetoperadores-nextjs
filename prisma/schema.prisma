@@ -1046,6 +1046,7 @@ model FacturaRecibida {
   id              String   @id @default(uuid())
   proveedor       String
   cif             String?
+  domicilioProveedor String? @map("domicilio_proveedor") // Dirección fiscal del proveedor
   numFactura      String?  @map("num_factura")
   fecha           DateTime
   base            Float    // Base imponible
