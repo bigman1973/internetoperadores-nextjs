@@ -63,6 +63,7 @@ export default function FacturasPage() {
   const [loading, setLoading] = useState(true);
   const [resumen, setResumen] = useState<any>(null);
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [filtroOcr, setFiltroOcr] = useState<'todos' | 'sinOcr' | 'sinImputar'>('todos');
   
   // Sincronización OneDrive
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -72,7 +73,7 @@ export default function FacturasPage() {
 
   useEffect(() => {
     fetchFacturas();
-  }, [page, filtroEstado]);
+  }, [page, filtroEstado, filtroOcr]);
 
   useEffect(() => {
     checkSyncStatus();
@@ -82,6 +83,8 @@ export default function FacturasPage() {
     setLoading(true);
     const params = new URLSearchParams({ page: page.toString(), limit: '30' });
     if (filtroEstado) params.set('estado', filtroEstado);
+    if (filtroOcr === 'sinOcr') params.set('sinOcr', 'true');
+    if (filtroOcr === 'sinImputar') params.set('sinImputar', 'true');
     
     const res = await fetch(`/api/admin/finanzas/facturas?${params}`);
     const json = await res.json();
@@ -296,23 +299,36 @@ export default function FacturasPage() {
         </div>
       )}
 
-      {/* Filtros */}
+      {/* Filtros de estado */}
       <div className="flex gap-2 flex-wrap">
         <button
-          onClick={() => { setFiltroEstado(''); setPage(1); }}
-          className={`px-3 py-1.5 text-sm rounded-lg border ${!filtroEstado ? 'bg-orange-50 border-orange-200 text-orange-700' : 'text-gray-600'}`}
+          onClick={() => { setFiltroEstado(''); setFiltroOcr('todos'); setPage(1); }}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${!filtroEstado && filtroOcr === 'todos' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'text-gray-600'}`}
         >
           Todas
         </button>
         {Object.entries(ESTADOS).map(([key, val]) => (
           <button
             key={key}
-            onClick={() => { setFiltroEstado(key); setPage(1); }}
-            className={`px-3 py-1.5 text-sm rounded-lg border ${filtroEstado === key ? 'bg-orange-50 border-orange-200 text-orange-700' : 'text-gray-600'}`}
+            onClick={() => { setFiltroEstado(key); setFiltroOcr('todos'); setPage(1); }}
+            className={`px-3 py-1.5 text-sm rounded-lg border ${filtroEstado === key && filtroOcr === 'todos' ? 'bg-orange-50 border-orange-200 text-orange-700' : 'text-gray-600'}`}
           >
             {val.label}
           </button>
         ))}
+        <span className="border-l mx-1"></span>
+        <button
+          onClick={() => { setFiltroEstado(''); setFiltroOcr('sinOcr'); setPage(1); }}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${filtroOcr === 'sinOcr' ? 'bg-red-50 border-red-200 text-red-700' : 'text-gray-600'}`}
+        >
+          Sin datos OCR
+        </button>
+        <button
+          onClick={() => { setFiltroEstado(''); setFiltroOcr('sinImputar'); setPage(1); }}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${filtroOcr === 'sinImputar' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'text-gray-600'}`}
+        >
+          Sin imputar
+        </button>
       </div>
 
       {/* Tabla */}

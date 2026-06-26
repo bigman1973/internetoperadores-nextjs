@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
     if (desde) where.fecha = { ...where.fecha, gte: new Date(desde) };
     if (hasta) where.fecha = { ...where.fecha, lte: new Date(hasta) };
     if (sinImputar === 'true') where.imputacion = null;
+    const sinOcr = searchParams.get('sinOcr');
+    if (sinOcr === 'true') where.ocrCompletado = false;
 
     // Si solo necesitan el count (para el modal de "aplicar a todas")
     if (countOnly === 'true') {
