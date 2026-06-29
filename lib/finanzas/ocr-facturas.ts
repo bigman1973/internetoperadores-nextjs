@@ -82,7 +82,12 @@ SIEMPRE devuelves un JSON válido con los siguientes campos:
 REGLAS IMPORTANTES:
 - Lee la fecha EXACTA del documento. El año es crucial: si pone 2026, es 2026. No confundas con otros años.
 - Si no puedes leer un campo, pon null (excepto números que van a 0)
-- CUADRE: La suma de todos los importeNeto de las líneas DEBE ser igual a la base imponible total. Si hay descuento, importeNeto = importe * (1 - descuento/100). Verifica que cuadra antes de responder.
+- CUADRE CRÍTICO: La suma de todos los importeNeto de las líneas DEBE ser EXACTAMENTE igual a la base imponible total de la factura.
+  * importeNeto DEBE leerse DIRECTAMENTE de la columna "Total" o "Importe" final de cada línea en el PDF. NO lo calcules tú.
+  * NO calcules importeNeto como cantidad*precio*(1-descuento/100). Lee el valor REAL que aparece en la columna Total/Amount del PDF.
+  * Si la factura tiene columnas como: Cantidad | Precio | Desc% | Total → el campo importeNeto es el valor de la columna "Total" de cada línea.
+  * importe (bruto) SÍ es cantidad × precioUnitario (sin descuento).
+  * Antes de responder, VERIFICA: sum(importeNeto de todas las líneas) == base imponible. Si no cuadra, revisa los valores de importeNeto leyéndolos de nuevo del PDF.
 - El total debe ser: base + importeIva - importeIrpf
 - Fechas siempre en formato YYYY-MM-DD
 - Si la factura está en otro idioma, traduce el concepto al español pero mantén las descripciones de línea en el idioma original
