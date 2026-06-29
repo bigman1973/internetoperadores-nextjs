@@ -133,14 +133,20 @@ REGLAS IMPORTANTES:
         { role: 'system', content: systemPrompt },
         { role: 'user', content },
       ],
-      max_tokens: 4000,
+      max_tokens: 16000,
       temperature: 0.1,
     });
 
     const responseContent = response.choices[0]?.message?.content || '';
     
     // Limpiar posible markdown
-    const jsonStr = responseContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    let jsonStr = responseContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // Si el JSON está truncado (respuesta cortada por max_tokens), intentar reparar
+    if (response.choices[0]?.finish_reason === 'length') {
+      // Intentar cerrar el JSON truncado
+      jsonStr = repararJsonTruncado(jsonStr);
+    }
     
     const datos = JSON.parse(jsonStr) as DatosFactura;
     
@@ -234,6 +240,66 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
     esInternacional: false,
     paisOrigen: null,
   };
+}
+
+/**
+ * Repara un JSON truncado por max_tokens
+ * Intenta cerrar arrays y objetos abiertos para que sea parseable
+ */
+function repararJsonTruncado(json: string): string {
+  // Contar llaves y corchetes abiertos
+  let openBraces = 0;
+  let openBrackets = 0;
+  let inString = false;
+  let escape = false;
+
+  for (const char of json) {
+    if (escape) { escape = false; continue; }
+    if (char === '\\') { escape = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (char === '{') openBraces++;
+    if (char === '}') openBraces--;
+    if (char === '[') openBrackets++;
+    if (char === ']') openBrackets--;
+  }
+
+  // Si estamos dentro de un string, cerrarlo
+  if (inString) {
+    json += '"';
+  }
+
+  // Eliminar la última propiedad incompleta (después de la última coma válida)
+  // Buscar la última coma seguida de contenido incompleto
+  const lastCompleteComma = json.lastIndexOf(',');
+  const lastCloseBrace = json.lastIndexOf('}');
+  const lastCloseBracket = json.lastIndexOf(']');
+  
+  if (lastCompleteComma > lastCloseBrace && lastCompleteComma > lastCloseBracket) {
+    // La última coma indica un elemento incompleto después de ella
+    json = json.substring(0, lastCompleteComma);
+    // Recalcular
+    openBraces = 0;
+    openBrackets = 0;
+    inString = false;
+    escape = false;
+    for (const char of json) {
+      if (escape) { escape = false; continue; }
+      if (char === '\\') { escape = true; continue; }
+      if (char === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (char === '{') openBraces++;
+      if (char === '}') openBraces--;
+      if (char === '[') openBrackets++;
+      if (char === ']') openBrackets--;
+    }
+  }
+
+  // Cerrar arrays y objetos abiertos
+  while (openBrackets > 0) { json += ']'; openBrackets--; }
+  while (openBraces > 0) { json += '}'; openBraces--; }
+
+  return json;
 }
 
 /**
