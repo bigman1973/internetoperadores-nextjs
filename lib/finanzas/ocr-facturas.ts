@@ -176,6 +176,8 @@ REGLAS IMPORTANTES:
     if (!datos.domicilioProveedor) datos.domicilioProveedor = null;
     
     // POST-PROCESAMIENTO: Ajustar importeNeto si hay descuadre con la base
+    // REGLA: Las líneas SIN descuento mantienen su importeNeto intacto (= importe bruto)
+    // Solo las líneas CON descuento absorben la diferencia para cuadrar con la base
     if (datos.lineas.length > 0 && datos.base > 0) {
       // Asegurar que cada línea tiene importeNeto
       for (const linea of datos.lineas) {
@@ -184,28 +186,57 @@ REGLAS IMPORTANTES:
         }
       }
       
-      const sumaImporteNeto = datos.lineas.reduce((sum, l) => sum + (l.importeNeto || 0), 0);
-      const descuadre = Math.abs(sumaImporteNeto - datos.base);
+      // Separar líneas con y sin descuento
+      const lineasSinDto = datos.lineas.filter(l => !l.descuento || l.descuento === 0);
+      const lineasConDto = datos.lineas.filter(l => l.descuento && l.descuento > 0);
       
-      // Si hay descuadre > 0.05€, ajustar proporcionalmente
-      if (descuadre > 0.05 && sumaImporteNeto > 0) {
-        const factor = datos.base / sumaImporteNeto;
-        let sumaAjustada = 0;
+      // Las líneas sin descuento: importeNeto = importe (bruto, sin tocar)
+      for (const linea of lineasSinDto) {
+        linea.importeNeto = linea.importe;
+      }
+      
+      const sumaSinDto = lineasSinDto.reduce((sum, l) => sum + l.importeNeto, 0);
+      const sumaConDtoActual = lineasConDto.reduce((sum, l) => sum + (l.importeNeto || 0), 0);
+      const totalActual = sumaSinDto + sumaConDtoActual;
+      const descuadre = Math.abs(totalActual - datos.base);
+      
+      // Si hay descuadre > 0.05€, ajustar SOLO las líneas con descuento
+      if (descuadre > 0.05) {
+        // Lo que deberían sumar las líneas con descuento para cuadrar
+        const objetivoConDto = datos.base - sumaSinDto;
         
-        for (let i = 0; i < datos.lineas.length; i++) {
-          if (i < datos.lineas.length - 1) {
-            datos.lineas[i].importeNeto = Math.round((datos.lineas[i].importeNeto || 0) * factor * 100) / 100;
-            sumaAjustada += datos.lineas[i].importeNeto;
-          } else {
-            // Última línea: ajustar para cuadrar exactamente
-            datos.lineas[i].importeNeto = Math.round((datos.base - sumaAjustada) * 100) / 100;
+        if (lineasConDto.length > 0 && sumaConDtoActual > 0) {
+          // Ajustar proporcionalmente solo las líneas con descuento
+          const factor = objetivoConDto / sumaConDtoActual;
+          let sumaAjustada = 0;
+          
+          for (let i = 0; i < lineasConDto.length; i++) {
+            if (i < lineasConDto.length - 1) {
+              lineasConDto[i].importeNeto = Math.round((lineasConDto[i].importeNeto || 0) * factor * 100) / 100;
+              sumaAjustada += lineasConDto[i].importeNeto;
+            } else {
+              // Última línea con dto: ajustar para cuadrar exactamente
+              lineasConDto[i].importeNeto = Math.round((objetivoConDto - sumaAjustada) * 100) / 100;
+            }
           }
-        }
-        
-        // Recalcular descuento real basado en importeNeto ajustado
-        for (const linea of datos.lineas) {
-          if (linea.importe > 0 && linea.importeNeto < linea.importe) {
-            linea.descuento = Math.round((1 - linea.importeNeto / linea.importe) * 10000) / 100;
+          
+          // Recalcular descuento real basado en importeNeto ajustado
+          for (const linea of lineasConDto) {
+            if (linea.importe > 0 && linea.importeNeto < linea.importe) {
+              linea.descuento = Math.round((1 - linea.importeNeto / linea.importe) * 10000) / 100;
+            }
+          }
+        } else if (lineasConDto.length === 0 && descuadre > 0.05) {
+          // No hay líneas con descuento pero hay descuadre → repartir proporcionalmente entre todas
+          const factor = datos.base / totalActual;
+          let sumaAjustada = 0;
+          for (let i = 0; i < datos.lineas.length; i++) {
+            if (i < datos.lineas.length - 1) {
+              datos.lineas[i].importeNeto = Math.round(datos.lineas[i].importeNeto * factor * 100) / 100;
+              sumaAjustada += datos.lineas[i].importeNeto;
+            } else {
+              datos.lineas[i].importeNeto = Math.round((datos.base - sumaAjustada) * 100) / 100;
+            }
           }
         }
       }
