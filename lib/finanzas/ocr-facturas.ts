@@ -175,6 +175,42 @@ REGLAS IMPORTANTES:
     if (!datos.paisOrigen) datos.paisOrigen = null;
     if (!datos.domicilioProveedor) datos.domicilioProveedor = null;
     
+    // POST-PROCESAMIENTO: Ajustar importeNeto si hay descuadre con la base
+    if (datos.lineas.length > 0 && datos.base > 0) {
+      // Asegurar que cada línea tiene importeNeto
+      for (const linea of datos.lineas) {
+        if (linea.importeNeto === undefined || linea.importeNeto === null || isNaN(linea.importeNeto)) {
+          linea.importeNeto = linea.importe || 0;
+        }
+      }
+      
+      const sumaImporteNeto = datos.lineas.reduce((sum, l) => sum + (l.importeNeto || 0), 0);
+      const descuadre = Math.abs(sumaImporteNeto - datos.base);
+      
+      // Si hay descuadre > 0.05€, ajustar proporcionalmente
+      if (descuadre > 0.05 && sumaImporteNeto > 0) {
+        const factor = datos.base / sumaImporteNeto;
+        let sumaAjustada = 0;
+        
+        for (let i = 0; i < datos.lineas.length; i++) {
+          if (i < datos.lineas.length - 1) {
+            datos.lineas[i].importeNeto = Math.round((datos.lineas[i].importeNeto || 0) * factor * 100) / 100;
+            sumaAjustada += datos.lineas[i].importeNeto;
+          } else {
+            // Última línea: ajustar para cuadrar exactamente
+            datos.lineas[i].importeNeto = Math.round((datos.base - sumaAjustada) * 100) / 100;
+          }
+        }
+        
+        // Recalcular descuento real basado en importeNeto ajustado
+        for (const linea of datos.lineas) {
+          if (linea.importe > 0 && linea.importeNeto < linea.importe) {
+            linea.descuento = Math.round((1 - linea.importeNeto / linea.importe) * 10000) / 100;
+          }
+        }
+      }
+    }
+    
     return datos;
   } catch (error: any) {
     console.error('Error en OCR de factura:', error.message);
