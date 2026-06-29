@@ -18,8 +18,10 @@ export interface LineaDetalle {
   cliente: string | null; // Nombre del cliente si se detecta
   cantidad: number;
   precioUnitario: number;
+  descuento: number; // porcentaje de descuento (0-100)
   iva: number; // porcentaje
-  importe: number; // total de la línea
+  importe: number; // importe bruto (cantidad × precioUnitario)
+  importeNeto: number; // importe después de descuento (importe real facturado)
 }
 
 export interface DatosFactura {
@@ -72,12 +74,15 @@ SIEMPRE devuelves un JSON válido con los siguientes campos:
   - cliente: si en la descripción aparece un nombre de empresa, persona, municipio, número de teléfono, o referencia a un cliente final, ponlo aquí. Si NO hay referencia clara a un cliente, pon null (NO inventes)
   - cantidad: cantidad (número)
   - precioUnitario: precio por unidad (número decimal)
+  - descuento: porcentaje de descuento aplicado a esta línea (0 si no hay descuento, ej: 5 para un 5%)
   - iva: porcentaje de IVA de esta línea (0 si es intracomunitaria/exenta)
-  - importe: importe total de la línea (cantidad × precioUnitario)
+  - importe: importe bruto de la línea (cantidad × precioUnitario, SIN aplicar descuento)
+  - importeNeto: importe REAL facturado de la línea DESPUÉS de aplicar el descuento. Es el importe que aparece en la columna "Total" de la factura. Si no hay descuento, importeNeto = importe
 
 REGLAS IMPORTANTES:
 - Lee la fecha EXACTA del documento. El año es crucial: si pone 2026, es 2026. No confundas con otros años.
 - Si no puedes leer un campo, pon null (excepto números que van a 0)
+- CUADRE: La suma de todos los importeNeto de las líneas DEBE ser igual a la base imponible total. Si hay descuento, importeNeto = importe * (1 - descuento/100). Verifica que cuadra antes de responder.
 - El total debe ser: base + importeIva - importeIrpf
 - Fechas siempre en formato YYYY-MM-DD
 - Si la factura está en otro idioma, traduce el concepto al español pero mantén las descripciones de línea en el idioma original

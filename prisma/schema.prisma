@@ -1074,6 +1074,9 @@ model FacturaRecibida {
   // Internacional
   esInternacional Boolean  @default(false) @map("es_internacional") // Factura intracomunitaria/internacional
   paisOrigen      String?  @map("pais_origen") // Código ISO del país del emisor si es internacional
+  // Imputación a ventas
+  imputadoAVentas Boolean  @default(false) @map("imputado_a_ventas") // Si ya se imputó a clientes
+  fechaImputacion DateTime? @map("fecha_imputacion") // Cuándo se imputó
   // Pago
   formaPago       String?  @map("forma_pago") // transferencia, confirming, domiciliacion, etc.
   confirmingProveedor String? @map("confirming_proveedor") // Draxton, etc. (para conciliación)
@@ -1286,4 +1289,26 @@ model ReglaImputacionProveedor {
   @@unique([proveedorCif])
   @@index([proveedorNombre])
   @@map("reglas_imputacion_proveedor")
+}
+
+
+// Imputación de costes a clientes (desde facturas de proveedores)
+model ImputacionCosteCliente {
+  id              String   @id @default(uuid())
+  facturaId       String   @map("factura_id")
+  clienteId       Int      @map("cliente_id")
+  clienteNombre   String   @map("cliente_nombre")
+  importe         Float    // Importe neto imputado a este cliente
+  concepto        String?  // Descripción resumida de las líneas
+  numLineas       Int      @default(1) @map("num_lineas") // Cuántas líneas se imputaron
+  // Estado
+  confirmado      Boolean  @default(true) // Si fue confirmado manualmente
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([facturaId])
+  @@index([clienteId])
+  @@index([createdAt])
+  @@map("imputaciones_coste_cliente")
 }

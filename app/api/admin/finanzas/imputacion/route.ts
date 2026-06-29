@@ -278,6 +278,81 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    // Imputar a ventas: crear registros de coste por cliente
+    if (action === 'imputar-a-ventas') {
+      const { facturaRecibidaId, imputaciones } = body;
+      // imputaciones: [{ clienteId, clienteNombre, importe, concepto, numLineas }]
+
+      if (!facturaRecibidaId || !Array.isArray(imputaciones) || imputaciones.length === 0) {
+        return NextResponse.json({ error: 'facturaRecibidaId e imputaciones son requeridos' }, { status: 400 });
+      }
+
+      // Verificar que la factura existe y no está ya imputada
+      const factura = await prisma.facturaRecibida.findUnique({
+        where: { id: facturaRecibidaId },
+      });
+      if (!factura) {
+        return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 });
+      }
+
+      // Borrar imputaciones anteriores si las hay (permite re-imputar)
+      await prisma.imputacionCosteCliente.deleteMany({
+        where: { facturaId: facturaRecibidaId },
+      });
+
+      // Crear nuevas imputaciones
+      for (const imp of imputaciones) {
+        await prisma.imputacionCosteCliente.create({
+          data: {
+            facturaId: facturaRecibidaId,
+            clienteId: imp.clienteId,
+            clienteNombre: imp.clienteNombre,
+            importe: imp.importe,
+            concepto: imp.concepto || null,
+            numLineas: imp.numLineas || 1,
+            confirmado: true,
+          },
+        });
+      }
+
+      // Marcar la factura como imputada a ventas
+      await prisma.facturaRecibida.update({
+        where: { id: facturaRecibidaId },
+        data: {
+          imputadoAVentas: true,
+          fechaImputacion: new Date(),
+          imputacion: 'Clientes (por línea)',
+        },
+      });
+
+      return NextResponse.json({ success: true, numImputaciones: imputaciones.length });
+    }
+
+    // Deshacer imputación a ventas
+    if (action === 'deshacer-imputacion') {
+      const { facturaRecibidaId } = body;
+
+      if (!facturaRecibidaId) {
+        return NextResponse.json({ error: 'facturaRecibidaId requerido' }, { status: 400 });
+      }
+
+      // Borrar imputaciones
+      await prisma.imputacionCosteCliente.deleteMany({
+        where: { facturaId: facturaRecibidaId },
+      });
+
+      // Desmarcar la factura
+      await prisma.facturaRecibida.update({
+        where: { id: facturaRecibidaId },
+        data: {
+          imputadoAVentas: false,
+          fechaImputacion: null,
+        },
+      });
+
+      return NextResponse.json({ success: true });
+    }
+
     // Crear nueva categoría de imputación
     if (action === 'crear-categoria') {
       const { nombre, descripcion, tipo } = body;

@@ -16,8 +16,10 @@ interface LineaDetalle {
   clienteMatch?: boolean;
   cantidad: number;
   precioUnitario: number;
+  descuento: number;
   iva: number;
   importe: number;
+  importeNeto: number;
 }
 
 interface Factura {
@@ -48,6 +50,8 @@ interface Factura {
   ocrConfianza: number | null;
   datosOcrRaw: string | null;
   lineasDetalle: string | null;
+  imputadoAVentas: boolean;
+  fechaImputacion: string | null;
   formaPago: string | null;
   confirmingProveedor: string | null;
   createdAt: string;
@@ -129,6 +133,7 @@ export default function FacturaDetallePage() {
   const [lineaClienteQuery, setLineaClienteQuery] = useState('');
   const [lineaClienteResults, setLineaClienteResults] = useState<ClienteOption[]>([]);
   const [savingLineas, setSavingLineas] = useState(false);
+  const [imputandoVentas, setImputandoVentas] = useState(false);
 
   // Imputación inteligente
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -310,6 +315,96 @@ export default function FacturaDetallePage() {
     setSavingLineas(false);
   }
 
+  function ajustarProporcional() {
+    if (!factura) return;
+    const totalActual = editableLineas.reduce((sum, l) => sum + (l.importeNeto ?? l.importe ?? 0), 0);
+    if (totalActual === 0) return;
+    const factor = factura.base / totalActual;
+    const nuevasLineas = editableLineas.map(l => ({
+      ...l,
+      importeNeto: Math.round((l.importeNeto ?? l.importe ?? 0) * factor * 100) / 100,
+    }));
+    // Ajustar el último céntimo para cuadrar exactamente
+    const nuevoTotal = nuevasLineas.reduce((sum, l) => sum + l.importeNeto, 0);
+    const diff = Math.round((factura.base - nuevoTotal) * 100) / 100;
+    if (diff !== 0 && nuevasLineas.length > 0) {
+      nuevasLineas[nuevasLineas.length - 1].importeNeto += diff;
+    }
+    setEditableLineas(nuevasLineas);
+  }
+
+  function editarImporteLinea(idx: number, nuevoImporte: number) {
+    const nuevasLineas = [...editableLineas];
+    nuevasLineas[idx] = { ...nuevasLineas[idx], importeNeto: nuevoImporte };
+    setEditableLineas(nuevasLineas);
+  }
+
+  async function imputarAVentas() {
+    if (!factura) return;
+    setImputandoVentas(true);
+    try {
+      // Agrupar líneas por cliente
+      const porCliente: Record<string, { importe: number; conceptos: string[]; numLineas: number }> = {};
+      for (const l of lineas) {
+        const key = l.clienteNombreBd || l.cliente || '(Sin asignar)';
+        if (!porCliente[key]) porCliente[key] = { importe: 0, conceptos: [], numLineas: 0 };
+        porCliente[key].importe += (l.importeNeto ?? l.importe ?? 0);
+        porCliente[key].numLineas++;
+        if (l.descripcion && porCliente[key].conceptos.length < 3) {
+          porCliente[key].conceptos.push(l.descripcion.substring(0, 50));
+        }
+      }
+
+      const imputaciones = Object.entries(porCliente).map(([clienteNombre, data]) => ({
+        clienteId: 0, // Se resuelve por nombre
+        clienteNombre,
+        importe: Math.round(data.importe * 100) / 100,
+        concepto: data.conceptos.join('; '),
+        numLineas: data.numLineas,
+      }));
+
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'imputar-a-ventas',
+          facturaRecibidaId: factura.id,
+          imputaciones,
+        }),
+      });
+
+      if (res.ok) {
+        await fetchFactura();
+        alert('Imputación a ventas completada correctamente');
+      } else {
+        const err = await res.json();
+        alert(`Error: ${err.error}`);
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    }
+    setImputandoVentas(false);
+  }
+
+  async function deshacerImputacion() {
+    if (!factura || !confirm('¿Seguro que quieres deshacer la imputación a ventas?')) return;
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deshacer-imputacion',
+          facturaRecibidaId: factura.id,
+        }),
+      });
+      if (res.ok) {
+        await fetchFactura();
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    }
+  }
+
   async function seleccionarCliente(cliente: string) {
     setSelectedCliente(cliente);
     setShowClienteSearch(false);
@@ -468,8 +563,14 @@ export default function FacturaDetallePage() {
   }
 
   const estadoInfo = ESTADOS[factura.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
-  const totalLineasConCliente = lineas.filter(l => l.cliente).reduce((sum, l) => sum + (l.importe || 0), 0);
-  const totalLineasSinCliente = lineas.filter(l => !l.cliente).reduce((sum, l) => sum + (l.importe || 0), 0);
+  const getImporteLinea = (l: LineaDetalle) => l.importeNeto ?? l.importe ?? 0;
+  const totalLineasConCliente = lineas.filter(l => l.cliente).reduce((sum, l) => sum + getImporteLinea(l), 0);
+  const totalLineasSinCliente = lineas.filter(l => !l.cliente).reduce((sum, l) => sum + getImporteLinea(l), 0);
+  const totalLineas = lineas.reduce((sum, l) => sum + getImporteLinea(l), 0);
+  const descuadre = lineas.length > 0 ? Math.abs(totalLineas - factura.base) : 0;
+  const hayDescuadre = descuadre > 0.02; // Tolerancia de 2 céntimos
+  const todasConCliente = lineas.length > 0 && lineas.every(l => l.cliente);
+  const puedeImputar = lineas.length > 0 && todasConCliente && !hayDescuadre && !factura.imputadoAVentas;
 
   return (
     <div className="p-6 space-y-6">
@@ -765,7 +866,7 @@ export default function FacturaDetallePage() {
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-md hover:bg-gray-100 text-gray-600"
                     >
                       <PencilIcon className="h-3.5 w-3.5" />
-                      Editar clientes
+                      Editar líneas
                     </button>
                   ) : (
                     <div className="flex gap-2">
@@ -787,8 +888,33 @@ export default function FacturaDetallePage() {
                 </div>
               </div>
 
+              {/* Banner de descuadre */}
+              {hayDescuadre && (
+                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-orange-800">
+                        Descuadre de {formatEUR(descuadre)}
+                      </p>
+                      <p className="text-xs text-orange-600 mt-0.5">
+                        Total líneas: {formatEUR(totalLineas)} ≠ Base factura: {formatEUR(factura.base)}
+                        {totalLineas > factura.base ? ' (puede deberse a descuentos no aplicados)' : ' (faltan líneas o importes incorrectos)'}
+                      </p>
+                    </div>
+                    {editingLineas && (
+                      <button
+                        onClick={ajustarProporcional}
+                        className="px-3 py-1.5 text-xs bg-orange-600 text-white rounded-md hover:bg-orange-700 whitespace-nowrap"
+                      >
+                        Ajustar al total factura
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Resumen de imputación */}
-              <div className="flex gap-4 mb-4 text-xs">
+              <div className="flex flex-wrap gap-3 mb-4 text-xs">
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg">
                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
                   <span className="text-green-700">Con cliente: <strong>{formatEUR(totalLineasConCliente)}</strong></span>
@@ -797,18 +923,22 @@ export default function FacturaDetallePage() {
                   <div className="w-2 h-2 rounded-full bg-amber-500"></div>
                   <span className="text-amber-700">Sin cliente: <strong>{formatEUR(totalLineasSinCliente)}</strong></span>
                 </div>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg">
+                  <span className="text-gray-600">Base factura: <strong>{formatEUR(factura.base)}</strong></span>
+                </div>
               </div>
 
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b text-left">
-                      <th className="pb-2 font-medium text-gray-500 w-[35%]">Descripción</th>
-                      <th className="pb-2 font-medium text-gray-500 w-[30%]">Cliente asignado</th>
+                      <th className="pb-2 font-medium text-gray-500 w-[30%]">Descripción</th>
+                      <th className="pb-2 font-medium text-gray-500 w-[25%]">Cliente asignado</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">Cant.</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">P. Unit.</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">Dto%</th>
                       <th className="pb-2 font-medium text-gray-500 text-right">IVA</th>
-                      <th className="pb-2 font-medium text-gray-500 text-right">Importe</th>
+                      <th className="pb-2 font-medium text-gray-500 text-right">Importe neto</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -819,7 +949,6 @@ export default function FacturaDetallePage() {
                         </td>
                         <td className="py-2.5 pr-2">
                           {editingLineas ? (
-                            // Modo edición: selector de cliente
                             <div className="relative">
                               {linea.cliente ? (
                                 <div className="flex items-center gap-1">
@@ -879,7 +1008,6 @@ export default function FacturaDetallePage() {
                               )}
                             </div>
                           ) : (
-                            // Modo lectura
                             linea.cliente ? (
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs ${
                                 linea.clienteMatch 
@@ -896,16 +1024,29 @@ export default function FacturaDetallePage() {
                         </td>
                         <td className="py-2.5 text-right text-gray-700">{linea.cantidad}</td>
                         <td className="py-2.5 text-right text-gray-700">{formatEUR(linea.precioUnitario)}</td>
+                        <td className="py-2.5 text-right text-gray-500">{linea.descuento ? `${linea.descuento}%` : '-'}</td>
                         <td className="py-2.5 text-right text-gray-500">{linea.iva}%</td>
-                        <td className="py-2.5 text-right font-medium text-gray-900">{formatEUR(linea.importe)}</td>
+                        <td className="py-2.5 text-right font-medium text-gray-900">
+                          {editingLineas ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={linea.importeNeto ?? linea.importe ?? 0}
+                              onChange={e => editarImporteLinea(i, parseFloat(e.target.value) || 0)}
+                              className="w-20 px-1.5 py-0.5 border rounded text-xs text-right"
+                            />
+                          ) : (
+                            formatEUR(linea.importeNeto ?? linea.importe ?? 0)
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr className="border-t font-medium">
-                      <td colSpan={5} className="pt-2 text-right text-gray-700">Total líneas:</td>
-                      <td className="pt-2 text-right text-gray-900">
-                        {formatEUR(lineas.reduce((sum, l) => sum + (l.importe || 0), 0))}
+                      <td colSpan={6} className="pt-2 text-right text-gray-700">Total líneas:</td>
+                      <td className={`pt-2 text-right ${hayDescuadre ? 'text-orange-600' : 'text-gray-900'}`}>
+                        {formatEUR((editingLineas ? editableLineas : lineas).reduce((sum, l) => sum + (l.importeNeto ?? l.importe ?? 0), 0))}
                       </td>
                     </tr>
                   </tfoot>
@@ -919,17 +1060,58 @@ export default function FacturaDetallePage() {
                   <div className="space-y-1">
                     {Object.entries(
                       lineas.reduce((acc, l) => {
-                        const key = l.cliente || '(Sin asignar)';
-                        acc[key] = (acc[key] || 0) + (l.importe || 0);
+                        const key = l.clienteNombreBd || l.cliente || '(Sin asignar)';
+                        acc[key] = (acc[key] || 0) + (l.importeNeto ?? l.importe ?? 0);
                         return acc;
                       }, {} as Record<string, number>)
                     ).sort((a, b) => b[1] - a[1]).map(([cliente, total]) => (
                       <div key={cliente} className="flex items-center justify-between text-xs">
                         <span className={cliente === '(Sin asignar)' ? 'text-amber-600 italic' : 'text-blue-700'}>{cliente}</span>
-                        <span className="font-medium text-blue-900">{formatEUR(total)}</span>
+                        <span className="font-medium text-blue-900">{formatEUR(total as number)}</span>
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Botón Imputar a ventas */}
+              {factura.imputadoAVentas ? (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-green-800">Imputado a ventas</p>
+                      <p className="text-xs text-green-600 mt-0.5">
+                        Imputación realizada el {factura.fechaImputacion ? new Date(factura.fechaImputacion).toLocaleDateString('es-ES') : '?'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={deshacerImputacion}
+                      className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-md hover:bg-red-50"
+                    >
+                      Deshacer imputación
+                    </button>
+                  </div>
+                </div>
+              ) : puedeImputar ? (
+                <div className="mt-4">
+                  <button
+                    onClick={imputarAVentas}
+                    disabled={imputandoVentas}
+                    className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium text-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {imputandoVentas ? (
+                      <><ArrowPathIcon className="h-4 w-4 animate-spin" /> Imputando...</>
+                    ) : (
+                      <><CheckIcon className="h-4 w-4" /> Imputar a ventas ({Object.keys(lineas.reduce((acc, l) => { acc[l.clienteNombreBd || l.cliente || ''] = true; return acc; }, {} as Record<string, boolean>)).length} clientes)</>
+                    )}
+                  </button>
+                </div>
+              ) : lineas.length > 0 && !factura.imputadoAVentas && (
+                <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                  <p className="text-xs text-gray-500">
+                    {!todasConCliente && 'Asigna un cliente a todas las líneas para poder imputar a ventas. '}
+                    {hayDescuadre && 'Corrige el descuadre (edita importes o ajusta proporcionalmente) para poder imputar. '}
+                  </p>
                 </div>
               )}
             </div>
