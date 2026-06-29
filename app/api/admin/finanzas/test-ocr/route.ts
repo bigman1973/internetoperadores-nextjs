@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { getAccessToken, downloadFile } from '@/lib/finanzas/microsoft-graph';
-import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas';
 import { prisma } from '@/lib/prisma';
 
 /**
  * GET /api/admin/finanzas/test-ocr
- * Endpoint de diagnóstico para verificar OCR completo
- * Ejecuta exactamente el mismo flujo que la ruta de OCR individual
+ * Diagnóstico OCR - ejecuta GPT-4o directamente con el PDF real
+ * para capturar el error exacto
  * ELIMINAR después de resolver el problema
  */
 export const maxDuration = 60;
@@ -19,10 +18,9 @@ export async function GET(req: NextRequest) {
   };
 
   try {
-    // Use the Wildix March invoice specifically
+    // Use the Wildix March invoice
     const facturaId = '226a5b7a-7897-4977-b10d-f8a0f0001242';
     
-    diagnostics.steps.push('1. Finding invoice in DB...');
     const factura = await prisma.facturaRecibida.findUnique({
       where: { id: facturaId },
     });
@@ -33,71 +31,84 @@ export async function GET(req: NextRequest) {
     }
     
     diagnostics.archivoOneDrive = factura.archivoOneDrive;
-    diagnostics.oneDriveItemId = factura.oneDriveItemId;
-    diagnostics.steps.push(`2. Found: ${factura.archivoOneDrive}`);
+    diagnostics.steps.push('1. Invoice found');
 
-    // Step 2: Download from OneDrive
+    // Download from OneDrive
     const DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID!;
-    diagnostics.steps.push('3. Getting access token...');
     await getAccessToken();
-    diagnostics.steps.push('4. Downloading file from OneDrive...');
-    
     const fileBuffer = await downloadFile(DRIVE_ID, factura.oneDriveItemId!);
-    diagnostics.fileSize = fileBuffer.length;
     diagnostics.fileSizeKB = Math.round(fileBuffer.length / 1024);
-    diagnostics.steps.push(`5. Downloaded: ${diagnostics.fileSizeKB} KB`);
-    
-    // Verify it's a valid PDF
-    const header = fileBuffer.slice(0, 5).toString('utf8');
-    diagnostics.isPdf = header === '%PDF-';
-    diagnostics.steps.push(`6. File header: "${header}", isPdf: ${diagnostics.isPdf}`);
+    diagnostics.steps.push(`2. Downloaded: ${diagnostics.fileSizeKB} KB`);
 
-    // Step 3: Determine mime type (same logic as OCR route)
-    const fileName = factura.archivoOneDrive || '';
-    const ext = fileName.split('.').pop()?.toLowerCase();
-    diagnostics.fileName = fileName;
-    diagnostics.ext = ext;
+    // Send directly to GPT-4o (bypassing extraerDatosFactura to see raw error)
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const fileBase64 = fileBuffer.toString('base64');
     
-    let fileBase64: string;
-    let mimeType: string;
+    const systemPrompt = `Eres un experto en contabilidad española. Extraes datos de facturas.
+Devuelve SOLO un JSON con: proveedor, cif, total, numFactura, fecha (YYYY-MM-DD), esInternacional (boolean), paisOrigen.
+Sin markdown, sin explicaciones, SOLO el JSON.`;
 
-    if (ext === 'pdf') {
-      fileBase64 = fileBuffer.toString('base64');
-      mimeType = 'application/pdf';
-    } else {
-      fileBase64 = fileBuffer.toString('base64');
-      mimeType = 'application/pdf';
+    const userPrompt = `Extrae los datos de esta factura. El nombre del archivo es: "${factura.archivoOneDrive}".`;
+
+    diagnostics.steps.push('3. Sending to GPT-4o with type:file...');
+    
+    let gptResponse: string | null = null;
+    let gptError: string | null = null;
+    
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userPrompt },
+              {
+                type: 'file',
+                file: {
+                  filename: factura.archivoOneDrive || 'factura.pdf',
+                  file_data: `data:application/pdf;base64,${fileBase64}`,
+                },
+              } as any,
+            ],
+          },
+        ],
+        max_tokens: 1000,
+        temperature: 0.1,
+      });
+      
+      gptResponse = response.choices[0]?.message?.content || '';
+      diagnostics.steps.push('4. GPT-4o responded!');
+    } catch (gptErr: any) {
+      gptError = gptErr.message;
+      diagnostics.gptErrorStatus = gptErr.status;
+      diagnostics.gptErrorCode = gptErr.code;
+      diagnostics.gptErrorType = gptErr.type;
+      diagnostics.steps.push(`4. GPT-4o ERROR: ${gptErr.message}`);
     }
     
-    diagnostics.mimeType = mimeType;
-    diagnostics.base64Length = fileBase64.length;
-    diagnostics.steps.push(`7. MIME: ${mimeType}, base64 length: ${fileBase64.length}`);
-
-    // Step 4: Call extraerDatosFactura (same as OCR route)
-    diagnostics.steps.push('8. Calling extraerDatosFactura...');
-    const datos = await extraerDatosFactura(fileBase64, mimeType, fileName);
+    diagnostics.gptResponse = gptResponse;
+    diagnostics.gptError = gptError;
     
-    diagnostics.steps.push('9. OCR completed!');
-    diagnostics.ocrResult = {
-      proveedor: datos.proveedor,
-      cif: datos.cif,
-      domicilioProveedor: datos.domicilioProveedor,
-      numFactura: datos.numFactura,
-      fecha: datos.fecha,
-      base: datos.base,
-      total: datos.total,
-      confianza: datos.confianza,
-      esInternacional: datos.esInternacional,
-      paisOrigen: datos.paisOrigen,
-      numLineas: datos.lineas?.length || 0,
-      primerasLineas: datos.lineas?.slice(0, 3),
-    };
-    diagnostics.success = true;
+    // Try to parse the response
+    if (gptResponse) {
+      try {
+        const jsonStr = gptResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(jsonStr);
+        diagnostics.parsedResult = parsed;
+        diagnostics.steps.push('5. JSON parsed successfully');
+      } catch (parseErr: any) {
+        diagnostics.parseError = parseErr.message;
+        diagnostics.steps.push(`5. JSON parse ERROR: ${parseErr.message}`);
+      }
+    }
+    
+    diagnostics.success = !gptError;
     
   } catch (error: any) {
     diagnostics.error = error.message;
-    diagnostics.errorName = error.name;
-    diagnostics.errorStack = error.stack?.split('\n').slice(0, 8);
+    diagnostics.errorStack = error.stack?.split('\n').slice(0, 5);
     diagnostics.success = false;
   }
 
