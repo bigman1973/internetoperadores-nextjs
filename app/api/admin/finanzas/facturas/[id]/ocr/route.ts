@@ -116,6 +116,7 @@ export async function POST(
         lineasDetalle: lineasConClientes.length > 0 ? JSON.stringify(lineasConClientes) : null,
         esInternacional: datos.esInternacional || false,
         paisOrigen: datos.paisOrigen || null,
+        telefonoServicio: (datos as any).telefonoServicio || null,
       },
     });
 

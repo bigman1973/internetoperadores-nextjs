@@ -41,6 +41,7 @@ export interface DatosFactura {
   lineas: LineaDetalle[];
   esInternacional: boolean; // factura intracomunitaria/internacional sin IVA
   paisOrigen: string | null; // país del emisor si es internacional
+  telefonoServicio: string | null; // teléfono de servicio (para facturas de Telefónica)
 }
 
 /**
@@ -102,6 +103,7 @@ REGLAS IMPORTANTES:
   * Empresas conocidas internacionales: Wildix (Estonia/Italia), Hetzner (Alemania), OVH (Francia), AWS (Irlanda), Google Cloud (Irlanda), Microsoft (Irlanda), Cloudflare (EEUU)
 - DOMICILIO: Extrae la dirección fiscal del emisor completa. Suele aparecer en la cabecera de la factura junto al nombre y CIF
 - Si es un documento que no es una factura (cesión de créditos, contrato, albarán, etc.), indica confianza 0.1 y pon lo que puedas
+- TELÉFONO DE SERVICIO: Si la factura es de un operador de telecomunicaciones (Telefónica de España, Telefónica Móviles, Vodafone, Orange, MásMóvil, etc.) y en la cabecera aparece un número de teléfono asociado al servicio facturado (normalmente junto al número de factura o en la línea "Teléfono:"), extráelo en el campo "telefonoServicio" (solo dígitos, sin espacios ni guiones). Si no hay teléfono de servicio, pon null.
 - Responde SOLO con el JSON, sin markdown ni explicaciones`;
 
   const userPrompt = nombreArchivo 

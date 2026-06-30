@@ -54,6 +54,7 @@ interface Factura {
   fechaImputacion: string | null;
   formaPago: string | null;
   confirmingProveedor: string | null;
+  telefonoServicio: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,6 +153,12 @@ export default function FacturaDetallePage() {
   const [facturasProveedorCount, setFacturasProveedorCount] = useState(0);
   const [aplicandoTodas, setAplicandoTodas] = useState(false);
 
+  // Sugerencia por teléfono (Telefónica de España)
+  const [sugerenciaTelefono, setSugerenciaTelefono] = useState<{
+    sugerencias: { clienteId: number; clienteNombre: string; clienteIsp: string; telefono: string; contrato: string }[];
+    matchExacto: boolean;
+  } | null>(null);
+
   useEffect(() => {
     fetchFactura();
     fetchCategorias();
@@ -180,6 +187,10 @@ export default function FacturaDetallePage() {
         }
         // Buscar sugerencia de imputación
         fetchSugerencia(json.factura.proveedor, json.factura.cif);
+        // Buscar sugerencia por teléfono si es Telefónica de España
+        if (json.factura.proveedor?.toLowerCase().includes('telefónica de españa') || json.factura.proveedor?.toLowerCase().includes('telefonica de espana')) {
+          fetchSugerenciaTelefono(json.factura);
+        }
         // Buscar vinculaciones existentes
         fetchVinculaciones(json.factura.id);
       }
@@ -208,6 +219,33 @@ export default function FacturaDetallePage() {
       setSugerencia(json.regla);
     } catch (e) {
       console.error('Error:', e);
+    }
+  }
+
+  async function fetchSugerenciaTelefono(fac: Factura) {
+    try {
+      const params = new URLSearchParams({ action: 'sugerencia-telefono' });
+      
+      // Primero intentar con telefonoServicio (campo directo del OCR)
+      if (fac.telefonoServicio) {
+        params.set('telefono', fac.telefonoServicio);
+      } else {
+        // Extraer sufijo del nombre del archivo: "(...dígitos).pdf"
+        const match = fac.archivoOneDrive?.match(/\((\d+)\)\.pdf$/i);
+        if (match) {
+          params.set('sufijo', match[1]);
+        } else {
+          return; // No hay datos para buscar
+        }
+      }
+
+      const res = await fetch(`/api/admin/finanzas/imputacion?${params}`);
+      const json = await res.json();
+      if (json.sugerencias && json.sugerencias.length > 0) {
+        setSugerenciaTelefono(json);
+      }
+    } catch (e) {
+      console.error('Error sugerencia teléfono:', e);
     }
   }
 
@@ -710,6 +748,35 @@ export default function FacturaDetallePage() {
           >
             Aplicar sugerencia
           </button>
+        </div>
+      )}
+
+      {/* Sugerencia por teléfono (Telefónica de España) */}
+      {sugerenciaTelefono && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-blue-800 flex items-center gap-2">
+                <span>📞</span>
+                {sugerenciaTelefono.matchExacto ? 'Cliente detectado por teléfono' : 'Posibles clientes por teléfono'}
+              </p>
+              {sugerenciaTelefono.sugerencias.map((s, i) => (
+                <div key={i} className="mt-1 flex items-center gap-3">
+                  <span className="text-sm text-blue-700 font-medium">{s.clienteNombre}</span>
+                  <span className="text-xs text-blue-500">{s.telefono} • {s.contrato}</span>
+                  <button
+                    onClick={() => {
+                      setSelectedCliente(s.clienteNombre);
+                      seleccionarCliente(s.clienteNombre);
+                    }}
+                    className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                  >
+                    Imputar a este cliente
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

@@ -91,6 +91,58 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ regla });
     }
 
+    // Sugerencia de cliente por teléfono (para facturas de Telefónica de España)
+    if (action === 'sugerencia-telefono') {
+      const telefono = searchParams.get('telefono') || '';
+      const sufijo = searchParams.get('sufijo') || '';
+      
+      if (!telefono && !sufijo) {
+        return NextResponse.json({ error: 'Se requiere telefono o sufijo' }, { status: 400 });
+      }
+
+      // Buscar en contratos_servicio por teléfono exacto o sufijo
+      let query = '';
+      let queryParams: string[] = [];
+      
+      if (telefono) {
+        // Búsqueda exacta por teléfono completo
+        query = `
+          SELECT DISTINCT cs.cliente_id, cs.telefonos_contrato, cs.titulo, cw.nombre as cliente_nombre, cw.id as cliente_web_id
+          FROM contratos_servicio cs
+          JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
+          WHERE cs.telefonos_contrato LIKE $1
+          AND cs.activo = true
+          LIMIT 5
+        `;
+        queryParams = [`%${telefono}%`];
+      } else {
+        // Búsqueda por sufijo (últimos 3-4 dígitos) - solo teléfonos fijos (empiezan por 9)
+        query = `
+          SELECT DISTINCT cs.cliente_id, cs.telefonos_contrato, cs.titulo, cw.nombre as cliente_nombre, cw.id as cliente_web_id
+          FROM contratos_servicio cs
+          JOIN clientes_web cw ON cw.cliente_id_isp = cs.cliente_id
+          WHERE cs.telefonos_contrato ~ ('9[0-9]{' || $2 || '}' || $1 || '$')
+          AND cs.activo = true
+          LIMIT 10
+        `;
+        const numDigitosAntes = 9 - sufijo.length - 1; // 9 dígitos total - 1 del '9' inicial - sufijo
+        queryParams = [sufijo, String(numDigitosAntes)];
+      }
+
+      const resultados: any[] = await prisma.$queryRawUnsafe(query, ...queryParams);
+      
+      return NextResponse.json({
+        sugerencias: resultados.map((r: any) => ({
+          clienteId: r.cliente_web_id,
+          clienteNombre: r.cliente_nombre,
+          clienteIsp: r.cliente_id,
+          telefono: r.telefonos_contrato,
+          contrato: r.titulo,
+        })),
+        matchExacto: resultados.length === 1,
+      });
+    }
+
     return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

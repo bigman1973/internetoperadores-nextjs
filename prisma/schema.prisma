@@ -1081,6 +1081,7 @@ model FacturaRecibida {
   formaPago       String?  @map("forma_pago") // transferencia, confirming, domiciliacion, etc.
   confirmingProveedor String? @map("confirming_proveedor") // Draxton, etc. (para conciliación)
   // Deducibilidad
+  telefonoServicio String?  @map("telefono_servicio") // Teléfono del servicio (Telefónica fijas)
   deducibleIva    Boolean  @default(true) @map("deducible_iva")
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
