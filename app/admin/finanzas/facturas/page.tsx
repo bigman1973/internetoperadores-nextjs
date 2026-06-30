@@ -384,7 +384,11 @@ export default function FacturasPage() {
 
       {/* Resumen fiscal */}
       {resumen && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+          <div className="bg-white rounded-lg border p-4">
+            <p className="text-xs text-gray-500">Nº Facturas</p>
+            <p className="text-lg font-bold text-gray-900">{resumen.numFacturas}</p>
+          </div>
           <div className="bg-white rounded-lg border p-4">
             <p className="text-xs text-gray-500">Total Base Imponible</p>
             <p className="text-lg font-bold text-gray-900">{formatEUR(resumen.totalBase)}</p>
