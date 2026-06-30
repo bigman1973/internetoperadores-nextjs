@@ -15,7 +15,7 @@ import { esTelefonicaMoviles, parsearFacturaTelefonicaMoviles, vincularLineasCon
  * 
  * Compatible con Vercel serverless (sin dependencias nativas como poppler)
  */
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(
   req: NextRequest,
@@ -78,7 +78,15 @@ export async function POST(
     }
 
     // Ejecutar OCR con GPT-4o
+    console.log(`[OCR] Procesando factura ${id} con GPT-4o, archivo: ${fileName}, tamaño: ${fileBuffer.length} bytes`);
     const datos = await extraerDatosFactura(fileBase64, mimeType, fileName);
+
+    // Si el OCR devolvió datos del fallback (confianza <= 0.2 y total = 0),
+    // significa que GPT-4o falló. Devolver error parcial para diagnóstico.
+    const ocrFallido = datos.confianza <= 0.2 && datos.total === 0;
+    if (ocrFallido) {
+      console.warn(`[OCR] Factura ${id}: OCR falló (confianza ${datos.confianza}, total 0). Proveedor detectado: ${datos.proveedor}`);
+    }
 
     // Buscar coincidencias de clientes en las líneas de detalle
     let lineasConClientes = datos.lineas || [];
@@ -112,8 +120,9 @@ export async function POST(
     });
 
     return NextResponse.json({
-      success: true,
+      success: !ocrFallido,
       parser: 'gpt4o',
+      ocrFallido,
       datos: {
         proveedor: datos.proveedor,
         cif: datos.cif,
