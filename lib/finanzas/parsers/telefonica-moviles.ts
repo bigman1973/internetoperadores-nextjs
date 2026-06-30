@@ -93,7 +93,15 @@ async function extraerTextoPDF(pdfBuffer: Buffer): Promise<{ text: string; numPa
   // Import dinámico para evitar problemas de bundle
   const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
   
-  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  // Deshabilitar worker para compatibilidad con Vercel serverless
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+  
+  const doc = await pdfjsLib.getDocument({
+    data: new Uint8Array(pdfBuffer),
+    useWorkerFetch: false,
+    isEvalSupported: false,
+    useSystemFonts: false,
+  }).promise;
   const numPages = doc.numPages;
   
   let fullText = '';
