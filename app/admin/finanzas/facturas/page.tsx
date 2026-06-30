@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
   ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon,
-  MagnifyingGlassIcon, XMarkIcon
+  MagnifyingGlassIcon, XMarkIcon, CalendarDaysIcon, ChevronDownIcon
 } from '@heroicons/react/24/outline';
 
 interface Factura {
@@ -73,6 +73,16 @@ export default function FacturasPage() {
   const [busquedaProveedor, setBusquedaProveedor] = useState('');
   const proveedorRef = useRef<HTMLDivElement>(null);
 
+  // Filtro por fecha
+  const [filtroFecha, setFiltroFecha] = useState<'todos' | 'mes' | 'trimestre' | 'anio' | 'personalizado'>('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [mesSeleccionado, setMesSeleccionado] = useState('');
+  const [trimestreSeleccionado, setTrimestreSeleccionado] = useState('');
+  const [anioSeleccionado, setAnioSeleccionado] = useState('2026');
+  const [showFechaDropdown, setShowFechaDropdown] = useState(false);
+  const fechaRef = useRef<HTMLDivElement>(null);
+
   // Sincronización OneDrive
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -81,23 +91,83 @@ export default function FacturasPage() {
 
   useEffect(() => {
     fetchFacturas();
-  }, [page, filtroEstado, filtroOcr, filtroProveedor]);
+  }, [page, filtroEstado, filtroOcr, filtroProveedor, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     checkSyncStatus();
     fetchProveedores();
   }, []);
 
-  // Cerrar dropdown al hacer clic fuera
+  // Cerrar dropdowns al hacer clic fuera
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (proveedorRef.current && !proveedorRef.current.contains(e.target as Node)) {
         setShowProveedorDropdown(false);
       }
+      if (fechaRef.current && !fechaRef.current.contains(e.target as Node)) {
+        setShowFechaDropdown(false);
+      }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  function aplicarFiltroFecha(tipo: 'mes' | 'trimestre' | 'anio' | 'personalizado', valor?: string) {
+    const anio = anioSeleccionado || '2026';
+    let desde = '';
+    let hasta = '';
+
+    if (tipo === 'mes' && valor) {
+      const mes = parseInt(valor);
+      desde = `${anio}-${String(mes).padStart(2, '0')}-01`;
+      const ultimoDia = new Date(parseInt(anio), mes, 0).getDate();
+      hasta = `${anio}-${String(mes).padStart(2, '0')}-${ultimoDia}`;
+      setMesSeleccionado(valor);
+      setTrimestreSeleccionado('');
+    } else if (tipo === 'trimestre' && valor) {
+      const t = parseInt(valor);
+      const mesInicio = (t - 1) * 3 + 1;
+      const mesFin = t * 3;
+      desde = `${anio}-${String(mesInicio).padStart(2, '0')}-01`;
+      const ultimoDia = new Date(parseInt(anio), mesFin, 0).getDate();
+      hasta = `${anio}-${String(mesFin).padStart(2, '0')}-${ultimoDia}`;
+      setTrimestreSeleccionado(valor);
+      setMesSeleccionado('');
+    } else if (tipo === 'anio') {
+      desde = `${anio}-01-01`;
+      hasta = `${anio}-12-31`;
+      setMesSeleccionado('');
+      setTrimestreSeleccionado('');
+    }
+
+    setFiltroFecha(tipo);
+    setFechaDesde(desde);
+    setFechaHasta(hasta);
+    setPage(1);
+    if (tipo !== 'personalizado') setShowFechaDropdown(false);
+  }
+
+  function limpiarFiltroFecha() {
+    setFiltroFecha('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setMesSeleccionado('');
+    setTrimestreSeleccionado('');
+    setPage(1);
+    setShowFechaDropdown(false);
+  }
+
+  function getFechaLabel(): string {
+    if (filtroFecha === 'todos') return 'Periodo';
+    if (filtroFecha === 'anio') return anioSeleccionado;
+    if (filtroFecha === 'trimestre') return `T${trimestreSeleccionado} ${anioSeleccionado}`;
+    if (filtroFecha === 'mes') {
+      const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      return `${meses[parseInt(mesSeleccionado) - 1]} ${anioSeleccionado}`;
+    }
+    if (filtroFecha === 'personalizado') return `${fechaDesde} → ${fechaHasta}`;
+    return 'Periodo';
+  }
 
   async function fetchProveedores() {
     try {
@@ -118,6 +188,8 @@ export default function FacturasPage() {
     if (filtroOcr === 'sinOcr') params.set('sinOcr', 'true');
     if (filtroOcr === 'sinImputar') params.set('sinImputar', 'true');
     if (filtroProveedor) params.set('proveedor', filtroProveedor);
+    if (fechaDesde) params.set('desde', fechaDesde);
+    if (fechaHasta) params.set('hasta', fechaHasta);
     
     const res = await fetch(`/api/admin/finanzas/facturas?${params}`);
     const json = await res.json();
@@ -332,6 +404,9 @@ export default function FacturasPage() {
         </div>
       )}
 
+      {/* Filtros: Proveedor + Fecha */}
+      <div className="flex gap-4 items-start flex-wrap">
+
       {/* Filtro por proveedor */}
       <div className="flex gap-3 items-center flex-wrap" ref={proveedorRef}>
         <div className="relative">
@@ -394,6 +469,137 @@ export default function FacturasPage() {
           </span>
         )}
       </div>
+
+      {/* Filtro por fecha */}
+      <div className="relative" ref={fechaRef}>
+        <button
+          onClick={() => setShowFechaDropdown(!showFechaDropdown)}
+          className={`flex items-center gap-2 px-3 py-2 text-sm border rounded-lg ${
+            filtroFecha !== 'todos' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+          }`}
+        >
+          <CalendarDaysIcon className="h-4 w-4" />
+          <span>{getFechaLabel()}</span>
+          <ChevronDownIcon className="h-3 w-3" />
+        </button>
+        {filtroFecha !== 'todos' && (
+          <button
+            onClick={limpiarFiltroFecha}
+            className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full p-0.5"
+          >
+            <XMarkIcon className="h-3 w-3" />
+          </button>
+        )}
+        {showFechaDropdown && (
+          <div className="absolute z-50 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+            {/* Selector de año */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-gray-500 font-medium">Año:</span>
+              {['2025', '2026'].map(a => (
+                <button
+                  key={a}
+                  onClick={() => { setAnioSeleccionado(a); }}
+                  className={`px-2 py-1 text-xs rounded ${
+                    anioSeleccionado === a ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {a}
+                </button>
+              ))}
+              <button
+                onClick={() => aplicarFiltroFecha('anio')}
+                className="ml-auto px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Todo {anioSeleccionado}
+              </button>
+            </div>
+
+            {/* Trimestres */}
+            <div className="mb-3">
+              <span className="text-xs text-gray-500 font-medium block mb-1">Trimestre:</span>
+              <div className="grid grid-cols-4 gap-1">
+                {[1, 2, 3, 4].map(t => (
+                  <button
+                    key={t}
+                    onClick={() => aplicarFiltroFecha('trimestre', String(t))}
+                    className={`px-2 py-1.5 text-xs rounded border ${
+                      trimestreSeleccionado === String(t) && filtroFecha === 'trimestre'
+                        ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    T{t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Meses */}
+            <div className="mb-3">
+              <span className="text-xs text-gray-500 font-medium block mb-1">Mes:</span>
+              <div className="grid grid-cols-6 gap-1">
+                {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => (
+                  <button
+                    key={m}
+                    onClick={() => aplicarFiltroFecha('mes', String(i + 1))}
+                    className={`px-1 py-1.5 text-xs rounded border ${
+                      mesSeleccionado === String(i + 1) && filtroFecha === 'mes'
+                        ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium'
+                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Personalizado */}
+            <div className="border-t pt-2">
+              <span className="text-xs text-gray-500 font-medium block mb-1">Personalizado:</span>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="date"
+                  value={filtroFecha === 'personalizado' ? fechaDesde : ''}
+                  onChange={(e) => {
+                    setFechaDesde(e.target.value);
+                    setFiltroFecha('personalizado');
+                    setMesSeleccionado('');
+                    setTrimestreSeleccionado('');
+                  }}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 w-32"
+                />
+                <span className="text-xs text-gray-400">a</span>
+                <input
+                  type="date"
+                  value={filtroFecha === 'personalizado' ? fechaHasta : ''}
+                  onChange={(e) => {
+                    setFechaHasta(e.target.value);
+                    setFiltroFecha('personalizado');
+                    setMesSeleccionado('');
+                    setTrimestreSeleccionado('');
+                    setPage(1);
+                    setShowFechaDropdown(false);
+                  }}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 w-32"
+                />
+              </div>
+            </div>
+
+            {/* Limpiar */}
+            {filtroFecha !== 'todos' && (
+              <button
+                onClick={limpiarFiltroFecha}
+                className="mt-2 w-full text-xs text-center text-gray-500 hover:text-gray-700 py-1"
+              >
+                Limpiar filtro de fecha
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      </div>{/* Cierre del div contenedor de filtros proveedor + fecha */}
 
       {/* Filtros de estado */}
       <div className="flex gap-2 flex-wrap">
