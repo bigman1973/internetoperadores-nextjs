@@ -2,15 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAccessToken, downloadFile } from '@/lib/finanzas/microsoft-graph';
 import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas';
+import { esTelefonicaMoviles, parsearFacturaTelefonicaMoviles, vincularLineasConClientes } from '@/lib/finanzas/parsers/telefonica-moviles';
 
 /**
  * POST /api/admin/finanzas/facturas/[id]/ocr
  * Reintentar OCR para una factura individual
- * Descarga el PDF de OneDrive, lo envía directamente a GPT-4o y actualiza los datos
+ * 
+ * Flujo:
+ * 1. Detecta si es un proveedor con parser específico (Telefónica Móviles, etc.)
+ * 2. Si sí → usa parser directo (pdftotext + regex) → más rápido y preciso
+ * 3. Si no → usa GPT-4o con el PDF directo
  * 
  * Compatible con Vercel serverless (sin dependencias nativas como poppler)
  */
-export const maxDuration = 60; // Permitir hasta 60s para PDFs grandes
+export const maxDuration = 60;
 
 export async function POST(
   req: NextRequest,
@@ -38,18 +43,27 @@ export async function POST(
       return NextResponse.json({ error: 'SHAREPOINT_DRIVE_ID no configurado' }, { status: 500 });
     }
 
-    await getAccessToken(); // Asegurar que tenemos token
+    await getAccessToken();
     const fileBuffer = await downloadFile(DRIVE_ID, factura.oneDriveItemId);
-
-    // Determinar tipo de archivo
     const fileName = factura.archivoOneDrive || '';
-    const ext = fileName.split('.').pop()?.toLowerCase();
+
+    // ═══════════════════════════════════════════════════════════════
+    // DETECCIÓN DE PARSER ESPECÍFICO POR PROVEEDOR
+    // ═══════════════════════════════════════════════════════════════
     
+    if (esTelefonicaMoviles(fileName, factura.proveedor)) {
+      return await procesarConParserTelefonica(id, factura, fileBuffer);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FLUJO ESTÁNDAR: GPT-4o
+    // ═══════════════════════════════════════════════════════════════
+    
+    const ext = fileName.split('.').pop()?.toLowerCase();
     let fileBase64: string;
     let mimeType: string;
 
     if (ext === 'pdf') {
-      // Enviar PDF directamente a GPT-4o (soportado desde marzo 2025)
       fileBase64 = fileBuffer.toString('base64');
       mimeType = 'application/pdf';
     } else if (ext === 'png') {
@@ -59,12 +73,11 @@ export async function POST(
       fileBase64 = fileBuffer.toString('base64');
       mimeType = 'image/jpeg';
     } else {
-      // Intentar como PDF por defecto
       fileBase64 = fileBuffer.toString('base64');
       mimeType = 'application/pdf';
     }
 
-    // Ejecutar OCR con GPT-4o (envío directo del PDF)
+    // Ejecutar OCR con GPT-4o
     const datos = await extraerDatosFactura(fileBase64, mimeType, fileName);
 
     // Buscar coincidencias de clientes en las líneas de detalle
@@ -100,6 +113,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
+      parser: 'gpt4o',
       datos: {
         proveedor: datos.proveedor,
         cif: datos.cif,
@@ -124,10 +138,108 @@ export async function POST(
 }
 
 /**
+ * Procesa una factura de Telefónica Móviles con el parser específico
+ */
+async function procesarConParserTelefonica(
+  facturaId: string,
+  factura: any,
+  fileBuffer: Buffer
+) {
+  try {
+    // Parsear con el parser específico (pdftotext + regex)
+    const resultado = await parsearFacturaTelefonicaMoviles(fileBuffer);
+    
+    // Vincular líneas con clientes usando la tabla de contratos
+    const lineasVinculadas = await vincularLineasConClientes(resultado.lineas);
+    
+    // Convertir a formato compatible con la UI de líneas de detalle
+    const lineasDetalle = lineasVinculadas.map(linea => ({
+      descripcion: linea.concepto,
+      cantidad: 1,
+      precioUnitario: linea.total,
+      iva: 0, // El IVA se aplica al total, no por línea
+      importe: linea.total,
+      importeNeto: linea.total,
+      descuento: 0,
+      cliente: linea.clienteNombre || null,
+      clienteId: linea.clienteId ? parseInt(linea.clienteId) || null : null,
+      clienteMatch: !!linea.clienteNombre,
+      clienteNombreBd: linea.clienteNombre || null,
+      contratoId: linea.contratoId || null,
+      telefono: linea.telefono,
+      extension: linea.extension,
+    }));
+    
+    // Estadísticas de vinculación
+    const lineasConCliente = lineasDetalle.filter(l => l.clienteMatch).length;
+    const lineasSinCliente = lineasDetalle.filter(l => !l.clienteMatch).length;
+    
+    // Actualizar la factura en BD
+    await prisma.facturaRecibida.update({
+      where: { id: facturaId },
+      data: {
+        proveedor: resultado.proveedor,
+        cif: resultado.cif,
+        domicilioProveedor: resultado.domicilioProveedor,
+        numFactura: resultado.numeroFactura || factura.numFactura,
+        fecha: resultado.fecha ? new Date(resultado.fecha) : factura.fecha,
+        base: resultado.baseImponible,
+        tipoIva: 21,
+        importeIva: resultado.iva,
+        tipoIrpf: 0,
+        importeIrpf: 0,
+        total: resultado.total,
+        concepto: `${resultado.tipoContrato} - ${resultado.numExtensiones} extensiones`,
+        ocrCompletado: true,
+        ocrConfianza: resultado.confianza,
+        datosOcrRaw: JSON.stringify({
+          ...resultado,
+          parser: 'telefonica-moviles',
+          lineasConCliente,
+          lineasSinCliente,
+        }),
+        lineasDetalle: JSON.stringify(lineasDetalle),
+        esInternacional: false,
+        paisOrigen: 'ES',
+      },
+    });
+    
+    return NextResponse.json({
+      success: true,
+      parser: 'telefonica-moviles',
+      datos: {
+        proveedor: resultado.proveedor,
+        cif: resultado.cif,
+        domicilioProveedor: resultado.domicilioProveedor,
+        numFactura: resultado.numeroFactura,
+        fecha: resultado.fecha,
+        base: resultado.baseImponible,
+        tipoIva: 21,
+        importeIva: resultado.iva,
+        total: resultado.total,
+        confianza: resultado.confianza,
+        esInternacional: false,
+        paisOrigen: 'ES',
+        numLineas: lineasDetalle.length,
+        lineasConCliente,
+        lineasSinCliente,
+        descuadre: resultado.descuadre,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error en parser Telefónica Móviles:', error);
+    // Si el parser específico falla, intentar con GPT-4o como fallback
+    return NextResponse.json({ 
+      error: `Parser Telefónica falló: ${error.message}. Intente con OCR estándar.`,
+      fallback: true 
+    }, { status: 500 });
+  }
+}
+
+/**
  * Enriquece las líneas de detalle buscando coincidencias con clientes en la BD
  */
 async function enriquecerLineasConClientes(lineas: any[]): Promise<any[]> {
-  // Obtener todos los clientes activos para matching
   const clientes = await prisma.clienteWeb.findMany({
     where: { activo: true },
     select: { id: true, nombre: true, nombreComercial: true, codigo: true },
@@ -136,14 +248,12 @@ async function enriquecerLineasConClientes(lineas: any[]): Promise<any[]> {
 
   return lineas.map(linea => {
     if (linea.cliente) {
-      // Intentar hacer match con un cliente de la BD
       const clienteNorm = (linea.cliente || '').toLowerCase().trim();
       
       const clienteMatch = clientes.find(c => {
         const nombreBd = c.nombre.toLowerCase().trim();
         const comercialBd = (c.nombreComercial || '').toLowerCase().trim();
         
-        // Match exacto o parcial
         return (
           nombreBd === clienteNorm ||
           comercialBd === clienteNorm ||
