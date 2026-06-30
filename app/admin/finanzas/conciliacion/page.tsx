@@ -47,6 +47,7 @@ export default function ConciliacionPage() {
   const [loadingSugerencias, setLoadingSugerencias] = useState(false);
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
+  const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
   const [cuentas, setCuentas] = useState<any[]>([]);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export default function ConciliacionPage() {
 
   useEffect(() => {
     fetchMovimientos();
-  }, [page, filtroTipo, filtroBanco]);
+  }, [page, filtroTipo, filtroBanco, filtroConciliado]);
 
   async function fetchCuentas() {
     try {
@@ -79,8 +80,8 @@ export default function ConciliacionPage() {
     const params = new URLSearchParams({
       page: page.toString(),
       limit: '30',
-      conciliado: 'false',
     });
+    if (filtroConciliado) params.set('conciliado', filtroConciliado);
     if (filtroBanco) params.set('cuentaId', filtroBanco);
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
@@ -180,21 +181,36 @@ export default function ConciliacionPage() {
         </button>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs - clickables como filtros */}
       {estado && (
         <div className="grid grid-cols-5 gap-3">
-          <div className="bg-white border rounded-lg p-4">
+          <button
+            onClick={() => { setFiltroConciliado(''); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+              filtroConciliado === '' ? 'ring-2 ring-gray-400 shadow-md' : ''
+            }`}
+          >
             <p className="text-xs text-gray-500 uppercase">Total Movimientos</p>
             <p className="text-2xl font-bold text-gray-900">{estado.totalMovimientos.toLocaleString()}</p>
-          </div>
-          <div className="bg-white border rounded-lg p-4">
+          </button>
+          <button
+            onClick={() => { setFiltroConciliado('true'); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+              filtroConciliado === 'true' ? 'ring-2 ring-green-400 shadow-md' : ''
+            }`}
+          >
             <p className="text-xs text-gray-500 uppercase">Conciliados</p>
             <p className="text-2xl font-bold text-green-700">{estado.conciliados.toLocaleString()}</p>
-          </div>
-          <div className="bg-white border rounded-lg p-4">
+          </button>
+          <button
+            onClick={() => { setFiltroConciliado('false'); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+              filtroConciliado === 'false' ? 'ring-2 ring-amber-400 shadow-md' : ''
+            }`}
+          >
             <p className="text-xs text-gray-500 uppercase">Sin Conciliar</p>
             <p className="text-2xl font-bold text-amber-700">{estado.sinConciliar.toLocaleString()}</p>
-          </div>
+          </button>
           <div className="bg-white border rounded-lg p-4">
             <p className="text-xs text-gray-500 uppercase">% Conciliado</p>
             <div className="flex items-end gap-2">
