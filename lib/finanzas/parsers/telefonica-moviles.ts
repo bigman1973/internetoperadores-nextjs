@@ -2,9 +2,9 @@
  * Parser específico para facturas de Telefónica Móviles España
  * 
  * Estas facturas son kilométricas (100+ páginas) con detalle por extensión/línea.
- * No se usa GPT-4o sino extracción directa de texto con pdfjs-dist + regex.
+ * No se usa GPT-4o sino extracción directa de texto con unpdf + regex.
  * 
- * Usa pdfjs-dist/legacy (sin canvas) para compatibilidad con Vercel serverless.
+ * Usa unpdf (compatible con Vercel serverless sin canvas ni worker).
  * 
  * Estructura del PDF:
  * - Página 1: Resumen general (total, nº extensiones, fecha, nº factura)
@@ -12,31 +12,6 @@
  */
 
 import { prisma } from '@/lib/prisma';
-
-// Polyfill DOMMatrix para entornos serverless (Vercel) donde no existe DOM
-if (typeof globalThis.DOMMatrix === 'undefined') {
-  (globalThis as any).DOMMatrix = class DOMMatrix {
-    a = 1; b = 0; c = 0; d = 1; e = 0; f = 0;
-    m11 = 1; m12 = 0; m13 = 0; m14 = 0;
-    m21 = 0; m22 = 1; m23 = 0; m24 = 0;
-    m31 = 0; m32 = 0; m33 = 1; m34 = 0;
-    m41 = 0; m42 = 0; m43 = 0; m44 = 1;
-    is2D = true; isIdentity = true;
-    constructor(init?: any) {
-      if (Array.isArray(init) && init.length === 6) {
-        [this.a, this.b, this.c, this.d, this.e, this.f] = init;
-        this.m11 = this.a; this.m12 = this.b;
-        this.m21 = this.c; this.m22 = this.d;
-        this.m41 = this.e; this.m42 = this.f;
-      }
-    }
-    inverse() { return new DOMMatrix(); }
-    multiply() { return new DOMMatrix(); }
-    scale() { return new DOMMatrix(); }
-    translate() { return new DOMMatrix(); }
-    transformPoint(p: any) { return p || { x: 0, y: 0, z: 0, w: 1 }; }
-  };
-}
 
 export interface LineaTelefonica {
   extension: string;
@@ -87,57 +62,21 @@ export function esTelefonicaMoviles(nombreArchivo: string, proveedor?: string): 
 }
 
 /**
- * Extrae texto completo de un PDF usando pdfjs-dist/legacy (sin canvas, compatible serverless)
+ * Extrae texto completo de un PDF usando unpdf (compatible con Vercel serverless)
  */
 async function extraerTextoPDF(pdfBuffer: Buffer): Promise<{ text: string; numPages: number }> {
-  // Import dinámico para evitar problemas de bundle
-  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const { extractText } = await import('unpdf');
   
-  // Deshabilitar worker para compatibilidad con Vercel serverless
-  pdfjsLib.GlobalWorkerOptions.workerSrc = '';
+  const uint8 = new Uint8Array(pdfBuffer);
+  const result = await extractText(uint8);
   
-  const doc = await pdfjsLib.getDocument({
-    data: new Uint8Array(pdfBuffer),
-    useWorkerFetch: false,
-    isEvalSupported: false,
-    useSystemFonts: false,
-  }).promise;
-  const numPages = doc.numPages;
+  const numPages = result.totalPages;
+  // unpdf devuelve un array de strings (uno por página)
+  const text = Array.isArray(result.text) 
+    ? (result.text as string[]).join('\n') 
+    : String(result.text);
   
-  let fullText = '';
-  
-  for (let i = 1; i <= numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    
-    // Reconstruir texto con saltos de línea basados en posición Y
-    let lastY: number | null = null;
-    let lineText = '';
-    
-    for (const item of content.items) {
-      if ('str' in item) {
-        const y = (item as any).transform?.[5] || 0;
-        
-        if (lastY !== null && Math.abs(y - lastY) > 2) {
-          fullText += lineText + '\n';
-          lineText = '';
-        }
-        
-        if (lineText && item.str) {
-          lineText += '\t' + item.str;
-        } else {
-          lineText += item.str;
-        }
-        lastY = y;
-      }
-    }
-    if (lineText) {
-      fullText += lineText + '\n';
-    }
-    fullText += '\n'; // Separador de página
-  }
-  
-  return { text: fullText, numPages };
+  return { text, numPages };
 }
 
 /**
@@ -181,7 +120,7 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
     const otrosMatch = bloque.match(/Otros conceptos\s+([\d.,]+)/);
     const llamadasMatch = bloque.match(/Llamadas\s*\([^)]*\)\s+([\d.,]+)/);
     
-    // También buscar el Total del bloque (aparece como "Total\tXX,XX")
+    // También buscar el Total del bloque (aparece como "Total\tXX,XX" o "Total XX,XX")
     const totalBloqueMatch = bloque.match(/Total\s+([\d.,]+)/);
     
     const extension = extMatch ? extMatch[1] : '';
