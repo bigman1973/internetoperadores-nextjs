@@ -244,11 +244,14 @@ REGLAS IMPORTANTES:
     
     return datos;
   } catch (error: any) {
-    console.error('Error en OCR de factura:', error.message);
+    console.error('Error en OCR de factura:', error.message, error.status || '', error.code || '');
     
     // Intentar extraer datos del nombre del archivo
     if (nombreArchivo) {
-      return extraerDatosDeNombreArchivo(nombreArchivo);
+      const datos = extraerDatosDeNombreArchivo(nombreArchivo);
+      // Incluir el error real en el concepto para diagnóstico
+      datos.concepto = `ERROR_OCR: ${error.message?.substring(0, 200)}`;
+      return datos;
     }
     
     return {
@@ -263,7 +266,7 @@ REGLAS IMPORTANTES:
       tipoIrpf: 0,
       importeIrpf: 0,
       total: 0,
-      concepto: `Error OCR: ${error.message}`,
+      concepto: `ERROR_OCR: ${error.message?.substring(0, 200)}`,
       confianza: 0,
       lineas: [],
       esInternacional: false,
