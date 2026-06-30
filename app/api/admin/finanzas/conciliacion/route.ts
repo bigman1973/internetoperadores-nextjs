@@ -2,15 +2,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 /**
- * Motor de conciliación automática
+ * Motor de conciliación automática MEJORADO
  * 
- * Estrategias:
- * 1. Confirming Draxton: Ingresos con "Draxton" → cruzar con facturas de carpeta Confirming
- * 2. Remesas SEPA: Ingresos de remesa → cruzar con facturas emitidas por importe
- * 3. Transferencias a proveedores: Gastos por transferencia → cruzar con facturas recibidas por importe+fecha
- * 4. Nóminas: Transferencias a empleados → clasificar como "Sueldos y Salarios"
- * 5. Impuestos: Domiciliaciones AEAT → clasificar como "IMPUESTOS"
- * 6. Tarjeta: Pagos con tarjeta → clasificar por concepto (restaurante, gasolina, etc.)
+ * Estrategias de conciliación (por orden de prioridad):
+ * 1. Match EXACTO por importe + proveedor en concepto
+ * 2. Match por nº factura en concepto/referencia
+ * 3. Match por importe exacto + fecha cercana (±60 días)
+ * 4. Match por domiciliaciones recurrentes (Telefónica, Aire, etc.)
+ * 5. Confirming Draxton
+ * 6. Facturas emitidas (remesas/transferencias recibidas)
+ * 7. Traspasos entre cuentas propias
+ * 
+ * Clasificación automática por patrones de concepto
  */
 
 // Reglas de clasificación automática por concepto
@@ -34,6 +37,7 @@ const REGLAS_CLASIFICACION = [
   { patron: /Confirming.*Claveria/i, categoria: 'Estructura', tipoPago: 'Confirming' },
   { patron: /Santander Factoring.*Confirming/i, categoria: 'Estructura', tipoPago: 'Confirming' },
   { patron: /Liquidacion Anticipo/i, categoria: 'Estructura', tipoPago: 'Confirming' },
+  { patron: /ANTICIPS CONFIRMING/i, categoria: 'Draxton', tipoPago: 'Confirming' },
   
   // Remesas (cobros)
   { patron: /Emision Remesa Sepa/i, categoria: 'Operadora', tipoPago: 'Remesa' },
@@ -42,6 +46,8 @@ const REGLAS_CLASIFICACION = [
   // Traspasos propios
   { patron: /Transferencia.*Internet Operadores.*Concepto\s*Traspas/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
   { patron: /Transferencia Inmediata A Favor De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
+  { patron: /TRF IMMEDIATA.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
+  { patron: /TRASPAS A GIRO/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
   
   // Proveedores conocidos
   { patron: /Instant Byte/i, categoria: 'Operadora', tipoPago: 'Factura' },
@@ -50,9 +56,12 @@ const REGLAS_CLASIFICACION = [
   { patron: /Looking Forward Giro Dolcet/i, categoria: 'Estructura', tipoPago: 'Factura' },
   { patron: /V-valley/i, categoria: 'Comisiones V-Valley', tipoPago: 'Factura' },
   { patron: /Santber/i, categoria: 'Operadora', tipoPago: 'Factura' },
+  { patron: /Aire Networks/i, categoria: 'Operadora', tipoPago: 'Factura' },
+  { patron: /Xfera|Masmovil/i, categoria: 'Operadora', tipoPago: 'Factura' },
   
-  // Telecomunicaciones (recibos)
-  { patron: /Telefonica De Espana/i, categoria: 'Operadora', tipoPago: 'Domiciliación' },
+  // Telecomunicaciones (recibos/domiciliaciones)
+  { patron: /Telefonica De Espana|TELEFONICA DE ESPAÑA/i, categoria: 'Operadora', tipoPago: 'Domiciliación' },
+  { patron: /Telefonica Moviles/i, categoria: 'Operadora', tipoPago: 'Domiciliación' },
   { patron: /Acens.*Telefonica/i, categoria: 'Estructura', tipoPago: 'Domiciliación' },
   
   // Tarjeta - Restaurantes/Comida
@@ -63,24 +72,48 @@ const REGLAS_CLASIFICACION = [
   // Tarjeta - Gasolina/Desplazamientos
   { patron: /Benzinera|Gasolinera|Repsol|Cepsa|Shell|Bp\s|Bonarea.*Gasoil|Estacion Servicio/i, categoria: 'Desplazamientos', tipoPago: 'Débito' },
   { patron: /Renfe|Alsa|Blabla|Parking|Peaje|Autopista|Toll/i, categoria: 'Desplazamientos', tipoPago: 'Débito' },
+  { patron: /Saltoki/i, categoria: 'Operadora', tipoPago: 'Débito' },
   
   // Tarjeta - Suscripciones tech
   { patron: /Apple\.com|Itunes|Google\s*(Cloud|Storage|Play)|Microsoft|Github|Aws|Amazon\s*Web/i, categoria: 'Estructura', tipoPago: 'Suscripción' },
-  { patron: /Zoom|Slack|Notion|Figma|Canva|Adobe|Dropbox|Openai/i, categoria: 'Estructura', tipoPago: 'Suscripción' },
+  { patron: /Zoom|Slack|Notion|Figma|Canva|Adobe|Dropbox|Openai|Manus\s*Ai/i, categoria: 'Estructura', tipoPago: 'Suscripción' },
   { patron: /Nominalia|Ovh|Hetzner|Digitalocean|Cloudflare/i, categoria: 'Estructura', tipoPago: 'Suscripción' },
   
   // Tarjeta - Material oficina/hardware
   { patron: /Amazon\.es|Amazon\.com|Pccomponentes|Mediamarkt/i, categoria: 'Estructura', tipoPago: 'Débito' },
+  { patron: /Www\.amazon/i, categoria: 'Estructura', tipoPago: 'Débito' },
   
   // Préstamos
   { patron: /Venciment Prestec|PRES\.\d+/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo' },
+  { patron: /AMORTITZACI.*PR(É|E)STEC/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo' },
   
   // Comisiones bancarias
   { patron: /Manteniment|Cobrament Pendent|Gastos Devoluciones/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
   { patron: /Targeta Visa|V\.Negocis/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
+  { patron: /COMISSIONS|Comision\s*\d/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
   
   // Devoluciones de recibos
   { patron: /Devolucion De Recibo/i, categoria: 'Morosos', tipoPago: 'Devolución' },
+  
+  // Seguros
+  { patron: /Mutua Madrile/i, categoria: 'Estructura', tipoPago: 'Seguro' },
+  { patron: /Quiron Prevencion/i, categoria: 'Sueldos y Salarios', tipoPago: 'PRL' },
+];
+
+// Mapeo de proveedores conocidos para match por concepto
+const PROVEEDORES_CONCEPTO: { patron: RegExp; proveedor: string }[] = [
+  { patron: /Instant Byte/i, proveedor: 'INSTANT BYTE' },
+  { patron: /Neutra Fiber/i, proveedor: 'NEUTRA FIBER' },
+  { patron: /Aire Networks/i, proveedor: 'AIRE NETWORKS' },
+  { patron: /Telefonica De Espana|TELEFONICA DE ESPAÑA/i, proveedor: 'TELEFÓNICA DE ESPAÑA' },
+  { patron: /Telefonica Moviles/i, proveedor: 'TELEFÓNICA MÓVILES' },
+  { patron: /Xfera|Masmovil/i, proveedor: 'XFERA MOVILES' },
+  { patron: /V-valley/i, proveedor: 'V-VALLEY' },
+  { patron: /Vola Los Del Internet/i, proveedor: 'VOLA' },
+  { patron: /Santber/i, proveedor: 'SANTBER' },
+  { patron: /Looking Forward/i, proveedor: 'LOOKING FORWARD' },
+  { patron: /Draxton/i, proveedor: 'DRAXTON' },
+  { patron: /Acens/i, proveedor: 'ACENS' },
 ];
 
 // POST - Ejecutar conciliación automática
@@ -94,6 +127,7 @@ export async function POST(req: NextRequest) {
       conciliadosFacturasRecibidas: 0,
       conciliadosFacturasEmitidas: 0,
       conciliadosConfirming: 0,
+      conciliadosTraspasos: 0,
       errores: [] as string[],
     };
 
@@ -121,81 +155,134 @@ export async function POST(req: NextRequest) {
       }
 
       // También aplicar reglas personalizadas de la BD
-      const reglasDB = await prisma.reglaImputacion.findMany({
-        where: { activa: true },
-        orderBy: { confianza: 'desc' },
-      });
+      try {
+        const reglasDB = await prisma.reglaImputacion.findMany({
+          where: { activa: true },
+          orderBy: { confianza: 'desc' },
+        });
 
-      const aun_sin_categoria = await prisma.movimientoBancario.findMany({
-        where: { categoria: null },
-        select: { id: true, concepto: true },
-      });
+        const aun_sin_categoria = await prisma.movimientoBancario.findMany({
+          where: { categoria: null },
+          select: { id: true, concepto: true },
+        });
 
-      for (const mov of aun_sin_categoria) {
-        for (const regla of reglasDB) {
-          if (mov.concepto.toLowerCase().includes(regla.patron.toLowerCase())) {
-            await prisma.movimientoBancario.update({
-              where: { id: mov.id },
-              data: {
-                categoria: regla.imputacion,
-                tipoPago: regla.tipoPago,
-              },
-            });
-            await prisma.reglaImputacion.update({
-              where: { id: regla.id },
-              data: { vecesUsada: { increment: 1 } },
-            });
-            resultados.clasificados++;
-            break;
+        for (const mov of aun_sin_categoria) {
+          for (const regla of reglasDB) {
+            if (mov.concepto.toLowerCase().includes(regla.patron.toLowerCase())) {
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: {
+                  categoria: regla.imputacion,
+                  tipoPago: regla.tipoPago,
+                },
+              });
+              await prisma.reglaImputacion.update({
+                where: { id: regla.id },
+                data: { vecesUsada: { increment: 1 } },
+              });
+              resultados.clasificados++;
+              break;
+            }
           }
         }
+      } catch (e) {
+        // reglaImputacion puede no existir aún
       }
     }
 
-    // 2. CONCILIACIÓN CON FACTURAS RECIBIDAS
+    // 2. CONCILIACIÓN CON FACTURAS RECIBIDAS (MEJORADA)
     if (modo === 'conciliar' || modo === 'todo') {
-      // Buscar movimientos de gasto no conciliados
       const gastosSinConciliar = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,
           importe: { lt: 0 },
-          // Solo transferencias (no tarjeta, no préstamos)
-          OR: [
-            { tipoPago: 'Factura' },
-            { tipoPago: 'Domiciliación' },
-            { tipoPago: null, categoria: { not: 'Traspaso' } },
-          ],
+          categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS', 'Gastos Financieros', 'Dietas', 'Desplazamientos'] },
         },
-        select: { id: true, importe: true, fechaOperacion: true, concepto: true },
+        select: { id: true, importe: true, fechaOperacion: true, concepto: true, referencia: true },
       });
 
       for (const mov of gastosSinConciliar) {
-        // Buscar factura recibida con importe similar (±0.01) y fecha cercana (±30 días)
         const importeAbs = Math.abs(mov.importe);
-        const fechaDesde = new Date(mov.fechaOperacion);
-        fechaDesde.setDate(fechaDesde.getDate() - 60);
-        const fechaHasta = new Date(mov.fechaOperacion);
-        fechaHasta.setDate(fechaHasta.getDate() + 5);
+        let matched = false;
 
-        const facturaMatch = await prisma.facturaRecibida.findFirst({
-          where: {
-            total: { gte: importeAbs - 0.02, lte: importeAbs + 0.02 },
-            fecha: { gte: fechaDesde, lte: fechaHasta },
-            // No ya conciliada con otro movimiento
-            movimientos: { none: {} },
-          },
-          orderBy: { fecha: 'desc' },
-        });
+        // ESTRATEGIA 1: Match por proveedor en concepto + importe exacto
+        for (const prov of PROVEEDORES_CONCEPTO) {
+          if (prov.patron.test(mov.concepto)) {
+            const fechaDesde = new Date(mov.fechaOperacion);
+            fechaDesde.setDate(fechaDesde.getDate() - 90);
+            const fechaHasta = new Date(mov.fechaOperacion);
+            fechaHasta.setDate(fechaHasta.getDate() + 10);
 
-        if (facturaMatch) {
-          await prisma.movimientoBancario.update({
-            where: { id: mov.id },
-            data: {
-              conciliado: true,
-              facturaId: facturaMatch.id,
+            const facturaMatch = await prisma.facturaRecibida.findFirst({
+              where: {
+                proveedor: { contains: prov.proveedor, mode: 'insensitive' },
+                total: { gte: importeAbs - 0.05, lte: importeAbs + 0.05 },
+                fecha: { gte: fechaDesde, lte: fechaHasta },
+                movimientos: { none: {} },
+              },
+              orderBy: { fecha: 'desc' },
+            });
+
+            if (facturaMatch) {
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: { conciliado: true, facturaId: facturaMatch.id },
+              });
+              resultados.conciliadosFacturasRecibidas++;
+              matched = true;
+            }
+            break;
+          }
+        }
+        if (matched) continue;
+
+        // ESTRATEGIA 2: Match por nº factura en concepto/referencia
+        const numFacturaMatch = mov.concepto.match(/(?:Fra|Factura|FRS|Ref)[:\s.]*([A-Z0-9\-\/]+)/i)
+          || (mov.referencia && mov.referencia.match(/([A-Z0-9\-\/]{5,})/i));
+        
+        if (numFacturaMatch) {
+          const numFactura = numFacturaMatch[1];
+          const facturaMatch = await prisma.facturaRecibida.findFirst({
+            where: {
+              numFactura: { contains: numFactura, mode: 'insensitive' },
+              movimientos: { none: {} },
             },
           });
-          resultados.conciliadosFacturasRecibidas++;
+
+          if (facturaMatch) {
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: { conciliado: true, facturaId: facturaMatch.id },
+            });
+            resultados.conciliadosFacturasRecibidas++;
+            continue;
+          }
+        }
+
+        // ESTRATEGIA 3: Match por importe exacto + fecha cercana (solo si importe > 50€)
+        if (importeAbs > 50) {
+          const fechaDesde = new Date(mov.fechaOperacion);
+          fechaDesde.setDate(fechaDesde.getDate() - 60);
+          const fechaHasta = new Date(mov.fechaOperacion);
+          fechaHasta.setDate(fechaHasta.getDate() + 5);
+
+          const facturaMatch = await prisma.facturaRecibida.findFirst({
+            where: {
+              total: { gte: importeAbs - 0.02, lte: importeAbs + 0.02 },
+              fecha: { gte: fechaDesde, lte: fechaHasta },
+              movimientos: { none: {} },
+            },
+            orderBy: { fecha: 'desc' },
+          });
+
+          if (facturaMatch) {
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: { conciliado: true, facturaId: facturaMatch.id },
+            });
+            resultados.conciliadosFacturasRecibidas++;
+            continue;
+          }
         }
       }
 
@@ -204,14 +291,15 @@ export async function POST(req: NextRequest) {
         where: {
           conciliado: false,
           importe: { gt: 0 },
-          concepto: { contains: 'Draxton', mode: 'insensitive' },
+          OR: [
+            { concepto: { contains: 'Draxton', mode: 'insensitive' } },
+            { concepto: { contains: 'ANTICIPS CONFIRMING', mode: 'insensitive' } },
+          ],
         },
         select: { id: true, importe: true, fechaOperacion: true },
       });
 
       for (const mov of ingresosConfirming) {
-        // Buscar facturas de confirming Draxton cuyo total sume ~= importe del ingreso
-        // Por ahora marcamos como conciliado con la categoría
         await prisma.movimientoBancario.update({
           where: { id: mov.id },
           data: {
@@ -223,13 +311,29 @@ export async function POST(req: NextRequest) {
         resultados.conciliadosConfirming++;
       }
 
-      // 4. CONCILIACIÓN CON FACTURAS EMITIDAS (Remesas y transferencias recibidas)
+      // 4. TRASPASOS ENTRE CUENTAS PROPIAS
+      const traspasos = await prisma.movimientoBancario.findMany({
+        where: {
+          conciliado: false,
+          categoria: 'Traspaso',
+        },
+        select: { id: true },
+      });
+
+      for (const mov of traspasos) {
+        await prisma.movimientoBancario.update({
+          where: { id: mov.id },
+          data: { conciliado: true },
+        });
+        resultados.conciliadosTraspasos++;
+      }
+
+      // 5. CONCILIACIÓN CON FACTURAS EMITIDAS (Remesas y transferencias recibidas)
       const ingresosClientes = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,
           importe: { gt: 0 },
-          NOT: { concepto: { contains: 'Draxton', mode: 'insensitive' } },
-          NOT: { concepto: { contains: 'Traspaso', mode: 'insensitive' } },
+          categoria: { notIn: ['Draxton', 'Traspaso'] },
         },
         select: { id: true, importe: true, fechaOperacion: true, concepto: true },
       });
@@ -288,7 +392,7 @@ export async function GET() {
 
     // Facturas recibidas sin conciliar
     const facturasRecibidasSinConciliar = await prisma.facturaRecibida.count({
-      where: { movimientos: { none: {} } },
+      where: { movimientos: { none: {} }, total: { gt: 0 } },
     });
 
     // Distribución por categoría
@@ -297,6 +401,13 @@ export async function GET() {
       _sum: { importe: true },
       _count: true,
       orderBy: { _sum: { importe: 'asc' } },
+    });
+
+    // Distribución por banco
+    const porBanco = await prisma.movimientoBancario.groupBy({
+      by: ['cuentaId'],
+      _count: true,
+      where: { conciliado: false },
     });
 
     return NextResponse.json({
@@ -313,6 +424,7 @@ export async function GET() {
       },
       facturasRecibidasSinConciliar,
       porCategoria,
+      porBanco,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
