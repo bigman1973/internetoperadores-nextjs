@@ -2,9 +2,9 @@
  * Parser específico para facturas de Telefónica Móviles España
  * 
  * Estas facturas son kilométricas (100+ páginas) con detalle por extensión/línea.
- * No se usa GPT-4o sino extracción directa de texto con unpdf + regex.
+ * No se usa GPT-4o sino extracción directa de texto con pdf-parse + regex.
  * 
- * Usa unpdf (compatible con Vercel serverless sin canvas ni worker).
+ * Usa pdf-parse v1.1.1 (pdfjs-dist v1.x interno, sin workers, compatible Vercel serverless).
  * 
  * Estructura del PDF:
  * - Página 1: Resumen general (total, nº extensiones, fecha, nº factura)
@@ -62,21 +62,16 @@ export function esTelefonicaMoviles(nombreArchivo: string, proveedor?: string): 
 }
 
 /**
- * Extrae texto completo de un PDF usando unpdf (compatible con Vercel serverless)
+ * Extrae texto completo de un PDF usando pdf-parse v1.1.1 (sin workers, compatible serverless)
  */
 async function extraerTextoPDF(pdfBuffer: Buffer): Promise<{ text: string; numPages: number }> {
-  const { extractText } = await import('unpdf');
+  // pdf-parse v1.1.1 es CJS, usar require dinámico
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const pdfParse = require('pdf-parse');
   
-  const uint8 = new Uint8Array(pdfBuffer);
-  const result = await extractText(uint8);
+  const data = await pdfParse(pdfBuffer);
   
-  const numPages = result.totalPages;
-  // unpdf devuelve un array de strings (uno por página)
-  const text = Array.isArray(result.text) 
-    ? (result.text as string[]).join('\n') 
-    : String(result.text);
-  
-  return { text, numPages };
+  return { text: data.text, numPages: data.numpages };
 }
 
 /**
@@ -120,7 +115,7 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
     const otrosMatch = bloque.match(/Otros conceptos\s+([\d.,]+)/);
     const llamadasMatch = bloque.match(/Llamadas\s*\([^)]*\)\s+([\d.,]+)/);
     
-    // También buscar el Total del bloque (aparece como "Total\tXX,XX" o "Total XX,XX")
+    // También buscar el Total del bloque
     const totalBloqueMatch = bloque.match(/Total\s+([\d.,]+)/);
     
     const extension = extMatch ? extMatch[1] : '';
@@ -132,7 +127,7 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
     let totalLinea = cuotaMensual + llamadasImporte;
     if (totalBloqueMatch) {
       const totalBloque = parseFloat(totalBloqueMatch[1].replace('.', '').replace(',', '.'));
-      // Solo usar el total del bloque si es razonable (no es un número de página o similar)
+      // Solo usar el total del bloque si es razonable
       if (totalBloque > 0 && totalBloque < 10000 && Math.abs(totalBloque - totalLinea) < totalLinea * 0.5) {
         totalLinea = totalBloque;
       }

@@ -5,7 +5,7 @@ const nextConfig = {
     // El type check pasa con tsc --noEmit pero falla en next build
     ignoreBuildErrors: true,
   },
-  serverExternalPackages: ['@prisma/client', 'unpdf'],
+  serverExternalPackages: ['@prisma/client', 'pdf-parse'],
 
   // Optimizar imágenes
   images: {
