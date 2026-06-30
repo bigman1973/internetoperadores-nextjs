@@ -329,6 +329,51 @@ export default function FacturaDetallePage() {
     setEditableLineas(nuevasLineas);
   }
 
+  function asignarClienteTodasLineas(clienteNombre: string) {
+    const nuevasLineas = editableLineas.map(l => ({
+      ...l,
+      cliente: clienteNombre,
+      clienteMatch: true,
+      clienteNombreBd: clienteNombre,
+    }));
+    setEditableLineas(nuevasLineas);
+  }
+
+  function asignarClienteTodasLineasYGuardar(clienteNombre: string) {
+    // Asignar a todas las líneas y guardar directamente
+    const nuevasLineas = lineas.map(l => ({
+      ...l,
+      cliente: clienteNombre,
+      clienteMatch: true,
+      clienteNombreBd: clienteNombre,
+    }));
+    setEditableLineas(nuevasLineas);
+    setLineas(nuevasLineas);
+    setEditingLineas(true);
+    // Guardar automáticamente
+    (async () => {
+      setSavingLineas(true);
+      try {
+        const res = await fetch('/api/admin/finanzas/imputacion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'guardar-lineas',
+            facturaRecibidaId: factura!.id,
+            lineas: nuevasLineas,
+          }),
+        });
+        if (res.ok) {
+          setEditingLineas(false);
+          await fetchFactura();
+        }
+      } catch (e) {
+        console.error('Error guardando líneas:', e);
+      }
+      setSavingLineas(false);
+    })();
+  }
+
   async function guardarLineas() {
     setSavingLineas(true);
     try {
@@ -755,24 +800,35 @@ export default function FacturaDetallePage() {
       {sugerenciaTelefono && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="w-full">
               <p className="text-sm font-medium text-blue-800 flex items-center gap-2">
                 <span>📞</span>
                 {sugerenciaTelefono.matchExacto ? 'Cliente detectado por teléfono' : 'Posibles clientes por teléfono'}
+                {factura.telefonoServicio && <span className="text-xs font-normal text-blue-500">({factura.telefonoServicio})</span>}
               </p>
               {sugerenciaTelefono.sugerencias.map((s, i) => (
-                <div key={i} className="mt-1 flex items-center gap-3">
+                <div key={i} className="mt-2 flex items-center gap-3 flex-wrap">
                   <span className="text-sm text-blue-700 font-medium">{s.clienteNombre}</span>
                   <span className="text-xs text-blue-500">{s.telefono} • {s.contrato}</span>
-                  <button
-                    onClick={() => {
-                      setSelectedCliente(s.clienteNombre);
-                      seleccionarCliente(s.clienteNombre);
-                    }}
-                    className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
-                  >
-                    Imputar a este cliente
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedCliente(s.clienteNombre);
+                        seleccionarCliente(s.clienteNombre);
+                      }}
+                      className="px-2 py-0.5 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                    >
+                      Imputar factura
+                    </button>
+                    {lineas.length > 0 && (
+                      <button
+                        onClick={() => asignarClienteTodasLineasYGuardar(s.clienteNombre)}
+                        className="px-2 py-0.5 bg-green-600 text-white text-xs rounded hover:bg-green-700"
+                      >
+                        Asignar a todas las líneas ({lineas.length})
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -927,6 +983,17 @@ export default function FacturaDetallePage() {
                   Líneas de detalle ({lineas.length})
                 </h2>
                 <div className="flex items-center gap-2">
+                  {/* Botón rápido: asignar un cliente a todas las líneas */}
+                  {!editingLineas && !lineas.every(l => l.cliente) && selectedCliente && (
+                    <button
+                      onClick={() => asignarClienteTodasLineasYGuardar(selectedCliente)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-50 border border-green-200 rounded-md hover:bg-green-100 text-green-700"
+                      title={`Asignar "${selectedCliente}" a todas las líneas`}
+                    >
+                      <UserIcon className="h-3.5 w-3.5" />
+                      Asignar a todas
+                    </button>
+                  )}
                   {!editingLineas ? (
                     <button
                       onClick={() => { setEditingLineas(true); setEditableLineas(JSON.parse(JSON.stringify(lineas))); }}
