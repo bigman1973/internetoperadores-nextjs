@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
-  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon 
+  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon,
+  MagnifyingGlassIcon, XMarkIcon
 } from '@heroicons/react/24/outline';
 
 interface Factura {
@@ -65,6 +66,13 @@ export default function FacturasPage() {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroOcr, setFiltroOcr] = useState<'todos' | 'sinOcr' | 'sinImputar'>('todos');
   
+  // Filtro por proveedor
+  const [filtroProveedor, setFiltroProveedor] = useState('');
+  const [proveedores, setProveedores] = useState<{nombre: string; facturas: number; total: number}[]>([]);
+  const [showProveedorDropdown, setShowProveedorDropdown] = useState(false);
+  const [busquedaProveedor, setBusquedaProveedor] = useState('');
+  const proveedorRef = useRef<HTMLDivElement>(null);
+
   // Sincronización OneDrive
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -73,11 +81,35 @@ export default function FacturasPage() {
 
   useEffect(() => {
     fetchFacturas();
-  }, [page, filtroEstado, filtroOcr]);
+  }, [page, filtroEstado, filtroOcr, filtroProveedor]);
 
   useEffect(() => {
     checkSyncStatus();
+    fetchProveedores();
   }, []);
+
+  // Cerrar dropdown al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (proveedorRef.current && !proveedorRef.current.contains(e.target as Node)) {
+        setShowProveedorDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  async function fetchProveedores() {
+    try {
+      const res = await fetch('/api/admin/finanzas/facturas/proveedores');
+      if (res.ok) {
+        const data = await res.json();
+        setProveedores(data.proveedores || []);
+      }
+    } catch (e) {
+      console.error('Error fetching proveedores:', e);
+    }
+  }
 
   async function fetchFacturas() {
     setLoading(true);
@@ -85,6 +117,7 @@ export default function FacturasPage() {
     if (filtroEstado) params.set('estado', filtroEstado);
     if (filtroOcr === 'sinOcr') params.set('sinOcr', 'true');
     if (filtroOcr === 'sinImputar') params.set('sinImputar', 'true');
+    if (filtroProveedor) params.set('proveedor', filtroProveedor);
     
     const res = await fetch(`/api/admin/finanzas/facturas?${params}`);
     const json = await res.json();
@@ -298,6 +331,69 @@ export default function FacturasPage() {
           </div>
         </div>
       )}
+
+      {/* Filtro por proveedor */}
+      <div className="flex gap-3 items-center flex-wrap" ref={proveedorRef}>
+        <div className="relative">
+          <div className="flex items-center">
+            <MagnifyingGlassIcon className="h-4 w-4 text-gray-400 absolute left-3" />
+            <input
+              type="text"
+              placeholder="Filtrar por proveedor..."
+              value={busquedaProveedor}
+              onChange={(e) => {
+                setBusquedaProveedor(e.target.value);
+                setShowProveedorDropdown(true);
+              }}
+              onFocus={() => setShowProveedorDropdown(true)}
+              className="pl-9 pr-8 py-2 text-sm border border-gray-300 rounded-lg w-64 focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+            />
+            {(filtroProveedor || busquedaProveedor) && (
+              <button
+                onClick={() => { setFiltroProveedor(''); setBusquedaProveedor(''); setPage(1); }}
+                className="absolute right-2 text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          {showProveedorDropdown && (
+            <div className="absolute z-50 mt-1 w-96 max-h-72 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg">
+              {proveedores
+                .filter(p => !busquedaProveedor || p.nombre.toLowerCase().includes(busquedaProveedor.toLowerCase()))
+                .slice(0, 20)
+                .map(p => (
+                  <button
+                    key={p.nombre}
+                    onClick={() => {
+                      setFiltroProveedor(p.nombre);
+                      setBusquedaProveedor(p.nombre);
+                      setShowProveedorDropdown(false);
+                      setPage(1);
+                    }}
+                    className={`w-full text-left px-4 py-2 text-sm hover:bg-orange-50 flex justify-between items-center ${
+                      filtroProveedor === p.nombre ? 'bg-orange-50 text-orange-700 font-medium' : 'text-gray-700'
+                    }`}
+                  >
+                    <span className="truncate mr-2">{p.nombre}</span>
+                    <span className="text-xs text-gray-400 whitespace-nowrap">{p.facturas} fra · {formatEUR(p.total)}</span>
+                  </button>
+                ))}
+              {proveedores.filter(p => !busquedaProveedor || p.nombre.toLowerCase().includes(busquedaProveedor.toLowerCase())).length === 0 && (
+                <p className="px-4 py-3 text-sm text-gray-400">No se encontraron proveedores</p>
+              )}
+            </div>
+          )}
+        </div>
+        {filtroProveedor && (
+          <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full flex items-center gap-1">
+            {filtroProveedor}
+            <button onClick={() => { setFiltroProveedor(''); setBusquedaProveedor(''); setPage(1); }}>
+              <XMarkIcon className="h-3 w-3" />
+            </button>
+          </span>
+        )}
+      </div>
 
       {/* Filtros de estado */}
       <div className="flex gap-2 flex-wrap">
