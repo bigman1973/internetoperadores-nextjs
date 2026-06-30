@@ -2,15 +2,15 @@
  * Parser específico para facturas de Telefónica Móviles España
  * 
  * Estas facturas son kilométricas (100+ páginas) con detalle por extensión/línea.
- * No se usa GPT-4o sino extracción directa de texto con pdf-parse + regex.
+ * No se usa GPT-4o sino extracción directa de texto con pdfjs-dist + regex.
+ * 
+ * Usa pdfjs-dist/legacy (sin canvas) para compatibilidad con Vercel serverless.
  * 
  * Estructura del PDF:
  * - Página 1: Resumen general (total, nº extensiones, fecha, nº factura)
  * - Páginas 2+: Detalle por extensión (Extensión + Teléfono + Cuotas + Llamadas)
  */
 
-// @ts-ignore - pdf-parse tiene problemas de tipos pero funciona en runtime
-import { PDFParse } from 'pdf-parse';
 import { prisma } from '@/lib/prisma';
 
 export interface LineaTelefonica {
@@ -62,17 +62,49 @@ export function esTelefonicaMoviles(nombreArchivo: string, proveedor?: string): 
 }
 
 /**
- * Extrae texto completo de un PDF usando pdf-parse
+ * Extrae texto completo de un PDF usando pdfjs-dist/legacy (sin canvas, compatible serverless)
  */
 async function extraerTextoPDF(pdfBuffer: Buffer): Promise<{ text: string; numPages: number }> {
-  const uint8 = new Uint8Array(pdfBuffer);
-  // @ts-ignore - load es accesible en runtime
-  const parser = new PDFParse(uint8);
-  // @ts-ignore
-  await parser.load();
-  // @ts-ignore
-  const result = await parser.getText();
-  return { text: result.text, numPages: result.total || 0 };
+  // Import dinámico para evitar problemas de bundle
+  const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(pdfBuffer) }).promise;
+  const numPages = doc.numPages;
+  
+  let fullText = '';
+  
+  for (let i = 1; i <= numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    
+    // Reconstruir texto con saltos de línea basados en posición Y
+    let lastY: number | null = null;
+    let lineText = '';
+    
+    for (const item of content.items) {
+      if ('str' in item) {
+        const y = (item as any).transform?.[5] || 0;
+        
+        if (lastY !== null && Math.abs(y - lastY) > 2) {
+          fullText += lineText + '\n';
+          lineText = '';
+        }
+        
+        if (lineText && item.str) {
+          lineText += '\t' + item.str;
+        } else {
+          lineText += item.str;
+        }
+        lastY = y;
+      }
+    }
+    if (lineText) {
+      fullText += lineText + '\n';
+    }
+    fullText += '\n'; // Separador de página
+  }
+  
+  return { text: fullText, numPages };
 }
 
 /**
@@ -93,7 +125,6 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
   const extensionesMatch = text.match(/Extensiones móviles:\s*(\d+)/);
   const tipoContratoMatch = text.match(/Tipo de contrato:\s*([^\n]+)/);
   
-  // Si no encontramos base con el patrón anterior, buscar alternativa
   let baseImponible = baseMatch ? parseFloat(baseMatch[1].replace('.', '').replace(',', '.')) : 0;
   const iva = ivaMatch ? parseFloat(ivaMatch[1].replace('.', '').replace(',', '.')) : 0;
   let totalFactura = totalMatch ? parseFloat(totalMatch[1].replace('.', '').replace(',', '.')) : 0;
@@ -104,25 +135,39 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
   const fecha = parsearFechaTelefonica(fechaStr);
   
   // Dividir por extensiones y extraer datos de cada una
-  const bloques = text.split(/(?=Extensión móvil: \d+)/);
+  const bloques = text.split(/(?=Extensión móvil:\s*\d+)/);
   const lineas: LineaTelefonica[] = [];
   
   for (let i = 1; i < bloques.length; i++) {
     const bloque = bloques[i];
     
-    const extMatch = bloque.match(/Extensión móvil: (\d+)/);
-    const telMatch = bloque.match(/Teléfono (\d{9})/);
-    const otrosMatch = bloque.match(/Otros conceptos\s+([\d.,]+)€/);
-    const llamadasMatch = bloque.match(/Llamadas \([^)]+\)\s+([\d.,]+)€/);
+    const extMatch = bloque.match(/Extensión móvil:\s*(\d+)/);
+    const telMatch = bloque.match(/Teléfono\s*(\d{9})/);
+    
+    // Buscar "Otros conceptos" y "Llamadas" con sus importes
+    const otrosMatch = bloque.match(/Otros conceptos\s+([\d.,]+)/);
+    const llamadasMatch = bloque.match(/Llamadas\s*\([^)]*\)\s+([\d.,]+)/);
+    
+    // También buscar el Total del bloque (aparece como "Total\tXX,XX")
+    const totalBloqueMatch = bloque.match(/Total\s+([\d.,]+)/);
     
     const extension = extMatch ? extMatch[1] : '';
     const telefono = telMatch ? telMatch[1] : '';
     const cuotaMensual = otrosMatch ? parseFloat(otrosMatch[1].replace('.', '').replace(',', '.')) : 0;
     const llamadasImporte = llamadasMatch ? parseFloat(llamadasMatch[1].replace('.', '').replace(',', '.')) : 0;
-    const total = cuotaMensual + llamadasImporte;
+    
+    // Usar el Total del bloque si existe, sino sumar cuota + llamadas
+    let totalLinea = cuotaMensual + llamadasImporte;
+    if (totalBloqueMatch) {
+      const totalBloque = parseFloat(totalBloqueMatch[1].replace('.', '').replace(',', '.'));
+      // Solo usar el total del bloque si es razonable (no es un número de página o similar)
+      if (totalBloque > 0 && totalBloque < 10000 && Math.abs(totalBloque - totalLinea) < totalLinea * 0.5) {
+        totalLinea = totalBloque;
+      }
+    }
     
     // Extraer concepto (tipo de tarifa)
-    const conceptoMatch = bloque.match(/(Dúo\s+\w+\s*(?:Plus\s+)?Corp|Bono\s+\w+|MultiSIM|Tarifa\s+\w+)/);
+    const conceptoMatch = bloque.match(/(Dúo\s+\w+\s*(?:Plus\s+)?Corp|Bono\s+\w+|MultiSIM|Tarifa\s+\w+|Plan\s+\w+)/i);
     const concepto = conceptoMatch ? conceptoMatch[1].trim() : 'Cuota móvil';
     
     if (extension && telefono) {
@@ -131,7 +176,7 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
         telefono,
         cuotaMensual,
         llamadas: llamadasImporte,
-        total,
+        total: totalLinea,
         concepto: `Ext ${extension} - Tel ${telefono} - ${concepto}`,
       });
     }
@@ -144,18 +189,18 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
     baseImponible = sumaLineas;
   }
   if (totalFactura === 0 && baseImponible > 0) {
-    totalFactura = baseImponible * 1.21; // IVA 21%
+    totalFactura = Math.round(baseImponible * 1.21 * 100) / 100;
   }
   
   const descuadre = Math.abs(baseImponible - sumaLineas);
   
-  // Si hay descuadre > 1€, ajustar proporcionalmente
-  if (descuadre > 0.01 && lineas.length > 0) {
+  // Si hay descuadre > 0.01€, ajustar proporcionalmente
+  if (descuadre > 0.01 && lineas.length > 0 && sumaLineas > 0) {
     const factor = baseImponible / sumaLineas;
     for (const linea of lineas) {
-      linea.total = Math.round(linea.total * factor * 10000) / 10000;
-      linea.cuotaMensual = Math.round(linea.cuotaMensual * factor * 10000) / 10000;
-      linea.llamadas = Math.round(linea.llamadas * factor * 10000) / 10000;
+      linea.total = Math.round(linea.total * factor * 100) / 100;
+      linea.cuotaMensual = Math.round(linea.cuotaMensual * factor * 100) / 100;
+      linea.llamadas = Math.round(linea.llamadas * factor * 100) / 100;
     }
   }
   
@@ -218,20 +263,23 @@ export async function vincularLineasConClientes(lineas: LineaTelefonica[]): Prom
   const clienteIds = Array.from(clienteIdsSet);
   
   const clientes = await prisma.clienteWeb.findMany({
-    where: { ispGestionId: { in: clienteIds } },
-    select: { ispGestionId: true, nombre: true },
+    where: { clienteIdIsp: { in: clienteIds } },
+    select: { id: true, clienteIdIsp: true, nombre: true },
   });
-  const mapaClientes = new Map<string, string>();
-  clientes.forEach(c => mapaClientes.set(c.ispGestionId, c.nombre));
+  const mapaClientes = new Map<string, { id: string; nombre: string }>();
+  clientes.forEach(c => {
+    if (c.clienteIdIsp) mapaClientes.set(c.clienteIdIsp, { id: c.id, nombre: c.nombre });
+  });
   
   // Vincular cada línea
   return lineas.map(linea => {
     const match = mapaTelefono.get(linea.telefono);
     if (match) {
+      const cliente = mapaClientes.get(match.clienteId);
       return {
         ...linea,
-        clienteId: match.clienteId,
-        clienteNombre: mapaClientes.get(match.clienteId) || 'Cliente desconocido',
+        clienteId: cliente?.id || match.clienteId,
+        clienteNombre: cliente?.nombre || 'Cliente desconocido',
         contratoId: match.contratoId,
       };
     }
