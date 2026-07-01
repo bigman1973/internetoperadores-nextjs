@@ -117,6 +117,7 @@ export async function POST(
         esInternacional: datos.esInternacional || false,
         paisOrigen: datos.paisOrigen || null,
         telefonoServicio: (datos as any).telefonoServicio || null,
+        fechaVencimiento: (datos as any).fechaVencimiento ? new Date((datos as any).fechaVencimiento) : null,
       },
     });
 
@@ -137,6 +138,7 @@ export async function POST(
         confianza: datos.confianza,
         esInternacional: datos.esInternacional,
         paisOrigen: datos.paisOrigen,
+        fechaVencimiento: datos.fechaVencimiento || null,
         numLineas: lineasConClientes.length,
         lineas: lineasConClientes,
       },

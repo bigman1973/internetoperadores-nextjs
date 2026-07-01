@@ -30,6 +30,7 @@ export interface DatosFactura {
   domicilioProveedor: string | null; // Dirección fiscal del proveedor
   numFactura: string | null;
   fecha: string; // YYYY-MM-DD
+  fechaVencimiento: string | null; // YYYY-MM-DD - fecha de vencimiento de pago
   base: number;
   tipoIva: number;
   importeIva: number;
@@ -55,11 +56,12 @@ export async function extraerDatosFactura(
 ): Promise<DatosFactura> {
   const systemPrompt = `Eres un experto en contabilidad española. Extraes datos de facturas recibidas con máxima precisión.
 SIEMPRE devuelves un JSON válido con los siguientes campos:
-- proveedor: nombre del emisor de la factura (empresa que factura)
-- cif: CIF/NIF/VAT del emisor (formato español: B12345678, o formato extranjero si aplica: EE, DE, FR, NL, etc.)
+- proveedor: nombre del EMISOR de la factura (la empresa que FACTURA y COBRA, NO el destinatario/cliente que paga). ATENCIÓN: en muchas facturas los datos del destinatario (cliente) aparecen de forma prominente en la parte superior. El EMISOR suele tener su CIF/NIF junto a su nombre, y a veces aparece en texto lateral, pie de página, o en una zona menos destacada. Si ves "INTERNET OPERADORES SL" o "B25808619" como destinatario, NO es el emisor. Busca la otra empresa que emite la factura.
+- cif: CIF/NIF/VAT del EMISOR (NO del destinatario). Formato español: A/B + 8 dígitos. Si ves B25808619 (Internet Operadores), ese es el DESTINATARIO, busca el otro CIF.
 - domicilioProveedor: dirección fiscal completa del emisor tal como aparece en la factura (calle, número, ciudad, código postal, país). Si no aparece, pon null
 - numFactura: número de factura exacto tal como aparece en el documento
-- fecha: fecha de emisión de la factura en formato YYYY-MM-DD (IMPORTANTE: lee el año exacto del documento, no inventes)
+- fecha: fecha de EMISIÓN de la factura en formato YYYY-MM-DD. IMPORTANTE: busca la fecha que aparece junto a "Factura" o "Fecha factura" o "Fecha emisión" en la cabecera. En facturas de Telefónica suele ser "Madrid, DD Mes. AA". NO confundas con la fecha de vencimiento. Lee el año exacto del documento.
+- fechaVencimiento: fecha de vencimiento de pago en formato YYYY-MM-DD. Busca textos como "Vencimiento", "Fecha vencimiento", "Vencimiento Factura", "Fecha de pago", "Plazo de pago". Si no aparece, pon null
 - base: base imponible total (número decimal, sin símbolo €)
 - tipoIva: porcentaje de IVA principal aplicado (21, 10, 4, 0). Si es factura intracomunitaria sin IVA, pon 0
 - importeIva: importe total del IVA (número decimal). Si no hay IVA, pon 0
@@ -81,7 +83,8 @@ SIEMPRE devuelves un JSON válido con los siguientes campos:
   - importeNeto: importe REAL facturado de la línea DESPUÉS de aplicar el descuento. Es el importe que aparece en la columna "Total" de la factura. Si no hay descuento, importeNeto = importe
 
 REGLAS IMPORTANTES:
-- Lee la fecha EXACTA del documento. El año es crucial: si pone 2026, es 2026. No confundas con otros años.
+- EMISOR vs DESTINATARIO: La factura la recibe INTERNET OPERADORES SL (B25808619). Ellos son el DESTINATARIO/CLIENTE. El PROVEEDOR/EMISOR es la OTRA empresa que aparece en la factura. En facturas de Telefónica, los datos del emisor pueden aparecer en texto VERTICAL en el lateral izquierdo (ej: "Telefónica Móviles España, S.A.", CIF A78923125, "Ronda de la Comunicación s/n"). NUNCA pongas "Internet Operadores" como proveedor.
+- Lee la fecha de EMISIÓN EXACTA del documento. El año es crucial: si pone 2026, es 2026. No confundas con otros años. NO uses la fecha de vencimiento como fecha de emisión.
 - Si no puedes leer un campo, pon null (excepto números que van a 0)
 - CUADRE CRÍTICO: La suma de todos los importeNeto de las líneas DEBE ser EXACTAMENTE igual a la base imponible total de la factura.
   * importeNeto DEBE leerse DIRECTAMENTE de la columna "Total" o "Importe" final de cada línea en el PDF. NO lo calcules tú.
@@ -262,6 +265,7 @@ REGLAS IMPORTANTES:
       domicilioProveedor: null,
       numFactura: null,
       fecha: new Date().toISOString().split('T')[0],
+      fechaVencimiento: null,
       base: 0,
       tipoIva: 21,
       importeIva: 0,
@@ -273,6 +277,7 @@ REGLAS IMPORTANTES:
       lineas: [],
       esInternacional: false,
       paisOrigen: null,
+      telefonoServicio: null,
     };
   }
 }
@@ -310,6 +315,7 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
     domicilioProveedor: null,
     numFactura,
     fecha,
+    fechaVencimiento: null,
     base: 0,
     tipoIva: 21,
     importeIva: 0,
@@ -321,6 +327,7 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
     lineas: [],
     esInternacional: false,
     paisOrigen: null,
+    telefonoServicio: null,
   };
 }
 
