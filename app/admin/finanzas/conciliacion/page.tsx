@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -35,7 +35,7 @@ interface EstadoConciliacion {
 }
 
 export default function ConciliacionPage() {
-  const panelSugerenciasRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -45,11 +45,15 @@ export default function ConciliacionPage() {
   const [resultadoConciliacion, setResultadoConciliacion] = useState<any>(null);
   const [selectedMov, setSelectedMov] = useState<string | null>(null);
   const [sugerencias, setSugerencias] = useState<Sugerencia[]>([]);
+  const [todasFacturas, setTodasFacturas] = useState<Sugerencia[]>([]);
+  const [totalPendientes, setTotalPendientes] = useState(0);
   const [loadingSugerencias, setLoadingSugerencias] = useState(false);
+  const [buscarFactura, setBuscarFactura] = useState('');
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
   const [cuentas, setCuentas] = useState<any[]>([]);
+  const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
 
   useEffect(() => {
     fetchCuentas();
@@ -87,7 +91,6 @@ export default function ConciliacionPage() {
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
-    // Filtrar por tipo
     if (filtroTipo === 'gastos') movs = movs.filter((m: Movimiento) => m.importe < 0);
     if (filtroTipo === 'ingresos') movs = movs.filter((m: Movimiento) => m.importe > 0);
     setMovimientos(movs);
@@ -114,22 +117,56 @@ export default function ConciliacionPage() {
     setConciliando(false);
   }
 
-  async function fetchSugerencias(movimientoId: string) {
+  async function fetchSugerencias(movimientoId: string, buscar?: string) {
+    if (selectedMov === movimientoId && !buscar) {
+      // Toggle: si ya está seleccionado, cerrar
+      setSelectedMov(null);
+      setSugerencias([]);
+      setTodasFacturas([]);
+      return;
+    }
     setSelectedMov(movimientoId);
     setLoadingSugerencias(true);
     setSugerencias([]);
+    setTodasFacturas([]);
+    setTabSugerencias('sugeridas');
     try {
-      const res = await fetch(`/api/admin/finanzas/conciliacion/sugerencias?movimientoId=${movimientoId}`);
+      const params = new URLSearchParams({ movimientoId });
+      if (buscar) params.set('buscar', buscar);
+      const res = await fetch(`/api/admin/finanzas/conciliacion/sugerencias?${params}`);
       const json = await res.json();
       setSugerencias(json.sugerencias || []);
+      setTodasFacturas(json.todas || []);
+      setTotalPendientes(json.totalPendientes || 0);
+      // Si no hay sugeridas, mostrar todas directamente
+      if ((json.sugerencias || []).length === 0) {
+        setTabSugerencias('todas');
+      }
     } catch (e) {
       console.error(e);
     }
     setLoadingSugerencias(false);
-    // Scroll automático al panel de sugerencias
     setTimeout(() => {
-      panelSugerenciasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 100);
+  }
+
+  async function buscarEnFacturas() {
+    if (selectedMov) {
+      setLoadingSugerencias(true);
+      try {
+        const params = new URLSearchParams({ movimientoId: selectedMov });
+        if (buscarFactura) params.set('buscar', buscarFactura);
+        const res = await fetch(`/api/admin/finanzas/conciliacion/sugerencias?${params}`);
+        const json = await res.json();
+        setSugerencias(json.sugerencias || []);
+        setTodasFacturas(json.todas || []);
+        setTotalPendientes(json.totalPendientes || 0);
+      } catch (e) {
+        console.error(e);
+      }
+      setLoadingSugerencias(false);
+    }
   }
 
   async function conciliarManual(movimientoId: string, facturaId: string) {
@@ -140,6 +177,7 @@ export default function ConciliacionPage() {
     });
     setSelectedMov(null);
     setSugerencias([]);
+    setTodasFacturas([]);
     fetchMovimientos();
     fetchEstado();
   }
@@ -152,6 +190,7 @@ export default function ConciliacionPage() {
     });
     setSelectedMov(null);
     setSugerencias([]);
+    setTodasFacturas([]);
     fetchMovimientos();
     fetchEstado();
   }
@@ -176,6 +215,137 @@ export default function ConciliacionPage() {
   }
 
   const porcentaje = estado ? estado.porcentajeConciliado : 0;
+
+  // Renderizar el panel de sugerencias inline
+  function renderPanelSugerencias(movId: string) {
+    if (selectedMov !== movId) return null;
+    const facturasAMostrar = tabSugerencias === 'sugeridas' ? sugerencias : todasFacturas;
+
+    return (
+      <tr key={`panel-${movId}`}>
+        <td colSpan={6} className="p-0">
+          <div ref={panelRef} className="bg-blue-50 border-t-2 border-b-2 border-blue-300 p-4 space-y-3">
+            {/* Header del panel */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <DocumentTextIcon className="h-5 w-5 text-blue-600" />
+                <h3 className="font-semibold text-gray-900 text-sm">Facturas candidatas</h3>
+                <span className="text-xs text-gray-500">({totalPendientes} pendientes de vincular)</span>
+              </div>
+              <button onClick={() => { setSelectedMov(null); setSugerencias([]); setTodasFacturas([]); }} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Tabs + Buscador */}
+            <div className="flex items-center gap-3">
+              <div className="flex bg-white rounded-lg p-0.5 border">
+                <button
+                  onClick={() => setTabSugerencias('sugeridas')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md ${tabSugerencias === 'sugeridas' ? 'bg-blue-100 text-blue-700' : 'text-gray-500'}`}
+                >
+                  Sugeridas ({sugerencias.length})
+                </button>
+                <button
+                  onClick={() => setTabSugerencias('todas')}
+                  className={`px-3 py-1 text-xs font-medium rounded-md ${tabSugerencias === 'todas' ? 'bg-blue-100 text-blue-700' : 'text-gray-500'}`}
+                >
+                  Todas ({todasFacturas.length})
+                </button>
+              </div>
+              <div className="flex-1 flex items-center gap-2">
+                <div className="relative flex-1 max-w-xs">
+                  <MagnifyingGlassIcon className="h-4 w-4 absolute left-2.5 top-2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar proveedor o nº factura..."
+                    value={buscarFactura}
+                    onChange={(e) => setBuscarFactura(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') buscarEnFacturas(); }}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs border rounded-lg"
+                  />
+                </div>
+                <button
+                  onClick={buscarEnFacturas}
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Buscar
+                </button>
+              </div>
+            </div>
+
+            {/* Categorías rápidas (sin factura) */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-500">Sin factura:</span>
+              {['Otros Gastos', 'Estructura', 'Dietas', 'Gastos Financieros', 'Desplazamientos', 'Impuestos'].map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => marcarNoAplica(movId, cat)}
+                  className="px-2 py-1 bg-white border border-gray-200 rounded hover:bg-gray-100 text-gray-600"
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Lista de facturas */}
+            {loadingSugerencias ? (
+              <p className="text-sm text-gray-400 py-4 text-center">Buscando facturas...</p>
+            ) : facturasAMostrar.length === 0 ? (
+              <p className="text-sm text-gray-500 py-4 text-center">No se encontraron facturas. Prueba con otro término de búsqueda.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {facturasAMostrar.map(sug => (
+                  <div
+                    key={sug.id}
+                    className="flex items-center justify-between p-2.5 bg-white border rounded-lg hover:border-blue-300 hover:shadow-sm transition-all"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm text-gray-900 truncate">{sug.proveedor || sug.cliente || '—'}</span>
+                        <span className="text-xs text-gray-500 flex-shrink-0">{sug.numFactura}</span>
+                        <span className="text-xs text-gray-400 flex-shrink-0">{formatFecha(sug.fecha)}</span>
+                      </div>
+                      {sug.reasons.length > 0 && (
+                        <div className="flex gap-1 mt-0.5">
+                          {sug.reasons.map((r, i) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{r}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                      <span className={`text-sm font-medium ${
+                        Math.abs(sug.total - Math.abs(movimientos.find(m => m.id === selectedMov)?.importe || 0)) < 0.1 
+                          ? 'text-green-700' : 'text-gray-700'
+                      }`}>
+                        {formatEUR(sug.total)}
+                      </span>
+                      {sug.score > 0 && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                          sug.score >= 60 ? 'bg-green-100 text-green-700' :
+                          sug.score >= 30 ? 'bg-amber-100 text-amber-700' :
+                          'bg-gray-100 text-gray-500'
+                        }`}>
+                          {sug.score}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => conciliarManual(movId, sug.id)}
+                        className="px-2.5 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 font-medium"
+                      >
+                        Vincular
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  }
 
   return (
     <div className="p-6 space-y-4">
@@ -287,7 +457,7 @@ export default function ConciliacionPage() {
         </select>
       </div>
 
-      {/* Tabla de movimientos sin conciliar */}
+      {/* Tabla de movimientos */}
       <div className="bg-white border rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -305,63 +475,64 @@ export default function ConciliacionPage() {
               {loading ? (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : movimientos.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">
-                  {filtroTipo === 'gastos' ? 'No hay gastos sin conciliar' : 'No hay movimientos sin conciliar'}
-                </td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No hay movimientos</td></tr>
               ) : (
                 movimientos.map(mov => (
-                  <tr
-                    key={mov.id}
-                    className={`hover:bg-blue-50/30 cursor-pointer transition-colors ${selectedMov === mov.id ? 'bg-blue-50 ring-1 ring-blue-200' : ''}`}
-                    onClick={() => fetchSugerencias(mov.id)}
-                  >
-                    <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{formatFecha(mov.fechaOperacion)}</td>
-                    <td className="px-4 py-2.5">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{mov.cuenta?.banco}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-sm text-gray-900 max-w-md truncate" title={mov.concepto}>{mov.concepto}</td>
-                    <td className={`px-4 py-2.5 text-sm font-medium text-right whitespace-nowrap ${mov.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatEUR(mov.importe)}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
-                        {mov.categoria || 'Sin categoría'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        {mov.conciliado ? (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); desconciliar(mov.id); }}
-                            className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded border border-amber-200"
-                            title="Deshacer conciliación"
-                          >
-                            <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
-                            Deshacer
-                          </button>
-                        ) : (
-                          <>
+                  <>
+                    <tr
+                      key={mov.id}
+                      className={`hover:bg-blue-50/30 cursor-pointer transition-colors ${selectedMov === mov.id ? 'bg-blue-50' : ''}`}
+                      onClick={() => fetchSugerencias(mov.id)}
+                    >
+                      <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{formatFecha(mov.fechaOperacion)}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{mov.cuenta?.banco}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-sm text-gray-900 max-w-md truncate" title={mov.concepto}>{mov.concepto}</td>
+                      <td className={`px-4 py-2.5 text-sm font-medium text-right whitespace-nowrap ${mov.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        {formatEUR(mov.importe)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
+                          {mov.categoria || 'Sin categoría'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          {mov.conciliado ? (
                             <button
-                              onClick={(e) => { e.stopPropagation(); fetchSugerencias(mov.id); }}
-                              className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded border border-blue-200"
-                              title="Buscar facturas candidatas para vincular"
+                              onClick={(e) => { e.stopPropagation(); desconciliar(mov.id); }}
+                              className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded border border-amber-200"
+                              title="Deshacer conciliación"
                             >
-                              <LinkIcon className="h-3.5 w-3.5" />
-                              Vincular
+                              <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
+                              Deshacer
                             </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); marcarNoAplica(mov.id, mov.categoria || 'Otros Gastos'); }}
-                              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-green-700 hover:bg-green-50 rounded border border-gray-200"
-                              title="Marcar como conciliado sin factura asociada"
-                            >
-                              <CheckCircleIcon className="h-3.5 w-3.5" />
-                              OK
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                          ) : (
+                            <>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); fetchSugerencias(mov.id); }}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded border border-blue-200"
+                                title="Buscar facturas candidatas para vincular"
+                              >
+                                <LinkIcon className="h-3.5 w-3.5" />
+                                Vincular
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); marcarNoAplica(mov.id, mov.categoria || 'Otros Gastos'); }}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-green-700 hover:bg-green-50 rounded border border-gray-200"
+                                title="Marcar como conciliado sin factura asociada"
+                              >
+                                <CheckCircleIcon className="h-3.5 w-3.5" />
+                                OK
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {renderPanelSugerencias(mov.id)}
+                  </>
                 ))
               )}
             </tbody>
@@ -371,7 +542,7 @@ export default function ConciliacionPage() {
         {/* Paginación */}
         {total > 30 && (
           <div className="border-t px-4 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">Página {page}</p>
+            <p className="text-xs text-gray-500">Página {page} · {total} movimientos</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Anterior</button>
               <button onClick={() => setPage(p => p + 1)} disabled={movimientos.length < 30} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>
@@ -379,91 +550,6 @@ export default function ConciliacionPage() {
           </div>
         )}
       </div>
-
-      {/* Panel de sugerencias */}
-      {selectedMov && (
-        <div ref={panelSugerenciasRef} className="bg-white border-2 border-blue-300 rounded-lg p-4 space-y-3 shadow-lg">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-              <DocumentTextIcon className="h-5 w-5 text-blue-600" />
-              Facturas candidatas
-            </h3>
-            <button onClick={() => { setSelectedMov(null); setSugerencias([]); }} className="text-gray-400 hover:text-gray-600">
-              <XMarkIcon className="h-5 w-5" />
-            </button>
-          </div>
-
-          {loadingSugerencias ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Buscando facturas candidatas...</p>
-          ) : sugerencias.length === 0 ? (
-            <div className="py-4 text-center">
-              <p className="text-sm text-gray-500">No se encontraron facturas candidatas.</p>
-              <div className="flex gap-2 justify-center mt-3">
-                <button
-                  onClick={() => marcarNoAplica(selectedMov, 'Otros Gastos')}
-                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                >
-                  Marcar como "Otros Gastos"
-                </button>
-                <button
-                  onClick={() => marcarNoAplica(selectedMov, 'Estructura')}
-                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                >
-                  Marcar como "Estructura"
-                </button>
-                <button
-                  onClick={() => marcarNoAplica(selectedMov, 'Dietas')}
-                  className="px-3 py-1.5 text-xs bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                >
-                  Marcar como "Dietas"
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {sugerencias.map(sug => (
-                <div
-                  key={sug.id}
-                  className="flex items-center justify-between p-3 border rounded-lg hover:border-blue-300 hover:bg-blue-50/30 transition-colors"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium text-sm text-gray-900">{sug.proveedor || sug.cliente || '—'}</span>
-                      <span className="text-xs text-gray-500">{sug.numFactura}</span>
-                      <span className="text-xs text-gray-400">{formatFecha(sug.fecha)}</span>
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className={`text-sm font-medium ${Math.abs(sug.total - Math.abs(movimientos.find(m => m.id === selectedMov)?.importe || 0)) < 0.1 ? 'text-green-700' : 'text-gray-700'}`}>
-                        {formatEUR(sug.total)}
-                      </span>
-                      <div className="flex gap-1">
-                        {sug.reasons.map((r, i) => (
-                          <span key={i} className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">{r}</span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      sug.score >= 60 ? 'bg-green-100 text-green-700' :
-                      sug.score >= 30 ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {sug.score}%
-                    </span>
-                    <button
-                      onClick={() => conciliarManual(selectedMov, sug.id)}
-                      className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
-                    >
-                      Vincular
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

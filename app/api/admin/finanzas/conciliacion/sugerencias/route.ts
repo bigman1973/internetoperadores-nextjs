@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 /**
- * GET /api/admin/finanzas/conciliacion/sugerencias?movimientoId=xxx
- * Devuelve facturas candidatas para conciliar con un movimiento bancario
+ * GET /api/admin/finanzas/conciliacion/sugerencias?movimientoId=xxx&buscar=xxx
+ * Devuelve TODAS las facturas pendientes de conciliación, ordenadas por score de coincidencia
  */
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const movimientoId = searchParams.get('movimientoId');
+    const buscar = searchParams.get('buscar') || '';
 
     if (!movimientoId) {
       return NextResponse.json({ error: 'movimientoId requerido' }, { status: 400 });
@@ -26,12 +27,22 @@ export async function GET(req: NextRequest) {
     const esGasto = movimiento.importe < 0;
 
     if (esGasto) {
-      // Buscar facturas recibidas candidatas
+      // Buscar facturas recibidas pendientes de conciliación
+      const whereClause: any = {
+        total: { gt: 0 },
+        movimientos: { none: {} },
+      };
+
+      // Filtro de búsqueda
+      if (buscar) {
+        whereClause.OR = [
+          { proveedor: { contains: buscar, mode: 'insensitive' } },
+          { numFactura: { contains: buscar, mode: 'insensitive' } },
+        ];
+      }
+
       const candidatas = await prisma.facturaRecibida.findMany({
-        where: {
-          total: { gt: 0 },
-          movimientos: { none: {} },
-        },
+        where: whereClause,
         select: {
           id: true,
           proveedor: true,
@@ -41,7 +52,7 @@ export async function GET(req: NextRequest) {
           base: true,
         },
         orderBy: { fecha: 'desc' },
-        take: 200,
+        take: 500,
       });
 
       // Calcular score de matching para cada factura
@@ -59,14 +70,12 @@ export async function GET(req: NextRequest) {
           reasons.push(`Importe ≈ (diff: ${diffImporte.toFixed(2)}€)`);
         } else if (diffImporte / importeAbs < 0.05) {
           score += 15;
-          reasons.push(`Importe similar (${((1 - diffImporte / importeAbs) * 100).toFixed(0)}%)`);
+          reasons.push(`Importe similar`);
         }
 
         // Match por proveedor en concepto
         if (factura.proveedor) {
-          const provNorm = factura.proveedor.toLowerCase().replace(/[^a-z0-9]/g, '');
           const conceptoNorm = movimiento.concepto.toLowerCase().replace(/[^a-z0-9]/g, '');
-          // Buscar partes del nombre del proveedor en el concepto
           const palabrasProveedor = factura.proveedor.toLowerCase().split(/\s+/).filter(p => p.length > 3);
           const matchedWords = palabrasProveedor.filter(p => conceptoNorm.includes(p.replace(/[^a-z0-9]/g, '')));
           if (matchedWords.length > 0) {
@@ -108,9 +117,11 @@ export async function GET(req: NextRequest) {
           reasons,
         };
       })
-      .filter(s => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .sort((a, b) => b.score - a.score);
+
+      // Devolver las top 10 con score > 0 como "sugeridas" y el resto como "todas"
+      const sugeridas = sugerencias.filter(s => s.score > 0).slice(0, 10);
+      const todas = sugerencias.slice(0, 50); // Limitar a 50 para no sobrecargar
 
       return NextResponse.json({
         movimiento: {
@@ -120,15 +131,26 @@ export async function GET(req: NextRequest) {
           fecha: movimiento.fechaOperacion,
         },
         tipo: 'factura_recibida',
-        sugerencias,
+        sugerencias: sugeridas,
+        todas,
+        totalPendientes: candidatas.length,
       });
     } else {
       // Buscar facturas emitidas candidatas para ingresos
+      const whereClause: any = {
+        estado: { in: ['EMITIDA', 'ENVIADA'] },
+        total: { gt: 0 },
+      };
+
+      if (buscar) {
+        whereClause.OR = [
+          { cliente: { contains: buscar, mode: 'insensitive' } },
+          { numFactura: { contains: buscar, mode: 'insensitive' } },
+        ];
+      }
+
       const candidatas = await prisma.facturaEmitida.findMany({
-        where: {
-          estado: { in: ['EMITIDA', 'ENVIADA'] },
-          total: { gt: 0 },
-        },
+        where: whereClause,
         select: {
           id: true,
           numFactura: true,
@@ -138,7 +160,7 @@ export async function GET(req: NextRequest) {
           estado: true,
         },
         orderBy: { fecha: 'desc' },
-        take: 100,
+        take: 500,
       });
 
       const sugerencias = candidatas.map(factura => {
@@ -155,7 +177,6 @@ export async function GET(req: NextRequest) {
         }
 
         if (factura.cliente) {
-          const clienteNorm = factura.cliente.toLowerCase().replace(/[^a-z0-9]/g, '');
           const conceptoNorm = movimiento.concepto.toLowerCase().replace(/[^a-z0-9]/g, '');
           const palabrasCliente = factura.cliente.toLowerCase().split(/\s+/).filter(p => p.length > 3);
           const matchedWords = palabrasCliente.filter(p => conceptoNorm.includes(p.replace(/[^a-z0-9]/g, '')));
@@ -171,9 +192,10 @@ export async function GET(req: NextRequest) {
           reasons,
         };
       })
-      .filter(s => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+      .sort((a, b) => b.score - a.score);
+
+      const sugeridas = sugerencias.filter(s => s.score > 0).slice(0, 10);
+      const todas = sugerencias.slice(0, 50);
 
       return NextResponse.json({
         movimiento: {
@@ -183,7 +205,9 @@ export async function GET(req: NextRequest) {
           fecha: movimiento.fechaOperacion,
         },
         tipo: 'factura_emitida',
-        sugerencias,
+        sugerencias: sugeridas,
+        todas,
+        totalPendientes: candidatas.length,
       });
     }
   } catch (error: any) {
