@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
@@ -76,6 +76,11 @@ export default function FacturasPage() {
 
   // Filtro por conciliación
   const [filtroConciliada, setFiltroConciliada] = useState<'' | 'true' | 'false'>('');
+
+  // Conciliación inline
+  const [concilFacturaId, setConcilFacturaId] = useState<string | null>(null);
+  const [movCandidatos, setMovCandidatos] = useState<any[]>([]);
+  const [loadingConcil, setLoadingConcil] = useState(false);
 
   // Filtro por fecha
   const [filtroFecha, setFiltroFecha] = useState<'todos' | 'mes' | 'trimestre' | 'anio' | 'personalizado'>('todos');
@@ -244,6 +249,36 @@ export default function FacturasPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ estado }),
     });
+    fetchFacturas();
+  }
+
+  async function buscarMovCandidatos(facturaId: string) {
+    if (concilFacturaId === facturaId) {
+      setConcilFacturaId(null);
+      setMovCandidatos([]);
+      return;
+    }
+    setConcilFacturaId(facturaId);
+    setLoadingConcil(true);
+    setMovCandidatos([]);
+    try {
+      const res = await fetch(`/api/admin/finanzas/facturas/${facturaId}/movimientos-candidatos`);
+      const json = await res.json();
+      setMovCandidatos(json.candidatos || []);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoadingConcil(false);
+  }
+
+  async function conciliarDesdeFactura(movimientoId: string, facturaId: string) {
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conciliado: true, facturaId }),
+    });
+    setConcilFacturaId(null);
+    setMovCandidatos([]);
     fetchFacturas();
   }
 
@@ -684,7 +719,8 @@ export default function FacturasPage() {
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
                   return (
-                    <tr key={f.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
+                    <React.Fragment key={f.id}>
+                    <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatFecha(f.fecha)}</td>
                       <td className="px-4 py-3">
                         <a href={`/admin/finanzas/facturas/${f.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline">{f.proveedor}</a>
@@ -718,16 +754,25 @@ export default function FacturasPage() {
                           {estadoInfo.label}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                         {f.movimientos && f.movimientos.length > 0 ? (
                           <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700" title={`Conciliada: ${f.movimientos[0].concepto}`}>
                             <CheckCircleIcon className="h-3.5 w-3.5" />
                             Sí
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400" title="Pendiente de conciliar">
-                            —
-                          </span>
+                          <button
+                            onClick={() => buscarMovCandidatos(f.id)}
+                            className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition-colors ${
+                              concilFacturaId === f.id
+                                ? 'bg-blue-100 border-blue-300 text-blue-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600'
+                            }`}
+                            title="Buscar movimientos bancarios coincidentes"
+                          >
+                            <MagnifyingGlassIcon className="h-3.5 w-3.5" />
+                            Conciliar
+                          </button>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
@@ -764,6 +809,55 @@ export default function FacturasPage() {
                         </div>
                       </td>
                     </tr>
+                    {concilFacturaId === f.id && (
+                      <tr className="concil-row">
+                        <td colSpan={12} className="px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
+                          {loadingConcil ? (
+                            <p className="text-sm text-gray-500">Buscando movimientos...</p>
+                          ) : movCandidatos.length === 0 ? (
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-gray-500">No se encontraron movimientos bancarios coincidentes para esta factura.</p>
+                              <button onClick={() => setConcilFacturaId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cerrar</button>
+                            </div>
+                          ) : (
+                            <div>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-sm font-medium text-blue-800">Movimientos bancarios coincidentes ({movCandidatos.length})</p>
+                                <button onClick={() => setConcilFacturaId(null)} className="text-xs text-gray-400 hover:text-gray-600">✕ Cerrar</button>
+                              </div>
+                              <div className="space-y-1 max-h-48 overflow-y-auto">
+                                {movCandidatos.map(mov => (
+                                  <div key={mov.id} className="flex items-center justify-between bg-white rounded px-3 py-2 border border-gray-200">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-3">
+                                        <span className="text-xs text-gray-500 whitespace-nowrap">{formatFecha(mov.fechaOperacion)}</span>
+                                        <span className="text-xs font-medium text-gray-400">{mov.banco}</span>
+                                        <span className="text-sm text-gray-700 truncate max-w-[300px]">{mov.concepto}</span>
+                                      </div>
+                                      <div className="flex gap-2 mt-0.5">
+                                        {mov.reasons.map((r: string, i: number) => (
+                                          <span key={i} className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">{r}</span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 ml-4">
+                                      <span className="text-sm font-bold text-red-600 whitespace-nowrap">{formatEUR(mov.importe)}</span>
+                                      <button
+                                        onClick={() => conciliarDesdeFactura(mov.id, f.id)}
+                                        className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                      >
+                                        Vincular
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })
               )}
