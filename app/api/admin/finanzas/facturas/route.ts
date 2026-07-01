@@ -22,6 +22,9 @@ export async function GET(req: NextRequest) {
     if (sinImputar === 'true') where.imputacion = null;
     const sinOcr = searchParams.get('sinOcr');
     if (sinOcr === 'true') where.ocrCompletado = false;
+    const conciliada = searchParams.get('conciliada');
+    if (conciliada === 'true') where.movimientos = { some: { conciliado: true } };
+    if (conciliada === 'false') where.movimientos = { none: { conciliado: true } };
 
     // Si solo necesitan el count (para el modal de "aplicar a todas")
     if (countOnly === 'true') {
@@ -35,6 +38,13 @@ export async function GET(req: NextRequest) {
         orderBy: { fecha: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
+        include: {
+          movimientos: {
+            where: { conciliado: true },
+            select: { id: true, fechaOperacion: true, importe: true, concepto: true },
+            take: 1,
+          },
+        },
       }),
       prisma.facturaRecibida.count({ where }),
     ]);

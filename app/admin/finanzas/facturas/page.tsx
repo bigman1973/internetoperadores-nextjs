@@ -30,6 +30,7 @@ interface Factura {
   ocrConfianza?: number;
   carpetaOrigen?: string;
   archivoOneDrive?: string;
+  movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
 }
 
 interface CarpetaStatus {
@@ -73,6 +74,9 @@ export default function FacturasPage() {
   const [busquedaProveedor, setBusquedaProveedor] = useState('');
   const proveedorRef = useRef<HTMLDivElement>(null);
 
+  // Filtro por conciliación
+  const [filtroConciliada, setFiltroConciliada] = useState<'' | 'true' | 'false'>('');
+
   // Filtro por fecha
   const [filtroFecha, setFiltroFecha] = useState<'todos' | 'mes' | 'trimestre' | 'anio' | 'personalizado'>('todos');
   const [fechaDesde, setFechaDesde] = useState('');
@@ -91,7 +95,7 @@ export default function FacturasPage() {
 
   useEffect(() => {
     fetchFacturas();
-  }, [page, filtroEstado, filtroOcr, filtroProveedor, fechaDesde, fechaHasta]);
+  }, [page, filtroEstado, filtroOcr, filtroProveedor, fechaDesde, fechaHasta, filtroConciliada]);
 
   useEffect(() => {
     checkSyncStatus();
@@ -190,6 +194,7 @@ export default function FacturasPage() {
     if (filtroProveedor) params.set('proveedor', filtroProveedor);
     if (fechaDesde) params.set('desde', fechaDesde);
     if (fechaHasta) params.set('hasta', fechaHasta);
+    if (filtroConciliada) params.set('conciliada', filtroConciliada);
     
     const res = await fetch(`/api/admin/finanzas/facturas?${params}`);
     const json = await res.json();
@@ -635,6 +640,19 @@ export default function FacturasPage() {
         >
           Sin imputar
         </button>
+        <span className="border-l mx-1"></span>
+        <button
+          onClick={() => { setFiltroConciliada(filtroConciliada === 'true' ? '' : 'true'); setPage(1); }}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${filtroConciliada === 'true' ? 'bg-green-50 border-green-200 text-green-700' : 'text-gray-600'}`}
+        >
+          Conciliadas
+        </button>
+        <button
+          onClick={() => { setFiltroConciliada(filtroConciliada === 'false' ? '' : 'false'); setPage(1); }}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${filtroConciliada === 'false' ? 'bg-red-50 border-red-200 text-red-700' : 'text-gray-600'}`}
+        >
+          Sin conciliar
+        </button>
       </div>
 
       {/* Tabla */}
@@ -653,14 +671,15 @@ export default function FacturasPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Imputación</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Carpeta</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase" title="Conciliación bancaria">Banco</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
+                <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
               ) : (
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
@@ -698,6 +717,18 @@ export default function FacturasPage() {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${estadoInfo.color}`}>
                           {estadoInfo.label}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {f.movimientos && f.movimientos.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700" title={`Conciliada: ${f.movimientos[0].concepto}`}>
+                            <CheckCircleIcon className="h-3.5 w-3.5" />
+                            Sí
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-400" title="Pendiente de conciliar">
+                            —
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex gap-1 justify-center">
