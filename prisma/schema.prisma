@@ -1107,13 +1107,29 @@ model Gasto {
   departamento    String?
   clienteImputado String?  @map("cliente_imputado")
   imputacion      String?
-  empleado        String?  // Quién generó el gasto
+  empleado        String?  // Quién generó el gasto (nombre)
+  empleadoId      String?  @map("empleado_id") // ID del usuario que subió el ticket
+  // Comercio/Proveedor del ticket
+  comercio        String?  // Nombre del comercio (extraído por OCR)
+  cifComercio     String?  @map("cif_comercio")
+  // Tarjeta asociada
+  tarjeta         String?  // Últimos 4 dígitos o nombre de la tarjeta
+  cuentaBancariaId String? @map("cuenta_bancaria_id")
   // Archivo
   archivoUrl      String?  @map("archivo_url")
+  archivoNombre   String?  @map("archivo_nombre")
+  // OCR
+  ocrCompletado   Boolean  @default(false) @map("ocr_completado")
+  ocrConfianza    Float?   @map("ocr_confianza")
+  datosOcrRaw     String?  @map("datos_ocr_raw") // JSON con datos extraídos
   // Fiscal
   deducibleIva    Boolean  @default(false) @map("deducible_iva")
   baseIva         Float?   @map("base_iva")
   importeIva      Float?   @map("importe_iva")
+  tipoIva         Float?   @map("tipo_iva") // Porcentaje IVA (21, 10, 4, 0)
+  // Impuesto de Sociedades
+  deducibleIS     Boolean  @default(true) @map("deducible_is")
+  categoriaIS     String?  @map("categoria_is") // Categoría para IS
   // Estado
   estado          EstadoGasto @default(PENDIENTE)
   conciliado      Boolean  @default(false)
@@ -1126,6 +1142,8 @@ model Gasto {
   @@index([tipo])
   @@index([fecha])
   @@index([departamento])
+  @@index([empleadoId])
+  @@index([estado])
   @@map("gastos")
 }
 
@@ -1181,6 +1199,16 @@ enum TipoGasto {
   MATERIAL
   SUSCRIPCION
   PERSONAL
+  COMBUSTIBLE
+  PARKING
+  PEAJE
+  MATERIAL_OFICINA
+  SUMINISTROS
+  COMIDA
+  ALOJAMIENTO
+  FORMACION
+  HERRAMIENTAS
+  OTROS
 }
 
 enum EstadoGasto {

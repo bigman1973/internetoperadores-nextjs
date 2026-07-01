@@ -128,6 +128,7 @@ export async function POST(req: NextRequest) {
       conciliadosFacturasEmitidas: 0,
       conciliadosConfirming: 0,
       conciliadosTraspasos: 0,
+      conciliadosGastos: 0,
       errores: [] as string[],
     };
 
@@ -328,7 +329,49 @@ export async function POST(req: NextRequest) {
         resultados.conciliadosTraspasos++;
       }
 
-      // 5. CONCILIACIÓN CON FACTURAS EMITIDAS (Remesas y transferencias recibidas)
+      // 5. CONCILIACIÓN CON TICKETS/GASTOS
+      const gastosCategorizados = ['Dietas', 'Desplazamientos'];
+      const movGastos = await prisma.movimientoBancario.findMany({
+        where: {
+          conciliado: false,
+          importe: { lt: 0 },
+          gastoId: null,
+          categoria: { in: gastosCategorizados },
+        },
+        select: { id: true, importe: true, fechaOperacion: true, concepto: true },
+      });
+
+
+      for (const mov of movGastos) {
+        const importeAbs = Math.abs(mov.importe);
+        const fechaDesde = new Date(mov.fechaOperacion);
+        fechaDesde.setDate(fechaDesde.getDate() - 3);
+        const fechaHasta = new Date(mov.fechaOperacion);
+        fechaHasta.setDate(fechaHasta.getDate() + 3);
+
+        const gastoMatch = await prisma.gasto.findFirst({
+          where: {
+            importe: { gte: importeAbs - 0.05, lte: importeAbs + 0.05 },
+            fecha: { gte: fechaDesde, lte: fechaHasta },
+            conciliado: false,
+          },
+          orderBy: { fecha: 'desc' },
+        });
+
+        if (gastoMatch) {
+          await prisma.movimientoBancario.update({
+            where: { id: mov.id },
+            data: { conciliado: true, gastoId: gastoMatch.id },
+          });
+          await prisma.gasto.update({
+            where: { id: gastoMatch.id },
+            data: { conciliado: true },
+          });
+          resultados.conciliadosGastos++;
+        }
+      }
+
+      // 6. CONCILIACIÓN CON FACTURAS EMITIDAS (Remesas y transferencias recibidas)
       const ingresosClientes = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,

@@ -25,7 +25,8 @@ import {
   MegaphoneIcon,
   WrenchScrewdriverIcon,
   CalculatorIcon,
-  LinkIcon
+  LinkIcon,
+  ReceiptPercentIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -109,6 +110,7 @@ const navigation: NavEntry[] = [
       { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion', icon: LinkIcon },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon },
+      { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon },
       { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon },
     ],
   },
