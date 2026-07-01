@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -147,6 +147,17 @@ export default function ConciliacionPage() {
     });
     setSelectedMov(null);
     setSugerencias([]);
+    fetchMovimientos();
+    fetchEstado();
+  }
+
+  async function desconciliar(movimientoId: string) {
+    if (!confirm('¿Deshacer la conciliación de este movimiento?')) return;
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conciliado: false, facturaId: null, gastoId: null, categoria: null }),
+    });
     fetchMovimientos();
     fetchEstado();
   }
@@ -314,20 +325,35 @@ export default function ConciliacionPage() {
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); fetchSugerencias(mov.id); }}
-                          className="p-1 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded"
-                          title="Buscar facturas candidatas"
-                        >
-                          <LinkIcon className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); marcarNoAplica(mov.id, mov.categoria || 'Otros Gastos'); }}
-                          className="p-1 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded"
-                          title="Marcar como conciliado (sin factura)"
-                        >
-                          <CheckCircleIcon className="h-4 w-4" />
-                        </button>
+                        {mov.conciliado ? (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); desconciliar(mov.id); }}
+                            className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded border border-amber-200"
+                            title="Deshacer conciliación"
+                          >
+                            <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
+                            Deshacer
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); fetchSugerencias(mov.id); }}
+                              className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded border border-blue-200"
+                              title="Buscar facturas candidatas para vincular"
+                            >
+                              <LinkIcon className="h-3.5 w-3.5" />
+                              Vincular
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); marcarNoAplica(mov.id, mov.categoria || 'Otros Gastos'); }}
+                              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-green-700 hover:bg-green-50 rounded border border-gray-200"
+                              title="Marcar como conciliado sin factura asociada"
+                            >
+                              <CheckCircleIcon className="h-3.5 w-3.5" />
+                              OK
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
