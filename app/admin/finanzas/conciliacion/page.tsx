@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
@@ -35,6 +35,7 @@ interface EstadoConciliacion {
 }
 
 export default function ConciliacionPage() {
+  const panelSugerenciasRef = useRef<HTMLDivElement>(null);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -125,6 +126,10 @@ export default function ConciliacionPage() {
       console.error(e);
     }
     setLoadingSugerencias(false);
+    // Scroll automático al panel de sugerencias
+    setTimeout(() => {
+      panelSugerenciasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
   }
 
   async function conciliarManual(movimientoId: string, facturaId: string) {
@@ -377,7 +382,7 @@ export default function ConciliacionPage() {
 
       {/* Panel de sugerencias */}
       {selectedMov && (
-        <div className="bg-white border rounded-lg p-4 space-y-3">
+        <div ref={panelSugerenciasRef} className="bg-white border-2 border-blue-300 rounded-lg p-4 space-y-3 shadow-lg">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
               <DocumentTextIcon className="h-5 w-5 text-blue-600" />
