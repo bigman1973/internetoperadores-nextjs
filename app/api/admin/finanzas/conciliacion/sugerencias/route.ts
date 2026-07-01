@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
           numFactura: true,
           fecha: true,
           total: true,
-          baseImponible: true,
+          base: true,
         },
         orderBy: { fecha: 'desc' },
         take: 200,

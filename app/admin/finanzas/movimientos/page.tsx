@@ -303,13 +303,17 @@ export default function MovimientosPage() {
                     <td className="px-4 py-2.5 text-center">
                       <button
                         onClick={() => actualizarMovimiento(mov.id, { conciliado: !mov.conciliado })}
-                        title={mov.conciliado ? 'Conciliado' : 'Pendiente'}
+                        title={mov.conciliado ? 'Clic para marcar como NO conciliado' : 'Clic para marcar como conciliado'}
+                        className="group relative"
                       >
                         {mov.conciliado ? (
                           <CheckCircleIcon className="h-5 w-5 text-green-500" />
                         ) : (
                           <XCircleIcon className="h-5 w-5 text-gray-300 hover:text-green-400" />
                         )}
+                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          {mov.conciliado ? 'Desconciliar' : 'Conciliar'}
+                        </span>
                       </button>
                     </td>
                   </tr>
