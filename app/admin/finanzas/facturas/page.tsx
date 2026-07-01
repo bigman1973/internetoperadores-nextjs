@@ -14,6 +14,7 @@ interface Factura {
   cif: string | null;
   numFactura: string | null;
   fecha: string;
+  fechaVencimiento: string | null;
   base: number;
   tipoIva: number;
   importeIva: number;
@@ -697,6 +698,7 @@ export default function FacturasPage() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Vto.</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Proveedor</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Nº Factura</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
@@ -712,9 +714,9 @@ export default function FacturasPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={13} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
+                <tr><td colSpan={13} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
               ) : (
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
@@ -722,6 +724,7 @@ export default function FacturasPage() {
                     <React.Fragment key={f.id}>
                     <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatFecha(f.fecha)}</td>
+                      <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{f.fechaVencimiento ? formatFecha(f.fechaVencimiento) : '—'}</td>
                       <td className="px-4 py-3">
                         <a href={`/admin/finanzas/facturas/${f.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline">{f.proveedor}</a>
                         {f.cif && <div className="text-xs text-gray-400">{f.cif}</div>}
@@ -811,7 +814,7 @@ export default function FacturasPage() {
                     </tr>
                     {concilFacturaId === f.id && (
                       <tr className="concil-row">
-                        <td colSpan={12} className="px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
+                        <td colSpan={13} className="px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
                           {loadingConcil ? (
                             <p className="text-sm text-gray-500">Buscando movimientos...</p>
                           ) : movCandidatos.length === 0 ? (

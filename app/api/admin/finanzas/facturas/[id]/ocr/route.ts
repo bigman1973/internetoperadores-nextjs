@@ -213,6 +213,7 @@ async function procesarConParserTelefonica(
         lineasDetalle: JSON.stringify(lineasDetalle),
         esInternacional: false,
         paisOrigen: 'ES',
+        fechaVencimiento: resultado.fechaVencimiento ? new Date(resultado.fechaVencimiento) : null,
       },
     });
     
@@ -225,6 +226,7 @@ async function procesarConParserTelefonica(
         domicilioProveedor: resultado.domicilioProveedor,
         numFactura: resultado.numeroFactura,
         fecha: resultado.fecha,
+        fechaVencimiento: resultado.fechaVencimiento,
         base: resultado.baseImponible,
         tipoIva: 21,
         importeIva: resultado.iva,

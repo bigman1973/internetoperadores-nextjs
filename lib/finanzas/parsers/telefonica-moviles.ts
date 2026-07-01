@@ -30,6 +30,7 @@ export interface ResultadoParserTelefonica {
   cif: string;
   numeroFactura: string;
   fecha: string;
+  fechaVencimiento: string | null;
   baseImponible: number;
   iva: number;
   total: number;
@@ -81,7 +82,8 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
   const { text, numPages } = await extraerTextoPDF(pdfBuffer);
   
   // Extraer datos generales de la cabecera
-  const fechaMatch = text.match(/Madrid,\s+(\d{2}\s+\w+\s+\d{4})/);
+  // Formato fecha: "Madrid, 04 May. 26" (abreviado) o "Madrid, 04 Mayo 2026" (completo)
+  const fechaMatch = text.match(/Madrid,\s+(\d{1,2})\s+(\w+)\.?\s+(\d{2,4})/);
   const facturaMatch = text.match(/Factura\s+([\w-]+)/);
   const cifMatch = text.match(/CIF\/NIF:\s*([\w\d]+)/);
   
@@ -97,9 +99,20 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
   let totalFactura = totalMatch ? parseFloat(totalMatch[1].replace('.', '').replace(',', '.')) : 0;
   const numExtensiones = extensionesMatch ? parseInt(extensionesMatch[1]) : 0;
   
-  // Parsear fecha
-  const fechaStr = fechaMatch ? fechaMatch[1] : '';
-  const fecha = parsearFechaTelefonica(fechaStr);
+  // Parsear fecha - ahora los grupos son: [1]=día, [2]=mes, [3]=año
+  let fecha: string;
+  if (fechaMatch) {
+    fecha = parsearFechaTelefonicaGrupos(fechaMatch[1], fechaMatch[2], fechaMatch[3]);
+  } else {
+    fecha = new Date().toISOString().split('T')[0];
+  }
+  
+  // Extraer fecha de vencimiento
+  const vencimientoMatch = text.match(/Vencimiento\s*(?:Factura)?:?\s*(\d{1,2})\s+(\w+)\.?\s+(\d{2,4})/i);
+  let fechaVencimiento: string | null = null;
+  if (vencimientoMatch) {
+    fechaVencimiento = parsearFechaTelefonicaGrupos(vencimientoMatch[1], vencimientoMatch[2], vencimientoMatch[3]);
+  }
   
   // Dividir por extensiones y extraer datos de cada una
   const bloques = text.split(/(?=Extensión móvil:\s*\d+)/);
@@ -176,6 +189,7 @@ export async function parsearFacturaTelefonicaMoviles(pdfBuffer: Buffer): Promis
     cif: cifMatch ? cifMatch[1] : 'A78923125',
     numeroFactura: facturaMatch ? facturaMatch[1] : '',
     fecha,
+    fechaVencimiento,
     baseImponible,
     iva,
     total: totalFactura,
@@ -255,21 +269,32 @@ export async function vincularLineasConClientes(lineas: LineaTelefonica[]): Prom
 }
 
 /**
- * Parsea fechas en formato "01 Marzo 2026"
+ * Parsea fechas a partir de grupos ya capturados: día, mes (completo o abreviado), año (2 o 4 dígitos)
+ * Soporta: "04", "May" o "Mayo", "26" o "2026"
  */
-function parsearFechaTelefonica(fechaStr: string): string {
+function parsearFechaTelefonicaGrupos(diaStr: string, mesStr: string, anioStr: string): string {
   const meses: Record<string, string> = {
-    'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04',
-    'mayo': '05', 'junio': '06', 'julio': '07', 'agosto': '08',
-    'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12',
+    'ene': '01', 'enero': '01',
+    'feb': '02', 'febrero': '02',
+    'mar': '03', 'marzo': '03',
+    'abr': '04', 'abril': '04',
+    'may': '05', 'mayo': '05',
+    'jun': '06', 'junio': '06',
+    'jul': '07', 'julio': '07',
+    'ago': '08', 'agosto': '08',
+    'sep': '09', 'sept': '09', 'septiembre': '09',
+    'oct': '10', 'octubre': '10',
+    'nov': '11', 'noviembre': '11',
+    'dic': '12', 'diciembre': '12',
   };
   
-  const match = fechaStr.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
-  if (!match) return new Date().toISOString().split('T')[0];
-  
-  const dia = match[1].padStart(2, '0');
-  const mes = meses[match[2].toLowerCase()] || '01';
-  const anio = match[3];
+  const dia = diaStr.padStart(2, '0');
+  const mesKey = mesStr.toLowerCase().replace(/\.$/, ''); // quitar punto final si existe
+  const mes = meses[mesKey] || '01';
+  let anio = anioStr;
+  if (anio.length === 2) {
+    anio = `20${anio}`; // Asumir siglo 21
+  }
   
   return `${anio}-${mes}-${dia}`;
 }
