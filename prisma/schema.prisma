@@ -1127,6 +1127,7 @@ model Gasto {
   // Archivo
   archivoUrl      String?  @map("archivo_url")
   archivoNombre   String?  @map("archivo_nombre")
+  oneDriveItemId  String?  @map("onedrive_item_id_gasto") // ID del item en OneDrive
   // OCR
   ocrCompletado   Boolean  @default(false) @map("ocr_completado")
   ocrConfianza    Float?   @map("ocr_confianza")

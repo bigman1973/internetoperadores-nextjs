@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { put } from '@vercel/blob';
+import { uploadTicketToOneDrive } from '@/lib/finanzas/onedrive-tickets';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 // Roles y emails que pueden ver todos los tickets
 const ROLES_SUPERVISOR = ['SUPER_ADMIN', 'GERENTE'];
@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
  * POST /api/empleado/gastos
  * Subir un nuevo ticket de gasto (FormData)
  * Campos: file, clienteNombre, proyecto, metodoPago, concepto (opcional)
+ * El archivo se sube a OneDrive/SharePoint en la carpeta del trimestre correspondiente
  */
 export async function POST(req: NextRequest) {
   try {
@@ -95,54 +96,74 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Debe seleccionar un cliente' }, { status: 400 });
     }
 
-    // Subir a Vercel Blob
-    const timestamp = Date.now();
-    const safeFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const blobPath = `tickets-empleados/${session.user.email}/${timestamp}-${safeFileName}`;
+    // Convertir archivo a Buffer para subir a OneDrive
+    const arrayBuffer = await file.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+    const fecha = new Date();
 
-    const blob = await put(blobPath, file, {
-      access: 'public',
-      addRandomSuffix: false,
-    });
+    // Subir a OneDrive/SharePoint (carpeta del trimestre correspondiente)
+    let archivoUrl = '';
+    let oneDriveItemId = '';
+
+    try {
+      const uploadResult = await uploadTicketToOneDrive(
+        fileBuffer,
+        file.name,
+        file.type,
+        fecha,
+        session.user.name || session.user.email.split('@')[0]
+      );
+      archivoUrl = uploadResult.webUrl || uploadResult.url;
+      oneDriveItemId = uploadResult.itemId;
+    } catch (uploadError: any) {
+      console.error('Error subiendo a OneDrive:', uploadError);
+      return NextResponse.json({
+        error: `Error subiendo archivo a OneDrive: ${uploadError.message}. Verifique la configuración de Microsoft Graph.`
+      }, { status: 500 });
+    }
 
     // Crear el registro de gasto con estado PENDIENTE_APROBACION
     const gasto = await prisma.gasto.create({
       data: {
         concepto: concepto || file.name,
         importe: 0, // Se rellenará con OCR
-        fecha: new Date(),
+        fecha,
         tipo: 'GASTO_GENERAL',
         empleado: session.user.name || session.user.email,
         empleadoId: session.user.email,
         clienteNombre,
         proyecto: proyecto || null,
         metodoPago: metodoPago as any,
-        archivoUrl: blob.url,
+        archivoUrl,
         archivoNombre: file.name,
         ocrCompletado: false,
         estado: 'PENDIENTE_APROBACION',
         deducibleIS: true,
+        oneDriveItemId: oneDriveItemId || null,
       },
     });
 
-    // Lanzar OCR automáticamente
+    // Lanzar OCR automáticamente (necesita la URL del archivo para descargar)
     let ocrResult = null;
-    try {
-      const ocrRes = await fetch(`${process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'}/api/admin/finanzas/tickets/${gasto.id}/ocr`, {
-        method: 'POST',
-      });
-      ocrResult = await ocrRes.json();
-    } catch (e) {
-      // OCR puede fallar, no bloquea la subida
-      console.error('OCR error (no bloqueante):', e);
+    if (archivoUrl) {
+      try {
+        const ocrRes = await fetch(`${process.env.NEXTAUTH_URL || 'https://www.internetoperadores.com'}/api/admin/finanzas/tickets/${gasto.id}/ocr`, {
+          method: 'POST',
+        });
+        ocrResult = await ocrRes.json();
+      } catch (e) {
+        // OCR puede fallar, no bloquea la subida
+        console.error('OCR error (no bloqueante):', e);
+      }
     }
 
     return NextResponse.json({
       success: true,
       gasto: {
         id: gasto.id,
-        archivoUrl: blob.url,
+        archivoUrl,
         estado: 'PENDIENTE_APROBACION',
+        oneDriveItemId,
       },
       ocr: ocrResult,
     });
