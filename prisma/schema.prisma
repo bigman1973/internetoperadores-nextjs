@@ -1109,6 +1109,15 @@ model Gasto {
   imputacion      String?
   empleado        String?  // Quién generó el gasto (nombre)
   empleadoId      String?  @map("empleado_id") // ID del usuario que subió el ticket
+  // Asignación cliente/proyecto
+  clienteNombre   String?  @map("cliente_nombre") // Cliente al que pertenece el gasto
+  proyecto        String?  // Proyecto (texto libre)
+  // Método de pago del empleado
+  metodoPago      MetodoPagoGasto @default(TARJETA_EMPRESA) @map("metodo_pago")
+  // Aprobación
+  motivoRechazo   String?  @map("motivo_rechazo")
+  aprobadoPor     String?  @map("aprobado_por") // Email del aprobador
+  fechaAprobacion DateTime? @map("fecha_aprobacion")
   // Comercio/Proveedor del ticket
   comercio        String?  // Nombre del comercio (extraído por OCR)
   cifComercio     String?  @map("cif_comercio")
@@ -1213,8 +1222,15 @@ enum TipoGasto {
 
 enum EstadoGasto {
   PENDIENTE
+  PENDIENTE_APROBACION
   APROBADO
+  RECHAZADO
   CONTABILIZADO
+}
+
+enum MetodoPagoGasto {
+  DINERO_PROPIO
+  TARJETA_EMPRESA
 }
 
 enum EstadoCompraMaterial {

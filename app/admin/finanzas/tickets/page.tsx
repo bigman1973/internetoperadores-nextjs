@@ -31,6 +31,11 @@ interface Gasto {
   deducibleIS: boolean;
   categoriaIS: string | null;
   imputacion: string | null;
+  clienteNombre: string | null;
+  proyecto: string | null;
+  metodoPago: string;
+  motivoRechazo: string | null;
+  aprobadoPor: string | null;
   estado: string;
   conciliado: boolean;
   movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
@@ -58,7 +63,9 @@ const TIPOS_GASTO: Record<string, { label: string; color: string }> = {
 
 const ESTADOS_GASTO: Record<string, { label: string; color: string }> = {
   PENDIENTE: { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-700' },
+  PENDIENTE_APROBACION: { label: 'Pte. Aprobación', color: 'bg-amber-100 text-amber-700' },
   APROBADO: { label: 'Aprobado', color: 'bg-green-100 text-green-700' },
+  RECHAZADO: { label: 'Rechazado', color: 'bg-red-100 text-red-700' },
   CONTABILIZADO: { label: 'Contabilizado', color: 'bg-blue-100 text-blue-700' },
 };
 
