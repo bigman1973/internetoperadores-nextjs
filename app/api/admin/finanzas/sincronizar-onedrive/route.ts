@@ -217,7 +217,16 @@ export async function POST(req: NextRequest) {
       // Procesar todas las carpetas en orden
       for (const [key, config] of Object.entries(CARPETAS_CONFIG)) {
         if (totalProcesados >= limite) break;
-        await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial, key);
+        try {
+          await procesarCarpeta(config.nombre, config.imputacion, config.estadoInicial, key);
+        } catch (e: any) {
+          // Si la carpeta no existe (404), simplemente la saltamos
+          if (e.message?.includes('itemNotFound') || e.message?.includes('404')) {
+            console.log(`Carpeta '${config.nombre}' no encontrada, saltando...`);
+            continue;
+          }
+          throw e; // Re-lanzar otros errores
+        }
       }
     } else if (CARPETAS_CONFIG[carpeta]) {
       const config = CARPETAS_CONFIG[carpeta];
