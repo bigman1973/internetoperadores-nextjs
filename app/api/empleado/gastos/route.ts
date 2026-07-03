@@ -6,9 +6,21 @@ import { put } from '@vercel/blob';
 
 export const maxDuration = 30;
 
+// Roles y emails que pueden ver todos los tickets
+const ROLES_SUPERVISOR = ['SUPER_ADMIN', 'GERENTE'];
+const EMAILS_APROBADOR = [
+  'jordi@farmsplanet.es',
+  'lorena.gimeno@internetoperadores.com',
+  'david.perez@internetoperadores.com',
+];
+
+function esSupervisor(email: string, role: string): boolean {
+  return ROLES_SUPERVISOR.includes(role) || EMAILS_APROBADOR.includes(email.toLowerCase());
+}
+
 /**
  * GET /api/empleado/gastos
- * Listar los gastos del empleado autenticado
+ * Listar gastos: SUPER_ADMIN/aprobadores ven todos, empleados solo los suyos
  */
 export async function GET(req: NextRequest) {
   try {
@@ -20,20 +32,29 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
+    const filtroEmpleado = searchParams.get('empleado') || '';
+
+    const verTodos = esSupervisor(session.user.email, session.user.role || '');
+
+    // Si es supervisor, ve todos (o filtra por empleado). Si no, solo los suyos.
+    const where: any = {};
+    if (!verTodos) {
+      where.empleadoId = session.user.email;
+    } else if (filtroEmpleado) {
+      where.empleadoId = filtroEmpleado;
+    }
 
     const [gastos, total] = await Promise.all([
       prisma.gasto.findMany({
-        where: { empleadoId: session.user.email },
+        where,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
-      prisma.gasto.count({
-        where: { empleadoId: session.user.email },
-      }),
+      prisma.gasto.count({ where }),
     ]);
 
-    return NextResponse.json({ gastos, total, page, totalPages: Math.ceil(total / limit) });
+    return NextResponse.json({ gastos, total, page, totalPages: Math.ceil(total / limit), verTodos });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
