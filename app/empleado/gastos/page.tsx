@@ -49,7 +49,7 @@ export default function EmpleadoGastosPage() {
   const [total, setTotal] = useState(0);
   const [verTodos, setVerTodos] = useState(false);
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
-  const [empleados, setEmpleados] = useState<string[]>([]);
+  const [empleados, setEmpleados] = useState<{id: string; email: string; name: string | null}[]>([]);
 
   // Modal de subida
   const [showUpload, setShowUpload] = useState(false);
@@ -83,14 +83,6 @@ export default function EmpleadoGastosPage() {
       setGastos(data.gastos || []);
       setTotal(data.total || 0);
       setVerTodos(data.verTodos || false);
-      // Extraer lista de empleados únicos para el filtro
-      if (data.verTodos && data.gastos) {
-        const emails = [...new Set(data.gastos.map((g: Gasto) => g.empleadoId).filter(Boolean))] as string[];
-        setEmpleados(prev => {
-          const combined = [...new Set([...prev, ...emails])];
-          return combined;
-        });
-      }
     } catch (error) {
       console.error('Error cargando gastos:', error);
     }
@@ -99,15 +91,14 @@ export default function EmpleadoGastosPage() {
 
   useEffect(() => { fetchGastos(); }, [fetchGastos]);
 
-  // Cargar lista completa de empleados al inicio si es supervisor
+  // Cargar lista de usuarios registrados si es supervisor
   useEffect(() => {
     if (verTodos) {
-      fetch('/api/empleado/gastos')
+      fetch('/api/empleado/usuarios')
         .then(res => res.json())
         .then(data => {
-          if (data.gastos) {
-            const emails = [...new Set(data.gastos.map((g: Gasto) => g.empleadoId).filter(Boolean))] as string[];
-            setEmpleados(emails);
+          if (data.usuarios) {
+            setEmpleados(data.usuarios);
           }
         })
         .catch(() => {});
@@ -235,8 +226,8 @@ export default function EmpleadoGastosPage() {
             className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 min-w-[250px]"
           >
             <option value="">Todos los empleados</option>
-            {empleados.map(email => (
-              <option key={email} value={email}>{email}</option>
+            {empleados.map(u => (
+              <option key={u.id} value={u.email}>{u.name || u.email}</option>
             ))}
           </select>
           {filtroEmpleado && (
