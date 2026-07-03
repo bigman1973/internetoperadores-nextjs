@@ -24,6 +24,8 @@ interface Gasto {
   ocrCompletado: boolean;
   estado: string;
   motivoRechazo: string | null;
+  empleado: string | null;
+  empleadoId: string | null;
   createdAt: string;
 }
 
@@ -45,6 +47,9 @@ export default function EmpleadoGastosPage() {
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [verTodos, setVerTodos] = useState(false);
+  const [filtroEmpleado, setFiltroEmpleado] = useState('');
+  const [empleados, setEmpleados] = useState<string[]>([]);
 
   // Modal de subida
   const [showUpload, setShowUpload] = useState(false);
@@ -70,17 +75,44 @@ export default function EmpleadoGastosPage() {
   const fetchGastos = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/empleado/gastos');
+      const url = filtroEmpleado 
+        ? `/api/empleado/gastos?empleado=${encodeURIComponent(filtroEmpleado)}`
+        : '/api/empleado/gastos';
+      const res = await fetch(url);
       const data = await res.json();
       setGastos(data.gastos || []);
       setTotal(data.total || 0);
+      setVerTodos(data.verTodos || false);
+      // Extraer lista de empleados únicos para el filtro
+      if (data.verTodos && data.gastos) {
+        const emails = [...new Set(data.gastos.map((g: Gasto) => g.empleadoId).filter(Boolean))] as string[];
+        setEmpleados(prev => {
+          const combined = [...new Set([...prev, ...emails])];
+          return combined;
+        });
+      }
     } catch (error) {
       console.error('Error cargando gastos:', error);
     }
     setLoading(false);
-  }, []);
+  }, [filtroEmpleado]);
 
   useEffect(() => { fetchGastos(); }, [fetchGastos]);
+
+  // Cargar lista completa de empleados al inicio si es supervisor
+  useEffect(() => {
+    if (verTodos) {
+      fetch('/api/empleado/gastos')
+        .then(res => res.json())
+        .then(data => {
+          if (data.gastos) {
+            const emails = [...new Set(data.gastos.map((g: Gasto) => g.empleadoId).filter(Boolean))] as string[];
+            setEmpleados(emails);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [verTodos]);
 
   // Buscar clientes
   async function buscarClientes(q: string) {
@@ -178,10 +210,10 @@ export default function EmpleadoGastosPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ReceiptPercentIcon className="h-7 w-7 text-orange-600" />
-            Mis Tickets de Gasto
+            {verTodos ? 'Tickets de Gasto - Todos los empleados' : 'Mis Tickets de Gasto'}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Sube tickets de compra para su aprobación y reembolso
+            {verTodos ? 'Vista de supervisor: todos los tickets del equipo' : 'Sube tickets de compra para su aprobación y reembolso'}
           </p>
         </div>
         <button
@@ -192,6 +224,31 @@ export default function EmpleadoGastosPage() {
           Subir Ticket
         </button>
       </div>
+
+      {/* Filtro por empleado (solo SUPER_ADMIN) */}
+      {verTodos && (
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm font-medium text-gray-700">Filtrar por empleado:</label>
+          <select
+            value={filtroEmpleado}
+            onChange={(e) => setFiltroEmpleado(e.target.value)}
+            className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 min-w-[250px]"
+          >
+            <option value="">Todos los empleados</option>
+            {empleados.map(email => (
+              <option key={email} value={email}>{email}</option>
+            ))}
+          </select>
+          {filtroEmpleado && (
+            <button
+              onClick={() => setFiltroEmpleado('')}
+              className="text-sm text-orange-600 hover:underline"
+            >
+              Limpiar filtro
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Resumen rápido */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
