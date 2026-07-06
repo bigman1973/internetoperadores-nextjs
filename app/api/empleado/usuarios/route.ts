@@ -12,27 +12,41 @@ const APROBADORES = [
 ];
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    }
+
+    const email = session.user.email.toLowerCase();
+    const role = session.user.role || '';
+    const esSuperAdmin = email === SUPER_ADMIN_EMAIL || role === 'SUPER_ADMIN';
+    const esAprobador = APROBADORES.includes(email) || role === 'GERENTE';
+
+    if (!esSuperAdmin && !esAprobador) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
+
+    const usuariosAdmin = await prisma.usuarioAdmin.findMany({
+      where: { activo: true },
+      select: {
+        id: true,
+        email: true,
+        nombre: true,
+      },
+      orderBy: { nombre: 'asc' },
+    });
+
+    // Mapear al formato esperado por el frontend
+    const usuarios = usuariosAdmin.map(u => ({
+      id: u.id.toString(),
+      email: u.email,
+      name: u.nombre,
+    }));
+
+    return NextResponse.json({ usuarios });
+  } catch (error: any) {
+    console.error('Error en /api/empleado/usuarios:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
-
-  const email = session.user.email.toLowerCase();
-  const esSuperAdmin = email === SUPER_ADMIN_EMAIL;
-  const esAprobador = APROBADORES.includes(email);
-
-  if (!esSuperAdmin && !esAprobador) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
-  }
-
-  const usuarios = await prisma.user.findMany({
-    select: {
-      id: true,
-      email: true,
-      name: true,
-    },
-    orderBy: { name: 'asc' },
-  });
-
-  return NextResponse.json({ usuarios });
 }
