@@ -1359,3 +1359,146 @@ model ImputacionCosteCliente {
   @@index([createdAt])
   @@map("imputaciones_coste_cliente")
 }
+
+// ============================================================
+// MÓDULO DE EMPLEADOS Y RENTABILIDAD
+// ============================================================
+
+enum EstadoEmpleado {
+  ACTIVO
+  BAJA
+  EXCEDENCIA
+}
+
+enum EstadoProyecto {
+  ACTIVO
+  PAUSADO
+  FINALIZADO
+  CANCELADO
+}
+
+model Empleado {
+  id                String          @id @default(uuid())
+  codigoNomina      String?         @unique @map("codigo_nomina") // Código de la gestoría (000004, etc.)
+  nombreCompleto    String          @map("nombre_completo")
+  nif               String          @unique
+  email             String?         @unique
+  departamento      String?
+  categoria         String?         // GERENTE, COMERCIAL, TÉCNICO, etc.
+  fechaAlta         DateTime?       @map("fecha_alta") @db.Date
+  fechaBaja         DateTime?       @map("fecha_baja") @db.Date
+  estado            EstadoEmpleado  @default(ACTIVO)
+  numAfiliacionSS   String?         @map("num_afiliacion_ss")
+  tarifaCotizacion  Int?            @map("tarifa_cotizacion")
+  costeHoraActual   Float?          @map("coste_hora_actual") // Calculado: costeTotalEmpresa / horas_mes
+  // Relaciones
+  nominas           Nomina[]
+  imputaciones      ImputacionHoras[]
+  asignaciones      AsignacionProyecto[]
+  // Timestamps
+  createdAt         DateTime        @default(now()) @map("created_at")
+  updatedAt         DateTime        @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@index([email])
+  @@map("empleados")
+}
+
+model Nomina {
+  id                      String   @id @default(uuid())
+  empleadoId              String   @map("empleado_id")
+  mes                     Int      // 1-12
+  anio                    Int      // 2026, etc.
+  // Devengos
+  salarioBase             Float?   @map("salario_base")
+  devengadoTotal          Float    @map("devengado_total")
+  complementoEspecie      Float?   @map("complemento_especie") // Salario en especie
+  gastosDesplazamiento    Float?   @map("gastos_desplazamiento")
+  // Deducciones trabajador
+  irpf                    Float?   // Retención IRPF (valor absoluto)
+  porcentajeIrpf          Float?   @map("porcentaje_irpf") // % IRPF
+  ssTrabajador            Float?   @map("ss_trabajador") // Cuota SS trabajador
+  // Neto
+  netoPercibir            Float    @map("neto_percibir") // Líquido a percibir
+  // Bases
+  baseIrpf                Float?   @map("base_irpf")
+  baseSS                  Float?   @map("base_ss")
+  // Costes empresa
+  ssEmpresa               Float?   @map("ss_empresa") // Cuota SS empresa
+  ssTCI                   Float?   @map("ss_tci") // SS Total Coste Integrado
+  costeTotalEmpresa       Float?   @map("coste_total_empresa") // Devengado + SS Empresa
+  // Archivo
+  archivoUrl              String?  @map("archivo_url") // URL del PDF de la nómina
+  archivoNombre           String?  @map("archivo_nombre")
+  // Relación
+  empleado                Empleado @relation(fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  @@unique([empleadoId, mes, anio])
+  @@index([anio, mes])
+  @@map("nominas")
+}
+
+model Proyecto {
+  id              String           @id @default(uuid())
+  nombre          String
+  codigo          String?          @unique // Código corto del proyecto (ej: PRJ-001)
+  clienteNombre   String?          @map("cliente_nombre")
+  clienteId       Int?             @map("cliente_id") // Relación opcional con ClienteWeb
+  descripcion     String?
+  presupuesto     Float?           // Presupuesto total del proyecto
+  estado          EstadoProyecto   @default(ACTIVO)
+  fechaInicio     DateTime?        @map("fecha_inicio") @db.Date
+  fechaFin        DateTime?        @map("fecha_fin") @db.Date
+  // Relaciones
+  imputaciones    ImputacionHoras[]
+  asignaciones    AsignacionProyecto[]
+  // Timestamps
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@map("proyectos")
+}
+
+model AsignacionProyecto {
+  id          String   @id @default(uuid())
+  empleadoId  String   @map("empleado_id")
+  proyectoId  String   @map("proyecto_id")
+  rol         String?  // Rol del empleado en el proyecto
+  porcentaje  Float?   @default(100) // % de dedicación estimada
+  fechaInicio DateTime? @map("fecha_inicio") @db.Date
+  fechaFin    DateTime? @map("fecha_fin") @db.Date
+  activa      Boolean  @default(true)
+  // Relaciones
+  empleado    Empleado @relation(fields: [empleadoId], references: [id])
+  proyecto    Proyecto @relation(fields: [proyectoId], references: [id])
+  // Timestamps
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([empleadoId, proyectoId])
+  @@index([proyectoId])
+  @@map("asignaciones_proyecto")
+}
+
+model ImputacionHoras {
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  proyectoId      String   @map("proyecto_id")
+  fecha           DateTime @db.Date
+  horas           Float
+  descripcion     String?
+  costeImputado   Float?   @map("coste_imputado") // horas × costeHora del empleado
+  // Relaciones
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  proyecto        Proyecto @relation(fields: [proyectoId], references: [id])
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([empleadoId, fecha])
+  @@index([proyectoId, fecha])
+  @@index([fecha])
+  @@map("imputaciones_horas")
+}

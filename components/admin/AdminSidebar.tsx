@@ -27,7 +27,9 @@ import {
   CalculatorIcon,
   LinkIcon,
   ReceiptPercentIcon,
-  UserIcon
+  UserIcon,
+  BriefcaseIcon,
+  FolderIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -118,6 +120,8 @@ const navigation: NavEntry[] = [
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
+  { name: 'Personal', href: '/admin/empleados', icon: BriefcaseIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
+  { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
   { name: 'Portal Empleado', href: '/empleado', icon: UserIcon },
   { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon },
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, roles: ['SUPER_ADMIN'] },

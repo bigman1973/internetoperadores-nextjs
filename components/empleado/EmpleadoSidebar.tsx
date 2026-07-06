@@ -12,6 +12,8 @@ import {
   XMarkIcon,
   CheckBadgeIcon,
   ShieldCheckIcon,
+  DocumentTextIcon,
+  ClockIcon,
 } from '@heroicons/react/24/outline';
 
 interface EmpleadoSidebarProps {
@@ -41,6 +43,8 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
 
   const navItems = [
     { href: '/empleado', label: 'Inicio', icon: HomeIcon },
+    { href: '/empleado/nominas', label: 'Mis Nóminas', icon: DocumentTextIcon },
+    { href: '/empleado/imputaciones', label: 'Imputación de Horas', icon: ClockIcon },
     { href: '/empleado/gastos', label: 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
   ];
 
