@@ -9,6 +9,7 @@ export const maxDuration = 60;
 // Roles y emails que pueden ver todos los tickets
 const ROLES_SUPERVISOR = ['SUPER_ADMIN', 'GERENTE'];
 const EMAILS_APROBADOR = [
+  'victor@lfgd.es',
   'jordi@farmsplanet.es',
   'lorena.gimeno@internetoperadores.com',
   'david.perez@internetoperadores.com',

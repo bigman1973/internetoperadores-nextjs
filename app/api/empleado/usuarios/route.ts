@@ -3,9 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 
-const SUPER_ADMIN_EMAIL = 'victor@internetoperadores.com';
+const SUPER_ADMIN_EMAIL = 'victor@lfgd.es';
 const APROBADORES = [
-  'victor@internetoperadores.com',
+  'victor@lfgd.es',
   'jordi@farmsplanet.es',
   'lorena.gimeno@internetoperadores.com',
   'david.perez@internetoperadores.com',

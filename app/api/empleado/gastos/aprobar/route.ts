@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma';
 
 // Emails que pueden aprobar (además de SUPER_ADMIN y GERENTE)
 const EMAILS_APROBADOR = [
+  'victor@lfgd.es',
   'jordi@farmsplanet.es',
   'lorena.gimeno@internetoperadores.com',
   'david.perez@internetoperadores.com',
