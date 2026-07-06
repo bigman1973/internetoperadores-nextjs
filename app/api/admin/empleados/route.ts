@@ -7,7 +7,7 @@ const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'];
 
 /**
  * GET /api/admin/empleados
- * Listar empleados con sus datos de nómina más reciente
+ * Listar empleados con sus datos de nómina más reciente y KPIs completos
  */
 export async function GET(req: NextRequest) {
   try {
@@ -47,12 +47,15 @@ export async function GET(req: NextRequest) {
       orderBy: { nombreCompleto: 'asc' },
     });
 
-    // Calcular totales
+    // Calcular totales usando la nómina más reciente de cada empleado
     const totales = {
       totalEmpleados: empleados.length,
       totalActivos: empleados.filter(e => e.estado === 'ACTIVO').length,
       totalCosteEmpresa: 0,
+      totalDevengado: 0,
       totalNeto: 0,
+      totalIRPF: 0,
+      totalSSTrabajador: 0,
       totalSSEmpresa: 0,
     };
 
@@ -60,7 +63,10 @@ export async function GET(req: NextRequest) {
       if (emp.nominas.length > 0) {
         const ultimaNomina = emp.nominas[0];
         totales.totalCosteEmpresa += ultimaNomina.costeTotalEmpresa || 0;
+        totales.totalDevengado += ultimaNomina.devengadoTotal || 0;
         totales.totalNeto += ultimaNomina.netoPercibir || 0;
+        totales.totalIRPF += ultimaNomina.irpf || 0;
+        totales.totalSSTrabajador += ultimaNomina.ssTrabajador || 0;
         totales.totalSSEmpresa += ultimaNomina.ssEmpresa || 0;
       }
     });

@@ -55,8 +55,10 @@ export async function GET(
     const resumenAnual = {
       mesesRegistrados: nominasAnio.length,
       totalCosteEmpresa: nominasAnio.reduce((sum, n) => sum + (n.costeTotalEmpresa || 0), 0),
+      totalDevengado: nominasAnio.reduce((sum, n) => sum + (n.devengadoTotal || 0), 0),
       totalNeto: nominasAnio.reduce((sum, n) => sum + n.netoPercibir, 0),
       totalSSEmpresa: nominasAnio.reduce((sum, n) => sum + (n.ssEmpresa || 0), 0),
+      totalSSTrabajador: nominasAnio.reduce((sum, n) => sum + (n.ssTrabajador || 0), 0),
       totalIRPF: nominasAnio.reduce((sum, n) => sum + (n.irpf || 0), 0),
       promedioCosteEmpresaMensual: 0,
     };
