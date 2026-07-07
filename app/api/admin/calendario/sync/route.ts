@@ -24,15 +24,15 @@ export async function POST(request: NextRequest) {
 
     // Obtener mapeo de empleados por nombre
     const empleados = await prisma.empleado.findMany({
-      select: { id: true, nombre: true }
+      select: { id: true, nombreCompleto: true }
     })
     
     const findEmpleadoId = (nombre: string): string | null => {
       if (!nombre) return null
       const normalizado = nombre.toLowerCase().trim()
       const emp = empleados.find(e => 
-        e.nombre.toLowerCase().trim() === normalizado ||
-        normalizado.includes(e.nombre.toLowerCase().split(' ')[0])
+        e.nombreCompleto.toLowerCase().trim() === normalizado ||
+        normalizado.includes(e.nombreCompleto.toLowerCase().split(' ')[0])
       )
       return emp?.id || null
     }
