@@ -270,29 +270,104 @@ export async function POST(req: NextRequest) {
       });
 
       for (const mov of movsDevoluciones) {
-        // Intentar extraer info del concepto
         const importeDevolucion = Math.abs(mov.importe);
+        const fechaDevolucion = new Date(mov.fechaOperacion);
         
-        // Buscar factura con total similar que esté PENDIENTE
-        const facturaMatch = await prisma.factura.findFirst({
+        // Buscar factura por importe exacto en el mes de la devolución o el anterior
+        // (la devolución llega días después de la remesa del mismo mes)
+        const mesDevolucion = fechaDevolucion.getMonth(); // 0-indexed
+        const anioDevolucion = fechaDevolucion.getFullYear();
+        
+        // Buscar en el mes actual y el anterior (la remesa suele ser del día 1)
+        const fechaDesde = new Date(anioDevolucion, mesDevolucion - 1, 1);
+        const fechaHasta = new Date(anioDevolucion, mesDevolucion + 1, 0, 23, 59, 59);
+        
+        // Buscar factura con importe exacto (cualquier estado, no solo PENDIENTE)
+        const facturasMatch = await prisma.factura.findMany({
           where: {
             total: { gte: importeDevolucion - 0.02 as any, lte: importeDevolucion + 0.02 as any },
-            situacion: 'PENDIENTE',
+            fecha: { gte: fechaDesde, lte: fechaHasta },
           },
+          orderBy: { fecha: 'desc' },
         });
+
+        // Si hay match único, asignar. Si hay múltiples del mismo mes, tomar el más reciente.
+        const facturaMatch = facturasMatch.length > 0 ? facturasMatch[0] : null;
+        
+        // Determinar nombre del cliente
+        let nombreCliente = 'DESCONOCIDO';
+        let numeroFactura = 'DESCONOCIDA';
+        if (facturaMatch) {
+          nombreCliente = facturaMatch.nombreCompleto || 'DESCONOCIDO';
+          numeroFactura = facturaMatch.numeroDocumento || 'DESCONOCIDA';
+        } else if (facturasMatch.length === 0) {
+          // Si no hay match exacto, buscar con tolerancia de ±1€ (por redondeos)
+          const facturasAprox = await prisma.factura.findMany({
+            where: {
+              total: { gte: (importeDevolucion - 1) as any, lte: (importeDevolucion + 1) as any },
+              fecha: { gte: fechaDesde, lte: fechaHasta },
+            },
+            orderBy: { fecha: 'desc' },
+            take: 5,
+          });
+          if (facturasAprox.length === 1) {
+            nombreCliente = facturasAprox[0].nombreCompleto || 'DESCONOCIDO';
+            numeroFactura = facturasAprox[0].numeroDocumento || 'DESCONOCIDA';
+          } else if (facturasAprox.length > 1) {
+            nombreCliente = facturasAprox.map(f => f.nombreCompleto).join(' / ');
+            numeroFactura = 'MÚLTIPLES';
+          }
+        }
+
+        // Vincular a la remesa del mismo mes (buscar la remesa LLEIDA o la más grande del mes)
+        const remesaDelMes = await prisma.remesa.findFirst({
+          where: {
+            fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
+          },
+          orderBy: { totalImporte: 'desc' },
+        });
+
+        // Si la factura es de serie CPL (Pallars), buscar remesa Pallars
+        let remesaId = remesaDelMes?.id || null;
+        if (facturaMatch?.numeroDocumento?.startsWith('CPL')) {
+          const remesaPallars = await prisma.remesa.findFirst({
+            where: {
+              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
+              nombre: { contains: 'PALLARS', mode: 'insensitive' },
+            },
+          });
+          if (remesaPallars) remesaId = remesaPallars.id;
+        } else if (facturaMatch?.numeroDocumento?.startsWith('CCM')) {
+          const remesaComunidad = await prisma.remesa.findFirst({
+            where: {
+              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
+              nombre: { contains: 'COMUNIDAD', mode: 'insensitive' },
+            },
+          });
+          if (remesaComunidad) remesaId = remesaComunidad.id;
+        } else if (facturaMatch?.numeroDocumento?.startsWith('CMV')) {
+          const remesaMoviles = await prisma.remesa.findFirst({
+            where: {
+              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
+              nombre: { contains: 'MÓVIL', mode: 'insensitive' },
+            },
+          });
+          if (remesaMoviles) remesaId = remesaMoviles.id;
+        }
 
         await prisma.devolucionRemesa.create({
           data: {
             facturaId: facturaMatch?.id || null,
+            remesaId: remesaId,
             movimientoBancarioId: mov.id,
-            numeroFactura: facturaMatch?.numeroDocumento || 'DESCONOCIDA',
-            nombreCliente: facturaMatch?.nombreCompleto || mov.concepto.substring(0, 100),
+            numeroFactura: numeroFactura,
+            nombreCliente: nombreCliente,
             importe: importeDevolucion,
             motivo: 'Detectada automáticamente desde banco',
             fechaDevolucion: mov.fechaOperacion,
             estado: 'PENDIENTE',
-            mesDevolucion: mov.fechaOperacion.getMonth() + 1,
-            anioDevolucion: mov.fechaOperacion.getFullYear(),
+            mesDevolucion: mesDevolucion + 1,
+            anioDevolucion: anioDevolucion,
             archivoOrigen: 'banco_automatico',
           },
         });
