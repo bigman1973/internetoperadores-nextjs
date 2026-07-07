@@ -7,6 +7,7 @@ interface Usuario {
   email: string;
   nombre: string;
   rol: string;
+  roles: string[];
   activo: boolean;
   ultimoAcceso: string | null;
   createdAt: string;
@@ -15,9 +16,10 @@ interface Usuario {
 const ROLES = [
   { value: 'SUPER_ADMIN', label: 'Super Admin', color: 'bg-red-100 text-red-800' },
   { value: 'GERENTE', label: 'Gerente', color: 'bg-purple-100 text-purple-800' },
-  { value: 'EDITOR', label: 'Editor', color: 'bg-blue-100 text-blue-800' },
-  { value: 'VISOR', label: 'Visor', color: 'bg-gray-100 text-gray-800' },
-  { value: 'FINANCIERO', label: 'Financiero', color: 'bg-green-100 text-green-800' },
+  { value: 'MARKETING', label: 'Marketing', color: 'bg-pink-100 text-pink-800' },
+  { value: 'VENTAS', label: 'Ventas', color: 'bg-blue-100 text-blue-800' },
+  { value: 'CONTABILIDAD', label: 'Contabilidad', color: 'bg-green-100 text-green-800' },
+  { value: 'RRHH', label: 'RRHH', color: 'bg-yellow-100 text-yellow-800' },
 ];
 
 export default function UsuariosAdminClient() {
@@ -29,7 +31,8 @@ export default function UsuariosAdminClient() {
     email: '',
     nombre: '',
     password: '',
-    rol: 'EDITOR',
+    rol: 'VENTAS',
+    roles: ['VENTAS'] as string[],
     activo: true,
   });
   const [saving, setSaving] = useState(false);
@@ -54,7 +57,7 @@ export default function UsuariosAdminClient() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    setFormData({ email: '', nombre: '', password: '', rol: 'EDITOR', activo: true });
+    setFormData({ email: '', nombre: '', password: '', rol: 'VENTAS', roles: ['VENTAS'], activo: true });
     setError('');
     setShowModal(true);
   };
@@ -66,6 +69,7 @@ export default function UsuariosAdminClient() {
       nombre: user.nombre,
       password: '',
       rol: user.rol,
+      roles: user.roles || [user.rol],
       activo: user.activo,
     });
     setError('');
@@ -83,6 +87,7 @@ export default function UsuariosAdminClient() {
         const body: any = {
           nombre: formData.nombre,
           rol: formData.rol,
+          roles: formData.roles,
           activo: formData.activo,
         };
         if (formData.password) {
@@ -262,10 +267,17 @@ export default function UsuariosAdminClient() {
                       <div className="text-sm text-gray-500">{user.email}</div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${rolBadge.color}`}>
-                      {rolBadge.label}
-                    </span>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(user.roles && user.roles.length > 0 ? user.roles : [user.rol]).map((r) => {
+                        const badge = getRolBadge(r);
+                        return (
+                          <span key={r} className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${badge.color}`}>
+                            {badge.label}
+                          </span>
+                        );
+                      })}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <button
@@ -363,16 +375,49 @@ export default function UsuariosAdminClient() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Rol</label>
+                  <label className="block text-sm font-medium text-gray-700">Rol Principal</label>
                   <select
                     value={formData.rol}
-                    onChange={(e) => setFormData({ ...formData, rol: e.target.value })}
+                    onChange={(e) => {
+                      const newRol = e.target.value;
+                      setFormData({ 
+                        ...formData, 
+                        rol: newRol,
+                        roles: formData.roles.includes(newRol) ? formData.roles : [...formData.roles, newRol]
+                      });
+                    }}
                     className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500"
                   >
                     {ROLES.map((rol) => (
                       <option key={rol.value} value={rol.value}>{rol.label}</option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Roles Adicionales</label>
+                  <div className="space-y-2">
+                    {ROLES.filter(r => r.value !== 'SUPER_ADMIN').map((rol) => (
+                      <label key={rol.value} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={formData.roles.includes(rol.value)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({ ...formData, roles: [...formData.roles, rol.value] });
+                            } else {
+                              setFormData({ ...formData, roles: formData.roles.filter(r => r !== rol.value) });
+                            }
+                          }}
+                          className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                        />
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${rol.color}`}>
+                          {rol.label}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Un usuario puede tener varios roles simultáneamente</p>
                 </div>
 
                 {editingUser && (

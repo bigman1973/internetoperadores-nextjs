@@ -29,11 +29,12 @@ export async function PUT(
     }
 
     const body = await request.json()
-    const { nombre, password, rol, activo } = body
+    const { nombre, password, rol, roles, activo } = body
 
     const updateData: any = {}
     if (nombre !== undefined) updateData.nombre = nombre
     if (rol !== undefined) updateData.rol = rol
+    if (roles !== undefined) updateData.roles = roles
     if (activo !== undefined) updateData.activo = activo
     if (password) {
       updateData.passwordHash = await bcrypt.hash(password, 10)
@@ -47,6 +48,7 @@ export async function PUT(
         email: true,
         nombre: true,
         rol: true,
+        roles: true,
         activo: true,
         ultimoAcceso: true,
         createdAt: true,

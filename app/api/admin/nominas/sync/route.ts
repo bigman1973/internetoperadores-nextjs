@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma';
 import { findCostesFiles, downloadCostesFile } from '@/lib/microsoft-graph';
 import { parseCostesIOPdf, type ParseSummary } from '@/lib/nominas-parser';
 
-const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'];
+const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
 
 /**
  * GET /api/admin/nominas/sync

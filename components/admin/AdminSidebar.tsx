@@ -34,6 +34,7 @@ import {
   CloudArrowUpIcon,
   SunIcon
 } from '@heroicons/react/24/outline'
+import { useRole } from './RoleContext'
 
 // Context para compartir el estado del sidebar entre componentes
 export const SidebarContext = createContext<{
@@ -62,6 +63,7 @@ interface AdminSidebarProps {
     name: string
     email: string
     role?: string
+    roles?: string[]
   }
 }
 
@@ -69,12 +71,13 @@ interface NavItem {
   name: string
   href: string
   icon: any
-  roles?: string[]
+  section?: string // Sección para verificar permisos
 }
 
 interface NavGroup {
   name: string
   icon: any
+  section?: string // Sección del grupo
   children: NavItem[]
 }
 
@@ -85,11 +88,12 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 }
 
 const navigation: NavEntry[] = [
-  { name: 'Dashboard', href: '/admin', icon: HomeIcon },
-  { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon },
+  { name: 'Dashboard', href: '/admin', icon: HomeIcon, section: 'dashboard' },
+  { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon, section: 'tarifas' },
   {
     name: 'Clientes',
     icon: UsersIcon,
+    section: 'clientes',
     children: [
       { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon },
       { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon },
@@ -98,35 +102,37 @@ const navigation: NavEntry[] = [
   {
     name: 'Leads',
     icon: InboxStackIcon,
+    section: 'leads',
     children: [
       { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon },
       { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon },
       { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon },
     ],
   },
-  { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon },
-  { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon },
-  { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon },
-  { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon },
+  { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon, section: 'comunicados' },
+  { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon, section: 'altas-pendientes' },
+  { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon, section: 'contratos' },
+  { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon, section: 'facturacion' },
   {
     name: 'Finanzas',
     icon: CalculatorIcon,
+    section: 'finanzas',
     children: [
-      { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon },
-      { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon },
-      { name: 'Conciliación', href: '/admin/finanzas/conciliacion', icon: LinkIcon },
-      { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon },
-      { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon },
-      { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon },
+      { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon, section: 'finanzas' },
+      { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
+      { name: 'Conciliación', href: '/admin/finanzas/conciliacion', icon: LinkIcon, section: 'finanzas' },
+      { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
+      { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon, section: 'finanzas-tickets' },
+      { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon, section: 'finanzas' },
     ],
   },
-  { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
-  { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
-  { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
+  { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon, section: 'estadisticas' },
+  { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, section: 'usuarios' },
+  { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, section: 'subida-precios' },
   {
     name: 'Personal',
     icon: BriefcaseIcon,
-    roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'],
+    section: 'personal',
     children: [
       { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon },
       { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon },
@@ -134,15 +140,16 @@ const navigation: NavEntry[] = [
       { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon },
     ],
   },
-  { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
-  { name: 'Portal Empleado', href: '/empleado', icon: UserIcon },
-  { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon },
-  { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, roles: ['SUPER_ADMIN'] },
+  { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
+  { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'dashboard' },
+  { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon, section: 'historial' },
+  { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
 ]
 
 function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<string[]>([])
+  const { hasAccess, effectiveRole, isViewingAs } = useRole()
 
   // Auto-abrir el grupo si la ruta actual está dentro
   useEffect(() => {
@@ -164,12 +171,15 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
     )
   }
 
-  const canAccess = (item: NavItem) => {
-    if (!item.roles) return true
-    return item.roles.includes(user.role || '')
+  const canAccess = (item: NavItem | NavGroup) => {
+    const section = item.section || 'dashboard'
+    return hasAccess(section)
   }
 
   const renderNavItem = (item: NavItem, isChild = false) => {
+    // Verificar permisos del item hijo
+    if (item.section && !hasAccess(item.section)) return null
+
     const isActive = pathname === item.href || 
       (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
       (item.href === '/admin' && pathname === '/admin')
@@ -228,7 +238,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
         </button>
         {isOpen && (
           <ul className="mt-1 space-y-1">
-            {group.children.filter(canAccess).map((child) => renderNavItem(child, true))}
+            {group.children.map((child) => renderNavItem(child, true))}
           </ul>
         )}
       </li>
@@ -247,6 +257,13 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
         </Link>
       </div>
 
+      {/* Indicador de modo "Ver como" */}
+      {isViewingAs && (
+        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 font-medium">
+          👁 Viendo como: <span className="font-bold">{effectiveRole.replace('_', ' ')}</span>
+        </div>
+      )}
+
       {/* Navigation */}
       <nav className="flex flex-1 flex-col">
         <ul role="list" className="flex flex-1 flex-col gap-y-7">
@@ -254,6 +271,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
             <ul role="list" className="-mx-2 space-y-1">
               {navigation.map((entry) => {
                 if (isGroup(entry)) {
+                  if (!canAccess(entry)) return null
                   return renderNavGroup(entry)
                 }
                 if (!canAccess(entry)) return null

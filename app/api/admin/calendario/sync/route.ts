@@ -4,7 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 const SYNC_SECRET = process.env.HRLOG_SYNC_SECRET || 'hrlog-sync-io-2026-s3cr3t'
-const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO', 'RRHH']
+const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'RRHH']
 
 // POST /api/admin/calendario/sync
 // Recibe datos de HRLog y los guarda en la BD

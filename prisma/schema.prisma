@@ -13,7 +13,8 @@ model UsuarioAdmin {
   email            String            @unique
   passwordHash     String            @map("password_hash")
   nombre           String
-  rol              RolAdmin          @default(EDITOR)
+  rol              RolAdmin          @default(VENTAS)
+  roles            String[]           @default([])  // Multi-rol: ["VENTAS", "MARKETING", etc.]
   activo           Boolean           @default(true)
   ultimoAcceso     DateTime?         @map("ultimo_acceso")
   createdAt        DateTime          @default(now()) @map("created_at")
@@ -311,9 +312,10 @@ model NotificacionCliente {
 enum RolAdmin {
   SUPER_ADMIN
   GERENTE
-  EDITOR
-  VISOR
-  FINANCIERO
+  MARKETING
+  VENTAS
+  CONTABILIDAD
+  RRHH
 }
 
 enum TipoCliente {

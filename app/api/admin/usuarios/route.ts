@@ -20,6 +20,7 @@ export async function GET() {
         email: true,
         nombre: true,
         rol: true,
+        roles: true,
         activo: true,
         ultimoAcceso: true,
         createdAt: true,
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { email, nombre, password, rol } = body
+    const { email, nombre, password, rol, roles } = body
 
     if (!email || !nombre || !password || !rol) {
       return NextResponse.json({ error: 'Todos los campos son obligatorios' }, { status: 400 })
@@ -72,6 +73,7 @@ export async function POST(request: Request) {
         nombre,
         passwordHash,
         rol: rol as any,
+        roles: roles || [rol],
         activo: true,
       },
       select: {
@@ -79,6 +81,7 @@ export async function POST(request: Request) {
         email: true,
         nombre: true,
         rol: true,
+        roles: true,
         activo: true,
         createdAt: true,
       },

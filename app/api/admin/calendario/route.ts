@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO', 'RRHH', 'VISOR']
+const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'RRHH']
 
 // GET /api/admin/calendario?year=2026&month=7&tipo=VACACIONES
 export async function GET(request: NextRequest) {

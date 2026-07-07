@@ -60,6 +60,7 @@ export const authOptions: NextAuthOptions = {
               email: admin.email,
               name: admin.nombre,
               role: admin.rol,
+              roles: admin.roles || [],
               userType: 'admin'
             }
           } else if (credentials.userType === 'cliente') {
@@ -158,13 +159,14 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (!admin) {
-          // Auto-crear usuario con rol VISOR (solo lectura)
+          // Auto-crear usuario con rol VENTAS por defecto
           admin = await prisma.usuarioAdmin.create({
             data: {
               email,
               nombre: user.name || email.split('@')[0],
               passwordHash: '', // No necesita password, usa Microsoft
-              rol: 'VISOR',
+              rol: 'VENTAS',
+              roles: ['VENTAS'],
               activo: true,
             }
           })
@@ -184,6 +186,7 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = user.id
         token.role = user.role
+        token.roles = user.roles || []
         token.userType = user.userType
       }
 
@@ -195,6 +198,7 @@ export const authOptions: NextAuthOptions = {
         if (admin) {
           token.id = admin.id.toString()
           token.role = admin.rol
+          token.roles = admin.roles || []
           token.userType = 'admin'
         }
       }
@@ -205,6 +209,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         session.user.id = token.id as string
         session.user.role = token.role as string
+        session.user.roles = (token.roles as string[]) || []
         session.user.userType = token.userType as 'admin' | 'cliente'
       }
       return session
