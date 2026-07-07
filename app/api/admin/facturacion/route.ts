@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
-// V-Valley client ID in ISP Gestión (id_cliente in facturas table)
+// IDs de mayoristas en ISP Gestión (id_cliente in facturas table)
 const VVALLEY_ID_CLIENTE = 1969
+const ARROW_ID_CLIENTE = 1851
+const IPSNORTE_ID_CLIENTE = 1967
+const MAYORISTAS_IDS = [VVALLEY_ID_CLIENTE, ARROW_ID_CLIENTE, IPSNORTE_ID_CLIENTE]
 
 export async function GET() {
   try {
@@ -28,16 +31,36 @@ export async function GET() {
     const vvalleyFacturas = facturas.filter(f => f.idCliente === VVALLEY_ID_CLIENTE)
     const totalVValley = vvalleyFacturas.reduce((sum, f) => sum + Number(f.total), 0)
 
-    // Facturación por mes (incluyendo V-Valley)
-    const porMesMap: Record<string, { total: number; count: number; vvalleyTotal: number; vvalleyCount: number }> = {}
+    // Arrow facturas
+    const arrowFacturas = facturas.filter(f => f.idCliente === ARROW_ID_CLIENTE)
+    const totalArrow = arrowFacturas.reduce((sum, f) => sum + Number(f.total), 0)
+
+    // IPS Norte facturas
+    const ipsNorteFacturas = facturas.filter(f => f.idCliente === IPSNORTE_ID_CLIENTE)
+    const totalIpsNorte = ipsNorteFacturas.reduce((sum, f) => sum + Number(f.total), 0)
+
+    // Mayoristas (V-Valley + Arrow + IPS Norte)
+    const mayoristasFacturas = facturas.filter(f => MAYORISTAS_IDS.includes(f.idCliente!))
+    const totalMayoristas = mayoristasFacturas.reduce((sum, f) => sum + Number(f.total), 0)
+
+    // Facturación por mes (incluyendo V-Valley, Arrow e IPS Norte)
+    const porMesMap: Record<string, { total: number; count: number; vvalleyTotal: number; vvalleyCount: number; arrowTotal: number; arrowCount: number; ipsNorteTotal: number; ipsNorteCount: number }> = {}
     facturas.forEach(f => {
       const mes = f.fecha.toISOString().substring(0, 7)
-      if (!porMesMap[mes]) porMesMap[mes] = { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0 }
+      if (!porMesMap[mes]) porMesMap[mes] = { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0, arrowTotal: 0, arrowCount: 0, ipsNorteTotal: 0, ipsNorteCount: 0 }
       porMesMap[mes].total += Number(f.total)
       porMesMap[mes].count += 1
       if (f.idCliente === VVALLEY_ID_CLIENTE) {
         porMesMap[mes].vvalleyTotal += Number(f.total)
         porMesMap[mes].vvalleyCount += 1
+      }
+      if (f.idCliente === ARROW_ID_CLIENTE) {
+        porMesMap[mes].arrowTotal += Number(f.total)
+        porMesMap[mes].arrowCount += 1
+      }
+      if (f.idCliente === IPSNORTE_ID_CLIENTE) {
+        porMesMap[mes].ipsNorteTotal += Number(f.total)
+        porMesMap[mes].ipsNorteCount += 1
       }
     })
 
@@ -55,14 +78,21 @@ export async function GET() {
     const resumenMensual = Array.from(allMeses)
       .sort()
       .map(mes => {
-        const facData = porMesMap[mes] || { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0 }
+        const facData = porMesMap[mes] || { total: 0, count: 0, vvalleyTotal: 0, vvalleyCount: 0, arrowTotal: 0, arrowCount: 0, ipsNorteTotal: 0, ipsNorteCount: 0 }
         const remData = remesasPorMesMap[mes] || { total: 0, count: 0 }
+        const mayoristasTotal = facData.vvalleyTotal + facData.arrowTotal + facData.ipsNorteTotal
         return {
           mes,
           totalFacturado: facData.total,
           numFacturas: facData.count,
           vvalleyFacturado: facData.vvalleyTotal,
           vvalleyNumFacturas: facData.vvalleyCount,
+          arrowFacturado: facData.arrowTotal,
+          arrowNumFacturas: facData.arrowCount,
+          ipsNorteFacturado: facData.ipsNorteTotal,
+          ipsNorteNumFacturas: facData.ipsNorteCount,
+          mayoristasTotal,
+          mayoristasPorcentaje: facData.total > 0 ? (mayoristasTotal / facData.total) * 100 : 0,
           vvalleyPorcentaje: facData.total > 0 ? (facData.vvalleyTotal / facData.total) * 100 : 0,
           totalRemesado: remData.total,
           numRemesas: remData.count,
@@ -119,6 +149,15 @@ export async function GET() {
         vvalleyTotal: totalVValley,
         vvalleyFacturas: vvalleyFacturas.length,
         vvalleyPorcentaje: totalFacturado > 0 ? (totalVValley / totalFacturado) * 100 : 0,
+        arrowTotal: totalArrow,
+        arrowFacturas: arrowFacturas.length,
+        arrowPorcentaje: totalFacturado > 0 ? (totalArrow / totalFacturado) * 100 : 0,
+        ipsNorteTotal: totalIpsNorte,
+        ipsNorteFacturas: ipsNorteFacturas.length,
+        ipsNortePorcentaje: totalFacturado > 0 ? (totalIpsNorte / totalFacturado) * 100 : 0,
+        mayoristasTotal: totalMayoristas,
+        mayoristasFacturas: mayoristasFacturas.length,
+        mayoristasPorcentaje: totalFacturado > 0 ? (totalMayoristas / totalFacturado) * 100 : 0,
       },
       facturas: facturas.map(f => ({
         id: f.id,

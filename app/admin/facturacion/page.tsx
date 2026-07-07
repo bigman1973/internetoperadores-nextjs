@@ -36,6 +36,12 @@ interface ResumenMensual {
   numFacturas: number
   vvalleyFacturado: number
   vvalleyNumFacturas: number
+  arrowFacturado: number
+  arrowNumFacturas: number
+  ipsNorteFacturado: number
+  ipsNorteNumFacturas: number
+  mayoristasTotal: number
+  mayoristasPorcentaje: number
   vvalleyPorcentaje: number
   totalRemesado: number
   numRemesas: number
@@ -127,6 +133,9 @@ export default function FacturacionPage() {
   // Calcular totales del resumen
   const totalAnualFacturado = resumenMensual.reduce((s, m) => s + m.totalFacturado, 0)
   const totalAnualVValley = resumenMensual.reduce((s, m) => s + m.vvalleyFacturado, 0)
+  const totalAnualArrow = resumenMensual.reduce((s, m) => s + m.arrowFacturado, 0)
+  const totalAnualIpsNorte = resumenMensual.reduce((s, m) => s + m.ipsNorteFacturado, 0)
+  const totalAnualMayoristas = resumenMensual.reduce((s, m) => s + m.mayoristasTotal, 0)
   const totalAnualRemesado = resumenMensual.reduce((s, m) => s + m.totalRemesado, 0)
 
   return (
@@ -194,7 +203,7 @@ export default function FacturacionPage() {
         <div className="bg-white rounded-lg shadow border border-gray-200 mb-6 overflow-hidden">
           <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-900">Resumen Mensual 2026</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Facturación total, V-Valley y remesas por mes</p>
+            <p className="text-xs text-gray-500 mt-0.5">Facturación total, mayoristas (V-Valley + Arrow) y remesas por mes</p>
           </div>
 
           {/* Vista Desktop: Tabla */}
@@ -206,6 +215,8 @@ export default function FacturacionPage() {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Facturación Total</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Fact.</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-purple-600 uppercase tracking-wider">V-Valley</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-600 uppercase tracking-wider">Arrow</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-teal-600 uppercase tracking-wider">IPS Norte</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-purple-600 uppercase tracking-wider">% Total</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-blue-600 uppercase tracking-wider">Remesado</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Rem.</th>
@@ -242,14 +253,32 @@ export default function FacturacionPage() {
                           <span className="text-sm text-gray-300">-</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-right">
+                        {m.arrowFacturado > 0 ? (
+                          <span className="text-sm font-semibold text-indigo-700 tabular-nums">
+                            {formatCurrency(m.arrowFacturado)}&euro;
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-300">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {m.ipsNorteFacturado > 0 ? (
+                          <span className="text-sm font-semibold text-teal-700 tabular-nums">
+                            {formatCurrency(m.ipsNorteFacturado)}&euro;
+                          </span>
+                        ) : (
+                          <span className="text-sm text-gray-300">-</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">
-                        {m.vvalleyPorcentaje > 0 ? (
+                        {m.mayoristasPorcentaje > 0 ? (
                           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${
-                            m.vvalleyPorcentaje > 20 ? 'bg-red-100 text-red-700' :
-                            m.vvalleyPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
+                            m.mayoristasPorcentaje > 20 ? 'bg-red-100 text-red-700' :
+                            m.mayoristasPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
                             'bg-green-100 text-green-700'
                           }`}>
-                            {m.vvalleyPorcentaje.toFixed(1)}%
+                            {m.mayoristasPorcentaje.toFixed(1)}%
                           </span>
                         ) : (
                           <span className="text-xs text-gray-300">-</span>
@@ -289,13 +318,23 @@ export default function FacturacionPage() {
                       {formatCurrency(totalAnualVValley)}&euro;
                     </span>
                   </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-sm font-bold text-indigo-700 tabular-nums">
+                      {formatCurrency(totalAnualArrow)}&euro;
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className="text-sm font-bold text-teal-700 tabular-nums">
+                      {formatCurrency(totalAnualIpsNorte)}&euro;
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-center">
                     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold ${
-                      (stats.vvalleyPorcentaje || 0) > 20 ? 'bg-red-100 text-red-700' :
-                      (stats.vvalleyPorcentaje || 0) > 10 ? 'bg-yellow-100 text-yellow-700' :
+                      (stats.mayoristasPorcentaje || 0) > 20 ? 'bg-red-100 text-red-700' :
+                      (stats.mayoristasPorcentaje || 0) > 10 ? 'bg-yellow-100 text-yellow-700' :
                       'bg-green-100 text-green-700'
                     }`}>
-                      {(stats.vvalleyPorcentaje || 0).toFixed(1)}%
+                      {(stats.mayoristasPorcentaje || 0).toFixed(1)}%
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -334,22 +373,38 @@ export default function FacturacionPage() {
                     </div>
                   </div>
 
-                  {/* V-Valley */}
+                  {/* Mayoristas */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-purple-600 uppercase font-medium">V-Valley</span>
-                      {m.vvalleyPorcentaje > 0 && (
-                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                          m.vvalleyPorcentaje > 20 ? 'bg-red-100 text-red-700' :
-                          m.vvalleyPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {m.vvalleyPorcentaje.toFixed(1)}%
-                        </span>
-                      )}
                     </div>
                     <span className="text-sm font-semibold text-purple-700 tabular-nums">
                       {m.vvalleyFacturado > 0 ? `${formatCurrency(m.vvalleyFacturado)}€` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-indigo-600 uppercase font-medium">Arrow</span>
+                    </div>
+                    <span className="text-sm font-semibold text-indigo-700 tabular-nums">
+                      {m.arrowFacturado > 0 ? `${formatCurrency(m.arrowFacturado)}€` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-teal-600 uppercase font-medium">IPS Norte</span>
+                      {m.mayoristasPorcentaje > 0 && (
+                        <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                          m.mayoristasPorcentaje > 20 ? 'bg-red-100 text-red-700' :
+                          m.mayoristasPorcentaje > 10 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {m.mayoristasPorcentaje.toFixed(1)}% may.
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-teal-700 tabular-nums">
+                      {m.ipsNorteFacturado > 0 ? `${formatCurrency(m.ipsNorteFacturado)}€` : '-'}
                     </span>
                   </div>
 
@@ -378,9 +433,9 @@ export default function FacturacionPage() {
                   <p className="text-sm font-bold text-gray-900 tabular-nums">{formatCurrency(totalAnualFacturado)}&euro;</p>
                 </div>
                 <div>
-                  <p className="text-[10px] text-purple-500 uppercase">V-Valley</p>
-                  <p className="text-sm font-bold text-purple-700 tabular-nums">{formatCurrency(totalAnualVValley)}&euro;</p>
-                  <p className="text-[10px] font-bold text-purple-500">{(stats.vvalleyPorcentaje || 0).toFixed(1)}%</p>
+                  <p className="text-[10px] text-purple-500 uppercase">Mayoristas</p>
+                  <p className="text-sm font-bold text-purple-700 tabular-nums">{formatCurrency(totalAnualMayoristas)}&euro;</p>
+                  <p className="text-[10px] font-bold text-purple-500">{(stats.mayoristasPorcentaje || 0).toFixed(1)}%</p>
                 </div>
                 <div>
                   <p className="text-[10px] text-blue-500 uppercase">Remesado</p>
