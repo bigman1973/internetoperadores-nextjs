@@ -84,7 +84,11 @@ export async function GET(req: NextRequest) {
 
     const movSalidas = movimientos.filter(m => m.importe < 0);
     const salidasMayoristas = movSalidas.filter(m => categoriasMayoristas.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
-    const salidasNominas = movSalidas.filter(m => categoriasNominas.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const movNominas = movSalidas.filter(m => categoriasNominas.includes(m.categoria || ''));
+    const salidasNominas = movNominas.reduce((s, m) => s + Math.abs(m.importe), 0);
+    // Sub-desglose nóminas: Cotizaciones SS vs Transferencias Nóminas
+    const salidasCotizacionesSS = movNominas.filter(m => /tgss|cotizacion|autonomos|aplazam/i.test(m.concepto)).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasTransfNominas = salidasNominas - salidasCotizacionesSS;
     const salidasImpuestos = movSalidas.filter(m => categoriasImpuestos.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasTransferencias = movSalidas.filter(m => categoriasTransferencias.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasDevoluciones = movSalidas.filter(m => categoriasDevoluciones.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
@@ -92,9 +96,18 @@ export async function GET(req: NextRequest) {
     const salidasOtros = totalSalidas - salidasMayoristas - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
 
     // Agrupar por categoría (para tabla detallada)
+    // Para "Sueldos y Salarios" separamos en subcategorías
     const porCategoria: Record<string, { ingresos: number; gastos: number; count: number }> = {};
     for (const mov of movimientos) {
-      const cat = mov.categoria || 'Sin categorizar';
+      let cat = mov.categoria || 'Sin categorizar';
+      // Separar Sueldos y Salarios en subcategorías
+      if (cat === 'Sueldos y Salarios' && mov.importe < 0) {
+        if (/tgss|cotizacion|autonomos|aplazam/i.test(mov.concepto)) {
+          cat = 'Cotizaciones SS';
+        } else {
+          cat = 'Transferencias Nóminas';
+        }
+      }
       if (!porCategoria[cat]) porCategoria[cat] = { ingresos: 0, gastos: 0, count: 0 };
       if (mov.importe > 0) porCategoria[cat].ingresos += mov.importe;
       else porCategoria[cat].gastos += Math.abs(mov.importe);
@@ -200,6 +213,8 @@ export async function GET(req: NextRequest) {
           gastosOperativos: Math.round(salidasGastosOp * 100) / 100,
           mayoristas: Math.round(salidasMayoristas * 100) / 100,
           nominas: Math.round(salidasNominas * 100) / 100,
+          cotizacionesSS: Math.round(salidasCotizacionesSS * 100) / 100,
+          transfNominas: Math.round(salidasTransfNominas * 100) / 100,
           impuestos: Math.round(salidasImpuestos * 100) / 100,
           devoluciones: Math.round(salidasDevoluciones * 100) / 100,
           transferenciasInternas: Math.round(salidasTransferencias * 100) / 100,
