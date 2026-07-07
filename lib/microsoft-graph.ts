@@ -3,13 +3,12 @@
  * Used to sync nóminas PDFs from the company SharePoint site
  */
 
-const TENANT_ID = process.env.AZURE_AD_TENANT_ID!;
-const CLIENT_ID = process.env.MSGRAPH_CLIENT_ID || process.env.AZURE_AD_CLIENT_ID!;
-const CLIENT_SECRET = process.env.MSGRAPH_CLIENT_SECRET || process.env.AZURE_AD_CLIENT_SECRET!;
-
-// SharePoint site and drive IDs for Accounting & Finances
-const SITE_ID = 'lfgdes.sharepoint.com,2811ac74-4d45-4a56-954d-8440a1f594b0,abf37d37-7ca0-40f8-b79c-c5ffde51f630';
-const DRIVE_ID = 'b!dKwRKEVNVkqVTYRAofWUsDd986ugfPhAt5zF_95R9jAHPFiBlpgQQYMomvM3D6Mc';
+// Environment variables matching Vercel configuration
+const TENANT_ID = process.env.MICROSOFT_GRAPH_TENANT_ID!;
+const CLIENT_ID = process.env.MICROSOFT_GRAPH_CLIENT_ID!;
+const CLIENT_SECRET = process.env.MICROSOFT_GRAPH_CLIENT_SECRET!;
+const SITE_ID = process.env.SHAREPOINT_SITE_ID!;
+const DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID!;
 
 // Path to nóminas folder
 const NOMINAS_BASE_PATH = '4. Recursos Humanos/3. Nóminas';
