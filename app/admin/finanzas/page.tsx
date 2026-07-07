@@ -6,7 +6,7 @@ import { BanknotesIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationT
 interface DashboardData {
   periodo: { year: number; trimestre: number | null; desde: string; hasta: string };
   saldos: { cuentas: any[]; total: number };
-  fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
+  fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; irpfNominas: number; irpfTotal: number; ssEmpresaNominas: number; ssTrabajadorNominas: number; mesesConNominas: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
   ventas: { totalFacturado: number; totalCobrado: number; pendienteCobro: number; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
   flujo: { ingresos: number; gastos: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }> };
   categorias: Record<string, { ingresos: number; gastos: number; count: number }>;
@@ -143,8 +143,8 @@ export default function FinanzasDashboard() {
         </div>
       </div>
 
-      {/* Fiscal + Ventas */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Fiscal: IVA + IRPF + Ventas */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* IVA */}
         <div className="bg-white rounded-xl border p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-3">Liquidación IVA</h3>
@@ -163,10 +163,28 @@ export default function FinanzasDashboard() {
                 {formatEUR(data.fiscal.ivaAPagar)}
               </span>
             </div>
-            <div className="flex justify-between text-xs text-gray-400 mt-2">
-              <span>IRPF retenido</span>
-              <span>{formatEUR(data.fiscal.irpfRetenido)}</span>
+          </div>
+        </div>
+
+        {/* IRPF - Modelo 111 */}
+        <div className="bg-white rounded-xl border p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">IRPF - Modelo 111</h3>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">IRPF Facturas (profesionales)</span>
+              <span className="font-medium text-orange-700">{formatEUR(data.fiscal.irpfRetenido)}</span>
             </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">IRPF Nóminas ({data.fiscal.mesesConNominas} meses)</span>
+              <span className="font-medium text-orange-700">{formatEUR(data.fiscal.irpfNominas)}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between text-sm font-bold">
+              <span>IRPF Total a pagar</span>
+              <span className="text-red-700">{formatEUR(data.fiscal.irpfTotal)}</span>
+            </div>
+            {data.fiscal.mesesConNominas === 0 && (
+              <p className="text-xs text-amber-600 mt-1">Sin datos de nóminas para este periodo</p>
+            )}
           </div>
         </div>
 

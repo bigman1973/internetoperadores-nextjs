@@ -48,22 +48,34 @@ interface Totales {
   totalIRPF: number;
   totalSSTrabajador: number;
   totalSSEmpresa: number;
+  mesesConDatos: number;
 }
 
 const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-const MESES_CORTO = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
+type Periodo = 'mes' | 'T1' | 'T2' | 'T3' | 'T4' | 'anual';
+
+const PERIODOS: { value: Periodo; label: string }[] = [
+  { value: 'mes', label: 'Mes individual' },
+  { value: 'T1', label: 'T1 (Ene-Mar)' },
+  { value: 'T2', label: 'T2 (Abr-Jun)' },
+  { value: 'T3', label: 'T3 (Jul-Sep)' },
+  { value: 'T4', label: 'T4 (Oct-Dic)' },
+  { value: 'anual', label: 'Acumulado Anual' },
+];
 
 export default function AdminEmpleadosPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [totales, setTotales] = useState<Totales | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('todos');
-  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1); // Mes actual por defecto
+  const [periodo, setPeriodo] = useState<Periodo>('mes');
+  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1);
   const [anioSeleccionado] = useState(2026);
 
   useEffect(() => {
     fetchEmpleados();
-  }, [filtroEstado, mesSeleccionado]);
+  }, [filtroEstado, periodo, mesSeleccionado]);
 
   async function fetchEmpleados() {
     setLoading(true);
@@ -71,7 +83,8 @@ export default function AdminEmpleadosPage() {
       const params = new URLSearchParams({
         estado: filtroEstado,
         anio: anioSeleccionado.toString(),
-        ...(mesSeleccionado > 0 ? { mes: mesSeleccionado.toString() } : {}),
+        periodo,
+        ...(periodo === 'mes' ? { mes: mesSeleccionado.toString() } : {}),
       });
       const res = await fetch(`/api/admin/empleados?${params}`);
       const data = await res.json();
@@ -84,9 +97,29 @@ export default function AdminEmpleadosPage() {
     }
   }
 
-  function getUltimaNomina(emp: Empleado): Nomina | null {
+  function getEmpleadoTotales(emp: Empleado) {
     if (!emp.nominas || emp.nominas.length === 0) return null;
-    return emp.nominas[0];
+    // If single month, return first nomina; if multi-month, sum all
+    if (emp.nominas.length === 1) return emp.nominas[0];
+    return {
+      devengadoTotal: emp.nominas.reduce((s, n) => s + (n.devengadoTotal || 0), 0),
+      netoPercibir: emp.nominas.reduce((s, n) => s + (n.netoPercibir || 0), 0),
+      irpf: emp.nominas.reduce((s, n) => s + (n.irpf || 0), 0),
+      ssTrabajador: emp.nominas.reduce((s, n) => s + (n.ssTrabajador || 0), 0),
+      ssEmpresa: emp.nominas.reduce((s, n) => s + (n.ssEmpresa || 0), 0),
+      costeTotalEmpresa: emp.nominas.reduce((s, n) => s + (n.costeTotalEmpresa || 0), 0),
+    };
+  }
+
+  function getPeriodoLabel(): string {
+    switch (periodo) {
+      case 'T1': return 'T1 (Ene-Mar)';
+      case 'T2': return 'T2 (Abr-Jun)';
+      case 'T3': return 'T3 (Jul-Sep)';
+      case 'T4': return 'T4 (Oct-Dic)';
+      case 'anual': return 'Acumulado Anual';
+      default: return MESES[mesSeleccionado];
+    }
   }
 
   function formatEur(val: number | null | undefined): string {
@@ -101,10 +134,13 @@ export default function AdminEmpleadosPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Gestión de Personal</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Costes, nóminas y KPIs de empleados — {mesSeleccionado > 0 ? MESES[mesSeleccionado] : 'Todos los meses'} {anioSeleccionado}
+            Costes, nóminas y KPIs de empleados — {getPeriodoLabel()} {anioSeleccionado}
+            {totales && totales.mesesConDatos > 0 && periodo !== 'mes' && (
+              <span className="ml-2 text-blue-600">({totales.mesesConDatos} meses con datos)</span>
+            )}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Link
             href="/admin/empleados/nominas"
             className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
@@ -113,14 +149,25 @@ export default function AdminEmpleadosPage() {
             Importar Nóminas
           </Link>
           <select
-            value={mesSeleccionado}
-            onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
+            value={periodo}
+            onChange={(e) => setPeriodo(e.target.value as Periodo)}
             className="px-3 py-2 border rounded-lg text-sm"
           >
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
-              <option key={m} value={m}>{MESES[m]} {anioSeleccionado}</option>
+            {PERIODOS.map(p => (
+              <option key={p.value} value={p.value}>{p.label}</option>
             ))}
           </select>
+          {periodo === 'mes' && (
+            <select
+              value={mesSeleccionado}
+              onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
+              className="px-3 py-2 border rounded-lg text-sm"
+            >
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+                <option key={m} value={m}>{MESES[m]} {anioSeleccionado}</option>
+              ))}
+            </select>
+          )}
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
@@ -133,7 +180,7 @@ export default function AdminEmpleadosPage() {
         </div>
       </div>
 
-      {/* KPI Cards - 6 cards en 2 filas */}
+      {/* KPI Cards - 6 cards */}
       {totales && (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="bg-white rounded-xl border p-4">
@@ -155,7 +202,7 @@ export default function AdminEmpleadosPage() {
               <p className="text-xs text-gray-500">Coste Empresa</p>
             </div>
             <p className="text-xl font-bold text-gray-900">{formatEur(totales.totalCosteEmpresa)}</p>
-            <p className="text-xs text-gray-400">bruto + SS empresa</p>
+            <p className="text-xs text-gray-400">{periodo === 'mes' ? 'bruto + SS empresa' : `acumulado ${totales.mesesConDatos} meses`}</p>
           </div>
 
           <div className="bg-white rounded-xl border p-4">
@@ -246,7 +293,7 @@ export default function AdminEmpleadosPage() {
                 </tr>
               ) : (
                 empleados.map((emp) => {
-                  const nomina = getUltimaNomina(emp);
+                  const datos = getEmpleadoTotales(emp);
                   return (
                     <tr key={emp.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -266,22 +313,22 @@ export default function AdminEmpleadosPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700">
-                        {nomina ? formatEur(nomina.devengadoTotal) : '—'}
+                        {datos ? formatEur(datos.devengadoTotal) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-gray-700">
-                        {nomina ? formatEur(nomina.netoPercibir) : '—'}
+                        {datos ? formatEur(datos.netoPercibir) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-orange-700">
-                        {nomina?.irpf ? formatEur(nomina.irpf) : '—'}
+                        {datos?.irpf ? formatEur(datos.irpf) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-yellow-700">
-                        {nomina?.ssTrabajador ? formatEur(nomina.ssTrabajador) : '—'}
+                        {datos?.ssTrabajador ? formatEur(datos.ssTrabajador) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-purple-700">
-                        {nomina?.ssEmpresa ? formatEur(nomina.ssEmpresa) : '—'}
+                        {datos?.ssEmpresa ? formatEur(datos.ssEmpresa) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                        {nomina ? formatEur(nomina.costeTotalEmpresa) : '—'}
+                        {datos ? formatEur(datos.costeTotalEmpresa) : '—'}
                       </td>
                     </tr>
                   );

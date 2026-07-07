@@ -112,6 +112,27 @@ export async function GET(req: NextRequest) {
       gastosPorTipo[tipo] = (gastosPorTipo[tipo] || 0) + Math.abs(mov.importe);
     }
 
+    // 9. IRPF Nóminas - calcular retenciones de IRPF de las nóminas del periodo
+    let mesesNominas: number[] = [];
+    if (trimestre) {
+      const t = parseInt(trimestre);
+      mesesNominas = [(t - 1) * 3 + 1, (t - 1) * 3 + 2, (t - 1) * 3 + 3];
+    } else {
+      mesesNominas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    }
+
+    const nominasPeriodo = await prisma.nomina.findMany({
+      where: {
+        anio: year,
+        mes: { in: mesesNominas },
+      },
+    });
+
+    const irpfNominas = nominasPeriodo.reduce((sum, n) => sum + (n.irpf || 0), 0);
+    const ssEmpresaNominas = nominasPeriodo.reduce((sum, n) => sum + (n.ssEmpresa || 0), 0);
+    const ssTrabajadorNominas = nominasPeriodo.reduce((sum, n) => sum + (n.ssTrabajador || 0), 0);
+    const mesesConNominas = [...new Set(nominasPeriodo.map(n => n.mes))].length;
+
     return NextResponse.json({
       periodo: {
         year,
@@ -134,6 +155,11 @@ export async function GET(req: NextRequest) {
         ivaRepercutido: Math.round(ivaRepercutido * 100) / 100,
         ivaAPagar: Math.round((ivaRepercutido - ivaSoportado) * 100) / 100,
         irpfRetenido: Math.round(irpfRetenido * 100) / 100,
+        irpfNominas: Math.round(irpfNominas * 100) / 100,
+        irpfTotal: Math.round((irpfRetenido + irpfNominas) * 100) / 100,
+        ssEmpresaNominas: Math.round(ssEmpresaNominas * 100) / 100,
+        ssTrabajadorNominas: Math.round(ssTrabajadorNominas * 100) / 100,
+        mesesConNominas,
         baseImponibleCompras: Math.round(baseImponibleCompras * 100) / 100,
         totalCompras: Math.round(totalCompras * 100) / 100,
         baseImponibleVentas: Math.round(baseImponibleVentas * 100) / 100,
