@@ -172,24 +172,54 @@ export async function POST(req: NextRequest) {
         orderBy: { fechaOperacion: 'asc' },
       });
 
-      // Algoritmo de matching: por importe aproximado y fecha cercana
-      for (const remesa of remesasSinConciliar) {
+      // Algoritmo de matching mejorado:
+      // El banco cobra las remesas con descuento por devoluciones (hasta 20% menos)
+      // Estrategia: para cada remesa, buscar el movimiento banco más cercano en importe
+      // dentro de una ventana de ±5 días, donde banco <= remesa (siempre cobra menos por devoluciones)
+      // Ordenar remesas de mayor a menor para asignar primero las grandes
+      const remesasOrdenadas = [...remesasSinConciliar].sort(
+        (a, b) => Number(b.totalImporte) - Number(a.totalImporte)
+      );
+
+      for (const remesa of remesasOrdenadas) {
         const importeRemesa = Number(remesa.totalImporte);
         
-        // Buscar movimiento con importe similar (tolerancia 5%) y fecha cercana (±7 días)
+        // Buscar movimientos en ventana de fecha (±5 días) donde:
+        // - El importe banco es <= importe remesa (banco siempre cobra menos por devoluciones)
+        // - La diferencia no supera el 25% (tolerancia amplia por devoluciones)
         const fechaRemesa = new Date(remesa.fecha);
         const candidatos = movimientosRemesa.filter(mov => {
-          const diffImporte = Math.abs(mov.importe - importeRemesa);
-          const tolerancia = importeRemesa * 0.05; // 5% tolerancia (por devoluciones)
           const diffDias = Math.abs(
             (mov.fechaOperacion.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24)
           );
-          return diffImporte <= tolerancia && diffDias <= 7;
+          if (diffDias > 5) return false;
+          // El banco cobra <= remesa (por devoluciones) con tolerancia del 25%
+          const ratio = mov.importe / importeRemesa;
+          return ratio >= 0.75 && ratio <= 1.02; // entre 75% y 102% del importe remesa
         });
 
-        if (candidatos.length === 1) {
-          // Match único - conciliar automáticamente
-          const mov = candidatos[0];
+        // Si no hay candidatos en ±5 días, ampliar a ±10 días
+        if (candidatos.length === 0) {
+          const candidatosAmpliados = movimientosRemesa.filter(mov => {
+            const diffDias = Math.abs(
+              (mov.fechaOperacion.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24)
+            );
+            if (diffDias > 10) return false;
+            const ratio = mov.importe / importeRemesa;
+            return ratio >= 0.70 && ratio <= 1.02;
+          });
+          if (candidatosAmpliados.length > 0) candidatos.push(...candidatosAmpliados);
+        }
+
+        if (candidatos.length >= 1) {
+          // Tomar el candidato con importe más cercano a la remesa
+          const mejorMatch = candidatos.reduce((best, curr) => {
+            const diffBest = Math.abs(best.importe - importeRemesa);
+            const diffCurr = Math.abs(curr.importe - importeRemesa);
+            return diffCurr < diffBest ? curr : best;
+          });
+
+          const mov = mejorMatch;
           const diferencia = mov.importe - importeRemesa;
           const estado = Math.abs(diferencia) < 0.01 ? 'CONCILIADA' : 'DIFERENCIA';
 
@@ -213,42 +243,6 @@ export async function POST(req: NextRequest) {
 
           // Quitar candidato de la lista
           const idx = movimientosRemesa.indexOf(mov);
-          if (idx > -1) movimientosRemesa.splice(idx, 1);
-
-          if (estado === 'CONCILIADA') {
-            resultados.remesasConciliadas++;
-          } else {
-            resultados.remesasConDiferencia++;
-          }
-        } else if (candidatos.length > 1) {
-          // Múltiples candidatos - tomar el de importe más cercano
-          const mejorMatch = candidatos.reduce((best, curr) => {
-            const diffBest = Math.abs(best.importe - importeRemesa);
-            const diffCurr = Math.abs(curr.importe - importeRemesa);
-            return diffCurr < diffBest ? curr : best;
-          });
-
-          const diferencia = mejorMatch.importe - importeRemesa;
-          const estado = Math.abs(diferencia) < 0.01 ? 'CONCILIADA' : 'DIFERENCIA';
-
-          await prisma.conciliacionRemesa.create({
-            data: {
-              remesaId: remesa.id,
-              movimientoBancarioId: mejorMatch.id,
-              importeRemesa: importeRemesa,
-              importeMovimiento: mejorMatch.importe,
-              diferencia: diferencia,
-              estado: estado as any,
-              fechaConciliacion: new Date(),
-            },
-          });
-
-          await prisma.movimientoBancario.update({
-            where: { id: mejorMatch.id },
-            data: { conciliado: true },
-          });
-
-          const idx = movimientosRemesa.indexOf(mejorMatch);
           if (idx > -1) movimientosRemesa.splice(idx, 1);
 
           if (estado === 'CONCILIADA') {
