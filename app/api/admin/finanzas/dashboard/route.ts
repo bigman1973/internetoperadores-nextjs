@@ -38,26 +38,30 @@ export async function GET(req: NextRequest) {
     const irpfRetenido = facturasRecibidas.reduce((sum, f) => sum + f.importeIrpf, 0);
     const totalCompras = facturasRecibidas.reduce((sum, f) => sum + f.total, 0);
 
-    // 3. Facturas emitidas (IVA Repercutido)
-    const facturasEmitidas = await prisma.facturaEmitida.findMany({
+    // 3. Facturas emitidas - usar tabla 'facturas' (ISPGestión, actualizada con sync)
+    const facturasISP = await prisma.factura.findMany({
       where: {
-        fecha: { gte: desde, lte: hasta },
-        estado: { not: 'ANULADA' },
+        ejercicio: year,
+        ...(trimestre ? {
+          fecha: { gte: desde, lte: hasta },
+        } : {}),
       },
     });
 
-    const ivaRepercutido = facturasEmitidas.reduce((sum, f) => sum + f.importeIva, 0);
-    const baseImponibleVentas = facturasEmitidas.reduce((sum, f) => sum + f.base, 0);
-    const totalVentas = facturasEmitidas.reduce((sum, f) => sum + f.total, 0);
-    const totalCobrado = facturasEmitidas.reduce((sum, f) => sum + f.importeCobrado, 0);
-    const pendienteCobro = totalVentas - totalCobrado;
+    const totalVentas = facturasISP.reduce((sum, f) => sum + Number(f.total), 0);
+    const totalImpuestoVentas = facturasISP.reduce((sum, f) => sum + Number(f.totalImpuesto), 0);
+    const baseImponibleVentas = facturasISP.reduce((sum, f) => sum + Number(f.base), 0);
+    const ivaRepercutido = totalImpuestoVentas;
+    const totalCobrado = facturasISP.filter(f => f.situacion === 'COBRADA').reduce((sum, f) => sum + Number(f.total), 0);
+    const pendienteCobro = facturasISP.filter(f => f.situacion === 'PENDIENTE').reduce((sum, f) => sum + Number(f.totalPendiente), 0);
 
-    // Facturas emitidas por estado
+    // Facturas por estado (situacion)
     const facturasEmitidasPorEstado: Record<string, { count: number; total: number }> = {};
-    for (const f of facturasEmitidas) {
-      if (!facturasEmitidasPorEstado[f.estado]) facturasEmitidasPorEstado[f.estado] = { count: 0, total: 0 };
-      facturasEmitidasPorEstado[f.estado].count++;
-      facturasEmitidasPorEstado[f.estado].total += f.total;
+    for (const f of facturasISP) {
+      const estado = f.situacion;
+      if (!facturasEmitidasPorEstado[estado]) facturasEmitidasPorEstado[estado] = { count: 0, total: 0 };
+      facturasEmitidasPorEstado[estado].count++;
+      facturasEmitidasPorEstado[estado].total += Number(f.total);
     }
 
     // 4. Movimientos por categoría
@@ -116,11 +120,8 @@ export async function GET(req: NextRequest) {
       where: { estado: 'PENDIENTE_REVISION' },
     });
 
-    const facturasImpagadas = facturasEmitidas.filter(f => f.estado === 'IMPAGADA').length;
-    const facturasVencidas = facturasEmitidas.filter(f => 
-      f.fechaVencimiento && new Date(f.fechaVencimiento) < new Date() && 
-      f.estado !== 'COBRADA' && f.estado !== 'ANULADA'
-    ).length;
+    const facturasImpagadas = facturasISP.filter(f => f.situacion === 'PENDIENTE').length;
+    const facturasVencidas = 0; // La tabla facturas de ISPGestión no tiene fecha_vencimiento
 
     // 8. Top gastos por categoría (para el gráfico de tarjeta/restaurantes/etc.)
     const gastosPorTipo: Record<string, number> = {};
@@ -186,7 +187,7 @@ export async function GET(req: NextRequest) {
         totalFacturado: Math.round(totalVentas * 100) / 100,
         totalCobrado: Math.round(totalCobrado * 100) / 100,
         pendienteCobro: Math.round(pendienteCobro * 100) / 100,
-        numFacturas: facturasEmitidas.length,
+        numFacturas: facturasISP.length,
         porEstado: facturasEmitidasPorEstado,
       },
       flujo: {

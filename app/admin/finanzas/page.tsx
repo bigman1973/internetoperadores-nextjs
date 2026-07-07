@@ -20,6 +20,7 @@ export default function FinanzasDashboard() {
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState(2026);
   const [trimestre, setTrimestre] = useState<string>('');
+  const [detalleCategoria, setDetalleCategoria] = useState<string | null>(null);
 
   useEffect(() => {
     fetchDashboard();
@@ -149,15 +150,19 @@ export default function FinanzasDashboard() {
           <h3 className="text-sm font-semibold text-gray-900 mb-3">Desglose de Salidas</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {[
-              { label: 'Gastos Operativos', value: data.flujo.desgloseSalidas.gastosOperativos, color: 'text-red-700' },
-              { label: 'Mayoristas', value: data.flujo.desgloseSalidas.mayoristas, color: 'text-purple-700' },
-              { label: 'Nóminas', value: data.flujo.desgloseSalidas.nominas, color: 'text-blue-700' },
-              { label: 'Impuestos', value: data.flujo.desgloseSalidas.impuestos, color: 'text-orange-700' },
-              { label: 'Devoluciones', value: data.flujo.desgloseSalidas.devoluciones, color: 'text-amber-700' },
-              { label: 'Transf. Internas', value: data.flujo.desgloseSalidas.transferenciasInternas, color: 'text-gray-500' },
-              { label: 'Otros', value: data.flujo.desgloseSalidas.otros, color: 'text-gray-700' },
+              { label: 'Gastos Operativos', key: 'gastosOperativos', value: data.flujo.desgloseSalidas.gastosOperativos, color: 'text-red-700', bg: 'hover:bg-red-50' },
+              { label: 'Mayoristas', key: 'mayoristas', value: data.flujo.desgloseSalidas.mayoristas, color: 'text-purple-700', bg: 'hover:bg-purple-50' },
+              { label: 'Nóminas', key: 'nominas', value: data.flujo.desgloseSalidas.nominas, color: 'text-blue-700', bg: 'hover:bg-blue-50' },
+              { label: 'Impuestos', key: 'impuestos', value: data.flujo.desgloseSalidas.impuestos, color: 'text-orange-700', bg: 'hover:bg-orange-50' },
+              { label: 'Devoluciones', key: 'devoluciones', value: data.flujo.desgloseSalidas.devoluciones, color: 'text-amber-700', bg: 'hover:bg-amber-50' },
+              { label: 'Transf. Internas', key: 'transferenciasInternas', value: data.flujo.desgloseSalidas.transferenciasInternas, color: 'text-gray-500', bg: 'hover:bg-gray-50' },
+              { label: 'Otros', key: 'otros', value: data.flujo.desgloseSalidas.otros, color: 'text-gray-700', bg: 'hover:bg-gray-100' },
             ].map(item => (
-              <div key={item.label} className="text-center">
+              <div
+                key={item.label}
+                className={`text-center cursor-pointer rounded-lg p-2 transition-all ${item.bg} ${detalleCategoria === item.key ? 'ring-2 ring-offset-1 ring-blue-400 bg-blue-50' : ''}`}
+                onClick={() => setDetalleCategoria(detalleCategoria === item.key ? null : item.key)}
+              >
                 <p className="text-xs text-gray-500 mb-1">{item.label}</p>
                 <p className={`text-sm font-bold ${item.color}`}>{formatEUR(item.value)}</p>
                 <p className="text-[10px] text-gray-400">
@@ -166,6 +171,16 @@ export default function FinanzasDashboard() {
               </div>
             ))}
           </div>
+
+          {/* Detalle de la categoría seleccionada */}
+          {detalleCategoria && (
+            <div className="mt-4 pt-4 border-t">
+              <DetalleCategoriaSalidas
+                categoria={detalleCategoria}
+                categorias={data.categorias}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -346,6 +361,100 @@ export default function FinanzasDashboard() {
           <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${data.conciliacion.porcentajeConciliado}%` }}></div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Mapeo de categorías del desglose a categorías de movimientos bancarios
+const CATEGORIAS_MAP: Record<string, { titulo: string; categorias: string[] }> = {
+  gastosOperativos: {
+    titulo: 'Gastos Operativos',
+    categorias: ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos'],
+  },
+  mayoristas: {
+    titulo: 'Mayoristas (Operadoras)',
+    categorias: ['Operadora', 'Vola', 'Comisiones V-Valley'],
+  },
+  nominas: {
+    titulo: 'N\u00f3minas',
+    categorias: ['Sueldos y Salarios'],
+  },
+  impuestos: {
+    titulo: 'Impuestos',
+    categorias: ['IMPUESTOS'],
+  },
+  devoluciones: {
+    titulo: 'Devoluciones',
+    categorias: ['Morosos'],
+  },
+  transferenciasInternas: {
+    titulo: 'Transferencias Internas',
+    categorias: ['Traspaso'],
+  },
+  otros: {
+    titulo: 'Otros (sin categorizar)',
+    categorias: [],
+  },
+};
+
+function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string; categorias: Record<string, { ingresos: number; gastos: number; count: number }> }) {
+  const config = CATEGORIAS_MAP[categoria];
+  if (!config) return null;
+
+  // Filtrar las categorías de movimientos que corresponden a este grupo
+  let items: { nombre: string; importe: number; count: number }[] = [];
+
+  if (categoria === 'otros') {
+    // "Otros" = todas las categorías que NO están en ningún otro grupo
+    const todasAsignadas = Object.values(CATEGORIAS_MAP)
+      .filter(c => c.categorias.length > 0)
+      .flatMap(c => c.categorias);
+    items = Object.entries(categorias)
+      .filter(([cat]) => !todasAsignadas.includes(cat))
+      .filter(([, vals]) => vals.gastos > 0)
+      .map(([cat, vals]) => ({ nombre: cat, importe: vals.gastos, count: vals.count }))
+      .sort((a, b) => b.importe - a.importe);
+  } else {
+    items = config.categorias
+      .map(cat => {
+        const vals = categorias[cat];
+        return vals ? { nombre: cat, importe: vals.gastos, count: vals.count } : null;
+      })
+      .filter((x): x is { nombre: string; importe: number; count: number } => x !== null && x.importe > 0)
+      .sort((a, b) => b.importe - a.importe);
+  }
+
+  const total = items.reduce((s, i) => s + i.importe, 0);
+
+  return (
+    <div>
+      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} — Detalle</h4>
+      {items.length === 0 ? (
+        <p className="text-xs text-gray-400">No hay movimientos en esta categor\u00eda</p>
+      ) : (
+        <div className="space-y-1.5">
+          {items.map(item => {
+            const pct = total > 0 ? (item.importe / total * 100) : 0;
+            return (
+              <div key={item.nombre} className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-700">{item.nombre}</span>
+                    <span className="text-gray-500">{formatEUR(item.importe)} ({pct.toFixed(1)}%) — {item.count} mov.</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-1.5 mt-0.5">
+                    <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          <div className="flex justify-between text-xs font-semibold pt-2 border-t mt-2">
+            <span>Total</span>
+            <span>{formatEUR(total)}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
