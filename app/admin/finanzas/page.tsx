@@ -397,15 +397,31 @@ const CATEGORIAS_MAP: Record<string, { titulo: string; categorias: string[] }> =
   },
 };
 
+interface Movimiento {
+  id: string;
+  fechaOperacion: string;
+  concepto: string;
+  importe: number;
+  saldo: number | null;
+  categoria: string | null;
+  tipoPago: string | null;
+  cuenta: { banco: string; alias: string } | null;
+}
+
 function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string; categorias: Record<string, { ingresos: number; gastos: number; count: number }> }) {
+  const [subCatSeleccionada, setSubCatSeleccionada] = useState<string | null>(null);
+  const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
+  const [loadingMov, setLoadingMov] = useState(false);
+  const [totalMov, setTotalMov] = useState(0);
+  const [pageMov, setPageMov] = useState(1);
+
   const config = CATEGORIAS_MAP[categoria];
   if (!config) return null;
 
-  // Filtrar las categorías de movimientos que corresponden a este grupo
+  // Filtrar las categor\u00edas de movimientos que corresponden a este grupo
   let items: { nombre: string; importe: number; count: number }[] = [];
 
   if (categoria === 'otros') {
-    // "Otros" = todas las categorías que NO están en ningún otro grupo
     const todasAsignadas = Object.values(CATEGORIAS_MAP)
       .filter(c => c.categorias.length > 0)
       .flatMap(c => c.categorias);
@@ -426,26 +442,111 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
 
   const total = items.reduce((s, i) => s + i.importe, 0);
 
+  async function fetchMovimientos(cat: string, page: number = 1) {
+    setLoadingMov(true);
+    try {
+      const params = new URLSearchParams({
+        categoria: cat === 'Sin categorizar' ? '' : cat,
+        limit: '20',
+        page: String(page),
+      });
+      // Solo salidas (importe negativo)
+      const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
+      const data = await res.json();
+      // Filtrar solo salidas
+      const salidas = (data.movimientos || []).filter((m: Movimiento) => m.importe < 0);
+      setMovimientos(salidas);
+      setTotalMov(data.total || 0);
+      setPageMov(page);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoadingMov(false);
+  }
+
+  function handleSubCatClick(nombre: string) {
+    if (subCatSeleccionada === nombre) {
+      setSubCatSeleccionada(null);
+      setMovimientos([]);
+    } else {
+      setSubCatSeleccionada(nombre);
+      fetchMovimientos(nombre, 1);
+    }
+  }
+
   return (
     <div>
-      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} — Detalle</h4>
+      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} \u2014 Detalle <span className="text-xs text-gray-400 font-normal">(clic en subcategor\u00eda para ver movimientos)</span></h4>
       {items.length === 0 ? (
         <p className="text-xs text-gray-400">No hay movimientos en esta categor\u00eda</p>
       ) : (
         <div className="space-y-1.5">
           {items.map(item => {
             const pct = total > 0 ? (item.importe / total * 100) : 0;
+            const isSelected = subCatSeleccionada === item.nombre;
             return (
-              <div key={item.nombre} className="flex items-center gap-3">
-                <div className="flex-1">
-                  <div className="flex justify-between text-xs">
-                    <span className="text-gray-700">{item.nombre}</span>
-                    <span className="text-gray-500">{formatEUR(item.importe)} ({pct.toFixed(1)}%) — {item.count} mov.</span>
-                  </div>
-                  <div className="w-full bg-gray-100 rounded-full h-1.5 mt-0.5">
-                    <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
+              <div key={item.nombre}>
+                <div
+                  className={`flex items-center gap-3 cursor-pointer rounded p-1.5 transition-all hover:bg-gray-50 ${isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : ''}`}
+                  onClick={() => handleSubCatClick(item.nombre)}
+                >
+                  <div className="flex-1">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-gray-700 font-medium">{item.nombre}</span>
+                      <span className="text-gray-500">{formatEUR(item.importe)} ({pct.toFixed(1)}%) \u2014 {item.count} mov.</span>
+                    </div>
+                    <div className="w-full bg-gray-100 rounded-full h-1.5 mt-0.5">
+                      <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
+                    </div>
                   </div>
                 </div>
+
+                {/* Tabla de movimientos de esta subcategor\u00eda */}
+                {isSelected && (
+                  <div className="ml-4 mt-2 mb-3 border-l-2 border-blue-200 pl-3">
+                    {loadingMov ? (
+                      <p className="text-xs text-gray-400 animate-pulse">Cargando movimientos...</p>
+                    ) : movimientos.length === 0 ? (
+                      <p className="text-xs text-gray-400">No se encontraron movimientos de salida</p>
+                    ) : (
+                      <>
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-500 border-b">
+                              <th className="text-left py-1 font-medium">Fecha</th>
+                              <th className="text-left py-1 font-medium">Concepto</th>
+                              <th className="text-left py-1 font-medium">Banco</th>
+                              <th className="text-right py-1 font-medium">Importe</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {movimientos.map(mov => (
+                              <tr key={mov.id} className="border-b border-gray-50 hover:bg-gray-50">
+                                <td className="py-1 text-gray-600 whitespace-nowrap">{new Date(mov.fechaOperacion).toLocaleDateString('es-ES')}</td>
+                                <td className="py-1 text-gray-700 max-w-[300px] truncate" title={mov.concepto}>{mov.concepto}</td>
+                                <td className="py-1 text-gray-500">{mov.cuenta?.alias || mov.cuenta?.banco || '-'}</td>
+                                <td className="py-1 text-right font-medium text-red-600">{formatEUR(Math.abs(mov.importe))}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {totalMov > 20 && (
+                          <div className="flex items-center justify-between mt-2">
+                            <span className="text-xs text-gray-400">Mostrando {movimientos.length} de {totalMov}</span>
+                            <div className="flex gap-1">
+                              {pageMov > 1 && (
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov - 1)} className="text-xs px-2 py-0.5 bg-gray-100 rounded hover:bg-gray-200">\u2190 Anterior</button>
+                              )}
+                              {pageMov * 20 < totalMov && (
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov + 1)} className="text-xs px-2 py-0.5 bg-gray-100 rounded hover:bg-gray-200">Siguiente \u2192</button>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
