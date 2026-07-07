@@ -264,6 +264,8 @@ model Factura {
   ejercicio         Int       @default(2026)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
+  // Relaciones conciliación
+  devoluciones      DevolucionRemesa[]
 
   @@index([idCliente])
   @@index([codigoCliente])
@@ -290,6 +292,9 @@ model Remesa {
   ejercicio         Int       @default(2026)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
+  // Relaciones conciliación
+  conciliacion      ConciliacionRemesa?
+  devoluciones      DevolucionRemesa[]
 
   @@index([fecha])
   @@index([ejercicio])
@@ -1037,6 +1042,10 @@ model MovimientoBancario {
   hashUnico       String   @unique @map("hash_unico") // Para evitar duplicados
   origenArchivo   String?  @map("origen_archivo")
   createdAt       DateTime @default(now()) @map("created_at")
+  // Relaciones conciliación remesas
+  conciliacionRemesa    ConciliacionRemesa?  @relation("ConciliacionMovimiento")
+  devolucionesRemesa    DevolucionRemesa[]   @relation("DevolucionMovimiento")
+  devolucionesCobro     DevolucionRemesa[]   @relation("DevolucionCobro")
 
   @@index([cuentaId, fechaOperacion])
   @@index([conciliado])
@@ -1586,4 +1595,98 @@ model SaldoVacaciones {
   @@index([empleadoId])
   @@index([anio])
   @@map("saldo_vacaciones")
+}
+
+// ============================================================
+// MÓDULO DE CONCILIACIÓN DE REMESAS
+// ============================================================
+
+enum EstadoConciliacion {
+  CONCILIADA
+  PENDIENTE
+  DIFERENCIA
+}
+
+enum EstadoDevolucion {
+  PENDIENTE
+  COBRADO_TRANSFERENCIA
+  COBRADO_PARCIAL
+  INCOBRABLE
+}
+
+model ConciliacionRemesa {
+  id                    String              @id @default(uuid())
+  remesaId              Int                 @map("remesa_id")
+  remesa                Remesa              @relation(fields: [remesaId], references: [id])
+  movimientoBancarioId  String?             @unique @map("movimiento_bancario_id")
+  movimiento            MovimientoBancario? @relation("ConciliacionMovimiento", fields: [movimientoBancarioId], references: [id])
+  importeRemesa         Decimal             @map("importe_remesa") @db.Decimal(10, 2)
+  importeMovimiento     Decimal?            @map("importe_movimiento") @db.Decimal(10, 2)
+  diferencia            Decimal?            @db.Decimal(10, 2)
+  estado                EstadoConciliacion  @default(PENDIENTE)
+  fechaConciliacion     DateTime?           @map("fecha_conciliacion")
+  notas                 String?
+  // Timestamps
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  @@unique([remesaId])
+  @@index([estado])
+  @@index([fechaConciliacion])
+  @@map("conciliaciones_remesas")
+}
+
+model DevolucionRemesa {
+  id                    String              @id @default(uuid())
+  remesaId              Int?                @map("remesa_id")
+  remesa                Remesa?             @relation(fields: [remesaId], references: [id])
+  facturaId             Int?                @map("factura_id")
+  factura               Factura?            @relation(fields: [facturaId], references: [id])
+  movimientoBancarioId  String?             @map("movimiento_bancario_id")
+  movimiento            MovimientoBancario? @relation("DevolucionMovimiento", fields: [movimientoBancarioId], references: [id])
+  // Datos del Excel DevSEPA
+  numeroFactura         String              @map("numero_factura") // Ej: CLL26/137
+  referenciaRemesa      String?             @map("referencia_remesa") // Ej: CLL137
+  nombreCliente         String              @map("nombre_cliente")
+  importe               Decimal             @db.Decimal(10, 2)
+  motivo                String?             // Motivo de la devolución
+  fechaDevolucion       DateTime            @map("fecha_devolucion") @db.Date
+  // Estado de cobro posterior
+  estado                EstadoDevolucion    @default(PENDIENTE)
+  movimientoCobroId     String?             @map("movimiento_cobro_id") // Movimiento de transferencia posterior
+  movimientoCobro       MovimientoBancario? @relation("DevolucionCobro", fields: [movimientoCobroId], references: [id])
+  fechaCobro            DateTime?           @map("fecha_cobro") @db.Date
+  importeCobrado        Decimal?            @map("importe_cobrado") @db.Decimal(10, 2)
+  // Origen
+  archivoOrigen         String?             @map("archivo_origen") // Nombre del Excel DevSEPA
+  mesDevolucion         Int?                @map("mes_devolucion") // 1-12
+  anioDevolucion        Int?                @map("anio_devolucion") // 2026
+  // Timestamps
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  @@index([remesaId])
+  @@index([facturaId])
+  @@index([estado])
+  @@index([fechaDevolucion])
+  @@index([anioDevolucion, mesDevolucion])
+  @@map("devoluciones_remesas")
+}
+
+// ============================================================
+// HISTORIAL DE DESARROLLOS
+// ============================================================
+
+model DesarrolloHistorial {
+  id          Int       @id @default(autoincrement())
+  titulo      String
+  descripcion String
+  tipo        String    @db.VarChar(50) // feat, fix, refactor, perf, style, ui
+  estado      String    @db.VarChar(50) // completado, en_progreso, etc.
+  autor       String?   @db.VarChar(100)
+  commitHash  String?   @map("commit_hash") @db.VarChar(100)
+  rama        String?   @db.VarChar(100)
+  fecha       DateTime  @default(now())
+
+  @@map("desarrollo_historial")
 }
