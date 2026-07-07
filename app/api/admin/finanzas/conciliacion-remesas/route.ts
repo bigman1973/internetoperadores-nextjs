@@ -295,6 +295,9 @@ export async function GET(req: NextRequest) {
         ultimoCobro: rc.seriesAsignadas.length > 0 ? rc.seriesAsignadas[rc.seriesAsignadas.length - 1].ultimaFecha : null,
         numDevoluciones: r.devoluciones.length,
         totalDevoluciones: r.devoluciones.reduce((sum, d) => sum + Number(d.importe), 0),
+        recibosRemesados: r.conciliacion?.recibosRemesados || null,
+        recibosCobrados: r.conciliacion?.recibosCobrados || null,
+        rechazos: r.conciliacion?.rechazos || null,
       };
     });
 

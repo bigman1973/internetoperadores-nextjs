@@ -1626,6 +1626,11 @@ model ConciliacionRemesa {
   estado                EstadoConciliacion  @default(PENDIENTE)
   fechaConciliacion     DateTime?           @map("fecha_conciliacion")
   notas                 String?
+  // Datos del PDF del banco
+  recibosRemesados      Int?                @map("recibos_remesados")
+  recibosCobrados       Int?                @map("recibos_cobrados")
+  rechazos              Int?                @map("rechazos")
+  referenciaRemesaBanco String?             @map("referencia_remesa_banco")
   // Timestamps
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
@@ -1644,12 +1649,15 @@ model DevolucionRemesa {
   factura               Factura?            @relation(fields: [facturaId], references: [id])
   movimientoBancarioId  String?             @map("movimiento_bancario_id")
   movimiento            MovimientoBancario? @relation("DevolucionMovimiento", fields: [movimientoBancarioId], references: [id])
-  // Datos del Excel DevSEPA
+  // Datos del PDF banco / Excel DevSEPA
   numeroFactura         String              @map("numero_factura") // Ej: CLL26/137
   referenciaRemesa      String?             @map("referencia_remesa") // Ej: CLL137
+  referenciaExterna     String?             @map("referencia_externa") // Ej: CLL986 (del PDF banco)
   nombreCliente         String              @map("nombre_cliente")
   importe               Decimal             @db.Decimal(10, 2)
   motivo                String?             // Motivo de la devolución
+  motivoBanco           String?             @map("motivo_banco") // Motivo exacto del banco (Fondos insuficientes, etc.)
+  comisionBanco         Decimal?            @map("comision_banco") @db.Decimal(10, 2) // Comisión por devolución
   fechaDevolucion       DateTime            @map("fecha_devolucion") @db.Date
   // Estado de cobro posterior
   estado                EstadoDevolucion    @default(PENDIENTE)

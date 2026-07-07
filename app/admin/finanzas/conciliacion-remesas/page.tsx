@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   BanknotesIcon, 
   ArrowPathIcon, 
@@ -11,6 +11,7 @@ import {
   DocumentMagnifyingGlassIcon,
   ClockIcon,
   BuildingLibraryIcon,
+  DocumentArrowUpIcon,
 } from '@heroicons/react/24/outline';
 
 interface KPIs {
@@ -47,23 +48,24 @@ interface RemesaRow {
   estadoConciliacion: string;
   importeBanco: number | null;
   diferencia: number | null;
-  totalRemesadoMes: number;
-  totalCobradoMes: number;
-  diferenciaMes: number | null;
   numMovimientosBanco: number;
   cobroSantander: number;
   cobroCaixaGuissona: number;
   numDevoluciones: number;
   totalDevoluciones: number;
+  recibosRemesados: number | null;
+  recibosCobrados: number | null;
+  rechazos: number | null;
 }
 
 interface DevolucionRow {
   id: string;
   numeroFactura: string;
-  referenciaRemesa: string | null;
+  referenciaExterna: string | null;
   nombreCliente: string;
   importe: number;
   motivo: string | null;
+  motivoBanco: string | null;
   fechaDevolucion: string;
   estado: string;
   importeCobrado: number | null;
@@ -82,9 +84,9 @@ function formatDate(d: string) {
 }
 
 function formatMes(mesKey: string) {
-  const [anio, m] = mesKey.split('-');
+  const [, m] = mesKey.split('-');
   const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${meses[parseInt(m) - 1]} ${anio}`;
+  return `${meses[parseInt(m) - 1]} ${mesKey.split('-')[0]}`;
 }
 
 const MESES = [
@@ -110,11 +112,15 @@ export default function ConciliacionRemesasPage() {
   const [devoluciones, setDevoluciones] = useState<DevolucionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [procesando, setProcesando] = useState(false);
-  const [importando, setImportando] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
   const [year, setYear] = useState(2026);
   const [mes, setMes] = useState('');
   const [vista, setVista] = useState<'resumen' | 'remesas' | 'devoluciones'>('resumen');
-  const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
+  const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error' | 'info'; texto: string } | null>(null);
+  
+  // Refs para inputs de archivo
+  const fileInputRemesas = useRef<HTMLInputElement>(null);
+  const fileInputDevoluciones = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -160,7 +166,7 @@ export default function ConciliacionRemesasPage() {
       if (r.errores?.length > 0) partes.push(`${r.errores.length} errores`);
       
       setMensaje({ 
-        tipo: partes.length > 0 ? 'success' : 'error', 
+        tipo: partes.length > 0 ? 'success' : 'info', 
         texto: partes.length > 0 ? partes.join(', ') : 'No se encontraron nuevos registros para procesar',
       });
       fetchData();
@@ -170,32 +176,41 @@ export default function ConciliacionRemesasPage() {
     setProcesando(false);
   }
 
-  async function importarDevoluciones() {
-    if (!mes) {
-      setMensaje({ tipo: 'error', texto: 'Selecciona un mes para importar devoluciones' });
-      return;
-    }
-    setImportando(true);
+  async function handleUploadPDF(file: File, tipo: 'remesas' | 'recibos_devueltos') {
+    setSubiendo(true);
     setMensaje(null);
     try {
-      const res = await fetch('/api/admin/finanzas/conciliacion-remesas/importar-devoluciones', {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('tipo', tipo);
+
+      const res = await fetch('/api/admin/finanzas/conciliacion-remesas/importar-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, mes: parseInt(mes) }),
+        body: formData,
       });
       const json = await res.json();
       if (json.error) throw new Error(json.error);
-      
-      const r = json.resultados;
-      setMensaje({ 
-        tipo: 'success', 
-        texto: `Importadas ${r.devolucionesImportadas} devoluciones (${r.facturasEnlazadas} enlazadas a facturas, ${r.devolucionesDuplicadas} duplicadas omitidas)`,
-      });
+
+      const r = json.resumen;
+      if (tipo === 'remesas') {
+        setMensaje({
+          tipo: 'success',
+          texto: `PDF Remesas procesado: ${r.conciliadas} remesas conciliadas de ${r.totalEnPDF} en el PDF${r.errores > 0 ? ` (${r.errores} errores)` : ''}`,
+        });
+      } else {
+        setMensaje({
+          tipo: 'success',
+          texto: `PDF Recibos devueltos procesado: ${r.importados} devoluciones importadas de ${r.totalEnPDF} en el PDF${r.errores > 0 ? ` (${r.errores} errores)` : ''}`,
+        });
+      }
       fetchData();
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message });
     }
-    setImportando(false);
+    setSubiendo(false);
+    // Reset inputs
+    if (fileInputRemesas.current) fileInputRemesas.current.value = '';
+    if (fileInputDevoluciones.current) fileInputDevoluciones.current.value = '';
   }
 
   function getEstadoBadge(estado: string) {
@@ -244,7 +259,7 @@ export default function ConciliacionRemesasPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Conciliacion de Remesas</h1>
-          <p className="text-sm text-gray-500 mt-1">Cruce mensual: remesas ISPGestion vs cobros banco (Santander + Caixa Guissona)</p>
+          <p className="text-sm text-gray-500 mt-1">Cruce exacto: remesas ISPGestion vs cobros banco (PDFs del Santander)</p>
         </div>
         <div className="flex gap-2 items-center">
           <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="border rounded-lg px-3 py-1.5 text-sm">
@@ -259,7 +274,11 @@ export default function ConciliacionRemesasPage() {
 
       {/* Mensaje */}
       {mensaje && (
-        <div className={`p-3 rounded-lg text-sm ${mensaje.tipo === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'}`}>
+        <div className={`p-3 rounded-lg text-sm ${
+          mensaje.tipo === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 
+          mensaje.tipo === 'info' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+          'bg-red-50 text-red-800 border border-red-200'
+        }`}>
           {mensaje.texto}
         </div>
       )}
@@ -312,7 +331,7 @@ export default function ConciliacionRemesasPage() {
         </div>
       )}
 
-      {/* Acciones */}
+      {/* Acciones: Conciliación automática */}
       <div className="flex flex-wrap gap-2 bg-gray-50 rounded-xl p-4 border">
         <button
           onClick={() => ejecutarConciliacion('todo')}
@@ -339,21 +358,55 @@ export default function ConciliacionRemesasPage() {
           Detectar Devoluciones Banco
         </button>
         <button
-          onClick={importarDevoluciones}
-          disabled={importando || !mes}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-          title={!mes ? 'Selecciona un mes primero' : ''}
-        >
-          <ArrowDownTrayIcon className={`w-4 h-4 ${importando ? 'animate-bounce' : ''}`} />
-          {importando ? 'Importando...' : 'Importar DevSEPA (OneDrive)'}
-        </button>
-        <button
           onClick={() => ejecutarConciliacion('detectar_pagos')}
           disabled={procesando}
           className="inline-flex items-center gap-2 px-4 py-2 bg-white border text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
         >
           <CheckCircleIcon className="w-4 h-4" />
           Detectar Pagos Posteriores
+        </button>
+
+        {/* Separador */}
+        <div className="w-px bg-gray-300 mx-1 self-stretch"></div>
+
+        {/* Subir PDF Remesas */}
+        <input
+          ref={fileInputRemesas}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) handleUploadPDF(file, 'remesas');
+          }}
+        />
+        <button
+          onClick={() => fileInputRemesas.current?.click()}
+          disabled={subiendo}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+        >
+          <DocumentArrowUpIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
+          {subiendo ? 'Subiendo...' : 'Subir PDF Remesas'}
+        </button>
+
+        {/* Subir PDF Recibos Devueltos */}
+        <input
+          ref={fileInputDevoluciones}
+          type="file"
+          accept=".pdf"
+          className="hidden"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) handleUploadPDF(file, 'recibos_devueltos');
+          }}
+        />
+        <button
+          onClick={() => fileInputDevoluciones.current?.click()}
+          disabled={subiendo}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+        >
+          <ArrowDownTrayIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
+          {subiendo ? 'Subiendo...' : 'Subir PDF Devoluciones'}
         </button>
       </div>
 
@@ -409,7 +462,7 @@ export default function ConciliacionRemesasPage() {
                       <td className="px-4 py-3 text-right font-mono text-green-700 font-medium">{formatEUR(rm.totalCobradoBanco)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-600">{formatEUR(rm.santander)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-600">
-                        {rm.caixaGuissona > 0 ? formatEUR(rm.caixaGuissona) : <span className="text-gray-500">&mdash;</span>}
+                        {rm.caixaGuissona > 0 ? formatEUR(rm.caixaGuissona) : <span className="text-gray-400">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         <span className={rm.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}>
@@ -421,7 +474,7 @@ export default function ConciliacionRemesasPage() {
                         {rm.totalDevuelto > 0 ? (
                           <span className="text-red-600">{formatEUR(rm.totalDevuelto)} ({rm.numDevoluciones})</span>
                         ) : (
-                          <span className="text-gray-500">&mdash;</span>
+                          <span className="text-gray-400">&mdash;</span>
                         )}
                       </td>
                     </tr>
@@ -462,16 +515,18 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Se Remesaron</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobrado en Banco</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobrado Banco</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Diferencia</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">Registros</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Recibos ISP</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Cobrados</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Rechazos</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Devoluciones</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {remesas.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay remesas para el periodo seleccionado</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">No hay remesas para el periodo seleccionado</td></tr>
                 ) : (
                   remesas.map(r => (
                     <tr key={r.id} className="hover:bg-gray-50">
@@ -480,23 +535,35 @@ export default function ConciliacionRemesasPage() {
                         <div className="text-xs text-gray-400">ISP #{r.ispGestionId}</div>
                       </td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(r.fecha)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-900">{formatEUR(r.totalImporte)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-900 font-medium">{formatEUR(r.totalImporte)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-700">
-                        {r.importeBanco !== null && !isNaN(r.importeBanco) ? formatEUR(r.importeBanco) : <span className="text-gray-500">&mdash;</span>}
+                        {r.importeBanco !== null && !isNaN(r.importeBanco) ? formatEUR(r.importeBanco) : <span className="text-gray-400">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         {r.diferencia !== null && !isNaN(r.diferencia) ? (
                           <span className={Math.abs(r.diferencia) < 1 ? 'text-green-600' : r.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}>
                             {r.diferencia > 0 ? '+' : ''}{formatEUR(r.diferencia)}
                           </span>
-                        ) : <span className="text-gray-500">&mdash;</span>}
+                        ) : <span className="text-gray-400">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-center text-gray-600">{r.numeroRegistros}</td>
+                      <td className="px-4 py-3 text-center text-gray-600">
+                        {r.recibosCobrados !== null ? (
+                          <span className="text-green-700 font-medium">{r.recibosCobrados}</span>
+                        ) : <span className="text-gray-400">&mdash;</span>}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {r.rechazos !== null && r.rechazos > 0 ? (
+                          <span className="text-red-600 font-medium">{r.rechazos}</span>
+                        ) : r.rechazos === 0 ? (
+                          <span className="text-green-600">0</span>
+                        ) : <span className="text-gray-400">&mdash;</span>}
+                      </td>
                       <td className="px-4 py-3 text-center">
                         {r.numDevoluciones > 0 ? (
                           <span className="text-red-600 font-medium">{r.numDevoluciones} ({formatEUR(r.totalDevoluciones)})</span>
                         ) : (
-                          <span className="text-gray-500">&mdash;</span>
+                          <span className="text-gray-400">&mdash;</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">{getEstadoBadge(r.estadoConciliacion)}</td>
@@ -519,6 +586,7 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Factura</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Cliente</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Importe</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Motivo Banco</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Dev.</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
@@ -527,16 +595,20 @@ export default function ConciliacionRemesasPage() {
               </thead>
               <tbody className="divide-y">
                 {devoluciones.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
                 ) : (
                   devoluciones.map(d => (
                     <tr key={d.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900 font-mono">{d.numeroFactura}</div>
+                        {d.referenciaExterna && <div className="text-xs text-gray-400">{d.referenciaExterna}</div>}
                       </td>
                       <td className="px-4 py-3 text-gray-700 max-w-[200px] truncate">{d.nombreCliente}</td>
                       <td className="px-4 py-3 text-right font-mono text-red-600 font-medium">{formatEUR(d.importe)}</td>
-                      <td className="px-4 py-3 text-gray-600 text-xs">{d.remesaNombre || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs max-w-[150px] truncate">
+                        {d.motivoBanco || d.motivo || <span className="text-gray-400">&mdash;</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{d.remesaNombre || <span className="text-gray-400">&mdash;</span>}</td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(d.fechaDevolucion)}</td>
                       <td className="px-4 py-3 text-center">{getEstadoDevolucionBadge(d.estado)}</td>
                       <td className="px-4 py-3 text-gray-600 text-xs">
@@ -545,7 +617,7 @@ export default function ConciliacionRemesasPage() {
                             <div className="text-green-600 font-medium">{formatEUR(d.importeCobrado)}</div>
                             {d.fechaCobro && <div className="text-gray-400">{formatDate(d.fechaCobro)}</div>}
                           </div>
-                        ) : '-'}
+                        ) : <span className="text-gray-400">&mdash;</span>}
                       </td>
                     </tr>
                   ))
