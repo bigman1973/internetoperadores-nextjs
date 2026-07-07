@@ -41,14 +41,14 @@ export async function POST(req: NextRequest) {
     if (summary.nominas.length === 0) {
       return NextResponse.json({
         success: false,
-        error: 'No se encontraron datos de nómina en el PDF. Asegúrate de que es un archivo "COSTES IO" del formato correcto.',
+        error: 'No se encontraron datos de nómina en el PDF. Formatos soportados: "COSTES IO" (resumen gestoría) y nóminas individuales (detalle por empleado).',
       }, { status: 400 });
     }
 
     if (summary.mes === 0 || summary.anio === 0) {
       return NextResponse.json({
         success: false,
-        error: 'No se pudo detectar el mes/año del archivo. Verifica que el PDF contiene la cabecera "PAGA TOTAL DEL..."',
+        error: 'No se pudo detectar el mes/año del archivo. Verifica que el PDF contiene datos de periodo válidos.',
       }, { status: 400 });
     }
 
