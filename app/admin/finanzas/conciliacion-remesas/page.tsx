@@ -409,7 +409,7 @@ export default function ConciliacionRemesasPage() {
                       <td className="px-4 py-3 text-right font-mono text-green-700 font-medium">{formatEUR(rm.totalCobradoBanco)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-600">{formatEUR(rm.santander)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-600">
-                        {rm.caixaGuissona > 0 ? formatEUR(rm.caixaGuissona) : <span className="text-gray-300">-</span>}
+                        {rm.caixaGuissona > 0 ? formatEUR(rm.caixaGuissona) : <span className="text-gray-500">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         <span className={rm.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}>
@@ -421,7 +421,7 @@ export default function ConciliacionRemesasPage() {
                         {rm.totalDevuelto > 0 ? (
                           <span className="text-red-600">{formatEUR(rm.totalDevuelto)} ({rm.numDevoluciones})</span>
                         ) : (
-                          <span className="text-gray-300">-</span>
+                          <span className="text-gray-500">&mdash;</span>
                         )}
                       </td>
                     </tr>
@@ -461,8 +461,8 @@ export default function ConciliacionRemesasPage() {
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Importe ISP</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobro Banco (prop.)</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Se Remesaron</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobrado en Banco</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Diferencia</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Registros</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Devoluciones</th>
@@ -481,22 +481,22 @@ export default function ConciliacionRemesasPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(r.fecha)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-900">{formatEUR(r.totalImporte)}</td>
-                      <td className="px-4 py-3 text-right font-mono text-gray-600">
-                        {r.importeBanco !== null ? formatEUR(r.importeBanco) : <span className="text-gray-300">-</span>}
+                      <td className="px-4 py-3 text-right font-mono text-gray-700">
+                        {r.importeBanco !== null && !isNaN(r.importeBanco) ? formatEUR(r.importeBanco) : <span className="text-gray-500">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
-                        {r.diferencia !== null ? (
+                        {r.diferencia !== null && !isNaN(r.diferencia) ? (
                           <span className={Math.abs(r.diferencia) < 1 ? 'text-green-600' : r.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}>
                             {r.diferencia > 0 ? '+' : ''}{formatEUR(r.diferencia)}
                           </span>
-                        ) : <span className="text-gray-300">-</span>}
+                        ) : <span className="text-gray-500">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 text-center text-gray-600">{r.numeroRegistros}</td>
                       <td className="px-4 py-3 text-center">
                         {r.numDevoluciones > 0 ? (
                           <span className="text-red-600 font-medium">{r.numDevoluciones} ({formatEUR(r.totalDevoluciones)})</span>
                         ) : (
-                          <span className="text-gray-300">-</span>
+                          <span className="text-gray-500">&mdash;</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">{getEstadoBadge(r.estadoConciliacion)}</td>

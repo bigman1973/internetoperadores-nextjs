@@ -114,8 +114,8 @@ export async function GET(req: NextRequest) {
       });
       const totalRemesadoMes = remesasDelMismoMes.reduce((sum, rem) => sum + Number(rem.totalImporte), 0);
       const proporcion = totalRemesadoMes > 0 ? Number(r.totalImporte) / totalRemesadoMes : 0;
-      const cobroProporcional = cobroMes ? cobroMes.total * proporcion : null;
-      const diferenciaProporcional = cobroProporcional !== null ? cobroProporcional - Number(r.totalImporte) : null;
+      const cobroProporcional = (cobroMes && cobroMes.total > 0 && proporcion > 0) ? Math.round(cobroMes.total * proporcion * 100) / 100 : null;
+      const diferenciaProporcional = cobroProporcional !== null ? Math.round((cobroProporcional - Number(r.totalImporte)) * 100) / 100 : null;
 
       // Estado basado en si hay datos del banco para ese mes
       let estadoConciliacion = 'PENDIENTE';
