@@ -381,7 +381,7 @@ const CATEGORIAS_MAP: Record<string, { titulo: string; categorias: string[] }> =
   },
   impuestos: {
     titulo: 'Impuestos',
-    categorias: ['IMPUESTOS'],
+    categorias: ['Retenciones', 'Sociedades Pago a Cuenta', 'Aplazamientos AEAT'],
   },
   devoluciones: {
     titulo: 'Devoluciones',

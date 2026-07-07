@@ -35,6 +35,24 @@ export async function GET(req: NextRequest) {
         { concepto: { contains: 'AUTONOMOS', mode: 'insensitive' } },
         { concepto: { contains: 'APLAZAM', mode: 'insensitive' } },
       ];
+    } else if (categoria === 'Retenciones') {
+      where.categoria = 'IMPUESTOS';
+      where.OR = [
+        { concepto: { contains: 'RET', mode: 'insensitive' } },
+        { concepto: { contains: 'INGRESO A CUENTA', mode: 'insensitive' } },
+      ];
+    } else if (categoria === 'Sociedades Pago a Cuenta') {
+      where.categoria = 'IMPUESTOS';
+      where.OR = [
+        { concepto: { contains: 'SOCIEDADES', mode: 'insensitive' } },
+      ];
+    } else if (categoria === 'Aplazamientos AEAT') {
+      where.categoria = 'IMPUESTOS';
+      where.AND = [
+        { NOT: { concepto: { contains: 'RET', mode: 'insensitive' } } },
+        { NOT: { concepto: { contains: 'INGRESO A CUENTA', mode: 'insensitive' } } },
+        { NOT: { concepto: { contains: 'SOCIEDADES', mode: 'insensitive' } } },
+      ];
     } else if (categoria) {
       where.categoria = categoria;
     }

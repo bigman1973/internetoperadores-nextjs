@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
     const salidasOtros = totalSalidas - salidasMayoristas - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
 
     // Agrupar por categoría (para tabla detallada)
-    // Para "Sueldos y Salarios" separamos en subcategorías
+    // Separamos "Sueldos y Salarios" e "IMPUESTOS" en subcategorías virtuales
     const porCategoria: Record<string, { ingresos: number; gastos: number; count: number }> = {};
     for (const mov of movimientos) {
       let cat = mov.categoria || 'Sin categorizar';
@@ -106,6 +106,16 @@ export async function GET(req: NextRequest) {
           cat = 'Cotizaciones SS';
         } else {
           cat = 'Transferencias Nóminas';
+        }
+      }
+      // Separar IMPUESTOS en subcategorías
+      if (cat === 'IMPUESTOS' && mov.importe < 0) {
+        if (/ret.*ingreso a cuenta|ret.*cta/i.test(mov.concepto)) {
+          cat = 'Retenciones';
+        } else if (/sociedades.*pago.*cta|imp.*sociedades/i.test(mov.concepto)) {
+          cat = 'Sociedades Pago a Cuenta';
+        } else {
+          cat = 'Aplazamientos AEAT';
         }
       }
       if (!porCategoria[cat]) porCategoria[cat] = { ingresos: 0, gastos: 0, count: 0 };
