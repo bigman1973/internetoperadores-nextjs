@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { vacaciones = [], permisos = [], bajas = [], year = 2026, trigger } = body
+    const { vacaciones = [], permisos = [], bajas = [], saldoVacaciones = [], year = 2026, trigger } = body
 
     // Si es trigger manual desde la interfaz, ejecutar scraping desde el Cloud Computer
     if (trigger === 'manual') {
@@ -106,25 +106,70 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    // Procesar saldos de vacaciones
+    let saldosInsertados = 0
+    if (saldoVacaciones.length > 0) {
+      for (const saldo of saldoVacaciones) {
+        const empleadoId = findEmpleadoId(saldo.empleado)
+        await prisma.saldoVacaciones.upsert({
+          where: {
+            empleadoNombre_anio: {
+              empleadoNombre: saldo.empleado || 'Desconocido',
+              anio: year
+            }
+          },
+          update: {
+            empleadoId,
+            hrlogEmpleadoId: saldo.empleadoId || null,
+            diasConvenio: saldo.diasConvenio || 22,
+            diasBolsa: saldo.diasBolsa || 0,
+            diasAntiguedad: saldo.diasAntiguedad || 0,
+            diasTotal: saldo.diasTotal || 22,
+            diasDisfrutadas: saldo.diasDisfrutadas || 0,
+            diasAprobadas: saldo.diasAprobadas || 0,
+            diasEnTramite: saldo.diasEnTramite || 0,
+            saldoActual: saldo.saldoActual || 0,
+            syncAt: new Date(),
+          },
+          create: {
+            empleadoId,
+            empleadoNombre: saldo.empleado || 'Desconocido',
+            hrlogEmpleadoId: saldo.empleadoId || null,
+            anio: year,
+            diasConvenio: saldo.diasConvenio || 22,
+            diasBolsa: saldo.diasBolsa || 0,
+            diasAntiguedad: saldo.diasAntiguedad || 0,
+            diasTotal: saldo.diasTotal || 22,
+            diasDisfrutadas: saldo.diasDisfrutadas || 0,
+            diasAprobadas: saldo.diasAprobadas || 0,
+            diasEnTramite: saldo.diasEnTramite || 0,
+            saldoActual: saldo.saldoActual || 0,
+          }
+        })
+        saldosInsertados++
+      }
+    }
+
     // Registrar log de sincronización
     await prisma.syncLog.create({
       data: {
         fuente: 'hrlog',
         tipo: 'calendario',
-        registros: allData.length,
+        registros: allData.length + saldosInsertados,
         estado: 'ok',
-        mensaje: `Vacaciones: ${vacaciones.length}, Permisos: ${permisos.length}, Bajas: ${bajas.length}`
+        mensaje: `Vacaciones: ${vacaciones.length}, Permisos: ${permisos.length}, Bajas: ${bajas.length}, Saldos: ${saldosInsertados}`
       }
     })
 
     return NextResponse.json({
       success: true,
-      message: `Sincronización completada: ${allData.length} registros`,
+      message: `Sincronización completada: ${allData.length} eventos + ${saldosInsertados} saldos`,
       detalle: {
         vacaciones: vacaciones.length,
         permisos: permisos.length,
         bajas: bajas.length,
-        total: allData.length
+        saldos: saldosInsertados,
+        total: allData.length + saldosInsertados
       }
     })
 

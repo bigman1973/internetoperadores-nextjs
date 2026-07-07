@@ -1396,6 +1396,7 @@ model Empleado {
   imputaciones      ImputacionHoras[]
   asignaciones      AsignacionProyecto[]
   calendario        CalendarioPersonal[]
+  saldoVacaciones   SaldoVacaciones[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1558,4 +1559,29 @@ model SyncLog {
 
   @@index([fuente, ejecutadoAt])
   @@map("sync_logs")
+}
+
+model SaldoVacaciones {
+  id              String    @id @default(uuid())
+  empleadoId      String?   @map("empleado_id")
+  empleadoNombre  String    @map("empleado_nombre")
+  hrlogEmpleadoId Int?      @map("hrlog_empleado_id")
+  anio            Int       @default(2026)
+  diasConvenio    Int       @default(22) @map("dias_convenio")
+  diasBolsa       Int       @default(0) @map("dias_bolsa")
+  diasAntiguedad  Int       @default(0) @map("dias_antiguedad")
+  diasTotal       Int       @default(22) @map("dias_total")
+  diasDisfrutadas Int       @default(0) @map("dias_disfrutadas")
+  diasAprobadas   Int       @default(0) @map("dias_aprobadas")
+  diasEnTramite   Int       @default(0) @map("dias_en_tramite")
+  saldoActual     Int       @default(0) @map("saldo_actual")
+  empleado        Empleado? @relation(fields: [empleadoId], references: [id])
+  syncAt          DateTime  @default(now()) @map("sync_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@unique([empleadoNombre, anio])
+  @@index([empleadoId])
+  @@index([anio])
+  @@map("saldo_vacaciones")
 }

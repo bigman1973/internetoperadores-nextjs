@@ -31,7 +31,8 @@ import {
   BriefcaseIcon,
   FolderIcon,
   CalendarDaysIcon,
-  CloudArrowUpIcon
+  CloudArrowUpIcon,
+  SunIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -128,6 +129,7 @@ const navigation: NavEntry[] = [
     roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'],
     children: [
       { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon },
+      { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon },
       { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon },
       { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon },
     ],
