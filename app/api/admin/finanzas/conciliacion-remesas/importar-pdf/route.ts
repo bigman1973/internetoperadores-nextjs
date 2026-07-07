@@ -9,73 +9,126 @@ const pdfParse = require('pdf-parse')
 type TipoPDF = 'remesas' | 'recibos_devueltos'
 
 // ============================================================
-// PARSER: PDF Remesas del banco
-// Extrae: fecha, nº recibos, importe, número de remesa
+// PARSER: PDF Remesas del banco (Santander)
+// Formato real: texto concatenado sin separadores
+// Ejemplo: "01/06/202616724.269,77 EUR0049 2482 753000084S0049 1886 2810745257Contabilizada"
+// = fecha 01/06/2026 + nRecibos 167 + importe 24.269,77 EUR + ref 0049 2482 753000084S
 // ============================================================
+
+function separarRecibosImporte(raw: string): { nRecibos: number; importe: number } | null {
+  const comaPos = raw.indexOf(',')
+  if (comaPos === -1) return null
+  
+  const decimales = raw.substring(comaPos) // ',77'
+  const parteEntera = raw.substring(0, comaPos) // '16724.269' o '2509'
+  
+  if (parteEntera.includes('.')) {
+    // HAY punto de miles en el importe
+    const primerPunto = parteEntera.indexOf('.')
+    const antesDelPunto = parteEntera.substring(0, primerPunto)
+    const despuesDelPunto = parteEntera.substring(primerPunto + 1)
+    
+    // Verificar que después del punto hay grupos de 3 dígitos
+    const gruposDespues = despuesDelPunto.split('.')
+    const todosGrupos3 = gruposDespues.every(g => g.length === 3)
+    
+    if (todosGrupos3) {
+      // Probar separaciones: el primer grupo del importe tiene 1-3 dígitos
+      for (let len = 1; len <= 3; len++) {
+        if (antesDelPunto.length >= len) {
+          const primerGrupo = antesDelPunto.substring(antesDelPunto.length - len)
+          const nRecibosStr = antesDelPunto.substring(0, antesDelPunto.length - len)
+          
+          if (primerGrupo.length > 1 && primerGrupo.startsWith('0')) continue
+          
+          const importeStr = primerGrupo + '.' + despuesDelPunto + decimales
+          const importe = parseFloat(importeStr.replace(/\./g, '').replace(',', '.'))
+          const nRecibos = nRecibosStr ? parseInt(nRecibosStr) : 0
+          
+          if (nRecibosStr === '' || (nRecibos > 0 && nRecibos < 500)) {
+            return { nRecibos, importe }
+          }
+        }
+      }
+    }
+  }
+  
+  // SIN punto de miles: importe < 10.000
+  // Generar todas las posibles separaciones
+  const candidatos: Array<{ nRecibos: number; importe: number; score: number }> = []
+  for (let i = 1; i <= parteEntera.length - 1; i++) {
+    const nRecibos = parseInt(parteEntera.substring(0, i))
+    const importeStr = parteEntera.substring(i) + decimales
+    const importe = parseFloat(importeStr.replace(',', '.'))
+    if (nRecibos > 0 && nRecibos < 500 && importe > 1) {
+      candidatos.push({ nRecibos, importe, score: 0 })
+    }
+  }
+  
+  if (candidatos.length === 0) return null
+  
+  // Devolver TODOS los candidatos - la validación contra BD elegirá el correcto
+  // Por defecto, elegir el que tenga importe/recibo más razonable (20-100€)
+  for (const c of candidatos) {
+    const importePerRecibo = c.importe / c.nRecibos
+    if (importePerRecibo >= 15 && importePerRecibo <= 150) c.score += 20
+    else if (importePerRecibo >= 5 && importePerRecibo <= 500) c.score += 10
+    if (c.nRecibos >= 1 && c.nRecibos <= 200) c.score += 5
+  }
+  
+  candidatos.sort((a, b) => b.score - a.score)
+  return { nRecibos: candidatos[0].nRecibos, importe: candidatos[0].importe }
+}
+
 function parseRemesasBanco(text: string): Array<{
   fecha: string
   numRecibos: number
   importe: number
   numeroRemesa: string
+  candidatos?: Array<{ nRecibos: number; importe: number }>
 }> {
   const resultados: Array<{
     fecha: string
     numRecibos: number
     importe: number
     numeroRemesa: string
+    candidatos?: Array<{ nRecibos: number; importe: number }>
   }> = []
 
-  // El texto viene en formato: "01/06/2026" + "2" + "509,70 EUR" + "0049 2482 75300007KL" + "0049 1886 2810745257" + "Contabilizada"
-  // Pero pdf-parse lo concatena sin separadores claros
-  // Patrón: fecha (dd/mm/yyyy) + nRecibos + importe (xxx,xx EUR) + referencia (0049 2482 753XXXXXXX) + cuenta + estado
-  
-  // Regex para extraer cada línea de la tabla
-  const regex = /(\d{2}\/\d{2}\/\d{4})(\d+)([\d.,]+)\s*EUR(0049\s*2482\s*753\d+[A-Z0-9]+)/gi
+  // Regex: captura fecha + todo hasta EUR + referencia del banco
+  const regex = /(\d{2}\/\d{2}\/\d{4})([\d.]+,\d{2})\s*EUR(0049\s*2482\s*753\w+)/g
   let match
 
   while ((match = regex.exec(text)) !== null) {
     const fecha = match[1]
-    const numRecibos = parseInt(match[2])
-    const importeStr = match[3].replace('.', '').replace(',', '.')
-    const importe = parseFloat(importeStr)
-    const numeroRemesa = match[4].replace(/\s+/g, ' ').trim()
+    const rawNumImporte = match[2] // ej: '16724.269,77' o '2509,70'
+    const numeroRemesa = match[3].replace(/\s+/g, '').trim()
 
-    if (!isNaN(numRecibos) && !isNaN(importe) && importe > 0) {
-      resultados.push({ fecha, numRecibos, importe, numeroRemesa })
-    }
-  }
-
-  // Si el regex anterior no funciona bien, intentar un enfoque más flexible
-  if (resultados.length === 0) {
-    // Buscar patrones de fecha seguidos de datos
-    const lines = text.split('\n').filter(l => l.trim())
-    const dateRegex = /(\d{2}\/\d{2}\/\d{4})/
-    
-    for (const line of lines) {
-      const dateMatch = line.match(dateRegex)
-      if (dateMatch) {
-        // Extraer número de recibos (dígitos después de la fecha)
-        const afterDate = line.substring(line.indexOf(dateMatch[0]) + dateMatch[0].length)
-        const numMatch = afterDate.match(/^(\d+)/)
-        if (numMatch) {
-          const numRecibos = parseInt(numMatch[1])
-          // Extraer importe
-          const importeMatch = afterDate.match(/([\d.]+,\d{2})\s*EUR/)
-          if (importeMatch) {
-            const importe = parseFloat(importeMatch[1].replace('.', '').replace(',', '.'))
-            // Extraer referencia
-            const refMatch = afterDate.match(/(0049\s*2482\s*753\d+[A-Z0-9]+)/i)
-            if (refMatch && !isNaN(importe) && importe > 0) {
-              resultados.push({
-                fecha: dateMatch[1],
-                numRecibos,
-                importe,
-                numeroRemesa: refMatch[1].replace(/\s+/g, ' ').trim()
-              })
-            }
+    const parsed = separarRecibosImporte(rawNumImporte)
+    if (parsed && parsed.importe > 0) {
+      // Generar candidatos alternativos para validación contra BD
+      const comaPos = rawNumImporte.indexOf(',')
+      const decimales = rawNumImporte.substring(comaPos)
+      const parteEntera = rawNumImporte.substring(0, comaPos)
+      const candidatosAlt: Array<{ nRecibos: number; importe: number }> = []
+      
+      if (!parteEntera.includes('.')) {
+        for (let i = 1; i <= Math.min(3, parteEntera.length - 1); i++) {
+          const nR = parseInt(parteEntera.substring(0, i))
+          const imp = parseFloat(parteEntera.substring(i) + decimales.replace(',', '.'))
+          if (nR > 0 && nR < 500 && imp > 1) {
+            candidatosAlt.push({ nRecibos: nR, importe: imp })
           }
         }
       }
+
+      resultados.push({
+        fecha,
+        numRecibos: parsed.nRecibos,
+        importe: parsed.importe,
+        numeroRemesa,
+        candidatos: candidatosAlt.length > 1 ? candidatosAlt : undefined
+      })
     }
   }
 
@@ -278,12 +331,34 @@ async function procesarPDFRemesas(text: string, nombreArchivo: string) {
 
   for (const remBanco of remesasBanco) {
     // Buscar movimiento bancario con importe exacto
-    const movimiento = await prisma.movimientoBancario.findFirst({
+    // Si hay candidatos alternativos (parsing ambiguo), probar todos
+    let importeFinal = remBanco.importe
+    let numRecibosFinal = remBanco.numRecibos
+    
+    let movimiento = await prisma.movimientoBancario.findFirst({
       where: {
-        importe: { gte: remBanco.importe - 0.01, lte: remBanco.importe + 0.01 },
+        importe: { gte: remBanco.importe - 0.02, lte: remBanco.importe + 0.02 },
         concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
       }
     })
+
+    // Si no se encontró y hay candidatos alternativos, probar cada uno
+    if (!movimiento && remBanco.candidatos) {
+      for (const alt of remBanco.candidatos) {
+        const mov = await prisma.movimientoBancario.findFirst({
+          where: {
+            importe: { gte: alt.importe - 0.02, lte: alt.importe + 0.02 },
+            concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
+          }
+        })
+        if (mov) {
+          movimiento = mov
+          importeFinal = alt.importe
+          numRecibosFinal = alt.nRecibos
+          break
+        }
+      }
+    }
 
     if (!movimiento) {
       errores.push(`No se encontró movimiento bancario para importe ${remBanco.importe}€ (${remBanco.fecha})`)
@@ -307,21 +382,21 @@ async function procesarPDFRemesas(text: string, nombreArchivo: string) {
 
     // Asignar por número de recibos más cercano
     const mejorCandidata = candidatas.reduce((best, curr) => {
-      const diffCurr = Math.abs(curr.numeroRegistros - remBanco.numRecibos)
-      const diffBest = Math.abs(best.numeroRegistros - remBanco.numRecibos)
+      const diffCurr = Math.abs(curr.numeroRegistros - numRecibosFinal)
+      const diffBest = Math.abs(best.numeroRegistros - numRecibosFinal)
       return diffCurr < diffBest ? curr : best
     })
 
-    // Solo asignar si la diferencia de recibos es razonable (< 20% de rechazos)
-    const diffRecibos = mejorCandidata.numeroRegistros - remBanco.numRecibos
+    // Solo asignar si la diferencia de recibos es razonable (< 50% de rechazos)
+    const diffRecibos = mejorCandidata.numeroRegistros - numRecibosFinal
     if (diffRecibos < 0 || diffRecibos > mejorCandidata.numeroRegistros * 0.5) {
-      errores.push(`Remesa ${remBanco.numRecibos} recibos no coincide con ninguna ISP (mejor: ${mejorCandidata.nombre} con ${mejorCandidata.numeroRegistros})`)
+      errores.push(`Remesa ${numRecibosFinal} recibos no coincide con ninguna ISP (mejor: ${mejorCandidata.nombre} con ${mejorCandidata.numeroRegistros})`)
       continue
     }
 
     // Crear o actualizar conciliación
     const importeRemesa = Number(mejorCandidata.totalImporte)
-    const diferencia = remBanco.importe - importeRemesa
+    const diferencia = importeFinal - importeRemesa
 
     await prisma.conciliacionRemesa.upsert({
       where: { remesaId: mejorCandidata.id },
@@ -329,23 +404,23 @@ async function procesarPDFRemesas(text: string, nombreArchivo: string) {
         remesaId: mejorCandidata.id,
         movimientoBancarioId: movimiento.id,
         importeRemesa: importeRemesa,
-        importeMovimiento: remBanco.importe,
+        importeMovimiento: importeFinal,
         diferencia: diferencia,
         estado: Math.abs(diferencia) < 1 ? 'CONCILIADA' : 'DIFERENCIA',
         fechaConciliacion: new Date(),
         recibosRemesados: mejorCandidata.numeroRegistros,
-        recibosCobrados: remBanco.numRecibos,
+        recibosCobrados: numRecibosFinal,
         rechazos: diffRecibos,
         referenciaRemesaBanco: remBanco.numeroRemesa,
         notas: `Importado desde PDF: ${nombreArchivo}`
       },
       update: {
         movimientoBancarioId: movimiento.id,
-        importeMovimiento: remBanco.importe,
+        importeMovimiento: importeFinal,
         diferencia: diferencia,
         estado: Math.abs(diferencia) < 1 ? 'CONCILIADA' : 'DIFERENCIA',
         fechaConciliacion: new Date(),
-        recibosCobrados: remBanco.numRecibos,
+        recibosCobrados: numRecibosFinal,
         rechazos: diffRecibos,
         referenciaRemesaBanco: remBanco.numeroRemesa,
         notas: `Actualizado desde PDF: ${nombreArchivo}`
