@@ -15,6 +15,10 @@ interface DashboardData {
   alertas: { facturasPendientes: number; facturasImpagadas: number; facturasVencidas: number; movimientosSinCategorizar: number };
 }
 
+function formatEUR(n: number) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
+}
+
 export default function FinanzasDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,10 +42,6 @@ export default function FinanzasDashboard() {
       console.error(e);
     }
     setLoading(false);
-  }
-
-  function formatEUR(n: number) {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
   }
 
   if (loading) {
