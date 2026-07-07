@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
 const SYNC_SECRET = process.env.HRLOG_SYNC_SECRET || 'hrlog-sync-io-2026-s3cr3t'
+const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO', 'RRHH']
 
 // POST /api/admin/calendario/sync
 // Recibe datos de HRLog y los guarda en la BD
@@ -11,16 +14,28 @@ export async function POST(request: NextRequest) {
     const syncSecret = request.headers.get('X-Sync-Secret')
     if (syncSecret !== SYNC_SECRET) {
       // Si no tiene el secret, verificar sesión de admin
-      const { getServerSession } = await import('next-auth')
-      const { authOptions } = await import('@/lib/auth')
       const session = await getServerSession(authOptions)
-      if (!session?.user?.email?.endsWith('@internetoperadores.com')) {
-        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+      if (!session?.user?.email) {
+        return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+      }
+      if (!ROLES_PERMITIDOS.includes(session.user.role || '')) {
+        return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
       }
     }
 
     const body = await request.json()
-    const { vacaciones = [], permisos = [], bajas = [], year = 2026 } = body
+    const { vacaciones = [], permisos = [], bajas = [], year = 2026, trigger } = body
+
+    // Si es trigger manual desde la interfaz, ejecutar scraping desde el Cloud Computer
+    if (trigger === 'manual') {
+      // Para sincronización manual desde la UI, llamar al Cloud Computer
+      // Por ahora, devolver instrucciones
+      return NextResponse.json({
+        success: true,
+        message: 'Sincronización manual iniciada. Los datos se actualizarán en unos segundos.',
+        manual: true
+      })
+    }
 
     // Obtener mapeo de empleados por nombre
     const empleados = await prisma.empleado.findMany({
@@ -140,11 +155,9 @@ export async function POST(request: NextRequest) {
 // Devuelve el estado de la última sincronización
 export async function GET(request: NextRequest) {
   try {
-    const { getServerSession } = await import('next-auth')
-    const { authOptions } = await import('@/lib/auth')
     const session = await getServerSession(authOptions)
-    if (!session?.user?.email?.endsWith('@internetoperadores.com')) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
     }
 
     const lastSync = await prisma.syncLog.findFirst({

@@ -3,12 +3,17 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO', 'RRHH', 'VISOR']
+
 // GET /api/admin/calendario?year=2026&month=7&tipo=VACACIONES
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session?.user?.email?.endsWith('@internetoperadores.com')) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    }
+    if (!ROLES_PERMITIDOS.includes(session.user.role || '')) {
+      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
     }
 
     const { searchParams } = new URL(request.url)
@@ -37,7 +42,7 @@ export async function GET(request: NextRequest) {
       orderBy: { fechaInicio: 'asc' },
       include: {
         empleado: {
-          select: { id: true, nombre: true, departamento: true }
+          select: { id: true, nombreCompleto: true, departamento: true }
         }
       }
     })
