@@ -476,7 +476,7 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
 
   return (
     <div>
-      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} {"\u2014"} Detalle <span className="text-xs text-gray-400 font-normal">(clic en subcategoría para ver movimientos)</span></h4>
+      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} — Detalle <span className="text-xs text-gray-400 font-normal">(clic en subcategoría para ver movimientos)</span></h4>
       {items.length === 0 ? (
         <p className="text-xs text-gray-400">No hay movimientos en esta categoría</p>
       ) : (
@@ -493,7 +493,7 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
                   <div className="flex-1">
                     <div className="flex justify-between text-xs">
                       <span className="text-gray-700 font-medium">{item.nombre}</span>
-                      <span className="text-gray-500">{formatEUR(item.importe)} ({pct.toFixed(1)}%) \u2014 {item.count} mov.</span>
+                      <span className="text-gray-500">{formatEUR(item.importe)} ({pct.toFixed(1)}%) — {item.count} mov.</span>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-1.5 mt-0.5">
                       <div className="bg-blue-400 h-1.5 rounded-full" style={{ width: `${Math.min(pct, 100)}%` }}></div>
