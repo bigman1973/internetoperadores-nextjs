@@ -4,9 +4,21 @@ import { prisma } from '@/lib/prisma';
 /**
  * API de Conciliación de Remesas
  * 
- * GET - Dashboard de conciliación: KPIs, remesas con estado, devoluciones
- * POST - Ejecutar proceso de conciliación automática
+ * ENFOQUE: Conciliación mensual agregada
+ * - Una remesa ISP se cobra en MÚLTIPLES movimientos bancarios (cobros parciales)
+ * - El banco descuenta devoluciones, por lo que cobra menos que el total remesado
+ * - Hay 2 cuentas: Santander (principal) y Caixa Guissona (Pallars, hasta marzo 2026)
+ * - Los movimientos se identifican por:
+ *   - Santander: "Emision Remesa Sepa Sdd"
+ *   - Caixa Guissona: "ABONAMENT REMESA REBUTS"
+ * 
+ * GET - Dashboard: KPIs, resumen mensual, remesas con cobro agregado, devoluciones
+ * POST - Ejecutar conciliación automática
  */
+
+// IDs de cuentas bancarias
+const CUENTA_SANTANDER = '50910c7d-76f3-493e-8aed-962f22fc1413';
+const CUENTA_CAIXA_GUISSONA = '7664fe6c-9dd0-4099-9275-bbe8b4fde301';
 
 // GET - Dashboard de conciliación de remesas
 export async function GET(req: NextRequest) {
@@ -47,10 +59,41 @@ export async function GET(req: NextRequest) {
       orderBy: { fechaDevolucion: 'desc' },
     });
 
-    // 3. KPIs
+    // 3. Obtener TODOS los movimientos de remesa del banco (Santander + Caixa Guissona) del periodo
+    const fechaInicio = new Date(year, mes ? mes - 1 : 0, 1);
+    const fechaFin = new Date(year, mes ? mes : 12, 0, 23, 59, 59);
+
+    const movimientosRemesaBanco = await prisma.movimientoBancario.findMany({
+      where: {
+        OR: [
+          { concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' }, cuentaId: CUENTA_SANTANDER },
+          { concepto: { contains: 'REMESA REBUTS', mode: 'insensitive' }, cuentaId: CUENTA_CAIXA_GUISSONA },
+        ],
+        importe: { gt: 0 },
+        fechaOperacion: { gte: fechaInicio, lte: fechaFin },
+      },
+      orderBy: { fechaOperacion: 'asc' },
+    });
+
+    // 4. Agrupar movimientos banco por mes
+    const cobroBancoPorMes: Record<string, { santander: number; caixaGuissona: number; total: number; numMovimientos: number }> = {};
+    for (const mov of movimientosRemesaBanco) {
+      const mesKey = `${mov.fechaOperacion.getFullYear()}-${String(mov.fechaOperacion.getMonth() + 1).padStart(2, '0')}`;
+      if (!cobroBancoPorMes[mesKey]) {
+        cobroBancoPorMes[mesKey] = { santander: 0, caixaGuissona: 0, total: 0, numMovimientos: 0 };
+      }
+      if (mov.cuentaId === CUENTA_SANTANDER) {
+        cobroBancoPorMes[mesKey].santander += mov.importe;
+      } else if (mov.cuentaId === CUENTA_CAIXA_GUISSONA) {
+        cobroBancoPorMes[mesKey].caixaGuissona += mov.importe;
+      }
+      cobroBancoPorMes[mesKey].total += mov.importe;
+      cobroBancoPorMes[mesKey].numMovimientos++;
+    }
+
+    // 5. KPIs
     const totalRemesado = remesas.reduce((sum, r) => sum + Number(r.totalImporte), 0);
-    const remesasConciliadas = remesas.filter(r => r.conciliacion?.estado === 'CONCILIADA');
-    const totalConciliado = remesasConciliadas.reduce((sum, r) => sum + Number(r.totalImporte), 0);
+    const totalCobradoBanco = Object.values(cobroBancoPorMes).reduce((sum, m) => sum + m.total, 0);
     const totalDevuelto = devoluciones.reduce((sum, d) => sum + Number(d.importe), 0);
     const devolucionesPendientes = devoluciones.filter(d => d.estado === 'PENDIENTE');
     const devolucionesCobradas = devoluciones.filter(d => 
@@ -58,51 +101,98 @@ export async function GET(req: NextRequest) {
     );
     const totalRecuperado = devolucionesCobradas.reduce((sum, d) => sum + Number(d.importeCobrado || d.importe), 0);
 
-    // 4. Movimientos de tipo "Emision Remesa" sin conciliar
-    const movimientosRemesaSinConciliar = await prisma.movimientoBancario.count({
-      where: {
-        concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
-        conciliacionRemesa: null,
-        fechaOperacion: {
-          gte: new Date(year, mes ? mes - 1 : 0, 1),
-          lte: new Date(year, mes ? mes : 12, 0, 23, 59, 59),
-        },
-      },
+    // 6. Formatear remesas con cobro banco agregado del mes
+    const remesasFormateadas = remesas.map(r => {
+      const mesRemesa = `${new Date(r.fecha).getFullYear()}-${String(new Date(r.fecha).getMonth() + 1).padStart(2, '0')}`;
+      const cobroMes = cobroBancoPorMes[mesRemesa];
+      
+      // Calcular la proporción de esta remesa sobre el total del mes
+      // para asignar proporcionalmente el cobro del banco
+      const remesasDelMismoMes = remesas.filter(rem => {
+        const mesRem = `${new Date(rem.fecha).getFullYear()}-${String(new Date(rem.fecha).getMonth() + 1).padStart(2, '0')}`;
+        return mesRem === mesRemesa;
+      });
+      const totalRemesadoMes = remesasDelMismoMes.reduce((sum, rem) => sum + Number(rem.totalImporte), 0);
+      const proporcion = totalRemesadoMes > 0 ? Number(r.totalImporte) / totalRemesadoMes : 0;
+      const cobroProporcional = cobroMes ? cobroMes.total * proporcion : null;
+      const diferenciaProporcional = cobroProporcional !== null ? cobroProporcional - Number(r.totalImporte) : null;
+
+      // Estado basado en si hay datos del banco para ese mes
+      let estadoConciliacion = 'PENDIENTE';
+      if (cobroMes && cobroMes.total > 0) {
+        const diffPorcentaje = Math.abs((cobroMes.total - totalRemesadoMes) / totalRemesadoMes);
+        if (diffPorcentaje < 0.02) {
+          estadoConciliacion = 'CONCILIADA';
+        } else {
+          estadoConciliacion = 'DIFERENCIA';
+        }
+      }
+
+      return {
+        id: r.id,
+        ispGestionId: r.ispGestionId,
+        nombre: r.nombre,
+        fecha: r.fecha,
+        totalImporte: Number(r.totalImporte),
+        numeroRegistros: r.numeroRegistros,
+        remesado: r.remesado,
+        contabilizado: r.contabilizado,
+        // Conciliación mensual agregada
+        estadoConciliacion,
+        importeBanco: cobroProporcional,
+        diferencia: diferenciaProporcional,
+        // Info del mes completo
+        totalRemesadoMes,
+        totalCobradoMes: cobroMes?.total || 0,
+        diferenciaMes: cobroMes ? cobroMes.total - totalRemesadoMes : null,
+        numMovimientosBanco: cobroMes?.numMovimientos || 0,
+        cobroSantander: cobroMes?.santander || 0,
+        cobroCaixaGuissona: cobroMes?.caixaGuissona || 0,
+        // Devoluciones asociadas
+        numDevoluciones: r.devoluciones.length,
+        totalDevoluciones: r.devoluciones.reduce((sum, d) => sum + Number(d.importe), 0),
+      };
     });
 
-    // 5. Formatear remesas para el frontend
-    const remesasFormateadas = remesas.map(r => ({
-      id: r.id,
-      ispGestionId: r.ispGestionId,
-      nombre: r.nombre,
-      fecha: r.fecha,
-      totalImporte: Number(r.totalImporte),
-      numeroRegistros: r.numeroRegistros,
-      remesado: r.remesado,
-      contabilizado: r.contabilizado,
-      // Estado de conciliación
-      estadoConciliacion: r.conciliacion?.estado || 'PENDIENTE',
-      importeMovimiento: r.conciliacion ? Number(r.conciliacion.importeMovimiento) : null,
-      diferencia: r.conciliacion ? Number(r.conciliacion.diferencia) : null,
-      fechaConciliacion: r.conciliacion?.fechaConciliacion,
-      // Devoluciones asociadas
-      numDevoluciones: r.devoluciones.length,
-      totalDevoluciones: r.devoluciones.reduce((sum, d) => sum + Number(d.importe), 0),
-    }));
+    // 7. Resumen mensual
+    const resumenMensual = Object.entries(cobroBancoPorMes).map(([mesKey, cobro]) => {
+      const remesasMes = remesas.filter(r => {
+        const mesRem = `${new Date(r.fecha).getFullYear()}-${String(new Date(r.fecha).getMonth() + 1).padStart(2, '0')}`;
+        return mesRem === mesKey;
+      });
+      const totalRemesadoMes = remesasMes.reduce((sum, r) => sum + Number(r.totalImporte), 0);
+      const devolucionesMes = devoluciones.filter(d => {
+        const [anio, m] = mesKey.split('-');
+        return d.anioDevolucion === parseInt(anio) && d.mesDevolucion === parseInt(m);
+      });
+      const totalDevueltoMes = devolucionesMes.reduce((sum, d) => sum + Number(d.importe), 0);
+
+      return {
+        mes: mesKey,
+        totalRemesado: totalRemesadoMes,
+        totalCobradoBanco: cobro.total,
+        santander: cobro.santander,
+        caixaGuissona: cobro.caixaGuissona,
+        diferencia: cobro.total - totalRemesadoMes,
+        numMovimientos: cobro.numMovimientos,
+        totalDevuelto: totalDevueltoMes,
+        numDevoluciones: devolucionesMes.length,
+      };
+    }).sort((a, b) => b.mes.localeCompare(a.mes));
 
     return NextResponse.json({
       kpis: {
         totalRemesado,
-        totalConciliado,
+        totalCobradoBanco,
+        diferenciaNeta: totalCobradoBanco - totalRemesado,
         totalDevuelto,
         totalRecuperado,
         pendienteRecuperar: totalDevuelto - totalRecuperado,
         numRemesas: remesas.length,
-        numRemesasConciliadas: remesasConciliadas.length,
         numDevoluciones: devoluciones.length,
         numDevolucionesPendientes: devolucionesPendientes.length,
-        movimientosSinConciliar: movimientosRemesaSinConciliar,
       },
+      resumenMensual,
       remesas: remesasFormateadas,
       devoluciones: devoluciones.map(d => ({
         id: d.id,
@@ -135,13 +225,12 @@ export async function POST(req: NextRequest) {
     const resultados = {
       remesasConciliadas: 0,
       remesasConDiferencia: 0,
-      devolucionesImportadas: 0,
       devolucionesDetectadasBanco: 0,
       pagosPosterioresDetectados: 0,
       errores: [] as string[],
     };
 
-    // ===== ACCIÓN 1: CONCILIAR REMESAS CON MOVIMIENTOS BANCARIOS =====
+    // ===== ACCIÓN 1: CONCILIAR REMESAS (asignar movimiento principal) =====
     if (accion === 'conciliar' || accion === 'todo') {
       const whereRemesas: any = { ejercicio: year };
       if (mes) {
@@ -158,10 +247,13 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Movimientos bancarios de tipo "Emision Remesa" sin conciliar
+      // Movimientos bancarios de remesa (Santander + Caixa Guissona) sin conciliar
       const movimientosRemesa = await prisma.movimientoBancario.findMany({
         where: {
-          concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
+          OR: [
+            { concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' }, cuentaId: CUENTA_SANTANDER },
+            { concepto: { contains: 'REMESA REBUTS', mode: 'insensitive' }, cuentaId: CUENTA_CAIXA_GUISSONA },
+          ],
           importe: { gt: 0 },
           conciliacionRemesa: null,
           fechaOperacion: {
@@ -169,80 +261,85 @@ export async function POST(req: NextRequest) {
             lte: new Date(year, mes ? mes : 12, 0, 23, 59, 59),
           },
         },
-        orderBy: { fechaOperacion: 'asc' },
+        orderBy: [{ importe: 'desc' }],
       });
 
-      // Algoritmo de matching mejorado:
-      // El banco cobra las remesas con descuento por devoluciones (hasta 20% menos)
-      // Estrategia: para cada remesa, buscar el movimiento banco más cercano en importe
-      // dentro de una ventana de ±5 días, donde banco <= remesa (siempre cobra menos por devoluciones)
-      // Ordenar remesas de mayor a menor para asignar primero las grandes
+      // Estrategia: para cada remesa, buscar el movimiento banco MÁS GRANDE
+      // en una ventana de ±10 días. Ese es el "cobro principal" de la remesa.
+      // Los demás movimientos del mes son cobros parciales/recobros que se suman.
       const remesasOrdenadas = [...remesasSinConciliar].sort(
         (a, b) => Number(b.totalImporte) - Number(a.totalImporte)
       );
 
       for (const remesa of remesasOrdenadas) {
         const importeRemesa = Number(remesa.totalImporte);
-        
-        // Buscar movimientos en ventana de fecha (±5 días) donde:
-        // - El importe banco es <= importe remesa (banco siempre cobra menos por devoluciones)
-        // - La diferencia no supera el 25% (tolerancia amplia por devoluciones)
         const fechaRemesa = new Date(remesa.fecha);
+        const esPallars = remesa.nombre.toUpperCase().includes('PALLARS');
+        const esComunidad = remesa.nombre.toUpperCase().includes('COMUNIDAD');
+        const esMoviles = remesa.nombre.toUpperCase().includes('MÓVIL') || remesa.nombre.toUpperCase().includes('MOVIL');
+
+        // Determinar en qué cuenta buscar
+        // Pallars antes de abril 2026 → Caixa Guissona
+        // Todo lo demás → Santander
+        const usaCaixaGuissona = esPallars && fechaRemesa < new Date(2026, 3, 1); // antes de abril 2026
+
+        // Buscar candidatos en ventana ±10 días
         const candidatos = movimientosRemesa.filter(mov => {
           const diffDias = Math.abs(
             (mov.fechaOperacion.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24)
           );
-          if (diffDias > 5) return false;
-          // El banco cobra <= remesa (por devoluciones) con tolerancia del 25%
+          if (diffDias > 10) return false;
+
+          // Filtrar por cuenta si es Pallars pre-abril
+          if (usaCaixaGuissona && mov.cuentaId !== CUENTA_CAIXA_GUISSONA) return false;
+          if (!usaCaixaGuissona && mov.cuentaId === CUENTA_CAIXA_GUISSONA) return false;
+
+          // El cobro principal debe ser >= 50% del importe remesa
           const ratio = mov.importe / importeRemesa;
-          return ratio >= 0.75 && ratio <= 1.02; // entre 75% y 102% del importe remesa
+          return ratio >= 0.50 && ratio <= 1.05;
         });
 
-        // Si no hay candidatos en ±5 días, ampliar a ±10 días
-        if (candidatos.length === 0) {
-          const candidatosAmpliados = movimientosRemesa.filter(mov => {
-            const diffDias = Math.abs(
-              (mov.fechaOperacion.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24)
-            );
-            if (diffDias > 10) return false;
-            const ratio = mov.importe / importeRemesa;
-            return ratio >= 0.70 && ratio <= 1.02;
-          });
-          if (candidatosAmpliados.length > 0) candidatos.push(...candidatosAmpliados);
-        }
-
         if (candidatos.length >= 1) {
-          // Tomar el candidato con importe más cercano a la remesa
+          // Tomar el de importe más cercano a la remesa
           const mejorMatch = candidatos.reduce((best, curr) => {
             const diffBest = Math.abs(best.importe - importeRemesa);
             const diffCurr = Math.abs(curr.importe - importeRemesa);
             return diffCurr < diffBest ? curr : best;
           });
 
-          const mov = mejorMatch;
-          const diferencia = mov.importe - importeRemesa;
-          const estado = Math.abs(diferencia) < 0.01 ? 'CONCILIADA' : 'DIFERENCIA';
+          // Calcular la suma de TODOS los movimientos del mismo mes y cuenta
+          const mesRemesa = fechaRemesa.getMonth();
+          const anioRemesa = fechaRemesa.getFullYear();
+          const movimientosMismoMes = movimientosRemesa.filter(mov => {
+            const mesMov = mov.fechaOperacion.getMonth();
+            const anioMov = mov.fechaOperacion.getFullYear();
+            if (mesMov !== mesRemesa || anioMov !== anioRemesa) return false;
+            if (usaCaixaGuissona) return mov.cuentaId === CUENTA_CAIXA_GUISSONA;
+            return mov.cuentaId === CUENTA_SANTANDER;
+          });
+          const sumaMes = movimientosMismoMes.reduce((sum, m) => sum + m.importe, 0);
+
+          const diferencia = mejorMatch.importe - importeRemesa;
+          const estado = Math.abs(diferencia) < (importeRemesa * 0.01) ? 'CONCILIADA' : 'DIFERENCIA';
 
           await prisma.conciliacionRemesa.create({
             data: {
               remesaId: remesa.id,
-              movimientoBancarioId: mov.id,
+              movimientoBancarioId: mejorMatch.id,
               importeRemesa: importeRemesa,
-              importeMovimiento: mov.importe,
+              importeMovimiento: mejorMatch.importe,
               diferencia: diferencia,
               estado: estado as any,
               fechaConciliacion: new Date(),
             },
           });
 
-          // Marcar movimiento como conciliado
           await prisma.movimientoBancario.update({
-            where: { id: mov.id },
+            where: { id: mejorMatch.id },
             data: { conciliado: true },
           });
 
-          // Quitar candidato de la lista
-          const idx = movimientosRemesa.indexOf(mov);
+          const idx = movimientosRemesa.indexOf(mejorMatch);
           if (idx > -1) movimientosRemesa.splice(idx, 1);
 
           if (estado === 'CONCILIADA') {
@@ -273,16 +370,14 @@ export async function POST(req: NextRequest) {
         const importeDevolucion = Math.abs(mov.importe);
         const fechaDevolucion = new Date(mov.fechaOperacion);
         
-        // Buscar factura por importe exacto en el mes de la devolución o el anterior
-        // (la devolución llega días después de la remesa del mismo mes)
         const mesDevolucion = fechaDevolucion.getMonth(); // 0-indexed
         const anioDevolucion = fechaDevolucion.getFullYear();
         
-        // Buscar en el mes actual y el anterior (la remesa suele ser del día 1)
+        // Buscar en el mes actual y el anterior
         const fechaDesde = new Date(anioDevolucion, mesDevolucion - 1, 1);
         const fechaHasta = new Date(anioDevolucion, mesDevolucion + 1, 0, 23, 59, 59);
         
-        // Buscar factura con importe exacto (cualquier estado, no solo PENDIENTE)
+        // Buscar factura con importe exacto (cualquier estado)
         const facturasMatch = await prisma.factura.findMany({
           where: {
             total: { gte: importeDevolucion - 0.02 as any, lte: importeDevolucion + 0.02 as any },
@@ -291,17 +386,15 @@ export async function POST(req: NextRequest) {
           orderBy: { fecha: 'desc' },
         });
 
-        // Si hay match único, asignar. Si hay múltiples del mismo mes, tomar el más reciente.
         const facturaMatch = facturasMatch.length > 0 ? facturasMatch[0] : null;
         
-        // Determinar nombre del cliente
         let nombreCliente = 'DESCONOCIDO';
         let numeroFactura = 'DESCONOCIDA';
         if (facturaMatch) {
           nombreCliente = facturaMatch.nombreCompleto || 'DESCONOCIDO';
           numeroFactura = facturaMatch.numeroDocumento || 'DESCONOCIDA';
-        } else if (facturasMatch.length === 0) {
-          // Si no hay match exacto, buscar con tolerancia de ±1€ (por redondeos)
+        } else {
+          // Buscar con tolerancia ±1€
           const facturasAprox = await prisma.factura.findMany({
             where: {
               total: { gte: (importeDevolucion - 1) as any, lte: (importeDevolucion + 1) as any },
@@ -314,45 +407,40 @@ export async function POST(req: NextRequest) {
             nombreCliente = facturasAprox[0].nombreCompleto || 'DESCONOCIDO';
             numeroFactura = facturasAprox[0].numeroDocumento || 'DESCONOCIDA';
           } else if (facturasAprox.length > 1) {
-            nombreCliente = facturasAprox.map(f => f.nombreCompleto).join(' / ');
+            // Mostrar los candidatos
+            nombreCliente = facturasAprox.map(f => f.nombreCompleto).filter(Boolean).slice(0, 3).join(' / ');
             numeroFactura = 'MÚLTIPLES';
           }
         }
 
-        // Vincular a la remesa del mismo mes (buscar la remesa LLEIDA o la más grande del mes)
-        const remesaDelMes = await prisma.remesa.findFirst({
-          where: {
-            fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
-          },
-          orderBy: { totalImporte: 'desc' },
-        });
+        // Vincular a la remesa correspondiente del mes
+        let remesaId: number | null = null;
+        const remesaWhere: any = {
+          fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
+        };
 
-        // Si la factura es de serie CPL (Pallars), buscar remesa Pallars
-        let remesaId = remesaDelMes?.id || null;
         if (facturaMatch?.numeroDocumento?.startsWith('CPL')) {
           const remesaPallars = await prisma.remesa.findFirst({
-            where: {
-              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
-              nombre: { contains: 'PALLARS', mode: 'insensitive' },
-            },
+            where: { ...remesaWhere, nombre: { contains: 'PALLARS', mode: 'insensitive' } },
           });
-          if (remesaPallars) remesaId = remesaPallars.id;
+          remesaId = remesaPallars?.id || null;
         } else if (facturaMatch?.numeroDocumento?.startsWith('CCM')) {
           const remesaComunidad = await prisma.remesa.findFirst({
-            where: {
-              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
-              nombre: { contains: 'COMUNIDAD', mode: 'insensitive' },
-            },
+            where: { ...remesaWhere, nombre: { contains: 'COMUNIDAD', mode: 'insensitive' } },
           });
-          if (remesaComunidad) remesaId = remesaComunidad.id;
+          remesaId = remesaComunidad?.id || null;
         } else if (facturaMatch?.numeroDocumento?.startsWith('CMV')) {
           const remesaMoviles = await prisma.remesa.findFirst({
-            where: {
-              fecha: { gte: new Date(anioDevolucion, mesDevolucion, 1), lte: new Date(anioDevolucion, mesDevolucion + 1, 0) },
-              nombre: { contains: 'MÓVIL', mode: 'insensitive' },
-            },
+            where: { ...remesaWhere, nombre: { contains: 'MÓVIL', mode: 'insensitive' } },
           });
-          if (remesaMoviles) remesaId = remesaMoviles.id;
+          remesaId = remesaMoviles?.id || null;
+        } else {
+          // Por defecto, la remesa más grande del mes (LLEIDA)
+          const remesaLleida = await prisma.remesa.findFirst({
+            where: remesaWhere,
+            orderBy: { totalImporte: 'desc' },
+          });
+          remesaId = remesaLleida?.id || null;
         }
 
         await prisma.devolucionRemesa.create({
@@ -378,7 +466,6 @@ export async function POST(req: NextRequest) {
 
     // ===== ACCIÓN 3: DETECTAR PAGOS POSTERIORES =====
     if (accion === 'detectar_pagos' || accion === 'todo') {
-      // Buscar devoluciones pendientes y ver si hay transferencias posteriores del mismo cliente
       const devolucionesPendientes = await prisma.devolucionRemesa.findMany({
         where: {
           estado: 'PENDIENTE',
@@ -394,6 +481,7 @@ export async function POST(req: NextRequest) {
 
         const importeDevolucion = Number(dev.importe);
         const nombreCliente = dev.factura.nombreCompleto;
+        if (!nombreCliente) continue;
 
         // Buscar transferencias recibidas después de la devolución con importe similar
         const pagoPosterior = await prisma.movimientoBancario.findFirst({

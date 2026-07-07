@@ -10,19 +10,31 @@ import {
   ArrowDownTrayIcon,
   DocumentMagnifyingGlassIcon,
   ClockIcon,
+  BuildingLibraryIcon,
 } from '@heroicons/react/24/outline';
 
 interface KPIs {
   totalRemesado: number;
-  totalConciliado: number;
+  totalCobradoBanco: number;
+  diferenciaNeta: number;
   totalDevuelto: number;
   totalRecuperado: number;
   pendienteRecuperar: number;
   numRemesas: number;
-  numRemesasConciliadas: number;
   numDevoluciones: number;
   numDevolucionesPendientes: number;
-  movimientosSinConciliar: number;
+}
+
+interface ResumenMensual {
+  mes: string;
+  totalRemesado: number;
+  totalCobradoBanco: number;
+  santander: number;
+  caixaGuissona: number;
+  diferencia: number;
+  numMovimientos: number;
+  totalDevuelto: number;
+  numDevoluciones: number;
 }
 
 interface RemesaRow {
@@ -32,12 +44,15 @@ interface RemesaRow {
   fecha: string;
   totalImporte: number;
   numeroRegistros: number;
-  remesado: boolean;
-  contabilizado: boolean;
   estadoConciliacion: string;
-  importeMovimiento: number | null;
+  importeBanco: number | null;
   diferencia: number | null;
-  fechaConciliacion: string | null;
+  totalRemesadoMes: number;
+  totalCobradoMes: number;
+  diferenciaMes: number | null;
+  numMovimientosBanco: number;
+  cobroSantander: number;
+  cobroCaixaGuissona: number;
   numDevoluciones: number;
   totalDevoluciones: number;
 }
@@ -66,6 +81,12 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
+function formatMes(mesKey: string) {
+  const [anio, m] = mesKey.split('-');
+  const meses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${meses[parseInt(m) - 1]} ${anio}`;
+}
+
 const MESES = [
   { value: '', label: 'Todo el año' },
   { value: '1', label: 'Enero' },
@@ -84,6 +105,7 @@ const MESES = [
 
 export default function ConciliacionRemesasPage() {
   const [kpis, setKpis] = useState<KPIs | null>(null);
+  const [resumenMensual, setResumenMensual] = useState<ResumenMensual[]>([]);
   const [remesas, setRemesas] = useState<RemesaRow[]>([]);
   const [devoluciones, setDevoluciones] = useState<DevolucionRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,7 +113,7 @@ export default function ConciliacionRemesasPage() {
   const [importando, setImportando] = useState(false);
   const [year, setYear] = useState(2026);
   const [mes, setMes] = useState('');
-  const [vista, setVista] = useState<'remesas' | 'devoluciones'>('remesas');
+  const [vista, setVista] = useState<'resumen' | 'remesas' | 'devoluciones'>('resumen');
   const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
 
   useEffect(() => {
@@ -107,6 +129,7 @@ export default function ConciliacionRemesasPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
       setKpis(json.kpis);
+      setResumenMensual(json.resumenMensual || []);
       setRemesas(json.remesas);
       setDevoluciones(json.devoluciones);
     } catch (e: any) {
@@ -220,8 +243,8 @@ export default function ConciliacionRemesasPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Conciliación de Remesas</h1>
-          <p className="text-sm text-gray-500 mt-1">Cruce de remesas ISPGestión con movimientos bancarios y devoluciones</p>
+          <h1 className="text-2xl font-bold text-gray-900">Conciliacion de Remesas</h1>
+          <p className="text-sm text-gray-500 mt-1">Cruce mensual: remesas ISPGestion vs cobros banco (Santander + Caixa Guissona)</p>
         </div>
         <div className="flex gap-2 items-center">
           <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="border rounded-lg px-3 py-1.5 text-sm">
@@ -243,22 +266,24 @@ export default function ConciliacionRemesasPage() {
 
       {/* KPIs */}
       {kpis && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
               <BanknotesIcon className="w-4 h-4" />
-              Total Remesado
+              Remesado ISP
             </div>
             <div className="text-xl font-bold text-gray-900">{formatEUR(kpis.totalRemesado)}</div>
             <div className="text-xs text-gray-400 mt-1">{kpis.numRemesas} remesas</div>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-              <CheckCircleIcon className="w-4 h-4 text-green-500" />
-              Conciliado
+              <BuildingLibraryIcon className="w-4 h-4 text-green-500" />
+              Cobrado Banco
             </div>
-            <div className="text-xl font-bold text-green-700">{formatEUR(kpis.totalConciliado)}</div>
-            <div className="text-xs text-gray-400 mt-1">{kpis.numRemesasConciliadas}/{kpis.numRemesas} remesas</div>
+            <div className="text-xl font-bold text-green-700">{formatEUR(kpis.totalCobradoBanco)}</div>
+            <div className="text-xs text-gray-400 mt-1">
+              Dif: <span className={kpis.diferenciaNeta >= 0 ? 'text-green-600' : 'text-red-600'}>{formatEUR(kpis.diferenciaNeta)}</span>
+            </div>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
@@ -266,7 +291,7 @@ export default function ConciliacionRemesasPage() {
               Devuelto
             </div>
             <div className="text-xl font-bold text-red-700">{formatEUR(kpis.totalDevuelto)}</div>
-            <div className="text-xs text-gray-400 mt-1">{kpis.numDevoluciones} devoluciones ({kpis.numDevolucionesPendientes} pendientes)</div>
+            <div className="text-xs text-gray-400 mt-1">{kpis.numDevoluciones} devoluciones</div>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
@@ -274,7 +299,15 @@ export default function ConciliacionRemesasPage() {
               Recuperado
             </div>
             <div className="text-xl font-bold text-blue-700">{formatEUR(kpis.totalRecuperado)}</div>
-            <div className="text-xs text-gray-400 mt-1">Pendiente: {formatEUR(kpis.pendienteRecuperar)}</div>
+            <div className="text-xs text-gray-400 mt-1">de {formatEUR(kpis.totalDevuelto)}</div>
+          </div>
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+              <ExclamationTriangleIcon className="w-4 h-4 text-amber-500" />
+              Pdte. Recuperar
+            </div>
+            <div className="text-xl font-bold text-amber-700">{formatEUR(kpis.pendienteRecuperar)}</div>
+            <div className="text-xs text-gray-400 mt-1">{kpis.numDevolucionesPendientes} pendientes</div>
           </div>
         </div>
       )}
@@ -328,6 +361,12 @@ export default function ConciliacionRemesasPage() {
       <div className="border-b">
         <nav className="flex gap-4">
           <button
+            onClick={() => setVista('resumen')}
+            className={`pb-2 text-sm font-medium border-b-2 ${vista === 'resumen' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+          >
+            Resumen Mensual ({resumenMensual.length})
+          </button>
+          <button
             onClick={() => setVista('remesas')}
             className={`pb-2 text-sm font-medium border-b-2 ${vista === 'remesas' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
           >
@@ -342,6 +381,77 @@ export default function ConciliacionRemesasPage() {
         </nav>
       </div>
 
+      {/* Tabla Resumen Mensual */}
+      {vista === 'resumen' && (
+        <div className="bg-white rounded-xl border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Mes</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Remesado ISP</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobrado Banco</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Santander</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Caixa Guissona</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Diferencia</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Movimientos</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Devuelto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {resumenMensual.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay datos. Pulsa &quot;Conciliar Todo&quot; para procesar.</td></tr>
+                ) : (
+                  resumenMensual.map(rm => (
+                    <tr key={rm.mes} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{formatMes(rm.mes)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-900">{formatEUR(rm.totalRemesado)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-green-700 font-medium">{formatEUR(rm.totalCobradoBanco)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600">{formatEUR(rm.santander)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-gray-600">
+                        {rm.caixaGuissona > 0 ? formatEUR(rm.caixaGuissona) : <span className="text-gray-300">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono">
+                        <span className={rm.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}>
+                          {rm.diferencia >= 0 ? '+' : ''}{formatEUR(rm.diferencia)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center text-gray-600">{rm.numMovimientos}</td>
+                      <td className="px-4 py-3 text-right font-mono">
+                        {rm.totalDevuelto > 0 ? (
+                          <span className="text-red-600">{formatEUR(rm.totalDevuelto)} ({rm.numDevoluciones})</span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+              {resumenMensual.length > 0 && (
+                <tfoot className="bg-gray-50 border-t font-medium">
+                  <tr>
+                    <td className="px-4 py-3 text-gray-700">TOTAL</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-900">{formatEUR(resumenMensual.reduce((s, r) => s + r.totalRemesado, 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-green-700">{formatEUR(resumenMensual.reduce((s, r) => s + r.totalCobradoBanco, 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-600">{formatEUR(resumenMensual.reduce((s, r) => s + r.santander, 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono text-gray-600">{formatEUR(resumenMensual.reduce((s, r) => s + r.caixaGuissona, 0))}</td>
+                    <td className="px-4 py-3 text-right font-mono">
+                      {(() => {
+                        const total = resumenMensual.reduce((s, r) => s + r.diferencia, 0);
+                        return <span className={total >= 0 ? 'text-green-600' : 'text-red-600'}>{total >= 0 ? '+' : ''}{formatEUR(total)}</span>;
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-center text-gray-600">{resumenMensual.reduce((s, r) => s + r.numMovimientos, 0)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-red-600">{formatEUR(resumenMensual.reduce((s, r) => s + r.totalDevuelto, 0))}</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Tabla Remesas */}
       {vista === 'remesas' && (
         <div className="bg-white rounded-xl border overflow-hidden">
@@ -352,7 +462,7 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Importe ISP</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Importe Banco</th>
+                  <th className="text-right px-4 py-3 font-medium text-gray-600">Cobro Banco (prop.)</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Diferencia</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Registros</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Devoluciones</th>
@@ -372,21 +482,21 @@ export default function ConciliacionRemesasPage() {
                       <td className="px-4 py-3 text-gray-600">{formatDate(r.fecha)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-900">{formatEUR(r.totalImporte)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-600">
-                        {r.importeMovimiento !== null ? formatEUR(r.importeMovimiento) : '-'}
+                        {r.importeBanco !== null ? formatEUR(r.importeBanco) : <span className="text-gray-300">-</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-mono">
                         {r.diferencia !== null ? (
-                          <span className={r.diferencia === 0 ? 'text-green-600' : r.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}>
+                          <span className={Math.abs(r.diferencia) < 1 ? 'text-green-600' : r.diferencia > 0 ? 'text-blue-600' : 'text-red-600'}>
                             {r.diferencia > 0 ? '+' : ''}{formatEUR(r.diferencia)}
                           </span>
-                        ) : '-'}
+                        ) : <span className="text-gray-300">-</span>}
                       </td>
                       <td className="px-4 py-3 text-center text-gray-600">{r.numeroRegistros}</td>
                       <td className="px-4 py-3 text-center">
                         {r.numDevoluciones > 0 ? (
                           <span className="text-red-600 font-medium">{r.numDevoluciones} ({formatEUR(r.totalDevoluciones)})</span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-300">-</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">{getEstadoBadge(r.estadoConciliacion)}</td>
@@ -409,26 +519,24 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Factura</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Cliente</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Importe</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Motivo</th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Dev.</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Cobro</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Origen</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {devoluciones.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
                 ) : (
                   devoluciones.map(d => (
                     <tr key={d.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
                         <div className="font-medium text-gray-900 font-mono">{d.numeroFactura}</div>
-                        {d.referenciaRemesa && <div className="text-xs text-gray-400">Ref: {d.referenciaRemesa}</div>}
                       </td>
                       <td className="px-4 py-3 text-gray-700 max-w-[200px] truncate">{d.nombreCliente}</td>
                       <td className="px-4 py-3 text-right font-mono text-red-600 font-medium">{formatEUR(d.importe)}</td>
-                      <td className="px-4 py-3 text-gray-600 max-w-[150px] truncate text-xs">{d.motivo || '-'}</td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">{d.remesaNombre || '-'}</td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(d.fechaDevolucion)}</td>
                       <td className="px-4 py-3 text-center">{getEstadoDevolucionBadge(d.estado)}</td>
                       <td className="px-4 py-3 text-gray-600 text-xs">
@@ -439,23 +547,11 @@ export default function ConciliacionRemesasPage() {
                           </div>
                         ) : '-'}
                       </td>
-                      <td className="px-4 py-3 text-xs text-gray-400">{d.archivoOrigen || '-'}</td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Resumen inferior */}
-      {kpis && kpis.movimientosSinConciliar > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
-          <ExclamationTriangleIcon className="w-5 h-5 text-amber-600 flex-shrink-0" />
-          <div className="text-sm text-amber-800">
-            Hay <strong>{kpis.movimientosSinConciliar}</strong> movimientos bancarios de tipo &quot;Emisión Remesa&quot; sin conciliar con remesas de ISPGestión.
-            Ejecuta &quot;Conciliar Todo&quot; para procesarlos automáticamente.
           </div>
         </div>
       )}
