@@ -132,7 +132,7 @@ export default function AdminEmpleadosPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Gestión de Personal</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Costes de Personal</h1>
           <p className="text-sm text-gray-500 mt-1">
             Costes, nóminas y KPIs de empleados — {getPeriodoLabel()} {anioSeleccionado}
             {totales && totales.mesesConDatos > 0 && periodo !== 'mes' && (

@@ -29,7 +29,9 @@ import {
   ReceiptPercentIcon,
   UserIcon,
   BriefcaseIcon,
-  FolderIcon
+  FolderIcon,
+  CalendarDaysIcon,
+  CloudArrowUpIcon
 } from '@heroicons/react/24/outline'
 
 // Context para compartir el estado del sidebar entre componentes
@@ -120,7 +122,16 @@ const navigation: NavEntry[] = [
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon },
   { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'GERENTE'] },
   { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
-  { name: 'Personal', href: '/admin/empleados', icon: BriefcaseIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
+  {
+    name: 'Personal',
+    icon: BriefcaseIcon,
+    roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'],
+    children: [
+      { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon },
+      { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon },
+      { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon },
+    ],
+  },
   { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, roles: ['SUPER_ADMIN', 'GERENTE', 'FINANCIERO'] },
   { name: 'Portal Empleado', href: '/empleado', icon: UserIcon },
   { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon },

@@ -1395,6 +1395,7 @@ model Empleado {
   nominas           Nomina[]
   imputaciones      ImputacionHoras[]
   asignaciones      AsignacionProyecto[]
+  calendario        CalendarioPersonal[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1501,4 +1502,60 @@ model ImputacionHoras {
   @@index([proyectoId, fecha])
   @@index([fecha])
   @@map("imputaciones_horas")
+}
+
+// ==========================================
+// CALENDARIO PERSONAL (HRLog Sync)
+// ==========================================
+
+enum TipoEvento {
+  VACACIONES
+  PERMISO
+  BAJA
+}
+
+enum EstadoEvento {
+  PENDIENTE
+  APROBADO
+  DENEGADO
+  SOLICITADO
+}
+
+model CalendarioPersonal {
+  id              String       @id @default(uuid())
+  empleadoId      String?      @map("empleado_id")
+  empleadoNombre  String       @map("empleado_nombre")
+  tipo            TipoEvento
+  estado          EstadoEvento @default(PENDIENTE)
+  fechaInicio     DateTime     @map("fecha_inicio") @db.Date
+  fechaFin        DateTime     @map("fecha_fin") @db.Date
+  horaInicio      String?      @map("hora_inicio")
+  horaFin         String?      @map("hora_fin")
+  totalDias       Int?         @map("total_dias")
+  tipoPermiso     String?      @map("tipo_permiso")
+  comentario      String?
+  hrlogId         Int?         @map("hrlog_id")
+  anio            Int          @default(2026)
+  empleado        Empleado?    @relation(fields: [empleadoId], references: [id])
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@index([empleadoId])
+  @@index([tipo])
+  @@index([fechaInicio, fechaFin])
+  @@index([anio])
+  @@map("calendario_personal")
+}
+
+model SyncLog {
+  id          String   @id @default(uuid())
+  fuente      String
+  tipo        String
+  registros   Int      @default(0)
+  estado      String
+  mensaje     String?
+  ejecutadoAt DateTime @default(now()) @map("ejecutado_at")
+
+  @@index([fuente, ejecutadoAt])
+  @@map("sync_logs")
 }

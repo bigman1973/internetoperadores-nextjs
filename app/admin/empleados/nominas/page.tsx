@@ -157,7 +157,7 @@ export default function NominasPage() {
             <ArrowLeftIcon className="h-5 w-5 text-gray-600" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Gestión de Nóminas</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Importar Nóminas</h1>
             <p className="text-sm text-gray-500 mt-1">Sincronizar con OneDrive o subir archivos COSTES IO</p>
           </div>
         </div>
