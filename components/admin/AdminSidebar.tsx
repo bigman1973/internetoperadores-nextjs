@@ -141,7 +141,7 @@ const navigation: NavEntry[] = [
     ],
   },
   { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
-  { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'dashboard' },
+  { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'portal-empleado' },
   { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon, section: 'historial' },
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
 ]

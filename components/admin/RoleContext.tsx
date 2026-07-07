@@ -89,6 +89,11 @@ export function RoleProvider({
     // Si es SUPER_ADMIN real y no está simulando, acceso total
     if (isSuperAdmin && !isViewingAs) return true
     
+    // Si el usuario no tiene roles asignados, solo Portal Empleado
+    if (!isViewingAs && userRoles.length === 0) {
+      return section === 'portal-empleado'
+    }
+    
     // Si es GERENTE (real o simulado), acceso a todo excepto tickets/gastos
     if (effectiveRole === 'GERENTE') {
       return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
@@ -99,12 +104,22 @@ export function RoleProvider({
       return false
     }
     
-    // Verificar permisos del rol efectivo
+    // Para multi-rol: verificar si ALGUNO de los roles del usuario tiene acceso
+    if (!isViewingAs && userRoles.length > 0) {
+      return userRoles.some(rol => {
+        const permisos = PERMISOS_POR_ROL[rol as RolId]
+        if (!permisos) return false
+        if (permisos.includes('*')) return true
+        return permisos.includes(section)
+      })
+    }
+    
+    // Verificar permisos del rol efectivo (modo "ver como")
     const permisos = PERMISOS_POR_ROL[effectiveRole]
     if (!permisos) return false
     if (permisos.includes('*')) return true
     return permisos.includes(section)
-  }, [effectiveRole, isSuperAdmin, isViewingAs])
+  }, [effectiveRole, isSuperAdmin, isViewingAs, userRoles])
 
   return (
     <RoleContext.Provider value={{

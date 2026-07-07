@@ -159,14 +159,14 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (!admin) {
-          // Auto-crear usuario con rol VENTAS por defecto
+          // Auto-crear usuario sin roles (solo Portal Empleado)
           admin = await prisma.usuarioAdmin.create({
             data: {
               email,
               nombre: user.name || email.split('@')[0],
               passwordHash: '', // No necesita password, usa Microsoft
-              rol: 'VENTAS',
-              roles: ['VENTAS'],
+              rol: 'VENTAS', // Rol mínimo requerido por el enum
+              roles: [], // Sin roles = solo acceso a Portal Empleado
               activo: true,
             }
           })
