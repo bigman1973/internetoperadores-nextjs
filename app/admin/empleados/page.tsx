@@ -58,7 +58,7 @@ export default function AdminEmpleadosPage() {
   const [totales, setTotales] = useState<Totales | null>(null);
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('todos');
-  const [mesSeleccionado, setMesSeleccionado] = useState(5); // Mayo por defecto (último con datos)
+  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1); // Mes actual por defecto
   const [anioSeleccionado] = useState(2026);
 
   useEffect(() => {
@@ -117,8 +117,8 @@ export default function AdminEmpleadosPage() {
             onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
             className="px-3 py-2 border rounded-lg text-sm"
           >
-            {[1, 2, 3, 4, 5].map(m => (
-              <option key={m} value={m}>{MESES[m]} 2026</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
+              <option key={m} value={m}>{MESES[m]} {anioSeleccionado}</option>
             ))}
           </select>
           <select
