@@ -203,7 +203,7 @@ export default function FacturacionPage() {
         <div className="bg-white rounded-lg shadow border border-gray-200 mb-6 overflow-hidden">
           <div className="px-4 sm:px-6 py-4 border-b border-gray-100">
             <h3 className="text-sm font-semibold text-gray-900">Resumen Mensual 2026</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Facturación total, mayoristas (V-Valley + Arrow) y remesas por mes</p>
+            <p className="text-xs text-gray-500 mt-0.5">Facturación total, mayoristas (V-Valley + Arrow + IPS Norte) y remesas por mes</p>
           </div>
 
           {/* Vista Desktop: Tabla */}
@@ -217,7 +217,7 @@ export default function FacturacionPage() {
                   <th className="px-4 py-3 text-right text-xs font-semibold text-purple-600 uppercase tracking-wider">V-Valley</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-indigo-600 uppercase tracking-wider">Arrow</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-teal-600 uppercase tracking-wider">IPS Norte</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-purple-600 uppercase tracking-wider">% Total</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold text-purple-600 uppercase tracking-wider">% Mayoristas</th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-blue-600 uppercase tracking-wider">Remesado</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Rem.</th>
                 </tr>
