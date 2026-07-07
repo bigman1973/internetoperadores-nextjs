@@ -76,14 +76,13 @@ export async function GET(req: NextRequest) {
 
     // Desglose de salidas por tipo
     const categoriasNominas = ['Sueldos y Salarios'];
-    const categoriasMayoristas = ['Operadora', 'Vola', 'Comisiones V-Valley'];
     const categoriasImpuestos = ['IMPUESTOS'];
     const categoriasTransferencias = ['Traspaso'];
     const categoriasDevoluciones = ['Morosos'];
-    const categoriasGastosOp = ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos'];
+    const categoriasVola = ['Vola'];
+    const categoriasGastosOp = ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos', 'Operadora', 'Comisiones V-Valley'];
 
     const movSalidas = movimientos.filter(m => m.importe < 0);
-    const salidasMayoristas = movSalidas.filter(m => categoriasMayoristas.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const movNominas = movSalidas.filter(m => categoriasNominas.includes(m.categoria || ''));
     const salidasNominas = movNominas.reduce((s, m) => s + Math.abs(m.importe), 0);
     // Sub-desglose nóminas: Cotizaciones SS vs Transferencias Nóminas
@@ -92,8 +91,9 @@ export async function GET(req: NextRequest) {
     const salidasImpuestos = movSalidas.filter(m => categoriasImpuestos.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasTransferencias = movSalidas.filter(m => categoriasTransferencias.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasDevoluciones = movSalidas.filter(m => categoriasDevoluciones.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasVola = movSalidas.filter(m => categoriasVola.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasGastosOp = movSalidas.filter(m => categoriasGastosOp.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
-    const salidasOtros = totalSalidas - salidasMayoristas - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
+    const salidasOtros = totalSalidas - salidasVola - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
 
     // Agrupar por categoría (para tabla detallada)
     // Separamos "Sueldos y Salarios" e "IMPUESTOS" en subcategorías virtuales
@@ -221,7 +221,7 @@ export async function GET(req: NextRequest) {
         porMes,
         desgloseSalidas: {
           gastosOperativos: Math.round(salidasGastosOp * 100) / 100,
-          mayoristas: Math.round(salidasMayoristas * 100) / 100,
+          vola: Math.round(salidasVola * 100) / 100,
           nominas: Math.round(salidasNominas * 100) / 100,
           cotizacionesSS: Math.round(salidasCotizacionesSS * 100) / 100,
           transfNominas: Math.round(salidasTransfNominas * 100) / 100,

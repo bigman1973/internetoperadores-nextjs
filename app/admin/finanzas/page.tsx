@@ -151,7 +151,7 @@ export default function FinanzasDashboard() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {[
               { label: 'Gastos Operativos', key: 'gastosOperativos', value: data.flujo.desgloseSalidas.gastosOperativos, color: 'text-red-700', bg: 'hover:bg-red-50' },
-              { label: 'Mayoristas', key: 'mayoristas', value: data.flujo.desgloseSalidas.mayoristas, color: 'text-purple-700', bg: 'hover:bg-purple-50' },
+              { label: 'Vola (pagos a cuenta)', key: 'vola', value: data.flujo.desgloseSalidas.vola, color: 'text-purple-700', bg: 'hover:bg-purple-50' },
               { label: 'Sueldos y Salarios', key: 'nominas', value: data.flujo.desgloseSalidas.nominas, color: 'text-blue-700', bg: 'hover:bg-blue-50' },
               { label: 'Impuestos', key: 'impuestos', value: data.flujo.desgloseSalidas.impuestos, color: 'text-orange-700', bg: 'hover:bg-orange-50' },
               { label: 'Devoluciones', key: 'devoluciones', value: data.flujo.desgloseSalidas.devoluciones, color: 'text-amber-700', bg: 'hover:bg-amber-50' },
@@ -369,11 +369,11 @@ export default function FinanzasDashboard() {
 const CATEGORIAS_MAP: Record<string, { titulo: string; categorias: string[] }> = {
   gastosOperativos: {
     titulo: 'Gastos Operativos',
-    categorias: ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos'],
+    categorias: ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos', 'Operadora', 'Comisiones V-Valley'],
   },
-  mayoristas: {
-    titulo: 'Mayoristas (Operadoras)',
-    categorias: ['Operadora', 'Vola', 'Comisiones V-Valley'],
+  vola: {
+    titulo: 'Vola (Pagos a Cuenta)',
+    categorias: ['Vola'],
   },
   nominas: {
     titulo: 'Sueldos y Salarios',
