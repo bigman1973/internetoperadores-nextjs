@@ -166,8 +166,8 @@ export async function GET(req: NextRequest) {
       movsCaixaAsignados: [],
     }));
 
-    // Asignar series a remesas (de mayor a menor por importe máximo para priorizar las grandes)
-    const seriesOrdenadas = [...series].sort((a, b) => b.maxImporte - a.maxImporte);
+    // Asignar series a remesas (de mayor a menor por total de serie para priorizar las grandes)
+    const seriesOrdenadas = [...series].sort((a, b) => b.total - a.total);
     const seriesAsignadas = new Set<string>();
 
     for (const serie of seriesOrdenadas) {
@@ -184,23 +184,28 @@ export async function GET(req: NextRequest) {
         const usaCaixa = esPallars && fechaRemesa < new Date(2026, 3, 1);
         if (usaCaixa) continue;
 
+        // Si esta remesa ya tiene series asignadas, no asignar más
+        if (rc.seriesAsignadas.length > 0) continue;
+
         // Diferencia en días entre primer cobro de la serie y fecha de remesa
         const diffDias = (serie.primeraFecha.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24);
         
         // La serie debe empezar después de la remesa (o máximo 3 días antes) y dentro de 7 días
         if (diffDias < -3 || diffDias > 7) continue;
 
-        // El importe máximo de la serie debe ser >= 40% del remesado (para remesas grandes)
-        // o la suma total de la serie debe ser >= 30% (para series con muchos cobros pequeños)
-        const ratioMax = serie.maxImporte / importeRemesa;
+        // CLAVE: La serie debe tener un importe total PROPORCIONAL al de la remesa
+        // Una serie de 32.000€ no puede ir a una remesa de 132€
+        // Usamos la cercanía del total de la serie al importe de la remesa como criterio principal
         const ratioTotal = serie.total / importeRemesa;
         
-        if (ratioMax < 0.40 && ratioTotal < 0.30) continue;
+        // El total de la serie debe estar entre 70% y 110% del importe remesado
+        // (puede ser menos por devoluciones, pero nunca 200x más)
+        if (ratioTotal < 0.50 || ratioTotal > 1.15) continue;
 
-        // Score: proximidad en fecha + similitud de importe
+        // Score: cercanía del importe (cuanto más cerca de ratio 1.0, mejor)
+        const scoreImporte = 100 - Math.abs(1 - ratioTotal) * 100;
         const scoreProximidad = 10 - Math.abs(diffDias);
-        const scoreSimilitud = ratioMax * 10;
-        const score = scoreProximidad + scoreSimilitud;
+        const score = scoreImporte + scoreProximidad;
 
         if (score > mejorScore) {
           mejorScore = score;
@@ -437,8 +442,8 @@ export async function POST(req: NextRequest) {
 
       resultados.seriesDetectadas = Object.keys(seriesMap).length;
 
-      // Asignar cada serie a la remesa más probable
-      const seriesOrdenadas = Object.values(seriesMap).sort((a, b) => b.maxImporte - a.maxImporte);
+      // Asignar cada serie a la remesa más probable (por cercanía de importe)
+      const seriesOrdenadas = Object.values(seriesMap).sort((a, b) => b.total - a.total);
       const seriesUsadas = new Set<string>();
 
       for (const remesa of remesasSinConciliar) {
@@ -460,13 +465,14 @@ export async function POST(req: NextRequest) {
           const diffDias = (serie.primeraFecha.getTime() - fechaRemesa.getTime()) / (1000 * 60 * 60 * 24);
           if (diffDias < -3 || diffDias > 7) continue;
 
-          const ratioMax = serie.maxImporte / importeRemesa;
+          // CLAVE: El total de la serie debe ser proporcional al importe de la remesa
           const ratioTotal = serie.total / importeRemesa;
-          if (ratioMax < 0.40 && ratioTotal < 0.30) continue;
+          if (ratioTotal < 0.50 || ratioTotal > 1.15) continue;
 
+          // Score: cercanía del importe (ratio cercano a 1.0) + proximidad en fecha
+          const scoreImporte = 100 - Math.abs(1 - ratioTotal) * 100;
           const scoreProximidad = 10 - Math.abs(diffDias);
-          const scoreSimilitud = ratioMax * 10;
-          const score = scoreProximidad + scoreSimilitud;
+          const score = scoreImporte + scoreProximidad;
 
           if (score > mejorScore) {
             mejorScore = score;
