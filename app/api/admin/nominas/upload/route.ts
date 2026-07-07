@@ -64,10 +64,30 @@ export async function POST(req: NextRequest) {
     const empleados = await prisma.empleado.findMany();
     const empleadoByNif = new Map(empleados.map(e => [e.nif, e]));
 
-    // Delete existing nóminas for this month/year
-    const deleted = await prisma.nomina.deleteMany({
-      where: { mes: summary.mes, anio: summary.anio },
-    });
+    // Determine which employees are in this PDF
+    const empleadoIdsEnPdf: string[] = [];
+    for (const nomina of summary.nominas) {
+      const empleado = empleadoByNif.get(nomina.nif);
+      if (empleado) empleadoIdsEnPdf.push(empleado.id);
+    }
+
+    // Delete strategy:
+    // - COSTES IO (full summary): delete ALL nóminas for this month/year (replaces everything)
+    // - Nómina individual: only delete records for the specific employees in the PDF
+    let deleted;
+    if (summary.formato === 'costes_io') {
+      deleted = await prisma.nomina.deleteMany({
+        where: { mes: summary.mes, anio: summary.anio },
+      });
+    } else {
+      deleted = await prisma.nomina.deleteMany({
+        where: {
+          mes: summary.mes,
+          anio: summary.anio,
+          empleadoId: { in: empleadoIdsEnPdf },
+        },
+      });
+    }
 
     // Insert new nóminas
     let inserted = 0;
