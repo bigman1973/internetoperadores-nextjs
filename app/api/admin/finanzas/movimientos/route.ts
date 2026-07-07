@@ -14,7 +14,31 @@ export async function GET(req: NextRequest) {
 
     const where: any = {};
     if (cuentaId) where.cuentaId = cuentaId;
-    if (categoria) where.categoria = categoria;
+    
+    // Subcategorías virtuales de "Sueldos y Salarios"
+    if (categoria === 'Transferencias Nóminas') {
+      where.categoria = 'Sueldos y Salarios';
+      where.NOT = { concepto: { contains: 'TGSS', mode: 'insensitive' } };
+      // Excluir también cotizaciones y aplazamientos
+      where.AND = [
+        { NOT: { concepto: { contains: 'TGSS', mode: 'insensitive' } } },
+        { NOT: { concepto: { contains: 'COTIZACION', mode: 'insensitive' } } },
+        { NOT: { concepto: { contains: 'AUTONOMOS', mode: 'insensitive' } } },
+        { NOT: { concepto: { contains: 'APLAZAM', mode: 'insensitive' } } },
+      ];
+      delete where.NOT;
+    } else if (categoria === 'Cotizaciones SS') {
+      where.categoria = 'Sueldos y Salarios';
+      where.OR = [
+        { concepto: { contains: 'TGSS', mode: 'insensitive' } },
+        { concepto: { contains: 'COTIZACION', mode: 'insensitive' } },
+        { concepto: { contains: 'AUTONOMOS', mode: 'insensitive' } },
+        { concepto: { contains: 'APLAZAM', mode: 'insensitive' } },
+      ];
+    } else if (categoria) {
+      where.categoria = categoria;
+    }
+    
     if (conciliado === 'true') where.conciliado = true;
     if (conciliado === 'false') where.conciliado = false;
     if (desde) where.fechaOperacion = { ...where.fechaOperacion, gte: new Date(desde) };

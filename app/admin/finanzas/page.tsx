@@ -148,12 +148,11 @@ export default function FinanzasDashboard() {
       {data.flujo.desgloseSalidas && (
         <div className="bg-white rounded-xl border p-5">
           <h3 className="text-sm font-semibold text-gray-900 mb-3">Desglose de Salidas</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
             {[
               { label: 'Gastos Operativos', key: 'gastosOperativos', value: data.flujo.desgloseSalidas.gastosOperativos, color: 'text-red-700', bg: 'hover:bg-red-50' },
               { label: 'Mayoristas', key: 'mayoristas', value: data.flujo.desgloseSalidas.mayoristas, color: 'text-purple-700', bg: 'hover:bg-purple-50' },
-              { label: 'Transf. Nóminas', key: 'transfNominas', value: data.flujo.desgloseSalidas.transfNominas, color: 'text-blue-700', bg: 'hover:bg-blue-50' },
-              { label: 'Cotizaciones SS', key: 'cotizacionesSS', value: data.flujo.desgloseSalidas.cotizacionesSS, color: 'text-cyan-700', bg: 'hover:bg-cyan-50' },
+              { label: 'Sueldos y Salarios', key: 'nominas', value: data.flujo.desgloseSalidas.nominas, color: 'text-blue-700', bg: 'hover:bg-blue-50' },
               { label: 'Impuestos', key: 'impuestos', value: data.flujo.desgloseSalidas.impuestos, color: 'text-orange-700', bg: 'hover:bg-orange-50' },
               { label: 'Devoluciones', key: 'devoluciones', value: data.flujo.desgloseSalidas.devoluciones, color: 'text-amber-700', bg: 'hover:bg-amber-50' },
               { label: 'Transf. Internas', key: 'transferenciasInternas', value: data.flujo.desgloseSalidas.transferenciasInternas, color: 'text-gray-500', bg: 'hover:bg-gray-50' },
@@ -376,13 +375,9 @@ const CATEGORIAS_MAP: Record<string, { titulo: string; categorias: string[] }> =
     titulo: 'Mayoristas (Operadoras)',
     categorias: ['Operadora', 'Vola', 'Comisiones V-Valley'],
   },
-  transfNominas: {
-    titulo: 'Transferencias Nóminas',
-    categorias: ['Transferencias Nóminas'],
-  },
-  cotizacionesSS: {
-    titulo: 'Cotizaciones Seguridad Social',
-    categorias: ['Cotizaciones SS'],
+  nominas: {
+    titulo: 'Sueldos y Salarios',
+    categorias: ['Transferencias Nóminas', 'Cotizaciones SS'],
   },
   impuestos: {
     titulo: 'Impuestos',
