@@ -68,9 +68,26 @@ export async function GET(req: NextRequest) {
     });
 
     const ingresos = movimientos.filter(m => m.importe > 0).reduce((sum, m) => sum + m.importe, 0);
-    const gastos = movimientos.filter(m => m.importe < 0).reduce((sum, m) => sum + Math.abs(m.importe), 0);
+    const totalSalidas = movimientos.filter(m => m.importe < 0).reduce((sum, m) => sum + Math.abs(m.importe), 0);
 
-    // Agrupar por categoría
+    // Desglose de salidas por tipo
+    const categoriasNominas = ['Sueldos y Salarios'];
+    const categoriasMayoristas = ['Operadora', 'Vola', 'Comisiones V-Valley'];
+    const categoriasImpuestos = ['IMPUESTOS'];
+    const categoriasTransferencias = ['Traspaso'];
+    const categoriasDevoluciones = ['Morosos'];
+    const categoriasGastosOp = ['Estructura', 'Gastos Financieros', 'Oros Gastos', 'Otros Gastos', 'Proyectos Singulares', 'Dietas', 'Desplazamientos'];
+
+    const movSalidas = movimientos.filter(m => m.importe < 0);
+    const salidasMayoristas = movSalidas.filter(m => categoriasMayoristas.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasNominas = movSalidas.filter(m => categoriasNominas.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasImpuestos = movSalidas.filter(m => categoriasImpuestos.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasTransferencias = movSalidas.filter(m => categoriasTransferencias.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasDevoluciones = movSalidas.filter(m => categoriasDevoluciones.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasGastosOp = movSalidas.filter(m => categoriasGastosOp.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasOtros = totalSalidas - salidasMayoristas - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
+
+    // Agrupar por categoría (para tabla detallada)
     const porCategoria: Record<string, { ingresos: number; gastos: number; count: number }> = {};
     for (const mov of movimientos) {
       const cat = mov.categoria || 'Sin categorizar';
@@ -174,9 +191,19 @@ export async function GET(req: NextRequest) {
       },
       flujo: {
         ingresos: Math.round(ingresos * 100) / 100,
-        gastos: Math.round(gastos * 100) / 100,
-        neto: Math.round((ingresos - gastos) * 100) / 100,
+        gastos: Math.round(totalSalidas * 100) / 100,
+        salidas: Math.round(totalSalidas * 100) / 100,
+        neto: Math.round((ingresos - totalSalidas) * 100) / 100,
         porMes,
+        desgloseSalidas: {
+          gastosOperativos: Math.round(salidasGastosOp * 100) / 100,
+          mayoristas: Math.round(salidasMayoristas * 100) / 100,
+          nominas: Math.round(salidasNominas * 100) / 100,
+          impuestos: Math.round(salidasImpuestos * 100) / 100,
+          devoluciones: Math.round(salidasDevoluciones * 100) / 100,
+          transferenciasInternas: Math.round(salidasTransferencias * 100) / 100,
+          otros: Math.round(salidasOtros * 100) / 100,
+        },
       },
       categorias: porCategoria,
       gastosPorTipo,

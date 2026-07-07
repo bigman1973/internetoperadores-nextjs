@@ -8,7 +8,7 @@ interface DashboardData {
   saldos: { cuentas: any[]; total: number };
   fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; irpfNominas: number; irpfTotal: number; ssEmpresaNominas: number; ssTrabajadorNominas: number; mesesConNominas: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
   ventas: { totalFacturado: number; totalCobrado: number; pendienteCobro: number; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
-  flujo: { ingresos: number; gastos: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }> };
+  flujo: { ingresos: number; gastos: number; salidas: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }>; desgloseSalidas: { gastosOperativos: number; mayoristas: number; nominas: number; impuestos: number; devoluciones: number; transferenciasInternas: number; otros: number } };
   categorias: Record<string, { ingresos: number; gastos: number; count: number }>;
   gastosPorTipo: Record<string, number>;
   conciliacion: { totalMovimientos: number; conciliados: number; pendientes: number; sinCategorizar: number; porcentajeConciliado: number };
@@ -128,9 +128,9 @@ export default function FinanzasDashboard() {
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 mb-1">
             <ArrowTrendingDownIcon className="h-4 w-4 text-red-500" />
-            <p className="text-xs text-gray-500">Gastos</p>
+            <p className="text-xs text-gray-500">Salidas</p>
           </div>
-          <p className="text-xl font-bold text-red-600">{formatEUR(data.flujo.gastos)}</p>
+          <p className="text-xl font-bold text-red-600">{formatEUR(data.flujo.salidas)}</p>
           <p className="text-xs text-gray-400 mt-1">{data.conciliacion.totalMovimientos} movimientos</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
@@ -142,6 +142,32 @@ export default function FinanzasDashboard() {
           <p className="text-xs text-amber-600 mt-1">Pte cobro: {formatEUR(data.ventas.pendienteCobro)}</p>
         </div>
       </div>
+
+      {/* Desglose de Salidas */}
+      {data.flujo.desgloseSalidas && (
+        <div className="bg-white rounded-xl border p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Desglose de Salidas</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+            {[
+              { label: 'Gastos Operativos', value: data.flujo.desgloseSalidas.gastosOperativos, color: 'text-red-700' },
+              { label: 'Mayoristas', value: data.flujo.desgloseSalidas.mayoristas, color: 'text-purple-700' },
+              { label: 'Nóminas', value: data.flujo.desgloseSalidas.nominas, color: 'text-blue-700' },
+              { label: 'Impuestos', value: data.flujo.desgloseSalidas.impuestos, color: 'text-orange-700' },
+              { label: 'Devoluciones', value: data.flujo.desgloseSalidas.devoluciones, color: 'text-amber-700' },
+              { label: 'Transf. Internas', value: data.flujo.desgloseSalidas.transferenciasInternas, color: 'text-gray-500' },
+              { label: 'Otros', value: data.flujo.desgloseSalidas.otros, color: 'text-gray-700' },
+            ].map(item => (
+              <div key={item.label} className="text-center">
+                <p className="text-xs text-gray-500 mb-1">{item.label}</p>
+                <p className={`text-sm font-bold ${item.color}`}>{formatEUR(item.value)}</p>
+                <p className="text-[10px] text-gray-400">
+                  {data.flujo.salidas > 0 ? ((item.value / data.flujo.salidas) * 100).toFixed(1) : 0}%
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Fiscal: IVA + IRPF + Ventas */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -226,7 +252,7 @@ export default function FinanzasDashboard() {
               <tr className="border-b">
                 <th className="text-left py-2 text-xs text-gray-500">Mes</th>
                 <th className="text-right py-2 text-xs text-gray-500">Ingresos</th>
-                <th className="text-right py-2 text-xs text-gray-500">Gastos</th>
+                <th className="text-right py-2 text-xs text-gray-500">Salidas</th>
                 <th className="text-right py-2 text-xs text-gray-500">Neto</th>
               </tr>
             </thead>
@@ -246,14 +272,14 @@ export default function FinanzasDashboard() {
         </div>
       </div>
 
-      {/* Gastos por categoría y por tipo */}
+      {/* Salidas por categoría y por tipo */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Por categoría */}
         <div className="bg-white rounded-xl border p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Gastos por Categoría</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Salidas por Categoría</h3>
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {categoriasOrdenadas.map(([cat, vals]) => {
-              const pct = data.flujo.gastos > 0 ? (vals.gastos / data.flujo.gastos * 100) : 0;
+              const pct = data.flujo.salidas > 0 ? (vals.gastos / data.flujo.salidas * 100) : 0;
               return (
                 <div key={cat} className="flex items-center gap-2">
                   <div className="flex-1">
@@ -273,10 +299,10 @@ export default function FinanzasDashboard() {
 
         {/* Por tipo de pago */}
         <div className="bg-white rounded-xl border p-5">
-          <h3 className="text-sm font-semibold text-gray-900 mb-3">Gastos por Tipo de Pago</h3>
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Salidas por Tipo de Pago</h3>
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {tiposGastoOrdenados.map(([tipo, importe]) => {
-              const pct = data.flujo.gastos > 0 ? (importe / data.flujo.gastos * 100) : 0;
+              const pct = data.flujo.salidas > 0 ? (importe / data.flujo.salidas * 100) : 0;
               return (
                 <div key={tipo} className="flex items-center gap-2">
                   <div className="flex-1">
