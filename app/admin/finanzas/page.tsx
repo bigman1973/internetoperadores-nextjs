@@ -476,9 +476,9 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
 
   return (
     <div>
-      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} \u2014 Detalle <span className="text-xs text-gray-400 font-normal">(clic en subcategor\u00eda para ver movimientos)</span></h4>
+      <h4 className="text-sm font-medium text-gray-800 mb-2">{config.titulo} {"\u2014"} Detalle <span className="text-xs text-gray-400 font-normal">(clic en subcategoría para ver movimientos)</span></h4>
       {items.length === 0 ? (
-        <p className="text-xs text-gray-400">No hay movimientos en esta categor\u00eda</p>
+        <p className="text-xs text-gray-400">No hay movimientos en esta categoría</p>
       ) : (
         <div className="space-y-1.5">
           {items.map(item => {
@@ -533,12 +533,12 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
                         {totalMov > 20 && (
                           <div className="flex items-center justify-between mt-2">
                             <span className="text-xs text-gray-400">Mostrando {movimientos.length} de {totalMov}</span>
-                            <div className="flex gap-1">
+                            <div className="flex gap-2">
                               {pageMov > 1 && (
-                                <button onClick={() => fetchMovimientos(item.nombre, pageMov - 1)} className="text-xs px-2 py-0.5 bg-gray-100 rounded hover:bg-gray-200">\u2190 Anterior</button>
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov - 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">{"\u2190"} Anterior</button>
                               )}
                               {pageMov * 20 < totalMov && (
-                                <button onClick={() => fetchMovimientos(item.nombre, pageMov + 1)} className="text-xs px-2 py-0.5 bg-gray-100 rounded hover:bg-gray-200">Siguiente \u2192</button>
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov + 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">Siguiente {"\u2192"}</button>
                               )}
                             </div>
                           </div>
