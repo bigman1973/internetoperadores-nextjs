@@ -9,6 +9,7 @@ import {
   BuildingOfficeIcon,
   ShieldCheckIcon,
   ReceiptPercentIcon,
+  CloudArrowUpIcon,
 } from '@heroicons/react/24/outline';
 
 interface Nomina {
@@ -104,6 +105,13 @@ export default function AdminEmpleadosPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/admin/empleados/nominas"
+            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            <CloudArrowUpIcon className="h-4 w-4" />
+            Importar Nóminas
+          </Link>
           <select
             value={mesSeleccionado}
             onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
