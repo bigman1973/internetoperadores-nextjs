@@ -28,12 +28,9 @@ function parseRemesasXLS(buffer: Buffer): Array<{
     estado: string
   }> = []
 
-  // El archivo .xls del Santander es HTML disfrazado
   const content = buffer.toString('utf-8')
   
-  // Detectar si es HTML o XLS real
   if (content.startsWith('<html') || content.includes('<table')) {
-    // Parsear como HTML - extraer filas de la tabla
     const rows = content.match(/<tr[^>]*>[\s\S]*?<\/tr>/g)
     if (!rows) return resultados
 
@@ -41,15 +38,13 @@ function parseRemesasXLS(buffer: Buffer): Array<{
     for (const row of rows) {
       const cells = row.match(/<t[dh][^>]*>[\s\S]*?<\/t[dh]>/g)
       if (!cells) continue
-      const values = cells.map(c => c.replace(/<[^>]+>/g, '').trim())
+      const values = cells.map((c: string) => c.replace(/<[^>]+>/g, '').trim())
 
-      // Detectar cabecera
       if (values[0] === 'Fecha vencimiento') {
         headerFound = true
         continue
       }
 
-      // Filas de datos (después de la cabecera)
       if (headerFound && values.length >= 6 && /^\d{2}\/\d{2}\/\d{4}$/.test(values[0])) {
         const fecha = values[0]
         const numRecibos = parseInt(values[1])
@@ -64,7 +59,6 @@ function parseRemesasXLS(buffer: Buffer): Array<{
       }
     }
   } else {
-    // Intentar como XLS real con xlsx
     const wb = XLSX.read(buffer, { type: 'buffer' })
     const sheet = wb.Sheets[wb.SheetNames[0]]
     const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as string[][]
@@ -102,7 +96,6 @@ function parseRemesasXLS(buffer: Buffer): Array<{
 
 // ============================================================
 // PARSER: XLSX Listado de Devoluciones (Santander)
-// Columnas: Fecha de cargo | Nº de recibos | Importe cargado | Importe recibos devueltos | Gastos | Número de devolución
 // ============================================================
 function parseDevolucionesXLSX(buffer: Buffer): Array<{
   fechaCargo: string
@@ -125,7 +118,6 @@ function parseDevolucionesXLSX(buffer: Buffer): Array<{
   const sheet = wb.Sheets[wb.SheetNames[0]]
   const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as (string | number)[][]
 
-  // Buscar la fila de cabecera
   let headerRow = -1
   for (let i = 0; i < data.length; i++) {
     if (data[i] && (String(data[i][0]).includes('Fecha de cargo') || String(data[i][0]).includes('Fecha'))) {
@@ -162,7 +154,6 @@ function parseDevolucionesXLSX(buffer: Buffer): Array<{
 
 // ============================================================
 // PARSER: XLSX Lista Recibos Devueltos (Santander)
-// Columnas: Referencia externa | Deudor | Cuenta deudor | Concepto | Importe recibo | Fecha vencimiento | Motivo devolución | Remesa origen
 // ============================================================
 function parseRecibosDevueltosXLSX(buffer: Buffer): Array<{
   referenciaExterna: string
@@ -189,7 +180,6 @@ function parseRecibosDevueltosXLSX(buffer: Buffer): Array<{
   const sheet = wb.Sheets[wb.SheetNames[0]]
   const data = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as (string | number)[][]
 
-  // Buscar la fila de cabecera de recibos
   let headerRow = -1
   for (let i = 0; i < data.length; i++) {
     if (data[i] && String(data[i][0]).includes('Referencia externa')) {
@@ -227,7 +217,8 @@ function parseRecibosDevueltosXLSX(buffer: Buffer): Array<{
 }
 
 // ============================================================
-// POST: Importar archivo del banco (XLS/XLSX)
+// POST: Importar archivos del banco (XLS/XLSX)
+// Soporta múltiples archivos en una sola petición
 // ============================================================
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -237,10 +228,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const formData = await request.formData()
-    const file = formData.get('file') as File | null
     const tipo = formData.get('tipo') as TipoArchivo | null
+    
+    // Obtener todos los archivos (soporta múltiples)
+    const files = formData.getAll('file') as File[]
 
-    if (!file || !tipo) {
+    if (!files || files.length === 0 || !tipo) {
       return NextResponse.json({ error: 'Falta archivo o tipo' }, { status: 400 })
     }
 
@@ -248,14 +241,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo inválido. Usar: remesas, recibos_devueltos, devoluciones' }, { status: 400 })
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer())
+    // Leer todos los buffers
+    const buffers: Array<{ buffer: Buffer; name: string }> = []
+    for (const file of files) {
+      buffers.push({ buffer: Buffer.from(await file.arrayBuffer()), name: file.name })
+    }
 
     if (tipo === 'remesas') {
-      return await procesarRemesas(buffer, file.name)
+      return await procesarRemesas(buffers)
     } else if (tipo === 'devoluciones') {
-      return await procesarDevoluciones(buffer, file.name)
+      return await procesarDevoluciones(buffers[0].buffer, buffers[0].name)
     } else {
-      return await procesarRecibosDevueltos(buffer, file.name)
+      return await procesarRecibosDevueltos(buffers[0].buffer, buffers[0].name)
     }
   } catch (error) {
     console.error('Error importando archivo:', error)
@@ -265,27 +262,77 @@ export async function POST(request: NextRequest) {
 }
 
 // ============================================================
-// Procesar XLS de Remesas del banco
+// Procesar XLS de Remesas del banco (múltiples archivos)
+// IDEMPOTENTE: borra conciliaciones previas del periodo y las recrea
 // ============================================================
-async function procesarRemesas(buffer: Buffer, nombreArchivo: string) {
-  const remesasBanco = parseRemesasXLS(buffer)
+async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>) {
+  // Concatenar todas las filas de todos los archivos
+  const todasLasRemesasBanco: Array<{
+    fecha: string
+    numRecibos: number
+    importe: number
+    numeroRemesa: string
+    estado: string
+  }> = []
 
-  if (remesasBanco.length === 0) {
+  for (const archivo of archivos) {
+    const filas = parseRemesasXLS(archivo.buffer)
+    todasLasRemesasBanco.push(...filas)
+  }
+
+  if (todasLasRemesasBanco.length === 0) {
     return NextResponse.json({ 
-      error: 'No se pudieron extraer remesas del archivo. Verifica que es el formato correcto (XLS del Santander con columnas: Fecha vencimiento, Nº recibos, Imp. nominal, Número de remesa, Cuenta de abono, Estado).' 
+      error: 'No se pudieron extraer remesas de los archivos. Verifica que son archivos XLS del Santander (Remesas - Selecciona una remesa...).' 
     }, { status: 400 })
   }
 
-  let conciliadas = 0
-  const errores: string[] = []
+  // Determinar el rango de fechas para limpiar conciliaciones previas
+  const fechas = todasLasRemesasBanco.map(r => {
+    const p = r.fecha.split('/')
+    return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]))
+  })
+  const fechaMin = new Date(Math.min(...fechas.map(f => f.getTime())))
+  const fechaMax = new Date(Math.max(...fechas.map(f => f.getTime())))
+  
+  // Ampliar ventana para cubrir remesas del mismo periodo
+  fechaMin.setDate(fechaMin.getDate() - 45)
+  fechaMax.setDate(fechaMax.getDate() + 45)
 
-  // Obtener todas las remesas ISP
-  const remesasISP = await prisma.remesa.findMany({
+  // Borrar conciliaciones previas del periodo (IDEMPOTENTE)
+  const remesasDelPeriodo = await prisma.remesa.findMany({
+    where: {
+      fecha: { gte: fechaMin, lte: fechaMax }
+    },
     include: { conciliacion: true }
   })
 
-  for (const remBanco of remesasBanco) {
-    // Buscar movimiento bancario con importe exacto
+  const idsConConciliacion = remesasDelPeriodo
+    .filter(r => r.conciliacion)
+    .map(r => r.conciliacion!.id)
+
+  if (idsConConciliacion.length > 0) {
+    await prisma.conciliacionRemesa.deleteMany({
+      where: { id: { in: idsConConciliacion } }
+    })
+  }
+
+  // Obtener todas las remesas ISP (frescas, sin conciliación)
+  const remesasISP = await prisma.remesa.findMany({
+    where: {
+      fecha: { gte: fechaMin, lte: fechaMax }
+    },
+    orderBy: { totalImporte: 'desc' } // Procesar las más grandes primero
+  })
+
+  let conciliadas = 0
+  const errores: string[] = []
+  const remesasUsadas = new Set<number>()
+
+  // Ordenar remesas del banco de mayor a menor importe para asignar las grandes primero
+  todasLasRemesasBanco.sort((a, b) => b.importe - a.importe)
+
+  for (const remBanco of todasLasRemesasBanco) {
+    // Buscar movimiento bancario con importe exacto (±0.02€)
     const movimiento = await prisma.movimientoBancario.findFirst({
       where: {
         importe: { gte: remBanco.importe - 0.02, lte: remBanco.importe + 0.02 },
@@ -294,46 +341,53 @@ async function procesarRemesas(buffer: Buffer, nombreArchivo: string) {
     })
 
     if (!movimiento) {
-      errores.push(`No se encontró movimiento bancario para ${remBanco.importe.toFixed(2)}€ del ${remBanco.fecha} (ref: ${remBanco.numeroRemesa})`)
+      errores.push(`Sin movimiento bancario para ${remBanco.importe.toFixed(2)}€ (${remBanco.fecha}, ref: ${remBanco.numeroRemesa})`)
       continue
     }
 
-    // Buscar la remesa ISP más cercana por número de recibos y fecha
+    // Parsear fecha del banco
     const fechaParts = remBanco.fecha.split('/')
     const fechaBanco = new Date(parseInt(fechaParts[2]), parseInt(fechaParts[1]) - 1, parseInt(fechaParts[0]))
     
-    // Filtrar remesas candidatas: ventana temporal (±45 días) y sin conciliación previa
+    // Filtrar remesas candidatas: ventana temporal (±45 días) y no usada ya
     const candidatas = remesasISP.filter(r => {
+      if (remesasUsadas.has(r.id)) return false
       const diffDias = Math.abs((fechaBanco.getTime() - new Date(r.fecha).getTime()) / (1000 * 60 * 60 * 24))
-      return diffDias <= 45 && !r.conciliacion
+      return diffDias <= 45
     })
 
     if (candidatas.length === 0) {
-      errores.push(`No se encontró remesa ISP para ${remBanco.numRecibos} recibos del ${remBanco.fecha}`)
+      errores.push(`Sin remesa ISP candidata para ${remBanco.numRecibos} recibos, ${remBanco.importe.toFixed(2)}€ (${remBanco.fecha})`)
       continue
     }
 
-    // Asignar por número de recibos más cercano
+    // Asignar por número de recibos más cercano (el banco cobra menos recibos por las devoluciones)
     const mejorCandidata = candidatas.reduce((best, curr) => {
       const diffCurr = Math.abs(curr.numeroRegistros - remBanco.numRecibos)
       const diffBest = Math.abs(best.numeroRegistros - remBanco.numRecibos)
+      if (diffCurr === diffBest) {
+        // Desempate por proximidad de importe
+        const ratioCurr = Math.abs(Number(curr.totalImporte) - remBanco.importe)
+        const ratioBest = Math.abs(Number(best.totalImporte) - remBanco.importe)
+        return ratioCurr < ratioBest ? curr : best
+      }
       return diffCurr < diffBest ? curr : best
     })
 
-    // Solo asignar si la diferencia de recibos es razonable (< 50%)
+    // Solo asignar si el banco cobró menos o igual recibos que los remesados (lógico)
+    // y la diferencia no es absurda (más del 80% de diferencia = probablemente mal asignado)
     const diffRecibos = mejorCandidata.numeroRegistros - remBanco.numRecibos
-    if (diffRecibos < 0 || diffRecibos > mejorCandidata.numeroRegistros * 0.5) {
-      errores.push(`${remBanco.numRecibos} recibos (${remBanco.fecha}) no coincide con ${mejorCandidata.nombre} (${mejorCandidata.numeroRegistros} registros)`)
+    if (diffRecibos < -5 || diffRecibos > mejorCandidata.numeroRegistros * 0.8) {
+      errores.push(`${remBanco.numRecibos} recibos (${remBanco.importe.toFixed(2)}€) no coincide con ${mejorCandidata.nombre} (${mejorCandidata.numeroRegistros} registros, ${Number(mejorCandidata.totalImporte).toFixed(2)}€)`)
       continue
     }
 
-    // Crear o actualizar conciliación
+    // Crear conciliación
     const importeRemesa = Number(mejorCandidata.totalImporte)
     const diferencia = remBanco.importe - importeRemesa
 
-    await prisma.conciliacionRemesa.upsert({
-      where: { remesaId: mejorCandidata.id },
-      create: {
+    await prisma.conciliacionRemesa.create({
+      data: {
         remesaId: mejorCandidata.id,
         movimientoBancarioId: movimiento.id,
         importeRemesa,
@@ -343,38 +397,23 @@ async function procesarRemesas(buffer: Buffer, nombreArchivo: string) {
         fechaConciliacion: new Date(),
         recibosRemesados: mejorCandidata.numeroRegistros,
         recibosCobrados: remBanco.numRecibos,
-        rechazos: diffRecibos,
+        rechazos: Math.max(0, diffRecibos),
         referenciaRemesaBanco: remBanco.numeroRemesa,
-        notas: `Importado desde: ${nombreArchivo}`
-      },
-      update: {
-        movimientoBancarioId: movimiento.id,
-        importeMovimiento: remBanco.importe,
-        diferencia,
-        estado: Math.abs(diferencia) < 1 ? 'CONCILIADA' : 'DIFERENCIA',
-        fechaConciliacion: new Date(),
-        recibosCobrados: remBanco.numRecibos,
-        rechazos: diffRecibos,
-        referenciaRemesaBanco: remBanco.numeroRemesa,
-        notas: `Actualizado desde: ${nombreArchivo}`
+        notas: `Importado desde: ${archivos.map(a => a.name).join(', ')}`
       }
     })
 
-    // Marcar como usada para no reasignar
-    const idx = remesasISP.findIndex(r => r.id === mejorCandidata.id)
-    if (idx >= 0) {
-      remesasISP[idx] = { ...remesasISP[idx], conciliacion: {} as never }
-    }
-
+    remesasUsadas.add(mejorCandidata.id)
     conciliadas++
   }
 
   return NextResponse.json({
     ok: true,
     tipo: 'remesas',
-    mensaje: `PDF Remesas procesado: ${conciliadas} remesas conciliadas de ${remesasBanco.length} en el archivo${errores.length > 0 ? ` (${errores.length} errores)` : ''}`,
+    mensaje: `Remesas procesadas: ${conciliadas} conciliadas de ${todasLasRemesasBanco.length} en ${archivos.length} archivo(s)${errores.length > 0 ? ` — ${errores.length} sin asignar` : ''}`,
     resumen: {
-      totalEnArchivo: remesasBanco.length,
+      totalArchivos: archivos.length,
+      totalFilas: todasLasRemesasBanco.length,
       conciliadas,
       errores: errores.length,
       detalleErrores: errores
@@ -394,12 +433,10 @@ async function procesarDevoluciones(buffer: Buffer, nombreArchivo: string) {
     }, { status: 400 })
   }
 
-  // Este archivo solo tiene el resumen (fecha, nº recibos, importe total, comisiones)
-  // Lo guardamos como referencia pero el detalle viene del archivo "Recibos devueltos"
   return NextResponse.json({
     ok: true,
     tipo: 'devoluciones',
-    mensaje: `Listado de devoluciones procesado: ${devoluciones.length} registros. Total devuelto: ${devoluciones.reduce((s, d) => s + d.importeRecibos, 0).toFixed(2)}€, Comisiones: ${devoluciones.reduce((s, d) => s + d.gastos, 0).toFixed(2)}€`,
+    mensaje: `Listado de devoluciones procesado: ${devoluciones.length} registros. Total devuelto: ${devoluciones.reduce((s, d) => s + d.importeRecibos, 0).toFixed(2)}€, Comisiones banco: ${devoluciones.reduce((s, d) => s + d.gastos, 0).toFixed(2)}€`,
     resumen: {
       totalRegistros: devoluciones.length,
       totalDevuelto: devoluciones.reduce((s, d) => s + d.importeRecibos, 0),
@@ -411,6 +448,7 @@ async function procesarDevoluciones(buffer: Buffer, nombreArchivo: string) {
 
 // ============================================================
 // Procesar XLSX de Recibos Devueltos (detalle con clientes)
+// ACUMULATIVO: se puede subir varias veces, no duplica
 // ============================================================
 async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
   const recibos = parseRecibosDevueltosXLSX(buffer)
@@ -422,12 +460,11 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
   }
 
   let importados = 0
+  let actualizados = 0
   const errores: string[] = []
 
   for (const recibo of recibos) {
     // Extraer número de factura del concepto o referencia
-    // Referencia: CLL986 → Factura: CLL26/986
-    // Concepto: "FACTURA N. CLL26/986 - 1"
     let numeroFactura = ''
     const conceptoMatch = recibo.concepto.match(/FACTURA N\.\s*([A-Z]+\d+\/\d+)/)
     if (conceptoMatch) {
@@ -441,7 +478,7 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
     }
 
     if (!numeroFactura) {
-      errores.push(`No se pudo extraer número de factura de ${recibo.referenciaExterna}`)
+      errores.push(`No se pudo extraer nº factura de ref: ${recibo.referenciaExterna}`)
       continue
     }
 
@@ -454,13 +491,11 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
     let remesaId: number | null = null
     const serie = recibo.referenciaExterna.match(/^([A-Z]+)/)?.[1] || ''
     
-    // Buscar remesa del mismo mes por serie
     const fechaParts = recibo.fechaVencimiento.split('/')
     if (fechaParts.length === 3) {
       const mes = parseInt(fechaParts[1])
       const anio = parseInt(fechaParts[2])
       
-      // Mapeo serie → tipo remesa
       let nombreRemesaPattern = ''
       if (serie === 'CLL') nombreRemesaPattern = 'LLEIDA'
       else if (serie === 'CPL') nombreRemesaPattern = 'PALLARS'
@@ -482,16 +517,16 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
       }
     }
 
-    // Verificar si ya existe esta devolución
+    // Verificar si ya existe esta devolución (por referencia + importe)
     const existente = await prisma.devolucionRemesa.findFirst({
       where: {
         referenciaExterna: recibo.referenciaExterna,
-        importe: recibo.importe
+        importe: { gte: recibo.importe - 0.01, lte: recibo.importe + 0.01 }
       }
     })
 
     if (existente) {
-      // Actualizar con datos del banco si faltaban
+      // Actualizar con datos más recientes
       await prisma.devolucionRemesa.update({
         where: { id: existente.id },
         data: {
@@ -499,9 +534,10 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
           motivoBanco: recibo.motivoDevolucion || existente.motivoBanco,
           facturaId: factura?.id || existente.facturaId,
           remesaId: remesaId || existente.remesaId,
+          numeroFactura: numeroFactura || existente.numeroFactura,
         }
       })
-      importados++
+      actualizados++
       continue
     }
 
@@ -533,10 +569,11 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
   return NextResponse.json({
     ok: true,
     tipo: 'recibos_devueltos',
-    mensaje: `Recibos devueltos procesados: ${importados} de ${recibos.length}${errores.length > 0 ? ` (${errores.length} errores)` : ''}`,
+    mensaje: `Recibos devueltos: ${importados} nuevos, ${actualizados} actualizados de ${recibos.length} en el archivo${errores.length > 0 ? ` (${errores.length} errores)` : ''}`,
     resumen: {
       totalEnArchivo: recibos.length,
       importados,
+      actualizados,
       errores: errores.length,
       detalleErrores: errores
     }

@@ -177,12 +177,15 @@ export default function ConciliacionRemesasPage() {
     setProcesando(false);
   }
 
-  async function handleUploadFile(file: File, tipo: 'remesas' | 'recibos_devueltos' | 'devoluciones') {
+  async function handleUploadFiles(files: FileList | File[], tipo: 'remesas' | 'recibos_devueltos' | 'devoluciones') {
     setSubiendo(true);
     setMensaje(null);
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      // Añadir todos los archivos
+      for (let i = 0; i < files.length; i++) {
+        formData.append('file', files[i]);
+      }
       formData.append('tipo', tipo);
 
       const res = await fetch('/api/admin/finanzas/conciliacion-remesas/importar-pdf', {
@@ -194,7 +197,7 @@ export default function ConciliacionRemesasPage() {
 
       setMensaje({
         tipo: 'success',
-        texto: json.mensaje || 'Archivo procesado correctamente',
+        texto: json.mensaje || 'Archivo(s) procesado(s) correctamente',
       });
       fetchData();
     } catch (e: any) {
@@ -363,15 +366,16 @@ export default function ConciliacionRemesasPage() {
         {/* Separador */}
         <div className="w-px bg-gray-300 mx-1 self-stretch"></div>
 
-        {/* Subir XLS Remesas */}
+        {/* Subir XLS Remesas (múltiples archivos) */}
         <input
           ref={fileInputRemesas}
           type="file"
           accept=".xls,.xlsx"
+          multiple
           className="hidden"
           onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) handleUploadFile(file, 'remesas');
+            const files = e.target.files;
+            if (files && files.length > 0) handleUploadFiles(files, 'remesas');
           }}
         />
         <button
@@ -390,8 +394,8 @@ export default function ConciliacionRemesasPage() {
           accept=".xlsx"
           className="hidden"
           onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) handleUploadFile(file, 'devoluciones');
+            const files = e.target.files;
+            if (files && files.length > 0) handleUploadFiles(files, 'devoluciones');
           }}
         />
         <button
@@ -410,8 +414,8 @@ export default function ConciliacionRemesasPage() {
           accept=".xlsx"
           className="hidden"
           onChange={e => {
-            const file = e.target.files?.[0];
-            if (file) handleUploadFile(file, 'recibos_devueltos');
+            const files = e.target.files;
+            if (files && files.length > 0) handleUploadFiles(files, 'recibos_devueltos');
           }}
         />
         <button
