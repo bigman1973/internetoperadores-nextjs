@@ -276,18 +276,19 @@ export default function AdminEmpleadosPage() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">SS Trab.</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">SS Emp.</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Coste Total</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">€/hora</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                     Cargando...
                   </td>
                 </tr>
               ) : empleados.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
                     No hay empleados
                   </td>
                 </tr>
@@ -330,6 +331,9 @@ export default function AdminEmpleadosPage() {
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
                         {datos ? formatEur(datos.costeTotalEmpresa) : '—'}
                       </td>
+                      <td className="px-4 py-3 text-right text-indigo-700 font-medium">
+                        {emp.costeHoraActual ? `${emp.costeHoraActual.toFixed(2)} €` : '—'}
+                      </td>
                     </tr>
                   );
                 })
@@ -345,6 +349,7 @@ export default function AdminEmpleadosPage() {
                   <td className="px-4 py-3 text-right text-yellow-800">{formatEur(totales.totalSSTrabajador)}</td>
                   <td className="px-4 py-3 text-right text-purple-800">{formatEur(totales.totalSSEmpresa)}</td>
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalCosteEmpresa)}</td>
+                  <td className="px-4 py-3"></td>
                 </tr>
               </tfoot>
             )}
