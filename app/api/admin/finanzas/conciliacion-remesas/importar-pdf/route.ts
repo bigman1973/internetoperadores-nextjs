@@ -462,23 +462,41 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     // Buscar filas del XLS que corresponden a esta remesa
     let filasAsignadas: Array<{ idx: number; fila: typeof todasLasFilasBanco[0] }> = []
 
-    if (pdfISP && pdfISP.subGrupos.length > 0) {
-      // MÉTODO PRINCIPAL: Cruzar por fecha + numRecibos + importe (con tolerancia)
+    // PASO A: Buscar la sub-remesa PRINCIPAL (la más grande que encaje >= 60% de recibos)
+    // Ordenar filas disponibles de mayor a menor por numRecibos para esta búsqueda
+    const filasDisponibles = todasLasFilasBanco
+      .map((fila, idx) => ({ idx, fila }))
+      .filter(f => !filasUsadas.has(f.idx))
+      .sort((a, b) => b.fila.numRecibos - a.fila.numRecibos)
+    
+    for (const { idx, fila } of filasDisponibles) {
+      const ratio = fila.numRecibos / remesaISP.numeroRegistros
+      if (ratio >= 0.60 && ratio <= 1.05) {
+        filasAsignadas.push({ idx, fila })
+        filasUsadas.add(idx)
+        break // Solo una principal
+      }
+    }
+
+    // PASO B: Buscar sub-remesas complementarias
+    // Si tenemos PDF de ISPGestión, usar sus sub-grupos para encontrar las complementarias
+    if (filasAsignadas.length > 0 && pdfISP && pdfISP.subGrupos.length > 0) {
       for (const subGrupo of pdfISP.subGrupos) {
-        const fechaISP = subGrupo.fecha // DD/MM/YYYY
+        // Saltar si ya encontramos una fila con ese numRecibos (la principal)
+        const yaAsignada = filasAsignadas.find(f => f.fila.numRecibos === subGrupo.numRecibos)
+        if (yaAsignada) continue
         
         for (let i = 0; i < todasLasFilasBanco.length; i++) {
           if (filasUsadas.has(i)) continue
           const fila = todasLasFilasBanco[i]
           
-          // Comparar fecha
-          if (fila.fecha !== fechaISP) continue
-          
           // Comparar número de recibos (exacto)
           if (fila.numRecibos !== subGrupo.numRecibos) continue
           
-          // Comparar importe (tolerancia 1€ por posibles redondeos)
-          if (Math.abs(fila.importe - subGrupo.importe) > 1.0) continue
+          // Comparar importe (tolerancia amplia: 20% por rechazos del banco)
+          const diffImporte = Math.abs(fila.importe - subGrupo.importe)
+          const tolerancia = Math.max(5, subGrupo.importe * 0.20)
+          if (diffImporte > tolerancia) continue
           
           // Match encontrado
           filasAsignadas.push({ idx: i, fila })
@@ -487,38 +505,23 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
         }
       }
     }
-
-    // MÉTODO FALLBACK: Si no tenemos PDF o no encontramos todas las sub-remesas,
-    // buscar la fila del XLS con mayor número de recibos que encaje con la remesa
-    if (filasAsignadas.length === 0) {
-      // Buscar filas cuya suma de recibos se acerque al total de la remesa ISP
-      // Primero intentar con la fila más grande (> 60% de los recibos)
-      for (let i = 0; i < todasLasFilasBanco.length; i++) {
-        if (filasUsadas.has(i)) continue
-        const fila = todasLasFilasBanco[i]
-        const ratio = fila.numRecibos / remesaISP.numeroRegistros
-        if (ratio >= 0.60 && ratio <= 1.05) {
-          filasAsignadas.push({ idx: i, fila })
-          filasUsadas.add(i)
-          // Seguir buscando más filas que puedan pertenecer a esta remesa
-          // (sub-remesas con pocos recibos del mismo día)
-        }
-      }
+    
+    // PASO C: Si encontramos la principal pero no tenemos PDF, buscar complementarias
+    // por número de recibos restantes
+    if (filasAsignadas.length > 0) {
+      const totalAsignado = filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0)
+      let faltantes = remesaISP.numeroRegistros - totalAsignado
       
-      // Si encontramos la principal, buscar complementarias (misma fecha pero menos recibos)
-      if (filasAsignadas.length > 0) {
-        const totalAsignado = filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0)
-        const faltantes = remesaISP.numeroRegistros - totalAsignado
-        
-        if (faltantes > 0) {
-          // Buscar filas pequeñas que complementen
-          for (let i = 0; i < todasLasFilasBanco.length; i++) {
-            if (filasUsadas.has(i)) continue
-            const fila = todasLasFilasBanco[i]
-            if (fila.numRecibos <= faltantes && fila.numRecibos <= 10) {
-              filasAsignadas.push({ idx: i, fila })
-              filasUsadas.add(i)
-            }
+      if (faltantes > 0) {
+        // Buscar filas pequeñas que complementen (máx 10 rec cada una)
+        for (let i = 0; i < todasLasFilasBanco.length; i++) {
+          if (filasUsadas.has(i)) continue
+          const fila = todasLasFilasBanco[i]
+          if (fila.numRecibos <= faltantes && fila.numRecibos <= 10) {
+            filasAsignadas.push({ idx: i, fila })
+            filasUsadas.add(i)
+            faltantes -= fila.numRecibos
+            if (faltantes <= 0) break
           }
         }
       }
