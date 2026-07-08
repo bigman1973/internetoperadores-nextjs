@@ -121,6 +121,7 @@ export default function ConciliacionRemesasPage() {
   // Refs para inputs de archivo
   const fileInputRemesas = useRef<HTMLInputElement>(null);
   const fileInputDevoluciones = useRef<HTMLInputElement>(null);
+  const fileInputListaDev = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchData();
@@ -176,7 +177,7 @@ export default function ConciliacionRemesasPage() {
     setProcesando(false);
   }
 
-  async function handleUploadPDF(file: File, tipo: 'remesas' | 'recibos_devueltos') {
+  async function handleUploadFile(file: File, tipo: 'remesas' | 'recibos_devueltos' | 'devoluciones') {
     setSubiendo(true);
     setMensaje(null);
     try {
@@ -191,18 +192,10 @@ export default function ConciliacionRemesasPage() {
       const json = await res.json();
       if (json.error) throw new Error(json.error);
 
-      const r = json.resumen;
-      if (tipo === 'remesas') {
-        setMensaje({
-          tipo: 'success',
-          texto: `PDF Remesas procesado: ${r.conciliadas} remesas conciliadas de ${r.totalEnPDF} en el PDF${r.errores > 0 ? ` (${r.errores} errores)` : ''}`,
-        });
-      } else {
-        setMensaje({
-          tipo: 'success',
-          texto: `PDF Recibos devueltos procesado: ${r.importados} devoluciones importadas de ${r.totalEnPDF} en el PDF${r.errores > 0 ? ` (${r.errores} errores)` : ''}`,
-        });
-      }
+      setMensaje({
+        tipo: 'success',
+        texto: json.mensaje || 'Archivo procesado correctamente',
+      });
       fetchData();
     } catch (e: any) {
       setMensaje({ tipo: 'error', texto: e.message });
@@ -211,6 +204,7 @@ export default function ConciliacionRemesasPage() {
     // Reset inputs
     if (fileInputRemesas.current) fileInputRemesas.current.value = '';
     if (fileInputDevoluciones.current) fileInputDevoluciones.current.value = '';
+    if (fileInputListaDev.current) fileInputListaDev.current.value = '';
   }
 
   function getEstadoBadge(estado: string) {
@@ -369,15 +363,15 @@ export default function ConciliacionRemesasPage() {
         {/* Separador */}
         <div className="w-px bg-gray-300 mx-1 self-stretch"></div>
 
-        {/* Subir PDF Remesas */}
+        {/* Subir XLS Remesas */}
         <input
           ref={fileInputRemesas}
           type="file"
-          accept=".pdf"
+          accept=".xls,.xlsx"
           className="hidden"
           onChange={e => {
             const file = e.target.files?.[0];
-            if (file) handleUploadPDF(file, 'remesas');
+            if (file) handleUploadFile(file, 'remesas');
           }}
         />
         <button
@@ -386,18 +380,38 @@ export default function ConciliacionRemesasPage() {
           className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
         >
           <DocumentArrowUpIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
-          {subiendo ? 'Subiendo...' : 'Subir PDF Remesas'}
+          {subiendo ? 'Subiendo...' : 'Subir Remesas (.xls)'}
         </button>
 
-        {/* Subir PDF Recibos Devueltos */}
+        {/* Subir XLSX Listado Devoluciones */}
         <input
-          ref={fileInputDevoluciones}
+          ref={fileInputListaDev}
           type="file"
-          accept=".pdf"
+          accept=".xlsx"
           className="hidden"
           onChange={e => {
             const file = e.target.files?.[0];
-            if (file) handleUploadPDF(file, 'recibos_devueltos');
+            if (file) handleUploadFile(file, 'devoluciones');
+          }}
+        />
+        <button
+          onClick={() => fileInputListaDev.current?.click()}
+          disabled={subiendo}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 disabled:opacity-50"
+        >
+          <ArrowDownTrayIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
+          {subiendo ? 'Subiendo...' : 'Listado Devoluciones (.xlsx)'}
+        </button>
+
+        {/* Subir XLSX Recibos Devueltos */}
+        <input
+          ref={fileInputDevoluciones}
+          type="file"
+          accept=".xlsx"
+          className="hidden"
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) handleUploadFile(file, 'recibos_devueltos');
           }}
         />
         <button
@@ -405,8 +419,8 @@ export default function ConciliacionRemesasPage() {
           disabled={subiendo}
           className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
         >
-          <ArrowDownTrayIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
-          {subiendo ? 'Subiendo...' : 'Subir PDF Devoluciones'}
+          <DocumentArrowUpIcon className={`w-4 h-4 ${subiendo ? 'animate-pulse' : ''}`} />
+          {subiendo ? 'Subiendo...' : 'Recibos Devueltos (.xlsx)'}
         </button>
       </div>
 
