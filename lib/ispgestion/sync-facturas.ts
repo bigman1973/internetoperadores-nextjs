@@ -79,8 +79,16 @@ export async function syncFacturasBatch() {
             base = EXCLUDED.base,
             total_impuesto = EXCLUDED.total_impuesto,
             total = EXCLUDED.total,
-            situacion = EXCLUDED.situacion,
-            total_pendiente = EXCLUDED.total_pendiente,
+            -- Nuestra BD manda: NO sobrescribir situacion si tenemos una factura con devolución pendiente
+            -- Solo actualizar situacion si ISPGestión trae PENDIENTE (nueva) o si nuestra BD no la ha tocado
+            situacion = CASE
+              WHEN facturas.situacion = 'PENDIENTE' AND EXCLUDED.situacion = 'COBRADA' THEN facturas.situacion
+              ELSE EXCLUDED.situacion
+            END,
+            total_pendiente = CASE
+              WHEN facturas.situacion = 'PENDIENTE' AND EXCLUDED.situacion = 'COBRADA' THEN facturas.total_pendiente
+              ELSE EXCLUDED.total_pendiente
+            END,
             ejercicio = EXCLUDED.ejercicio,
             updated_at = NOW()
         `;

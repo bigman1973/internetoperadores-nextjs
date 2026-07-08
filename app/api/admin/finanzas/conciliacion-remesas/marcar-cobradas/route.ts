@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
     const fechaInicio = new Date(`${anio}-${String(mes).padStart(2, '0')}-01`)
     const fechaFin = new Date(anio, mes, 0) // último día del mes
 
-    // 1. Obtener remesas del mes con su conciliación
+    // 1. Obtener remesas del mes con su conciliación y devoluciones
     const remesas = await prisma.remesa.findMany({
       where: {
         fecha: { gte: fechaInicio, lte: fechaFin }
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       include: {
         conciliacion: true,
         devoluciones: {
-          select: { facturaId: true, estado: true, fechaCobro: true }
+          select: { facturaId: true, estado: true, fechaCobro: true, numeroFactura: true }
         }
       }
     })
@@ -46,32 +46,69 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No hay remesas para este mes' }, { status: 404 })
     }
 
-    let totalMarcadas = 0
-    let totalExcluidas = 0
-    const detalles: { remesa: string; serie: string; marcadas: number; excluidas: number; yaEstaban: number }[] = []
+    let totalMarcadasCobrada = 0
+    let totalMarcadasPendiente = 0
+    let totalYaEstaban = 0
+    const detalles: { remesa: string; serie: string; marcadasCobrada: number; marcadasPendiente: number; yaEstaban: number }[] = []
 
     for (const remesa of remesas) {
       const serie = getSerieFromRemesa(remesa.nombre)
       if (!serie) continue
 
-      // Obtener IDs de facturas con devolución NO recuperada
-      const facturasConDevolucion = remesa.devoluciones
-        .filter(d => d.facturaId && !d.fechaCobro) // tiene factura vinculada Y no se ha cobrado después
+      // Separar devoluciones: las NO recuperadas vs las recuperadas
+      const devolucionesNoRecuperadas = remesa.devoluciones
+        .filter(d => d.facturaId && !d.fechaCobro)
         .map(d => d.facturaId as number)
 
-      // Obtener facturas PENDIENTES de esta serie en este mes
-      const facturasPendientes = await prisma.factura.findMany({
+      const devolucionesRecuperadas = remesa.devoluciones
+        .filter(d => d.facturaId && d.fechaCobro)
+        .map(d => d.facturaId as number)
+
+      // --- PASO A: Marcar como PENDIENTE las facturas con devolución NO recuperada ---
+      // (Nuestra BD manda: si ISPGestión las trajo como COBRADA pero tienen devolución sin recuperar, las ponemos PENDIENTE)
+      let marcadasPendiente = 0
+      if (devolucionesNoRecuperadas.length > 0) {
+        const result = await prisma.factura.updateMany({
+          where: {
+            id: { in: devolucionesNoRecuperadas },
+            situacion: { not: 'PENDIENTE' } // Solo actualizar si no están ya como PENDIENTE
+          },
+          data: {
+            situacion: 'PENDIENTE'
+          }
+        })
+        marcadasPendiente = result.count
+      }
+
+      // --- PASO B: Marcar como COBRADA las facturas de la remesa que NO tienen devolución pendiente ---
+      const idsExcluir = devolucionesNoRecuperadas.length > 0 ? devolucionesNoRecuperadas : [-1]
+      
+      const facturasPorCobrar = await prisma.factura.findMany({
         where: {
           serieFactura: serie,
           ejercicio: anio,
           fecha: { gte: fechaInicio, lte: fechaFin },
           situacion: { not: 'COBRADA' },
-          id: { notIn: facturasConDevolucion.length > 0 ? facturasConDevolucion : [-1] }
+          id: { notIn: idsExcluir }
         },
-        select: { id: true, total: true, numeroDocumento: true }
+        select: { id: true }
       })
 
-      // Contar las que ya estaban cobradas
+      let marcadasCobrada = 0
+      if (facturasPorCobrar.length > 0) {
+        const result = await prisma.factura.updateMany({
+          where: {
+            id: { in: facturasPorCobrar.map(f => f.id) }
+          },
+          data: {
+            situacion: 'COBRADA',
+            totalPendiente: 0
+          }
+        })
+        marcadasCobrada = result.count
+      }
+
+      // --- PASO C: Contar las que ya estaban correctamente como COBRADA ---
       const yaCobradasCount = await prisma.factura.count({
         where: {
           serieFactura: serie,
@@ -81,37 +118,26 @@ export async function POST(request: NextRequest) {
         }
       })
 
-      // Marcar como COBRADA
-      if (facturasPendientes.length > 0) {
-        await prisma.factura.updateMany({
-          where: {
-            id: { in: facturasPendientes.map(f => f.id) }
-          },
-          data: {
-            situacion: 'COBRADA',
-            totalPendiente: 0
-          }
-        })
-      }
-
-      totalMarcadas += facturasPendientes.length
-      totalExcluidas += facturasConDevolucion.length
+      totalMarcadasCobrada += marcadasCobrada
+      totalMarcadasPendiente += marcadasPendiente
+      totalYaEstaban += yaCobradasCount - marcadasCobrada // las que ya estaban antes
 
       detalles.push({
         remesa: remesa.nombre,
         serie,
-        marcadas: facturasPendientes.length,
-        excluidas: facturasConDevolucion.length,
-        yaEstaban: yaCobradasCount
+        marcadasCobrada,
+        marcadasPendiente,
+        yaEstaban: yaCobradasCount - marcadasCobrada
       })
     }
 
     return NextResponse.json({
       success: true,
-      totalMarcadas,
-      totalExcluidas,
+      totalMarcadasCobrada,
+      totalMarcadasPendiente,
+      totalYaEstaban,
       detalles,
-      mensaje: `${totalMarcadas} facturas marcadas como COBRADA. ${totalExcluidas} excluidas por devolución pendiente.`
+      mensaje: `${totalMarcadasCobrada} facturas marcadas COBRADA. ${totalMarcadasPendiente} marcadas PENDIENTE (devolución sin recuperar). ${totalYaEstaban} ya estaban correctas.`
     })
 
   } catch (error) {

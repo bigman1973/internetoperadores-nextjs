@@ -199,7 +199,7 @@ export default function ConciliacionRemesasPage() {
       if (json.error) throw new Error(json.error);
       setMensaje({
         tipo: 'success',
-        texto: json.mensaje + ' Detalle: ' + json.detalles.map((d: any) => `${d.remesa}: ${d.marcadas} marcadas, ${d.excluidas} excluidas`).join(' | '),
+        texto: json.mensaje + ' Detalle: ' + json.detalles.map((d: any) => `${d.remesa}: ${d.marcadasCobrada} cobradas, ${d.marcadasPendiente} pdte. devolución, ${d.yaEstaban} ya estaban`).join(' | '),
       });
       fetchData();
     } catch (e: any) {
