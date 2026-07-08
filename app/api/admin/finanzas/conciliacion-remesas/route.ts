@@ -452,11 +452,14 @@ export async function GET(req: NextRequest) {
         id: d.id,
         numeroFactura: d.numeroFactura,
         referenciaRemesa: d.referenciaRemesa,
+        referenciaExterna: d.referenciaExterna,
         nombreCliente: d.nombreCliente,
         importe: Number(d.importe),
         motivo: d.motivo,
+        motivoBanco: d.motivoBanco,
         fechaDevolucion: d.fechaDevolucion,
         estado: d.estado,
+        conciliadaBanco: !!d.movimientoBancarioId, // true si está vinculada a un movimiento bancario
         importeCobrado: d.importeCobrado ? Number(d.importeCobrado) : null,
         fechaCobro: d.fechaCobro,
         remesaNombre: d.remesa?.nombre,
@@ -685,7 +688,11 @@ export async function POST(req: NextRequest) {
     }
 
     // ===== ACCIÓN 2: DETECTAR DEVOLUCIONES EN BANCO =====
+    // El banco agrupa varias devoluciones individuales en un solo movimiento.
+    // Ej: movimiento de -133,08€ = devolución A (63,13€) + devolución B (69,95€)
+    // Lógica: buscar devoluciones sin movimiento cuya suma cuadre con el movimiento bancario.
     if (accion === 'detectar_devoluciones' || accion === 'todo') {
+      // Buscar movimientos de devolución que NO tienen ninguna devolución vinculada
       const movsDevoluciones = await prisma.movimientoBancario.findMany({
         where: {
           concepto: { contains: 'Devolucion De Recibo', mode: 'insensitive' },
@@ -699,38 +706,57 @@ export async function POST(req: NextRequest) {
       });
 
       for (const mov of movsDevoluciones) {
-        // Check de duplicados: verificar que no existe ya una devolución con este movimiento
-        const yaExistePorMov = await prisma.devolucionRemesa.findFirst({
+        // Verificar que no se haya vinculado ya (por concurrencia)
+        const yaVinculado = await prisma.devolucionRemesa.findFirst({
           where: { movimientoBancarioId: mov.id }
         });
-        if (yaExistePorMov) continue;
+        if (yaVinculado) continue;
 
-        const importeDevolucion = Math.abs(mov.importe);
+        const importeDevolucion = Math.abs(Number(mov.importe));
         const fechaDevolucion = new Date(mov.fechaOperacion);
         const mesDevolucion = fechaDevolucion.getMonth();
         const anioDevolucion = fechaDevolucion.getFullYear();
 
-        // Check de duplicados por contenido: si ya existe una devolución del XLSX
-        // con mismo importe y mes, vincular el movimiento en vez de crear nueva
-        const devExistente = await prisma.devolucionRemesa.findFirst({
+        // PASO 1: Buscar devoluciones sin movimiento asignado del mismo mes
+        // El banco puede agrupar N devoluciones en 1 movimiento
+        const devsSinMov = await prisma.devolucionRemesa.findMany({
           where: {
-            importe: { gte: importeDevolucion - 0.02, lte: importeDevolucion + 0.02 },
             mesDevolucion: mesDevolucion + 1,
             anioDevolucion,
-            movimientoBancarioId: null, // Solo las que no tienen movimiento asignado
-          }
+            movimientoBancarioId: null,
+          },
+          orderBy: { importe: 'desc' },
         });
-        if (devExistente) {
-          // Vincular el movimiento bancario a la devolución existente
+
+        // PASO 1a: Buscar coincidencia exacta (1 devolución = 1 movimiento)
+        const devExacta = devsSinMov.find(d => 
+          Math.abs(Number(d.importe) - importeDevolucion) < 0.02
+        );
+        if (devExacta) {
           await prisma.devolucionRemesa.update({
-            where: { id: devExistente.id },
+            where: { id: devExacta.id },
             data: { movimientoBancarioId: mov.id }
           });
           resultados.devolucionesDetectadasBanco++;
           continue;
         }
 
-        // Buscar factura en el mes actual y anterior
+        // PASO 1b: Buscar combinación de devoluciones cuya suma = importe movimiento
+        // (el banco agrupa varias devoluciones en un solo cargo)
+        const combinacion = encontrarCombinacionDevoluciones(devsSinMov, importeDevolucion);
+        if (combinacion.length > 0) {
+          for (const dev of combinacion) {
+            await prisma.devolucionRemesa.update({
+              where: { id: dev.id },
+              data: { movimientoBancarioId: mov.id }
+            });
+          }
+          resultados.devolucionesDetectadasBanco += combinacion.length;
+          continue;
+        }
+
+        // PASO 2: No hay devoluciones existentes que cuadren → crear nueva
+        // Buscar factura por importe exacto
         const fechaDesde = new Date(anioDevolucion, mesDevolucion - 1, 1);
         const fechaHasta = new Date(anioDevolucion, mesDevolucion + 1, 0, 23, 59, 59);
 
@@ -866,4 +892,55 @@ export async function POST(req: NextRequest) {
     console.error('Error en conciliación remesas POST:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+}
+
+/**
+ * Busca una combinación de devoluciones cuya suma sea igual al importe objetivo (±0.02€).
+ * El banco agrupa varias devoluciones individuales en un solo movimiento bancario.
+ * Usa un algoritmo de subset-sum limitado a máximo 10 devoluciones para evitar explosión combinatoria.
+ */
+function encontrarCombinacionDevoluciones(
+  devoluciones: { id: string; importe: any }[],
+  importeObjetivo: number
+): { id: string; importe: any }[] {
+  const tolerance = 0.02;
+  const maxItems = Math.min(devoluciones.length, 10); // Limitar para rendimiento
+
+  // Intentar combinaciones de 2, 3, 4... elementos
+  for (let size = 2; size <= Math.min(maxItems, 5); size++) {
+    const result = buscarSubset(devoluciones.slice(0, maxItems), importeObjetivo, size, tolerance);
+    if (result) return result;
+  }
+
+  return [];
+}
+
+function buscarSubset(
+  items: { id: string; importe: any }[],
+  target: number,
+  size: number,
+  tolerance: number,
+  startIdx = 0,
+  current: { id: string; importe: any }[] = [],
+  currentSum = 0
+): { id: string; importe: any }[] | null {
+  if (current.length === size) {
+    if (Math.abs(currentSum - target) <= tolerance) {
+      return [...current];
+    }
+    return null;
+  }
+
+  for (let i = startIdx; i < items.length; i++) {
+    const itemImporte = Number(items[i].importe);
+    // Poda: si ya superamos el objetivo, no seguir
+    if (currentSum + itemImporte > target + tolerance) continue;
+
+    current.push(items[i]);
+    const result = buscarSubset(items, target, size, tolerance, i + 1, current, currentSum + itemImporte);
+    if (result) return result;
+    current.pop();
+  }
+
+  return null;
 }

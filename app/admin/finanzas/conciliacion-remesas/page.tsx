@@ -69,6 +69,7 @@ interface DevolucionRow {
   motivoBanco: string | null;
   fechaDevolucion: string;
   estado: string;
+  conciliadaBanco: boolean;
   importeCobrado: number | null;
   fechaCobro: string | null;
   remesaNombre: string | null;
@@ -670,13 +671,14 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Motivo Banco</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Dev.</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Banco</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Cobro</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {devoluciones.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">No hay devoluciones para el periodo seleccionado</td></tr>
                 ) : (
                   devoluciones.map(d => (
                     <tr key={d.id} className="hover:bg-gray-50">
@@ -691,6 +693,17 @@ export default function ConciliacionRemesasPage() {
                       </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">{d.remesaNombre || <span className="text-gray-400">&mdash;</span>}</td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(d.fechaDevolucion)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {d.conciliadaBanco ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <CheckCircleIcon className="w-3 h-3" /> Conciliada
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            <ClockIcon className="w-3 h-3" /> Pendiente
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-center">{getEstadoDevolucionBadge(d.estado)}</td>
                       <td className="px-4 py-3 text-gray-600 text-xs">
                         {d.importeCobrado ? (
@@ -712,6 +725,11 @@ export default function ConciliacionRemesasPage() {
                       {formatEUR(devoluciones.reduce((sum, d) => sum + d.importe, 0))}
                     </td>
                     <td colSpan={3}></td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-xs text-gray-500">
+                        {devoluciones.filter(d => d.conciliadaBanco).length}/{devoluciones.length}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <span className="text-xs text-gray-500">
                         {devoluciones.filter(d => d.estado === 'COBRADO_TRANSFERENCIA' || d.estado === 'COBRADO_PARCIAL').length} cobradas
