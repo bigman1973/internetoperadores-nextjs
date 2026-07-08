@@ -188,16 +188,27 @@ export default function FacturacionPage() {
               <p className="font-semibold mb-2">¿Cómo se conecta?</p>
               <ul className="list-disc ml-5 space-y-1">
                 <li>Usa un <strong>proxy intermedio en Railway</strong> (ispgestion-middleware) que tiene la IP autorizada por ISP Gestión.</li>
-                <li>Ruta: <code className="bg-blue-100 px-1 rounded">Vercel → Railway Proxy → ISP Gestión API</code></li>
-                <li><strong>NO usa la VPN</strong> del Cloud Computer. La VPN es para acceso directo (aún pendiente de autorización del token).</li>
-                <li>IP autorizada del proxy: la IP de salida de Railway.</li>
+                <li>Ruta: <code className="bg-blue-100 px-1 rounded">Vercel → Railway Proxy (IP 69.46.46.115) → ISP Gestión API</code></li>
+                <li><strong>NO usa la VPN</strong> del Cloud Computer. La VPN (IP 185.103.181.8) es para acceso directo futuro.</li>
               </ul>
+            </div>
+            <div>
+              <p className="font-semibold mb-2">IPs autorizadas en ISP Gestión</p>
+              <table className="w-full text-xs border border-blue-200 rounded mt-1">
+                <thead className="bg-blue-100">
+                  <tr><th className="px-2 py-1 text-left">IP</th><th className="px-2 py-1 text-left">Servicio</th><th className="px-2 py-1 text-left">Uso</th></tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-blue-200"><td className="px-2 py-1 font-mono">69.46.46.115</td><td className="px-2 py-1">Proxy Railway</td><td className="px-2 py-1">Sincronización facturas/remesas (solo lectura)</td></tr>
+                  <tr className="border-t border-blue-200"><td className="px-2 py-1 font-mono">185.103.181.8</td><td className="px-2 py-1">VPN Cloud Computer</td><td className="px-2 py-1">Acceso directo API (futuro escritura)</td></tr>
+                </tbody>
+              </table>
             </div>
             <div>
               <p className="font-semibold mb-2">Credenciales y autenticación</p>
               <ul className="list-disc ml-5 space-y-1">
                 <li>Autenticación: <strong>Basic Auth</strong> (usuario VOLA + hash API).</li>
-                <li>Si da error 401, contactar a ISP Gestión para verificar que la IP del proxy sigue autorizada.</li>
+                <li>Si da error 401, contactar a ISP Gestión para verificar que las IPs anteriores siguen autorizadas.</li>
               </ul>
             </div>
             <div className="bg-blue-100 rounded p-2 text-xs">
