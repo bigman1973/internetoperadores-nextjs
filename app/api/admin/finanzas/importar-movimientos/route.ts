@@ -119,12 +119,58 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No se pudo determinar la cuenta bancaria' }, { status: 400 });
     }
 
-    // Insertar movimientos evitando duplicados
+    // Pre-cargar movimientos existentes del periodo para detección de duplicados por contenido
+    // Esto evita duplicados cuando se suben archivos distintos con periodos solapados
+    const fechas = movimientos.map(m => m.fechaOperacion);
+    const fechaMin = new Date(Math.min(...fechas.map(f => f.getTime())));
+    const fechaMax = new Date(Math.max(...fechas.map(f => f.getTime())));
+
+    const movimientosExistentes = await prisma.movimientoBancario.findMany({
+      where: {
+        cuentaId: cuenta.id,
+        fechaOperacion: {
+          gte: fechaMin,
+          lte: fechaMax,
+        },
+      },
+      select: {
+        fechaOperacion: true,
+        importe: true,
+        concepto: true,
+        hashUnico: true,
+      },
+    });
+
+    // Crear Sets para búsqueda rápida de duplicados
+    const existentesSet = new Set<string>();
+    const hashesExistentes = new Set<string>();
+
+    for (const ex of movimientosExistentes) {
+      const clave = generarClaveMovimiento(ex.fechaOperacion, ex.importe, ex.concepto);
+      existentesSet.add(clave);
+      hashesExistentes.add(ex.hashUnico);
+    }
+
+    // Insertar movimientos evitando duplicados (por hash Y por contenido)
     let insertados = 0;
     let duplicados = 0;
+    let duplicadosPorContenido = 0;
     const errores: string[] = [];
 
     for (const mov of movimientos) {
+      // 1. Verificar duplicado por hash (mismo archivo subido dos veces)
+      if (hashesExistentes.has(mov.hashUnico)) {
+        duplicados++;
+        continue;
+      }
+
+      // 2. Verificar duplicado por contenido (archivos distintos, mismo movimiento)
+      const clave = generarClaveMovimiento(mov.fechaOperacion, mov.importe, mov.concepto);
+      if (existentesSet.has(clave)) {
+        duplicadosPorContenido++;
+        continue;
+      }
+
       try {
         await prisma.movimientoBancario.create({
           data: {
@@ -142,9 +188,12 @@ export async function POST(req: NextRequest) {
           },
         });
         insertados++;
+        // Añadir al set para evitar duplicados dentro del mismo archivo
+        existentesSet.add(clave);
+        hashesExistentes.add(mov.hashUnico);
       } catch (e: any) {
         if (e.code === 'P2002') {
-          // Duplicado (hash único ya existe)
+          // Duplicado por constraint único (hashUnico)
           duplicados++;
         } else {
           errores.push(`Error en movimiento ${mov.fechaOperacion}: ${e.message}`);
@@ -176,6 +225,7 @@ export async function POST(req: NextRequest) {
         totalParseados: movimientos.length,
         insertados,
         duplicados,
+        duplicadosPorContenido,
         errores: errores.length,
         reglasAplicadas,
       },
@@ -185,6 +235,18 @@ export async function POST(req: NextRequest) {
     console.error('Error importando movimientos:', error);
     return NextResponse.json({ error: error.message || 'Error interno' }, { status: 500 });
   }
+}
+
+/**
+ * Genera una clave única para un movimiento basada en su contenido.
+ * Se usa para detectar duplicados entre archivos distintos que cubren el mismo periodo.
+ * Clave: fecha (solo día) + importe (2 decimales) + concepto normalizado.
+ */
+function generarClaveMovimiento(fecha: Date, importe: number, concepto: string): string {
+  const fechaStr = fecha.toISOString().split('T')[0];
+  const importeStr = importe.toFixed(2);
+  const conceptoNorm = concepto.toLowerCase().replace(/\s+/g, ' ').trim();
+  return `${fechaStr}|${importeStr}|${conceptoNorm}`;
 }
 
 // Aplicar reglas de imputación automáticas a movimientos sin categorizar
