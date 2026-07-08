@@ -247,6 +247,65 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // 6b. Contar facturas por serie/mes para saber cuántas están COBRADA vs PENDIENTE en nuestra BD
+    const MAPEO_NOMBRE_SERIE: Record<string, string> = {
+      'LLEIDA': 'CLL',
+      'PALLARS': 'CPL',
+      'MOVILES': 'CMV',
+      'MÓVILES': 'CMV',
+      'COMUNIDAD': 'CCM',
+    };
+
+    // Obtener series de las remesas del periodo
+    const seriesRemesas: { nombre: string; serie: string; fecha: Date }[] = [];
+    for (const r of remesas) {
+      const nombreUpper = r.nombre.toUpperCase();
+      for (const [key, serie] of Object.entries(MAPEO_NOMBRE_SERIE)) {
+        if (nombreUpper.includes(key)) {
+          seriesRemesas.push({ nombre: r.nombre, serie, fecha: r.fecha });
+          break;
+        }
+      }
+    }
+
+    // Query facturas por serie y mes
+    const facturasDelPeriodo = mes ? await prisma.factura.groupBy({
+      by: ['serieFactura', 'situacion'],
+      where: {
+        ejercicio: year,
+        fecha: {
+          gte: new Date(year, mes - 1, 1),
+          lte: new Date(year, mes, 0, 23, 59, 59),
+        },
+        serieFactura: { in: seriesRemesas.map(s => s.serie) },
+      },
+      _count: { id: true },
+      _sum: { total: true },
+    }) : [];
+
+    // Agrupar por serie
+    const facturasPorSerie: Record<string, { cobradas: number; pendientes: number; total: number; importeCobrado: number; importePendiente: number }> = {};
+    for (const row of facturasDelPeriodo) {
+      if (!facturasPorSerie[row.serieFactura]) {
+        facturasPorSerie[row.serieFactura] = { cobradas: 0, pendientes: 0, total: 0, importeCobrado: 0, importePendiente: 0 };
+      }
+      const count = row._count.id;
+      const importe = Number(row._sum.total) || 0;
+      facturasPorSerie[row.serieFactura].total += count;
+      if (row.situacion === 'COBRADA') {
+        facturasPorSerie[row.serieFactura].cobradas += count;
+        facturasPorSerie[row.serieFactura].importeCobrado += importe;
+      } else {
+        facturasPorSerie[row.serieFactura].pendientes += count;
+        facturasPorSerie[row.serieFactura].importePendiente += importe;
+      }
+    }
+
+    // Totales globales de facturas
+    const totalFacturas = Object.values(facturasPorSerie).reduce((s, v) => s + v.total, 0);
+    const totalFacturasCobradas = Object.values(facturasPorSerie).reduce((s, v) => s + v.cobradas, 0);
+    const totalFacturasPendientes = Object.values(facturasPorSerie).reduce((s, v) => s + v.pendientes, 0);
+
     // 7. Calcular KPIs
     const totalRemesado = remesas.reduce((sum, r) => sum + Number(r.totalImporte), 0);
     // Calcular total cobrado: priorizar datos de ConciliacionRemesa (sub-remesas), fallback a series
@@ -295,6 +354,13 @@ export async function GET(req: NextRequest) {
           estadoConciliacion = 'DIFERENCIA';
         }
 
+        // Determinar serie de esta remesa
+        const nombreUpper = r.nombre.toUpperCase();
+        let serieRemesa = '';
+        for (const [key, serie] of Object.entries(MAPEO_NOMBRE_SERIE)) {
+          if (nombreUpper.includes(key)) { serieRemesa = serie; break; }
+        }
+
         return {
           id: r.id,
           ispGestionId: r.ispGestionId,
@@ -329,6 +395,10 @@ export async function GET(req: NextRequest) {
             importe: Number(sr.importe),
             cobrado: sr.cobrado,
           })),
+          // Facturas en nuestra BD
+          facturasCobradas: facturasPorSerie[serieRemesa]?.cobradas || 0,
+          facturasPendientes: facturasPorSerie[serieRemesa]?.pendientes || 0,
+          facturasTotal: facturasPorSerie[serieRemesa]?.total || 0,
         };
       }
 
@@ -370,6 +440,31 @@ export async function GET(req: NextRequest) {
         recibosRemesados: conc?.recibosRemesados || null,
         recibosCobrados: conc?.recibosCobrados || null,
         rechazos: conc?.rechazos || null,
+        // Facturas en nuestra BD
+        facturasCobradas: (() => {
+          const nombreUp = r.nombre.toUpperCase();
+          let serie = '';
+          for (const [key, s] of Object.entries(MAPEO_NOMBRE_SERIE)) {
+            if (nombreUp.includes(key)) { serie = s; break; }
+          }
+          return facturasPorSerie[serie]?.cobradas || 0;
+        })(),
+        facturasPendientes: (() => {
+          const nombreUp = r.nombre.toUpperCase();
+          let serie = '';
+          for (const [key, s] of Object.entries(MAPEO_NOMBRE_SERIE)) {
+            if (nombreUp.includes(key)) { serie = s; break; }
+          }
+          return facturasPorSerie[serie]?.pendientes || 0;
+        })(),
+        facturasTotal: (() => {
+          const nombreUp = r.nombre.toUpperCase();
+          let serie = '';
+          for (const [key, s] of Object.entries(MAPEO_NOMBRE_SERIE)) {
+            if (nombreUp.includes(key)) { serie = s; break; }
+          }
+          return facturasPorSerie[serie]?.total || 0;
+        })(),
       };
     });
 
@@ -445,6 +540,10 @@ export async function GET(req: NextRequest) {
         numRemesas: remesas.length,
         numDevoluciones: devoluciones.length,
         numDevolucionesPendientes: devolucionesPendientes.length,
+        // Facturas conciliadas en nuestra BD
+        totalFacturas,
+        totalFacturasCobradas,
+        totalFacturasPendientes,
       },
       resumenMensual,
       remesas: remesasFormateadas,

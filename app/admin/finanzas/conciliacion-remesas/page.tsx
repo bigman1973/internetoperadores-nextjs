@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import { 
+  InformationCircleIcon, 
+  ChevronDownIcon, 
+  ChevronUpIcon,
   BanknotesIcon, 
   ArrowPathIcon, 
   ExclamationTriangleIcon, 
@@ -25,6 +27,10 @@ interface KPIs {
   numRemesas: number;
   numDevoluciones: number;
   numDevolucionesPendientes: number;
+  // Facturas conciliadas
+  totalFacturas: number;
+  totalFacturasCobradas: number;
+  totalFacturasPendientes: number;
 }
 
 interface ResumenMensual {
@@ -57,6 +63,10 @@ interface RemesaRow {
   recibosRemesados: number | null;
   recibosCobrados: number | null;
   rechazos: number | null;
+  // Facturas en nuestra BD
+  facturasCobradas: number;
+  facturasPendientes: number;
+  facturasTotal: number;
 }
 
 interface DevolucionRow {
@@ -373,7 +383,7 @@ export default function ConciliacionRemesasPage() {
 
       {/* KPIs */}
       {kpis && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
               <BanknotesIcon className="w-4 h-4" />
@@ -415,6 +425,22 @@ export default function ConciliacionRemesasPage() {
             </div>
             <div className="text-xl font-bold text-amber-700">{formatEUR(kpis.pendienteRecuperar)}</div>
             <div className="text-xs text-gray-400 mt-1">{kpis.numDevolucionesPendientes} pendientes</div>
+          </div>
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
+              <DocumentMagnifyingGlassIcon className="w-4 h-4 text-purple-500" />
+              Facturas BD
+            </div>
+            <div className="text-xl font-bold text-purple-700">
+              {kpis.totalFacturasCobradas}/{kpis.totalFacturas}
+            </div>
+            <div className="text-xs mt-1">
+              {kpis.totalFacturasPendientes > 0 ? (
+                <span className="text-amber-600">{kpis.totalFacturasPendientes} pendientes</span>
+              ) : (
+                <span className="text-green-600">Todas cobradas</span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -639,12 +665,13 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Cobrados</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Rechazos</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Devoluciones</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Facturas BD</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {remesas.length === 0 ? (
-                  <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">No hay remesas para el periodo seleccionado</td></tr>
+                  <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">No hay remesas para el periodo seleccionado</td></tr>
                 ) : (
                   remesas.map(r => (
                     <tr key={r.id} className="hover:bg-gray-50">
@@ -684,6 +711,18 @@ export default function ConciliacionRemesasPage() {
                           <span className="text-gray-400">&mdash;</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        {r.facturasTotal > 0 ? (
+                          <div>
+                            <span className={r.facturasPendientes === 0 ? 'text-green-700 font-medium' : 'text-amber-700 font-medium'}>
+                              {r.facturasCobradas}/{r.facturasTotal}
+                            </span>
+                            {r.facturasPendientes > 0 && (
+                              <div className="text-xs text-amber-600">{r.facturasPendientes} pdte.</div>
+                            )}
+                          </div>
+                        ) : <span className="text-gray-400">&mdash;</span>}
+                      </td>
                       <td className="px-4 py-3 text-center">{getEstadoBadge(r.estadoConciliacion)}</td>
                     </tr>
                   ))
@@ -708,7 +747,8 @@ export default function ConciliacionRemesasPage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Remesa</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Dev.</th>
                   <th className="text-center px-4 py-3 font-medium text-gray-600">Banco</th>
-                  <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Estado Dev.</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">Factura BD</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Cobro</th>
                 </tr>
               </thead>
@@ -741,6 +781,19 @@ export default function ConciliacionRemesasPage() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center">{getEstadoDevolucionBadge(d.estado)}</td>
+                      <td className="px-4 py-3 text-center">
+                        {d.facturaSituacion === 'COBRADA' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            <CheckCircleIcon className="w-3 h-3" /> Cobrada
+                          </span>
+                        ) : d.facturaSituacion === 'PENDIENTE' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                            <ExclamationTriangleIcon className="w-3 h-3" /> Pendiente
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 text-xs">{d.facturaSituacion || '—'}</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-600 text-xs">
                         {d.importeCobrado ? (
                           <div>
@@ -760,7 +813,7 @@ export default function ConciliacionRemesasPage() {
                     <td className="px-4 py-3 text-right font-mono font-bold text-red-700">
                       {formatEUR(devoluciones.reduce((sum, d) => sum + d.importe, 0))}
                     </td>
-                    <td colSpan={3}></td>
+                    <td colSpan={4}></td>
                     <td className="px-4 py-3 text-center">
                       <span className="text-xs text-gray-500">
                         {devoluciones.filter(d => d.conciliadaBanco).length}/{devoluciones.length}
