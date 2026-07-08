@@ -332,12 +332,11 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }, { status: 400 })
   }
 
-  // PASO 1: Vincular cada fila del XLS con su movimiento bancario por REFERENCIA DE REMESA
-  // El concepto del movimiento bancario contiene la referencia: "Emision Remesa Sepa Sdd Referencia: 0049 2482 753 000084s"
-  // El XLS del banco tiene el campo "Número de remesa" con la misma referencia (ej: "00492482753000084S")
-  // Normalizamos ambas para cruzar: quitamos espacios y pasamos a minúsculas
+  // PASO 1: Cargar movimientos bancarios de remesa del mes y crear mapa por referencia
+  // El concepto del movimiento bancario contiene: "Emision Remesa Sepa Sdd Referencia: 0049 2482 753 000084s"
+  // El XLS del banco tiene "Número de remesa": "0049 2482 753000084S"
+  // Normalizamos: quitamos espacios y pasamos a minúsculas para cruzar
   
-  // Cargar todos los movimientos bancarios de remesa del mes
   const movimientosBancarios = await prisma.movimientoBancario.findMany({
     where: {
       cuentaId: '50910c7d-76f3-493e-8aed-962f22fc1413', // Santander Principal
@@ -346,10 +345,9 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }
   })
 
-  // Crear mapa de referencia normalizada → movimiento bancario
+  // Mapa: referencia normalizada → movimiento bancario
   const mapaMovimientos = new Map<string, typeof movimientosBancarios[0]>()
   for (const mov of movimientosBancarios) {
-    // Extraer referencia del concepto: últimos caracteres después de "Referencia:"
     const match = mov.concepto.match(/[Rr]eferencia:\s*(.+)$/)
     if (match) {
       const refNorm = match[1].replace(/\s+/g, '').toLowerCase()
@@ -357,50 +355,91 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }
   }
 
-  // PASO 2: Para cada fila del XLS, buscar su movimiento bancario por referencia
+  // PASO 2: Para cada remesa ISP, encontrar la fila del XLS que le corresponde
+  // Lógica: la fila del XLS cuyo número de recibos sea el más cercano a la remesa ISP
+  // Y que esté dentro de un ratio razonable (>= 60% de los recibos de la remesa)
+  // Esto evita asignar recobros (1-5 recibos) a remesas grandes
+  
   let conciliadas = 0
   const errores: string[] = []
-  const remesasUsadas = new Set<number>()
-  const movimientosPrincipales: typeof todasLasRemesasBanco = []
-  const recobros: typeof todasLasRemesasBanco = []
+  const filasUsadas = new Set<number>() // Índices de filas del XLS ya asignadas
 
-  for (const remBanco of todasLasRemesasBanco) {
-    // Normalizar referencia del XLS (quitar espacios, minúsculas)
-    const refXLS = remBanco.numeroRemesa.replace(/\s+/g, '').toLowerCase()
-    
-    // Buscar movimiento bancario con esta referencia
-    const movimiento = mapaMovimientos.get(refXLS)
-    
-    if (!movimiento) {
-      // Intentar búsqueda parcial (los últimos 7 caracteres de la referencia)
-      const refCorta = refXLS.slice(-7)
-      let movEncontrado = null
-      for (const [key, mov] of mapaMovimientos.entries()) {
-        if (key.endsWith(refCorta)) {
-          movEncontrado = mov
-          break
-        }
-      }
+  // Ordenar remesas ISP de mayor a menor para asignar primero las grandes
+  const remesasOrdenadas = [...remesasISP].sort((a, b) => b.numeroRegistros - a.numeroRegistros)
+
+  for (const remesaISP of remesasOrdenadas) {
+    // Buscar la mejor fila del XLS para esta remesa ISP
+    let mejorFila: typeof todasLasRemesasBanco[0] | null = null
+    let mejorFilaIdx = -1
+    let mejorDiff = Infinity
+
+    for (let i = 0; i < todasLasRemesasBanco.length; i++) {
+      if (filasUsadas.has(i)) continue
+      const fila = todasLasRemesasBanco[i]
       
-      if (!movEncontrado) {
-        // No encontramos movimiento bancario → es un recobro o no está importado
-        recobros.push(remBanco)
-        continue
-      }
+      // El número de recibos cobrados debe ser >= 60% de los remesados (por devoluciones)
+      // y no puede ser mayor que los remesados + 5% (margen)
+      const ratio = fila.numRecibos / remesaISP.numeroRegistros
+      if (ratio < 0.60 || ratio > 1.05) continue
       
-      // Encontrado por búsqueda parcial
-      await vincularRemesa(remBanco, movEncontrado, remesasISP, remesasUsadas, archivos, errores)
-      if (!remesasUsadas.has(-1)) conciliadas++ // Se incrementa dentro de vincularRemesa
+      // De las candidatas, elegir la más cercana en número de recibos
+      const diff = Math.abs(remesaISP.numeroRegistros - fila.numRecibos)
+      if (diff < mejorDiff) {
+        mejorDiff = diff
+        mejorFila = fila
+        mejorFilaIdx = i
+      }
+    }
+
+    if (!mejorFila || mejorFilaIdx < 0) {
+      errores.push(`No se encontró cobro bancario para ${remesaISP.nombre} (${remesaISP.numeroRegistros} recibos, ${Number(remesaISP.totalImporte).toFixed(2)}€)`)
       continue
     }
 
-    // Encontrado por referencia exacta
-    const resultado = await vincularRemesa(remBanco, movimiento, remesasISP, remesasUsadas, archivos, errores)
-    if (resultado) conciliadas++
-    else recobros.push(remBanco)
+    // Marcar fila como usada
+    filasUsadas.add(mejorFilaIdx)
+
+    // Buscar el movimiento bancario por la referencia de esta fila
+    const refXLS = mejorFila.numeroRemesa.replace(/\s+/g, '').toLowerCase()
+    let movimiento = mapaMovimientos.get(refXLS)
+    
+    // Fallback: búsqueda parcial por últimos 7 caracteres
+    if (!movimiento) {
+      const refCorta = refXLS.slice(-7)
+      for (const [key, mov] of mapaMovimientos.entries()) {
+        if (key.endsWith(refCorta)) {
+          movimiento = mov
+          break
+        }
+      }
+    }
+
+    const importeRemesa = Number(remesaISP.totalImporte)
+    const diferencia = mejorFila.importe - importeRemesa
+    const rechazos = remesaISP.numeroRegistros - mejorFila.numRecibos
+
+    await prisma.conciliacionRemesa.create({
+      data: {
+        remesaId: remesaISP.id,
+        movimientoBancarioId: movimiento?.id || null,
+        importeRemesa,
+        importeMovimiento: mejorFila.importe,
+        diferencia,
+        estado: rechazos <= 0 ? 'CONCILIADA' : 'DIFERENCIA',
+        fechaConciliacion: new Date(),
+        recibosRemesados: remesaISP.numeroRegistros,
+        recibosCobrados: mejorFila.numRecibos,
+        rechazos: Math.max(0, rechazos),
+        referenciaRemesaBanco: mejorFila.numeroRemesa,
+        notas: `Vinculado por referencia ${mejorFila.numeroRemesa}. Importado desde: ${archivos.map(a => a.name).join(', ')}`
+      }
+    })
+
+    conciliadas++
   }
 
-  // PASO 3: Calcular totales de recobros
+  // PASO 3: Las filas no usadas son recobros
+  const recobros = todasLasRemesasBanco.filter((_, i) => !filasUsadas.has(i))
   const totalRecobros = recobros.reduce((sum, r) => sum + r.importe, 0)
   const totalReciboRecobros = recobros.reduce((sum, r) => sum + r.numRecibos, 0)
 
@@ -418,77 +457,6 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
       detalleErrores: errores
     }
   })
-}
-
-/**
- * Vincula una fila del XLS de remesas con una remesa ISP, usando el movimiento bancario encontrado.
- * Asigna la remesa ISP por número de recibos más cercano.
- * Retorna true si se concilió correctamente.
- */
-async function vincularRemesa(
-  remBanco: { fecha: string; numRecibos: number; importe: number; numeroRemesa: string; estado: string },
-  movimiento: { id: string; importe: number },
-  remesasISP: Array<{ id: number; nombre: string; numeroRegistros: number; totalImporte: any }>,
-  remesasUsadas: Set<number>,
-  archivos: Array<{ name: string }>,
-  errores: string[]
-): Promise<boolean> {
-  // Filtrar remesas candidatas no usadas
-  const candidatas = remesasISP.filter(r => !remesasUsadas.has(r.id))
-
-  if (candidatas.length === 0) {
-    errores.push(`Sin remesa ISP disponible para ref ${remBanco.numeroRemesa} (${remBanco.numRecibos} recibos, ${remBanco.importe.toFixed(2)}€)`)
-    return false
-  }
-
-  // Asignar por número de recibos más cercano
-  const mejorCandidata = candidatas.reduce((best, curr) => {
-    const currValida = remBanco.numRecibos <= curr.numeroRegistros
-    const bestValida = remBanco.numRecibos <= best.numeroRegistros
-    
-    if (currValida && !bestValida) return curr
-    if (!currValida && bestValida) return best
-    
-    const diffCurr = Math.abs(curr.numeroRegistros - remBanco.numRecibos)
-    const diffBest = Math.abs(best.numeroRegistros - remBanco.numRecibos)
-    if (diffCurr === diffBest) {
-      const ratioCurr = Math.abs(Number(curr.totalImporte) - remBanco.importe)
-      const ratioBest = Math.abs(Number(best.totalImporte) - remBanco.importe)
-      return ratioCurr < ratioBest ? curr : best
-    }
-    return diffCurr < diffBest ? curr : best
-  })
-
-  // Verificar que la asignación tiene sentido (ratio entre 40% y 110%)
-  const ratio = remBanco.numRecibos / mejorCandidata.numeroRegistros
-  if (ratio < 0.4 || ratio > 1.1) {
-    errores.push(`Ref ${remBanco.numeroRemesa}: ${remBanco.numRecibos} recibos no coincide con ${mejorCandidata.nombre} (${mejorCandidata.numeroRegistros} reg)`)
-    return false
-  }
-
-  const importeRemesa = Number(mejorCandidata.totalImporte)
-  const diferencia = remBanco.importe - importeRemesa
-  const rechazos = mejorCandidata.numeroRegistros - remBanco.numRecibos
-
-  await prisma.conciliacionRemesa.create({
-    data: {
-      remesaId: mejorCandidata.id,
-      movimientoBancarioId: movimiento.id,
-      importeRemesa,
-      importeMovimiento: remBanco.importe,
-      diferencia,
-      estado: rechazos <= 0 ? 'CONCILIADA' : 'DIFERENCIA',
-      fechaConciliacion: new Date(),
-      recibosRemesados: mejorCandidata.numeroRegistros,
-      recibosCobrados: remBanco.numRecibos,
-      rechazos: Math.max(0, rechazos),
-      referenciaRemesaBanco: remBanco.numeroRemesa,
-      notas: `Vinculado por referencia ${remBanco.numeroRemesa}. Importado desde: ${archivos.map(a => a.name).join(', ')}`
-    }
-  })
-
-  remesasUsadas.add(mejorCandidata.id)
-  return true
 }
 
 // ============================================================
