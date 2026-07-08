@@ -363,6 +363,7 @@ export async function GET(req: NextRequest) {
 
         return {
           id: r.id,
+          conciliacionId: conc.id,
           ispGestionId: r.ispGestionId,
           nombre: r.nombre,
           fecha: r.fecha,
@@ -419,6 +420,7 @@ export async function GET(req: NextRequest) {
 
       return {
         id: r.id,
+        conciliacionId: conc?.id || null,
         ispGestionId: r.ispGestionId,
         nombre: r.nombre,
         fecha: r.fecha,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   InformationCircleIcon, 
   ChevronDownIcon, 
@@ -47,6 +47,7 @@ interface ResumenMensual {
 
 interface RemesaRow {
   id: number;
+  conciliacionId: string | null;
   ispGestionId: number;
   nombre: string;
   fecha: string;
@@ -67,6 +68,48 @@ interface RemesaRow {
   facturasCobradas: number;
   facturasPendientes: number;
   facturasTotal: number;
+}
+
+interface DetalleRemesa {
+  remesa: { nombre: string; fecha: string; totalImporte: number; numeroRegistros: number; serie: string };
+  resumen: {
+    totalFacturas: number;
+    facturasCobradas: number;
+    facturasPendientes: number;
+    facturasConDevolucion: number;
+    totalSubRemesas: number;
+    subRemesasCobradas: number;
+    importeSubRemesasCobradas: number;
+    importeSubRemesasPendientes: number;
+  };
+  facturas: {
+    id: number;
+    numeroFactura: string;
+    cliente: string;
+    nifCif: string;
+    importe: number;
+    situacion: string;
+    tieneDevolucion: boolean;
+    estadoDevolucion: string | null;
+  }[];
+  subRemesas: {
+    id: string;
+    referencia: string;
+    fechaVencimiento: string;
+    numRecibos: number;
+    importe: number;
+    cobrado: boolean;
+  }[];
+  devoluciones: {
+    numFactura: string;
+    importe: number;
+    estado: string;
+    cliente: string;
+    motivo: string;
+    fechaDevolucion: string;
+    importeCobrado: number | null;
+    fechaCobro: string | null;
+  }[];
 }
 
 interface DevolucionRow {
@@ -131,6 +174,11 @@ export default function ConciliacionRemesasPage() {
   const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error' | 'info'; texto: string } | null>(null);
   
   const [mostrarAyuda, setMostrarAyuda] = useState(false);
+  
+  // Estado para fila expandible de remesas
+  const [remesaExpandida, setRemesaExpandida] = useState<number | null>(null);
+  const [detalleRemesa, setDetalleRemesa] = useState<Record<number, DetalleRemesa>>({});
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
   
   // Refs para inputs de archivo
   const fileInputRemesas = useRef<HTMLInputElement>(null);
@@ -249,6 +297,30 @@ export default function ConciliacionRemesasPage() {
     if (fileInputRemesas.current) fileInputRemesas.current.value = '';
     if (fileInputDevoluciones.current) fileInputDevoluciones.current.value = '';
     if (fileInputListaDev.current) fileInputListaDev.current.value = '';
+  }
+
+  async function toggleRemesa(remesaId: number, conciliacionId: string | null) {
+    if (remesaExpandida === remesaId) {
+      setRemesaExpandida(null);
+      return;
+    }
+    setRemesaExpandida(remesaId);
+    // Si ya tenemos el detalle cacheado, no recargar
+    if (detalleRemesa[remesaId]) return;
+    setCargandoDetalle(true);
+    try {
+      const params = new URLSearchParams();
+      if (conciliacionId) params.set('conciliacionId', conciliacionId);
+      else params.set('remesaId', remesaId.toString());
+      const res = await fetch(`/api/admin/finanzas/conciliacion-remesas/detalle-remesa?${params}`);
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setDetalleRemesa(prev => ({ ...prev, [remesaId]: json }));
+    } catch (e: any) {
+      console.error('Error cargando detalle:', e);
+      setMensaje({ tipo: 'error', texto: `Error cargando detalle: ${e.message}` });
+    }
+    setCargandoDetalle(false);
   }
 
   function getEstadoBadge(estado: string) {
@@ -674,10 +746,16 @@ export default function ConciliacionRemesasPage() {
                   <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">No hay remesas para el periodo seleccionado</td></tr>
                 ) : (
                   remesas.map(r => (
-                    <tr key={r.id} className="hover:bg-gray-50">
+                    <React.Fragment key={r.id}>
+                    <tr className={`hover:bg-gray-50 cursor-pointer transition-colors ${remesaExpandida === r.id ? 'bg-indigo-50' : ''}`} onClick={() => toggleRemesa(r.id, r.conciliacionId)}>
                       <td className="px-4 py-3">
-                        <div className="font-medium text-gray-900">{r.nombre}</div>
-                        <div className="text-xs text-gray-400">ISP #{r.ispGestionId}</div>
+                        <div className="flex items-center gap-2">
+                          <ChevronDownIcon className={`w-4 h-4 text-gray-400 transition-transform ${remesaExpandida === r.id ? 'rotate-180' : ''}`} />
+                          <div>
+                            <div className="font-medium text-gray-900">{r.nombre}</div>
+                            <div className="text-xs text-gray-400">ISP #{r.ispGestionId}</div>
+                          </div>
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-gray-600">{formatDate(r.fecha)}</td>
                       <td className="px-4 py-3 text-right font-mono text-gray-900 font-medium">{formatEUR(r.totalImporte)}</td>
@@ -725,6 +803,179 @@ export default function ConciliacionRemesasPage() {
                       </td>
                       <td className="px-4 py-3 text-center">{getEstadoBadge(r.estadoConciliacion)}</td>
                     </tr>
+                    {/* Panel expandible de detalle */}
+                    {remesaExpandida === r.id && (
+                      <tr>
+                        <td colSpan={11} className="px-0 py-0">
+                          <div className="bg-gray-50 border-t border-b border-indigo-100 px-6 py-4">
+                            {cargandoDetalle && !detalleRemesa[r.id] ? (
+                              <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
+                                <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                                Cargando detalle de la remesa...
+                              </div>
+                            ) : detalleRemesa[r.id] ? (
+                              <div className="space-y-4">
+                                {/* Resumen del detalle */}
+                                <div className="flex items-center justify-between">
+                                  <h4 className="text-sm font-semibold text-gray-800">
+                                    Detalle: {detalleRemesa[r.id].remesa.nombre} (Serie {detalleRemesa[r.id].remesa.serie})
+                                  </h4>
+                                  <button onClick={(e) => { e.stopPropagation(); setRemesaExpandida(null); }} className="text-xs text-gray-400 hover:text-gray-600">✕ Cerrar</button>
+                                </div>
+
+                                {/* KPIs mini */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                  <div className="bg-white rounded-lg border px-3 py-2">
+                                    <div className="text-xs text-gray-500">Facturas</div>
+                                    <div className="text-sm font-semibold">
+                                      <span className="text-green-700">{detalleRemesa[r.id].resumen.facturasCobradas}</span>
+                                      <span className="text-gray-400"> / {detalleRemesa[r.id].resumen.totalFacturas}</span>
+                                    </div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border px-3 py-2">
+                                    <div className="text-xs text-gray-500">Sub-remesas banco</div>
+                                    <div className="text-sm font-semibold">
+                                      <span className="text-green-700">{detalleRemesa[r.id].resumen.subRemesasCobradas}</span>
+                                      <span className="text-gray-400"> / {detalleRemesa[r.id].resumen.totalSubRemesas}</span>
+                                    </div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border px-3 py-2">
+                                    <div className="text-xs text-gray-500">Cobrado sub-remesas</div>
+                                    <div className="text-sm font-semibold text-green-700">{formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasCobradas)}</div>
+                                  </div>
+                                  <div className="bg-white rounded-lg border px-3 py-2">
+                                    <div className="text-xs text-gray-500">Pendiente sub-remesas</div>
+                                    <div className="text-sm font-semibold text-amber-700">{formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasPendientes)}</div>
+                                  </div>
+                                </div>
+
+                                {/* Sub-remesas del banco */}
+                                {detalleRemesa[r.id].subRemesas.length > 0 && (
+                                  <div>
+                                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Sub-remesas del banco</h5>
+                                    <div className="bg-white rounded-lg border overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-gray-100">
+                                          <tr>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Referencia</th>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Vencimiento</th>
+                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Recibos</th>
+                                            <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
+                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {detalleRemesa[r.id].subRemesas.map(sr => (
+                                            <tr key={sr.id} className="hover:bg-gray-50">
+                                              <td className="px-3 py-1.5 font-mono text-gray-700">{sr.referencia}</td>
+                                              <td className="px-3 py-1.5 text-gray-600">{formatDate(sr.fechaVencimiento)}</td>
+                                              <td className="px-3 py-1.5 text-center text-gray-600">{sr.numRecibos}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono font-medium">{formatEUR(sr.importe)}</td>
+                                              <td className="px-3 py-1.5 text-center">
+                                                {sr.cobrado ? (
+                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs bg-green-100 text-green-700">
+                                                    <CheckCircleIcon className="w-3 h-3" /> Cobrada
+                                                  </span>
+                                                ) : (
+                                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs bg-amber-100 text-amber-700">
+                                                    <ClockIcon className="w-3 h-3" /> Pendiente
+                                                  </span>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Devoluciones de esta remesa */}
+                                {detalleRemesa[r.id].devoluciones.length > 0 && (
+                                  <div>
+                                    <h5 className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">Devoluciones ({detalleRemesa[r.id].devoluciones.length})</h5>
+                                    <div className="bg-white rounded-lg border overflow-hidden">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-red-50">
+                                          <tr>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Factura</th>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Cliente</th>
+                                            <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Motivo</th>
+                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Estado</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {detalleRemesa[r.id].devoluciones.map((d, idx) => (
+                                            <tr key={idx} className="hover:bg-gray-50">
+                                              <td className="px-3 py-1.5 font-mono text-gray-700">{d.numFactura}</td>
+                                              <td className="px-3 py-1.5 text-gray-600 max-w-[150px] truncate">{d.cliente}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono text-red-600 font-medium">{formatEUR(d.importe)}</td>
+                                              <td className="px-3 py-1.5 text-gray-500 max-w-[120px] truncate">{d.motivo || '—'}</td>
+                                              <td className="px-3 py-1.5 text-center">{getEstadoDevolucionBadge(d.estado)}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Tabla de facturas (colapsable si son muchas) */}
+                                {detalleRemesa[r.id].facturas.length > 0 && (
+                                  <div>
+                                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
+                                      Facturas ({detalleRemesa[r.id].facturas.length})
+                                    </h5>
+                                    <div className="bg-white rounded-lg border overflow-hidden max-h-64 overflow-y-auto">
+                                      <table className="w-full text-xs">
+                                        <thead className="bg-gray-100 sticky top-0">
+                                          <tr>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Factura</th>
+                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Cliente</th>
+                                            <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
+                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Estado BD</th>
+                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Devolución</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                          {detalleRemesa[r.id].facturas.map(f => (
+                                            <tr key={f.id} className={`hover:bg-gray-50 ${f.tieneDevolucion ? 'bg-red-50/50' : ''}`}>
+                                              <td className="px-3 py-1.5 font-mono text-gray-700">{f.numeroFactura}</td>
+                                              <td className="px-3 py-1.5 text-gray-600 max-w-[180px] truncate">{f.cliente}</td>
+                                              <td className="px-3 py-1.5 text-right font-mono font-medium">{formatEUR(f.importe)}</td>
+                                              <td className="px-3 py-1.5 text-center">
+                                                {f.situacion === 'COBRADA' ? (
+                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Cobrada</span>
+                                                ) : (
+                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{f.situacion}</span>
+                                                )}
+                                              </td>
+                                              <td className="px-3 py-1.5 text-center">
+                                                {f.tieneDevolucion ? (
+                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                                                    {f.estadoDevolucion === 'COBRADO_TRANSFERENCIA' ? 'Recuperada' : 'Devuelta'}
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-gray-400">—</span>
+                                                )}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-500 py-2">No se pudo cargar el detalle.</p>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))
                 )}
               </tbody>
