@@ -378,7 +378,7 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
       where: {
         importe: { gte: remBanco.importe - 0.02, lte: remBanco.importe + 0.02 },
         concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
-        fecha: { gte: fechaDesde, lte: fechaHasta }
+        fechaOperacion: { gte: fechaDesde, lte: fechaHasta }
       }
     })
 
