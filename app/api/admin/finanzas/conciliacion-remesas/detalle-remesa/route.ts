@@ -143,6 +143,21 @@ export async function GET(request: NextRequest) {
       cobrado: sr.cobrado,
     }));
 
+    // Datos de la conciliación (rechazos)
+    let concData: any = null;
+    if (conciliacionId) {
+      concData = await prisma.conciliacionRemesa.findUnique({ where: { id: conciliacionId } });
+    } else if (remesa.conciliacion) {
+      concData = remesa.conciliacion;
+    }
+
+    const recibosRemesados = concData?.recibosRemesados || remesa.numeroRegistros;
+    const recibosCobrados = concData?.recibosCobrados || null;
+    const rechazos = concData?.rechazos || 0;
+    const importeRemesa = Number(remesa.totalImporte);
+    const importeCobradoTotal = subRemesasFormateadas.reduce((sum: number, sr: any) => sum + sr.importe, 0);
+    const importeRechazado = rechazos > 0 ? Math.round((importeRemesa - importeCobradoTotal) * 100) / 100 : 0;
+
     // Resumen
     const totalFacturas = facturasFormateadas.length;
     const facturasCobradas = facturasFormateadas.filter((f: any) => f.situacion === 'COBRADA').length;
@@ -161,7 +176,7 @@ export async function GET(request: NextRequest) {
       remesa: {
         nombre: remesa.nombre,
         fecha: remesa.fecha,
-        totalImporte: Number(remesa.totalImporte),
+        totalImporte: importeRemesa,
         numeroRegistros: remesa.numeroRegistros,
         serie,
       },
@@ -174,6 +189,10 @@ export async function GET(request: NextRequest) {
         subRemesasCobradas,
         importeSubRemesasCobradas: Math.round(importeSubRemesasCobradas * 100) / 100,
         importeSubRemesasPendientes: Math.round(importeSubRemesasPendientes * 100) / 100,
+        recibosRemesados,
+        recibosCobrados,
+        rechazos,
+        importeRechazado,
       },
       facturas: facturasFormateadas,
       subRemesas: subRemesasFormateadas,

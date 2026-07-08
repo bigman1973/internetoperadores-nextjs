@@ -347,8 +347,11 @@ export async function GET(req: NextRequest) {
         const diferencia = Math.round((importeMovimiento - importeRemesa) * 100) / 100;
         const rechazos = conc.rechazos || 0;
 
+        // Determinar estado: si todas las sub-remesas están cobradas, no hay nada "pendiente"
+        // aunque pendienteAbonar > 0 (eso son rechazos del banco, no cobros futuros)
+        const todasSubRemesasCobradas = subRemesas.length > 0 && subRemesas.every(sr => sr.cobrado);
         let estadoConciliacion = 'CONCILIADA';
-        if (pendienteAbonar > 0.01) {
+        if (pendienteAbonar > 0.01 && !todasSubRemesasCobradas) {
           estadoConciliacion = 'PENDIENTE';
         } else if (rechazos > 0 || Math.abs(diferencia) > importeRemesa * 0.02) {
           estadoConciliacion = 'DIFERENCIA';

@@ -81,6 +81,10 @@ interface DetalleRemesa {
     subRemesasCobradas: number;
     importeSubRemesasCobradas: number;
     importeSubRemesasPendientes: number;
+    recibosRemesados: number;
+    recibosCobrados: number | null;
+    rechazos: number;
+    importeRechazado: number;
   };
   facturas: {
     id: number;
@@ -827,30 +831,62 @@ export default function ConciliacionRemesasPage() {
                                 </div>
 
                                 {/* KPIs mini */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                                   <div className="bg-white rounded-lg border px-3 py-2">
-                                    <div className="text-xs text-gray-500">Facturas</div>
+                                    <div className="text-xs text-gray-500">Facturas BD</div>
                                     <div className="text-sm font-semibold">
                                       <span className="text-green-700">{detalleRemesa[r.id].resumen.facturasCobradas}</span>
                                       <span className="text-gray-400"> / {detalleRemesa[r.id].resumen.totalFacturas}</span>
                                     </div>
                                   </div>
                                   <div className="bg-white rounded-lg border px-3 py-2">
-                                    <div className="text-xs text-gray-500">Sub-remesas banco</div>
+                                    <div className="text-xs text-gray-500">Recibos banco</div>
                                     <div className="text-sm font-semibold">
-                                      <span className="text-green-700">{detalleRemesa[r.id].resumen.subRemesasCobradas}</span>
-                                      <span className="text-gray-400"> / {detalleRemesa[r.id].resumen.totalSubRemesas}</span>
+                                      <span className="text-green-700">{detalleRemesa[r.id].resumen.recibosCobrados ?? '—'}</span>
+                                      <span className="text-gray-400"> / {detalleRemesa[r.id].resumen.recibosRemesados}</span>
                                     </div>
                                   </div>
                                   <div className="bg-white rounded-lg border px-3 py-2">
-                                    <div className="text-xs text-gray-500">Cobrado sub-remesas</div>
+                                    <div className="text-xs text-gray-500">Cobrado banco</div>
                                     <div className="text-sm font-semibold text-green-700">{formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasCobradas)}</div>
                                   </div>
                                   <div className="bg-white rounded-lg border px-3 py-2">
-                                    <div className="text-xs text-gray-500">Pendiente sub-remesas</div>
-                                    <div className="text-sm font-semibold text-amber-700">{formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasPendientes)}</div>
+                                    <div className="text-xs text-gray-500">
+                                      {detalleRemesa[r.id].resumen.importeSubRemesasPendientes > 0 ? 'Pendiente cobro' : 'Sub-remesas'}
+                                    </div>
+                                    <div className="text-sm font-semibold">
+                                      {detalleRemesa[r.id].resumen.importeSubRemesasPendientes > 0 ? (
+                                        <span className="text-amber-700">{formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasPendientes)}</span>
+                                      ) : (
+                                        <span className="text-green-700">{detalleRemesa[r.id].resumen.subRemesasCobradas}/{detalleRemesa[r.id].resumen.totalSubRemesas} cobradas</span>
+                                      )}
+                                    </div>
                                   </div>
+                                  {detalleRemesa[r.id].resumen.rechazos > 0 && (
+                                    <div className="bg-red-50 rounded-lg border border-red-200 px-3 py-2">
+                                      <div className="text-xs text-red-600 font-medium">Rechazos banco</div>
+                                      <div className="text-sm font-semibold text-red-700">
+                                        {detalleRemesa[r.id].resumen.rechazos} recibo{detalleRemesa[r.id].resumen.rechazos > 1 ? 's' : ''} ({formatEUR(detalleRemesa[r.id].resumen.importeRechazado)})
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
+
+                                {/* Alerta de rechazos */}
+                                {detalleRemesa[r.id].resumen.rechazos > 0 && (
+                                  <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+                                    <div className="flex items-start gap-2">
+                                      <ExclamationTriangleIcon className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                      <div className="text-xs text-red-800">
+                                        <span className="font-semibold">El banco rechazó {detalleRemesa[r.id].resumen.rechazos} recibo{detalleRemesa[r.id].resumen.rechazos > 1 ? 's' : ''} por {formatEUR(detalleRemesa[r.id].resumen.importeRechazado)}.</span>
+                                        <span className="text-red-600 ml-1">
+                                          Se remesaron {detalleRemesa[r.id].resumen.recibosRemesados} recibos ({formatEUR(detalleRemesa[r.id].remesa.totalImporte)}) pero el banco solo aceptó cobrar {detalleRemesa[r.id].resumen.recibosCobrados} ({formatEUR(detalleRemesa[r.id].resumen.importeSubRemesasCobradas)}).
+                                          La diferencia de {formatEUR(detalleRemesa[r.id].resumen.importeRechazado)} corresponde a recibos rechazados antes de cobrar.
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Sub-remesas del banco */}
                                 {detalleRemesa[r.id].subRemesas.length > 0 && (
