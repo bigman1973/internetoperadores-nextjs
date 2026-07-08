@@ -264,6 +264,8 @@ export async function POST(request: NextRequest) {
 // ============================================================
 // Procesar XLS de Remesas del banco (múltiples archivos)
 // IDEMPOTENTE: borra conciliaciones previas del periodo y las recrea
+// LÓGICA: Cada remesa ISP tiene 1 movimiento principal (nº recibos cercano)
+//         Los movimientos pequeños (1-5 recibos) son recobros de meses anteriores
 // ============================================================
 async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>) {
   // Concatenar todas las filas de todos los archivos
@@ -286,27 +288,27 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }, { status: 400 })
   }
 
-  // Determinar el rango de fechas para limpiar conciliaciones previas
+  // Determinar el mes del archivo (usar la fecha más frecuente)
   const fechas = todasLasRemesasBanco.map(r => {
     const p = r.fecha.split('/')
     return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]))
   })
-  const fechaMin = new Date(Math.min(...fechas.map(f => f.getTime())))
-  const fechaMax = new Date(Math.max(...fechas.map(f => f.getTime())))
+  const mesArchivo = fechas[0].getMonth() // 0-indexed
+  const anioArchivo = fechas[0].getFullYear()
   
-  // Ampliar ventana para cubrir remesas del mismo periodo
-  fechaMin.setDate(fechaMin.getDate() - 45)
-  fechaMax.setDate(fechaMax.getDate() + 45)
+  // Rango del mes del archivo
+  const inicioMes = new Date(anioArchivo, mesArchivo, 1)
+  const finMes = new Date(anioArchivo, mesArchivo + 1, 0)
 
-  // Borrar conciliaciones previas del periodo (IDEMPOTENTE)
-  const remesasDelPeriodo = await prisma.remesa.findMany({
+  // Borrar conciliaciones previas del mes (IDEMPOTENTE)
+  const remesasDelMes = await prisma.remesa.findMany({
     where: {
-      fecha: { gte: fechaMin, lte: fechaMax }
+      fecha: { gte: inicioMes, lte: finMes }
     },
     include: { conciliacion: true }
   })
 
-  const idsConConciliacion = remesasDelPeriodo
+  const idsConConciliacion = remesasDelMes
     .filter(r => r.conciliacion)
     .map(r => r.conciliacion!.id)
 
@@ -316,22 +318,52 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     })
   }
 
-  // Obtener todas las remesas ISP (frescas, sin conciliación)
+  // Obtener remesas ISP del mes (solo del mes del archivo)
   const remesasISP = await prisma.remesa.findMany({
     where: {
-      fecha: { gte: fechaMin, lte: fechaMax }
+      fecha: { gte: inicioMes, lte: finMes }
     },
-    orderBy: { totalImporte: 'desc' } // Procesar las más grandes primero
+    orderBy: { totalImporte: 'desc' }
   })
 
+  if (remesasISP.length === 0) {
+    return NextResponse.json({ 
+      error: `No hay remesas ISP para ${String(mesArchivo + 1).padStart(2, '0')}/${anioArchivo}. Verifica que las remesas de ISPGestión están importadas.` 
+    }, { status: 400 })
+  }
+
+  // PASO 1: Separar movimientos principales de recobros
+  // Los movimientos principales tienen muchos recibos (>= 50% de alguna remesa ISP)
+  // Los recobros son movimientos pequeños (pocos recibos)
+  const movimientosPrincipales: typeof todasLasRemesasBanco = []
+  const recobros: typeof todasLasRemesasBanco = []
+  
+  // Umbral: un movimiento es "principal" si tiene >= 50% de los recibos de alguna remesa
+  const minRecibosParaPrincipal = Math.min(...remesasISP.map(r => Math.floor(r.numeroRegistros * 0.5)))
+  
+  for (const mov of todasLasRemesasBanco) {
+    // Un movimiento es principal si tiene suficientes recibos para ser el cobro de una remesa
+    const esCandidata = remesasISP.some(r => {
+      const ratio = mov.numRecibos / r.numeroRegistros
+      return ratio >= 0.5 && ratio <= 1.05 // Entre 50% y 105% de los recibos de la remesa
+    })
+    
+    if (esCandidata && mov.numRecibos >= minRecibosParaPrincipal) {
+      movimientosPrincipales.push(mov)
+    } else {
+      recobros.push(mov)
+    }
+  }
+
+  // PASO 2: Asignar cada movimiento principal a su remesa ISP
   let conciliadas = 0
   const errores: string[] = []
   const remesasUsadas = new Set<number>()
+  
+  // Ordenar movimientos principales de mayor a menor para asignar primero los grandes
+  movimientosPrincipales.sort((a, b) => b.numRecibos - a.numRecibos)
 
-  // Ordenar remesas del banco de mayor a menor importe para asignar las grandes primero
-  todasLasRemesasBanco.sort((a, b) => b.importe - a.importe)
-
-  for (const remBanco of todasLasRemesasBanco) {
+  for (const remBanco of movimientosPrincipales) {
     // Buscar movimiento bancario con importe exacto (±0.02€)
     const movimiento = await prisma.movimientoBancario.findFirst({
       where: {
@@ -340,29 +372,25 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
       }
     })
 
-    if (!movimiento) {
-      errores.push(`Sin movimiento bancario para ${remBanco.importe.toFixed(2)}€ (${remBanco.fecha}, ref: ${remBanco.numeroRemesa})`)
-      continue
-    }
-
-    // Parsear fecha del banco
-    const fechaParts = remBanco.fecha.split('/')
-    const fechaBanco = new Date(parseInt(fechaParts[2]), parseInt(fechaParts[1]) - 1, parseInt(fechaParts[0]))
-    
-    // Filtrar remesas candidatas: ventana temporal (±45 días) y no usada ya
-    const candidatas = remesasISP.filter(r => {
-      if (remesasUsadas.has(r.id)) return false
-      const diffDias = Math.abs((fechaBanco.getTime() - new Date(r.fecha).getTime()) / (1000 * 60 * 60 * 24))
-      return diffDias <= 45
-    })
+    // Filtrar remesas candidatas no usadas
+    const candidatas = remesasISP.filter(r => !remesasUsadas.has(r.id))
 
     if (candidatas.length === 0) {
-      errores.push(`Sin remesa ISP candidata para ${remBanco.numRecibos} recibos, ${remBanco.importe.toFixed(2)}€ (${remBanco.fecha})`)
+      errores.push(`Sin remesa ISP disponible para ${remBanco.numRecibos} recibos, ${remBanco.importe.toFixed(2)}€`)
       continue
     }
 
-    // Asignar por número de recibos más cercano (el banco cobra menos recibos por las devoluciones)
+    // Asignar por número de recibos más cercano (el banco cobra menos por devoluciones)
+    // PERO el banco siempre cobra MENOS o IGUAL que los remesados
     const mejorCandidata = candidatas.reduce((best, curr) => {
+      // Preferir remesas donde numRecibos banco <= numRegistros ISP
+      const currValida = remBanco.numRecibos <= curr.numeroRegistros
+      const bestValida = remBanco.numRecibos <= best.numeroRegistros
+      
+      if (currValida && !bestValida) return curr
+      if (!currValida && bestValida) return best
+      
+      // Ambas válidas o ambas inválidas: elegir la más cercana en recibos
       const diffCurr = Math.abs(curr.numeroRegistros - remBanco.numRecibos)
       const diffBest = Math.abs(best.numeroRegistros - remBanco.numRecibos)
       if (diffCurr === diffBest) {
@@ -374,32 +402,31 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
       return diffCurr < diffBest ? curr : best
     })
 
-    // Solo asignar si el banco cobró menos o igual recibos que los remesados (lógico)
-    // y la diferencia no es absurda (más del 80% de diferencia = probablemente mal asignado)
-    const diffRecibos = mejorCandidata.numeroRegistros - remBanco.numRecibos
-    if (diffRecibos < -5 || diffRecibos > mejorCandidata.numeroRegistros * 0.8) {
-      errores.push(`${remBanco.numRecibos} recibos (${remBanco.importe.toFixed(2)}€) no coincide con ${mejorCandidata.nombre} (${mejorCandidata.numeroRegistros} registros, ${Number(mejorCandidata.totalImporte).toFixed(2)}€)`)
+    // Verificar que la asignación tiene sentido
+    const ratio = remBanco.numRecibos / mejorCandidata.numeroRegistros
+    if (ratio < 0.4 || ratio > 1.1) {
+      errores.push(`${remBanco.numRecibos} recibos (${remBanco.importe.toFixed(2)}€) no coincide con ${mejorCandidata.nombre} (${mejorCandidata.numeroRegistros} reg, ${Number(mejorCandidata.totalImporte).toFixed(2)}€)`)
       continue
     }
 
-    // Crear conciliación
     const importeRemesa = Number(mejorCandidata.totalImporte)
     const diferencia = remBanco.importe - importeRemesa
+    const rechazos = mejorCandidata.numeroRegistros - remBanco.numRecibos
 
     await prisma.conciliacionRemesa.create({
       data: {
         remesaId: mejorCandidata.id,
-        movimientoBancarioId: movimiento.id,
+        movimientoBancarioId: movimiento?.id || null,
         importeRemesa,
         importeMovimiento: remBanco.importe,
         diferencia,
-        estado: Math.abs(diferencia) < 1 ? 'CONCILIADA' : 'DIFERENCIA',
+        estado: rechazos <= 0 ? 'CONCILIADA' : 'DIFERENCIA',
         fechaConciliacion: new Date(),
         recibosRemesados: mejorCandidata.numeroRegistros,
         recibosCobrados: remBanco.numRecibos,
-        rechazos: Math.max(0, diffRecibos),
+        rechazos: Math.max(0, rechazos),
         referenciaRemesaBanco: remBanco.numeroRemesa,
-        notas: `Importado desde: ${archivos.map(a => a.name).join(', ')}`
+        notas: `Cobro principal. Importado desde: ${archivos.map(a => a.name).join(', ')}`
       }
     })
 
@@ -407,14 +434,20 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     conciliadas++
   }
 
+  // PASO 3: Calcular totales de recobros
+  const totalRecobros = recobros.reduce((sum, r) => sum + r.importe, 0)
+  const totalReciboRecobros = recobros.reduce((sum, r) => sum + r.numRecibos, 0)
+
   return NextResponse.json({
     ok: true,
     tipo: 'remesas',
-    mensaje: `Remesas procesadas: ${conciliadas} conciliadas de ${todasLasRemesasBanco.length} en ${archivos.length} archivo(s)${errores.length > 0 ? ` — ${errores.length} sin asignar` : ''}`,
+    mensaje: `${conciliadas} remesas conciliadas de ${remesasISP.length} del mes. ${recobros.length} movimientos son recobros (${totalReciboRecobros} recibos, ${totalRecobros.toFixed(2)}€)${errores.length > 0 ? `. ${errores.length} errores.` : ''}`,
     resumen: {
       totalArchivos: archivos.length,
       totalFilas: todasLasRemesasBanco.length,
       conciliadas,
+      recobros: recobros.length,
+      importeRecobros: totalRecobros,
       errores: errores.length,
       detalleErrores: errores
     }
