@@ -507,10 +507,12 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }
     
     // PASO C: Si encontramos la principal pero no tenemos PDF, buscar complementarias
-    // por número de recibos restantes
+    // por número de recibos restantes. VALIDACIÓN: la suma de importes no puede superar
+    // el total remesado (con tolerancia del 5% por posibles rechazos del banco)
     if (filasAsignadas.length > 0) {
       const totalAsignado = filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0)
       let faltantes = remesaISP.numeroRegistros - totalAsignado
+      const importeRemesaISP = Number(remesaISP.totalImporte)
       
       if (faltantes > 0) {
         // Buscar filas pequeñas que complementen (máx 10 rec cada una)
@@ -518,11 +520,44 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
           if (filasUsadas.has(i)) continue
           const fila = todasLasFilasBanco[i]
           if (fila.numRecibos <= faltantes && fila.numRecibos <= 10) {
+            // VALIDACIÓN: verificar que al añadir esta sub-remesa no superamos el total remesado
+            const sumaConEsta = filasAsignadas.reduce((s, f) => s + f.fila.importe, 0) + fila.importe
+            if (sumaConEsta > importeRemesaISP * 1.05) {
+              continue // Esta sub-remesa haría que el total supere lo remesado → no es de esta remesa
+            }
             filasAsignadas.push({ idx: i, fila })
             filasUsadas.add(i)
             faltantes -= fila.numRecibos
             if (faltantes <= 0) break
           }
+        }
+      }
+    }
+
+    // PASO D: VALIDACIÓN FINAL - si la suma de sub-remesas supera el total remesado en >20%,
+    // probablemente hay una sub-remesa mal asignada. Quitar la que más descuadre.
+    if (filasAsignadas.length > 1) {
+      const importeRemesaISP = Number(remesaISP.totalImporte)
+      let sumaActual = filasAsignadas.reduce((s, f) => s + f.fila.importe, 0)
+      
+      while (sumaActual > importeRemesaISP * 1.20 && filasAsignadas.length > 1) {
+        // Encontrar la sub-remesa que al quitarla deja la suma más cercana al total remesado
+        let mejorIdx = -1
+        let mejorDiff = Infinity
+        for (let i = 0; i < filasAsignadas.length; i++) {
+          const sumaSin = sumaActual - filasAsignadas[i].fila.importe
+          const diff = Math.abs(sumaSin - importeRemesaISP)
+          if (diff < mejorDiff) {
+            mejorDiff = diff
+            mejorIdx = i
+          }
+        }
+        if (mejorIdx >= 0) {
+          const removida = filasAsignadas.splice(mejorIdx, 1)[0]
+          filasUsadas.delete(removida.idx)
+          sumaActual -= removida.fila.importe
+        } else {
+          break
         }
       }
     }
