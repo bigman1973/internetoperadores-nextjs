@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
         select: {
           id: true,
           serieFactura: true,
-          numeroFactura: true,
+          numeroDocumento: true,
           nombreCompleto: true,
           nifCif: true,
           total: true,
@@ -112,14 +112,18 @@ export async function GET(request: NextRequest) {
     // Formatear facturas - detectar cuáles tienen devolución
     const facturasFormateadas = facturas.map((f: any) => {
       // Buscar si esta factura tiene devolución
-      const numFacturaCompleto = `${f.serieFactura}${f.numeroFactura ? '/' + f.numeroFactura : ''}`;
+      // El campo numeroFactura en DevolucionRemesa tiene formato "CLL26/137"
+      // El campo numeroDocumento en Factura tiene formato "26/137" o similar
+      const numFacturaCompleto = `${f.serieFactura}${f.numeroDocumento}`;
+      const numConBarra = `${f.serieFactura}/${f.numeroDocumento}`;
       const tieneDevolucion = devoluciones.find(
         (d: any) => d.numeroFactura === numFacturaCompleto
-          || d.numeroFactura === `${f.serieFactura}${f.numeroFactura}`
+          || d.numeroFactura === numConBarra
+          || d.numeroFactura === f.numeroDocumento
       );
       return {
         id: f.id,
-        numeroFactura: `${f.serieFactura}/${f.numeroFactura}`,
+        numeroFactura: `${f.serieFactura}/${f.numeroDocumento}`,
         cliente: f.nombreCompleto,
         nifCif: f.nifCif,
         importe: Number(f.total),
