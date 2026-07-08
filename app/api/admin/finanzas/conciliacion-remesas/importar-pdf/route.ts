@@ -2,11 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { listFolderByPath, downloadFileById } from '@/lib/microsoft-graph'
+import { parsearPdfRemesaISP } from '@/lib/finanzas/parsers/remesa-ispgestion'
+import { parsearPdfRemesaSantander } from '@/lib/finanzas/parsers/remesa-santander'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const XLSX = require('xlsx')
 
 // Tipos de archivo que acepta
 type TipoArchivo = 'remesas' | 'recibos_devueltos' | 'devoluciones'
+
+// Ruta base en OneDrive para facturas emitidas y remesas
+const REMESAS_BASE_PATH = '2. Contabilidad y finanzas/1. Facturas emitidas y remesas/1. Facturas emitidas y remesas- Internet Operadores'
+
+const MESES_NOMBRES: Record<number, string> = {
+  1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril',
+  5: 'Mayo', 6: 'Junio', 7: 'Julio', 8: 'Agosto',
+  9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre',
+}
 
 // ============================================================
 // PARSER: XLS Remesas del banco (Santander)
@@ -263,13 +275,17 @@ export async function POST(request: NextRequest) {
 
 // ============================================================
 // Procesar XLS de Remesas del banco (múltiples archivos)
-// IDEMPOTENTE: borra conciliaciones previas del periodo y las recrea
-// LÓGICA: Cada remesa ISP tiene 1 movimiento principal (nº recibos cercano)
-//         Los movimientos pequeños (1-5 recibos) son recobros de meses anteriores
+// NUEVA LÓGICA v2:
+// 1. Lee PDFs de ISPGestión desde OneDrive → agrupa recibos por fecha vencimiento
+// 2. Cruza con filas del XLS del banco por fecha + numRecibos + importe
+// 3. Crea sub-remesas con la referencia del banco
+// 4. Vincula con movimientos bancarios por referencia
+// 5. Doble cotejo con PDF Santander de OneDrive
+// 6. Calcula pendiente de abonar
 // ============================================================
 async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>) {
-  // Concatenar todas las filas de todos los archivos
-  const todasLasRemesasBanco: Array<{
+  // Concatenar todas las filas de todos los archivos XLS
+  const todasLasFilasBanco: Array<{
     fecha: string
     numRecibos: number
     importe: number
@@ -279,68 +295,139 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
 
   for (const archivo of archivos) {
     const filas = parseRemesasXLS(archivo.buffer)
-    todasLasRemesasBanco.push(...filas)
+    todasLasFilasBanco.push(...filas)
   }
 
-  if (todasLasRemesasBanco.length === 0) {
+  if (todasLasFilasBanco.length === 0) {
     return NextResponse.json({ 
-      error: 'No se pudieron extraer remesas de los archivos. Verifica que son archivos XLS del Santander (Remesas - Selecciona una remesa...).' 
+      error: 'No se pudieron extraer remesas de los archivos. Verifica que son archivos XLS del Santander.' 
     }, { status: 400 })
   }
 
-  // Determinar el mes del archivo (usar la fecha más frecuente)
-  const fechas = todasLasRemesasBanco.map(r => {
+  // Determinar el mes del archivo
+  const fechas = todasLasFilasBanco.map(r => {
     const p = r.fecha.split('/')
     return new Date(parseInt(p[2]), parseInt(p[1]) - 1, parseInt(p[0]))
   })
   const mesArchivo = fechas[0].getMonth() // 0-indexed
   const anioArchivo = fechas[0].getFullYear()
+  const mesNombre = MESES_NOMBRES[mesArchivo + 1]
   
-  // Rango del mes del archivo
+  // Rango del mes
   const inicioMes = new Date(anioArchivo, mesArchivo, 1)
   const finMes = new Date(anioArchivo, mesArchivo + 1, 0)
 
-  // Borrar conciliaciones previas del mes (IDEMPOTENTE)
-  const remesasDelMes = await prisma.remesa.findMany({
-    where: {
-      fecha: { gte: inicioMes, lte: finMes }
-    },
-    include: { conciliacion: true }
-  })
-
-  const idsConConciliacion = remesasDelMes
-    .filter(r => r.conciliacion)
-    .map(r => r.conciliacion!.id)
-
-  if (idsConConciliacion.length > 0) {
-    await prisma.conciliacionRemesa.deleteMany({
-      where: { id: { in: idsConConciliacion } }
-    })
-  }
-
-  // Obtener remesas ISP del mes (solo del mes del archivo)
+  // Obtener remesas ISP del mes
   const remesasISP = await prisma.remesa.findMany({
     where: {
       fecha: { gte: inicioMes, lte: finMes }
     },
+    include: { conciliacion: { include: { subRemesas: true } } },
     orderBy: { totalImporte: 'desc' }
   })
 
   if (remesasISP.length === 0) {
     return NextResponse.json({ 
-      error: `No hay remesas ISP para ${String(mesArchivo + 1).padStart(2, '0')}/${anioArchivo}. Verifica que las remesas de ISPGestión están importadas.` 
+      error: `No hay remesas ISP para ${mesNombre} ${anioArchivo}. Verifica que las remesas de ISPGestión están importadas.` 
     }, { status: 400 })
   }
 
-  // PASO 1: Cargar movimientos bancarios de remesa del mes y crear mapa por referencia
-  // El concepto del movimiento bancario contiene: "Emision Remesa Sepa Sdd Referencia: 0049 2482 753 000084s"
-  // El XLS del banco tiene "Número de remesa": "0049 2482 753000084S"
-  // Normalizamos: quitamos espacios y pasamos a minúsculas para cruzar
+  // Borrar conciliaciones previas del mes (IDEMPOTENTE)
+  const idsConConciliacion = remesasISP
+    .filter(r => r.conciliacion)
+    .map(r => r.conciliacion!.id)
+
+  if (idsConConciliacion.length > 0) {
+    // SubRemesas se borran en cascada
+    await prisma.conciliacionRemesa.deleteMany({
+      where: { id: { in: idsConConciliacion } }
+    })
+  }
+
+  // PASO 1: Leer PDFs de ISPGestión desde OneDrive para obtener desglose por vencimiento
+  const carpetaRemesas = `${REMESAS_BASE_PATH}/${anioArchivo}/${mesNombre} ${anioArchivo}`
+  let pdfsISP: Array<{ remesaId: number; nombre: string; subGrupos: Array<{ fecha: string; numRecibos: number; importe: number }> }> = []
   
+  try {
+    const archivosOneDrive = await listFolderByPath(carpetaRemesas)
+    
+    // Buscar PDFs de ISPGestión (formato: "82- JUNIO 2026 LLEIDA.pdf")
+    const pdfsISPFiles = archivosOneDrive.filter(f => 
+      f.file && 
+      f.name.endsWith('.pdf') && 
+      /^\d+[-–]\s/.test(f.name) && // Empieza con número + guión
+      !f.name.toLowerCase().includes('santander')
+    )
+
+    for (const pdfFile of pdfsISPFiles) {
+      // Extraer número de remesa del nombre: "82- JUNIO 2026 LLEIDA.pdf" → 82
+      const numMatch = pdfFile.name.match(/^(\d+)/)
+      if (!numMatch) continue
+      const numRemesaISP = parseInt(numMatch[1])
+
+      // Buscar la remesa ISP correspondiente por ispGestionId
+      const remesaISP = remesasISP.find(r => r.ispGestionId === numRemesaISP)
+      if (!remesaISP) continue
+
+      try {
+        const buffer = await downloadFileById(pdfFile.id)
+        const parsed = await parsearPdfRemesaISP(buffer)
+        
+        pdfsISP.push({
+          remesaId: remesaISP.id,
+          nombre: remesaISP.nombre,
+          subGrupos: parsed.subGrupos.map(sg => ({
+            fecha: sg.fechaVencimiento,
+            numRecibos: sg.numRecibos,
+            importe: sg.importeTotal,
+          }))
+        })
+      } catch (e) {
+        console.error(`Error parseando PDF ISP ${pdfFile.name}:`, e)
+      }
+    }
+  } catch (e) {
+    console.error(`No se pudo acceder a OneDrive (${carpetaRemesas}):`, e)
+    // Continuar sin PDFs de OneDrive — usaremos solo el XLS
+  }
+
+  // PASO 2: Leer PDFs del Santander desde OneDrive para doble cotejo
+  let pdfsSantander: Array<{ nombre: string; subRemesas: Array<{ fecha: string; numRecibos: number; importe: number }> }> = []
+  
+  try {
+    const archivosOneDrive = await listFolderByPath(carpetaRemesas)
+    const pdfsSantFiles = archivosOneDrive.filter(f => 
+      f.file && 
+      f.name.endsWith('.pdf') && 
+      f.name.toLowerCase().includes('santander')
+    )
+
+    for (const pdfFile of pdfsSantFiles) {
+      try {
+        const buffer = await downloadFileById(pdfFile.id)
+        const parsed = await parsearPdfRemesaSantander(buffer)
+        
+        pdfsSantander.push({
+          nombre: pdfFile.name,
+          subRemesas: parsed.subRemesas.map(sr => ({
+            fecha: sr.fechaCobro,
+            numRecibos: sr.numOrdenes,
+            importe: sr.subtotal,
+          }))
+        })
+      } catch (e) {
+        console.error(`Error parseando PDF Santander ${pdfFile.name}:`, e)
+      }
+    }
+  } catch (e) {
+    // Ya se intentó arriba, no repetir error
+  }
+
+  // PASO 3: Cargar movimientos bancarios de remesa del mes
   const movimientosBancarios = await prisma.movimientoBancario.findMany({
     where: {
       cuentaId: '50910c7d-76f3-493e-8aed-962f22fc1413', // Santander Principal
-      fechaOperacion: { gte: inicioMes, lte: finMes },
+      fechaOperacion: { gte: inicioMes, lte: new Date(anioArchivo, mesArchivo + 1, 15) }, // Hasta 15 del mes siguiente
       concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' }
     }
   })
@@ -355,106 +442,220 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     }
   }
 
-  // PASO 2: Para cada remesa ISP, encontrar la fila del XLS que le corresponde
-  // Lógica: la fila del XLS cuyo número de recibos sea el más cercano a la remesa ISP
-  // Y que esté dentro de un ratio razonable (>= 60% de los recibos de la remesa)
-  // Esto evita asignar recobros (1-5 recibos) a remesas grandes
-  
+  // PASO 4: Para cada remesa ISP, vincular sub-remesas del XLS
   let conciliadas = 0
   const errores: string[] = []
-  const filasUsadas = new Set<number>() // Índices de filas del XLS ya asignadas
+  const filasUsadas = new Set<number>()
+  const resultadosDetalle: Array<{
+    remesa: string
+    subRemesas: number
+    cobradas: number
+    importeTotal: number
+    importeCobrado: number
+    pendiente: number
+  }> = []
 
-  // Ordenar remesas ISP de mayor a menor para asignar primero las grandes
-  const remesasOrdenadas = [...remesasISP].sort((a, b) => b.numeroRegistros - a.numeroRegistros)
-
-  for (const remesaISP of remesasOrdenadas) {
-    // Buscar la mejor fila del XLS para esta remesa ISP
-    let mejorFila: typeof todasLasRemesasBanco[0] | null = null
-    let mejorFilaIdx = -1
-    let mejorDiff = Infinity
-
-    for (let i = 0; i < todasLasRemesasBanco.length; i++) {
-      if (filasUsadas.has(i)) continue
-      const fila = todasLasRemesasBanco[i]
-      
-      // El número de recibos cobrados debe ser >= 60% de los remesados (por devoluciones)
-      // y no puede ser mayor que los remesados + 5% (margen)
-      const ratio = fila.numRecibos / remesaISP.numeroRegistros
-      if (ratio < 0.60 || ratio > 1.05) continue
-      
-      // De las candidatas, elegir la más cercana en número de recibos
-      const diff = Math.abs(remesaISP.numeroRegistros - fila.numRecibos)
-      if (diff < mejorDiff) {
-        mejorDiff = diff
-        mejorFila = fila
-        mejorFilaIdx = i
-      }
-    }
-
-    if (!mejorFila || mejorFilaIdx < 0) {
-      errores.push(`No se encontró cobro bancario para ${remesaISP.nombre} (${remesaISP.numeroRegistros} recibos, ${Number(remesaISP.totalImporte).toFixed(2)}€)`)
-      continue
-    }
-
-    // Marcar fila como usada
-    filasUsadas.add(mejorFilaIdx)
-
-    // Buscar el movimiento bancario por la referencia de esta fila
-    const refXLS = mejorFila.numeroRemesa.replace(/\s+/g, '').toLowerCase()
-    let movimiento = mapaMovimientos.get(refXLS)
+  for (const remesaISP of remesasISP) {
+    // Obtener sub-grupos del PDF de ISPGestión (si existe)
+    const pdfISP = pdfsISP.find(p => p.remesaId === remesaISP.id)
     
-    // Fallback: búsqueda parcial por últimos 7 caracteres
-    if (!movimiento) {
-      const refCorta = refXLS.slice(-7)
-      for (const [key, mov] of mapaMovimientos.entries()) {
-        if (key.endsWith(refCorta)) {
-          movimiento = mov
+    // Buscar filas del XLS que corresponden a esta remesa
+    let filasAsignadas: Array<{ idx: number; fila: typeof todasLasFilasBanco[0] }> = []
+
+    if (pdfISP && pdfISP.subGrupos.length > 0) {
+      // MÉTODO PRINCIPAL: Cruzar por fecha + numRecibos + importe (con tolerancia)
+      for (const subGrupo of pdfISP.subGrupos) {
+        const fechaISP = subGrupo.fecha // DD/MM/YYYY
+        
+        for (let i = 0; i < todasLasFilasBanco.length; i++) {
+          if (filasUsadas.has(i)) continue
+          const fila = todasLasFilasBanco[i]
+          
+          // Comparar fecha
+          if (fila.fecha !== fechaISP) continue
+          
+          // Comparar número de recibos (exacto)
+          if (fila.numRecibos !== subGrupo.numRecibos) continue
+          
+          // Comparar importe (tolerancia 1€ por posibles redondeos)
+          if (Math.abs(fila.importe - subGrupo.importe) > 1.0) continue
+          
+          // Match encontrado
+          filasAsignadas.push({ idx: i, fila })
+          filasUsadas.add(i)
           break
         }
       }
     }
 
-    const importeRemesa = Number(remesaISP.totalImporte)
-    const diferencia = mejorFila.importe - importeRemesa
-    const rechazos = remesaISP.numeroRegistros - mejorFila.numRecibos
+    // MÉTODO FALLBACK: Si no tenemos PDF o no encontramos todas las sub-remesas,
+    // buscar la fila del XLS con mayor número de recibos que encaje con la remesa
+    if (filasAsignadas.length === 0) {
+      // Buscar filas cuya suma de recibos se acerque al total de la remesa ISP
+      // Primero intentar con la fila más grande (> 60% de los recibos)
+      for (let i = 0; i < todasLasFilasBanco.length; i++) {
+        if (filasUsadas.has(i)) continue
+        const fila = todasLasFilasBanco[i]
+        const ratio = fila.numRecibos / remesaISP.numeroRegistros
+        if (ratio >= 0.60 && ratio <= 1.05) {
+          filasAsignadas.push({ idx: i, fila })
+          filasUsadas.add(i)
+          // Seguir buscando más filas que puedan pertenecer a esta remesa
+          // (sub-remesas con pocos recibos del mismo día)
+        }
+      }
+      
+      // Si encontramos la principal, buscar complementarias (misma fecha pero menos recibos)
+      if (filasAsignadas.length > 0) {
+        const totalAsignado = filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0)
+        const faltantes = remesaISP.numeroRegistros - totalAsignado
+        
+        if (faltantes > 0) {
+          // Buscar filas pequeñas que complementen
+          for (let i = 0; i < todasLasFilasBanco.length; i++) {
+            if (filasUsadas.has(i)) continue
+            const fila = todasLasFilasBanco[i]
+            if (fila.numRecibos <= faltantes && fila.numRecibos <= 10) {
+              filasAsignadas.push({ idx: i, fila })
+              filasUsadas.add(i)
+            }
+          }
+        }
+      }
+    }
 
-    await prisma.conciliacionRemesa.create({
+    if (filasAsignadas.length === 0) {
+      errores.push(`${remesaISP.nombre}: No se encontraron sub-remesas en el XLS`)
+      // Crear conciliación sin sub-remesas (pendiente)
+      await prisma.conciliacionRemesa.create({
+        data: {
+          remesaId: remesaISP.id,
+          importeRemesa: Number(remesaISP.totalImporte),
+          estado: 'PENDIENTE',
+          recibosRemesados: remesaISP.numeroRegistros,
+          notas: `Sin sub-remesas encontradas. Archivos: ${archivos.map(a => a.name).join(', ')}`
+        }
+      })
+      continue
+    }
+
+    // Crear conciliación con sub-remesas
+    const importeRemesa = Number(remesaISP.totalImporte)
+    let importeCobrado = 0
+    let subRemesasCobradas = 0
+
+    const conciliacion = await prisma.conciliacionRemesa.create({
       data: {
         remesaId: remesaISP.id,
-        movimientoBancarioId: movimiento?.id || null,
         importeRemesa,
-        importeMovimiento: mejorFila.importe,
-        diferencia,
-        estado: rechazos <= 0 ? 'CONCILIADA' : 'DIFERENCIA',
-        fechaConciliacion: new Date(),
         recibosRemesados: remesaISP.numeroRegistros,
-        recibosCobrados: mejorFila.numRecibos,
-        rechazos: Math.max(0, rechazos),
-        referenciaRemesaBanco: mejorFila.numeroRemesa,
-        notas: `Vinculado por referencia ${mejorFila.numeroRemesa}. Importado desde: ${archivos.map(a => a.name).join(', ')}`
+        recibosCobrados: filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0),
+        rechazos: Math.max(0, remesaISP.numeroRegistros - filasAsignadas.reduce((s, f) => s + f.fila.numRecibos, 0)),
+        referenciaRemesaBanco: filasAsignadas.map(f => f.fila.numeroRemesa).join(', '),
+        notas: `${filasAsignadas.length} sub-remesas. Archivos: ${archivos.map(a => a.name).join(', ')}`
+      }
+    })
+
+    // Crear sub-remesas y vincular con movimientos bancarios
+    for (const { fila } of filasAsignadas) {
+      const refNorm = fila.numeroRemesa.replace(/\s+/g, '').toLowerCase()
+      
+      // Buscar movimiento bancario por referencia
+      let movimiento = mapaMovimientos.get(refNorm)
+      if (!movimiento) {
+        // Fallback: búsqueda parcial por últimos 7 caracteres
+        const refCorta = refNorm.slice(-7)
+        for (const [key, mov] of mapaMovimientos.entries()) {
+          if (key.endsWith(refCorta)) {
+            movimiento = mov
+            break
+          }
+        }
+      }
+
+      const cobrado = !!movimiento
+      if (cobrado) {
+        importeCobrado += movimiento!.importe
+        subRemesasCobradas++
+      }
+
+      // Parsear fecha vencimiento
+      const [d, m, y] = fila.fecha.split('/').map(Number)
+      const fechaVenc = new Date(y, m - 1, d)
+
+      await prisma.subRemesaBanco.create({
+        data: {
+          conciliacionId: conciliacion.id,
+          referenciaRemesa: fila.numeroRemesa,
+          fechaVencimiento: fechaVenc,
+          numRecibos: fila.numRecibos,
+          importe: fila.importe,
+          movimientoBancarioId: movimiento?.id || null,
+          cobrado,
+        }
+      })
+    }
+
+    // Actualizar conciliación con totales
+    const pendienteAbonar = filasAsignadas.reduce((s, f) => s + f.fila.importe, 0) - importeCobrado
+    const importeMovimiento = filasAsignadas.reduce((s, f) => s + f.fila.importe, 0)
+    const diferencia = importeMovimiento - importeRemesa
+
+    const estado = pendienteAbonar <= 0.01 
+      ? (Math.abs(diferencia) <= 0.01 ? 'CONCILIADA' : 'DIFERENCIA')
+      : 'PENDIENTE'
+
+    await prisma.conciliacionRemesa.update({
+      where: { id: conciliacion.id },
+      data: {
+        importeMovimiento,
+        importeCobrado,
+        pendienteAbonar: Math.max(0, pendienteAbonar),
+        diferencia,
+        estado,
+        fechaConciliacion: estado === 'CONCILIADA' ? new Date() : null,
+        movimientoBancarioId: filasAsignadas.length === 1 && movimiento ? movimiento.id : null,
       }
     })
 
     conciliadas++
+    resultadosDetalle.push({
+      remesa: remesaISP.nombre,
+      subRemesas: filasAsignadas.length,
+      cobradas: subRemesasCobradas,
+      importeTotal: importeMovimiento,
+      importeCobrado,
+      pendiente: Math.max(0, pendienteAbonar),
+    })
   }
 
-  // PASO 3: Las filas no usadas son recobros
-  const recobros = todasLasRemesasBanco.filter((_, i) => !filasUsadas.has(i))
+  // PASO 5: Las filas no usadas son recobros
+  const recobros = todasLasFilasBanco.filter((_, i) => !filasUsadas.has(i))
   const totalRecobros = recobros.reduce((sum, r) => sum + r.importe, 0)
   const totalReciboRecobros = recobros.reduce((sum, r) => sum + r.numRecibos, 0)
+
+  // PASO 6: Doble cotejo con PDFs Santander
+  let cotejo = ''
+  if (pdfsSantander.length > 0) {
+    const totalSubRemesasSantander = pdfsSantander.reduce((s, p) => s + p.subRemesas.length, 0)
+    cotejo = ` Doble cotejo: ${pdfsSantander.length} PDFs Santander leídos (${totalSubRemesasSantander} sub-remesas).`
+  }
 
   return NextResponse.json({
     ok: true,
     tipo: 'remesas',
-    mensaje: `${conciliadas} remesas conciliadas de ${remesasISP.length} del mes. ${recobros.length} movimientos son recobros (${totalReciboRecobros} recibos, ${totalRecobros.toFixed(2)}€)${errores.length > 0 ? `. ${errores.length} errores.` : ''}`,
+    mensaje: `${conciliadas} remesas conciliadas de ${remesasISP.length}.${recobros.length > 0 ? ` ${recobros.length} recobros (${totalReciboRecobros} rec, ${totalRecobros.toFixed(2)}€).` : ''}${errores.length > 0 ? ` ${errores.length} errores.` : ''}${cotejo}`,
     resumen: {
       totalArchivos: archivos.length,
-      totalFilas: todasLasRemesasBanco.length,
+      totalFilas: todasLasFilasBanco.length,
       conciliadas,
       recobros: recobros.length,
       importeRecobros: totalRecobros,
+      pdfsISPLeidos: pdfsISP.length,
+      pdfsSantanderLeidos: pdfsSantander.length,
       errores: errores.length,
-      detalleErrores: errores
+      detalleErrores: errores,
+      detalle: resultadosDetalle,
     }
   })
 }

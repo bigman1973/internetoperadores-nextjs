@@ -1044,6 +1044,7 @@ model MovimientoBancario {
   createdAt       DateTime @default(now()) @map("created_at")
   // Relaciones conciliación remesas
   conciliacionRemesa    ConciliacionRemesa?  @relation("ConciliacionMovimiento")
+  subRemesasBanco       SubRemesaBanco[]     @relation("SubRemesaMovimiento")
   devolucionesRemesa    DevolucionRemesa[]   @relation("DevolucionMovimiento")
   devolucionesCobro     DevolucionRemesa[]   @relation("DevolucionCobro")
 
@@ -1622,6 +1623,8 @@ model ConciliacionRemesa {
   movimiento            MovimientoBancario? @relation("ConciliacionMovimiento", fields: [movimientoBancarioId], references: [id])
   importeRemesa         Decimal             @map("importe_remesa") @db.Decimal(10, 2)
   importeMovimiento     Decimal?            @map("importe_movimiento") @db.Decimal(10, 2)
+  importeCobrado        Decimal?            @map("importe_cobrado") @db.Decimal(10, 2)
+  pendienteAbonar       Decimal?            @map("pendiente_abonar") @db.Decimal(10, 2)
   diferencia            Decimal?            @db.Decimal(10, 2)
   estado                EstadoConciliacion  @default(PENDIENTE)
   fechaConciliacion     DateTime?           @map("fecha_conciliacion")
@@ -1631,6 +1634,8 @@ model ConciliacionRemesa {
   recibosCobrados       Int?                @map("recibos_cobrados")
   rechazos              Int?                @map("rechazos")
   referenciaRemesaBanco String?             @map("referencia_remesa_banco")
+  // Sub-remesas del banco (por fecha de vencimiento)
+  subRemesas            SubRemesaBanco[]
   // Timestamps
   createdAt             DateTime            @default(now()) @map("created_at")
   updatedAt             DateTime            @updatedAt @map("updated_at")
@@ -1639,6 +1644,24 @@ model ConciliacionRemesa {
   @@index([estado])
   @@index([fechaConciliacion])
   @@map("conciliaciones_remesas")
+}
+
+model SubRemesaBanco {
+  id                    String              @id @default(uuid())
+  conciliacionId        String              @map("conciliacion_id")
+  conciliacion          ConciliacionRemesa  @relation(fields: [conciliacionId], references: [id], onDelete: Cascade)
+  referenciaRemesa      String              @unique @map("referencia_remesa")
+  fechaVencimiento      DateTime            @map("fecha_vencimiento") @db.Date
+  numRecibos            Int                 @map("num_recibos")
+  importe               Decimal             @db.Decimal(10, 2)
+  movimientoBancarioId  String?             @map("movimiento_bancario_id")
+  movimiento            MovimientoBancario? @relation("SubRemesaMovimiento", fields: [movimientoBancarioId], references: [id])
+  cobrado               Boolean             @default(false)
+  createdAt             DateTime            @default(now()) @map("created_at")
+
+  @@index([conciliacionId])
+  @@index([movimientoBancarioId])
+  @@map("sub_remesas_banco")
 }
 
 model DevolucionRemesa {

@@ -59,7 +59,9 @@ export async function GET(req: NextRequest) {
     const remesas = await prisma.remesa.findMany({
       where: whereRemesas,
       include: {
-        conciliacion: true,
+        conciliacion: {
+          include: { subRemesas: true }
+        },
         devoluciones: true,
       },
       orderBy: { fecha: 'desc' },
@@ -271,13 +273,18 @@ export async function GET(req: NextRequest) {
       const conc = r.conciliacion; // Datos de la tabla ConciliacionRemesa (importados del XLS)
 
       // Si hay conciliación importada, usar sus datos (son los correctos del XLS del banco)
-      if (conc && conc.importeMovimiento) {
-        const totalCobrado = conc.importeMovimiento;
-        const diferencia = Math.round((totalCobrado - importeRemesa) * 100) / 100;
+      if (conc && (conc.importeMovimiento || conc.subRemesas?.length > 0)) {
+        const subRemesas = conc.subRemesas || [];
+        const importeMovimiento = Number(conc.importeMovimiento) || subRemesas.reduce((s, sr) => s + Number(sr.importe), 0);
+        const importeCobrado = Number(conc.importeCobrado) || subRemesas.filter(sr => sr.cobrado).reduce((s, sr) => s + Number(sr.importe), 0);
+        const pendienteAbonar = Number(conc.pendienteAbonar) || Math.max(0, importeMovimiento - importeCobrado);
+        const diferencia = Math.round((importeMovimiento - importeRemesa) * 100) / 100;
         const rechazos = conc.rechazos || 0;
 
         let estadoConciliacion = 'CONCILIADA';
-        if (rechazos > 0 || Math.abs(diferencia) > importeRemesa * 0.02) {
+        if (pendienteAbonar > 0.01) {
+          estadoConciliacion = 'PENDIENTE';
+        } else if (rechazos > 0 || Math.abs(diferencia) > importeRemesa * 0.02) {
           estadoConciliacion = 'DIFERENCIA';
         }
 
@@ -291,11 +298,15 @@ export async function GET(req: NextRequest) {
           remesado: r.remesado,
           contabilizado: r.contabilizado,
           estadoConciliacion,
-          importeBanco: totalCobrado,
+          importeBanco: importeMovimiento,
+          importeCobrado,
+          pendienteAbonar,
           diferencia,
           seriesAsignadas: conc.referenciaRemesaBanco || '',
-          numMovimientosBanco: 1,
-          cobroSantander: totalCobrado,
+          numMovimientosBanco: subRemesas.length || 1,
+          numSubRemesas: subRemesas.length,
+          subRemesasCobradas: subRemesas.filter(sr => sr.cobrado).length,
+          cobroSantander: importeCobrado,
           cobroCaixaGuissona: 0,
           primerCobro: conc.fechaConciliacion,
           ultimoCobro: conc.fechaConciliacion,
@@ -304,6 +315,13 @@ export async function GET(req: NextRequest) {
           recibosRemesados: conc.recibosRemesados || r.numeroRegistros,
           recibosCobrados: conc.recibosCobrados || null,
           rechazos: conc.rechazos || null,
+          subRemesas: subRemesas.map(sr => ({
+            referencia: sr.referenciaRemesa,
+            fecha: sr.fechaVencimiento,
+            numRecibos: sr.numRecibos,
+            importe: Number(sr.importe),
+            cobrado: sr.cobrado,
+          })),
         };
       }
 
