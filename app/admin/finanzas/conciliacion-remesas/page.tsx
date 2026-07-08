@@ -704,6 +704,25 @@ export default function ConciliacionRemesasPage() {
                   ))
                 )}
               </tbody>
+              {devoluciones.length > 0 && (
+                <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                  <tr>
+                    <td className="px-4 py-3 font-semibold text-gray-700" colSpan={2}>TOTAL ({devoluciones.length} devoluciones)</td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-red-700">
+                      {formatEUR(devoluciones.reduce((sum, d) => sum + d.importe, 0))}
+                    </td>
+                    <td colSpan={3}></td>
+                    <td className="px-4 py-3 text-center">
+                      <span className="text-xs text-gray-500">
+                        {devoluciones.filter(d => d.estado === 'COBRADO_TRANSFERENCIA' || d.estado === 'COBRADO_PARCIAL').length} cobradas
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-green-700">
+                      {formatEUR(devoluciones.filter(d => d.importeCobrado).reduce((sum, d) => sum + (d.importeCobrado || 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

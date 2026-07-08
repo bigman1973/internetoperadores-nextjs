@@ -249,11 +249,18 @@ export async function GET(req: NextRequest) {
 
     // 7. Calcular KPIs
     const totalRemesado = remesas.reduce((sum, r) => sum + Number(r.totalImporte), 0);
-    // Calcular total cobrado: priorizar datos de ConciliacionRemesa, fallback a series
+    // Calcular total cobrado: priorizar datos de ConciliacionRemesa (sub-remesas), fallback a series
     const totalCobradoBanco = remesasConSeries.reduce((sum, rc) => {
       const conc = rc.remesa.conciliacion;
-      if (conc && conc.importeMovimiento) {
-        return sum + conc.importeMovimiento;
+      if (conc) {
+        // Usar importeCobrado de sub-remesas si hay, sino importeMovimiento
+        const subRemesas = conc.subRemesas || [];
+        if (subRemesas.length > 0) {
+          const cobrado = subRemesas.filter(sr => sr.cobrado).reduce((s, sr) => s + Number(sr.importe), 0);
+          return sum + cobrado;
+        }
+        const imp = Number(conc.importeMovimiento) || 0;
+        if (imp > 0) return sum + imp;
       }
       return sum + rc.totalCobradoSeries + rc.totalCaixaGuissona;
     }, 0);
@@ -383,12 +390,21 @@ export async function GET(req: NextRequest) {
       }
       resumenPorMes[mesKey].totalRemesado += Number(rc.remesa.totalImporte);
       
-      // Priorizar datos de ConciliacionRemesa
+      // Priorizar datos de ConciliacionRemesa (sub-remesas)
       const conc = rc.remesa.conciliacion;
-      if (conc && conc.importeMovimiento) {
-        resumenPorMes[mesKey].totalCobrado += conc.importeMovimiento;
-        resumenPorMes[mesKey].santander += conc.importeMovimiento;
-        resumenPorMes[mesKey].numMovimientos += 1;
+      if (conc) {
+        const subRemesas = conc.subRemesas || [];
+        let cobrado = 0;
+        if (subRemesas.length > 0) {
+          cobrado = subRemesas.filter(sr => sr.cobrado).reduce((s, sr) => s + Number(sr.importe), 0);
+        } else {
+          cobrado = Number(conc.importeMovimiento) || 0;
+        }
+        if (cobrado > 0) {
+          resumenPorMes[mesKey].totalCobrado += cobrado;
+          resumenPorMes[mesKey].santander += cobrado;
+          resumenPorMes[mesKey].numMovimientos += subRemesas.length || 1;
+        }
       } else {
         resumenPorMes[mesKey].totalCobrado += rc.totalCobradoSeries + rc.totalCaixaGuissona;
         resumenPorMes[mesKey].santander += rc.totalCobradoSeries;
@@ -683,10 +699,36 @@ export async function POST(req: NextRequest) {
       });
 
       for (const mov of movsDevoluciones) {
+        // Check de duplicados: verificar que no existe ya una devolución con este movimiento
+        const yaExistePorMov = await prisma.devolucionRemesa.findFirst({
+          where: { movimientoBancarioId: mov.id }
+        });
+        if (yaExistePorMov) continue;
+
         const importeDevolucion = Math.abs(mov.importe);
         const fechaDevolucion = new Date(mov.fechaOperacion);
         const mesDevolucion = fechaDevolucion.getMonth();
         const anioDevolucion = fechaDevolucion.getFullYear();
+
+        // Check de duplicados por contenido: si ya existe una devolución del XLSX
+        // con mismo importe y mes, vincular el movimiento en vez de crear nueva
+        const devExistente = await prisma.devolucionRemesa.findFirst({
+          where: {
+            importe: { gte: importeDevolucion - 0.02, lte: importeDevolucion + 0.02 },
+            mesDevolucion: mesDevolucion + 1,
+            anioDevolucion,
+            movimientoBancarioId: null, // Solo las que no tienen movimiento asignado
+          }
+        });
+        if (devExistente) {
+          // Vincular el movimiento bancario a la devolución existente
+          await prisma.devolucionRemesa.update({
+            where: { id: devExistente.id },
+            data: { movimientoBancarioId: mov.id }
+          });
+          resultados.devolucionesDetectadasBanco++;
+          continue;
+        }
 
         // Buscar factura en el mes actual y anterior
         const fechaDesde = new Date(anioDevolucion, mesDevolucion - 1, 1);
