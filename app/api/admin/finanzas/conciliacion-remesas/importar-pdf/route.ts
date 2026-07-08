@@ -364,11 +364,21 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
   movimientosPrincipales.sort((a, b) => b.numRecibos - a.numRecibos)
 
   for (const remBanco of movimientosPrincipales) {
-    // Buscar movimiento bancario con importe exacto (±0.02€)
+    // Parsear fecha del movimiento del XLS
+    const fechaParts = remBanco.fecha.split('/')
+    const fechaMovBanco = new Date(parseInt(fechaParts[2]), parseInt(fechaParts[1]) - 1, parseInt(fechaParts[0]))
+    
+    // Buscar movimiento bancario con importe exacto (±0.02€) Y fecha cercana (±5 días)
+    const fechaDesde = new Date(fechaMovBanco)
+    fechaDesde.setDate(fechaDesde.getDate() - 5)
+    const fechaHasta = new Date(fechaMovBanco)
+    fechaHasta.setDate(fechaHasta.getDate() + 5)
+    
     const movimiento = await prisma.movimientoBancario.findFirst({
       where: {
         importe: { gte: remBanco.importe - 0.02, lte: remBanco.importe + 0.02 },
         concepto: { contains: 'Emision Remesa Sepa', mode: 'insensitive' },
+        fecha: { gte: fechaDesde, lte: fechaHasta }
       }
     })
 
