@@ -186,7 +186,7 @@ export default function ConciliacionRemesasPage() {
       setMensaje({ tipo: 'error', texto: 'Selecciona un mes para marcar facturas como cobradas' });
       return;
     }
-    if (!confirm(`¿Marcar como COBRADAS las facturas de las remesas de ${meses.find(m => m.value === mes)?.label} ${year}?\n\nSe excluirán las facturas con devolución pendiente.`)) return;
+    if (!confirm(`¿Marcar como COBRADAS las facturas de las remesas de ${MESES.find(m => m.value === mes)?.label} ${year}?\n\nSe excluirán las facturas con devolución pendiente.`)) return;
     setProcesando(true);
     setMensaje(null);
     try {
