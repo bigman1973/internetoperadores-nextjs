@@ -179,6 +179,7 @@ export default function ConciliacionRemesasPage() {
   const [remesaExpandida, setRemesaExpandida] = useState<number | null>(null);
   const [detalleRemesa, setDetalleRemesa] = useState<Record<number, DetalleRemesa>>({});
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
+  const [filtroCliente, setFiltroCliente] = useState('');
   
   // Refs para inputs de archivo
   const fileInputRemesas = useRef<HTMLInputElement>(null);
@@ -302,9 +303,11 @@ export default function ConciliacionRemesasPage() {
   async function toggleRemesa(remesaId: number, conciliacionId: string | null) {
     if (remesaExpandida === remesaId) {
       setRemesaExpandida(null);
+      setFiltroCliente('');
       return;
     }
     setRemesaExpandida(remesaId);
+    setFiltroCliente('');
     // Si ya tenemos el detalle cacheado, no recargar
     if (detalleRemesa[remesaId]) return;
     setCargandoDetalle(true);
@@ -921,50 +924,90 @@ export default function ConciliacionRemesasPage() {
                                   </div>
                                 )}
 
-                                {/* Tabla de facturas (colapsable si son muchas) */}
+                                {/* Tabla de facturas con buscador */}
                                 {detalleRemesa[r.id].facturas.length > 0 && (
                                   <div>
-                                    <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                                      Facturas ({detalleRemesa[r.id].facturas.length})
-                                    </h5>
-                                    <div className="bg-white rounded-lg border overflow-hidden max-h-64 overflow-y-auto">
-                                      <table className="w-full text-xs">
-                                        <thead className="bg-gray-100 sticky top-0">
-                                          <tr>
-                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Factura</th>
-                                            <th className="text-left px-3 py-2 font-medium text-gray-600">Cliente</th>
-                                            <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
-                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Estado BD</th>
-                                            <th className="text-center px-3 py-2 font-medium text-gray-600">Devolución</th>
-                                          </tr>
-                                        </thead>
-                                        <tbody className="divide-y">
-                                          {detalleRemesa[r.id].facturas.map(f => (
-                                            <tr key={f.id} className={`hover:bg-gray-50 ${f.tieneDevolucion ? 'bg-red-50/50' : ''}`}>
-                                              <td className="px-3 py-1.5 font-mono text-gray-700">{f.numeroFactura}</td>
-                                              <td className="px-3 py-1.5 text-gray-600 max-w-[180px] truncate">{f.cliente}</td>
-                                              <td className="px-3 py-1.5 text-right font-mono font-medium">{formatEUR(f.importe)}</td>
-                                              <td className="px-3 py-1.5 text-center">
-                                                {f.situacion === 'COBRADA' ? (
-                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Cobrada</span>
-                                                ) : (
-                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{f.situacion}</span>
-                                                )}
-                                              </td>
-                                              <td className="px-3 py-1.5 text-center">
-                                                {f.tieneDevolucion ? (
-                                                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
-                                                    {f.estadoDevolucion === 'COBRADO_TRANSFERENCIA' ? 'Recuperada' : 'Devuelta'}
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-gray-400">—</span>
-                                                )}
-                                              </td>
-                                            </tr>
-                                          ))}
-                                        </tbody>
-                                      </table>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <h5 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                        Facturas ({detalleRemesa[r.id].facturas.length})
+                                      </h5>
+                                      <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                        <input
+                                          type="text"
+                                          placeholder="Buscar cliente o factura..."
+                                          value={filtroCliente}
+                                          onChange={(e) => setFiltroCliente(e.target.value)}
+                                          className="text-xs border border-gray-300 rounded-md px-3 py-1.5 w-56 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                                        />
+                                        {filtroCliente && (
+                                          <button
+                                            onClick={() => setFiltroCliente('')}
+                                            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                                          >
+                                            ✕
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
+                                    {(() => {
+                                      const facturasFiltradas = filtroCliente
+                                        ? detalleRemesa[r.id].facturas.filter(f =>
+                                            f.cliente.toLowerCase().includes(filtroCliente.toLowerCase()) ||
+                                            f.numeroFactura.toLowerCase().includes(filtroCliente.toLowerCase())
+                                          )
+                                        : detalleRemesa[r.id].facturas;
+                                      return (
+                                        <>
+                                          {filtroCliente && (
+                                            <p className="text-xs text-gray-500 mb-1">
+                                              Mostrando {facturasFiltradas.length} de {detalleRemesa[r.id].facturas.length} facturas
+                                            </p>
+                                          )}
+                                          <div className="bg-white rounded-lg border overflow-hidden max-h-64 overflow-y-auto">
+                                            <table className="w-full text-xs">
+                                              <thead className="bg-gray-100 sticky top-0">
+                                                <tr>
+                                                  <th className="text-left px-3 py-2 font-medium text-gray-600">Factura</th>
+                                                  <th className="text-left px-3 py-2 font-medium text-gray-600">Cliente</th>
+                                                  <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
+                                                  <th className="text-center px-3 py-2 font-medium text-gray-600">Estado BD</th>
+                                                  <th className="text-center px-3 py-2 font-medium text-gray-600">Devolución</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y">
+                                                {facturasFiltradas.length === 0 ? (
+                                                  <tr><td colSpan={5} className="px-3 py-4 text-center text-gray-400">No se encontraron facturas para "{filtroCliente}"</td></tr>
+                                                ) : (
+                                                  facturasFiltradas.map(f => (
+                                                    <tr key={f.id} className={`hover:bg-gray-50 ${f.tieneDevolucion ? 'bg-red-50/50' : ''}`}>
+                                                      <td className="px-3 py-1.5 font-mono text-gray-700">{f.numeroFactura}</td>
+                                                      <td className="px-3 py-1.5 text-gray-600 max-w-[180px] truncate">{f.cliente}</td>
+                                                      <td className="px-3 py-1.5 text-right font-mono font-medium">{formatEUR(f.importe)}</td>
+                                                      <td className="px-3 py-1.5 text-center">
+                                                        {f.situacion === 'COBRADA' ? (
+                                                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Cobrada</span>
+                                                        ) : (
+                                                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{f.situacion}</span>
+                                                        )}
+                                                      </td>
+                                                      <td className="px-3 py-1.5 text-center">
+                                                        {f.tieneDevolucion ? (
+                                                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-100 text-red-700">
+                                                            {f.estadoDevolucion === 'COBRADO_TRANSFERENCIA' ? 'Recuperada' : 'Devuelta'}
+                                                          </span>
+                                                        ) : (
+                                                          <span className="text-gray-400">—</span>
+                                                        )}
+                                                      </td>
+                                                    </tr>
+                                                  ))
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                               </div>
