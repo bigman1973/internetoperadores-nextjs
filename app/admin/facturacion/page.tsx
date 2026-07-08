@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 
 interface FacturaResumen {
   id: number
@@ -66,6 +67,7 @@ export default function FacturacionPage() {
   const [serieFilter, setSerieFilter] = useState('')
   const [mesFilter, setMesFilter] = useState('')
   const [serieMesFilter, setSerieMesFilter] = useState('')
+  const [mostrarInfoSync, setMostrarInfoSync] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -160,6 +162,49 @@ export default function FacturacionPage() {
             <>&#x21BB; Sincronizar ISP Gestión</>
           )}
         </button>
+      </div>
+
+      {/* Panel informativo desplegable */}
+      <div className="mb-4 border rounded-lg bg-blue-50 border-blue-200">
+        <button
+          onClick={() => setMostrarInfoSync(!mostrarInfoSync)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-left text-sm text-blue-800 font-medium hover:bg-blue-100 rounded-lg transition-colors"
+        >
+          <InformationCircleIcon className="w-5 h-5 text-blue-600 flex-shrink-0" />
+          <span>¿Cómo funciona la sincronización con ISP Gestión?</span>
+          {mostrarInfoSync ? <ChevronUpIcon className="w-4 h-4 ml-auto" /> : <ChevronDownIcon className="w-4 h-4 ml-auto" />}
+        </button>
+        {mostrarInfoSync && (
+          <div className="px-4 pb-4 text-sm text-blue-900 space-y-3">
+            <div className="border-t border-blue-200 pt-3">
+              <p className="font-semibold mb-2">¿Qué hace el botón &ldquo;Sincronizar ISP Gestión&rdquo;?</p>
+              <ul className="list-disc ml-5 space-y-1">
+                <li>Lee todas las <strong>facturas</strong> y <strong>remesas</strong> de ISP Gestión y las guarda en nuestra base de datos.</li>
+                <li>Es una sincronización de <strong>solo lectura</strong>: no modifica nada en ISP Gestión.</li>
+                <li>Actualiza importes, situaciones y datos de clientes.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold mb-2">¿Cómo se conecta?</p>
+              <ul className="list-disc ml-5 space-y-1">
+                <li>Usa un <strong>proxy intermedio en Railway</strong> (ispgestion-middleware) que tiene la IP autorizada por ISP Gestión.</li>
+                <li>Ruta: <code className="bg-blue-100 px-1 rounded">Vercel → Railway Proxy → ISP Gestión API</code></li>
+                <li><strong>NO usa la VPN</strong> del Cloud Computer. La VPN es para acceso directo (aún pendiente de autorización del token).</li>
+                <li>IP autorizada del proxy: la IP de salida de Railway.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold mb-2">Credenciales y autenticación</p>
+              <ul className="list-disc ml-5 space-y-1">
+                <li>Autenticación: <strong>Basic Auth</strong> (usuario VOLA + hash API).</li>
+                <li>Si da error 401, contactar a ISP Gestión para verificar que la IP del proxy sigue autorizada.</li>
+              </ul>
+            </div>
+            <div className="bg-blue-100 rounded p-2 text-xs">
+              <strong>Nota:</strong> Para marcar facturas como &ldquo;COBRADA&rdquo; basado en las remesas bancarias, usa el botón <em>&ldquo;Marcar Cobradas&rdquo;</em> en <a href="/admin/finanzas/conciliacion-remesas" className="underline font-medium">Conciliación de Remesas</a>.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Dashboard KPIs */}

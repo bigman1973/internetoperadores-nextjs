@@ -181,6 +181,33 @@ export default function ConciliacionRemesasPage() {
     setProcesando(false);
   }
 
+  async function marcarCobradas() {
+    if (!mes) {
+      setMensaje({ tipo: 'error', texto: 'Selecciona un mes para marcar facturas como cobradas' });
+      return;
+    }
+    if (!confirm(`¿Marcar como COBRADAS las facturas de las remesas de ${meses.find(m => m.value === mes)?.label} ${year}?\n\nSe excluirán las facturas con devolución pendiente.`)) return;
+    setProcesando(true);
+    setMensaje(null);
+    try {
+      const res = await fetch('/api/admin/finanzas/conciliacion-remesas/marcar-cobradas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ anio: year, mes: parseInt(mes) }),
+      });
+      const json = await res.json();
+      if (json.error) throw new Error(json.error);
+      setMensaje({
+        tipo: 'success',
+        texto: json.mensaje + ' Detalle: ' + json.detalles.map((d: any) => `${d.remesa}: ${d.marcadas} marcadas, ${d.excluidas} excluidas`).join(' | '),
+      });
+      fetchData();
+    } catch (e: any) {
+      setMensaje({ tipo: 'error', texto: e.message });
+    }
+    setProcesando(false);
+  }
+
   async function handleUploadFiles(files: FileList | File[], tipo: 'remesas' | 'recibos_devueltos' | 'devoluciones') {
     setSubiendo(true);
     setMensaje(null);
@@ -425,6 +452,15 @@ export default function ConciliacionRemesasPage() {
         >
           <CheckCircleIcon className="w-4 h-4" />
           Detectar Pagos Posteriores
+        </button>
+        <button
+          onClick={marcarCobradas}
+          disabled={procesando || !mes}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          title={!mes ? 'Selecciona un mes primero' : 'Marca como COBRADA en nuestra BD las facturas de remesas cobradas'}
+        >
+          <BanknotesIcon className="w-4 h-4" />
+          Marcar Cobradas
         </button>
 
         {/* Separador */}
