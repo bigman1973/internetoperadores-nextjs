@@ -614,7 +614,7 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
         diferencia,
         estado,
         fechaConciliacion: estado === 'CONCILIADA' ? new Date() : null,
-        movimientoBancarioId: filasAsignadas.length === 1 && movimiento ? movimiento.id : null,
+        movimientoBancarioId: filasAsignadas.length === 1 ? (mapaMovimientos.get(filasAsignadas[0].fila.numeroRemesa.replace(/\s+/g, '').toLowerCase())?.id || null) : null,
       }
     })
 

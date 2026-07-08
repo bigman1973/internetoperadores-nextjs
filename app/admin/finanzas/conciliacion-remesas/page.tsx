@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
 import { 
   BanknotesIcon, 
   ArrowPathIcon, 
@@ -117,6 +118,8 @@ export default function ConciliacionRemesasPage() {
   const [mes, setMes] = useState('');
   const [vista, setVista] = useState<'resumen' | 'remesas' | 'devoluciones'>('resumen');
   const [mensaje, setMensaje] = useState<{ tipo: 'success' | 'error' | 'info'; texto: string } | null>(null);
+  
+  const [mostrarAyuda, setMostrarAyuda] = useState(false);
   
   // Refs para inputs de archivo
   const fileInputRemesas = useRef<HTMLInputElement>(null);
@@ -267,6 +270,66 @@ export default function ConciliacionRemesasPage() {
             {MESES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </div>
+      </div>
+
+      {/* Panel de ayuda desplegable */}
+      <div className="border border-blue-200 rounded-lg bg-blue-50/50">
+        <button
+          onClick={() => setMostrarAyuda(!mostrarAyuda)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-50 rounded-lg transition-colors"
+        >
+          <span className="flex items-center gap-2">
+            <InformationCircleIcon className="w-5 h-5" />
+            ¿Cómo funciona la conciliación de remesas?
+          </span>
+          {mostrarAyuda ? <ChevronUpIcon className="w-4 h-4" /> : <ChevronDownIcon className="w-4 h-4" />}
+        </button>
+        {mostrarAyuda && (
+          <div className="px-4 pb-4 text-sm text-gray-700 space-y-3 border-t border-blue-100 pt-3">
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">📋 ¿Qué hace esta pantalla?</p>
+              <p>Cruza las remesas que enviamos al banco (desde ISPGestión) con los cobros reales que aparecen en el extracto bancario del Santander. Así sabemos exactamente cuánto se ha cobrado, cuánto falta por cobrar y qué recibos se han devuelto.</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">🔄 ¿Cómo funciona el cruce?</p>
+              <p>El Santander divide cada remesa de ISPGestión en varias sub-remesas según la fecha de vencimiento de los recibos (día 1, día 5, día 15...). El sistema lee el PDF de ISPGestión desde OneDrive para saber qué recibos van a cada fecha, y luego cruza con el XLS del banco para asignar la referencia bancaria correcta a cada sub-remesa.</p>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">📂 Archivos necesarios</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li><strong>XLS de remesas</strong> (botón naranja "Subir Remesas"): Los archivos XLS que se descargan del portal del Santander con todas las remesas del mes. Se pueden subir los 2 archivos a la vez.</li>
+                <li><strong>XLSX de devoluciones</strong> (botón azul "Listado Devoluciones"): El Excel de devoluciones que proporciona el Santander con el detalle de recibos devueltos.</li>
+                <li><strong>XLSX de recibos devueltos</strong> (botón rojo "Recibos Devueltos"): El detalle con nombre de cliente, referencia e importe de cada recibo devuelto.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">📖 Lectura automática desde OneDrive</p>
+              <p>El sistema lee automáticamente de la carpeta de OneDrive (<em>2. Contabilidad y finanzas &gt; 1. Facturas emitidas y remesas &gt; ... &gt; Mes Año</em>):</p>
+              <ul className="list-disc list-inside space-y-1 ml-2 mt-1">
+                <li><strong>PDFs de ISPGestión</strong> (ej: "82- JUNIO 2026 LLEIDA.pdf"): Para obtener el desglose de recibos por fecha de vencimiento.</li>
+                <li><strong>PDFs del Santander</strong> (ej: "Santander Empresas_Junio2026_Lleida.pdf"): Para doble cotejo del desglose bancario.</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">📊 ¿Qué significan los estados?</p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                <li><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Conciliada</span> La remesa está totalmente cobrada y los importes cuadran.</li>
+                <li><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800">Diferencia</span> Se ha cobrado pero hay diferencia de importe (por rechazos/devoluciones).</li>
+                <li><span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">Pendiente</span> Alguna sub-remesa aún no tiene movimiento bancario (falta por cobrar).</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold text-gray-900 mb-1">⚡ Flujo de trabajo recomendado</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Asegúrate de que los PDFs de ISPGestión y Santander están en la carpeta de OneDrive del mes.</li>
+                <li>Sube el extracto bancario del mes (desde Finanzas &gt; Importar Extracto) para tener los movimientos actualizados.</li>
+                <li>Sube los 2 archivos XLS de remesas del Santander con el botón "Subir Remesas (.xls)".</li>
+                <li>Sube el listado de devoluciones y recibos devueltos si los tienes.</li>
+                <li>Revisa los resultados: cada remesa mostrará sus sub-remesas, lo cobrado y lo pendiente.</li>
+              </ol>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Mensaje */}
