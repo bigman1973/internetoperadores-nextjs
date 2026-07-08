@@ -247,9 +247,14 @@ export async function GET(req: NextRequest) {
 
     // 7. Calcular KPIs
     const totalRemesado = remesas.reduce((sum, r) => sum + Number(r.totalImporte), 0);
-    const totalCobradoBanco = remesasConSeries.reduce(
-      (sum, rc) => sum + rc.totalCobradoSeries + rc.totalCaixaGuissona, 0
-    );
+    // Calcular total cobrado: priorizar datos de ConciliacionRemesa, fallback a series
+    const totalCobradoBanco = remesasConSeries.reduce((sum, rc) => {
+      const conc = rc.remesa.conciliacion;
+      if (conc && conc.importeMovimiento) {
+        return sum + conc.importeMovimiento;
+      }
+      return sum + rc.totalCobradoSeries + rc.totalCaixaGuissona;
+    }, 0);
     const totalDevuelto = devoluciones.reduce((sum, d) => sum + Number(d.importe), 0);
     const devolucionesPendientes = devoluciones.filter(d => d.estado === 'PENDIENTE');
     const devolucionesCobradas = devoluciones.filter(d =>
@@ -258,9 +263,51 @@ export async function GET(req: NextRequest) {
     const totalRecuperado = devolucionesCobradas.reduce((sum, d) => sum + Number(d.importeCobrado || d.importe), 0);
 
     // 8. Formatear remesas con datos de series asignadas
+    // PRIORIDAD: Si la remesa tiene conciliación importada (tabla ConciliacionRemesa), usar esos datos.
+    // Si no, usar la lógica de series como fallback.
     const remesasFormateadas = remesasConSeries.map(rc => {
       const r = rc.remesa;
       const importeRemesa = Number(r.totalImporte);
+      const conc = r.conciliacion; // Datos de la tabla ConciliacionRemesa (importados del XLS)
+
+      // Si hay conciliación importada, usar sus datos (son los correctos del XLS del banco)
+      if (conc && conc.importeMovimiento) {
+        const totalCobrado = conc.importeMovimiento;
+        const diferencia = Math.round((totalCobrado - importeRemesa) * 100) / 100;
+        const rechazos = conc.rechazos || 0;
+
+        let estadoConciliacion = 'CONCILIADA';
+        if (rechazos > 0 || Math.abs(diferencia) > importeRemesa * 0.02) {
+          estadoConciliacion = 'DIFERENCIA';
+        }
+
+        return {
+          id: r.id,
+          ispGestionId: r.ispGestionId,
+          nombre: r.nombre,
+          fecha: r.fecha,
+          totalImporte: importeRemesa,
+          numeroRegistros: r.numeroRegistros,
+          remesado: r.remesado,
+          contabilizado: r.contabilizado,
+          estadoConciliacion,
+          importeBanco: totalCobrado,
+          diferencia,
+          seriesAsignadas: conc.referenciaRemesaBanco || '',
+          numMovimientosBanco: 1,
+          cobroSantander: totalCobrado,
+          cobroCaixaGuissona: 0,
+          primerCobro: conc.fechaConciliacion,
+          ultimoCobro: conc.fechaConciliacion,
+          numDevoluciones: r.devoluciones.length,
+          totalDevoluciones: r.devoluciones.reduce((sum, d) => sum + Number(d.importe), 0),
+          recibosRemesados: conc.recibosRemesados || r.numeroRegistros,
+          recibosCobrados: conc.recibosCobrados || null,
+          rechazos: conc.rechazos || null,
+        };
+      }
+
+      // Fallback: usar lógica de series (para remesas sin conciliación importada)
       const totalCobrado = rc.totalCobradoSeries + rc.totalCaixaGuissona;
       const diferencia = totalCobrado > 0 ? Math.round((totalCobrado - importeRemesa) * 100) / 100 : null;
       const tieneDatosBanco = totalCobrado > 0;
@@ -295,9 +342,9 @@ export async function GET(req: NextRequest) {
         ultimoCobro: rc.seriesAsignadas.length > 0 ? rc.seriesAsignadas[rc.seriesAsignadas.length - 1].ultimaFecha : null,
         numDevoluciones: r.devoluciones.length,
         totalDevoluciones: r.devoluciones.reduce((sum, d) => sum + Number(d.importe), 0),
-        recibosRemesados: r.conciliacion?.recibosRemesados || null,
-        recibosCobrados: r.conciliacion?.recibosCobrados || null,
-        rechazos: r.conciliacion?.rechazos || null,
+        recibosRemesados: conc?.recibosRemesados || null,
+        recibosCobrados: conc?.recibosCobrados || null,
+        rechazos: conc?.rechazos || null,
       };
     });
 
@@ -317,10 +364,19 @@ export async function GET(req: NextRequest) {
         resumenPorMes[mesKey] = { totalRemesado: 0, totalCobrado: 0, santander: 0, caixaGuissona: 0, numMovimientos: 0, numRemesas: 0 };
       }
       resumenPorMes[mesKey].totalRemesado += Number(rc.remesa.totalImporte);
-      resumenPorMes[mesKey].totalCobrado += rc.totalCobradoSeries + rc.totalCaixaGuissona;
-      resumenPorMes[mesKey].santander += rc.totalCobradoSeries;
-      resumenPorMes[mesKey].caixaGuissona += rc.totalCaixaGuissona;
-      resumenPorMes[mesKey].numMovimientos += rc.seriesAsignadas.reduce((sum, s) => sum + s.movimientos.length, 0) + rc.movsCaixaAsignados.length;
+      
+      // Priorizar datos de ConciliacionRemesa
+      const conc = rc.remesa.conciliacion;
+      if (conc && conc.importeMovimiento) {
+        resumenPorMes[mesKey].totalCobrado += conc.importeMovimiento;
+        resumenPorMes[mesKey].santander += conc.importeMovimiento;
+        resumenPorMes[mesKey].numMovimientos += 1;
+      } else {
+        resumenPorMes[mesKey].totalCobrado += rc.totalCobradoSeries + rc.totalCaixaGuissona;
+        resumenPorMes[mesKey].santander += rc.totalCobradoSeries;
+        resumenPorMes[mesKey].caixaGuissona += rc.totalCaixaGuissona;
+        resumenPorMes[mesKey].numMovimientos += rc.seriesAsignadas.reduce((sum, s) => sum + s.movimientos.length, 0) + rc.movsCaixaAsignados.length;
+      }
       resumenPorMes[mesKey].numRemesas++;
     }
 
