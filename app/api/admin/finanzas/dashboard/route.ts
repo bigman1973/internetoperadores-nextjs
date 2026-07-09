@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
     const salidasImpuestos = movSalidas.filter(m => categoriasImpuestos.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasTransferencias = movSalidas.filter(m => categoriasTransferencias.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasDevoluciones = movSalidas.filter(m => categoriasDevoluciones.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
-    const salidasVola = movSalidas.filter(m => categoriasVola.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
+    const salidasVola = movSalidas.filter(m => categoriasVola.includes(m.categoria || '') || m.pagoACuentaVola).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasGastosOp = movSalidas.filter(m => categoriasGastosOp.includes(m.categoria || '')).reduce((s, m) => s + Math.abs(m.importe), 0);
     const salidasOtros = totalSalidas - salidasVola - salidasNominas - salidasImpuestos - salidasTransferencias - salidasDevoluciones - salidasGastosOp;
 
@@ -245,6 +245,10 @@ export async function GET(req: NextRequest) {
         facturasImpagadas,
         facturasVencidas,
         movimientosSinCategorizar: sinCategorizar,
+      },
+      cuentaCorrienteVola: {
+        pagosACuenta: Math.round(salidasVola * 100) / 100,
+        numMovimientos: movSalidas.filter(m => categoriasVola.includes(m.categoria || '') || m.pagoACuentaVola).length,
       },
     });
   } catch (error: any) {

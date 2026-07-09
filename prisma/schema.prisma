@@ -1038,6 +1038,12 @@ model MovimientoBancario {
   factura         FacturaRecibida? @relation(fields: [facturaId], references: [id])
   gastoId         String?  @map("gasto_id")
   gasto           Gasto?   @relation(fields: [gastoId], references: [id])
+  // Estados especiales de conciliación
+  pendienteFactura  Boolean  @default(false) @map("pendiente_factura") // Factura pendiente de recibir/reclamar
+  pagoACuentaVola   Boolean  @default(false) @map("pago_a_cuenta_vola") // Pago a cuenta de Vola
+  facturaEmitidaId  String?  @map("factura_emitida_id") // Vinculación con factura emitida (ingresos)
+  facturaEmitida    FacturaEmitida? @relation(fields: [facturaEmitidaId], references: [id])
+  notaConciliacion  String?  @map("nota_conciliacion") // Nota libre del usuario
   // Importación
   hashUnico       String   @unique @map("hash_unico") // Para evitar duplicados
   origenArchivo   String?  @map("origen_archivo")
@@ -1294,6 +1300,8 @@ model FacturaEmitida {
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
+
+  movimientosBancarios MovimientoBancario[]
 
   @@index([cliente])
   @@index([estado])

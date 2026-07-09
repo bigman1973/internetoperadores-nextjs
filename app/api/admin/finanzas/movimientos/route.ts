@@ -62,13 +62,26 @@ export async function GET(req: NextRequest) {
     if (desde) where.fechaOperacion = { ...where.fechaOperacion, gte: new Date(desde) };
     if (hasta) where.fechaOperacion = { ...where.fechaOperacion, lte: new Date(hasta) };
 
+    // Filtros especiales
+    const pendienteFactura = searchParams.get('pendienteFactura');
+    if (pendienteFactura === 'true') where.pendienteFactura = true;
+    const pagoACuentaVola = searchParams.get('pagoACuentaVola');
+    if (pagoACuentaVola === 'true') where.pagoACuentaVola = true;
+    const tipo = searchParams.get('tipo');
+    if (tipo === 'ingresos') where.importe = { gt: 0 };
+    if (tipo === 'cargos') where.importe = { lt: 0 };
+
     const [movimientos, total] = await Promise.all([
       prisma.movimientoBancario.findMany({
         where,
         orderBy: { fechaOperacion: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
-        include: { cuenta: { select: { banco: true, alias: true } } },
+        include: {
+          cuenta: { select: { banco: true, alias: true } },
+          factura: { select: { id: true, proveedor: true, numFactura: true, total: true } },
+          facturaEmitida: { select: { id: true, cliente: true, numFactura: true, total: true } },
+        },
       }),
       prisma.movimientoBancario.count({ where }),
     ]);

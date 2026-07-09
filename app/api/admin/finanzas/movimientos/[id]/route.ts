@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -15,12 +15,42 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (conciliado !== undefined) data.conciliado = conciliado;
     if (facturaId !== undefined) data.facturaId = facturaId;
     if (gastoId !== undefined) data.gastoId = gastoId;
+    if (pendienteFactura !== undefined) data.pendienteFactura = pendienteFactura;
+    if (pagoACuentaVola !== undefined) {
+      data.pagoACuentaVola = pagoACuentaVola;
+      // Si se marca como pago a cuenta Vola, se concilia automáticamente
+      if (pagoACuentaVola) {
+        data.conciliado = true;
+        data.categoria = 'Vola';
+        data.tipoPago = 'Pago a cuenta';
+      }
+    }
+    if (facturaEmitidaId !== undefined) {
+      data.facturaEmitidaId = facturaEmitidaId;
+      // Si se vincula con factura emitida, se concilia y se marca la factura como cobrada
+      if (facturaEmitidaId) {
+        data.conciliado = true;
+      }
+    }
+    if (notaConciliacion !== undefined) data.notaConciliacion = notaConciliacion;
 
     const movimiento = await prisma.movimientoBancario.update({
       where: { id },
       data,
       include: { cuenta: true },
     });
+
+    // Si se vincula con factura emitida, marcarla como cobrada
+    if (facturaEmitidaId && facturaEmitidaId !== null) {
+      await prisma.facturaEmitida.update({
+        where: { id: facturaEmitidaId },
+        data: {
+          estado: 'COBRADA',
+          importeCobrado: movimiento.importe,
+          fechaCobro: movimiento.fechaOperacion,
+        },
+      });
+    }
 
     // Si se pide crear regla de imputación automática
     if (crearRegla && categoria) {

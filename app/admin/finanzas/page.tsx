@@ -102,7 +102,7 @@ export default function FinanzasDashboard() {
       )}
 
       {/* KPIs principales */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border p-4">
           <div className="flex items-center gap-2 mb-1">
             <BanknotesIcon className="h-4 w-4 text-gray-400" />
@@ -141,6 +141,14 @@ export default function FinanzasDashboard() {
           </div>
           <p className="text-xl font-bold text-blue-600">{formatEUR(data.ventas.totalFacturado)}</p>
           <p className="text-xs text-amber-600 mt-1">Pte cobro: {formatEUR(data.ventas.pendienteCobro)}</p>
+        </div>
+        <div className="bg-white rounded-xl border p-4 border-purple-200">
+          <div className="flex items-center gap-2 mb-1">
+            <BanknotesIcon className="h-4 w-4 text-purple-500" />
+            <p className="text-xs text-purple-600 font-medium">Cuenta Vola</p>
+          </div>
+          <p className="text-xl font-bold text-purple-700">{data.cuentaCorrienteVola ? formatEUR(data.cuentaCorrienteVola.pagosACuenta) : '\u2014'}</p>
+          <p className="text-xs text-gray-400 mt-1">{data.cuentaCorrienteVola?.numMovimientos || 0} pagos a cuenta</p>
         </div>
       </div>
 
