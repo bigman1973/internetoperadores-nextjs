@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { requireAuth } from '../../lib/middleware/auth'
+import { redirect } from 'next/navigation'
 import prisma from '../../lib/prisma'
 import { 
   CreditCardIcon, 
@@ -72,6 +73,13 @@ function formatEur(value: number) {
 
 export default async function AdminDashboard() {
   const session = await requireAuth('admin')
+  
+  // Usuarios sin roles asignados (VISOR/empleados) → redirigir al portal empleado
+  const userRoles = session.user.roles || []
+  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN') {
+    redirect('/empleado')
+  }
+  
   const stats = await getDashboardStats()
 
   const mesActual = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })

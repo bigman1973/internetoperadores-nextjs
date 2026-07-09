@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { requireAuth } from '../../lib/middleware/auth'
+import { redirect } from 'next/navigation'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 import { SidebarProvider } from '../../components/admin/AdminSidebar'
 import AdminHeader from '../../components/admin/AdminHeader'
@@ -12,6 +13,13 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth('admin')
+  
+  // Usuarios sin roles asignados (empleados rasos) → redirigir al portal empleado
+  const userRoles = session.user.roles || []
+  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN') {
+    redirect('/empleado')
+  }
+  
   return (
     <SessionProvider>
       <RoleProvider 
