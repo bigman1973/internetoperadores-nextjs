@@ -28,13 +28,43 @@ export async function POST(request: NextRequest) {
 
     // Si es trigger manual desde la interfaz, ejecutar scraping desde el Cloud Computer
     if (trigger === 'manual') {
-      // Para sincronización manual desde la UI, llamar al Cloud Computer
-      // Por ahora, devolver instrucciones
-      return NextResponse.json({
-        success: true,
-        message: 'Sincronización manual iniciada. Los datos se actualizarán en unos segundos.',
-        manual: true
-      })
+      const CLOUD_PC_URL = process.env.HRLOG_CLOUD_PC_URL || 'http://104.196.193.56:8765'
+      const TRIGGER_SECRET = process.env.HRLOG_SYNC_TRIGGER_SECRET || 'hrlog-trigger-io-2026'
+      
+      try {
+        // Llamar al sync server del Cloud Computer
+        const triggerResp = await fetch(`${CLOUD_PC_URL}/sync`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Trigger-Secret': TRIGGER_SECRET
+          },
+          body: JSON.stringify({ year: year || 2026 }),
+          signal: AbortSignal.timeout(10000)
+        })
+        
+        if (!triggerResp.ok) {
+          const errText = await triggerResp.text()
+          return NextResponse.json({
+            success: false,
+            message: `Error al contactar Cloud Computer: ${triggerResp.status} - ${errText}`
+          }, { status: 502 })
+        }
+        
+        const triggerResult = await triggerResp.json()
+        
+        return NextResponse.json({
+          success: true,
+          message: 'Sincronización iniciada en el Cloud Computer. Los datos se actualizarán en unos segundos.',
+          manual: true,
+          cloudStatus: triggerResult.status
+        })
+      } catch (error: any) {
+        return NextResponse.json({
+          success: false,
+          message: `No se pudo conectar con el Cloud Computer: ${error.message}`
+        }, { status: 502 })
+      }
     }
 
     // Obtener mapeo de empleados por nombre

@@ -77,6 +77,7 @@ export default function VacacionesPage() {
       setError(err.message)
     } finally {
       setLoading(false)
+      setSyncing(false)
     }
   }
 
@@ -87,17 +88,19 @@ export default function VacacionesPage() {
   const handleSync = async () => {
     try {
       setSyncing(true)
+      setError('')
       const res = await fetch('/api/admin/calendario/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ trigger: 'manual' })
       })
-      if (!res.ok) throw new Error('Error al sincronizar')
-      // Recargar datos después de un breve delay
-      setTimeout(fetchData, 2000)
+      const result = await res.json()
+      if (!res.ok) throw new Error(result.message || 'Error al sincronizar')
+      // El sync tarda ~15s en el Cloud Computer, recargar con polling
+      setTimeout(fetchData, 8000)
+      setTimeout(fetchData, 18000)
     } catch (err: any) {
       setError(err.message)
-    } finally {
       setSyncing(false)
     }
   }
