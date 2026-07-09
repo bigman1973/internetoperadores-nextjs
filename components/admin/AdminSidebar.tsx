@@ -32,7 +32,9 @@ import {
   FolderIcon,
   CalendarDaysIcon,
   CloudArrowUpIcon,
-  SunIcon
+  SunIcon,
+  BuildingOffice2Icon,
+  StarIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
 
@@ -97,6 +99,7 @@ const navigation: NavEntry[] = [
     children: [
       { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon },
       { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon },
+      { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon },
     ],
   },
   {
