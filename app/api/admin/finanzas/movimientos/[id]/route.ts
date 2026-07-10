@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -55,11 +55,15 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         }
       }
     }
+    // Vinculación con entidad fiscal (proveedor/AAPP)
+    if (entidadFiscalId !== undefined) {
+      data.entidadFiscalId = entidadFiscalId;
+    }
 
     const movimiento = await prisma.movimientoBancario.update({
       where: { id },
       data,
-      include: { cuenta: true },
+      include: { cuenta: true, entidadFiscal: true },
     });
 
     // Si se vincula con factura emitida, marcarla como cobrada

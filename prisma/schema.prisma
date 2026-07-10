@@ -1050,6 +1050,9 @@ model MovimientoBancario {
   entregaACuentaEmpleadoId  String?  @map("entrega_a_cuenta_empleado_id")
   entregaACuentaEmpleado    Empleado? @relation("EntregasCuentaEmpleado", fields: [entregaACuentaEmpleadoId], references: [id])
   tipoEntrega               String?  @map("tipo_entrega") // 'coste_empresa' o 'anticipo'
+  // Vinculación con entidad fiscal (proveedor/AAPP)
+  entidadFiscalId           String?  @map("entidad_fiscal_id")
+  entidadFiscal             EntidadFiscal? @relation("MovimientoProveedor", fields: [entidadFiscalId], references: [id])
   // Importación
   hashUnico       String   @unique @map("hash_unico") // Para evitar duplicados
   origenArchivo   String?  @map("origen_archivo")
@@ -1717,6 +1720,61 @@ model DevolucionRemesa {
   @@index([fechaDevolucion])
   @@index([anioDevolucion, mesDevolucion])
   @@map("devoluciones_remesas")
+}
+
+// ============================================================
+// DATOS FISCALES (Proveedores, Personal, AAPP)
+// ============================================================
+
+enum TipoEntidadFiscal {
+  PROVEEDOR
+  PERSONAL
+  AAPP
+}
+
+model EntidadFiscal {
+  id                String   @id @default(uuid())
+  tipo              TipoEntidadFiscal
+  // Datos fiscales
+  razonSocial       String   @map("razon_social") // Nombre fiscal / Razón social
+  nombreComercial   String?  @map("nombre_comercial") // Nombre comercial (si difiere)
+  nifCif            String?  @map("nif_cif") // NIF/CIF
+  direccionFiscal   String?  @map("direccion_fiscal")
+  codigoPostal      String?  @map("codigo_postal")
+  poblacion         String?  
+  provincia         String?  
+  pais              String?  @default("ES")
+  // Contacto
+  emailFacturacion  String?  @map("email_facturacion")
+  emailGeneral      String?  @map("email_general")
+  telefono          String?  
+  personaContacto   String?  @map("persona_contacto")
+  // Contabilidad A3
+  cuentaContableA3  String?  @map("cuenta_contable_a3") // 400XXXX proveedores, 465XXXX personal, 475XXXX AAPP
+  // Clasificación interna
+  categoriaInterna  String?  @map("categoria_interna") // Operadora, Estructura, etc.
+  subcategoria      String?  // Más detalle
+  // Condiciones comerciales
+  formaPago         String?  @map("forma_pago") // domiciliacion, transferencia, confirming, etc.
+  diaPago           Int?     @map("dia_pago") // Día habitual de pago (1-31)
+  plazoVencimiento  Int?     @map("plazo_vencimiento") // Días desde factura hasta vencimiento
+  iban              String?  // Cuenta bancaria
+  // Patrones de concepto bancario (para auto-identificar en movimientos)
+  patronesBancarios String?  @map("patrones_bancarios") // JSON array de strings regex
+  // Estado
+  activo            Boolean  @default(true)
+  notas             String?  
+  // Relaciones
+  movimientos       MovimientoBancario[] @relation("MovimientoProveedor")
+  // Timestamps
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([tipo])
+  @@index([nifCif])
+  @@index([razonSocial])
+  @@index([categoriaInterna])
+  @@map("entidades_fiscales")
 }
 
 // ============================================================

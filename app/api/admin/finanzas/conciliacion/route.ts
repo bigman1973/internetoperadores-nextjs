@@ -194,6 +194,36 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // reglaImputacion puede no existir aún
       }
+
+      // Identificar proveedores por patrones bancarios de entidades fiscales
+      try {
+        const entidadesConPatron = await prisma.entidadFiscal.findMany({
+          where: { patronesBancarios: { not: null }, activo: true },
+          select: { id: true, patronesBancarios: true },
+        });
+
+        const sinProveedor = await prisma.movimientoBancario.findMany({
+          where: { entidadFiscalId: null, importe: { lt: 0 } },
+          select: { id: true, concepto: true },
+        });
+
+        for (const mov of sinProveedor) {
+          for (const entidad of entidadesConPatron) {
+            try {
+              const patrones = JSON.parse(entidad.patronesBancarios!);
+              if (Array.isArray(patrones) && patrones.some((p: string) => mov.concepto.toLowerCase().includes(p.toLowerCase()))) {
+                await prisma.movimientoBancario.update({
+                  where: { id: mov.id },
+                  data: { entidadFiscalId: entidad.id },
+                });
+                break;
+              }
+            } catch {}
+          }
+        }
+      } catch (e) {
+        // entidadFiscal puede no tener patrones
+      }
     }
 
     // 2. CONCILIACIÓN CON FACTURAS RECIBIDAS (MEJORADA)
@@ -219,6 +249,14 @@ export async function POST(req: NextRequest) {
             const fechaHasta = new Date(mov.fechaOperacion);
             fechaHasta.setDate(fechaHasta.getDate() + 10);
 
+            // Buscar entidad fiscal asociada al proveedor
+            const entidadFiscal = await prisma.entidadFiscal.findFirst({
+              where: {
+                razonSocial: { contains: prov.proveedor, mode: 'insensitive' },
+                tipo: 'PROVEEDOR',
+              },
+            });
+
             const facturaMatch = await prisma.facturaRecibida.findFirst({
               where: {
                 proveedor: { contains: prov.proveedor, mode: 'insensitive' },
@@ -232,10 +270,20 @@ export async function POST(req: NextRequest) {
             if (facturaMatch) {
               await prisma.movimientoBancario.update({
                 where: { id: mov.id },
-                data: { conciliado: true, facturaId: facturaMatch.id },
+                data: {
+                  conciliado: true,
+                  facturaId: facturaMatch.id,
+                  ...(entidadFiscal ? { entidadFiscalId: entidadFiscal.id } : {}),
+                },
               });
               resultados.conciliadosFacturasRecibidas++;
               matched = true;
+            } else if (entidadFiscal) {
+              // No hay factura pero identificamos el proveedor (primer nivel)
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: { entidadFiscalId: entidadFiscal.id },
+              });
             }
             break;
           }

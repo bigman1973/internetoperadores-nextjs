@@ -129,6 +129,7 @@ const navigation: NavEntry[] = [
       { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon, section: 'finanzas-tickets' },
       { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon, section: 'finanzas' },
       { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: DocumentTextIcon, section: 'finanzas' },
+      { name: 'Datos Fiscales', href: '/admin/finanzas/datos-fiscales', icon: BuildingOffice2Icon, section: 'finanzas' },
     ],
   },
   { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon, section: 'estadisticas' },
