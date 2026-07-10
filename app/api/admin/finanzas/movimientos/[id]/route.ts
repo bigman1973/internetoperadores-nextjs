@@ -23,6 +23,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
         data.conciliado = true;
         data.categoria = 'Vola';
         data.tipoPago = 'Pago a cuenta';
+        data.tipoDocumento = 'justificante';
+        data.documentoRecibido = true;
       }
     }
     if (facturaEmitidaId !== undefined) {
@@ -42,6 +44,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       // Si se marca como entrega a cuenta, se concilia automáticamente
       if (entregaACuentaEmpleadoId) {
         data.conciliado = true;
+        data.tipoDocumento = 'justificante';
+        data.documentoRecibido = true;
         if (tipoEntrega === 'coste_empresa') {
           data.categoria = 'Sueldos y Salarios';
           data.tipoPago = 'Coste empresa';

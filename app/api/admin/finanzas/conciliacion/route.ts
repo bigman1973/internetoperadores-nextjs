@@ -19,18 +19,18 @@ import { prisma } from '@/lib/prisma';
 // Reglas de clasificación automática por concepto
 const REGLAS_CLASIFICACION = [
   // Nóminas
-  { patron: /Concepto\s*(Nomina|Nómina)/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina' },
-  { patron: /Concepto\s*Adelanto\s*Nomina/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina' },
-  { patron: /Concepto\s*Liquidacion\s/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina' },
+  { patron: /Concepto\s*(Nomina|Nómina)/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
+  { patron: /Concepto\s*Adelanto\s*Nomina/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
+  { patron: /Concepto\s*Liquidacion\s/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
   
   // Impuestos
-  { patron: /Domiciliacion\s*Impuesto|Impuesto:\s*2\.\d{3}/i, categoria: 'IMPUESTOS', tipoPago: 'IVA' },
-  { patron: /A\.?E\.?A\.?T/i, categoria: 'IMPUESTOS', tipoPago: 'IVA' },
-  { patron: /Imp\.\s*Sociedades/i, categoria: 'IMPUESTOS', tipoPago: 'IS' },
+  { patron: /Domiciliacion\s*Impuesto|Impuesto:\s*2\.\d{3}/i, categoria: 'IMPUESTOS', tipoPago: 'IVA', tipoDocumento: 'justificante' },
+  { patron: /A\.?E\.?A\.?T/i, categoria: 'IMPUESTOS', tipoPago: 'IVA', tipoDocumento: 'justificante' },
+  { patron: /Imp\.\s*Sociedades/i, categoria: 'IMPUESTOS', tipoPago: 'IS', tipoDocumento: 'justificante' },
   
   // Seguridad Social
-  { patron: /TGSS|Cotizacion\s*\d{3}/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS' },
-  { patron: /R\.E\.Autonomos|R\.E\.AUTONOMOS/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS' },
+  { patron: /TGSS|Cotizacion\s*\d{3}/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'justificante' },
+  { patron: /R\.E\.Autonomos|R\.E\.AUTONOMOS/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'justificante' },
   
   // Confirming
   { patron: /Cesion De Creditos.*Draxton/i, categoria: 'Draxton', tipoPago: 'Confirming' },
@@ -44,10 +44,10 @@ const REGLAS_CLASIFICACION = [
   { patron: /Liquidacion Por Emision/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
   
   // Traspasos propios
-  { patron: /Transferencia.*Internet Operadores.*Concepto\s*Traspas/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
-  { patron: /Transferencia Inmediata A Favor De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
-  { patron: /TRF IMMEDIATA.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
-  { patron: /TRASPAS A GIRO/i, categoria: 'Traspaso', tipoPago: 'Transferencia' },
+  { patron: /Transferencia.*Internet Operadores.*Concepto\s*Traspas/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Transferencia Inmediata A Favor De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TRF IMMEDIATA.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TRASPAS A GIRO/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   
   // Proveedores conocidos
   { patron: /Instant Byte/i, categoria: 'Operadora', tipoPago: 'Factura' },
@@ -84,8 +84,8 @@ const REGLAS_CLASIFICACION = [
   { patron: /Www\.amazon/i, categoria: 'Estructura', tipoPago: 'Débito' },
   
   // Préstamos
-  { patron: /Venciment Prestec|PRES\.\d+/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo' },
-  { patron: /AMORTITZACI.*PR(É|E)STEC/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo' },
+  { patron: /Venciment Prestec|PRES\.\d+/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo', tipoDocumento: 'justificante' },
+  { patron: /AMORTITZACI.*PR(É|E)STEC/i, categoria: 'Gastos Financieros', tipoPago: 'Préstamo', tipoDocumento: 'justificante' },
   
   // Comisiones bancarias
   { patron: /Manteniment|Cobrament Pendent|Gastos Devoluciones/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
@@ -142,12 +142,17 @@ export async function POST(req: NextRequest) {
       for (const mov of sinCategoria) {
         for (const regla of REGLAS_CLASIFICACION) {
           if (regla.patron.test(mov.concepto)) {
+            const data: any = {
+              categoria: regla.categoria,
+              tipoPago: regla.tipoPago,
+            };
+            if ((regla as any).tipoDocumento) {
+              data.tipoDocumento = (regla as any).tipoDocumento;
+              data.documentoRecibido = true;
+            }
             await prisma.movimientoBancario.update({
               where: { id: mov.id },
-              data: {
-                categoria: regla.categoria,
-                tipoPago: regla.tipoPago,
-              },
+              data,
             });
             resultados.clasificados++;
             break;

@@ -311,8 +311,8 @@ export default function ConciliacionPage() {
     fetchEstado();
   }
 
-  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket') {
-    const docRecibido = tipo === 'ticket' ? true : false;
+  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante') {
+    const docRecibido = tipo === 'ticket' || tipo === 'justificante' ? true : false;
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -463,6 +463,12 @@ export default function ConciliacionPage() {
                     className="px-2 py-1 bg-gray-50 border border-gray-300 rounded hover:bg-gray-100 text-gray-600 font-medium"
                   >
                     Ticket
+                  </button>
+                  <button
+                    onClick={() => marcarTipoDocumento(movId, 'justificante')}
+                    className="px-2 py-1 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100 text-blue-600 font-medium"
+                  >
+                    Justificante
                   </button>
                 </>
               )}
@@ -831,6 +837,13 @@ export default function ConciliacionPage() {
                                 >
                                   Ticket
                                 </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); marcarTipoDocumento(mov.id, 'justificante'); }}
+                                  className="text-[10px] px-1.5 py-0.5 border border-blue-200 text-blue-500 rounded hover:bg-blue-50"
+                                  title="Justificante bancario (sin factura)"
+                                >
+                                  Just.
+                                </button>
                               </>
                             ) : mov.tipoDocumento === 'factura' ? (
                               <div className="flex items-center gap-1">
@@ -846,6 +859,8 @@ export default function ConciliacionPage() {
                                   {mov.documentoRecibido ? 'Factura' : 'Sin doc'}
                                 </button>
                               </div>
+                            ) : mov.tipoDocumento === 'justificante' ? (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded font-medium">Justificante</span>
                             ) : (
                               <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">Ticket</span>
                             )}
