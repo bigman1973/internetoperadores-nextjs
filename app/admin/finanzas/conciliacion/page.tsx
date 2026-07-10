@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -17,9 +17,11 @@ interface Movimiento {
   notaConciliacion: string | null;
   tipoDocumento: string | null;
   documentoRecibido: boolean | null;
+  entregaACuentaEmpleadoId: string | null;
   cuenta: { banco: string; alias: string };
   factura: { id: string; proveedor: string; numFactura: string; total: number } | null;
   facturaEmitida: { id: string; cliente: string; numFactura: string; total: number } | null;
+  entregaACuentaEmpleado: { id: string; nombreCompleto: string } | null;
 }
 
 interface Sugerencia {
@@ -31,6 +33,11 @@ interface Sugerencia {
   total: number;
   score: number;
   reasons: string[];
+}
+
+interface EmpleadoSimple {
+  id: string;
+  nombreCompleto: string;
 }
 
 interface EstadoConciliacion {
@@ -60,10 +67,14 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
+  // Entrega a cuenta
+  const [showEmpleadoSelector, setShowEmpleadoSelector] = useState<string | null>(null);
+  const [empleados, setEmpleados] = useState<EmpleadoSimple[]>([]);
+  const [loadingEmpleados, setLoadingEmpleados] = useState(false);
 
   useEffect(() => {
     fetchCuentas();
@@ -101,6 +112,7 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'pendienteFactura') params.set('pendienteFactura', 'true');
     if (filtroEspecial === 'pagoVola') params.set('pagoACuentaVola', 'true');
     if (filtroEspecial === 'sinDocumento') params.set('sinDocumento', 'true');
+    if (filtroEspecial === 'entregaACuenta') params.set('entregaACuenta', 'true');
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
@@ -142,6 +154,7 @@ export default function ConciliacionPage() {
     setSugerencias([]);
     setTodasFacturas([]);
     setTabSugerencias('sugeridas');
+    setShowEmpleadoSelector(null);
     try {
       const params = new URLSearchParams({ movimientoId });
       if (buscar) params.set('buscar', buscar);
@@ -239,7 +252,7 @@ export default function ConciliacionPage() {
   }
 
   async function marcarPagoVola(movimientoId: string) {
-    if (!confirm('¿Marcar como pago a cuenta de Vola? Se conciliará automáticamente.')) return;
+    if (!confirm('Marcar como pago a cuenta de Vola? Se conciliara automaticamente.')) return;
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -252,19 +265,46 @@ export default function ConciliacionPage() {
     fetchEstado();
   }
 
-  async function desconciliar(movimientoId: string) {
-    if (!confirm('¿Deshacer la conciliación de este movimiento?')) return;
+  async function fetchEmpleados() {
+    if (empleados.length > 0) return; // ya cargados
+    setLoadingEmpleados(true);
+    try {
+      const res = await fetch('/api/admin/empleados?estado=ACTIVO');
+      const json = await res.json();
+      setEmpleados((json.empleados || []).map((e: any) => ({ id: e.id, nombreCompleto: e.nombreCompleto })));
+    } catch (e) {
+      console.error(e);
+    }
+    setLoadingEmpleados(false);
+  }
+
+  async function marcarEntregaACuenta(movimientoId: string, empleadoId: string) {
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false, tipoDocumento: null, documentoRecibido: null }),
+      body: JSON.stringify({ entregaACuentaEmpleadoId: empleadoId }),
+    });
+    setSelectedMov(null);
+    setSugerencias([]);
+    setTodasFacturas([]);
+    setShowEmpleadoSelector(null);
+    fetchMovimientos();
+    fetchEstado();
+  }
+
+  async function desconciliar(movimientoId: string) {
+    if (!confirm('Deshacer la conciliacion de este movimiento?')) return;
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false, tipoDocumento: null, documentoRecibido: null, entregaACuentaEmpleadoId: null }),
     });
     fetchMovimientos();
     fetchEstado();
   }
 
   async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket') {
-    const docRecibido = tipo === 'ticket' ? true : false; // tickets no necesitan documento, facturas por defecto sin doc
+    const docRecibido = tipo === 'ticket' ? true : false;
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -312,12 +352,12 @@ export default function ConciliacionPage() {
                 </h3>
                 <span className="text-xs text-gray-500">({totalPendientes} pendientes de vincular)</span>
               </div>
-              <button onClick={() => { setSelectedMov(null); setSugerencias([]); setTodasFacturas([]); }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setSelectedMov(null); setSugerencias([]); setTodasFacturas([]); setShowEmpleadoSelector(null); }} className="text-gray-400 hover:text-gray-600">
                 <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
 
-            {/* Sugerencia automática destacada */}
+            {/* Sugerencia automatica destacada */}
             {sugerencias.length > 0 && sugerencias[0].score >= 50 && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -361,7 +401,7 @@ export default function ConciliacionPage() {
                   <MagnifyingGlassIcon className="h-4 w-4 absolute left-2.5 top-2 text-gray-400" />
                   <input
                     type="text"
-                    placeholder={esIngreso ? "Buscar cliente o nº factura..." : "Buscar proveedor o nº factura..."}
+                    placeholder={esIngreso ? "Buscar cliente o n factura..." : "Buscar proveedor o n factura..."}
                     value={buscarFactura}
                     onChange={(e) => setBuscarFactura(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') buscarEnFacturas(); }}
@@ -370,7 +410,7 @@ export default function ConciliacionPage() {
                 </div>
                 <button
                   onClick={buscarEnFacturas}
-                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
                 >
                   Buscar
                 </button>
@@ -419,20 +459,62 @@ export default function ConciliacionPage() {
                 </>
               )}
               {!esIngreso && (
-                <button
-                  onClick={() => marcarPagoVola(movId)}
-                  className="px-2 py-1 bg-purple-50 border border-purple-300 rounded hover:bg-purple-100 text-purple-700 font-medium"
-                >
-                  Pago a cuenta Vola
-                </button>
+                <>
+                  <button
+                    onClick={() => marcarPagoVola(movId)}
+                    className="px-2 py-1 bg-purple-50 border border-purple-300 rounded hover:bg-purple-100 text-purple-700 font-medium"
+                  >
+                    Pago a cuenta Vola
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowEmpleadoSelector(movId);
+                      fetchEmpleados();
+                    }}
+                    className="px-2 py-1 bg-teal-50 border border-teal-300 rounded hover:bg-teal-100 text-teal-700 font-medium flex items-center gap-1"
+                  >
+                    <UserIcon className="h-3.5 w-3.5" />
+                    Entrega a cuenta
+                  </button>
+                </>
               )}
             </div>
+
+            {/* Selector de empleado para entrega a cuenta */}
+            {showEmpleadoSelector === movId && (
+              <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-teal-900 flex items-center gap-2">
+                    <UserIcon className="h-4 w-4" />
+                    Seleccionar empleado para entrega a cuenta
+                  </p>
+                  <button onClick={() => setShowEmpleadoSelector(null)} className="text-gray-400 hover:text-gray-600">
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+                {loadingEmpleados ? (
+                  <p className="text-xs text-gray-500">Cargando empleados...</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {empleados.map(emp => (
+                      <button
+                        key={emp.id}
+                        onClick={() => marcarEntregaACuenta(movId, emp.id)}
+                        className="px-3 py-1.5 text-xs bg-white border border-teal-200 rounded-lg hover:bg-teal-100 hover:border-teal-400 text-teal-800 font-medium transition-colors"
+                      >
+                        {emp.nombreCompleto}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Lista de facturas */}
             {loadingSugerencias ? (
               <p className="text-sm text-gray-400 py-4 text-center">Buscando facturas...</p>
             ) : facturasAMostrar.length === 0 ? (
-              <p className="text-sm text-gray-500 py-4 text-center">No se encontraron facturas. Prueba con otro término de búsqueda.</p>
+              <p className="text-sm text-gray-500 py-4 text-center">No se encontraron facturas. Prueba con otro termino de busqueda.</p>
             ) : (
               <div className="space-y-1.5 max-h-80 overflow-y-auto">
                 {facturasAMostrar.map(sug => (
@@ -492,7 +574,7 @@ export default function ConciliacionPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Conciliación Bancaria</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Conciliacion Bancaria</h1>
           <p className="text-sm text-gray-500 mt-1">
             Vincula movimientos bancarios con facturas
           </p>
@@ -503,13 +585,13 @@ export default function ConciliacionPage() {
           className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium text-sm"
         >
           <ArrowPathIcon className={`h-4 w-4 ${conciliando ? 'animate-spin' : ''}`} />
-          {conciliando ? 'Conciliando...' : 'Conciliar Automáticamente'}
+          {conciliando ? 'Conciliando...' : 'Conciliar Automaticamente'}
         </button>
       </div>
 
       {/* KPIs */}
       {estado && (
-        <div className="grid grid-cols-6 gap-3">
+        <div className="grid grid-cols-7 gap-3">
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial(''); setPage(1); }}
             className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
@@ -558,6 +640,16 @@ export default function ConciliacionPage() {
             <p className="text-[10px] text-gray-400">A cuenta</p>
           </button>
           <button
+            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('entregaACuenta'); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+              filtroEspecial === 'entregaACuenta' ? 'ring-2 ring-teal-400 shadow-md' : ''
+            }`}
+          >
+            <p className="text-xs text-teal-600 uppercase font-medium">Entregas a cuenta</p>
+            <p className="text-2xl font-bold text-teal-700">—</p>
+            <p className="text-[10px] text-gray-400">Empleados</p>
+          </button>
+          <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('sinDocumento'); setPage(1); }}
             className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
               filtroEspecial === 'sinDocumento' ? 'ring-2 ring-red-400 shadow-md' : ''
@@ -570,7 +662,7 @@ export default function ConciliacionPage() {
         </div>
       )}
 
-      {/* Resultado conciliación automática */}
+      {/* Resultado conciliacion automatica */}
       {resultadoConciliacion && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
           <div className="flex items-center gap-4 text-sm">
@@ -598,7 +690,7 @@ export default function ConciliacionPage() {
                 filtroTipo === tipo ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tipo === 'gastos' ? '↓ Gastos' : tipo === 'ingresos' ? '↑ Ingresos' : 'Todos'}
+              {tipo === 'gastos' ? 'Gastos' : tipo === 'ingresos' ? 'Ingresos' : 'Todos'}
             </button>
           ))}
         </div>
@@ -616,10 +708,12 @@ export default function ConciliacionPage() {
           <span className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${
             filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
             filtroEspecial === 'pagoVola' ? 'bg-purple-50 border border-purple-200 text-purple-700' :
+            filtroEspecial === 'entregaACuenta' ? 'bg-teal-50 border border-teal-200 text-teal-700' :
             'bg-amber-50 border border-amber-200 text-amber-700'
           }`}>
             {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pendiente factura' : 
              filtroEspecial === 'pagoVola' ? 'Filtrando: Pagos Vola' :
+             filtroEspecial === 'entregaACuenta' ? 'Filtrando: Entregas a cuenta' :
              'Filtrando: Sin documento (reclamar)'}
             <button onClick={() => { setFiltroEspecial(''); setFiltroConciliado('false'); }} className="ml-1 hover:opacity-70">
               <XMarkIcon className="h-3.5 w-3.5" />
@@ -638,7 +732,7 @@ export default function ConciliacionPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Banco</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoria</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo Doc</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
@@ -654,7 +748,7 @@ export default function ConciliacionPage() {
                   <>
                     <tr
                       key={mov.id}
-                      className={`hover:bg-blue-50/30 cursor-pointer transition-colors ${selectedMov === mov.id ? 'bg-blue-50' : ''} ${mov.pendienteFactura ? 'bg-amber-50/50' : ''} ${mov.pagoACuentaVola ? 'bg-purple-50/50' : ''}`}
+                      className={`hover:bg-blue-50/30 cursor-pointer transition-colors ${selectedMov === mov.id ? 'bg-blue-50' : ''} ${mov.pendienteFactura ? 'bg-amber-50/50' : ''} ${mov.pagoACuentaVola ? 'bg-purple-50/50' : ''} ${mov.entregaACuentaEmpleadoId ? 'bg-teal-50/50' : ''}`}
                       onClick={() => fetchSugerencias(mov.id)}
                     >
                       <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{formatFecha(mov.fechaOperacion)}</td>
@@ -673,13 +767,18 @@ export default function ConciliacionPage() {
                             {mov.facturaEmitida.cliente} - {mov.facturaEmitida.numFactura}
                           </span>
                         )}
+                        {mov.entregaACuentaEmpleado && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-teal-50 text-teal-700 rounded">
+                            Entrega: {mov.entregaACuentaEmpleado.nombreCompleto}
+                          </span>
+                        )}
                       </td>
                       <td className={`px-4 py-2.5 text-sm font-medium text-right whitespace-nowrap ${mov.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                         {formatEUR(mov.importe)}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
-                          {mov.categoria || 'Sin categoría'}
+                          {mov.categoria || 'Sin categoria'}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -713,7 +812,7 @@ export default function ConciliacionPage() {
                                   }`}
                                   title={mov.documentoRecibido ? 'Documento recibido (clic para quitar)' : 'Sin documento (clic para marcar como recibido)'}
                                 >
-                                  {mov.documentoRecibido ? '✓ Factura' : '✗ Sin doc'}
+                                  {mov.documentoRecibido ? 'Factura' : 'Sin doc'}
                                 </button>
                               </div>
                             ) : (
@@ -733,6 +832,9 @@ export default function ConciliacionPage() {
                           {mov.pagoACuentaVola && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">Vola</span>
                           )}
+                          {mov.entregaACuentaEmpleadoId && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded-full font-medium">Entrega</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -741,7 +843,7 @@ export default function ConciliacionPage() {
                             <button
                               onClick={(e) => { e.stopPropagation(); desconciliar(mov.id); }}
                               className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded border border-amber-200"
-                              title="Deshacer conciliación"
+                              title="Deshacer conciliacion"
                             >
                               <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
                               Deshacer
@@ -787,10 +889,10 @@ export default function ConciliacionPage() {
           </table>
         </div>
 
-        {/* Paginación */}
+        {/* Paginacion */}
         {total > 30 && (
           <div className="border-t px-4 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">Página {page} · {total} movimientos</p>
+            <p className="text-xs text-gray-500">Pagina {page} · {total} movimientos</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Anterior</button>
               <button onClick={() => setPage(p => p + 1)} disabled={movimientos.length < 30} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>

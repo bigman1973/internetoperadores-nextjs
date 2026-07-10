@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -35,6 +35,15 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (notaConciliacion !== undefined) data.notaConciliacion = notaConciliacion;
     if (tipoDocumento !== undefined) data.tipoDocumento = tipoDocumento;
     if (documentoRecibido !== undefined) data.documentoRecibido = documentoRecibido;
+    if (entregaACuentaEmpleadoId !== undefined) {
+      data.entregaACuentaEmpleadoId = entregaACuentaEmpleadoId;
+      // Si se marca como entrega a cuenta, se concilia automáticamente
+      if (entregaACuentaEmpleadoId) {
+        data.conciliado = true;
+        data.categoria = 'Entrega a cuenta';
+        data.tipoPago = 'SS Autónomos';
+      }
+    }
 
     const movimiento = await prisma.movimientoBancario.update({
       where: { id },

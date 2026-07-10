@@ -77,6 +77,8 @@ export async function GET(req: NextRequest) {
       where.tipoDocumento = 'factura';
       where.documentoRecibido = false;
     }
+    const entregaACuenta = searchParams.get('entregaACuenta');
+    if (entregaACuenta === 'true') where.entregaACuentaEmpleadoId = { not: null };
     const tipo = searchParams.get('tipo');
     if (tipo === 'ingresos') where.importe = { gt: 0 };
     if (tipo === 'cargos') where.importe = { lt: 0 };
@@ -91,6 +93,7 @@ export async function GET(req: NextRequest) {
           cuenta: { select: { banco: true, alias: true } },
           factura: { select: { id: true, proveedor: true, numFactura: true, total: true } },
           facturaEmitida: { select: { id: true, cliente: true, numFactura: true, total: true } },
+          entregaACuentaEmpleado: { select: { id: true, nombreCompleto: true } },
         },
       }),
       prisma.movimientoBancario.count({ where }),

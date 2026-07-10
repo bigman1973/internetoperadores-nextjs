@@ -1046,6 +1046,9 @@ model MovimientoBancario {
   notaConciliacion  String?  @map("nota_conciliacion") // Nota libre del usuario
   tipoDocumento     String?  @map("tipo_documento") // 'factura' o 'ticket'
   documentoRecibido Boolean? @map("documento_recibido") // null=no aplica, true=tenemos doc, false=falta doc
+  // Entrega a cuenta empleado
+  entregaACuentaEmpleadoId  String?  @map("entrega_a_cuenta_empleado_id")
+  entregaACuentaEmpleado    Empleado? @relation("EntregasCuentaEmpleado", fields: [entregaACuentaEmpleadoId], references: [id])
   // Importación
   hashUnico       String   @unique @map("hash_unico") // Para evitar duplicados
   origenArchivo   String?  @map("origen_archivo")
@@ -1419,6 +1422,7 @@ model Empleado {
   asignaciones      AsignacionProyecto[]
   calendario        CalendarioPersonal[]
   saldoVacaciones   SaldoVacaciones[]
+  entregasACuenta   MovimientoBancario[] @relation("EntregasCuentaEmpleado")
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
