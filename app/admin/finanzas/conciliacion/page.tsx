@@ -920,7 +920,7 @@ export default function ConciliacionPage() {
             <p className="text-xs text-gray-500">Pagina {page} · {total} movimientos</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Anterior</button>
-              <button onClick={() => setPage(p => p + 1)} disabled={movimientos.length < 30} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>
+              <button onClick={() => setPage(p => p + 1)} disabled={page * 30 >= total} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>
             </div>
           </div>
         )}
