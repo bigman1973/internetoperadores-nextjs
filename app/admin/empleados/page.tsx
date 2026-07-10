@@ -10,6 +10,8 @@ import {
   ShieldCheckIcon,
   ReceiptPercentIcon,
   CloudArrowUpIcon,
+  BanknotesIcon,
+  HandRaisedIcon,
 } from '@heroicons/react/24/outline';
 
 interface Nomina {
@@ -25,6 +27,14 @@ interface Nomina {
   complementoEspecie: number | null;
 }
 
+interface EntregaACuenta {
+  id: string;
+  importe: number;
+  tipoEntrega: string | null;
+  concepto: string | null;
+  fechaOperacion: string;
+}
+
 interface Empleado {
   id: string;
   codigoNomina: string | null;
@@ -36,6 +46,7 @@ interface Empleado {
   estado: string;
   costeHoraActual: number | null;
   nominas: Nomina[];
+  entregasACuenta: EntregaACuenta[];
   _count: { imputaciones: number; asignaciones: number };
 }
 
@@ -48,6 +59,8 @@ interface Totales {
   totalIRPF: number;
   totalSSTrabajador: number;
   totalSSEmpresa: number;
+  totalOtrosCostesEmpresa: number;
+  totalAnticipos: number;
   mesesConDatos: number;
 }
 
@@ -109,6 +122,16 @@ export default function AdminEmpleadosPage() {
       ssEmpresa: emp.nominas.reduce((s, n) => s + (n.ssEmpresa || 0), 0),
       costeTotalEmpresa: emp.nominas.reduce((s, n) => s + (n.costeTotalEmpresa || 0), 0),
     };
+  }
+
+  function getEntregasEmpleado(emp: Empleado) {
+    const costesEmpresa = (emp.entregasACuenta || [])
+      .filter(e => e.tipoEntrega === 'coste_empresa')
+      .reduce((s, e) => s + Math.abs(e.importe || 0), 0);
+    const anticipos = (emp.entregasACuenta || [])
+      .filter(e => e.tipoEntrega === 'anticipo')
+      .reduce((s, e) => s + Math.abs(e.importe || 0), 0);
+    return { costesEmpresa, anticipos };
   }
 
   function getPeriodoLabel(): string {
@@ -180,9 +203,9 @@ export default function AdminEmpleadosPage() {
         </div>
       </div>
 
-      {/* KPI Cards - 6 cards */}
+      {/* KPI Cards - 8 cards */}
       {totales && (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <div className="p-1.5 bg-blue-50 rounded-lg">
@@ -202,7 +225,7 @@ export default function AdminEmpleadosPage() {
               <p className="text-xs text-gray-500">Coste Empresa</p>
             </div>
             <p className="text-xl font-bold text-gray-900">{formatEur(totales.totalCosteEmpresa)}</p>
-            <p className="text-xs text-gray-400">{periodo === 'mes' ? 'bruto + SS empresa' : `acumulado ${totales.mesesConDatos} meses`}</p>
+            <p className="text-xs text-gray-400">{periodo === 'mes' ? 'nóminas + otros costes' : `acumulado ${totales.mesesConDatos} meses`}</p>
           </div>
 
           <div className="bg-white rounded-xl border p-4">
@@ -248,6 +271,28 @@ export default function AdminEmpleadosPage() {
             <p className="text-xl font-bold text-gray-900">{formatEur(totales.totalSSEmpresa)}</p>
             <p className="text-xs text-gray-400">cuota patronal</p>
           </div>
+
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="p-1.5 bg-teal-50 rounded-lg">
+                <BanknotesIcon className="h-4 w-4 text-teal-600" />
+              </div>
+              <p className="text-xs text-gray-500">Otros Costes</p>
+            </div>
+            <p className="text-xl font-bold text-teal-700">{formatEur(totales.totalOtrosCostesEmpresa)}</p>
+            <p className="text-xs text-gray-400">SS autón., seguros</p>
+          </div>
+
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="p-1.5 bg-amber-50 rounded-lg">
+                <HandRaisedIcon className="h-4 w-4 text-amber-600" />
+              </div>
+              <p className="text-xs text-gray-500">Anticipos</p>
+            </div>
+            <p className="text-xl font-bold text-amber-700">{formatEur(totales.totalAnticipos)}</p>
+            <p className="text-xs text-gray-400">no suma a costes</p>
+          </div>
         </div>
       )}
 
@@ -257,7 +302,7 @@ export default function AdminEmpleadosPage() {
           <span className="font-semibold">Verificación:</span>{' '}
           Neto ({formatEur(totales.totalNeto)}) + IRPF ({formatEur(totales.totalIRPF)}) + SS Trab ({formatEur(totales.totalSSTrabajador)}) = Devengado ({formatEur(totales.totalDevengado)})
           {' | '}
-          Devengado + SS Empresa ({formatEur(totales.totalSSEmpresa)}) = <span className="font-bold">Coste Total ({formatEur(totales.totalCosteEmpresa)})</span>
+          Devengado + SS Empresa ({formatEur(totales.totalSSEmpresa)}) + Otros costes ({formatEur(totales.totalOtrosCostesEmpresa)}) = <span className="font-bold">Coste Total ({formatEur(totales.totalCosteEmpresa)})</span>
         </div>
       )}
 
@@ -272,10 +317,10 @@ export default function AdminEmpleadosPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Estado</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Devengado</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Neto</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">IRPF</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">SS Trab.</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">SS Emp.</th>
+                <th className="text-right px-4 py-3 font-medium text-teal-700">Otros Costes</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Coste Total</th>
+                <th className="text-right px-4 py-3 font-medium text-amber-700">Anticipos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/hora</th>
               </tr>
             </thead>
@@ -295,6 +340,8 @@ export default function AdminEmpleadosPage() {
               ) : (
                 empleados.map((emp) => {
                   const datos = getEmpleadoTotales(emp);
+                  const entregas = getEntregasEmpleado(emp);
+                  const costeTotalConExtras = (datos?.costeTotalEmpresa || 0) + entregas.costesEmpresa;
                   return (
                     <tr key={emp.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -319,17 +366,17 @@ export default function AdminEmpleadosPage() {
                       <td className="px-4 py-3 text-right text-gray-700">
                         {datos ? formatEur(datos.netoPercibir) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-right text-orange-700">
-                        {datos?.irpf ? formatEur(datos.irpf) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-right text-yellow-700">
-                        {datos?.ssTrabajador ? formatEur(datos.ssTrabajador) : '—'}
-                      </td>
                       <td className="px-4 py-3 text-right text-purple-700">
                         {datos?.ssEmpresa ? formatEur(datos.ssEmpresa) : '—'}
                       </td>
+                      <td className="px-4 py-3 text-right text-teal-700 font-medium">
+                        {entregas.costesEmpresa > 0 ? formatEur(entregas.costesEmpresa) : '—'}
+                      </td>
                       <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                        {datos ? formatEur(datos.costeTotalEmpresa) : '—'}
+                        {datos || entregas.costesEmpresa > 0 ? formatEur(costeTotalConExtras) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-amber-700">
+                        {entregas.anticipos > 0 ? formatEur(entregas.anticipos) : '—'}
                       </td>
                       <td className="px-4 py-3 text-right text-indigo-700 font-medium">
                         {emp.costeHoraActual ? `${emp.costeHoraActual.toFixed(2)} €` : '—'}
@@ -345,10 +392,10 @@ export default function AdminEmpleadosPage() {
                   <td className="px-4 py-3 text-gray-900" colSpan={3}>TOTAL ({totales.totalActivos} activos)</td>
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalDevengado)}</td>
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalNeto)}</td>
-                  <td className="px-4 py-3 text-right text-orange-800">{formatEur(totales.totalIRPF)}</td>
-                  <td className="px-4 py-3 text-right text-yellow-800">{formatEur(totales.totalSSTrabajador)}</td>
                   <td className="px-4 py-3 text-right text-purple-800">{formatEur(totales.totalSSEmpresa)}</td>
+                  <td className="px-4 py-3 text-right text-teal-800">{formatEur(totales.totalOtrosCostesEmpresa)}</td>
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalCosteEmpresa)}</td>
+                  <td className="px-4 py-3 text-right text-amber-800">{formatEur(totales.totalAnticipos)}</td>
                   <td className="px-4 py-3"></td>
                 </tr>
               </tfoot>

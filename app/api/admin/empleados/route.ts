@@ -56,12 +56,38 @@ export async function GET(req: NextRequest) {
       nominasWhere.mes = { in: mesesFiltro };
     }
 
+    // Determinar rango de fechas para filtrar entregas a cuenta
+    let fechaDesde: Date;
+    let fechaHasta: Date;
+    if (periodo === 'mes' && mes > 0) {
+      fechaDesde = new Date(anio, mes - 1, 1);
+      fechaHasta = new Date(anio, mes, 0, 23, 59, 59);
+    } else if (mesesFiltro.length > 0) {
+      fechaDesde = new Date(anio, Math.min(...mesesFiltro) - 1, 1);
+      fechaHasta = new Date(anio, Math.max(...mesesFiltro), 0, 23, 59, 59);
+    } else {
+      fechaDesde = new Date(anio, 0, 1);
+      fechaHasta = new Date(anio, 11, 31, 23, 59, 59);
+    }
+
     const empleados = await prisma.empleado.findMany({
       where,
       include: {
         nominas: {
           where: nominasWhere,
           orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+        },
+        entregasACuenta: {
+          where: {
+            fechaOperacion: { gte: fechaDesde, lte: fechaHasta },
+          },
+          select: {
+            id: true,
+            importe: true,
+            tipoEntrega: true,
+            concepto: true,
+            fechaOperacion: true,
+          },
         },
         _count: {
           select: {
@@ -83,6 +109,8 @@ export async function GET(req: NextRequest) {
       totalIRPF: 0,
       totalSSTrabajador: 0,
       totalSSEmpresa: 0,
+      totalOtrosCostesEmpresa: 0,
+      totalAnticipos: 0,
       mesesConDatos: 0,
     };
 
@@ -98,6 +126,16 @@ export async function GET(req: NextRequest) {
         totales.totalSSTrabajador += nomina.ssTrabajador || 0;
         totales.totalSSEmpresa += nomina.ssEmpresa || 0;
         mesesConDatosSet.add(nomina.mes);
+      });
+      // Sumar entregas a cuenta
+      (emp as any).entregasACuenta?.forEach((entrega: any) => {
+        const importeAbs = Math.abs(entrega.importe || 0);
+        if (entrega.tipoEntrega === 'coste_empresa') {
+          totales.totalOtrosCostesEmpresa += importeAbs;
+          totales.totalCosteEmpresa += importeAbs; // Suma al coste total
+        } else if (entrega.tipoEntrega === 'anticipo') {
+          totales.totalAnticipos += importeAbs;
+        }
       });
     });
 
