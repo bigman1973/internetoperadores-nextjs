@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -35,13 +35,20 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (notaConciliacion !== undefined) data.notaConciliacion = notaConciliacion;
     if (tipoDocumento !== undefined) data.tipoDocumento = tipoDocumento;
     if (documentoRecibido !== undefined) data.documentoRecibido = documentoRecibido;
+    if (tipoEntrega !== undefined && entregaACuentaEmpleadoId === undefined) data.tipoEntrega = tipoEntrega;
     if (entregaACuentaEmpleadoId !== undefined) {
       data.entregaACuentaEmpleadoId = entregaACuentaEmpleadoId;
+      if (tipoEntrega !== undefined) data.tipoEntrega = tipoEntrega;
       // Si se marca como entrega a cuenta, se concilia automáticamente
       if (entregaACuentaEmpleadoId) {
         data.conciliado = true;
-        data.categoria = 'Entrega a cuenta';
-        data.tipoPago = 'SS Autónomos';
+        if (tipoEntrega === 'coste_empresa') {
+          data.categoria = 'Sueldos y Salarios';
+          data.tipoPago = 'Coste empresa';
+        } else {
+          data.categoria = 'Entrega a cuenta';
+          data.tipoPago = 'Anticipo';
+        }
       }
     }
 

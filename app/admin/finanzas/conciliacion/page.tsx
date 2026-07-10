@@ -73,6 +73,7 @@ export default function ConciliacionPage() {
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
   // Entrega a cuenta
   const [showEmpleadoSelector, setShowEmpleadoSelector] = useState<string | null>(null);
+  const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState<EmpleadoSimple | null>(null);
   const [empleados, setEmpleados] = useState<EmpleadoSimple[]>([]);
   const [loadingEmpleados, setLoadingEmpleados] = useState(false);
 
@@ -278,16 +279,17 @@ export default function ConciliacionPage() {
     setLoadingEmpleados(false);
   }
 
-  async function marcarEntregaACuenta(movimientoId: string, empleadoId: string) {
+  async function marcarEntregaACuenta(movimientoId: string, empleadoId: string, tipoEntrega: 'coste_empresa' | 'anticipo') {
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entregaACuentaEmpleadoId: empleadoId }),
+      body: JSON.stringify({ entregaACuentaEmpleadoId: empleadoId, tipoEntrega }),
     });
     setSelectedMov(null);
     setSugerencias([]);
     setTodasFacturas([]);
     setShowEmpleadoSelector(null);
+    setEmpleadoSeleccionado(null);
     fetchMovimientos();
     fetchEstado();
   }
@@ -297,7 +299,7 @@ export default function ConciliacionPage() {
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false, tipoDocumento: null, documentoRecibido: null, entregaACuentaEmpleadoId: null }),
+      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false, tipoDocumento: null, documentoRecibido: null, entregaACuentaEmpleadoId: null, tipoEntrega: null }),
     });
     fetchMovimientos();
     fetchEstado();
@@ -486,25 +488,48 @@ export default function ConciliacionPage() {
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-medium text-teal-900 flex items-center gap-2">
                     <UserIcon className="h-4 w-4" />
-                    Seleccionar empleado para entrega a cuenta
+                    {!empleadoSeleccionado ? 'Paso 1: Seleccionar empleado' : `Paso 2: Tipo de entrega para ${empleadoSeleccionado.nombreCompleto}`}
                   </p>
-                  <button onClick={() => setShowEmpleadoSelector(null)} className="text-gray-400 hover:text-gray-600">
+                  <button onClick={() => { setShowEmpleadoSelector(null); setEmpleadoSeleccionado(null); }} className="text-gray-400 hover:text-gray-600">
                     <XMarkIcon className="h-4 w-4" />
                   </button>
                 </div>
                 {loadingEmpleados ? (
                   <p className="text-xs text-gray-500">Cargando empleados...</p>
-                ) : (
+                ) : !empleadoSeleccionado ? (
                   <div className="flex flex-wrap gap-2">
                     {empleados.map(emp => (
                       <button
                         key={emp.id}
-                        onClick={() => marcarEntregaACuenta(movId, emp.id)}
+                        onClick={() => setEmpleadoSeleccionado(emp)}
                         className="px-3 py-1.5 text-xs bg-white border border-teal-200 rounded-lg hover:bg-teal-100 hover:border-teal-400 text-teal-800 font-medium transition-colors"
                       >
                         {emp.nombreCompleto}
                       </button>
                     ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => marcarEntregaACuenta(movId, empleadoSeleccionado.id, 'coste_empresa')}
+                      className="px-4 py-2 text-sm bg-white border-2 border-teal-300 rounded-lg hover:bg-teal-100 hover:border-teal-500 text-teal-800 font-medium transition-colors"
+                    >
+                      <span className="block font-semibold">Coste empresa</span>
+                      <span className="block text-[10px] text-teal-600 mt-0.5">SS autonomos, seguros... (suma a costes personal)</span>
+                    </button>
+                    <button
+                      onClick={() => marcarEntregaACuenta(movId, empleadoSeleccionado.id, 'anticipo')}
+                      className="px-4 py-2 text-sm bg-white border-2 border-amber-300 rounded-lg hover:bg-amber-50 hover:border-amber-500 text-amber-800 font-medium transition-colors"
+                    >
+                      <span className="block font-semibold">Anticipo / Prestamo</span>
+                      <span className="block text-[10px] text-amber-600 mt-0.5">Adelanto nomina (se descuenta despues)</span>
+                    </button>
+                    <button
+                      onClick={() => setEmpleadoSeleccionado(null)}
+                      className="px-3 py-2 text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg"
+                    >
+                      Cambiar empleado
+                    </button>
                   </div>
                 )}
               </div>
