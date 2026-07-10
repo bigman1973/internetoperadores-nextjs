@@ -46,6 +46,12 @@ interface EstadoConciliacion {
   sinConciliar: number;
   sinCategorizar: number;
   porcentajeConciliado: number;
+  pendienteFacturaCount: number;
+  pagosVolaCount: number;
+  pagosVolaImporte: number;
+  entregasACuentaCount: number;
+  entregasACuentaImporte: number;
+  sinDocumentoCount: number;
   facturasRecibidasSinConciliar: number;
 }
 
@@ -651,7 +657,7 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-orange-600 uppercase font-medium">Reclamar Factura</p>
-            <p className="text-2xl font-bold text-orange-700">—</p>
+            <p className="text-2xl font-bold text-orange-700">{estado.pendienteFacturaCount || 0}</p>
             <p className="text-[10px] text-gray-400">Pdte. recibir</p>
           </button>
           <button
@@ -661,8 +667,8 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-purple-600 uppercase font-medium">Pagos Vola</p>
-            <p className="text-2xl font-bold text-purple-700">—</p>
-            <p className="text-[10px] text-gray-400">A cuenta</p>
+            <p className="text-2xl font-bold text-purple-700">{estado.pagosVolaCount || 0}</p>
+            <p className="text-[10px] text-gray-400">{estado.pagosVolaImporte ? `${estado.pagosVolaImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}` : 'A cuenta'}</p>
           </button>
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('entregaACuenta'); setPage(1); }}
@@ -671,8 +677,8 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-teal-600 uppercase font-medium">Entregas a cuenta</p>
-            <p className="text-2xl font-bold text-teal-700">—</p>
-            <p className="text-[10px] text-gray-400">Empleados</p>
+            <p className="text-2xl font-bold text-teal-700">{estado.entregasACuentaCount || 0}</p>
+            <p className="text-[10px] text-gray-400">{estado.entregasACuentaImporte ? `${estado.entregasACuentaImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}` : 'Empleados'}</p>
           </button>
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('sinDocumento'); setPage(1); }}
@@ -681,7 +687,7 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-red-600 uppercase font-medium">Sin Documento</p>
-            <p className="text-2xl font-bold text-red-700">—</p>
+            <p className="text-2xl font-bold text-red-700">{estado.sinDocumentoCount || 0}</p>
             <p className="text-[10px] text-gray-400">Facturas por reclamar</p>
           </button>
         </div>

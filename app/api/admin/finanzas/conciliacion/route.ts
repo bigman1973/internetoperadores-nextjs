@@ -438,6 +438,16 @@ export async function GET() {
       where: { movimientos: { none: {} }, total: { gt: 0 } },
     });
 
+    // Conteos especiales para KPIs
+    const pendienteFacturaCount = await prisma.movimientoBancario.count({ where: { pendienteFactura: true } });
+    const pagosVolaCount = await prisma.movimientoBancario.count({ where: { pagoACuentaVola: true } });
+    const entregasACuentaCount = await prisma.movimientoBancario.count({ where: { entregaACuentaEmpleadoId: { not: null } } });
+    const sinDocumentoCount = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'factura', documentoRecibido: false } });
+
+    // Importes de pagos Vola y entregas a cuenta
+    const pagosVolaImporte = await prisma.movimientoBancario.aggregate({ where: { pagoACuentaVola: true }, _sum: { importe: true } });
+    const entregasACuentaImporte = await prisma.movimientoBancario.aggregate({ where: { entregaACuentaEmpleadoId: { not: null } }, _sum: { importe: true } });
+
     // Distribución por categoría
     const porCategoria = await prisma.movimientoBancario.groupBy({
       by: ['categoria'],
@@ -459,6 +469,12 @@ export async function GET() {
       sinConciliar,
       sinCategorizar,
       porcentajeConciliado: totalMovimientos > 0 ? Math.round((conciliados / totalMovimientos) * 100) : 0,
+      pendienteFacturaCount,
+      pagosVolaCount,
+      pagosVolaImporte: Math.abs(pagosVolaImporte._sum.importe || 0),
+      entregasACuentaCount,
+      entregasACuentaImporte: Math.abs(entregasACuentaImporte._sum.importe || 0),
+      sinDocumentoCount,
       facturasEmitidas: {
         total: facturasEmitidas._count,
         facturado: facturasEmitidas._sum.total || 0,
