@@ -15,6 +15,8 @@ interface Movimiento {
   pagoACuentaVola: boolean;
   facturaEmitidaId: string | null;
   notaConciliacion: string | null;
+  tipoDocumento: string | null;
+  documentoRecibido: boolean | null;
   cuenta: { banco: string; alias: string };
   factura: { id: string; proveedor: string; numFactura: string; total: number } | null;
   facturaEmitida: { id: string; cliente: string; numFactura: string; total: number } | null;
@@ -58,7 +60,7 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
@@ -98,6 +100,7 @@ export default function ConciliacionPage() {
     if (filtroBanco) params.set('cuentaId', filtroBanco);
     if (filtroEspecial === 'pendienteFactura') params.set('pendienteFactura', 'true');
     if (filtroEspecial === 'pagoVola') params.set('pagoACuentaVola', 'true');
+    if (filtroEspecial === 'sinDocumento') params.set('sinDocumento', 'true');
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
@@ -254,10 +257,29 @@ export default function ConciliacionPage() {
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false }),
+      body: JSON.stringify({ conciliado: false, facturaId: null, facturaEmitidaId: null, gastoId: null, categoria: null, pagoACuentaVola: false, pendienteFactura: false, tipoDocumento: null, documentoRecibido: null }),
     });
     fetchMovimientos();
     fetchEstado();
+  }
+
+  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket') {
+    const docRecibido = tipo === 'ticket' ? true : false; // tickets no necesitan documento, facturas por defecto sin doc
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipoDocumento: tipo, documentoRecibido: docRecibido }),
+    });
+    fetchMovimientos();
+  }
+
+  async function toggleDocumentoRecibido(movimientoId: string, recibido: boolean) {
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ documentoRecibido: recibido }),
+    });
+    fetchMovimientos();
   }
 
   function formatEUR(n: number) {
@@ -279,7 +301,7 @@ export default function ConciliacionPage() {
 
     return (
       <tr key={`panel-${movId}`}>
-        <td colSpan={7} className="p-0">
+        <td colSpan={8} className="p-0">
           <div ref={panelRef} className="bg-blue-50 border-t-2 border-b-2 border-blue-300 p-4 space-y-3">
             {/* Header del panel */}
             <div className="flex items-center justify-between">
@@ -378,6 +400,24 @@ export default function ConciliacionPage() {
               >
                 Pendiente factura / Reclamar
               </button>
+              {!esIngreso && mov && !mov.tipoDocumento && (
+                <>
+                  <span className="text-gray-300 mx-1">|</span>
+                  <span className="text-gray-500">Tipo:</span>
+                  <button
+                    onClick={() => marcarTipoDocumento(movId, 'factura')}
+                    className="px-2 py-1 bg-blue-50 border border-blue-300 rounded hover:bg-blue-100 text-blue-700 font-medium"
+                  >
+                    Factura
+                  </button>
+                  <button
+                    onClick={() => marcarTipoDocumento(movId, 'ticket')}
+                    className="px-2 py-1 bg-gray-50 border border-gray-300 rounded hover:bg-gray-100 text-gray-600 font-medium"
+                  >
+                    Ticket
+                  </button>
+                </>
+              )}
               {!esIngreso && (
                 <button
                   onClick={() => marcarPagoVola(movId)}
@@ -469,7 +509,7 @@ export default function ConciliacionPage() {
 
       {/* KPIs */}
       {estado && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-6 gap-3">
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial(''); setPage(1); }}
             className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
@@ -517,6 +557,16 @@ export default function ConciliacionPage() {
             <p className="text-2xl font-bold text-purple-700">—</p>
             <p className="text-[10px] text-gray-400">A cuenta</p>
           </button>
+          <button
+            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('sinDocumento'); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+              filtroEspecial === 'sinDocumento' ? 'ring-2 ring-red-400 shadow-md' : ''
+            }`}
+          >
+            <p className="text-xs text-red-600 uppercase font-medium">Sin Documento</p>
+            <p className="text-2xl font-bold text-red-700">—</p>
+            <p className="text-[10px] text-gray-400">Facturas por reclamar</p>
+          </button>
         </div>
       )}
 
@@ -563,9 +613,15 @@ export default function ConciliacionPage() {
           ))}
         </select>
         {filtroEspecial && (
-          <span className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg bg-amber-50 border border-amber-200 text-amber-700">
-            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pendiente factura' : 'Filtrando: Pagos Vola'}
-            <button onClick={() => { setFiltroEspecial(''); setFiltroConciliado('false'); }} className="ml-1 hover:text-amber-900">
+          <span className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${
+            filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
+            filtroEspecial === 'pagoVola' ? 'bg-purple-50 border border-purple-200 text-purple-700' :
+            'bg-amber-50 border border-amber-200 text-amber-700'
+          }`}>
+            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pendiente factura' : 
+             filtroEspecial === 'pagoVola' ? 'Filtrando: Pagos Vola' :
+             'Filtrando: Sin documento (reclamar)'}
+            <button onClick={() => { setFiltroEspecial(''); setFiltroConciliado('false'); }} className="ml-1 hover:opacity-70">
               <XMarkIcon className="h-3.5 w-3.5" />
             </button>
           </span>
@@ -583,15 +639,16 @@ export default function ConciliacionPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoría</th>
+                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo Doc</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : movimientos.length === 0 ? (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-400">No hay movimientos</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay movimientos</td></tr>
               ) : (
                 movimientos.map(mov => (
                   <>
@@ -624,6 +681,46 @@ export default function ConciliacionPage() {
                         <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
                           {mov.categoria || 'Sin categoría'}
                         </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        {mov.importe < 0 && (
+                          <div className="flex items-center justify-center gap-1">
+                            {!mov.tipoDocumento ? (
+                              <>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); marcarTipoDocumento(mov.id, 'factura'); }}
+                                  className="text-[10px] px-1.5 py-0.5 border border-blue-200 text-blue-600 rounded hover:bg-blue-50"
+                                  title="Es una factura"
+                                >
+                                  Factura
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); marcarTipoDocumento(mov.id, 'ticket'); }}
+                                  className="text-[10px] px-1.5 py-0.5 border border-gray-200 text-gray-500 rounded hover:bg-gray-50"
+                                  title="Es un ticket (sin IVA deducible)"
+                                >
+                                  Ticket
+                                </button>
+                              </>
+                            ) : mov.tipoDocumento === 'factura' ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); toggleDocumentoRecibido(mov.id, !mov.documentoRecibido); }}
+                                  className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                    mov.documentoRecibido
+                                      ? 'bg-green-100 text-green-700 border border-green-200'
+                                      : 'bg-red-100 text-red-700 border border-red-200'
+                                  }`}
+                                  title={mov.documentoRecibido ? 'Documento recibido (clic para quitar)' : 'Sin documento (clic para marcar como recibido)'}
+                                >
+                                  {mov.documentoRecibido ? '✓ Factura' : '✗ Sin doc'}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">Ticket</span>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">

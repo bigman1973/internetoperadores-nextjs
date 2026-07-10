@@ -67,6 +67,16 @@ export async function GET(req: NextRequest) {
     if (pendienteFactura === 'true') where.pendienteFactura = true;
     const pagoACuentaVola = searchParams.get('pagoACuentaVola');
     if (pagoACuentaVola === 'true') where.pagoACuentaVola = true;
+    const tipoDocumento = searchParams.get('tipoDocumento');
+    if (tipoDocumento) where.tipoDocumento = tipoDocumento;
+    const documentoRecibido = searchParams.get('documentoRecibido');
+    if (documentoRecibido === 'true') where.documentoRecibido = true;
+    if (documentoRecibido === 'false') where.documentoRecibido = false;
+    const sinDocumento = searchParams.get('sinDocumento');
+    if (sinDocumento === 'true') {
+      where.tipoDocumento = 'factura';
+      where.documentoRecibido = false;
+    }
     const tipo = searchParams.get('tipo');
     if (tipo === 'ingresos') where.importe = { gt: 0 };
     if (tipo === 'cargos') where.importe = { lt: 0 };
