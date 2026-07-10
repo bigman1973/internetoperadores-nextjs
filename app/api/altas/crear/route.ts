@@ -268,8 +268,8 @@ export async function POST(request: NextRequest) {
             <tr><td style="padding: 8px 0; font-weight: bold;">Email:</td><td>${email}</td></tr>
             <tr><td style="padding: 8px 0; font-weight: bold;">Teléfono:</td><td>${telefono || 'No proporcionado'}</td></tr>
             <tr><td style="padding: 8px 0; font-weight: bold;">Servicio:</td><td>${tarifaNombreStr}</td></tr>
-            <tr><td style="padding: 8px 0; font-weight: bold;">Importe mensual:</td><td style="color: #f97316; font-weight: bold;">${importeCuota.toFixed(2)}\u20ac/mes</td></tr>
-            ${importeAlta ? `<tr><td style="padding: 8px 0; font-weight: bold;">Cuota alta:</td><td>${importeAlta.toFixed(2)}\u20ac</td></tr>` : ''}
+            <tr><td style="padding: 8px 0; font-weight: bold;">Importe mensual:</td><td style="color: #f97316; font-weight: bold;">${importeCuota.toFixed(2)}€/mes</td></tr>
+            ${importeAlta ? `<tr><td style="padding: 8px 0; font-weight: bold;">Cuota alta:</td><td>${importeAlta.toFixed(2)}€</td></tr>` : ''}
             <tr><td style="padding: 8px 0; font-weight: bold;">Método pago:</td><td>${metodoPago}</td></tr>
             ${observaciones ? `<tr><td style="padding: 8px 0; font-weight: bold;">Observaciones:</td><td>${observaciones}</td></tr>` : ''}
           </table>
@@ -296,7 +296,7 @@ export async function POST(request: NextRequest) {
           <p style="color: #4b5563; line-height: 1.6;">Hemos recibido tu solicitud de alta correctamente. Nuestro equipo la procesará y te contactaremos para confirmar los próximos pasos.</p>
           <div style="background: #f9fafb; padding: 16px; border-radius: 8px; margin: 16px 0;">
             <p style="margin: 4px 0; color: #374151;"><strong>Servicio:</strong> ${tarifaNombreStr}</p>
-            <p style="margin: 4px 0; color: #374151;"><strong>Importe:</strong> ${importeCuota.toFixed(2)}\u20ac/mes</p>
+            <p style="margin: 4px 0; color: #374151;"><strong>Importe:</strong> ${importeCuota.toFixed(2)}€/mes</p>
           </div>
           <p style="color: #4b5563; line-height: 1.6;">Si tienes alguna duda, puedes contactarnos en el <strong>900 730 034</strong> o por email a <strong>comercial@internetoperadores.com</strong>.</p>
           <p style="color: #9ca3af; font-size: 12px; margin-top: 24px;">Este es un email automático.</p>

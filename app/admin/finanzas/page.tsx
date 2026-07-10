@@ -8,11 +8,12 @@ interface DashboardData {
   saldos: { cuentas: any[]; total: number };
   fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; irpfNominas: number; irpfTotal: number; ssEmpresaNominas: number; ssTrabajadorNominas: number; mesesConNominas: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
   ventas: { totalFacturado: number; totalCobrado: number; pendienteCobro: number; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
-  flujo: { ingresos: number; gastos: number; salidas: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }>; desgloseSalidas: { gastosOperativos: number; mayoristas: number; nominas: number; cotizacionesSS: number; transfNominas: number; impuestos: number; devoluciones: number; transferenciasInternas: number; otros: number } };
+  flujo: { ingresos: number; gastos: number; salidas: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }>; desgloseSalidas: { gastosOperativos: number; mayoristas: number; vola: number; nominas: number; cotizacionesSS: number; transfNominas: number; impuestos: number; devoluciones: number; transferenciasInternas: number; otros: number } };
   categorias: Record<string, { ingresos: number; gastos: number; count: number }>;
   gastosPorTipo: Record<string, number>;
   conciliacion: { totalMovimientos: number; conciliados: number; pendientes: number; sinCategorizar: number; porcentajeConciliado: number };
   alertas: { facturasPendientes: number; facturasImpagadas: number; facturasVencidas: number; movimientosSinCategorizar: number };
+  cuentaCorrienteVola?: { pagosACuenta: number; numMovimientos: number };
 }
 
 function formatEUR(n: number) {
@@ -147,7 +148,7 @@ export default function FinanzasDashboard() {
             <BanknotesIcon className="h-4 w-4 text-purple-500" />
             <p className="text-xs text-purple-600 font-medium">Cuenta Vola</p>
           </div>
-          <p className="text-xl font-bold text-purple-700">{data.cuentaCorrienteVola ? formatEUR(data.cuentaCorrienteVola.pagosACuenta) : '\u2014'}</p>
+          <p className="text-xl font-bold text-purple-700">{data.cuentaCorrienteVola ? formatEUR(data.cuentaCorrienteVola.pagosACuenta) : '—'}</p>
           <p className="text-xs text-gray-400 mt-1">{data.cuentaCorrienteVola?.numMovimientos || 0} pagos a cuenta</p>
         </div>
       </div>
@@ -426,7 +427,7 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
   const config = CATEGORIAS_MAP[categoria];
   if (!config) return null;
 
-  // Filtrar las categor\u00edas de movimientos que corresponden a este grupo
+  // Filtrar las categorías de movimientos que corresponden a este grupo
   let items: { nombre: string; importe: number; count: number }[] = [];
 
   if (categoria === 'otros') {
@@ -509,7 +510,7 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
                   </div>
                 </div>
 
-                {/* Tabla de movimientos de esta subcategor\u00eda */}
+                {/* Tabla de movimientos de esta subcategoría */}
                 {isSelected && (
                   <div className="ml-4 mt-2 mb-3 border-l-2 border-blue-200 pl-3">
                     {loadingMov ? (
@@ -543,10 +544,10 @@ function DetalleCategoriaSalidas({ categoria, categorias }: { categoria: string;
                             <span className="text-xs text-gray-400">Mostrando {movimientos.length} de {totalMov}</span>
                             <div className="flex gap-2">
                               {pageMov > 1 && (
-                                <button onClick={() => fetchMovimientos(item.nombre, pageMov - 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">{"\u2190"} Anterior</button>
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov - 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">{"←"} Anterior</button>
                               )}
                               {pageMov * 20 < totalMov && (
-                                <button onClick={() => fetchMovimientos(item.nombre, pageMov + 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">Siguiente {"\u2192"}</button>
+                                <button onClick={() => fetchMovimientos(item.nombre, pageMov + 1)} className="text-xs px-3 py-1 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 font-medium">Siguiente {"→"}</button>
                               )}
                             </div>
                           </div>

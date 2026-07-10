@@ -402,7 +402,7 @@ export default function ConciliacionPage() {
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm text-gray-900 truncate">{sug.proveedor || sug.cliente || '\u2014'}</span>
+                        <span className="font-medium text-sm text-gray-900 truncate">{sug.proveedor || sug.cliente || '—'}</span>
                         <span className="text-xs text-gray-500 flex-shrink-0">{sug.numFactura}</span>
                         <span className="text-xs text-gray-400 flex-shrink-0">{formatFecha(sug.fecha)}</span>
                       </div>
@@ -452,7 +452,7 @@ export default function ConciliacionPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Conciliaci\u00f3n Bancaria</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Conciliación Bancaria</h1>
           <p className="text-sm text-gray-500 mt-1">
             Vincula movimientos bancarios con facturas
           </p>
@@ -463,7 +463,7 @@ export default function ConciliacionPage() {
           className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium text-sm"
         >
           <ArrowPathIcon className={`h-4 w-4 ${conciliando ? 'animate-spin' : ''}`} />
-          {conciliando ? 'Conciliando...' : 'Conciliar Autom\u00e1ticamente'}
+          {conciliando ? 'Conciliando...' : 'Conciliar Automáticamente'}
         </button>
       </div>
 
@@ -504,7 +504,7 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-orange-600 uppercase font-medium">Reclamar Factura</p>
-            <p className="text-2xl font-bold text-orange-700">\u2014</p>
+            <p className="text-2xl font-bold text-orange-700">—</p>
             <p className="text-[10px] text-gray-400">Pdte. recibir</p>
           </button>
           <button
@@ -514,13 +514,13 @@ export default function ConciliacionPage() {
             }`}
           >
             <p className="text-xs text-purple-600 uppercase font-medium">Pagos Vola</p>
-            <p className="text-2xl font-bold text-purple-700">\u2014</p>
+            <p className="text-2xl font-bold text-purple-700">—</p>
             <p className="text-[10px] text-gray-400">A cuenta</p>
           </button>
         </div>
       )}
 
-      {/* Resultado conciliaci\u00f3n autom\u00e1tica */}
+      {/* Resultado conciliación automática */}
       {resultadoConciliacion && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
           <div className="flex items-center gap-4 text-sm">
@@ -548,7 +548,7 @@ export default function ConciliacionPage() {
                 filtroTipo === tipo ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {tipo === 'gastos' ? '\u2193 Gastos' : tipo === 'ingresos' ? '\u2191 Ingresos' : 'Todos'}
+              {tipo === 'gastos' ? '↓ Gastos' : tipo === 'ingresos' ? '↑ Ingresos' : 'Todos'}
             </button>
           ))}
         </div>
@@ -582,7 +582,7 @@ export default function ConciliacionPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Banco</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categor\u00eda</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoría</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
               </tr>
@@ -622,7 +622,7 @@ export default function ConciliacionPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
-                          {mov.categoria || 'Sin categor\u00eda'}
+                          {mov.categoria || 'Sin categoría'}
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -644,7 +644,7 @@ export default function ConciliacionPage() {
                             <button
                               onClick={(e) => { e.stopPropagation(); desconciliar(mov.id); }}
                               className="flex items-center gap-1 px-2 py-1 text-xs text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded border border-amber-200"
-                              title="Deshacer conciliaci\u00f3n"
+                              title="Deshacer conciliación"
                             >
                               <ArrowUturnLeftIcon className="h-3.5 w-3.5" />
                               Deshacer
@@ -690,10 +690,10 @@ export default function ConciliacionPage() {
           </table>
         </div>
 
-        {/* Paginaci\u00f3n */}
+        {/* Paginación */}
         {total > 30 && (
           <div className="border-t px-4 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">P\u00e1gina {page} \u00b7 {total} movimientos</p>
+            <p className="text-xs text-gray-500">Página {page} · {total} movimientos</p>
             <div className="flex gap-2">
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Anterior</button>
               <button onClick={() => setPage(p => p + 1)} disabled={movimientos.length < 30} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>

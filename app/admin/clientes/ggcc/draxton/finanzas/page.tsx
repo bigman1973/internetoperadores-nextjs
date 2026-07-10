@@ -202,9 +202,9 @@ export default function DaxtonFinanzasPage() {
               <span className="text-xs font-medium text-gray-500">Media Mensual</span>
             </div>
             <p className="text-2xl font-bold text-purple-700">
-              {porMes.length > 0 ? formatEurShort(resumen.totalBase / porMes.length) : '\u2014'}
+              {porMes.length > 0 ? formatEurShort(resumen.totalBase / porMes.length) : '—'}
             </p>
-            <p className="text-xs text-gray-400 mt-0.5">{porMes.length} meses con facturaci\u00f3n</p>
+            <p className="text-xs text-gray-400 mt-0.5">{porMes.length} meses con facturación</p>
           </div>
         </div>
       )}
@@ -212,7 +212,7 @@ export default function DaxtonFinanzasPage() {
       {/* Tabla de facturación mensual con barras */}
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="px-4 py-3 border-b">
-          <h2 className="text-sm font-semibold text-gray-900">Facturaci\u00f3n Mensual (Base Imponible)</h2>
+          <h2 className="text-sm font-semibold text-gray-900">Facturación Mensual (Base Imponible)</h2>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -243,7 +243,7 @@ export default function DaxtonFinanzasPage() {
                     <td className="px-4 py-2.5 text-right text-gray-600">{formatEur(m.total)}</td>
                     <td className="px-4 py-2.5 text-right text-green-600">{formatEur(m.cobrado)}</td>
                     <td className="px-4 py-2.5 text-right text-orange-600">
-                      {m.pendiente > 0 ? formatEur(m.pendiente) : '\u2014'}
+                      {m.pendiente > 0 ? formatEur(m.pendiente) : '—'}
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="w-full bg-gray-100 rounded-full h-4 relative overflow-hidden">
@@ -301,12 +301,12 @@ export default function DaxtonFinanzasPage() {
                   <td className="px-4 py-2.5 text-right text-gray-600">{formatEur(s.total)}</td>
                   <td className="px-4 py-2.5 text-right text-green-600">{formatEur(s.cobrado)}</td>
                   <td className="px-4 py-2.5 text-right text-orange-600">
-                    {s.pendiente > 0 ? formatEur(s.pendiente) : '\u2014'}
+                    {s.pendiente > 0 ? formatEur(s.pendiente) : '—'}
                   </td>
                   <td className="px-4 py-2.5 text-right text-gray-500">
                     {resumen && resumen.totalBase > 0
                       ? ((s.base / resumen.totalBase) * 100).toFixed(1) + '%'
-                      : '\u2014'}
+                      : '—'}
                   </td>
                 </tr>
               ))}
@@ -358,7 +358,7 @@ export default function DaxtonFinanzasPage() {
                 onClick={() => setOrdenDir(d => d === 'asc' ? 'desc' : 'asc')}
                 className="text-xs border rounded-lg px-2 py-1.5 hover:bg-white"
               >
-                {ordenDir === 'desc' ? '\u2193 Desc' : '\u2191 Asc'}
+                {ordenDir === 'desc' ? '↓ Desc' : '↑ Asc'}
               </button>
               <span className="text-xs text-gray-500 ml-auto">
                 Mostrando {detalleFiltrado.length} de {detalle.length}

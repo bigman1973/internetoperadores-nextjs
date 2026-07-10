@@ -112,17 +112,17 @@ export default function LeadDetallePage() {
   </div>
   <div style="padding: 30px; background-color: #f9f9f9;">
     <p>Estimado/a <strong>${lead.nombre}</strong>,</p>
-    <p>Gracias por su inter\u00e9s en nuestros servicios de Mantenimiento IT para <strong>${lead.empresa}</strong>.</p>
-    <p>Adjunto a este email encontrar\u00e1 nuestra <strong>propuesta personalizada</strong> con los servicios recomendados y una estimaci\u00f3n econ\u00f3mica basada en las necesidades que nos ha indicado.</p>
-    ${cuestionarioUrl ? `<p>Para poder ofrecerle un presupuesto definitivo ajustado a su infraestructura real, le agradecer\u00edamos que completara el siguiente <strong>cuestionario t\u00e9cnico</strong> (10-15 minutos):</p>
+    <p>Gracias por su interés en nuestros servicios de Mantenimiento IT para <strong>${lead.empresa}</strong>.</p>
+    <p>Adjunto a este email encontrará nuestra <strong>propuesta personalizada</strong> con los servicios recomendados y una estimación económica basada en las necesidades que nos ha indicado.</p>
+    ${cuestionarioUrl ? `<p>Para poder ofrecerle un presupuesto definitivo ajustado a su infraestructura real, le agradeceríamos que completara el siguiente <strong>cuestionario técnico</strong> (10-15 minutos):</p>
     <div style="text-align: center; margin: 25px 0;">
-      <a href="${cuestionarioUrl}" style="background-color: #E87A2E; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario T\u00e9cnico</a>
+      <a href="${cuestionarioUrl}" style="background-color: #E87A2E; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">Completar Cuestionario Técnico</a>
     </div>` : ''}
-    <p>Una vez recibamos sus respuestas, en un plazo de <strong>48 horas</strong> le enviaremos una propuesta a precio cerrado y coordinaremos una reuni\u00f3n para resolver cualquier duda.</p>
+    <p>Una vez recibamos sus respuestas, en un plazo de <strong>48 horas</strong> le enviaremos una propuesta a precio cerrado y coordinaremos una reunión para resolver cualquier duda.</p>
     <hr style="border: none; border-top: 1px solid #ddd; margin: 25px 0;" />
-    <p style="color: #666; font-size: 13px;">Quedamos a su disposici\u00f3n para cualquier consulta:</p>
+    <p style="color: #666; font-size: 13px;">Quedamos a su disposición para cualquier consulta:</p>
     <p style="color: #666; font-size: 13px;"><strong>900 730 034</strong> (gratuito) | <strong>comercial@internetoperadores.com</strong></p>
-    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnol\u00f3gico de confianza</p>
+    <p style="color: #999; font-size: 11px; margin-top: 20px;">Internet Operadores — Partner tecnológico de confianza</p>
   </div>
 </div>`);
     setMostrarEmailModal(true);
@@ -179,7 +179,7 @@ export default function LeadDetallePage() {
         setMensaje(`Error: ${data.error || 'No se pudo enviar'}`);
       }
     } catch {
-      setMensaje('Error de conexi\u00f3n al enviar email');
+      setMensaje('Error de conexión al enviar email');
     } finally {
       setEnviandoEmail(false);
     }
