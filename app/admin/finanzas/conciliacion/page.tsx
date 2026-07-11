@@ -360,6 +360,16 @@ export default function ConciliacionPage() {
     fetchMovimientos();
   }
 
+  async function desvincularTercero(movimientoId: string) {
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entidadFiscalId: null }),
+    });
+    fetchMovimientos();
+    fetchEstado();
+  }
+
   async function fetchTerceros(buscar?: string) {
     setLoadingTerceros(true);
     try {
@@ -983,14 +993,23 @@ export default function ConciliacionPage() {
                       </td>
                       <td className="px-4 py-2.5">
                         {mov.entidadFiscal ? (
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
-                            mov.entidadFiscal.tipo === 'PROVEEDOR' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
-                            mov.entidadFiscal.tipo === 'CLIENTE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                            mov.entidadFiscal.tipo === 'PERSONAL' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
-                            'bg-red-50 text-red-700 border border-red-200'
-                          }`} title={`${mov.entidadFiscal.nifCif || ''} · ${mov.entidadFiscal.cuentaContableA3 || ''}`}>
-                            {mov.entidadFiscal.razonSocial}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                              mov.entidadFiscal.tipo === 'PROVEEDOR' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                              mov.entidadFiscal.tipo === 'CLIENTE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                              mov.entidadFiscal.tipo === 'PERSONAL' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
+                              'bg-red-50 text-red-700 border border-red-200'
+                            }`} title={`${mov.entidadFiscal.nifCif || ''} · ${mov.entidadFiscal.cuentaContableA3 || ''}`}>
+                              {mov.entidadFiscal.razonSocial}
+                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); desvincularTercero(mov.id); }}
+                              className="text-gray-300 hover:text-red-500 transition-colors"
+                              title="Quitar tercero"
+                            >
+                              <XMarkIcon className="h-3 w-3" />
+                            </button>
+                          </div>
                         ) : mov.entregaACuentaEmpleado ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-teal-50 text-teal-700 border border-teal-200">
                             {mov.entregaACuentaEmpleado.nombreCompleto}
