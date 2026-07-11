@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -60,6 +60,47 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       data.entidadFiscalId = entidadFiscalId;
     }
 
+    // Si se pide asignar proveedor a movimientos similares
+    if (asignarProveedorASimilares) {
+      const movActual = await prisma.movimientoBancario.findUnique({ where: { id }, include: { cuenta: true } });
+      if (movActual && movActual.entidadFiscalId) {
+        const patron = extraerPatron(movActual.concepto);
+        if (patron) {
+          await prisma.movimientoBancario.updateMany({
+            where: {
+              id: { not: id },
+              concepto: { contains: patron, mode: 'insensitive' },
+              entidadFiscalId: null,
+            },
+            data: { entidadFiscalId: movActual.entidadFiscalId },
+          });
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
+    // Auto-vincular proveedor al vincular factura recibida
+    let autoEntidadFiscalId: string | null = null;
+    if (facturaId && facturaId !== null && !data.entidadFiscalId) {
+      const factura = await prisma.facturaRecibida.findUnique({ where: { id: facturaId }, select: { proveedor: true, cif: true } });
+      if (factura) {
+        // Buscar entidad fiscal por CIF o nombre
+        const entidad = await prisma.entidadFiscal.findFirst({
+          where: {
+            OR: [
+              ...(factura.cif ? [{ nifCif: factura.cif }] : []),
+              { razonSocial: { equals: factura.proveedor, mode: 'insensitive' as const } },
+              { nombreComercial: { equals: factura.proveedor, mode: 'insensitive' as const } },
+            ],
+          },
+        });
+        if (entidad) {
+          data.entidadFiscalId = entidad.id;
+          autoEntidadFiscalId = entidad.id;
+        }
+      }
+    }
+
     const movimiento = await prisma.movimientoBancario.update({
       where: { id },
       data,
@@ -80,7 +121,6 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 
     // Si se pide crear regla de imputación automática
     if (crearRegla && categoria) {
-      // Extraer patrón del concepto (primeras palabras significativas)
       const patron = extraerPatron(movimiento.concepto);
       if (patron) {
         await prisma.reglaImputacion.upsert({
@@ -101,7 +141,24 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
     }
 
-    return NextResponse.json({ movimiento });
+    // Contar movimientos similares sin proveedor para sugerir asignación masiva
+    let similares = 0;
+    let proveedorNombre = '';
+    if (autoEntidadFiscalId) {
+      const patron = extraerPatron(movimiento.concepto);
+      if (patron) {
+        similares = await prisma.movimientoBancario.count({
+          where: {
+            id: { not: id },
+            concepto: { contains: patron, mode: 'insensitive' },
+            entidadFiscalId: null,
+          },
+        });
+      }
+      proveedorNombre = movimiento.entidadFiscal?.razonSocial || '';
+    }
+
+    return NextResponse.json({ movimiento, similares, proveedorNombre });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -83,6 +83,19 @@ export async function GET(req: NextRequest) {
     if (tipo === 'ingresos') where.importe = { gt: 0 };
     if (tipo === 'cargos') where.importe = { lt: 0 };
 
+    // Filtros de niveles de conciliación
+    const conProveedor = searchParams.get('conProveedor');
+    if (conProveedor === 'true') where.entidadFiscalId = { not: null };
+    const conFacturaRecibida = searchParams.get('conFacturaRecibida');
+    if (conFacturaRecibida === 'true') where.facturaId = { not: null };
+    const conFacturaEmitida = searchParams.get('conFacturaEmitida');
+    if (conFacturaEmitida === 'true') where.facturaEmitidaId = { not: null };
+    const sinProveedor = searchParams.get('sinProveedor');
+    if (sinProveedor === 'true') {
+      where.entidadFiscalId = null;
+      where.importe = { lt: 0 };
+    }
+
     const [movimientos, total] = await Promise.all([
       prisma.movimientoBancario.findMany({
         where,

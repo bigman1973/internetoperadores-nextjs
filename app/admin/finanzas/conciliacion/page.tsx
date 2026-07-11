@@ -78,7 +78,7 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
@@ -125,6 +125,10 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'pagoVola') params.set('pagoACuentaVola', 'true');
     if (filtroEspecial === 'sinDocumento') params.set('sinDocumento', 'true');
     if (filtroEspecial === 'entregaACuenta') params.set('entregaACuenta', 'true');
+    if (filtroEspecial === 'conProveedor') params.set('conProveedor', 'true');
+    if (filtroEspecial === 'conFacturaRecibida') params.set('conFacturaRecibida', 'true');
+    if (filtroEspecial === 'conFacturaEmitida') params.set('conFacturaEmitida', 'true');
+    if (filtroEspecial === 'sinProveedor') params.set('sinProveedor', 'true');
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
@@ -217,11 +221,27 @@ export default function ConciliacionPage() {
       body.facturaId = facturaId;
     }
 
-    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+    const res = await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    const result = await res.json();
+    
+    // Si se vinculó proveedor y hay similares, preguntar si asignar a todos
+    if (result.similares && result.similares > 0) {
+      const confirmar = window.confirm(
+        `Se han encontrado ${result.similares} movimiento(s) con concepto similar.\n\n¿Quieres asignar el mismo proveedor "${result.proveedorNombre}" a todos?`
+      );
+      if (confirmar) {
+        await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asignarProveedorASimilares: true }),
+        });
+      }
+    }
+    
     setSelectedMov(null);
     setSugerencias([]);
     setTodasFacturas([]);
@@ -707,22 +727,22 @@ export default function ConciliacionPage() {
       {/* KPIs Niveles de Conciliación */}
       {estado && (
         <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white border border-blue-200 rounded-lg p-4">
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conProveedor' ? '' : 'conProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conProveedor' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-200'}`}>
             <p className="text-xs text-blue-600 uppercase font-medium">Proveedor Identificado</p>
             <p className="text-2xl font-bold text-blue-700">{estado.conProveedorIdentificado || 0}</p>
             <p className="text-[10px] text-gray-400">Nivel 1 — Tercero vinculado</p>
           </div>
-          <div className="bg-white border border-indigo-200 rounded-lg p-4">
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaRecibida' ? '' : 'conFacturaRecibida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conFacturaRecibida' ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-indigo-200'}`}>
             <p className="text-xs text-indigo-600 uppercase font-medium">Con Factura Recibida</p>
             <p className="text-2xl font-bold text-indigo-700">{estado.conFacturaVinculada || 0}</p>
             <p className="text-[10px] text-gray-400">Nivel 2 — Documento vinculado</p>
           </div>
-          <div className="bg-white border border-emerald-200 rounded-lg p-4">
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaEmitida' ? '' : 'conFacturaEmitida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conFacturaEmitida' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-emerald-200'}`}>
             <p className="text-xs text-emerald-600 uppercase font-medium">Con Factura Emitida</p>
             <p className="text-2xl font-bold text-emerald-700">{estado.conFacturaEmitidaVinculada || 0}</p>
             <p className="text-[10px] text-gray-400">Cobros vinculados</p>
           </div>
-          <div className="bg-white border border-rose-200 rounded-lg p-4">
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'sinProveedor' ? '' : 'sinProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'sinProveedor' ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-200'}`}>
             <p className="text-xs text-rose-600 uppercase font-medium">Sin Proveedor (Gastos)</p>
             <p className="text-2xl font-bold text-rose-700">{estado.sinProveedorGastos || 0}</p>
             <p className="text-[10px] text-gray-400">Pendientes de identificar</p>
@@ -777,11 +797,19 @@ export default function ConciliacionPage() {
             filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
             filtroEspecial === 'pagoVola' ? 'bg-purple-50 border border-purple-200 text-purple-700' :
             filtroEspecial === 'entregaACuenta' ? 'bg-teal-50 border border-teal-200 text-teal-700' :
+            filtroEspecial === 'conProveedor' ? 'bg-blue-50 border border-blue-200 text-blue-700' :
+            filtroEspecial === 'conFacturaRecibida' ? 'bg-indigo-50 border border-indigo-200 text-indigo-700' :
+            filtroEspecial === 'conFacturaEmitida' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' :
+            filtroEspecial === 'sinProveedor' ? 'bg-rose-50 border border-rose-200 text-rose-700' :
             'bg-amber-50 border border-amber-200 text-amber-700'
           }`}>
             {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pendiente factura' : 
              filtroEspecial === 'pagoVola' ? 'Filtrando: Pagos Vola' :
              filtroEspecial === 'entregaACuenta' ? 'Filtrando: Entregas a cuenta' :
+             filtroEspecial === 'conProveedor' ? 'Filtrando: Con proveedor identificado' :
+             filtroEspecial === 'conFacturaRecibida' ? 'Filtrando: Con factura recibida' :
+             filtroEspecial === 'conFacturaEmitida' ? 'Filtrando: Con factura emitida' :
+             filtroEspecial === 'sinProveedor' ? 'Filtrando: Sin proveedor (gastos)' :
              'Filtrando: Sin documento (reclamar)'}
             <button onClick={() => { setFiltroEspecial(''); setFiltroConciliado('false'); }} className="ml-1 hover:opacity-70">
               <XMarkIcon className="h-3.5 w-3.5" />
