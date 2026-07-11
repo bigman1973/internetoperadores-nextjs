@@ -126,25 +126,43 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Poblar CLIENTES desde tabla FacturaEmitida
+    // Poblar CLIENTES desde tabla ClienteWeb
     let clientesCreados = 0;
     let clientesExistentes = 0;
 
     if (fuente === 'clientes' || fuente === 'todo') {
-      const clientesFacturas = await prisma.facturaEmitida.groupBy({
-        by: ['cliente', 'cif'],
-        _count: true,
-        _sum: { total: true },
+      const clientes = await prisma.clienteWeb.findMany({
+        where: { activo: true },
+        select: {
+          id: true,
+          nombre: true,
+          nombreComercial: true,
+          nif: true,
+          cif: true,
+          domicilio: true,
+          municipio: true,
+          codigoPostal: true,
+          provincia: true,
+          pais: true,
+          email: true,
+          telefono: true,
+          cuentaCargo: true,
+          cuentaContable: true,
+          formaPago: true,
+          personaFisica: true,
+        },
       });
 
-      for (const cli of clientesFacturas) {
-        if (!cli.cliente) continue;
+      for (const cli of clientes) {
+        if (!cli.nombre) continue;
+
+        const nifCif = cli.cif || cli.nif || null;
 
         const existe = await prisma.entidadFiscal.findFirst({
           where: {
             OR: [
-              ...(cli.cif ? [{ nifCif: cli.cif }] : []),
-              { razonSocial: { equals: cli.cliente, mode: 'insensitive' as const } },
+              ...(nifCif ? [{ nifCif }] : []),
+              { razonSocial: { equals: cli.nombre, mode: 'insensitive' as const } },
             ],
             tipo: 'CLIENTE',
           },
@@ -155,20 +173,23 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Obtener datos adicionales del cliente más reciente
-        const ultimaFactura = await prisma.facturaEmitida.findFirst({
-          where: { cliente: cli.cliente },
-          orderBy: { fecha: 'desc' },
-          select: { domicilioCliente: true, formaPago: true },
-        });
-
         await prisma.entidadFiscal.create({
           data: {
             tipo: 'CLIENTE',
-            razonSocial: cli.cliente,
-            nifCif: cli.cif || null,
-            direccionFiscal: ultimaFactura?.domicilioCliente || null,
-            formaPago: ultimaFactura?.formaPago || null,
+            razonSocial: cli.nombre,
+            nombreComercial: cli.nombreComercial || null,
+            nifCif,
+            direccionFiscal: cli.domicilio || null,
+            codigoPostal: cli.codigoPostal || null,
+            poblacion: cli.municipio || null,
+            provincia: cli.provincia || null,
+            pais: cli.pais || 'ES',
+            emailGeneral: cli.email || null,
+            telefono: cli.telefono || null,
+            iban: cli.cuentaCargo || null,
+            cuentaContableA3: cli.cuentaContable || null,
+            formaPago: cli.formaPago || null,
+            categoriaInterna: cli.personaFisica ? 'Particular' : 'Empresa',
           },
         });
         clientesCreados++;

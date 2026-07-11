@@ -329,10 +329,56 @@ export default function DatosFiscalesPage() {
                             <p className="text-[10px] text-gray-400">Pendientes</p>
                           </div>
                         </div>
+                        {/* KPI adicional para clientes: Total Facturado */}
+                        {detalle.resumenFacturas && detalle.resumenFacturas.numFacturas > 0 && (
+                          <div className="bg-white border border-blue-200 rounded-lg p-3 inline-block">
+                            <p className="text-[10px] text-blue-600 uppercase font-medium">Total Facturado</p>
+                            <p className="text-lg font-bold text-blue-700">{detalle.resumenFacturas.totalFacturado.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+                            <p className="text-[10px] text-gray-400">{detalle.resumenFacturas.numFacturas} facturas emitidas</p>
+                          </div>
+                        )}
+                        {/* Tabla de facturas emitidas (solo clientes) */}
+                        {detalle.facturasEmitidas && detalle.facturasEmitidas.length > 0 && (
+                          <div className="bg-white border rounded-lg overflow-hidden">
+                            <div className="px-4 py-2 border-b bg-white">
+                              <p className="text-sm font-medium text-gray-700">Facturas emitidas ({detalle.totalFacturasEmitidas} total)</p>
+                            </div>
+                            <table className="w-full text-xs">
+                              <thead className="bg-gray-50 border-b">
+                                <tr>
+                                  <th className="px-3 py-2 text-left font-medium text-gray-600">Nº Factura</th>
+                                  <th className="px-3 py-2 text-left font-medium text-gray-600">Fecha</th>
+                                  <th className="px-3 py-2 text-right font-medium text-gray-600">Base</th>
+                                  <th className="px-3 py-2 text-right font-medium text-gray-600">IVA</th>
+                                  <th className="px-3 py-2 text-right font-medium text-gray-600">Total</th>
+                                  <th className="px-3 py-2 text-center font-medium text-gray-600">Forma Pago</th>
+                                  <th className="px-3 py-2 text-center font-medium text-gray-600">Estado</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {detalle.facturasEmitidas.map((f: any) => (
+                                  <tr key={f.id} className="hover:bg-gray-50">
+                                    <td className="px-3 py-2 text-gray-700 font-mono">{f.numFactura}</td>
+                                    <td className="px-3 py-2 text-gray-600">{new Date(f.fecha).toLocaleDateString('es-ES')}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">{Number(f.base).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">{Number(f.iva).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
+                                    <td className="px-3 py-2 text-right font-medium text-gray-900">{Number(f.total).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
+                                    <td className="px-3 py-2 text-center text-gray-600">{f.formaPago || '—'}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${f.estado === 'COBRADA' ? 'bg-green-50 text-green-700' : f.estado === 'REMESADA' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                                        {f.estado || 'Pendiente'}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
                         {/* Tabla de movimientos */}
                         <div className="bg-white border rounded-lg overflow-hidden">
                           <div className="px-4 py-2 border-b bg-white flex items-center justify-between">
-                            <p className="text-sm font-medium text-gray-700">Últimos movimientos ({detalle.totalMovimientos} total)</p>
+                            <p className="text-sm font-medium text-gray-700">Últimos movimientos bancarios ({detalle.totalMovimientos} total)</p>
                             <button onClick={() => { setDetalleId(null); setDetalle(null); }} className="text-gray-400 hover:text-gray-600">
                               <XMarkIcon className="h-4 w-4" />
                             </button>

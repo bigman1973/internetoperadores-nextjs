@@ -78,10 +78,58 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
       where: { entidadFiscalId: id, facturaId: { not: null } },
     });
 
+    // Si es CLIENTE, obtener también facturas emitidas vinculadas por nombre/CIF
+    let facturasEmitidas: any[] = [];
+    let totalFacturasEmitidas = 0;
+    let resumenFacturas = { totalFacturado: 0, numFacturas: 0 };
+
+    if (entidad.tipo === 'CLIENTE') {
+      const whereFacturas: any = {
+        OR: [
+          ...(entidad.nifCif ? [{ cif: entidad.nifCif }] : []),
+          { cliente: { equals: entidad.razonSocial, mode: 'insensitive' } },
+          ...(entidad.nombreComercial ? [{ cliente: { equals: entidad.nombreComercial, mode: 'insensitive' as const } }] : []),
+        ],
+      };
+
+      [facturasEmitidas, totalFacturasEmitidas] = await Promise.all([
+        prisma.facturaEmitida.findMany({
+          where: whereFacturas,
+          orderBy: { fecha: 'desc' },
+          skip: 0,
+          take: 50,
+          select: {
+            id: true,
+            numFactura: true,
+            fecha: true,
+            base: true,
+            iva: true,
+            total: true,
+            formaPago: true,
+            estado: true,
+          },
+        }),
+        prisma.facturaEmitida.count({ where: whereFacturas }),
+      ]);
+
+      const sumaFacturas = await prisma.facturaEmitida.aggregate({
+        where: whereFacturas,
+        _sum: { total: true },
+        _count: true,
+      });
+      resumenFacturas = {
+        totalFacturado: Number(sumaFacturas._sum.total || 0),
+        numFacturas: sumaFacturas._count,
+      };
+    }
+
     return NextResponse.json({
       entidad,
       movimientos,
       totalMovimientos,
+      facturasEmitidas,
+      totalFacturasEmitidas,
+      resumenFacturas,
       resumen: {
         totalOperaciones: resumen._count,
         importeNeto: resumen._sum.importe || 0,
