@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// POST - Poblar entidades fiscales desde facturas recibidas existentes
+// POST - Poblar entidades fiscales desde facturas recibidas y empleados
 export async function POST(req: NextRequest) {
   try {
+    const body = await req.json().catch(() => ({}));
+    const { fuente = 'todo' } = body; // 'proveedores', 'personal', 'aapp', 'todo'
     // Obtener proveedores únicos de facturas recibidas
     const proveedoresFacturas = await prisma.facturaRecibida.groupBy({
       by: ['proveedor', 'cif', 'domicilioProveedor'],
@@ -84,10 +86,52 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Poblar PERSONAL desde tabla Empleados
+    let personalCreados = 0;
+    let personalExistentes = 0;
+
+    if (fuente === 'personal' || fuente === 'todo') {
+      const empleados = await prisma.empleado.findMany({
+        select: { id: true, nombreCompleto: true, nif: true, email: true, departamento: true, estado: true },
+      });
+
+      for (const emp of empleados) {
+        // Verificar si ya existe por NIF
+        const existe = await prisma.entidadFiscal.findFirst({
+          where: {
+            OR: [
+              { nifCif: emp.nif },
+              { razonSocial: { equals: emp.nombreCompleto, mode: 'insensitive' as const } },
+            ],
+            tipo: 'PERSONAL',
+          },
+        });
+
+        if (existe) {
+          personalExistentes++;
+          continue;
+        }
+
+        await prisma.entidadFiscal.create({
+          data: {
+            tipo: 'PERSONAL',
+            razonSocial: emp.nombreCompleto,
+            nifCif: emp.nif,
+            emailGeneral: emp.email || null,
+            categoriaInterna: emp.departamento || 'Empleado',
+            activo: emp.estado === 'ACTIVO',
+          },
+        });
+        personalCreados++;
+      }
+    }
+
     return NextResponse.json({
       message: `Poblamiento completado`,
       proveedoresCreados: creados,
       proveedoresExistentes: existentes,
+      personalCreados,
+      personalExistentes,
       aappCreadas,
       totalProveedoresFacturas: proveedoresFacturas.length,
     });

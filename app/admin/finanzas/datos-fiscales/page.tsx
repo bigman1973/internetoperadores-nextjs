@@ -100,10 +100,14 @@ export default function DatosFiscalesPage() {
   }
 
   async function handlePoblar() {
-    if (!confirm('¿Poblar proveedores desde las facturas recibidas existentes? Se crearán los que no existan.')) return;
+    if (!confirm('¿Poblar datos fiscales desde facturas recibidas y empleados? Se crearán los que no existan.')) return;
     setPoblando(true);
     setResultadoPoblamiento(null);
-    const res = await fetch('/api/admin/finanzas/datos-fiscales/poblar', { method: 'POST' });
+    const res = await fetch('/api/admin/finanzas/datos-fiscales/poblar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fuente: 'todo' }),
+    });
     const json = await res.json();
     setResultadoPoblamiento(json);
     setPoblando(false);
@@ -142,7 +146,7 @@ export default function DatosFiscalesPage() {
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm">
           <p className="font-medium text-green-800">Poblamiento completado:</p>
           <p className="text-green-700">
-            {resultadoPoblamiento.proveedoresCreados} proveedores creados · {resultadoPoblamiento.proveedoresExistentes} ya existían · {resultadoPoblamiento.aappCreadas} AAPP creadas
+            {resultadoPoblamiento.proveedoresCreados} proveedores creados · {resultadoPoblamiento.proveedoresExistentes} ya existían · {resultadoPoblamiento.personalCreados || 0} personal creados · {resultadoPoblamiento.personalExistentes || 0} ya existían · {resultadoPoblamiento.aappCreadas} AAPP creadas
           </p>
           <button onClick={() => setResultadoPoblamiento(null)} className="text-green-600 underline text-xs mt-1">Cerrar</button>
         </div>
