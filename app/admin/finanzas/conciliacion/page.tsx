@@ -87,6 +87,11 @@ export default function ConciliacionPage() {
   const [empleadoSeleccionado, setEmpleadoSeleccionado] = useState<EmpleadoSimple | null>(null);
   const [empleados, setEmpleados] = useState<EmpleadoSimple[]>([]);
   const [loadingEmpleados, setLoadingEmpleados] = useState(false);
+  // Vincular con tercero
+  const [showTerceroSelector, setShowTerceroSelector] = useState<string | null>(null);
+  const [terceros, setTerceros] = useState<any[]>([]);
+  const [loadingTerceros, setLoadingTerceros] = useState(false);
+  const [buscarTercero, setBuscarTercero] = useState('');
 
   useEffect(() => {
     fetchCuentas();
@@ -355,6 +360,46 @@ export default function ConciliacionPage() {
     fetchMovimientos();
   }
 
+  async function fetchTerceros(buscar?: string) {
+    setLoadingTerceros(true);
+    try {
+      const params = new URLSearchParams({ limit: '20', activo: 'true' });
+      if (buscar) params.set('buscar', buscar);
+      const res = await fetch(`/api/admin/finanzas/datos-fiscales?${params}`);
+      const json = await res.json();
+      setTerceros(json.entidades || []);
+    } catch (e) { console.error(e); }
+    setLoadingTerceros(false);
+  }
+
+  async function vincularTercero(movimientoId: string, entidadFiscalId: string) {
+    const res = await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entidadFiscalId }),
+    });
+    const result = await res.json();
+    // Sugerir asignar a similares
+    if (result.similares && result.similares > 0) {
+      const confirmar = window.confirm(
+        `Se han encontrado ${result.similares} movimiento(s) con concepto similar.\n\n¿Quieres asignar el mismo tercero a todos?`
+      );
+      if (confirmar) {
+        await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asignarProveedorASimilares: true }),
+        });
+      }
+    }
+    setShowTerceroSelector(null);
+    setBuscarTercero('');
+    setTerceros([]);
+    setSelectedMov(null);
+    fetchMovimientos();
+    fetchEstado();
+  }
+
   function formatEUR(n: number) {
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
   }
@@ -374,7 +419,7 @@ export default function ConciliacionPage() {
 
     return (
       <tr key={`panel-${movId}`}>
-        <td colSpan={8} className="p-0">
+        <td colSpan={9} className="p-0">
           <div ref={panelRef} className="bg-blue-50 border-t-2 border-b-2 border-blue-300 p-4 space-y-3">
             {/* Header del panel */}
             <div className="flex items-center justify-between">
@@ -517,6 +562,17 @@ export default function ConciliacionPage() {
                   </button>
                 </>
               )}
+              <span className="text-gray-300 mx-1">|</span>
+              <button
+                onClick={() => {
+                  setShowTerceroSelector(movId);
+                  fetchTerceros();
+                }}
+                className="px-2 py-1 bg-indigo-50 border border-indigo-300 rounded hover:bg-indigo-100 text-indigo-700 font-medium flex items-center gap-1"
+              >
+                <BanknotesIcon className="h-3.5 w-3.5" />
+                Vincular con tercero
+              </button>
             </div>
 
             {/* Selector de empleado para entrega a cuenta */}
@@ -567,6 +623,58 @@ export default function ConciliacionPage() {
                     >
                       Cambiar empleado
                     </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Selector de tercero (entidad fiscal) */}
+            {showTerceroSelector === movId && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium text-indigo-900 flex items-center gap-2">
+                    <BanknotesIcon className="h-4 w-4" />
+                    Vincular con tercero (Proveedor / Cliente / AAPP)
+                  </p>
+                  <button onClick={() => { setShowTerceroSelector(null); setBuscarTercero(''); setTerceros([]); }} className="text-gray-400 hover:text-gray-600">
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre, NIF o cuenta contable..."
+                    value={buscarTercero}
+                    onChange={(e) => setBuscarTercero(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') fetchTerceros(buscarTercero); }}
+                    className="flex-1 px-3 py-1.5 text-xs border rounded-lg"
+                  />
+                  <button
+                    onClick={() => fetchTerceros(buscarTercero)}
+                    className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium"
+                  >
+                    Buscar
+                  </button>
+                </div>
+                {loadingTerceros ? (
+                  <p className="text-xs text-gray-500">Buscando...</p>
+                ) : terceros.length === 0 ? (
+                  <p className="text-xs text-gray-500">No se encontraron entidades. Prueba con otro término.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto">
+                    {terceros.map((t: any) => (
+                      <button
+                        key={t.id}
+                        onClick={() => vincularTercero(movId, t.id)}
+                        className="px-3 py-1.5 text-xs bg-white border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:border-indigo-400 text-indigo-800 font-medium transition-colors"
+                        title={`${t.nifCif || ''} · ${t.tipo} · ${t.cuentaContableA3 || 'Sin cuenta A3'}`}
+                      >
+                        <span>{t.razonSocial}</span>
+                        <span className="ml-1 text-[10px] text-indigo-500">
+                          ({t.tipo === 'PROVEEDOR' ? 'Prov' : t.tipo === 'CLIENTE' ? 'Cli' : t.tipo === 'PERSONAL' ? 'Pers' : 'AAPP'})
+                        </span>
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>
@@ -828,6 +936,7 @@ export default function ConciliacionPage() {
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Banco</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tercero</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoria</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo Doc</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
@@ -836,9 +945,9 @@ export default function ConciliacionPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : movimientos.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay movimientos</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">No hay movimientos</td></tr>
               ) : (
                 movimientos.map(mov => (
                   <>
@@ -871,6 +980,24 @@ export default function ConciliacionPage() {
                       </td>
                       <td className={`px-4 py-2.5 text-sm font-medium text-right whitespace-nowrap ${mov.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                         {formatEUR(mov.importe)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {mov.entidadFiscal ? (
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                            mov.entidadFiscal.tipo === 'PROVEEDOR' ? 'bg-orange-50 text-orange-700 border border-orange-200' :
+                            mov.entidadFiscal.tipo === 'CLIENTE' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                            mov.entidadFiscal.tipo === 'PERSONAL' ? 'bg-teal-50 text-teal-700 border border-teal-200' :
+                            'bg-red-50 text-red-700 border border-red-200'
+                          }`} title={`${mov.entidadFiscal.nifCif || ''} · ${mov.entidadFiscal.cuentaContableA3 || ''}`}>
+                            {mov.entidadFiscal.razonSocial}
+                          </span>
+                        ) : mov.entregaACuentaEmpleado ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-teal-50 text-teal-700 border border-teal-200">
+                            {mov.entregaACuentaEmpleado.nombreCompleto}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400'}`}>
