@@ -1,34 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// GET - Obtener una entidad fiscal con sus movimientos
+// GET - Obtener una entidad fiscal con sus movimientos y resumen
 export async function GET(req: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
+    const { searchParams } = new URL(req.url);
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '50');
+
     const entidad = await prisma.entidadFiscal.findUnique({
       where: { id },
-      include: {
-        movimientos: {
-          orderBy: { fechaOperacion: 'desc' },
-          take: 20,
-          select: {
-            id: true,
-            fechaOperacion: true,
-            concepto: true,
-            importe: true,
-            categoria: true,
-            conciliado: true,
-          },
-        },
-        _count: { select: { movimientos: true } },
-      },
     });
 
     if (!entidad) {
       return NextResponse.json({ error: 'Entidad no encontrada' }, { status: 404 });
     }
 
-    return NextResponse.json({ entidad });
+    // Movimientos vinculados con paginación
+    const [movimientos, totalMovimientos] = await Promise.all([
+      prisma.movimientoBancario.findMany({
+        where: { entidadFiscalId: id },
+        orderBy: { fechaOperacion: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          fechaOperacion: true,
+          concepto: true,
+          importe: true,
+          categoria: true,
+          tipoPago: true,
+          conciliado: true,
+          tipoDocumento: true,
+          documentoRecibido: true,
+          facturaId: true,
+          factura: { select: { id: true, numFactura: true, total: true, fecha: true } },
+          cuenta: { select: { banco: true } },
+        },
+      }),
+      prisma.movimientoBancario.count({ where: { entidadFiscalId: id } }),
+    ]);
+
+    // Resumen financiero
+    const resumen = await prisma.movimientoBancario.aggregate({
+      where: { entidadFiscalId: id },
+      _sum: { importe: true },
+      _count: true,
+    });
+
+    // Pagos (gastos negativos)
+    const totalPagado = await prisma.movimientoBancario.aggregate({
+      where: { entidadFiscalId: id, importe: { lt: 0 } },
+      _sum: { importe: true },
+      _count: true,
+    });
+
+    // Cobros (ingresos positivos)
+    const totalCobrado = await prisma.movimientoBancario.aggregate({
+      where: { entidadFiscalId: id, importe: { gt: 0 } },
+      _sum: { importe: true },
+      _count: true,
+    });
+
+    // Pendientes de documento (tipoDocumento = factura y documentoRecibido = false)
+    const pendientesDocumento = await prisma.movimientoBancario.count({
+      where: { entidadFiscalId: id, tipoDocumento: 'factura', documentoRecibido: false },
+    });
+
+    // Sin conciliar
+    const sinConciliar = await prisma.movimientoBancario.count({
+      where: { entidadFiscalId: id, conciliado: false },
+    });
+
+    // Con factura vinculada
+    const conFactura = await prisma.movimientoBancario.count({
+      where: { entidadFiscalId: id, facturaId: { not: null } },
+    });
+
+    return NextResponse.json({
+      entidad,
+      movimientos,
+      totalMovimientos,
+      resumen: {
+        totalOperaciones: resumen._count,
+        importeNeto: resumen._sum.importe || 0,
+        totalPagado: Math.abs(totalPagado._sum.importe || 0),
+        numPagos: totalPagado._count,
+        totalCobrado: totalCobrado._sum.importe || 0,
+        numCobros: totalCobrado._count,
+        pendientesDocumento,
+        sinConciliar,
+        conFactura,
+      },
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

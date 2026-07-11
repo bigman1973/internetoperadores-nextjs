@@ -22,6 +22,7 @@ interface Movimiento {
   factura: { id: string; proveedor: string; numFactura: string; total: number } | null;
   facturaEmitida: { id: string; cliente: string; numFactura: string; total: number } | null;
   entregaACuentaEmpleado: { id: string; nombreCompleto: string } | null;
+  entidadFiscal: { id: string; razonSocial: string; tipo: string; nifCif: string | null; cuentaContableA3: string | null } | null;
 }
 
 interface Sugerencia {
@@ -46,6 +47,10 @@ interface EstadoConciliacion {
   sinConciliar: number;
   sinCategorizar: number;
   porcentajeConciliado: number;
+  conProveedorIdentificado: number;
+  conFacturaVinculada: number;
+  conFacturaEmitidaVinculada: number;
+  sinProveedorGastos: number;
   pendienteFacturaCount: number;
   pagosVolaCount: number;
   pagosVolaImporte: number;
@@ -696,6 +701,32 @@ export default function ConciliacionPage() {
             <p className="text-2xl font-bold text-red-700">{estado.sinDocumentoCount || 0}</p>
             <p className="text-[10px] text-gray-400">Facturas por reclamar</p>
           </button>
+        </div>
+      )}
+
+      {/* KPIs Niveles de Conciliación */}
+      {estado && (
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-white border border-blue-200 rounded-lg p-4">
+            <p className="text-xs text-blue-600 uppercase font-medium">Proveedor Identificado</p>
+            <p className="text-2xl font-bold text-blue-700">{estado.conProveedorIdentificado || 0}</p>
+            <p className="text-[10px] text-gray-400">Nivel 1 — Tercero vinculado</p>
+          </div>
+          <div className="bg-white border border-indigo-200 rounded-lg p-4">
+            <p className="text-xs text-indigo-600 uppercase font-medium">Con Factura Recibida</p>
+            <p className="text-2xl font-bold text-indigo-700">{estado.conFacturaVinculada || 0}</p>
+            <p className="text-[10px] text-gray-400">Nivel 2 — Documento vinculado</p>
+          </div>
+          <div className="bg-white border border-emerald-200 rounded-lg p-4">
+            <p className="text-xs text-emerald-600 uppercase font-medium">Con Factura Emitida</p>
+            <p className="text-2xl font-bold text-emerald-700">{estado.conFacturaEmitidaVinculada || 0}</p>
+            <p className="text-[10px] text-gray-400">Cobros vinculados</p>
+          </div>
+          <div className="bg-white border border-rose-200 rounded-lg p-4">
+            <p className="text-xs text-rose-600 uppercase font-medium">Sin Proveedor (Gastos)</p>
+            <p className="text-2xl font-bold text-rose-700">{estado.sinProveedorGastos || 0}</p>
+            <p className="text-[10px] text-gray-400">Pendientes de identificar</p>
+          </div>
         </div>
       )}
 

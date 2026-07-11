@@ -501,6 +501,12 @@ export async function GET() {
     const pagosVolaImporte = await prisma.movimientoBancario.aggregate({ where: { pagoACuentaVola: true }, _sum: { importe: true } });
     const entregasACuentaImporte = await prisma.movimientoBancario.aggregate({ where: { entregaACuentaEmpleadoId: { not: null } }, _sum: { importe: true } });
 
+    // KPIs de niveles de conciliación
+    const conProveedorIdentificado = await prisma.movimientoBancario.count({ where: { entidadFiscalId: { not: null } } });
+    const conFacturaVinculada = await prisma.movimientoBancario.count({ where: { facturaId: { not: null } } });
+    const conFacturaEmitidaVinculada = await prisma.movimientoBancario.count({ where: { facturaEmitidaId: { not: null } } });
+    const sinProveedorGastos = await prisma.movimientoBancario.count({ where: { entidadFiscalId: null, importe: { lt: 0 }, categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS'] } } });
+
     // Distribución por categoría
     const porCategoria = await prisma.movimientoBancario.groupBy({
       by: ['categoria'],
@@ -522,6 +528,11 @@ export async function GET() {
       sinConciliar,
       sinCategorizar,
       porcentajeConciliado: totalMovimientos > 0 ? Math.round((conciliados / totalMovimientos) * 100) : 0,
+      // Niveles de conciliación
+      conProveedorIdentificado,
+      conFacturaVinculada,
+      conFacturaEmitidaVinculada,
+      sinProveedorGastos,
       pendienteFacturaCount,
       pagosVolaCount,
       pagosVolaImporte: Math.abs(pagosVolaImporte._sum.importe || 0),

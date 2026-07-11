@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { PlusIcon, MagnifyingGlassIcon, BuildingOffice2Icon, UserIcon, BuildingLibraryIcon, PencilIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import React, { useState, useEffect } from 'react';
+import { PlusIcon, MagnifyingGlassIcon, BuildingOffice2Icon, UserIcon, BuildingLibraryIcon, PencilIcon, TrashIcon, ArrowPathIcon, EyeIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface EntidadFiscal {
   id: string;
@@ -52,6 +52,9 @@ export default function DatosFiscalesPage() {
   const [editando, setEditando] = useState<EntidadFiscal | null>(null);
   const [poblando, setPoblando] = useState(false);
   const [resultadoPoblamiento, setResultadoPoblamiento] = useState<any>(null);
+  const [detalleId, setDetalleId] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<any>(null);
+  const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
   useEffect(() => {
     fetchEntidades();
@@ -97,6 +100,20 @@ export default function DatosFiscalesPage() {
     if (!confirm('¿Eliminar esta entidad fiscal?')) return;
     await fetch(`/api/admin/finanzas/datos-fiscales/${id}`, { method: 'DELETE' });
     fetchEntidades();
+  }
+
+  async function verDetalle(id: string) {
+    if (detalleId === id) {
+      setDetalleId(null);
+      setDetalle(null);
+      return;
+    }
+    setDetalleId(id);
+    setCargandoDetalle(true);
+    const res = await fetch(`/api/admin/finanzas/datos-fiscales/${id}`);
+    const json = await res.json();
+    setDetalle(json);
+    setCargandoDetalle(false);
   }
 
   async function handlePoblar() {
@@ -221,7 +238,8 @@ export default function DatosFiscalesPage() {
             ) : entidades.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay entidades fiscales registradas</td></tr>
             ) : entidades.map(e => (
-              <tr key={e.id} className="hover:bg-gray-50">
+              <React.Fragment key={e.id}>
+              <tr className="hover:bg-gray-50">
                 <td className="px-4 py-3">
                   <div>
                     <p className="font-medium text-gray-900">{e.razonSocial}</p>
@@ -251,6 +269,13 @@ export default function DatosFiscalesPage() {
                 <td className="px-4 py-3 text-center">
                   <div className="flex items-center justify-center gap-1">
                     <button
+                      onClick={() => verDetalle(e.id)}
+                      className={`p-1 ${detalleId === e.id ? 'text-blue-600' : 'text-gray-400 hover:text-blue-600'}`}
+                      title="Ver pagos"
+                    >
+                      <EyeIcon className="h-4 w-4" />
+                    </button>
+                    <button
                       onClick={() => { setEditando(e); setShowForm(true); }}
                       className="p-1 text-gray-400 hover:text-blue-600"
                       title="Editar"
@@ -267,6 +292,106 @@ export default function DatosFiscalesPage() {
                   </div>
                 </td>
               </tr>
+              {/* Panel detalle expandible */}
+              {detalleId === e.id && (
+                <tr>
+                  <td colSpan={8} className="bg-gray-50 px-4 py-4">
+                    {cargandoDetalle ? (
+                      <p className="text-center text-gray-400 py-4">Cargando detalle...</p>
+                    ) : detalle ? (
+                      <div className="space-y-4">
+                        {/* KPIs del proveedor */}
+                        <div className="grid grid-cols-5 gap-3">
+                          <div className="bg-white border rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase">Total Pagado</p>
+                            <p className="text-lg font-bold text-red-700">{detalle.resumen.totalPagado.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+                            <p className="text-[10px] text-gray-400">{detalle.resumen.numPagos} pagos</p>
+                          </div>
+                          <div className="bg-white border rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase">Total Cobrado</p>
+                            <p className="text-lg font-bold text-green-700">{detalle.resumen.totalCobrado.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+                            <p className="text-[10px] text-gray-400">{detalle.resumen.numCobros} cobros</p>
+                          </div>
+                          <div className="bg-white border rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase">Con Factura</p>
+                            <p className="text-lg font-bold text-indigo-700">{detalle.resumen.conFactura}</p>
+                            <p className="text-[10px] text-gray-400">Nivel 2 completo</p>
+                          </div>
+                          <div className="bg-white border border-orange-200 rounded-lg p-3">
+                            <p className="text-[10px] text-orange-600 uppercase font-medium">Pdte. Documento</p>
+                            <p className="text-lg font-bold text-orange-700">{detalle.resumen.pendientesDocumento}</p>
+                            <p className="text-[10px] text-gray-400">Facturas por reclamar</p>
+                          </div>
+                          <div className="bg-white border rounded-lg p-3">
+                            <p className="text-[10px] text-gray-500 uppercase">Sin Conciliar</p>
+                            <p className="text-lg font-bold text-amber-700">{detalle.resumen.sinConciliar}</p>
+                            <p className="text-[10px] text-gray-400">Pendientes</p>
+                          </div>
+                        </div>
+                        {/* Tabla de movimientos */}
+                        <div className="bg-white border rounded-lg overflow-hidden">
+                          <div className="px-4 py-2 border-b bg-white flex items-center justify-between">
+                            <p className="text-sm font-medium text-gray-700">Últimos movimientos ({detalle.totalMovimientos} total)</p>
+                            <button onClick={() => { setDetalleId(null); setDetalle(null); }} className="text-gray-400 hover:text-gray-600">
+                              <XMarkIcon className="h-4 w-4" />
+                            </button>
+                          </div>
+                          <table className="w-full text-xs">
+                            <thead className="bg-gray-50 border-b">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Fecha</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Banco</th>
+                                <th className="px-3 py-2 text-left font-medium text-gray-600">Concepto</th>
+                                <th className="px-3 py-2 text-right font-medium text-gray-600">Importe</th>
+                                <th className="px-3 py-2 text-center font-medium text-gray-600">Factura</th>
+                                <th className="px-3 py-2 text-center font-medium text-gray-600">Doc</th>
+                                <th className="px-3 py-2 text-center font-medium text-gray-600">Estado</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                              {detalle.movimientos.map((mov: any) => (
+                                <tr key={mov.id} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 text-gray-600">{new Date(mov.fechaOperacion).toLocaleDateString('es-ES')}</td>
+                                  <td className="px-3 py-2 text-gray-600">{mov.cuenta?.banco || '—'}</td>
+                                  <td className="px-3 py-2 text-gray-700 max-w-[200px] truncate" title={mov.concepto}>{mov.concepto}</td>
+                                  <td className={`px-3 py-2 text-right font-medium ${mov.importe < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                    {mov.importe.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    {mov.factura ? (
+                                      <span className="px-1.5 py-0.5 bg-indigo-50 text-indigo-700 rounded text-[10px]">{mov.factura.numFactura}</span>
+                                    ) : (
+                                      <span className="text-gray-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    {mov.tipoDocumento === 'factura' && !mov.documentoRecibido ? (
+                                      <span className="px-1.5 py-0.5 bg-orange-50 text-orange-700 rounded text-[10px] font-medium">Pendiente</span>
+                                    ) : mov.documentoRecibido ? (
+                                      <span className="text-green-500">✓</span>
+                                    ) : (
+                                      <span className="text-gray-300">—</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${mov.conciliado ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                                      {mov.conciliado ? 'Conciliado' : 'Pendiente'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                              {detalle.movimientos.length === 0 && (
+                                <tr><td colSpan={7} className="px-3 py-4 text-center text-gray-400">Sin movimientos vinculados</td></tr>
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+                  </td>
+                </tr>
+              )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
