@@ -166,16 +166,50 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
 }
 
 function extraerPatron(concepto: string): string | null {
-  // Eliminar números de referencia, fechas y caracteres especiales
-  const limpio = concepto
-    .replace(/\d{6,}/g, '') // Eliminar números largos (referencias)
-    .replace(/\d{2}\/\d{2}\/\d{2,4}/g, '') // Eliminar fechas
-    .replace(/\s+/g, ' ')
-    .trim();
+  // Palabras genéricas bancarias/fiscales que NO identifican a una entidad
+  const GENERICAS = new Set([
+    'recibo', 'concepto', 'periodo', 'liquidacion', 'pago', 'cobro',
+    'transferencia', 'ingreso', 'cargo', 'abono', 'comision',
+    'domiciliacion', 'adeudo', 'orden', 'mandato', 'nomina',
+    'regimen', 'general', 'autonomos', 'aplazamientos', 'cotizacion', 'cuota',
+    'factura', 'fra', 'ref', 'referencia', 'numero', 'fecha', 'modelo',
+    'impuesto', 'tributo', 'tasa', 'iva',
+    'soluciones', 'informati', 'servicios', 'spain', 'empresa',
+    'telecomunicaciones', 'technologies', 'fibra', 'internet', 'movil', 'fijo',
+    'suministro', 'electrico', 'energia', 'clientes', 'cliente',
+    'favor', 'cuenta', 'mensual', 'mensualidad', 'nif', 'cif',
+    'para', 'por', 'con', 'del', 'los', 'las', 'una', 'uno',
+  ]);
 
-  // Tomar las primeras 3-4 palabras significativas
-  const palabras = limpio.split(' ').filter(p => p.length > 2);
-  if (palabras.length === 0) return null;
+  // Extraer tokens (split por espacios, puntuación y guiones)
+  const tokens = concepto.split(/[\s,;:()\[\]{}\-\/]+/).filter(t => t.length > 0);
 
-  return palabras.slice(0, 4).join(' ').toLowerCase();
+  // Buscar la PRIMERA palabra significativa no-genérica
+  // En conceptos bancarios, el nombre de la entidad suele aparecer primero
+  // después de las palabras genéricas (Recibo, Pago, Transferencia...)
+  for (const token of tokens) {
+    // Ignorar tokens con puntos internos seguidos de letra (refs: R.e.autonomos, R.Q2827003A, S.A.)
+    if (/\.[a-zA-Z]/.test(token) && token.indexOf('.') < token.length - 1) continue;
+
+    // Limpiar punto final para evaluar
+    const limpio = token.replace(/[.]$/, '');
+    if (/^\d+$/.test(limpio)) continue;
+    if (limpio.length < 3) continue;
+    if (!/[a-zA-ZáéíóúñÁÉÍÓÚÑ]{3,}/.test(limpio)) continue;
+
+    const lower = limpio.toLowerCase();
+    if (GENERICAS.has(lower)) continue;
+
+    // Esta es la primera palabra significativa - probablemente el nombre de la entidad
+    // Devolver el token original en minúsculas (Prisma usa mode: insensitive)
+    return token.toLowerCase();
+  }
+
+  // Fallback: tomar la primera palabra con al menos 3 letras
+  for (const token of tokens) {
+    if (token.length >= 3 && /[a-zA-Z]{2,}/.test(token)) {
+      return token.toLowerCase();
+    }
+  }
+  return null;
 }
