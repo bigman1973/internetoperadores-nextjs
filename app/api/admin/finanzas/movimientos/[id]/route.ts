@@ -144,7 +144,8 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Contar movimientos similares sin proveedor para sugerir asignación masiva
     let similares = 0;
     let proveedorNombre = '';
-    if (autoEntidadFiscalId) {
+    const entidadVinculada = autoEntidadFiscalId || (entidadFiscalId && entidadFiscalId !== null ? entidadFiscalId : null);
+    if (entidadVinculada) {
       const patron = extraerPatron(movimiento.concepto);
       if (patron) {
         similares = await prisma.movimientoBancario.count({
