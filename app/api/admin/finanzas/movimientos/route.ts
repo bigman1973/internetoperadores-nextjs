@@ -12,8 +12,18 @@ export async function GET(req: NextRequest) {
     const desde = searchParams.get('desde');
     const hasta = searchParams.get('hasta');
 
+    const buscar = searchParams.get('buscar');
+
     const where: any = {};
     if (cuentaId) where.cuentaId = cuentaId;
+    if (buscar) {
+      where.OR = [
+        { concepto: { contains: buscar, mode: 'insensitive' } },
+        { entidadFiscal: { razonSocial: { contains: buscar, mode: 'insensitive' } } },
+        { entidadFiscal: { nifCif: { contains: buscar, mode: 'insensitive' } } },
+        { entregaACuentaEmpleado: { nombreCompleto: { contains: buscar, mode: 'insensitive' } } },
+      ];
+    }
     
     // Subcategorías virtuales de "Sueldos y Salarios"
     if (categoria === 'Transferencias Nóminas') {

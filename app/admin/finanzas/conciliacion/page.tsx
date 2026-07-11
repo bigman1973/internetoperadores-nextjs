@@ -92,6 +92,8 @@ export default function ConciliacionPage() {
   const [terceros, setTerceros] = useState<any[]>([]);
   const [loadingTerceros, setLoadingTerceros] = useState(false);
   const [buscarTercero, setBuscarTercero] = useState('');
+  // Buscador de movimientos
+  const [buscarMovimiento, setBuscarMovimiento] = useState('');
 
   useEffect(() => {
     fetchCuentas();
@@ -134,6 +136,7 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'conFacturaRecibida') params.set('conFacturaRecibida', 'true');
     if (filtroEspecial === 'conFacturaEmitida') params.set('conFacturaEmitida', 'true');
     if (filtroEspecial === 'sinProveedor') params.set('sinProveedor', 'true');
+    if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
@@ -910,6 +913,21 @@ export default function ConciliacionPage() {
             <option key={c.id} value={c.id}>{c.banco} - {c.alias}</option>
           ))}
         </select>
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            placeholder="Buscar concepto, tercero, NIF..."
+            value={buscarMovimiento}
+            onChange={(e) => setBuscarMovimiento(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { setPage(1); fetchMovimientos(); } }}
+            className="border rounded-lg px-3 py-1.5 text-sm w-56"
+          />
+          {buscarMovimiento && (
+            <button onClick={() => { setBuscarMovimiento(''); setTimeout(() => fetchMovimientos(), 0); setPage(1); }} className="text-gray-400 hover:text-gray-600">
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          )}
+        </div>
         {filtroEspecial && (
           <span className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${
             filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
