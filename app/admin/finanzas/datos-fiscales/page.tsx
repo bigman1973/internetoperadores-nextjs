@@ -361,9 +361,9 @@ export default function DatosFiscalesPage() {
                                     <td className="px-3 py-2 text-gray-700 font-mono">{f.numFactura}</td>
                                     <td className="px-3 py-2 text-gray-600">{new Date(f.fecha).toLocaleDateString('es-ES')}</td>
                                     <td className="px-3 py-2 text-right text-gray-600">{Number(f.base).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
-                                    <td className="px-3 py-2 text-right text-gray-600">{Number(f.iva).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
+                                    <td className="px-3 py-2 text-right text-gray-600">{Number(f.importeIva || 0).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
                                     <td className="px-3 py-2 text-right font-medium text-gray-900">{Number(f.total).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</td>
-                                    <td className="px-3 py-2 text-center text-gray-600">{f.formaPago || '—'}</td>
+                                    <td className="px-3 py-2 text-center text-gray-600">{f.formaCobro || '—'}</td>
                                     <td className="px-3 py-2 text-center">
                                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${f.estado === 'COBRADA' ? 'bg-green-50 text-green-700' : f.estado === 'REMESADA' ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
                                         {f.estado || 'Pendiente'}

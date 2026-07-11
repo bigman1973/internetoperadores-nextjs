@@ -84,43 +84,52 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
     let resumenFacturas = { totalFacturado: 0, numFacturas: 0 };
 
     if (entidad.tipo === 'CLIENTE') {
-      const whereFacturas: any = {
-        OR: [
-          ...(entidad.nifCif ? [{ cif: entidad.nifCif }] : []),
-          { cliente: { equals: entidad.razonSocial, mode: 'insensitive' } },
-          ...(entidad.nombreComercial ? [{ cliente: { equals: entidad.nombreComercial, mode: 'insensitive' as const } }] : []),
-        ],
-      };
+      // Construir condiciones OR solo con campos que existen
+      const orConditions: any[] = [];
+      if (entidad.nifCif) {
+        orConditions.push({ cif: entidad.nifCif });
+      }
+      if (entidad.razonSocial) {
+        orConditions.push({ cliente: { equals: entidad.razonSocial, mode: 'insensitive' } });
+      }
+      if (entidad.nombreComercial) {
+        orConditions.push({ cliente: { equals: entidad.nombreComercial, mode: 'insensitive' } });
+      }
 
-      [facturasEmitidas, totalFacturasEmitidas] = await Promise.all([
-        prisma.facturaEmitida.findMany({
+      // Solo buscar facturas si hay al menos una condición
+      if (orConditions.length > 0) {
+        const whereFacturas = { OR: orConditions };
+
+        [facturasEmitidas, totalFacturasEmitidas] = await Promise.all([
+          prisma.facturaEmitida.findMany({
+            where: whereFacturas,
+            orderBy: { fecha: 'desc' },
+            skip: 0,
+            take: 50,
+            select: {
+              id: true,
+              numFactura: true,
+              fecha: true,
+              base: true,
+              importeIva: true,
+              total: true,
+              formaCobro: true,
+              estado: true,
+            },
+          }),
+          prisma.facturaEmitida.count({ where: whereFacturas }),
+        ]);
+
+        const sumaFacturas = await prisma.facturaEmitida.aggregate({
           where: whereFacturas,
-          orderBy: { fecha: 'desc' },
-          skip: 0,
-          take: 50,
-          select: {
-            id: true,
-            numFactura: true,
-            fecha: true,
-            base: true,
-            iva: true,
-            total: true,
-            formaPago: true,
-            estado: true,
-          },
-        }),
-        prisma.facturaEmitida.count({ where: whereFacturas }),
-      ]);
-
-      const sumaFacturas = await prisma.facturaEmitida.aggregate({
-        where: whereFacturas,
-        _sum: { total: true },
-        _count: true,
-      });
-      resumenFacturas = {
-        totalFacturado: Number(sumaFacturas._sum.total || 0),
-        numFacturas: sumaFacturas._count,
-      };
+          _sum: { total: true },
+          _count: true,
+        });
+        resumenFacturas = {
+          totalFacturado: Number(sumaFacturas._sum.total || 0),
+          numFacturas: sumaFacturas._count,
+        };
+      }
     }
 
     return NextResponse.json({
