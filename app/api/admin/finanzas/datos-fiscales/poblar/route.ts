@@ -126,10 +126,61 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Poblar CLIENTES desde tabla FacturaEmitida
+    let clientesCreados = 0;
+    let clientesExistentes = 0;
+
+    if (fuente === 'clientes' || fuente === 'todo') {
+      const clientesFacturas = await prisma.facturaEmitida.groupBy({
+        by: ['cliente', 'cif'],
+        _count: true,
+        _sum: { total: true },
+      });
+
+      for (const cli of clientesFacturas) {
+        if (!cli.cliente) continue;
+
+        const existe = await prisma.entidadFiscal.findFirst({
+          where: {
+            OR: [
+              ...(cli.cif ? [{ nifCif: cli.cif }] : []),
+              { razonSocial: { equals: cli.cliente, mode: 'insensitive' as const } },
+            ],
+            tipo: 'CLIENTE',
+          },
+        });
+
+        if (existe) {
+          clientesExistentes++;
+          continue;
+        }
+
+        // Obtener datos adicionales del cliente más reciente
+        const ultimaFactura = await prisma.facturaEmitida.findFirst({
+          where: { cliente: cli.cliente },
+          orderBy: { fecha: 'desc' },
+          select: { domicilioCliente: true, formaPago: true },
+        });
+
+        await prisma.entidadFiscal.create({
+          data: {
+            tipo: 'CLIENTE',
+            razonSocial: cli.cliente,
+            nifCif: cli.cif || null,
+            direccionFiscal: ultimaFactura?.domicilioCliente || null,
+            formaPago: ultimaFactura?.formaPago || null,
+          },
+        });
+        clientesCreados++;
+      }
+    }
+
     return NextResponse.json({
       message: `Poblamiento completado`,
       proveedoresCreados: creados,
       proveedoresExistentes: existentes,
+      clientesCreados,
+      clientesExistentes,
       personalCreados,
       personalExistentes,
       aappCreadas,

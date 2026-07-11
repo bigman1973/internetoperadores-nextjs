@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { PlusIcon, MagnifyingGlassIcon, BuildingOffice2Icon, UserIcon, BuildingLibraryIcon, PencilIcon, TrashIcon, ArrowPathIcon, EyeIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, MagnifyingGlassIcon, BuildingOffice2Icon, UserIcon, BuildingLibraryIcon, PencilIcon, TrashIcon, ArrowPathIcon, EyeIcon, XMarkIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 
 interface EntidadFiscal {
   id: string;
@@ -32,6 +32,7 @@ interface EntidadFiscal {
 
 const TABS = [
   { id: 'PROVEEDOR', label: 'Proveedores', icon: BuildingOffice2Icon },
+  { id: 'CLIENTE', label: 'Clientes', icon: UserGroupIcon },
   { id: 'PERSONAL', label: 'Personal', icon: UserIcon },
   { id: 'AAPP', label: 'AAPP', icon: BuildingLibraryIcon },
 ];
@@ -163,7 +164,7 @@ export default function DatosFiscalesPage() {
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm">
           <p className="font-medium text-green-800">Poblamiento completado:</p>
           <p className="text-green-700">
-            {resultadoPoblamiento.proveedoresCreados} proveedores creados · {resultadoPoblamiento.proveedoresExistentes} ya existían · {resultadoPoblamiento.personalCreados || 0} personal creados · {resultadoPoblamiento.personalExistentes || 0} ya existían · {resultadoPoblamiento.aappCreadas} AAPP creadas
+            {resultadoPoblamiento.proveedoresCreados} proveedores creados · {resultadoPoblamiento.proveedoresExistentes} ya existían · {resultadoPoblamiento.clientesCreados || 0} clientes creados · {resultadoPoblamiento.clientesExistentes || 0} ya existían · {resultadoPoblamiento.personalCreados || 0} personal creados · {resultadoPoblamiento.personalExistentes || 0} ya existían · {resultadoPoblamiento.aappCreadas} AAPP creadas
           </p>
           <button onClick={() => setResultadoPoblamiento(null)} className="text-green-600 underline text-xs mt-1">Cerrar</button>
         </div>
@@ -462,7 +463,7 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-gray-900">
-            {entidad ? 'Editar' : 'Nueva'} {tipo === 'PROVEEDOR' ? 'Proveedor' : tipo === 'PERSONAL' ? 'Personal' : 'AAPP'}
+            {entidad ? 'Editar' : 'Nueva'} {tipo === 'PROVEEDOR' ? 'Proveedor' : tipo === 'CLIENTE' ? 'Cliente' : tipo === 'PERSONAL' ? 'Personal' : 'AAPP'}
           </h2>
           <button onClick={onCerrar} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
@@ -485,7 +486,7 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Cuenta Contable A3</label>
-                <input type="text" value={form.cuentaContableA3} onChange={e => setForm({...form, cuentaContableA3: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder={tipo === 'PROVEEDOR' ? '400XXXX' : tipo === 'AAPP' ? '475XXXX' : '465XXXX'} />
+                <input type="text" value={form.cuentaContableA3} onChange={e => setForm({...form, cuentaContableA3: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder={tipo === 'PROVEEDOR' ? '400XXXX' : tipo === 'CLIENTE' ? '430XXXX' : tipo === 'AAPP' ? '475XXXX' : '465XXXX'} />
               </div>
             </div>
             <div>
