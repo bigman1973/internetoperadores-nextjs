@@ -411,12 +411,12 @@ export async function POST(req: NextRequest) {
           usados.add(contrapartida.id);
           resultados.conciliadosTraspasos += 2;
         } else {
-          // No hay contrapartida, conciliar solo (traspaso sin par)
+          // No hay contrapartida — marcar como traspaso pero NO conciliar (pendiente de contrapartida)
           await prisma.movimientoBancario.update({
             where: { id: mov.id },
-            data: { conciliado: true, tipoDocumento: 'traspaso' },
+            data: { conciliado: false, tipoDocumento: 'traspaso' },
           });
-          resultados.conciliadosTraspasos++;
+          // No incrementamos conciliadosTraspasos porque no está conciliado
         }
       }
 
@@ -642,6 +642,12 @@ export async function GET() {
     const conFacturaEmitidaVinculada = await prisma.movimientoBancario.count({ where: { facturaEmitidaId: { not: null } } });
     const sinProveedorGastos = await prisma.movimientoBancario.count({ where: { entidadFiscalId: null, importe: { lt: 0 }, categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS'] } } });
 
+    // KPIs de traspasos
+    const traspasosTotal = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'traspaso' } });
+    const traspasosConContrapartida = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'traspaso', traspasoRelacionadoId: { not: null } } });
+    const traspasosPendientes = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'traspaso', traspasoRelacionadoId: null } });
+    const traspasosImporte = await prisma.movimientoBancario.aggregate({ where: { tipoDocumento: 'traspaso', importe: { lt: 0 } }, _sum: { importe: true } });
+
     // Distribución por categoría
     const porCategoria = await prisma.movimientoBancario.groupBy({
       by: ['categoria'],
@@ -681,6 +687,10 @@ export async function GET() {
         pendienteCobro,
       },
       facturasRecibidasSinConciliar,
+      traspasosTotal,
+      traspasosConContrapartida,
+      traspasosPendientes,
+      traspasosImporte: Math.abs(traspasosImporte._sum.importe || 0),
       porCategoria,
       porBanco,
     });

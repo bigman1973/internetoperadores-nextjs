@@ -62,6 +62,10 @@ interface EstadoConciliacion {
   entregasACuentaImporte: number;
   sinDocumentoCount: number;
   facturasRecibidasSinConciliar: number;
+  traspasosTotal: number;
+  traspasosConContrapartida: number;
+  traspasosPendientes: number;
+  traspasosImporte: number;
 }
 
 export default function ConciliacionPage() {
@@ -82,7 +86,7 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor' | 'traspasoPendiente'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
@@ -154,6 +158,7 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'conFacturaRecibida') params.set('conFacturaRecibida', 'true');
     if (filtroEspecial === 'conFacturaEmitida') params.set('conFacturaEmitida', 'true');
     if (filtroEspecial === 'sinProveedor') params.set('sinProveedor', 'true');
+    if (filtroEspecial === 'traspasoPendiente') params.set('traspasoPendiente', 'true');
     if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
     if (filtroDocumento === 'sinTipoDoc') {
       params.set('tipoDocumento', 'null');
@@ -952,6 +957,32 @@ export default function ConciliacionPage() {
         </div>
       )}
 
+      {/* KPI Traspasos */}
+      {estado && (estado.traspasosTotal > 0) && (
+        <div className="grid grid-cols-4 gap-3">
+          <div onClick={() => { setFiltroDocumento('traspaso'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroDocumento === 'traspaso' ? 'border-cyan-500 ring-2 ring-cyan-200' : 'border-cyan-200'}`}>
+            <p className="text-xs text-cyan-600 uppercase font-medium">Total Traspasos</p>
+            <p className="text-2xl font-bold text-cyan-700">{estado.traspasosTotal}</p>
+            <p className="text-[10px] text-gray-400">{estado.traspasosImporte ? estado.traspasosImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'}) : ''}</p>
+          </div>
+          <div className="bg-white border border-cyan-200 rounded-lg p-4">
+            <p className="text-xs text-cyan-600 uppercase font-medium">Con Contrapartida</p>
+            <p className="text-2xl font-bold text-green-700">{estado.traspasosConContrapartida}</p>
+            <p className="text-[10px] text-gray-400">Par vinculado entre cuentas</p>
+          </div>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'traspasoPendiente' ? '' : 'traspasoPendiente'); setFiltroConciliado(''); setFiltroDocumento(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'traspasoPendiente' ? 'border-amber-500 ring-2 ring-amber-200' : 'border-amber-200'}`}>
+            <p className="text-xs text-amber-600 uppercase font-medium">Pdte. Contrapartida</p>
+            <p className="text-2xl font-bold text-amber-700">{estado.traspasosPendientes}</p>
+            <p className="text-[10px] text-gray-400">Extracto no importado</p>
+          </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 uppercase font-medium">% Vinculados</p>
+            <p className="text-2xl font-bold text-gray-700">{estado.traspasosTotal > 0 ? Math.round((estado.traspasosConContrapartida / estado.traspasosTotal) * 100) : 0}%</p>
+            <p className="text-[10px] text-gray-400">Traspasos con par</p>
+          </div>
+        </div>
+      )}
+
       {/* Resultado conciliacion automatica */}
       {resultadoConciliacion && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
@@ -1211,8 +1242,8 @@ export default function ConciliacionPage() {
                             <span onClick={(e) => { e.stopPropagation(); setShowDetalleVinculacion(mov); }} className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded-full font-medium cursor-pointer hover:bg-cyan-200" title={`Traspaso ${mov.importe < 0 ? 'a' : 'de'} ${mov.traspasoRelacionado.cuenta.banco}`}>
                               Traspaso {mov.importe < 0 ? '→' : '←'} {mov.traspasoRelacionado.cuenta.banco}
                             </span>
-                          ) : mov.conciliado && mov.tipoDocumento === 'traspaso' ? (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded-full font-medium">Traspaso</span>
+                          ) : mov.tipoDocumento === 'traspaso' && !mov.traspasoRelacionadoId ? (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium" title="Pendiente de importar extracto del otro banco">Pdte. contrapartida</span>
                           ) : mov.conciliado ? (
                             <span onClick={(e) => { e.stopPropagation(); if (mov.nomina || mov.factura || mov.facturaEmitida) setShowDetalleVinculacion(mov); }} className={`text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-medium ${(mov.nomina || mov.factura || mov.facturaEmitida) ? 'cursor-pointer hover:bg-green-200' : ''}`}>Conciliado</span>
                           ) : null}

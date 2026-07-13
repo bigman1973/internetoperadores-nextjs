@@ -109,6 +109,11 @@ export async function GET(req: NextRequest) {
       where.entidadFiscalId = null;
       where.importe = { lt: 0 };
     }
+    const traspasoPendiente = searchParams.get('traspasoPendiente');
+    if (traspasoPendiente === 'true') {
+      where.tipoDocumento = 'traspaso';
+      where.traspasoRelacionadoId = null;
+    }
 
     const [movimientos, total] = await Promise.all([
       prisma.movimientoBancario.findMany({

@@ -331,7 +331,7 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
     <>
       {/* Sidebar para desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
-        <div className="flex grow flex-col border-r border-gray-200">
+        <div className="flex grow flex-col border-r border-gray-200 overflow-y-auto">
           <SidebarContent user={user} />
         </div>
       </div>
@@ -347,7 +347,7 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
 
           {/* Sidebar panel */}
           <div className="fixed inset-0 flex">
-            <div className="relative mr-16 flex w-full max-w-xs flex-1">
+            <div className="relative mr-16 flex w-full max-w-xs flex-1 overflow-y-auto">
               {/* Close button */}
               <div className="absolute left-full top-0 flex w-16 justify-center pt-5">
                 <button
