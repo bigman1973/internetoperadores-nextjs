@@ -1204,8 +1204,29 @@ export default function ConciliacionPage() {
                           {mov.entregaACuentaEmpleadoId && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded-full font-medium">Entrega</span>
                           )}
-                          {mov.nominaId && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium">Nómina {mov.nomina ? `${mov.nomina.mes}/${mov.nomina.anio}` : ''}</span>
+                          {mov.nominaId && mov.nomina && (
+                            <>
+                              <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium">Nómina {mov.nomina.mes}/{mov.nomina.anio}</span>
+                              {mov.nomina.movimientos && mov.nomina.movimientos.length > 1 && (
+                                <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium" title={`${mov.nomina.movimientos.length} pagos vinculados a esta nómina`}>
+                                  {mov.nomina.movimientos.length} pagos
+                                </span>
+                              )}
+                              {Math.abs(Math.abs(mov.importe) - mov.nomina.netoPercibir) > 0.05 && mov.nomina.movimientos && mov.nomina.movimientos.length === 1 && (
+                                <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-medium" title={`Mov: ${Math.abs(mov.importe).toFixed(2)}€ vs Nómina: ${mov.nomina.netoPercibir.toFixed(2)}€`}>
+                                  ⚠️ Importe
+                                </span>
+                              )}
+                            </>
+                          )}
+                          {mov.factura && (
+                            <>
+                              {Math.abs(Math.abs(mov.importe) - mov.factura.total) > 0.05 && (
+                                <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-medium" title={`Mov: ${Math.abs(mov.importe).toFixed(2)}€ vs Factura: ${mov.factura.total.toFixed(2)}€`}>
+                                  ⚠️ Importe
+                                </span>
+                              )}
+                            </>
                           )}
                         </div>
                       </td>
