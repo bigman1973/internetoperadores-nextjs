@@ -95,7 +95,7 @@ export default function ConciliacionPage() {
   // Buscador de movimientos
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
-  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc'>('');
+  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc' | 'facturaPendiente'>('');
 
   useEffect(() => {
     fetchCuentas();
@@ -141,6 +141,9 @@ export default function ConciliacionPage() {
     if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
     if (filtroDocumento === 'sinTipoDoc') {
       params.set('tipoDocumento', 'null');
+    } else if (filtroDocumento === 'facturaPendiente') {
+      params.set('tipoDocumento', 'factura');
+      params.set('conciliado', 'false');
     } else if (filtroDocumento) {
       params.set('tipoDocumento', filtroDocumento);
     }
@@ -936,6 +939,7 @@ export default function ConciliacionPage() {
         >
           <option value="">Todos los docs</option>
           <option value="factura">Con Factura</option>
+          <option value="facturaPendiente">Factura pendiente</option>
           <option value="ticket">Con Ticket</option>
           <option value="justificante">Con Justificante</option>
           <option value="sinTipoDoc">Sin tipo doc</option>
@@ -1129,6 +1133,9 @@ export default function ConciliacionPage() {
                         <div className="flex items-center justify-center gap-1">
                           {mov.conciliado && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">Conciliado</span>
+                          )}
+                          {!mov.conciliado && mov.tipoDocumento === 'factura' && !mov.factura && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">Fact. pendiente</span>
                           )}
                           {mov.pendienteFactura && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">Reclamar</span>

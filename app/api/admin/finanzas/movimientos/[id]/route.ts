@@ -68,11 +68,17 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
     }
     // Si se marca tipoDocumento=justificante y ya tiene tercero vinculado, auto-conciliar
+    // NOTA: tipoDocumento=factura NO concilia automáticamente (requiere facturaId vinculado)
     if (tipoDocumento === 'justificante' && !data.conciliado) {
       const movActual2 = await prisma.movimientoBancario.findUnique({ where: { id }, select: { entidadFiscalId: true } });
       if (movActual2?.entidadFiscalId || data.entidadFiscalId) {
         data.conciliado = true;
       }
+    }
+    // Si se marca tipoDocumento=factura, NO conciliar (queda como 'factura pendiente' hasta vincular facturaId)
+    // Solo marcar documentoRecibido=false para indicar que falta la factura física
+    if (tipoDocumento === 'factura' && !data.conciliado) {
+      data.documentoRecibido = false;
     }
 
     // Si se pide asignar proveedor a movimientos similares
