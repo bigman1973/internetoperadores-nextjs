@@ -23,6 +23,8 @@ interface Movimiento {
   facturaEmitida: { id: string; cliente: string; numFactura: string; total: number } | null;
   entregaACuentaEmpleado: { id: string; nombreCompleto: string } | null;
   entidadFiscal: { id: string; razonSocial: string; tipo: string; nifCif: string | null; cuentaContableA3: string | null } | null;
+  nominaId: string | null;
+  nomina: { id: string; mes: number; anio: number; netoPercibir: number; empleado: { nombreCompleto: string } } | null;
 }
 
 interface Sugerencia {
@@ -96,6 +98,10 @@ export default function ConciliacionPage() {
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
   const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc' | 'facturaPendiente'>('');
+  // Modal de vincular nómina
+  const [showNominaModal, setShowNominaModal] = useState<string | null>(null); // movimientoId
+  const [nominasList, setNominasList] = useState<any[]>([]);
+  const [loadingNominas, setLoadingNominas] = useState(false);
   // Modal de movimientos similares
   const [showSimilaresModal, setShowSimilaresModal] = useState(false);
   const [similaresList, setSimilaresList] = useState<any[]>([]);
@@ -456,6 +462,33 @@ export default function ConciliacionPage() {
       return next;
     });
   }
+
+  async function fetchNominas(movimientoId: string, entidadFiscalId: string) {
+    setShowNominaModal(movimientoId);
+    setLoadingNominas(true);
+    try {
+      const res = await fetch(`/api/admin/finanzas/nominas?entidadFiscalId=${entidadFiscalId}`);
+      const data = await res.json();
+      setNominasList(data.nominas || []);
+    } catch (e) {
+      setNominasList([]);
+    }
+    setLoadingNominas(false);
+  }
+
+  async function vincularNomina(movimientoId: string, nominaId: string) {
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nominaId }),
+    });
+    setShowNominaModal(null);
+    setNominasList([]);
+    fetchMovimientos();
+    fetchEstado();
+  }
+
+  const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
   function formatEUR(n: number) {
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
@@ -1171,6 +1204,9 @@ export default function ConciliacionPage() {
                           {mov.entregaACuentaEmpleadoId && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded-full font-medium">Entrega</span>
                           )}
+                          {mov.nominaId && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium">Nómina {mov.nomina ? `${mov.nomina.mes}/${mov.nomina.anio}` : ''}</span>
+                          )}
                         </div>
                       </td>
                       <td className="px-4 py-2.5 text-center">
@@ -1194,6 +1230,16 @@ export default function ConciliacionPage() {
                                 <LinkIcon className="h-3.5 w-3.5" />
                                 Vincular
                               </button>
+                              {mov.entidadFiscal?.tipo === 'PERSONAL' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); fetchNominas(mov.id, mov.entidadFiscal!.id); }}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded border border-indigo-200"
+                                  title="Vincular con nómina del empleado"
+                                >
+                                  <BanknotesIcon className="h-3.5 w-3.5" />
+                                  Nómina
+                                </button>
+                              )}
                               {mov.pendienteFactura ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); quitarPendienteFactura(mov.id); }}
@@ -1299,6 +1345,65 @@ export default function ConciliacionPage() {
                 disabled={similaresSeleccionados.size === 0}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
               >Asignar tercero a {similaresSeleccionados.size} movimiento(s)</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de vincular nómina */}
+      {showNominaModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[70vh] flex flex-col">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Vincular con nómina</h3>
+                <p className="text-sm text-gray-500">Selecciona la nómina correspondiente a este movimiento</p>
+              </div>
+              <button onClick={() => { setShowNominaModal(null); setNominasList([]); }} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-4">
+              {loadingNominas ? (
+                <p className="text-sm text-gray-500">Cargando nóminas...</p>
+              ) : nominasList.length === 0 ? (
+                <p className="text-sm text-gray-500">No se encontraron nóminas para este empleado.</p>
+              ) : (
+                <div className="space-y-2">
+                  {nominasList.map((n: any) => (
+                    <button
+                      key={n.id}
+                      onClick={() => vincularNomina(showNominaModal, n.id)}
+                      disabled={n.vinculada}
+                      className={`w-full text-left px-4 py-3 rounded-lg border transition-colors ${
+                        n.vinculada
+                          ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed'
+                          : 'bg-white border-indigo-200 hover:bg-indigo-50 hover:border-indigo-400 cursor-pointer'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="font-medium text-sm text-gray-900">{MESES[n.mes]} {n.anio}</span>
+                          <span className="ml-2 text-xs text-gray-500">{n.empleadoNombre}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="font-bold text-sm text-indigo-700">{formatEUR(n.netoPercibir)}</span>
+                          {n.vinculada && <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Ya vinculada</span>}
+                        </div>
+                      </div>
+                      {n.costeTotalEmpresa && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">Coste empresa: {formatEUR(n.costeTotalEmpresa)}</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t">
+              <button
+                onClick={() => { setShowNominaModal(null); setNominasList([]); }}
+                className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-50"
+              >Cerrar</button>
             </div>
           </div>
         </div>

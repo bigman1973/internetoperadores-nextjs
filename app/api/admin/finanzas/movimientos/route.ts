@@ -122,6 +122,7 @@ export async function GET(req: NextRequest) {
           facturaEmitida: { select: { id: true, cliente: true, numFactura: true, total: true } },
           entregaACuentaEmpleado: { select: { id: true, nombreCompleto: true } },
           entidadFiscal: { select: { id: true, razonSocial: true, tipo: true, nifCif: true, cuentaContableA3: true } },
+          nomina: { select: { id: true, mes: true, anio: true, netoPercibir: true, empleado: { select: { nombreCompleto: true } } } },
         },
       }),
       prisma.movimientoBancario.count({ where }),

@@ -1050,6 +1050,9 @@ model MovimientoBancario {
   entregaACuentaEmpleadoId  String?  @map("entrega_a_cuenta_empleado_id")
   entregaACuentaEmpleado    Empleado? @relation("EntregasCuentaEmpleado", fields: [entregaACuentaEmpleadoId], references: [id])
   tipoEntrega               String?  @map("tipo_entrega") // 'coste_empresa' o 'anticipo'
+  // Vinculación con nómina
+  nominaId                  String?  @map("nomina_id")
+  nomina                    Nomina?  @relation(fields: [nominaId], references: [id])
   // Vinculación con entidad fiscal (proveedor/AAPP)
   entidadFiscalId           String?  @map("entidad_fiscal_id")
   entidadFiscal             EntidadFiscal? @relation("MovimientoProveedor", fields: [entidadFiscalId], references: [id])
@@ -1462,8 +1465,9 @@ model Nomina {
   // Archivo
   archivoUrl              String?  @map("archivo_url") // URL del PDF de la nómina
   archivoNombre           String?  @map("archivo_nombre")
-  // Relación
+  // Relaciones
   empleado                Empleado @relation(fields: [empleadoId], references: [id])
+  movimientos             MovimientoBancario[]
   // Timestamps
   createdAt               DateTime @default(now()) @map("created_at")
 

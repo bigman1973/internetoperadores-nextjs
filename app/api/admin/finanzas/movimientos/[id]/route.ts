@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados, nominaId } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -53,6 +53,18 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
           data.categoria = 'Entrega a cuenta';
           data.tipoPago = 'Anticipo';
         }
+      }
+    }
+    // Vinculación con nómina
+    if (nominaId !== undefined) {
+      data.nominaId = nominaId;
+      if (nominaId) {
+        // Al vincular nómina, conciliar automáticamente
+        data.conciliado = true;
+        data.tipoDocumento = 'justificante';
+        data.documentoRecibido = true;
+        data.categoria = 'Sueldos y Salarios';
+        data.tipoPago = 'Nómina';
       }
     }
     // Vinculación con entidad fiscal (proveedor/AAPP)
