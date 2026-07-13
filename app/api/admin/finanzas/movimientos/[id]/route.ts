@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -85,16 +85,28 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (asignarProveedorASimilares) {
       const movActual = await prisma.movimientoBancario.findUnique({ where: { id }, include: { cuenta: true } });
       if (movActual && movActual.entidadFiscalId) {
-        const patron = extraerPatron(movActual.concepto);
-        if (patron) {
+        // Si se pasan IDs específicos, solo asignar a esos
+        if (idsSeleccionados && Array.isArray(idsSeleccionados) && idsSeleccionados.length > 0) {
           await prisma.movimientoBancario.updateMany({
             where: {
-              id: { not: id },
-              concepto: { contains: patron, mode: 'insensitive' },
+              id: { in: idsSeleccionados },
               entidadFiscalId: null,
             },
             data: { entidadFiscalId: movActual.entidadFiscalId },
           });
+        } else {
+          // Fallback: asignar a todos los similares (comportamiento anterior)
+          const patron = extraerPatron(movActual.concepto);
+          if (patron) {
+            await prisma.movimientoBancario.updateMany({
+              where: {
+                id: { not: id },
+                concepto: { contains: patron, mode: 'insensitive' },
+                entidadFiscalId: null,
+              },
+              data: { entidadFiscalId: movActual.entidadFiscalId },
+            });
+          }
         }
       }
       return NextResponse.json({ ok: true });
@@ -162,25 +174,38 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       }
     }
 
-    // Contar movimientos similares sin proveedor para sugerir asignación masiva
+    // Buscar movimientos similares sin proveedor para sugerir asignación masiva
     let similares = 0;
+    let movimientosSimilares: any[] = [];
+    let patronUsado = '';
     let proveedorNombre = '';
     const entidadVinculada = autoEntidadFiscalId || (entidadFiscalId && entidadFiscalId !== null ? entidadFiscalId : null);
     if (entidadVinculada) {
       const patron = extraerPatron(movimiento.concepto);
+      patronUsado = patron || '';
       if (patron) {
-        similares = await prisma.movimientoBancario.count({
+        movimientosSimilares = await prisma.movimientoBancario.findMany({
           where: {
             id: { not: id },
             concepto: { contains: patron, mode: 'insensitive' },
             entidadFiscalId: null,
           },
+          select: {
+            id: true,
+            fechaOperacion: true,
+            concepto: true,
+            importe: true,
+            cuenta: { select: { banco: true } },
+          },
+          orderBy: { fechaOperacion: 'desc' },
+          take: 200,
         });
+        similares = movimientosSimilares.length;
       }
       proveedorNombre = movimiento.entidadFiscal?.razonSocial || '';
     }
 
-    return NextResponse.json({ movimiento, similares, proveedorNombre });
+    return NextResponse.json({ movimiento, similares, movimientosSimilares, patronUsado, proveedorNombre });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

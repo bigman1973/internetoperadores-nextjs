@@ -96,6 +96,12 @@ export default function ConciliacionPage() {
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
   const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc' | 'facturaPendiente'>('');
+  // Modal de movimientos similares
+  const [showSimilaresModal, setShowSimilaresModal] = useState(false);
+  const [similaresList, setSimilaresList] = useState<any[]>([]);
+  const [similaresSeleccionados, setSimilaresSeleccionados] = useState<Set<string>>(new Set());
+  const [similaresMovId, setSimilaresMovId] = useState<string | null>(null);
+  const [similaresPatron, setSimilaresPatron] = useState('');
 
   useEffect(() => {
     fetchCuentas();
@@ -411,18 +417,13 @@ export default function ConciliacionPage() {
       body: JSON.stringify({ entidadFiscalId }),
     });
     const result = await res.json();
-    // Sugerir asignar a similares
-    if (result.similares && result.similares > 0) {
-      const confirmar = window.confirm(
-        `Se han encontrado ${result.similares} movimiento(s) con concepto similar.\n\n¿Quieres asignar el mismo tercero a todos?`
-      );
-      if (confirmar) {
-        await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ asignarProveedorASimilares: true }),
-        });
-      }
+    // Sugerir asignar a similares - abrir modal con lista
+    if (result.similares && result.similares > 0 && result.movimientosSimilares) {
+      setSimilaresList(result.movimientosSimilares);
+      setSimilaresSeleccionados(new Set(result.movimientosSimilares.map((m: any) => m.id)));
+      setSimilaresMovId(movimientoId);
+      setSimilaresPatron(result.patronUsado || '');
+      setShowSimilaresModal(true);
     }
     setShowTerceroSelector(null);
     setBuscarTercero('');
@@ -430,6 +431,30 @@ export default function ConciliacionPage() {
     setSelectedMov(null);
     fetchMovimientos();
     fetchEstado();
+  }
+
+  async function aplicarSimilaresSeleccionados() {
+    if (!similaresMovId || similaresSeleccionados.size === 0) return;
+    await fetch(`/api/admin/finanzas/movimientos/${similaresMovId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asignarProveedorASimilares: true, idsSeleccionados: Array.from(similaresSeleccionados) }),
+    });
+    setShowSimilaresModal(false);
+    setSimilaresList([]);
+    setSimilaresSeleccionados(new Set());
+    setSimilaresMovId(null);
+    fetchMovimientos();
+    fetchEstado();
+  }
+
+  function toggleSimilarSeleccion(id: string) {
+    setSimilaresSeleccionados(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function formatEUR(n: number) {
@@ -1211,6 +1236,73 @@ export default function ConciliacionPage() {
           </div>
         )}
       </div>
+
+      {/* Modal de movimientos similares */}
+      {showSimilaresModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Movimientos similares encontrados</h3>
+                <p className="text-sm text-gray-500">Patrón: <span className="font-mono bg-gray-100 px-1 rounded">{similaresPatron}</span> · {similaresList.length} movimientos</p>
+              </div>
+              <button onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); }} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setSimilaresSeleccionados(new Set(similaresList.map(m => m.id)))}
+                  className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                >Seleccionar todos</button>
+                <button
+                  onClick={() => setSimilaresSeleccionados(new Set())}
+                  className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                >Deseleccionar todos</button>
+                <span className="text-sm text-gray-600">{similaresSeleccionados.size} de {similaresList.length} seleccionados</span>
+              </div>
+            </div>
+            <div className="overflow-y-auto flex-1 p-2">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="border-b">
+                    <th className="px-2 py-2 text-left w-8"></th>
+                    <th className="px-2 py-2 text-left text-xs text-gray-500">Fecha</th>
+                    <th className="px-2 py-2 text-left text-xs text-gray-500">Banco</th>
+                    <th className="px-2 py-2 text-left text-xs text-gray-500">Concepto</th>
+                    <th className="px-2 py-2 text-right text-xs text-gray-500">Importe</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {similaresList.map(m => (
+                    <tr key={m.id} className={`hover:bg-blue-50/50 cursor-pointer ${similaresSeleccionados.has(m.id) ? 'bg-blue-50' : ''}`} onClick={() => toggleSimilarSeleccion(m.id)}>
+                      <td className="px-2 py-1.5">
+                        <input type="checkbox" checked={similaresSeleccionados.has(m.id)} onChange={() => toggleSimilarSeleccion(m.id)} className="rounded" />
+                      </td>
+                      <td className="px-2 py-1.5 text-xs text-gray-600 whitespace-nowrap">{formatFecha(m.fechaOperacion)}</td>
+                      <td className="px-2 py-1.5"><span className="text-xs px-1.5 py-0.5 bg-gray-100 rounded">{m.cuenta?.banco}</span></td>
+                      <td className="px-2 py-1.5 text-xs text-gray-900 max-w-sm truncate" title={m.concepto}>{m.concepto}</td>
+                      <td className={`px-2 py-1.5 text-xs font-medium text-right ${m.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatEUR(m.importe)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-4 border-t flex items-center justify-between">
+              <button
+                onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); }}
+                className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-50"
+              >Cancelar (no asignar)</button>
+              <button
+                onClick={aplicarSimilaresSeleccionados}
+                disabled={similaresSeleccionados.size === 0}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
+              >Asignar tercero a {similaresSeleccionados.size} movimiento(s)</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
