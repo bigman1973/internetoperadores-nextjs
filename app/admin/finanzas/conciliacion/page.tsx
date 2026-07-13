@@ -56,11 +56,14 @@ interface EstadoConciliacion {
   conFacturaEmitidaVinculada: number;
   sinProveedorGastos: number;
   pendienteFacturaCount: number;
+  pendienteFacturaImporte: number;
+  sinDocumentoCount: number;
+  sinDocumentoImporte: number;
+  facturasPendientesValidar: { count: number; base: number; iva: number; total: number };
   pagosVolaCount: number;
   pagosVolaImporte: number;
   entregasACuentaCount: number;
   entregasACuentaImporte: number;
-  sinDocumentoCount: number;
   facturasRecibidasSinConciliar: number;
   traspasosTotal: number;
   traspasosConContrapartida: number;
@@ -86,7 +89,7 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor' | 'traspasoPendiente'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pendientesValidar' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor' | 'traspasoPendiente'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
@@ -159,6 +162,7 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'conFacturaEmitida') params.set('conFacturaEmitida', 'true');
     if (filtroEspecial === 'sinProveedor') params.set('sinProveedor', 'true');
     if (filtroEspecial === 'traspasoPendiente') params.set('traspasoPendiente', 'true');
+    if (filtroEspecial === 'pendientesValidar') params.set('pendientesValidar', 'true');
     if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
     if (filtroDocumento === 'sinTipoDoc') {
       params.set('tipoDocumento', 'null');
@@ -890,43 +894,66 @@ export default function ConciliacionPage() {
           </button>
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('pendienteFactura'); setPage(1); }}
-            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md relative group ${
               filtroEspecial === 'pendienteFactura' ? 'ring-2 ring-orange-400 shadow-md' : ''
             }`}
+            title="Movimientos marcados como pendientes de recibir factura del proveedor"
           >
-            <p className="text-xs text-orange-600 uppercase font-medium">Reclamar Factura</p>
-            <p className="text-2xl font-bold text-orange-700">{estado.pendienteFacturaCount || 0}</p>
-            <p className="text-[10px] text-gray-400">Pdte. recibir</p>
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg>
+            </div>
+            <p className="text-xs text-orange-600 uppercase font-medium">Pdte. Recibir</p>
+            <p className="text-2xl font-bold text-orange-700">{(estado.pendienteFacturaCount || 0) + (estado.sinDocumentoCount || 0)}</p>
+            <p className="text-[10px] text-gray-400">{((estado.pendienteFacturaImporte || 0) + (estado.sinDocumentoImporte || 0)).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+            <p className="text-[9px] text-gray-300">Facturas no recibidas del proveedor</p>
+          </button>
+          <button
+            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('pendientesValidar'); setPage(1); }}
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md relative group ${
+              filtroEspecial === 'pendientesValidar' ? 'ring-2 ring-yellow-400 shadow-md' : ''
+            }`}
+            title="Facturas recibidas pendientes de revisar/validar (estado PENDIENTE_REVISION)"
+          >
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg>
+            </div>
+            <p className="text-xs text-yellow-600 uppercase font-medium">Pdte. Validar</p>
+            <p className="text-2xl font-bold text-yellow-700">{estado.facturasPendientesValidar?.count || 0}</p>
+            <div className="text-[10px] text-gray-400 space-y-0">
+              <p>Base: {(estado.facturasPendientesValidar?.base || 0).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+              <p>IVA: {(estado.facturasPendientesValidar?.iva || 0).toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
+            </div>
+            <p className="text-[9px] text-gray-300">Facturas recibidas sin validar</p>
           </button>
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('pagoVola'); setPage(1); }}
-            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md relative group ${
               filtroEspecial === 'pagoVola' ? 'ring-2 ring-purple-400 shadow-md' : ''
             }`}
+            title="Movimientos marcados como pagos a cuenta de Vola (anticipos)"
           >
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg>
+            </div>
             <p className="text-xs text-purple-600 uppercase font-medium">Pagos Vola</p>
             <p className="text-2xl font-bold text-purple-700">{estado.pagosVolaCount || 0}</p>
             <p className="text-[10px] text-gray-400">{estado.pagosVolaImporte ? `${estado.pagosVolaImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}` : 'A cuenta'}</p>
+            <p className="text-[9px] text-gray-300">Anticipos a Vola pendientes de factura</p>
           </button>
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial('entregaACuenta'); setPage(1); }}
-            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
+            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md relative group ${
               filtroEspecial === 'entregaACuenta' ? 'ring-2 ring-teal-400 shadow-md' : ''
             }`}
+            title="Entregas a cuenta de empleados (anticipos de gastos)"
           >
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg>
+            </div>
             <p className="text-xs text-teal-600 uppercase font-medium">Entregas a cuenta</p>
             <p className="text-2xl font-bold text-teal-700">{estado.entregasACuentaCount || 0}</p>
             <p className="text-[10px] text-gray-400">{estado.entregasACuentaImporte ? `${estado.entregasACuentaImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}` : 'Empleados'}</p>
-          </button>
-          <button
-            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('sinDocumento'); setPage(1); }}
-            className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
-              filtroEspecial === 'sinDocumento' ? 'ring-2 ring-red-400 shadow-md' : ''
-            }`}
-          >
-            <p className="text-xs text-red-600 uppercase font-medium">Sin Documento</p>
-            <p className="text-2xl font-bold text-red-700">{estado.sinDocumentoCount || 0}</p>
-            <p className="text-[10px] text-gray-400">Facturas por reclamar</p>
+            <p className="text-[9px] text-gray-300">Anticipos entregados a empleados</p>
           </button>
         </div>
       )}
@@ -934,22 +961,26 @@ export default function ConciliacionPage() {
       {/* KPIs Niveles de Conciliación */}
       {estado && (
         <div className="grid grid-cols-4 gap-3">
-          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conProveedor' ? '' : 'conProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conProveedor' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-200'}`}>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conProveedor' ? '' : 'conProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'conProveedor' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-200'}`} title="Movimientos con entidad fiscal (proveedor/cliente) identificada y vinculada">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-blue-600 uppercase font-medium">Proveedor Identificado</p>
             <p className="text-2xl font-bold text-blue-700">{estado.conProveedorIdentificado || 0}</p>
             <p className="text-[10px] text-gray-400">Nivel 1 — Tercero vinculado</p>
           </div>
-          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaRecibida' ? '' : 'conFacturaRecibida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conFacturaRecibida' ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-indigo-200'}`}>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaRecibida' ? '' : 'conFacturaRecibida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'conFacturaRecibida' ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-indigo-200'}`} title="Movimientos con factura recibida vinculada (gasto documentado)">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-indigo-600 uppercase font-medium">Con Factura Recibida</p>
             <p className="text-2xl font-bold text-indigo-700">{estado.conFacturaVinculada || 0}</p>
             <p className="text-[10px] text-gray-400">Nivel 2 — Documento vinculado</p>
           </div>
-          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaEmitida' ? '' : 'conFacturaEmitida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'conFacturaEmitida' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-emerald-200'}`}>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conFacturaEmitida' ? '' : 'conFacturaEmitida'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'conFacturaEmitida' ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-emerald-200'}`} title="Cobros vinculados a facturas emitidas a clientes">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-emerald-600 uppercase font-medium">Con Factura Emitida</p>
             <p className="text-2xl font-bold text-emerald-700">{estado.conFacturaEmitidaVinculada || 0}</p>
             <p className="text-[10px] text-gray-400">Cobros vinculados</p>
           </div>
-          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'sinProveedor' ? '' : 'sinProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'sinProveedor' ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-200'}`}>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'sinProveedor' ? '' : 'sinProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'sinProveedor' ? 'border-rose-500 ring-2 ring-rose-200' : 'border-rose-200'}`} title="Gastos sin proveedor identificado (excluye traspasos, nóminas e impuestos)">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-rose-600 uppercase font-medium">Sin Proveedor (Gastos)</p>
             <p className="text-2xl font-bold text-rose-700">{estado.sinProveedorGastos || 0}</p>
             <p className="text-[10px] text-gray-400">Pendientes de identificar</p>
@@ -960,22 +991,26 @@ export default function ConciliacionPage() {
       {/* KPI Traspasos */}
       {estado && (estado.traspasosTotal > 0) && (
         <div className="grid grid-cols-4 gap-3">
-          <div onClick={() => { setFiltroDocumento('traspaso'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroDocumento === 'traspaso' ? 'border-cyan-500 ring-2 ring-cyan-200' : 'border-cyan-200'}`}>
+          <div onClick={() => { setFiltroDocumento('traspaso'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroDocumento === 'traspaso' ? 'border-cyan-500 ring-2 ring-cyan-200' : 'border-cyan-200'}`} title="Todos los movimientos clasificados como traspaso entre cuentas propias">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-cyan-600 uppercase font-medium">Total Traspasos</p>
             <p className="text-2xl font-bold text-cyan-700">{estado.traspasosTotal}</p>
             <p className="text-[10px] text-gray-400">{estado.traspasosImporte ? estado.traspasosImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'}) : ''}</p>
           </div>
-          <div className="bg-white border border-cyan-200 rounded-lg p-4">
+          <div className="bg-white border border-cyan-200 rounded-lg p-4 relative group" title="Traspasos con el movimiento del otro banco identificado y vinculado">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-cyan-600 uppercase font-medium">Con Contrapartida</p>
             <p className="text-2xl font-bold text-green-700">{estado.traspasosConContrapartida}</p>
             <p className="text-[10px] text-gray-400">Par vinculado entre cuentas</p>
           </div>
-          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'traspasoPendiente' ? '' : 'traspasoPendiente'); setFiltroConciliado(''); setFiltroDocumento(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${filtroEspecial === 'traspasoPendiente' ? 'border-amber-500 ring-2 ring-amber-200' : 'border-amber-200'}`}>
+          <div onClick={() => { setFiltroEspecial(filtroEspecial === 'traspasoPendiente' ? '' : 'traspasoPendiente'); setFiltroConciliado(''); setFiltroDocumento(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'traspasoPendiente' ? 'border-amber-500 ring-2 ring-amber-200' : 'border-amber-200'}`} title="Traspasos sin contrapartida: falta importar el extracto del banco destino">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-amber-600 uppercase font-medium">Pdte. Contrapartida</p>
             <p className="text-2xl font-bold text-amber-700">{estado.traspasosPendientes}</p>
             <p className="text-[10px] text-gray-400">Extracto no importado</p>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-4 relative group" title="Porcentaje de traspasos que tienen su par vinculado en el otro banco">
+            <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-gray-500 uppercase font-medium">% Vinculados</p>
             <p className="text-2xl font-bold text-gray-700">{estado.traspasosTotal > 0 ? Math.round((estado.traspasosConContrapartida / estado.traspasosTotal) * 100) : 0}%</p>
             <p className="text-[10px] text-gray-400">Traspasos con par</p>
@@ -1055,6 +1090,8 @@ export default function ConciliacionPage() {
         </div>
         {filtroEspecial && (
           <span className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${
+            filtroEspecial === 'pendienteFactura' ? 'bg-orange-50 border border-orange-200 text-orange-700' :
+            filtroEspecial === 'pendientesValidar' ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' :
             filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
             filtroEspecial === 'pagoVola' ? 'bg-purple-50 border border-purple-200 text-purple-700' :
             filtroEspecial === 'entregaACuenta' ? 'bg-teal-50 border border-teal-200 text-teal-700' :
@@ -1062,15 +1099,18 @@ export default function ConciliacionPage() {
             filtroEspecial === 'conFacturaRecibida' ? 'bg-indigo-50 border border-indigo-200 text-indigo-700' :
             filtroEspecial === 'conFacturaEmitida' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' :
             filtroEspecial === 'sinProveedor' ? 'bg-rose-50 border border-rose-200 text-rose-700' :
+            filtroEspecial === 'traspasoPendiente' ? 'bg-cyan-50 border border-cyan-200 text-cyan-700' :
             'bg-amber-50 border border-amber-200 text-amber-700'
           }`}>
-            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pendiente factura' : 
+            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pdte. recibir factura' : 
+             filtroEspecial === 'pendientesValidar' ? 'Filtrando: Pdte. validar factura' :
              filtroEspecial === 'pagoVola' ? 'Filtrando: Pagos Vola' :
              filtroEspecial === 'entregaACuenta' ? 'Filtrando: Entregas a cuenta' :
              filtroEspecial === 'conProveedor' ? 'Filtrando: Con proveedor identificado' :
              filtroEspecial === 'conFacturaRecibida' ? 'Filtrando: Con factura recibida' :
              filtroEspecial === 'conFacturaEmitida' ? 'Filtrando: Con factura emitida' :
              filtroEspecial === 'sinProveedor' ? 'Filtrando: Sin proveedor (gastos)' :
+             filtroEspecial === 'traspasoPendiente' ? 'Filtrando: Traspasos pdte. contrapartida' :
              'Filtrando: Sin documento (reclamar)'}
             <button onClick={() => { setFiltroEspecial(''); setFiltroConciliado('false'); }} className="ml-1 hover:opacity-70">
               <XMarkIcon className="h-3.5 w-3.5" />

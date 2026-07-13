@@ -628,9 +628,18 @@ export async function GET() {
 
     // Conteos especiales para KPIs
     const pendienteFacturaCount = await prisma.movimientoBancario.count({ where: { pendienteFactura: true } });
+    const pendienteFacturaImporte = await prisma.movimientoBancario.aggregate({ where: { pendienteFactura: true }, _sum: { importe: true } });
     const pagosVolaCount = await prisma.movimientoBancario.count({ where: { pagoACuentaVola: true } });
     const entregasACuentaCount = await prisma.movimientoBancario.count({ where: { entregaACuentaEmpleadoId: { not: null } } });
     const sinDocumentoCount = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'factura', documentoRecibido: false } });
+    const sinDocumentoImporte = await prisma.movimientoBancario.aggregate({ where: { tipoDocumento: 'factura', documentoRecibido: false }, _sum: { importe: true } });
+
+    // KPI: Facturas pendientes de validar (PENDIENTE_REVISION)
+    const facturasPendientesValidar = await prisma.facturaRecibida.aggregate({
+      where: { estado: 'PENDIENTE_REVISION' },
+      _sum: { base: true, importeIva: true, total: true },
+      _count: true,
+    });
 
     // Importes de pagos Vola y entregas a cuenta
     const pagosVolaImporte = await prisma.movimientoBancario.aggregate({ where: { pagoACuentaVola: true }, _sum: { importe: true } });
@@ -675,11 +684,19 @@ export async function GET() {
       conFacturaEmitidaVinculada,
       sinProveedorGastos,
       pendienteFacturaCount,
+      pendienteFacturaImporte: Math.abs(pendienteFacturaImporte._sum.importe || 0),
+      sinDocumentoCount,
+      sinDocumentoImporte: Math.abs(sinDocumentoImporte._sum.importe || 0),
+      facturasPendientesValidar: {
+        count: facturasPendientesValidar._count,
+        base: facturasPendientesValidar._sum.base || 0,
+        iva: facturasPendientesValidar._sum.importeIva || 0,
+        total: facturasPendientesValidar._sum.total || 0,
+      },
       pagosVolaCount,
       pagosVolaImporte: Math.abs(pagosVolaImporte._sum.importe || 0),
       entregasACuentaCount,
       entregasACuentaImporte: Math.abs(entregasACuentaImporte._sum.importe || 0),
-      sinDocumentoCount,
       facturasEmitidas: {
         total: facturasEmitidas._count,
         facturado: facturasEmitidas._sum.total || 0,

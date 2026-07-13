@@ -114,6 +114,10 @@ export async function GET(req: NextRequest) {
       where.tipoDocumento = 'traspaso';
       where.traspasoRelacionadoId = null;
     }
+    const pendientesValidar = searchParams.get('pendientesValidar');
+    if (pendientesValidar === 'true') {
+      where.factura = { estado: 'PENDIENTE_REVISION' };
+    }
 
     const [movimientos, total] = await Promise.all([
       prisma.movimientoBancario.findMany({
