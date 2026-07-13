@@ -1011,6 +1011,7 @@ model CuentaBancaria {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   movimientos MovimientoBancario[]
+  importaciones ImportacionExtracto[]
 
   @@map("cuentas_bancarias")
 }
@@ -1800,4 +1801,21 @@ model DesarrolloHistorial {
   fecha       DateTime  @default(now())
 
   @@map("desarrollo_historial")
+}
+
+model ImportacionExtracto {
+  id              String   @id @default(uuid())
+  cuentaId        String   @map("cuenta_id")
+  cuenta          CuentaBancaria @relation(fields: [cuentaId], references: [id])
+  nombreArchivo   String   @map("nombre_archivo")
+  archivoUrl      String?  @map("archivo_url") // URL en Vercel Blob
+  formato         String   // santander, caixabank, bbva, etc.
+  movImportados   Int      @map("mov_importados")
+  movDuplicados   Int      @default(0) @map("mov_duplicados")
+  fechaPrimerMov  DateTime? @map("fecha_primer_mov")
+  fechaUltimoMov  DateTime? @map("fecha_ultimo_mov")
+  createdAt       DateTime @default(now()) @map("created_at")
+  usuarioId       String?  @map("usuario_id")
+
+  @@map("importaciones_extracto")
 }

@@ -22,12 +22,15 @@ interface EstadoCuenta {
 }
 
 interface HistorialImportacion {
+  id: string | null;
   archivo: string;
   banco: string;
   totalMovimientos: number;
+  duplicados: number;
   fechaPrimerMov: string | null;
   fechaUltimoMov: string | null;
   fechaImportacion: string | null;
+  archivoUrl: string | null;
 }
 
 export default function ImportarPage() {
@@ -179,11 +182,12 @@ export default function ImportarPage() {
                   <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Banco</th>
                   <th className="text-center py-2 px-2 font-medium text-gray-500 uppercase">Movimientos</th>
                   <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Período</th>
+                  <th className="text-center py-2 px-2 font-medium text-gray-500 uppercase">Archivo</th>
                 </tr>
               </thead>
               <tbody>
                 {historial.map((h, i) => (
-                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                  <tr key={h.id || i} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="py-2 px-2 text-gray-600">
                       {h.fechaImportacion ? new Date(h.fechaImportacion).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                     </td>
@@ -195,6 +199,11 @@ export default function ImportarPage() {
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">
                         {h.totalMovimientos}
                       </span>
+                      {h.duplicados > 0 && (
+                        <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 text-[10px]">
+                          +{h.duplicados} dup
+                        </span>
+                      )}
                     </td>
                     <td className="py-2 px-2 text-gray-500">
                       {h.fechaPrimerMov && h.fechaUltimoMov ? (
@@ -204,6 +213,23 @@ export default function ImportarPage() {
                           {new Date(h.fechaUltimoMov).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })}
                         </>
                       ) : 'N/A'}
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      {h.archivoUrl ? (
+                        <a
+                          href={h.archivoUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700 font-medium"
+                          title="Descargar archivo original"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                        </a>
+                      ) : (
+                        <span className="text-gray-300">-</span>
+                      )}
                     </td>
                   </tr>
                 ))}

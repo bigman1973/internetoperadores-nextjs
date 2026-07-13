@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { put } from '@vercel/blob';
 import * as XLSX from 'xlsx';
 import {
   parseSantanderXLSX,
@@ -215,6 +216,39 @@ export async function POST(req: NextRequest) {
 
     // Aplicar reglas de imputación automáticas
     const reglasAplicadas = await aplicarReglasImputacion(cuenta.id);
+
+    // Guardar fichero en Vercel Blob y registrar importación
+    let archivoUrl: string | null = null;
+    try {
+      const blobPath = `extractos/${cuenta.banco.toLowerCase().replace(/\s+/g, '-')}/${Date.now()}_${filename}`;
+      const blob = await put(blobPath, buffer, {
+        access: 'public',
+        contentType: file.type || 'application/octet-stream',
+      });
+      archivoUrl = blob.url;
+    } catch (e) {
+      // Si falla el upload a Blob, no bloquear la importación
+      console.error('Error subiendo archivo a Blob:', e);
+    }
+
+    // Calcular fechas del período importado
+    const fechasImport = movimientos.map(m => m.fechaOperacion);
+    const fechaPrimerMov = fechasImport.length > 0 ? new Date(Math.min(...fechasImport.map(f => f.getTime()))) : null;
+    const fechaUltimoMov = fechasImport.length > 0 ? new Date(Math.max(...fechasImport.map(f => f.getTime()))) : null;
+
+    // Registrar importación en BD
+    await prisma.importacionExtracto.create({
+      data: {
+        cuentaId: cuenta.id,
+        nombreArchivo: filename,
+        archivoUrl,
+        formato,
+        movImportados: insertados,
+        movDuplicados: duplicados + duplicadosPorContenido,
+        fechaPrimerMov,
+        fechaUltimoMov,
+      },
+    });
 
     return NextResponse.json({
       success: true,
