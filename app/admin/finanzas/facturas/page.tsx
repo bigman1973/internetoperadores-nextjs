@@ -771,7 +771,7 @@ export default function FacturasPage() {
                                 ? 'bg-blue-100 border-blue-300 text-blue-700'
                                 : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600'
                             }`}
-                            title="Buscar movimientos bancarios coincidentes"
+                            title="Conciliar — Buscar y vincular movimientos bancarios coincidentes"
                           >
                             <MagnifyingGlassIcon className="h-3.5 w-3.5" />
                             Conciliar
@@ -786,7 +786,7 @@ export default function FacturasPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-blue-500 hover:text-blue-700"
-                              title="Ver PDF"
+                              title="Ver documento PDF de la factura"
                             >
                               <EyeIcon className="h-5 w-5" />
                             </a>
@@ -796,14 +796,14 @@ export default function FacturasPage() {
                               <button
                                 onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'VALIDADA'); }}
                                 className="text-green-600 hover:text-green-800"
-                                title="Validar"
+                                title="Validar factura — Marcar como revisada y correcta"
                               >
                                 <CheckCircleIcon className="h-5 w-5" />
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'RECHAZADA'); }}
                                 className="text-red-400 hover:text-red-600"
-                                title="Rechazar"
+                                title="Rechazar factura — Marcar como incorrecta o no válida"
                               >
                                 <XCircleIcon className="h-5 w-5" />
                               </button>

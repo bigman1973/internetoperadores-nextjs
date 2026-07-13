@@ -117,6 +117,7 @@ export async function GET(req: NextRequest) {
     const pendientesValidar = searchParams.get('pendientesValidar');
     if (pendientesValidar === 'true') {
       where.factura = { estado: 'PENDIENTE_REVISION' };
+      where.tipoDocumento = { in: ['factura', 'ticket'] };
     }
 
     const [movimientos, total] = await Promise.all([

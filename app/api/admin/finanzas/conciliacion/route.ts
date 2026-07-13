@@ -635,8 +635,21 @@ export async function GET() {
     const sinDocumentoImporte = await prisma.movimientoBancario.aggregate({ where: { tipoDocumento: 'factura', documentoRecibido: false }, _sum: { importe: true } });
 
     // KPI: Facturas pendientes de validar (PENDIENTE_REVISION)
+    // Solo cuenta facturas que tienen movimientos con tipo doc factura o ticket (documento físico)
     const facturasPendientesValidar = await prisma.facturaRecibida.aggregate({
-      where: { estado: 'PENDIENTE_REVISION' },
+      where: { 
+        estado: 'PENDIENTE_REVISION',
+        movimientos: { some: { tipoDocumento: { in: ['factura', 'ticket'] } } }
+      },
+      _sum: { base: true, importeIva: true, total: true },
+      _count: true,
+    });
+    // También contar las que no tienen movimiento vinculado (facturas subidas manualmente)
+    const facturasSinVincularPendientes = await prisma.facturaRecibida.aggregate({
+      where: { 
+        estado: 'PENDIENTE_REVISION',
+        movimientos: { none: {} }
+      },
       _sum: { base: true, importeIva: true, total: true },
       _count: true,
     });
@@ -688,10 +701,10 @@ export async function GET() {
       sinDocumentoCount,
       sinDocumentoImporte: Math.abs(sinDocumentoImporte._sum.importe || 0),
       facturasPendientesValidar: {
-        count: facturasPendientesValidar._count,
-        base: facturasPendientesValidar._sum.base || 0,
-        iva: facturasPendientesValidar._sum.importeIva || 0,
-        total: facturasPendientesValidar._sum.total || 0,
+        count: facturasPendientesValidar._count + facturasSinVincularPendientes._count,
+        base: (facturasPendientesValidar._sum.base || 0) + (facturasSinVincularPendientes._sum.base || 0),
+        iva: (facturasPendientesValidar._sum.importeIva || 0) + (facturasSinVincularPendientes._sum.importeIva || 0),
+        total: (facturasPendientesValidar._sum.total || 0) + (facturasSinVincularPendientes._sum.total || 0),
       },
       pagosVolaCount,
       pagosVolaImporte: Math.abs(pagosVolaImporte._sum.importe || 0),
