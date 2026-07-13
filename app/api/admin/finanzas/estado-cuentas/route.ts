@@ -9,18 +9,19 @@ export async function GET() {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
-  // Obtener todas las cuentas con sus estadísticas de movimientos
+  // Obtener TODAS las cuentas (activas e inactivas) con sus estadísticas de movimientos
   const cuentas = await prisma.cuentaBancaria.findMany({
-    where: { activa: true },
     select: {
       id: true,
       banco: true,
+      activa: true,
       _count: { select: { movimientos: true } },
     },
+    orderBy: { banco: 'asc' },
   });
 
   // Para cada cuenta, obtener el primer y último movimiento
-  const resultado = await Promise.all(
+  const estadoCuentas = await Promise.all(
     cuentas.map(async (cuenta) => {
       const ultimoMov = await prisma.movimientoBancario.findFirst({
         where: { cuentaId: cuenta.id },
@@ -36,6 +37,7 @@ export async function GET() {
 
       return {
         banco: cuenta.banco,
+        activa: cuenta.activa,
         ultimoMovimiento: ultimoMov?.fechaOperacion?.toISOString() || null,
         primerMovimiento: primerMov?.fechaOperacion?.toISOString() || null,
         totalMovimientos: cuenta._count.movimientos,
@@ -43,12 +45,46 @@ export async function GET() {
     })
   );
 
-  // Ordenar por último movimiento (más antiguo primero para que se vea cuál necesita actualización)
-  resultado.sort((a, b) => {
+  // Ordenar: activas primero, luego por último movimiento (más antiguo primero)
+  estadoCuentas.sort((a, b) => {
+    if (a.activa !== b.activa) return a.activa ? -1 : 1;
     if (!a.ultimoMovimiento) return -1;
     if (!b.ultimoMovimiento) return 1;
     return new Date(a.ultimoMovimiento).getTime() - new Date(b.ultimoMovimiento).getTime();
   });
 
-  return NextResponse.json(resultado);
+  // Historial de importaciones: agrupar por origenArchivo para obtener los últimos ficheros subidos
+  const historialImportaciones = await prisma.$queryRaw<Array<{
+    origen_archivo: string;
+    banco: string;
+    total_movimientos: bigint;
+    fecha_primer_mov: Date;
+    fecha_ultimo_mov: Date;
+    fecha_importacion: Date;
+  }>>`
+    SELECT 
+      m.origen_archivo,
+      c.banco,
+      COUNT(*) as total_movimientos,
+      MIN(m.fecha_operacion) as fecha_primer_mov,
+      MAX(m.fecha_operacion) as fecha_ultimo_mov,
+      MAX(m.created_at) as fecha_importacion
+    FROM movimientos_bancarios m
+    JOIN cuentas_bancarias c ON m.cuenta_id = c.id
+    WHERE m.origen_archivo IS NOT NULL AND m.origen_archivo != ''
+    GROUP BY m.origen_archivo, c.banco
+    ORDER BY MAX(m.created_at) DESC
+    LIMIT 20
+  `;
+
+  const historial = historialImportaciones.map(h => ({
+    archivo: h.origen_archivo,
+    banco: h.banco,
+    totalMovimientos: Number(h.total_movimientos),
+    fechaPrimerMov: h.fecha_primer_mov?.toISOString() || null,
+    fechaUltimoMov: h.fecha_ultimo_mov?.toISOString() || null,
+    fechaImportacion: h.fecha_importacion?.toISOString() || null,
+  }));
+
+  return NextResponse.json({ estadoCuentas, historial });
 }

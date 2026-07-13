@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { ArrowUpTrayIcon, CheckCircleIcon, ExclamationTriangleIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
+import { ArrowUpTrayIcon, CheckCircleIcon, ExclamationTriangleIcon, CalendarDaysIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
 const BANCOS = [
   { id: 'santander', nombre: 'Santander', formatos: 'XLSX, TXT' },
@@ -15,9 +15,19 @@ const BANCOS = [
 
 interface EstadoCuenta {
   banco: string;
+  activa: boolean;
   ultimoMovimiento: string | null;
   totalMovimientos: number;
   primerMovimiento: string | null;
+}
+
+interface HistorialImportacion {
+  archivo: string;
+  banco: string;
+  totalMovimientos: number;
+  fechaPrimerMov: string | null;
+  fechaUltimoMov: string | null;
+  fechaImportacion: string | null;
 }
 
 export default function ImportarPage() {
@@ -27,6 +37,7 @@ export default function ImportarPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [estadoCuentas, setEstadoCuentas] = useState<EstadoCuenta[]>([]);
+  const [historial, setHistorial] = useState<HistorialImportacion[]>([]);
   const [loadingEstado, setLoadingEstado] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -39,7 +50,8 @@ export default function ImportarPage() {
       const res = await fetch('/api/admin/finanzas/estado-cuentas');
       if (res.ok) {
         const data = await res.json();
-        setEstadoCuentas(data);
+        setEstadoCuentas(data.estadoCuentas || []);
+        setHistorial(data.historial || []);
       }
     } catch (e) {
       console.error(e);
@@ -70,7 +82,7 @@ export default function ImportarPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Error al importar');
 
-      setResultado(json);
+      setResultado(json.resumen || json);
       setArchivo(null);
       if (fileRef.current) fileRef.current.value = '';
       fetchEstadoCuentas(); // Refrescar estado tras importar
@@ -108,11 +120,17 @@ export default function ImportarPage() {
               const dias = diasDesde(cuenta.ultimoMovimiento);
               const esReciente = dias !== null && dias <= 7;
               const esAntiguo = dias !== null && dias > 30;
+              const esInactiva = !cuenta.activa;
               return (
-                <div key={cuenta.banco} className={`rounded-lg border p-3 ${esAntiguo ? 'border-red-200 bg-red-50' : esReciente ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+                <div key={cuenta.banco} className={`rounded-lg border p-3 ${esInactiva ? 'border-gray-200 bg-gray-50 opacity-70' : esAntiguo ? 'border-red-200 bg-red-50' : esReciente ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
                   <div className="flex justify-between items-start">
-                    <span className="text-sm font-medium text-gray-900">{cuenta.banco}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${esAntiguo ? 'bg-red-100 text-red-700' : esReciente ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-gray-900">{cuenta.banco}</span>
+                      {esInactiva && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 font-medium">CERRADA</span>
+                      )}
+                    </div>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${esInactiva ? 'bg-gray-200 text-gray-500' : esAntiguo ? 'bg-red-100 text-red-700' : esReciente ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                       {dias !== null ? (dias === 0 ? 'Hoy' : `Hace ${dias} días`) : 'Sin datos'}
                     </span>
                   </div>
@@ -137,6 +155,60 @@ export default function ImportarPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Historial de importaciones */}
+      <div className="bg-white rounded-xl border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <DocumentTextIcon className="h-5 w-5 text-gray-600" />
+          <h3 className="text-sm font-semibold text-gray-900">Últimas importaciones</h3>
+        </div>
+        {loadingEstado ? (
+          <div className="text-sm text-gray-400">Cargando...</div>
+        ) : historial.length === 0 ? (
+          <p className="text-sm text-gray-400">No hay importaciones registradas</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Fecha importación</th>
+                  <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Archivo</th>
+                  <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Banco</th>
+                  <th className="text-center py-2 px-2 font-medium text-gray-500 uppercase">Movimientos</th>
+                  <th className="text-left py-2 px-2 font-medium text-gray-500 uppercase">Período</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historial.map((h, i) => (
+                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                    <td className="py-2 px-2 text-gray-600">
+                      {h.fechaImportacion ? new Date(h.fechaImportacion).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    </td>
+                    <td className="py-2 px-2 font-medium text-gray-900 max-w-[200px] truncate" title={h.archivo}>
+                      {h.archivo}
+                    </td>
+                    <td className="py-2 px-2 text-gray-600">{h.banco}</td>
+                    <td className="py-2 px-2 text-center">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">
+                        {h.totalMovimientos}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-gray-500">
+                      {h.fechaPrimerMov && h.fechaUltimoMov ? (
+                        <>
+                          {new Date(h.fechaPrimerMov).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
+                          {' → '}
+                          {new Date(h.fechaUltimoMov).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        </>
+                      ) : 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
@@ -210,9 +282,11 @@ export default function ImportarPage() {
               <p className="text-sm font-medium text-green-800">Importación completada</p>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm text-green-700">
-              <div>Movimientos importados: <strong>{resultado.importados}</strong></div>
-              <div>Duplicados omitidos: <strong>{resultado.duplicados}</strong></div>
-              <div>Categorizados automáticamente: <strong>{resultado.categorizados}</strong></div>
+              <div>Movimientos importados: <strong>{resultado.insertados ?? resultado.importados ?? 0}</strong></div>
+              <div>Duplicados omitidos: <strong>{(resultado.duplicados ?? 0) + (resultado.duplicadosPorContenido ?? 0)}</strong></div>
+              {resultado.reglasAplicadas !== undefined && (
+                <div>Reglas aplicadas: <strong>{resultado.reglasAplicadas}</strong></div>
+              )}
               {resultado.saldoFinal !== undefined && (
                 <div>Saldo final: <strong>{new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(resultado.saldoFinal)}</strong></div>
               )}
