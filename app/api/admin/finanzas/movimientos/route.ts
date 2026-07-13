@@ -78,7 +78,11 @@ export async function GET(req: NextRequest) {
     const pagoACuentaVola = searchParams.get('pagoACuentaVola');
     if (pagoACuentaVola === 'true') where.pagoACuentaVola = true;
     const tipoDocumento = searchParams.get('tipoDocumento');
-    if (tipoDocumento) where.tipoDocumento = tipoDocumento;
+    if (tipoDocumento === 'null') {
+      where.tipoDocumento = null;
+    } else if (tipoDocumento) {
+      where.tipoDocumento = tipoDocumento;
+    }
     const documentoRecibido = searchParams.get('documentoRecibido');
     if (documentoRecibido === 'true') where.documentoRecibido = true;
     if (documentoRecibido === 'false') where.documentoRecibido = false;

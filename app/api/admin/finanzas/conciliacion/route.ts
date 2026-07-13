@@ -382,6 +382,24 @@ export async function POST(req: NextRequest) {
         resultados.conciliadosTraspasos++;
       }
 
+      // 4.5 CONCILIACIÓN AUTOMÁTICA: tercero + justificante = conciliado
+      const conTerceroYJustificante = await prisma.movimientoBancario.findMany({
+        where: {
+          conciliado: false,
+          entidadFiscalId: { not: null },
+          tipoDocumento: 'justificante',
+        },
+        select: { id: true },
+      });
+
+      for (const mov of conTerceroYJustificante) {
+        await prisma.movimientoBancario.update({
+          where: { id: mov.id },
+          data: { conciliado: true },
+        });
+        resultados.conciliadosTraspasos++;
+      }
+
       // 5. CONCILIACIÓN CON TICKETS/GASTOS
       const gastosCategorizados = ['Dietas', 'Desplazamientos'];
       const movGastos = await prisma.movimientoBancario.findMany({

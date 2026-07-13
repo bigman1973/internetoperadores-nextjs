@@ -58,6 +58,21 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Vinculación con entidad fiscal (proveedor/AAPP)
     if (entidadFiscalId !== undefined) {
       data.entidadFiscalId = entidadFiscalId;
+      // Si se vincula un tercero, auto-conciliar si ya tiene justificante o si se está marcando justificante
+      if (entidadFiscalId) {
+        // Verificar si el movimiento ya tiene tipoDocumento=justificante
+        const movActual = await prisma.movimientoBancario.findUnique({ where: { id }, select: { tipoDocumento: true } });
+        if (movActual?.tipoDocumento === 'justificante' || data.tipoDocumento === 'justificante') {
+          data.conciliado = true;
+        }
+      }
+    }
+    // Si se marca tipoDocumento=justificante y ya tiene tercero vinculado, auto-conciliar
+    if (tipoDocumento === 'justificante' && !data.conciliado) {
+      const movActual2 = await prisma.movimientoBancario.findUnique({ where: { id }, select: { entidadFiscalId: true } });
+      if (movActual2?.entidadFiscalId || data.entidadFiscalId) {
+        data.conciliado = true;
+      }
     }
 
     // Si se pide asignar proveedor a movimientos similares

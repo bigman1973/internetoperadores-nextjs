@@ -94,6 +94,8 @@ export default function ConciliacionPage() {
   const [buscarTercero, setBuscarTercero] = useState('');
   // Buscador de movimientos
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
+  // Filtro por tipo de documento
+  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc'>('');
 
   useEffect(() => {
     fetchCuentas();
@@ -102,7 +104,7 @@ export default function ConciliacionPage() {
 
   useEffect(() => {
     fetchMovimientos();
-  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial]);
+  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial, filtroDocumento]);
 
   async function fetchCuentas() {
     try {
@@ -137,6 +139,11 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'conFacturaEmitida') params.set('conFacturaEmitida', 'true');
     if (filtroEspecial === 'sinProveedor') params.set('sinProveedor', 'true');
     if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
+    if (filtroDocumento === 'sinTipoDoc') {
+      params.set('tipoDocumento', 'null');
+    } else if (filtroDocumento) {
+      params.set('tipoDocumento', filtroDocumento);
+    }
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
     let movs = json.movimientos || [];
@@ -912,6 +919,17 @@ export default function ConciliacionPage() {
           {cuentas.map(c => (
             <option key={c.id} value={c.id}>{c.banco} - {c.alias}</option>
           ))}
+        </select>
+        <select
+          value={filtroDocumento}
+          onChange={(e) => { setFiltroDocumento(e.target.value as any); setPage(1); }}
+          className="border rounded-lg px-3 py-1.5 text-sm"
+        >
+          <option value="">Todos los docs</option>
+          <option value="factura">Con Factura</option>
+          <option value="ticket">Con Ticket</option>
+          <option value="justificante">Con Justificante</option>
+          <option value="sinTipoDoc">Sin tipo doc</option>
         </select>
         <div className="flex items-center gap-1">
           <input
