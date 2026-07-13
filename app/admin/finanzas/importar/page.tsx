@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { ArrowUpTrayIcon, CheckCircleIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
+import { useState, useRef, useEffect } from 'react';
+import { ArrowUpTrayIcon, CheckCircleIcon, ExclamationTriangleIcon, CalendarDaysIcon } from '@heroicons/react/24/outline';
 
 const BANCOS = [
   { id: 'santander', nombre: 'Santander', formatos: 'XLSX, TXT' },
@@ -13,13 +13,39 @@ const BANCOS = [
   { id: 'norma43', nombre: 'Norma 43 (cualquier banco)', formatos: 'N43, Q43, TXT' },
 ];
 
+interface EstadoCuenta {
+  banco: string;
+  ultimoMovimiento: string | null;
+  totalMovimientos: number;
+  primerMovimiento: string | null;
+}
+
 export default function ImportarPage() {
   const [banco, setBanco] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
   const [resultado, setResultado] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [estadoCuentas, setEstadoCuentas] = useState<EstadoCuenta[]>([]);
+  const [loadingEstado, setLoadingEstado] = useState(true);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetchEstadoCuentas();
+  }, []);
+
+  async function fetchEstadoCuentas() {
+    try {
+      const res = await fetch('/api/admin/finanzas/estado-cuentas');
+      if (res.ok) {
+        const data = await res.json();
+        setEstadoCuentas(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setLoadingEstado(false);
+  }
 
   async function handleImportar() {
     if (!banco || !archivo) {
@@ -47,10 +73,18 @@ export default function ImportarPage() {
       setResultado(json);
       setArchivo(null);
       if (fileRef.current) fileRef.current.value = '';
+      fetchEstadoCuentas(); // Refrescar estado tras importar
     } catch (e: any) {
       setError(e.message);
     }
     setLoading(false);
+  }
+
+  function diasDesde(fecha: string | null): number | null {
+    if (!fecha) return null;
+    const hoy = new Date();
+    const f = new Date(fecha);
+    return Math.floor((hoy.getTime() - f.getTime()) / (1000 * 60 * 60 * 24));
   }
 
   return (
@@ -58,6 +92,53 @@ export default function ImportarPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Importar Extracto Bancario</h1>
         <p className="text-sm text-gray-500 mt-1">Sube un extracto de movimientos para importar y conciliar automáticamente</p>
+      </div>
+
+      {/* Estado de cuentas - último movimiento por banco */}
+      <div className="bg-white rounded-xl border p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <CalendarDaysIcon className="h-5 w-5 text-gray-600" />
+          <h3 className="text-sm font-semibold text-gray-900">Estado de extractos por banco</h3>
+        </div>
+        {loadingEstado ? (
+          <div className="text-sm text-gray-400">Cargando...</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {estadoCuentas.map((cuenta) => {
+              const dias = diasDesde(cuenta.ultimoMovimiento);
+              const esReciente = dias !== null && dias <= 7;
+              const esAntiguo = dias !== null && dias > 30;
+              return (
+                <div key={cuenta.banco} className={`rounded-lg border p-3 ${esAntiguo ? 'border-red-200 bg-red-50' : esReciente ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'}`}>
+                  <div className="flex justify-between items-start">
+                    <span className="text-sm font-medium text-gray-900">{cuenta.banco}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${esAntiguo ? 'bg-red-100 text-red-700' : esReciente ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {dias !== null ? (dias === 0 ? 'Hoy' : `Hace ${dias} días`) : 'Sin datos'}
+                    </span>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    <div className="text-xs text-gray-600">
+                      <span className="text-gray-500">Último mov:</span>{' '}
+                      <span className="font-medium">
+                        {cuenta.ultimoMovimiento ? new Date(cuenta.ultimoMovimiento).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' }) : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      <span className="text-gray-500">Primer mov:</span>{' '}
+                      <span className="font-medium">
+                        {cuenta.primerMovimiento ? new Date(cuenta.primerMovimiento).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' }) : 'N/A'}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-600">
+                      <span className="text-gray-500">Total movimientos:</span>{' '}
+                      <span className="font-medium">{cuenta.totalMovimientos.toLocaleString('es-ES')}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border p-6 max-w-2xl space-y-6">
