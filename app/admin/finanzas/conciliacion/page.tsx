@@ -24,7 +24,7 @@ interface Movimiento {
   entregaACuentaEmpleado: { id: string; nombreCompleto: string } | null;
   entidadFiscal: { id: string; razonSocial: string; tipo: string; nifCif: string | null; cuentaContableA3: string | null } | null;
   nominaId: string | null;
-  nomina: { id: string; mes: number; anio: number; netoPercibir: number; empleado: { nombreCompleto: string } } | null;
+  nomina: { id: string; mes: number; anio: number; netoPercibir: number; empleado: { nombreCompleto: string }; movimientos: { id: string; importe: number }[] } | null;
 }
 
 interface Sugerencia {
@@ -103,6 +103,8 @@ export default function ConciliacionPage() {
   const [nominasList, setNominasList] = useState<any[]>([]);
   const [loadingNominas, setLoadingNominas] = useState(false);
   // Modal de movimientos similares
+  const [showDetalleVinculacion, setShowDetalleVinculacion] = useState<Movimiento | null>(null);
+
   const [showSimilaresModal, setShowSimilaresModal] = useState(false);
   const [similaresList, setSimilaresList] = useState<any[]>([]);
   const [similaresSeleccionados, setSimilaresSeleccionados] = useState<Set<string>>(new Set());
@@ -1190,7 +1192,7 @@ export default function ConciliacionPage() {
                       <td className="px-4 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
                           {mov.conciliado && (
-                            <span className="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-medium">Conciliado</span>
+                            <span onClick={(e) => { e.stopPropagation(); if (mov.nomina || mov.factura || mov.facturaEmitida) setShowDetalleVinculacion(mov); }} className={`text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-medium ${(mov.nomina || mov.factura || mov.facturaEmitida) ? 'cursor-pointer hover:bg-green-200' : ''}`}>Conciliado</span>
                           )}
                           {!mov.conciliado && mov.tipoDocumento === 'factura' && !mov.factura && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">Fact. pendiente</span>
@@ -1206,7 +1208,7 @@ export default function ConciliacionPage() {
                           )}
                           {mov.nominaId && mov.nomina && (
                             <>
-                              <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium">Nómina {mov.nomina.mes}/{mov.nomina.anio}</span>
+                              <span onClick={(e) => { e.stopPropagation(); setShowDetalleVinculacion(mov); }} className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full font-medium cursor-pointer hover:bg-indigo-200">Nómina {mov.nomina.mes}/{mov.nomina.anio}</span>
                               {mov.nomina.movimientos && mov.nomina.movimientos.length > 1 && (
                                 <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded-full font-medium" title={`${mov.nomina.movimientos.length} pagos vinculados a esta nómina`}>
                                   {mov.nomina.movimientos.length} pagos
@@ -1445,6 +1447,112 @@ export default function ConciliacionPage() {
         </div>
         );
       })()}
+      {/* Modal de detalle de vinculación */}
+      {showDetalleVinculacion && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDetalleVinculacion(null)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-bold text-gray-900">Detalle de vinculación</h3>
+                <button onClick={() => setShowDetalleVinculacion(null)} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+              </div>
+
+              {/* Datos del movimiento */}
+              <div className="bg-gray-50 rounded-lg p-4 mb-4">
+                <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">Movimiento bancario</h4>
+                <div className="grid grid-cols-2 gap-2 text-sm">
+                  <div><span className="text-gray-500">Fecha:</span> <span className="font-medium">{new Date(showDetalleVinculacion.fechaOperacion).toLocaleDateString('es-ES')}</span></div>
+                  <div><span className="text-gray-500">Importe:</span> <span className={`font-bold ${showDetalleVinculacion.importe < 0 ? 'text-red-600' : 'text-green-600'}`}>{showDetalleVinculacion.importe.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                  <div className="col-span-2"><span className="text-gray-500">Concepto:</span> <span className="font-medium">{showDetalleVinculacion.concepto}</span></div>
+                  <div><span className="text-gray-500">Banco:</span> <span className="font-medium">{showDetalleVinculacion.cuenta?.banco}</span></div>
+                  {showDetalleVinculacion.entidadFiscal && (
+                    <div><span className="text-gray-500">Tercero:</span> <span className="font-medium">{showDetalleVinculacion.entidadFiscal.razonSocial}</span></div>
+                  )}
+                </div>
+              </div>
+
+              {/* Datos del documento vinculado: Nómina */}
+              {showDetalleVinculacion.nomina && (
+                <div className="bg-indigo-50 rounded-lg p-4 mb-4">
+                  <h4 className="text-xs font-semibold text-indigo-600 uppercase mb-2">Nómina vinculada</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-gray-500">Empleado:</span> <span className="font-medium">{showDetalleVinculacion.nomina.empleado.nombreCompleto}</span></div>
+                    <div><span className="text-gray-500">Período:</span> <span className="font-medium">{showDetalleVinculacion.nomina.mes}/{showDetalleVinculacion.nomina.anio}</span></div>
+                    <div><span className="text-gray-500">Neto a percibir:</span> <span className="font-bold text-indigo-700">{showDetalleVinculacion.nomina.netoPercibir.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                    <div><span className="text-gray-500">Diferencia:</span> <span className={`font-medium ${Math.abs(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.nomina.netoPercibir) < 0.05 ? 'text-green-600' : 'text-red-600'}`}>{(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.nomina.netoPercibir).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                  </div>
+
+                  {/* Movimientos vinculados a esta nómina */}
+                  {showDetalleVinculacion.nomina.movimientos && showDetalleVinculacion.nomina.movimientos.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-indigo-200">
+                      <h5 className="text-xs font-semibold text-indigo-500 mb-2">Movimientos vinculados a esta nómina ({showDetalleVinculacion.nomina.movimientos.length})</h5>
+                      <div className="space-y-1">
+                        {showDetalleVinculacion.nomina.movimientos.map((m, idx) => (
+                          <div key={idx} className={`flex justify-between text-xs px-2 py-1 rounded ${m.id === showDetalleVinculacion.id ? 'bg-indigo-100 font-bold' : 'bg-white'}`}>
+                            <span>{m.id === showDetalleVinculacion.id ? '→ Este movimiento' : `Movimiento ${idx + 1}`}</span>
+                            <span className="text-red-600">{m.importe.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between mt-2 pt-2 border-t border-indigo-200 text-xs font-bold">
+                        <span>Total pagos:</span>
+                        <span className="text-red-600">{showDetalleVinculacion.nomina.movimientos.reduce((sum, m) => sum + m.importe, 0).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold">
+                        <span>Neto nómina:</span>
+                        <span className="text-indigo-700">-{showDetalleVinculacion.nomina.netoPercibir.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span>
+                      </div>
+                      <div className="flex justify-between text-xs font-bold mt-1">
+                        <span>% cubierto:</span>
+                        <span className={`${Math.abs(showDetalleVinculacion.nomina.movimientos.reduce((sum, m) => sum + m.importe, 0)) >= showDetalleVinculacion.nomina.netoPercibir - 0.05 ? 'text-green-600' : 'text-amber-600'}`}>
+                          {((Math.abs(showDetalleVinculacion.nomina.movimientos.reduce((sum, m) => sum + m.importe, 0)) / showDetalleVinculacion.nomina.netoPercibir) * 100).toFixed(0)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Datos del documento vinculado: Factura recibida */}
+              {showDetalleVinculacion.factura && (
+                <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                  <h4 className="text-xs font-semibold text-blue-600 uppercase mb-2">Factura recibida vinculada</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-gray-500">Proveedor:</span> <span className="font-medium">{showDetalleVinculacion.factura.proveedor}</span></div>
+                    <div><span className="text-gray-500">Nº Factura:</span> <span className="font-medium">{showDetalleVinculacion.factura.numFactura}</span></div>
+                    <div><span className="text-gray-500">Total factura:</span> <span className="font-bold text-blue-700">{showDetalleVinculacion.factura.total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                    <div><span className="text-gray-500">Diferencia:</span> <span className={`font-medium ${Math.abs(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.factura.total) < 0.05 ? 'text-green-600' : 'text-red-600'}`}>{(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.factura.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Datos del documento vinculado: Factura emitida */}
+              {showDetalleVinculacion.facturaEmitida && (
+                <div className="bg-emerald-50 rounded-lg p-4 mb-4">
+                  <h4 className="text-xs font-semibold text-emerald-600 uppercase mb-2">Factura emitida vinculada</h4>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div><span className="text-gray-500">Cliente:</span> <span className="font-medium">{showDetalleVinculacion.facturaEmitida.cliente}</span></div>
+                    <div><span className="text-gray-500">Nº Factura:</span> <span className="font-medium">{showDetalleVinculacion.facturaEmitida.numFactura}</span></div>
+                    <div><span className="text-gray-500">Total factura:</span> <span className="font-bold text-emerald-700">{showDetalleVinculacion.facturaEmitida.total.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                    <div><span className="text-gray-500">Diferencia:</span> <span className={`font-medium ${Math.abs(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.facturaEmitida.total) < 0.05 ? 'text-green-600' : 'text-red-600'}`}>{(Math.abs(showDetalleVinculacion.importe) - showDetalleVinculacion.facturaEmitida.total).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Sin documento vinculado */}
+              {!showDetalleVinculacion.nomina && !showDetalleVinculacion.factura && !showDetalleVinculacion.facturaEmitida && (
+                <div className="bg-gray-50 rounded-lg p-4 mb-4 text-center text-sm text-gray-500">
+                  Este movimiento está conciliado pero no tiene documento específico vinculado (justificante, traspaso, etc.)
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <button onClick={() => setShowDetalleVinculacion(null)} className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cerrar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
