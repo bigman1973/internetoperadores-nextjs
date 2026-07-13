@@ -29,23 +29,33 @@ export async function GET(req: NextRequest) {
       where: { empleadoId: targetEmpleadoId },
       include: {
         empleado: { select: { nombreCompleto: true } },
-        movimientos: { select: { id: true } }, // Para saber si ya está vinculada
+        movimientos: { select: { id: true, importe: true, fechaOperacion: true, concepto: true } },
       },
       orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
     });
 
     return NextResponse.json({
-      nominas: nominas.map(n => ({
-        id: n.id,
-        empleadoNombre: n.empleado.nombreCompleto,
-        mes: n.mes,
-        anio: n.anio,
-        netoPercibir: n.netoPercibir,
-        devengadoTotal: n.devengadoTotal,
-        costeTotalEmpresa: n.costeTotalEmpresa,
-        vinculada: n.movimientos.length > 0, // Ya tiene movimiento vinculado
-        movimientoIds: n.movimientos.map(m => m.id),
-      })),
+      nominas: nominas.map(n => {
+        const importeVinculado = n.movimientos.reduce((sum, m) => sum + Math.abs(m.importe), 0);
+        return {
+          id: n.id,
+          empleadoNombre: n.empleado.nombreCompleto,
+          mes: n.mes,
+          anio: n.anio,
+          netoPercibir: n.netoPercibir,
+          devengadoTotal: n.devengadoTotal,
+          costeTotalEmpresa: n.costeTotalEmpresa,
+          movimientosVinculados: n.movimientos.map(m => ({
+            id: m.id,
+            importe: m.importe,
+            fecha: m.fechaOperacion,
+            concepto: m.concepto,
+          })),
+          importeVinculado,
+          numMovimientos: n.movimientos.length,
+          cubierto: n.netoPercibir > 0 ? Math.round((importeVinculado / n.netoPercibir) * 100) : 0,
+        };
+      }),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

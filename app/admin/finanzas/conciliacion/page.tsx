@@ -1351,17 +1351,26 @@ export default function ConciliacionPage() {
       )}
 
       {/* Modal de vincular nómina */}
-      {showNominaModal && (
+      {showNominaModal && (() => {
+        const movActual = movimientos.find(m => m.id === showNominaModal);
+        return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[70vh] flex flex-col">
-            <div className="p-4 border-b flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">Vincular con nómina</h3>
-                <p className="text-sm text-gray-500">Selecciona la nómina correspondiente a este movimiento</p>
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col">
+            <div className="p-4 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Vincular con nómina</h3>
+                  <p className="text-sm text-gray-500">Selecciona la nómina correspondiente a este movimiento</p>
+                </div>
+                <button onClick={() => { setShowNominaModal(null); setNominasList([]); }} className="text-gray-400 hover:text-gray-600">
+                  <XMarkIcon className="h-6 w-6" />
+                </button>
               </div>
-              <button onClick={() => { setShowNominaModal(null); setNominasList([]); }} className="text-gray-400 hover:text-gray-600">
-                <XMarkIcon className="h-6 w-6" />
-              </button>
+              {movActual && (
+                <div className="mt-2 px-3 py-2 bg-indigo-50 rounded-lg">
+                  <p className="text-xs text-indigo-600">Movimiento: <span className="font-bold">{formatEUR(Math.abs(movActual.importe))}</span> — {movActual.concepto.substring(0, 60)}...</p>
+                </div>
+              )}
             </div>
             <div className="overflow-y-auto flex-1 p-4">
               {loadingNominas ? (
@@ -1374,12 +1383,7 @@ export default function ConciliacionPage() {
                     <button
                       key={n.id}
                       onClick={() => vincularNomina(showNominaModal, n.id)}
-                      disabled={n.vinculada}
-                      className={`w-full text-left px-4 py-3 rounded-lg border transition-colors ${
-                        n.vinculada
-                          ? 'bg-gray-50 border-gray-200 opacity-60 cursor-not-allowed'
-                          : 'bg-white border-indigo-200 hover:bg-indigo-50 hover:border-indigo-400 cursor-pointer'
-                      }`}
+                      className="w-full text-left px-4 py-3 rounded-lg border transition-colors bg-white border-indigo-200 hover:bg-indigo-50 hover:border-indigo-400 cursor-pointer"
                     >
                       <div className="flex items-center justify-between">
                         <div>
@@ -1388,9 +1392,20 @@ export default function ConciliacionPage() {
                         </div>
                         <div className="text-right">
                           <span className="font-bold text-sm text-indigo-700">{formatEUR(n.netoPercibir)}</span>
-                          {n.vinculada && <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">Ya vinculada</span>}
                         </div>
                       </div>
+                      {n.numMovimientos > 0 && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                            {n.numMovimientos} pago(s) vinculado(s): {formatEUR(n.importeVinculado)}
+                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                            n.cubierto >= 100 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {n.cubierto}% cubierto
+                          </span>
+                        </div>
+                      )}
                       {n.costeTotalEmpresa && (
                         <p className="text-[11px] text-gray-400 mt-0.5">Coste empresa: {formatEUR(n.costeTotalEmpresa)}</p>
                       )}
@@ -1407,7 +1422,8 @@ export default function ConciliacionPage() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
