@@ -128,7 +128,19 @@ export async function GET(req: NextRequest) {
       prisma.movimientoBancario.count({ where }),
     ]);
 
-    return NextResponse.json({ movimientos, total, page, totalPages: Math.ceil(total / limit) });
+    // Enriquecer con datos del traspaso relacionado (no es relación Prisma formal)
+    const movimientosEnriquecidos = await Promise.all(movimientos.map(async (mov: any) => {
+      if (mov.traspasoRelacionadoId) {
+        const relacionado = await prisma.movimientoBancario.findUnique({
+          where: { id: mov.traspasoRelacionadoId },
+          select: { id: true, fechaOperacion: true, importe: true, concepto: true, cuenta: { select: { banco: true, alias: true } } },
+        });
+        return { ...mov, traspasoRelacionado: relacionado };
+      }
+      return { ...mov, traspasoRelacionado: null };
+    }));
+
+    return NextResponse.json({ movimientos: movimientosEnriquecidos, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

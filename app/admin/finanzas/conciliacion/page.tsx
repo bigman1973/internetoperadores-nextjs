@@ -25,6 +25,8 @@ interface Movimiento {
   entidadFiscal: { id: string; razonSocial: string; tipo: string; nifCif: string | null; cuentaContableA3: string | null } | null;
   nominaId: string | null;
   nomina: { id: string; mes: number; anio: number; netoPercibir: number; empleado: { nombreCompleto: string }; movimientos: { id: string; importe: number }[] } | null;
+  traspasoRelacionadoId: string | null;
+  traspasoRelacionado: { id: string; fechaOperacion: string; importe: number; concepto: string; cuenta: { banco: string; alias: string } } | null;
 }
 
 interface Sugerencia {
@@ -97,7 +99,7 @@ export default function ConciliacionPage() {
   // Buscador de movimientos
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
-  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'sinTipoDoc' | 'facturaPendiente'>('');
+  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'traspaso' | 'sinTipoDoc' | 'facturaPendiente'>('');
   // Modal de vincular nómina
   const [showNominaModal, setShowNominaModal] = useState<string | null>(null); // movimientoId
   const [nominasList, setNominasList] = useState<any[]>([]);
@@ -368,8 +370,8 @@ export default function ConciliacionPage() {
     fetchEstado();
   }
 
-  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante') {
-    const docRecibido = tipo === 'ticket' || tipo === 'justificante' ? true : false;
+  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante' | 'traspaso') {
+    const docRecibido = tipo === 'ticket' || tipo === 'justificante' || tipo === 'traspaso' ? true : false;
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -1000,6 +1002,7 @@ export default function ConciliacionPage() {
           <option value="">Todos los docs</option>
           <option value="factura">Con Factura</option>
           <option value="facturaPendiente">Factura pendiente</option>
+          <option value="traspaso">Traspaso</option>
           <option value="ticket">Con Ticket</option>
           <option value="justificante">Con Justificante</option>
           <option value="sinTipoDoc">Sin tipo doc</option>
@@ -1158,6 +1161,13 @@ export default function ConciliacionPage() {
                                 >
                                   Just.
                                 </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); marcarTipoDocumento(mov.id, 'traspaso'); }}
+                                  className="text-[10px] px-1.5 py-0.5 border border-cyan-200 text-cyan-600 rounded hover:bg-cyan-50"
+                                  title="Traspaso entre cuentas propias"
+                                >
+                                  Trasp.
+                                </button>
                               </>
                             ) : mov.tipoDocumento === 'factura' ? (
                               <div className="flex items-center gap-1">
@@ -1179,6 +1189,12 @@ export default function ConciliacionPage() {
                                 className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded font-medium hover:bg-blue-100 cursor-pointer"
                                 title="Clic para quitar tipo de documento"
                               >Justificante</button>
+                            ) : mov.tipoDocumento === 'traspaso' ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}
+                                className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 border border-cyan-200 rounded font-medium hover:bg-cyan-200 cursor-pointer"
+                                title="Clic para quitar tipo de documento"
+                              >Traspaso</button>
                             ) : (
                               <button
                                 onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}
@@ -1191,9 +1207,15 @@ export default function ConciliacionPage() {
                       </td>
                       <td className="px-4 py-2.5 text-center">
                         <div className="flex items-center justify-center gap-1">
-                          {mov.conciliado && (
+                          {mov.conciliado && mov.tipoDocumento === 'traspaso' && mov.traspasoRelacionado ? (
+                            <span onClick={(e) => { e.stopPropagation(); setShowDetalleVinculacion(mov); }} className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded-full font-medium cursor-pointer hover:bg-cyan-200" title={`Traspaso ${mov.importe < 0 ? 'a' : 'de'} ${mov.traspasoRelacionado.cuenta.banco}`}>
+                              Traspaso {mov.importe < 0 ? '→' : '←'} {mov.traspasoRelacionado.cuenta.banco}
+                            </span>
+                          ) : mov.conciliado && mov.tipoDocumento === 'traspaso' ? (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 rounded-full font-medium">Traspaso</span>
+                          ) : mov.conciliado ? (
                             <span onClick={(e) => { e.stopPropagation(); if (mov.nomina || mov.factura || mov.facturaEmitida) setShowDetalleVinculacion(mov); }} className={`text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full font-medium ${(mov.nomina || mov.factura || mov.facturaEmitida) ? 'cursor-pointer hover:bg-green-200' : ''}`}>Conciliado</span>
-                          )}
+                          ) : null}
                           {!mov.conciliado && mov.tipoDocumento === 'factura' && !mov.factura && (
                             <span className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded-full font-medium">Fact. pendiente</span>
                           )}
@@ -1539,10 +1561,42 @@ export default function ConciliacionPage() {
                 </div>
               )}
 
+              {/* Datos del traspaso vinculado */}
+              {showDetalleVinculacion.traspasoRelacionado && (
+                <div className="bg-cyan-50 rounded-lg p-4 mb-4">
+                  <h4 className="text-xs font-semibold text-cyan-600 uppercase mb-2">Traspaso entre cuentas propias</h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Origen */}
+                    <div className="bg-white rounded-lg p-3 border border-cyan-200">
+                      <div className="text-xs text-gray-500 mb-1">{showDetalleVinculacion.importe < 0 ? '📤 Salida' : '📥 Entrada'}</div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-sm">{showDetalleVinculacion.cuenta?.banco}</span>
+                        <span className={`font-bold text-sm ${showDetalleVinculacion.importe < 0 ? 'text-red-600' : 'text-green-600'}`}>{showDetalleVinculacion.importe.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">{new Date(showDetalleVinculacion.fechaOperacion).toLocaleDateString('es-ES')}</div>
+                    </div>
+                    {/* Flecha */}
+                    <div className="text-center text-cyan-400 text-lg">↕</div>
+                    {/* Destino */}
+                    <div className="bg-white rounded-lg p-3 border border-cyan-200">
+                      <div className="text-xs text-gray-500 mb-1">{showDetalleVinculacion.importe < 0 ? '📥 Entrada' : '📤 Salida'}</div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium text-sm">{showDetalleVinculacion.traspasoRelacionado.cuenta.banco}</span>
+                        <span className={`font-bold text-sm ${showDetalleVinculacion.traspasoRelacionado.importe < 0 ? 'text-red-600' : 'text-green-600'}`}>{showDetalleVinculacion.traspasoRelacionado.importe.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}</span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-1">{new Date(showDetalleVinculacion.traspasoRelacionado.fechaOperacion).toLocaleDateString('es-ES')}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-2 border-t border-cyan-200 text-xs text-gray-500">
+                    <span className="font-medium">Concepto contrapartida:</span> {showDetalleVinculacion.traspasoRelacionado.concepto}
+                  </div>
+                </div>
+              )}
+
               {/* Sin documento vinculado */}
-              {!showDetalleVinculacion.nomina && !showDetalleVinculacion.factura && !showDetalleVinculacion.facturaEmitida && (
+              {!showDetalleVinculacion.nomina && !showDetalleVinculacion.factura && !showDetalleVinculacion.facturaEmitida && !showDetalleVinculacion.traspasoRelacionado && (
                 <div className="bg-gray-50 rounded-lg p-4 mb-4 text-center text-sm text-gray-500">
-                  Este movimiento está conciliado pero no tiene documento específico vinculado (justificante, traspaso, etc.)
+                  Este movimiento está conciliado pero no tiene documento específico vinculado (justificante, etc.)
                 </div>
               )}
 

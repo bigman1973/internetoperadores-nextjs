@@ -367,18 +367,65 @@ export async function POST(req: NextRequest) {
       }
 
       // 4. TRASPASOS ENTRE CUENTAS PROPIAS
+      // Buscar traspasos no conciliados con datos completos
       const traspasos = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,
           categoria: 'Traspaso',
         },
-        select: { id: true },
+        select: { id: true, importe: true, fechaOperacion: true, cuentaId: true, traspasoRelacionadoId: true },
       });
 
-      for (const mov of traspasos) {
+      // Intentar vincular pares cruzados: salida de un banco = entrada en otro
+      const sinVincular = traspasos.filter(t => !t.traspasoRelacionadoId);
+      const usados = new Set<string>();
+
+      for (const mov of sinVincular) {
+        if (usados.has(mov.id)) continue;
+        // Buscar contrapartida: mismo importe (signo opuesto), diferente cuenta, fecha cercana (±5 días)
+        const fechaMin = new Date(mov.fechaOperacion);
+        fechaMin.setDate(fechaMin.getDate() - 5);
+        const fechaMax = new Date(mov.fechaOperacion);
+        fechaMax.setDate(fechaMax.getDate() + 5);
+
+        const contrapartida = sinVincular.find(c => 
+          c.id !== mov.id && 
+          !usados.has(c.id) &&
+          c.cuentaId !== mov.cuentaId &&
+          Math.abs(c.importe + mov.importe) < 0.05 &&
+          new Date(c.fechaOperacion) >= fechaMin &&
+          new Date(c.fechaOperacion) <= fechaMax
+        );
+
+        if (contrapartida) {
+          // Vincular ambos
+          await prisma.movimientoBancario.update({
+            where: { id: mov.id },
+            data: { conciliado: true, tipoDocumento: 'traspaso', traspasoRelacionadoId: contrapartida.id },
+          });
+          await prisma.movimientoBancario.update({
+            where: { id: contrapartida.id },
+            data: { conciliado: true, tipoDocumento: 'traspaso', traspasoRelacionadoId: mov.id },
+          });
+          usados.add(mov.id);
+          usados.add(contrapartida.id);
+          resultados.conciliadosTraspasos += 2;
+        } else {
+          // No hay contrapartida, conciliar solo (traspaso sin par)
+          await prisma.movimientoBancario.update({
+            where: { id: mov.id },
+            data: { conciliado: true, tipoDocumento: 'traspaso' },
+          });
+          resultados.conciliadosTraspasos++;
+        }
+      }
+
+      // Conciliar los que ya tenían traspasoRelacionadoId
+      for (const mov of traspasos.filter(t => t.traspasoRelacionadoId)) {
+        if (usados.has(mov.id)) continue;
         await prisma.movimientoBancario.update({
           where: { id: mov.id },
-          data: { conciliado: true },
+          data: { conciliado: true, tipoDocumento: 'traspaso' },
         });
         resultados.conciliadosTraspasos++;
       }
