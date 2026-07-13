@@ -370,6 +370,15 @@ export default function ConciliacionPage() {
     fetchMovimientos();
   }
 
+  async function quitarTipoDocumento(movimientoId: string) {
+    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipoDocumento: null, documentoRecibido: null }),
+    });
+    fetchMovimientos();
+  }
+
   async function desvincularTercero(movimientoId: string) {
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
@@ -1101,9 +1110,17 @@ export default function ConciliacionPage() {
                                 </button>
                               </div>
                             ) : mov.tipoDocumento === 'justificante' ? (
-                              <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded font-medium">Justificante</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}
+                                className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 border border-blue-200 rounded font-medium hover:bg-blue-100 cursor-pointer"
+                                title="Clic para quitar tipo de documento"
+                              >Justificante</button>
                             ) : (
-                              <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">Ticket</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}
+                                className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded hover:bg-gray-200 cursor-pointer"
+                                title="Clic para quitar tipo de documento"
+                              >Ticket</button>
                             )}
                           </div>
                         )}
