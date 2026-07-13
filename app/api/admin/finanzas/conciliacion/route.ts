@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
       conciliadosConfirming: 0,
       conciliadosTraspasos: 0,
       conciliadosGastos: 0,
+      conciliadosNominas: 0,
       errores: [] as string[],
     };
 
@@ -398,6 +399,75 @@ export async function POST(req: NextRequest) {
           data: { conciliado: true },
         });
         resultados.conciliadosTraspasos++;
+      }
+
+      // 4.6 CONCILIACIÓN AUTOMÁTICA DE NÓMINAS: vincular movimiento con nómina por empleado + importe + mes
+      const movNominas = await prisma.movimientoBancario.findMany({
+        where: {
+          conciliado: false,
+          nominaId: null,
+          categoria: 'Sueldos y Salarios',
+          tipoPago: 'Nómina',
+          importe: { lt: 0 },
+          entidadFiscalId: { not: null },
+        },
+        select: { id: true, importe: true, fechaOperacion: true, entidadFiscalId: true },
+      });
+
+      // Obtener mapeo NIF → empleadoId para las entidades fiscales tipo PERSONAL
+      const entidadesFiscalesIds = [...new Set(movNominas.map(m => m.entidadFiscalId!))]; 
+      const entidadesFiscales = await prisma.entidadFiscal.findMany({
+        where: { id: { in: entidadesFiscalesIds }, tipo: 'PERSONAL' },
+        select: { id: true, nifCif: true },
+      });
+      const nifPorEntidad = new Map(entidadesFiscales.map(e => [e.id, e.nifCif]));
+      const nifsUnicos = [...new Set(entidadesFiscales.map(e => e.nifCif).filter(Boolean))] as string[];
+      const empleados = await prisma.empleado.findMany({
+        where: { nif: { in: nifsUnicos } },
+        select: { id: true, nif: true },
+      });
+      const empleadoPorNif = new Map(empleados.map(e => [e.nif, e.id]));
+
+      // Obtener todas las nóminas de esos empleados
+      const empleadoIds = [...new Set(empleados.map(e => e.id))];
+      const todasNominas = await prisma.nomina.findMany({
+        where: { empleadoId: { in: empleadoIds } },
+        select: { id: true, empleadoId: true, mes: true, anio: true, netoPercibir: true },
+      });
+
+      for (const mov of movNominas) {
+        const nif = nifPorEntidad.get(mov.entidadFiscalId!);
+        if (!nif) continue;
+        const empId = empleadoPorNif.get(nif);
+        if (!empId) continue;
+
+        const importeAbs = Math.abs(mov.importe);
+        const fechaMov = new Date(mov.fechaOperacion);
+        // Las nóminas se pagan el mes siguiente o el mismo mes
+        // Buscar nómina del mes anterior o del mismo mes
+        const mesActual = fechaMov.getMonth() + 1;
+        const anioActual = fechaMov.getFullYear();
+        const mesAnterior = mesActual === 1 ? 12 : mesActual - 1;
+        const anioAnterior = mesActual === 1 ? anioActual - 1 : anioActual;
+
+        // Buscar nómina que coincida en importe (tolerancia 0.05€)
+        const nominaMatch = todasNominas.find(n => 
+          n.empleadoId === empId &&
+          Math.abs(n.netoPercibir - importeAbs) < 0.05 &&
+          ((n.mes === mesAnterior && n.anio === anioAnterior) || (n.mes === mesActual && n.anio === anioActual))
+        );
+
+        if (nominaMatch) {
+          await prisma.movimientoBancario.update({
+            where: { id: mov.id },
+            data: {
+              nominaId: nominaMatch.id,
+              conciliado: true,
+              tipoDocumento: 'justificante',
+            },
+          });
+          resultados.conciliadosNominas++;
+        }
       }
 
       // 5. CONCILIACIÓN CON TICKETS/GASTOS
