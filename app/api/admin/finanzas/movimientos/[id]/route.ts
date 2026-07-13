@@ -225,6 +225,21 @@ function extraerPatron(concepto: string): string | null {
     'suministro', 'electrico', 'energia', 'clientes', 'cliente',
     'favor', 'cuenta', 'mensual', 'mensualidad', 'nif', 'cif',
     'para', 'por', 'con', 'del', 'los', 'las', 'una', 'uno',
+    // Transferencias bancarias
+    'inmediata', 'immediata', 'traspaso', 'traspas', 'trf',
+    'bizum', 'sepa', 'swift', 'iban', 'bic',
+    'santander', 'bbva', 'caixa', 'caixabank', 'sabadell', 'bankinter',
+    'guissona', 'bankia', 'ibercaja', 'kutxabank', 'abanca',
+    'operadores', 'deuda', 'abogados', 'honorarios',
+    // Preposiciones y conectores
+    'desde', 'hasta', 'entre', 'sobre', 'bajo', 'ante',
+    'que', 'como', 'este', 'esta', 'ese', 'esa',
+    // Tipos de operación
+    'vencimiento', 'venciment', 'prestec', 'amortitzacio', 'amortizacion',
+    'pagament', 'pagamento', 'cobrament', 'cobranza',
+    'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre',
+    'octubre', 'noviembre', 'diciembre', 'enero', 'febrero', 'marzo',
+    'inst26', 'inst', 'presupuesto',
   ]);
 
   // Extraer tokens (split por espacios, puntuación y guiones)
