@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { 
-  ArrowLeftIcon, PencilIcon, DocumentTextIcon,
+  ArrowLeftIcon, PencilIcon, DocumentTextIcon, DocumentDuplicateIcon,
   MagnifyingGlassIcon, CheckIcon, XMarkIcon,
   ArrowPathIcon, GlobeAltIcon, UserIcon
 } from '@heroicons/react/24/outline';
@@ -152,6 +152,13 @@ export default function FacturaDetallePage() {
   const [showModalAplicar, setShowModalAplicar] = useState(false);
   const [facturasProveedorCount, setFacturasProveedorCount] = useState(0);
   const [aplicandoTodas, setAplicandoTodas] = useState(false);
+
+  // Modal de facturas similares (analítica)
+  const [showModalSimilares, setShowModalSimilares] = useState(false);
+  const [buscandoSimilares, setBuscandoSimilares] = useState(false);
+  const [facturasSimilares, setFacturasSimilares] = useState<any[]>([]);
+  const [selectedSimilares, setSelectedSimilares] = useState<string[]>([]);
+  const [aplicandoSimilares, setAplicandoSimilares] = useState(false);
 
   // Sugerencia por teléfono (Telefónica de España)
   const [sugerenciaTelefono, setSugerenciaTelefono] = useState<{
@@ -486,6 +493,60 @@ export default function FacturaDetallePage() {
     } catch (e: any) {
       alert(`Error: ${e.message}`);
     }
+  }
+
+  async function buscarFacturasSimilares() {
+    if (!factura) return;
+    setBuscandoSimilares(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'buscar-similares',
+          facturaRecibidaId: factura.id,
+        }),
+      });
+      const json = await res.json();
+      if (json.similares && json.similares.length > 0) {
+        setFacturasSimilares(json.similares);
+        setSelectedSimilares(json.similares.map((f: any) => f.id));
+        setShowModalSimilares(true);
+      } else {
+        alert('No se encontraron facturas similares sin imputar de este proveedor.');
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    }
+    setBuscandoSimilares(false);
+  }
+
+  async function aplicarASimilares() {
+    if (!factura || selectedSimilares.length === 0) return;
+    setAplicandoSimilares(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/imputacion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'aplicar-similares',
+          facturaOrigenId: factura.id,
+          facturaDestinoIds: selectedSimilares,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        alert(`Analítica aplicada correctamente a ${json.aplicadas} facturas.`);
+        setShowModalSimilares(false);
+        setFacturasSimilares([]);
+        setSelectedSimilares([]);
+      } else {
+        alert(`Error: ${json.error}`);
+      }
+    } catch (e: any) {
+      alert(`Error: ${e.message}`);
+    }
+    setAplicandoSimilares(false);
   }
 
   async function seleccionarCliente(cliente: string) {
@@ -1210,21 +1271,35 @@ export default function FacturaDetallePage() {
 
               {/* Botón Imputar a ventas */}
               {factura.imputadoAVentas ? (
-                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-green-800">Imputado a ventas</p>
-                      <p className="text-xs text-green-600 mt-0.5">
-                        Imputación realizada el {factura.fechaImputacion ? new Date(factura.fechaImputacion).toLocaleDateString('es-ES') : '?'}
-                      </p>
+                <div className="mt-4 space-y-3">
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-green-800">Imputado a ventas</p>
+                        <p className="text-xs text-green-600 mt-0.5">
+                          Imputación realizada el {factura.fechaImputacion ? new Date(factura.fechaImputacion).toLocaleDateString('es-ES') : '?'}
+                        </p>
+                      </div>
+                      <button
+                        onClick={deshacerImputacion}
+                        className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-md hover:bg-red-50"
+                      >
+                        Deshacer imputación
+                      </button>
                     </div>
-                    <button
-                      onClick={deshacerImputacion}
-                      className="px-3 py-1.5 text-xs border border-red-200 text-red-600 rounded-md hover:bg-red-50"
-                    >
-                      Deshacer imputación
-                    </button>
                   </div>
+                  {/* Botón aplicar a facturas similares */}
+                  <button
+                    onClick={buscarFacturasSimilares}
+                    disabled={buscandoSimilares}
+                    className="w-full px-4 py-2.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg hover:bg-purple-100 font-medium text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {buscandoSimilares ? (
+                      <><ArrowPathIcon className="h-4 w-4 animate-spin" /> Buscando similares...</>
+                    ) : (
+                      <><DocumentDuplicateIcon className="h-4 w-4" /> Aplicar analítica a facturas similares</>
+                    )}
+                  </button>
                 </div>
               ) : puedeImputar ? (
                 <div className="mt-4">
@@ -1528,6 +1603,110 @@ export default function FacturaDetallePage() {
                 className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
               >
                 {aplicandoTodas ? 'Aplicando...' : `Aplicar a todas (${facturasProveedorCount})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Aplicar analítica a facturas similares */}
+      {showModalSimilares && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 max-w-2xl w-full mx-4 shadow-2xl max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-900">Aplicar analítica a facturas similares</h3>
+              <button onClick={() => setShowModalSimilares(false)} className="text-gray-400 hover:text-gray-600">
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-600 mb-4">
+              Se encontraron <strong>{facturasSimilares.length}</strong> facturas de <strong>{factura?.proveedor}</strong> sin imputar.
+              Selecciona las que quieras imputar con la misma analítica:
+            </p>
+
+            {/* Selección masiva */}
+            <div className="flex items-center gap-3 mb-3">
+              <button
+                onClick={() => setSelectedSimilares(facturasSimilares.map(f => f.id))}
+                className="text-xs text-blue-600 hover:underline"
+              >
+                Seleccionar todas
+              </button>
+              <button
+                onClick={() => setSelectedSimilares([])}
+                className="text-xs text-gray-500 hover:underline"
+              >
+                Deseleccionar todas
+              </button>
+              <span className="text-xs text-gray-400">
+                {selectedSimilares.length} de {facturasSimilares.length} seleccionadas
+              </span>
+            </div>
+
+            {/* Lista de facturas similares */}
+            <div className="border rounded-lg divide-y max-h-[40vh] overflow-y-auto">
+              {facturasSimilares.map(f => (
+                <label
+                  key={f.id}
+                  className={`flex items-center gap-3 px-3 py-2.5 hover:bg-blue-50/50 cursor-pointer ${
+                    selectedSimilares.includes(f.id) ? 'bg-blue-50/30' : ''
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedSimilares.includes(f.id)}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedSimilares([...selectedSimilares, f.id]);
+                      } else {
+                        setSelectedSimilares(selectedSimilares.filter(id => id !== f.id));
+                      }
+                    }}
+                    className="rounded border-gray-300"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">
+                        {new Date(f.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })}
+                      </span>
+                      <span className="text-xs text-gray-400">{f.numFactura || 'S/N'}</span>
+                      {f.similitud > 0 && (
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
+                          f.similitud >= 80 ? 'bg-green-100 text-green-700' :
+                          f.similitud >= 50 ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {f.similitud}% similar
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-700 truncate">{f.concepto || f.proveedor}</p>
+                  </div>
+                  <span className="text-sm font-medium text-red-700 whitespace-nowrap">
+                    {new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(f.total)}
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <p className="text-xs text-gray-500 mt-3">
+              Se copiarán las asignaciones de clientes por línea y se marcarán como imputadas a ventas.
+              Los importes se ajustarán proporcionalmente si la base difiere.
+            </p>
+
+            <div className="flex gap-3 mt-4">
+              <button
+                onClick={() => setShowModalSimilares(false)}
+                className="flex-1 px-4 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={aplicarASimilares}
+                disabled={aplicandoSimilares || selectedSimilares.length === 0}
+                className="flex-1 px-4 py-2.5 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+              >
+                {aplicandoSimilares ? 'Aplicando...' : `Aplicar a ${selectedSimilares.length} facturas`}
               </button>
             </div>
           </div>

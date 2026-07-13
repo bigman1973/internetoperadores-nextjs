@@ -420,6 +420,187 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ categoria });
     }
 
+    // Buscar facturas similares del mismo proveedor (para replicar analítica)
+    if (action === 'buscar-similares') {
+      const { facturaRecibidaId } = body;
+      if (!facturaRecibidaId) {
+        return NextResponse.json({ error: 'facturaRecibidaId requerido' }, { status: 400 });
+      }
+
+      const origen = await prisma.facturaRecibida.findUnique({
+        where: { id: facturaRecibidaId },
+        select: { id: true, proveedor: true, cif: true, lineasDetalle: true, imputadoAVentas: true },
+      });
+      if (!origen) {
+        return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 });
+      }
+
+      const whereCondition: any = {
+        id: { not: facturaRecibidaId },
+        imputadoAVentas: false,
+        estado: { not: 'RECHAZADA' },
+      };
+      if (origen.cif) {
+        whereCondition.cif = origen.cif;
+      } else {
+        whereCondition.proveedor = { contains: origen.proveedor, mode: 'insensitive' };
+      }
+
+      const similares = await prisma.facturaRecibida.findMany({
+        where: whereCondition,
+        select: {
+          id: true,
+          proveedor: true,
+          numFactura: true,
+          fecha: true,
+          base: true,
+          total: true,
+          concepto: true,
+          lineasDetalle: true,
+          imputacion: true,
+        },
+        orderBy: { fecha: 'desc' },
+        take: 100,
+      });
+
+      let lineasOrigen: any[] = [];
+      if (origen.lineasDetalle) {
+        try { lineasOrigen = JSON.parse(origen.lineasDetalle); } catch {}
+      }
+
+      const facturasEnriquecidas = similares.map(f => {
+        let similitud = 0;
+        let numLineas = 0;
+        if (f.lineasDetalle && lineasOrigen.length > 0) {
+          try {
+            const lineasF = JSON.parse(f.lineasDetalle);
+            numLineas = lineasF.length;
+            const descsOrigen = lineasOrigen.map((l: any) => (l.descripcion || '').toLowerCase().trim());
+            const descsF = lineasF.map((l: any) => (l.descripcion || '').toLowerCase().trim());
+            const coincidencias = descsF.filter((d: string) => descsOrigen.some((o: string) => o === d || (o.length > 5 && d.includes(o)) || (d.length > 5 && o.includes(d))));
+            similitud = descsF.length > 0 ? Math.round((coincidencias.length / descsF.length) * 100) : 0;
+          } catch {}
+        } else if (!f.lineasDetalle && lineasOrigen.length === 0) {
+          similitud = 50;
+        }
+        return { ...f, lineasDetalle: undefined, numLineas, similitud };
+      });
+
+      facturasEnriquecidas.sort((a, b) => b.similitud - a.similitud);
+
+      return NextResponse.json({
+        similares: facturasEnriquecidas,
+        totalSimilares: facturasEnriquecidas.length,
+        origenLineas: lineasOrigen.length,
+      });
+    }
+
+    // Aplicar la misma imputación de líneas a facturas similares
+    if (action === 'aplicar-similares') {
+      const { facturaOrigenId, facturaDestinoIds } = body;
+      if (!facturaOrigenId || !Array.isArray(facturaDestinoIds) || facturaDestinoIds.length === 0) {
+        return NextResponse.json({ error: 'facturaOrigenId y facturaDestinoIds son requeridos' }, { status: 400 });
+      }
+
+      const origen = await prisma.facturaRecibida.findUnique({
+        where: { id: facturaOrigenId },
+        select: { id: true, lineasDetalle: true, imputadoAVentas: true, imputacion: true, clienteImputado: true, base: true },
+      });
+      if (!origen) {
+        return NextResponse.json({ error: 'Factura origen no encontrada' }, { status: 404 });
+      }
+
+      const imputacionesOrigen = await prisma.imputacionCosteCliente.findMany({
+        where: { facturaId: facturaOrigenId },
+      });
+
+      let aplicadas = 0;
+
+      for (const destinoId of facturaDestinoIds) {
+        const destino = await prisma.facturaRecibida.findUnique({
+          where: { id: destinoId },
+          select: { id: true, base: true, total: true, lineasDetalle: true },
+        });
+        if (!destino) continue;
+
+        // Copiar lineasDetalle con los clientes asignados del origen
+        if (origen.lineasDetalle) {
+          try {
+            const lineasOrigenParsed = JSON.parse(origen.lineasDetalle);
+            let lineasDestino: any[] = [];
+            if (destino.lineasDetalle) {
+              lineasDestino = JSON.parse(destino.lineasDetalle);
+            }
+
+            const lineasActualizadas = lineasDestino.length > 0
+              ? lineasDestino.map((ld: any, idx: number) => {
+                  const match = lineasOrigenParsed.find((lo: any) =>
+                    lo.descripcion && ld.descripcion &&
+                    (lo.descripcion.toLowerCase().trim() === ld.descripcion.toLowerCase().trim() ||
+                     lo.descripcion.toLowerCase().includes(ld.descripcion.toLowerCase()) ||
+                     ld.descripcion.toLowerCase().includes(lo.descripcion.toLowerCase()))
+                  ) || lineasOrigenParsed[idx];
+
+                  if (match && (match.cliente || match.clienteNombreBd)) {
+                    return {
+                      ...ld,
+                      cliente: match.cliente || match.clienteNombreBd,
+                      clienteNombreBd: match.clienteNombreBd || match.cliente,
+                      clienteMatch: true,
+                    };
+                  }
+                  return ld;
+                })
+              : lineasOrigenParsed;
+
+            await prisma.facturaRecibida.update({
+              where: { id: destinoId },
+              data: { lineasDetalle: JSON.stringify(lineasActualizadas) },
+            });
+          } catch {}
+        }
+
+        // Si el origen está imputado a ventas, replicar las imputaciones
+        if (origen.imputadoAVentas && imputacionesOrigen.length > 0) {
+          await prisma.imputacionCosteCliente.deleteMany({
+            where: { facturaId: destinoId },
+          });
+
+          const baseOrigen = imputacionesOrigen.reduce((sum, i) => sum + i.importe, 0);
+          const baseDestino = destino.base || destino.total || baseOrigen;
+          const factor = baseOrigen > 0 ? baseDestino / baseOrigen : 1;
+
+          for (const imp of imputacionesOrigen) {
+            await prisma.imputacionCosteCliente.create({
+              data: {
+                facturaId: destinoId,
+                clienteId: imp.clienteId,
+                clienteNombre: imp.clienteNombre,
+                importe: Math.round(imp.importe * factor * 100) / 100,
+                concepto: imp.concepto,
+                numLineas: imp.numLineas,
+                confirmado: true,
+              },
+            });
+          }
+
+          await prisma.facturaRecibida.update({
+            where: { id: destinoId },
+            data: {
+              imputadoAVentas: true,
+              fechaImputacion: new Date(),
+              imputacion: origen.imputacion || 'Clientes (por línea)',
+              clienteImputado: origen.clienteImputado,
+            },
+          });
+        }
+
+        aplicadas++;
+      }
+
+      return NextResponse.json({ success: true, aplicadas });
+    }
+
     return NextResponse.json({ error: 'Acción no válida' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
