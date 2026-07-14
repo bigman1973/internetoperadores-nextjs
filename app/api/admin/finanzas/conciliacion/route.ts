@@ -410,12 +410,13 @@ export async function POST(req: NextRequest) {
         }
         if (matched) continue;
 
-        // ESTRATEGIA 2: Match por nº factura en concepto/referencia
-        const numFacturaMatch = mov.concepto.match(/(?:Fra|Factura|FRS|Ref)[:\s.]*([A-Z0-9\-\/]+)/i)
-          || (mov.referencia && mov.referencia.match(/([A-Z0-9\-\/]{5,})/i));
+        // ESTRATEGIA 2: Match por nº factura en concepto/referencia (regex mejorado)
+        const numFacturaMatch = mov.concepto.match(/(?:FACTURA|Fra|FRS|Ref|FAC)(?:\s*N\.?)?[:\s./]*([A-Z0-9][A-Z0-9\-\/]+)/i)
+          || mov.concepto.match(/(?:Concepto|Pago)\s+(?:Factura|Fra)\s+([A-Z0-9][A-Z0-9\-\/]+)/i)
+          || (mov.referencia && mov.referencia.match(/([A-Z0-9][A-Z0-9\-\/]{3,})/i));
         
         if (numFacturaMatch) {
-          const numFactura = numFacturaMatch[1];
+          const numFactura = numFacturaMatch[1].replace(/\s+-\s+\d+$/, '').trim(); // Limpiar: quitar " - 1" al final (no tocar Va-999)
           const facturaMatch = await prisma.facturaRecibida.findFirst({
             where: {
               numFactura: { contains: numFactura, mode: 'insensitive' },
@@ -433,26 +434,61 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        // ESTRATEGIA 3: Match por importe exacto + fecha cercana (solo si importe > 50€)
+        // ESTRATEGIA 3: Match por tercero + importe exacto (usando campo tercero de la BD)
+        if (mov.tercero) {
+          // Normalizar tercero: quitar S.L., S.A., puntos, comas para buscar parcial
+          const terceroNorm = mov.tercero.replace(/[,.]|\b(S\.?L\.?|S\.?A\.?|S\.?L\.?U\.?)\b/gi, '').trim();
+          const palabrasClave = terceroNorm.split(/\s+/).filter((p: string) => p.length > 3).slice(0, 2);
+          
+          if (palabrasClave.length > 0) {
+            const fechaDesde = new Date(mov.fechaOperacion);
+            fechaDesde.setDate(fechaDesde.getDate() - 90);
+            const fechaHasta = new Date(mov.fechaOperacion);
+            fechaHasta.setDate(fechaHasta.getDate() + 10);
+
+            const facturaMatch = await prisma.facturaRecibida.findFirst({
+              where: {
+                AND: palabrasClave.map((p: string) => ({ proveedor: { contains: p, mode: 'insensitive' as const } })),
+                total: { gte: importeAbs - 0.10, lte: importeAbs + 0.10 },
+                fecha: { gte: fechaDesde, lte: fechaHasta },
+                movimientos: { none: {} },
+              },
+              orderBy: { fecha: 'desc' },
+            });
+
+            if (facturaMatch) {
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: { conciliado: true, facturaId: facturaMatch.id },
+              });
+              resultados.conciliadosFacturasRecibidas++;
+              continue;
+            }
+          }
+        }
+
+        // ESTRATEGIA 4: Match por importe exacto + fecha cercana (solo si importe > 50€ y hay una única factura)
         if (importeAbs > 50) {
           const fechaDesde = new Date(mov.fechaOperacion);
           fechaDesde.setDate(fechaDesde.getDate() - 60);
           const fechaHasta = new Date(mov.fechaOperacion);
           fechaHasta.setDate(fechaHasta.getDate() + 5);
 
-          const facturaMatch = await prisma.facturaRecibida.findFirst({
+          const facturasMatch = await prisma.facturaRecibida.findMany({
             where: {
               total: { gte: importeAbs - 0.02, lte: importeAbs + 0.02 },
               fecha: { gte: fechaDesde, lte: fechaHasta },
               movimientos: { none: {} },
             },
             orderBy: { fecha: 'desc' },
+            take: 2,
           });
 
-          if (facturaMatch) {
+          // Solo vincular si hay exactamente 1 factura con ese importe (evitar ambigüedad)
+          if (facturasMatch.length === 1) {
             await prisma.movimientoBancario.update({
               where: { id: mov.id },
-              data: { conciliado: true, facturaId: facturaMatch.id },
+              data: { conciliado: true, facturaId: facturasMatch[0].id },
             });
             resultados.conciliadosFacturasRecibidas++;
             continue;
