@@ -82,9 +82,9 @@ export async function GET(request: NextRequest) {
         concepto: true,
         tercero: true,
         importe: true,
-        banco: true,
         conciliado: true,
         facturaEmitidaId: true,
+        cuenta: { select: { banco: true } },
         facturaEmitida: {
           select: { numFactura: true, cliente: true, total: true },
         },

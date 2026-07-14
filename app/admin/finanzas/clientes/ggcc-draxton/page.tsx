@@ -34,7 +34,7 @@ interface MovimientoCobro {
   concepto: string;
   tercero: string | null;
   importe: number;
-  banco: string;
+  cuenta: { banco: string } | null;
   conciliado: boolean;
   facturaEmitidaId: string | null;
   facturaEmitida: { numFactura: string; cliente: string; total: number } | null;
@@ -348,7 +348,7 @@ export default function GGCDraxtonPage() {
                 movimientosFiltrados.map(m => (
                   <tr key={m.id} className={`border-b hover:bg-gray-50 ${!m.facturaEmitidaId ? 'bg-orange-50/50' : ''}`}>
                     <td className="px-3 py-2 text-gray-600">{formatDate(m.fechaOperacion)}</td>
-                    <td className="px-3 py-2 text-gray-600">{m.banco}</td>
+                    <td className="px-3 py-2 text-gray-600">{m.cuenta?.banco || '-'}</td>
                     <td className="px-3 py-2 text-gray-700 max-w-[300px] truncate">{m.concepto}</td>
                     <td className="px-3 py-2 text-right font-medium text-green-700">{formatMoney(Number(m.importe))}</td>
                     <td className="px-3 py-2">
