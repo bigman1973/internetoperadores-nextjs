@@ -25,6 +25,7 @@ interface Movimiento {
   entidadFiscal: { id: string; razonSocial: string; tipo: string; nifCif: string | null; cuentaContableA3: string | null } | null;
   nominaId: string | null;
   nomina: { id: string; mes: number; anio: number; netoPercibir: number; empleado: { nombreCompleto: string }; movimientos: { id: string; importe: number }[] } | null;
+  tercero: string | null;
   traspasoRelacionadoId: string | null;
   traspasoRelacionado: { id: string; fechaOperacion: string; importe: number; concepto: string; cuenta: { banco: string; alias: string } } | null;
 }
@@ -1196,6 +1197,10 @@ export default function ConciliacionPage() {
                         ) : mov.entregaACuentaEmpleado ? (
                           <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-teal-50 text-teal-700 border border-teal-200">
                             {mov.entregaACuentaEmpleado.nombreCompleto}
+                          </span>
+                        ) : mov.tercero ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-gray-100 text-gray-600 border border-gray-200" title="Tercero extraído del extracto (sin vincular)">
+                            {mov.tercero}
                           </span>
                         ) : (
                           <span className="text-[10px] text-gray-300">—</span>
