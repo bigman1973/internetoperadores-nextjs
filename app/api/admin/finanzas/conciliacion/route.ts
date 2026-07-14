@@ -20,9 +20,9 @@ import { extraerTercero } from '@/lib/finanzas/extraer-tercero';
 // Reglas de clasificación automática por concepto
 const REGLAS_CLASIFICACION = [
   // Nóminas
-  { patron: /Concepto\s*(Nomina|Nómina)/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
-  { patron: /Concepto\s*Adelanto\s*Nomina/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
-  { patron: /Concepto\s*Liquidacion\s/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'justificante' },
+  { patron: /Concepto\s*(Nomina|Nómina)/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'nomina' },
+  { patron: /Concepto\s*Adelanto\s*Nomina/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'nomina' },
+  { patron: /Concepto\s*Liquidacion\s/i, categoria: 'Sueldos y Salarios', tipoPago: 'Nómina', tipoDocumento: 'nomina' },
   
   // Impuestos
   { patron: /Domiciliacion\s*Impuesto|Impuesto:\s*2\.\d{3}/i, categoria: 'IMPUESTOS', tipoPago: 'IVA', tipoDocumento: 'justificante' },
@@ -30,8 +30,8 @@ const REGLAS_CLASIFICACION = [
   { patron: /Imp\.\s*Sociedades/i, categoria: 'IMPUESTOS', tipoPago: 'IS', tipoDocumento: 'justificante' },
   
   // Seguridad Social
-  { patron: /TGSS|Cotizacion\s*\d{3}/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'justificante' },
-  { patron: /R\.E\.Autonomos|R\.E\.AUTONOMOS/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'justificante' },
+  { patron: /TGSS|Cotizacion\s*\d{3}/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'nomina' },
+  { patron: /R\.E\.Autonomos|R\.E\.AUTONOMOS/i, categoria: 'Sueldos y Salarios', tipoPago: 'SS', tipoDocumento: 'nomina' },
   
   // Confirming
   { patron: /Cesion De Creditos.*Draxton/i, categoria: 'Draxton', tipoPago: 'Confirming' },
