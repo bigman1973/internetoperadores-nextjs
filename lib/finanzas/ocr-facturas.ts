@@ -247,6 +247,27 @@ REGLAS IMPORTANTES:
       }
     }
     
+    // POST-PROCESAMIENTO: Documentos tipo Confirming/Cesión de créditos
+    // Si total=0 y base=0 pero hay líneas con importes → sumar líneas como total
+    if (datos.total === 0 && datos.base === 0 && datos.lineas.length > 0) {
+      const sumaLineas = datos.lineas.reduce((sum, l) => sum + (l.importeNeto || l.importe || 0), 0);
+      if (sumaLineas > 0) {
+        datos.base = Math.round(sumaLineas * 100) / 100;
+        datos.total = datos.base; // Confirming no tiene IVA
+        datos.tipoIva = 0;
+        datos.importeIva = 0;
+      }
+    }
+
+    // Si proveedor es DESCONOCIDO pero hay un cliente en las líneas → usarlo como proveedor
+    // (En documentos de confirming, el "cliente" de las líneas es realmente el pagador/emisor)
+    if (datos.proveedor === 'DESCONOCIDO' && datos.lineas.length > 0) {
+      const clienteLinea = datos.lineas.find(l => l.cliente && l.cliente !== 'null')?.cliente;
+      if (clienteLinea) {
+        datos.proveedor = clienteLinea;
+      }
+    }
+
     return datos;
   } catch (error: any) {
     console.error('Error en OCR de factura:', error.message, error.status || '', error.code || '');
