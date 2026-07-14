@@ -87,7 +87,7 @@ export default function GGCDraxtonPage() {
   async function fetchData() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/finanzas/clientes/ggc-draxton?year=${year}`);
+      const res = await fetch(`/api/admin/finanzas/clientes/ggcc-draxton?year=${year}`);
       const data = await res.json();
       setFacturas(data.facturasEmitidas || []);
       setMovimientos(data.movimientosCobro || []);
@@ -101,7 +101,7 @@ export default function GGCDraxtonPage() {
 
   async function vincularMovimiento(movimientoId: string, facturaEmitidaId: string) {
     try {
-      const res = await fetch('/api/admin/finanzas/clientes/ggc-draxton', {
+      const res = await fetch('/api/admin/finanzas/clientes/ggcc-draxton', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ movimientoId, facturaEmitidaId }),
@@ -153,7 +153,7 @@ export default function GGCDraxtonPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <BuildingOffice2Icon className="h-7 w-7 text-indigo-600" />
-            Grandes Cuentas — Draxton
+            GGCC — Draxton
           </h1>
           <p className="text-sm text-gray-500 mt-1">Conciliación de cobros por confirming</p>
         </div>

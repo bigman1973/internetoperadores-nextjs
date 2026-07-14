@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error: any) {
-    console.error('Error en GET /api/admin/finanzas/clientes/ggc-draxton:', error);
+    console.error('Error en GET /api/admin/finanzas/clientes/ggcc-draxton:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error('Error en POST /api/admin/finanzas/clientes/ggc-draxton:', error);
+    console.error('Error en POST /api/admin/finanzas/clientes/ggcc-draxton:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
