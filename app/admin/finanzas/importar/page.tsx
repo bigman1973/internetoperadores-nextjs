@@ -7,7 +7,7 @@ const BANCOS = [
   { id: 'santander', nombre: 'Santander', formatos: 'XLSX, TXT' },
   { id: 'caixabank', nombre: 'CaixaBank', formatos: 'CSV, XLSX' },
   { id: 'bbva', nombre: 'BBVA', formatos: 'CSV, XLSX' },
-  { id: 'caixa_guissona', nombre: 'Caixa Guissona', formatos: 'CSV' },
+  { id: 'guissona', nombre: 'Caixa Guissona', formatos: 'CSV' },
   { id: 'vivid', nombre: 'Vivid', formatos: 'CSV' },
   { id: 'wise', nombre: 'Wise', formatos: 'XLSX' },
   { id: 'norma43', nombre: 'Norma 43 (cualquier banco)', formatos: 'N43, Q43, TXT' },
