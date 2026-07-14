@@ -143,14 +143,23 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Crear Sets para búsqueda rápida de duplicados
-    const existentesSet = new Set<string>();
+    // Crear Maps con contadores para búsqueda rápida de duplicados
+    // Usamos contadores en vez de Sets para permitir N movimientos legítimos iguales
+    // (ej: dos cobros idénticos el mismo día)
+    const existentesCount = new Map<string, number>();
     const hashesExistentes = new Set<string>();
 
     for (const ex of movimientosExistentes) {
       const clave = generarClaveMovimiento(ex.fechaOperacion, ex.importe, ex.concepto);
-      existentesSet.add(clave);
+      existentesCount.set(clave, (existentesCount.get(clave) || 0) + 1);
       hashesExistentes.add(ex.hashUnico);
+    }
+
+    // Contar cuántas veces aparece cada clave en el archivo a importar
+    const nuevoCount = new Map<string, number>();
+    for (const mov of movimientos) {
+      const clave = generarClaveMovimiento(mov.fechaOperacion, mov.importe, mov.concepto);
+      nuevoCount.set(clave, (nuevoCount.get(clave) || 0) + 1);
     }
 
     // Insertar movimientos evitando duplicados (por hash Y por contenido)
@@ -158,6 +167,9 @@ export async function POST(req: NextRequest) {
     let duplicados = 0;
     let duplicadosPorContenido = 0;
     const errores: string[] = [];
+
+    // Track de cuántos de cada clave ya hemos insertado en esta importación
+    const insertadosCount = new Map<string, number>();
 
     for (const mov of movimientos) {
       // 1. Verificar duplicado por hash (mismo archivo subido dos veces)
@@ -167,8 +179,14 @@ export async function POST(req: NextRequest) {
       }
 
       // 2. Verificar duplicado por contenido (archivos distintos, mismo movimiento)
+      // Permite N ocurrencias si el archivo tiene N y la BD ya tiene M < N
       const clave = generarClaveMovimiento(mov.fechaOperacion, mov.importe, mov.concepto);
-      if (existentesSet.has(clave)) {
+      const yaEnBD = existentesCount.get(clave) || 0;
+      const yaInsertados = insertadosCount.get(clave) || 0;
+      const vecesEnArchivo = nuevoCount.get(clave) || 1;
+      
+      // Si la BD ya tiene al menos tantos como los que hay en el archivo, es duplicado
+      if (yaEnBD > 0 && (yaInsertados + yaEnBD) >= vecesEnArchivo) {
         duplicadosPorContenido++;
         continue;
       }
@@ -190,8 +208,8 @@ export async function POST(req: NextRequest) {
           },
         });
         insertados++;
-        // Añadir al set para evitar duplicados dentro del mismo archivo
-        existentesSet.add(clave);
+        // Actualizar contadores para evitar duplicados dentro del mismo archivo
+        insertadosCount.set(clave, (insertadosCount.get(clave) || 0) + 1);
         hashesExistentes.add(mov.hashUnico);
       } catch (e: any) {
         if (e.code === 'P2002') {
