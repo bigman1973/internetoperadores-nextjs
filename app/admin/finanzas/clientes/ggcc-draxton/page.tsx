@@ -436,7 +436,7 @@ export default function GGCDraxtonPage() {
                     <td className="px-3 py-2">
                       {(d.archivoUrl || d.archivoOneDrive) && (
                         <a
-                          href={d.archivoUrl || d.archivoOneDrive || '#'}
+                          href={`/api/admin/finanzas/facturas/${d.id}/pdf`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800"
