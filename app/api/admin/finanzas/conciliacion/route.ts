@@ -352,9 +352,12 @@ export async function POST(req: NextRequest) {
         where: {
           conciliado: false,
           importe: { lt: 0 },
-          categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS', 'Gastos Financieros', 'Dietas', 'Desplazamientos'] },
+          OR: [
+            { categoria: null },
+            { categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS', 'Gastos Financieros', 'Dietas', 'Desplazamientos'] } },
+          ],
         },
-        select: { id: true, importe: true, fechaOperacion: true, concepto: true, referencia: true },
+        select: { id: true, importe: true, fechaOperacion: true, concepto: true, referencia: true, tercero: true, cuentaId: true },
       });
 
       for (const mov of gastosSinConciliar) {
