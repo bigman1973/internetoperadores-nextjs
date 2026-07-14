@@ -632,42 +632,69 @@ export async function POST(req: NextRequest) {
           categoria: 'Sueldos y Salarios',
           tipoPago: 'Nómina',
           importe: { lt: 0 },
-          entidadFiscalId: { not: null },
         },
-        select: { id: true, importe: true, fechaOperacion: true, entidadFiscalId: true },
+        select: { id: true, importe: true, fechaOperacion: true, entidadFiscalId: true, tercero: true },
       });
 
-      // Obtener mapeo NIF → empleadoId para las entidades fiscales tipo PERSONAL
-      const entidadesFiscalesIds = [...new Set(movNominas.map(m => m.entidadFiscalId!))]; 
-      const entidadesFiscales = await prisma.entidadFiscal.findMany({
+      // Cargar TODOS los empleados con su nombre completo y NIF
+      const todosEmpleados = await prisma.empleado.findMany({
+        select: { id: true, nif: true, nombreCompleto: true },
+      });
+
+      // Crear mapeos para buscar empleado por NIF o por nombre
+      const empleadoPorNif = new Map(todosEmpleados.map(e => [e.nif, e.id]));
+      // Normalizar nombre: quitar acentos, minúsculas, ordenar palabras
+      const normalizar = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const empleadoPorNombre = new Map<string, string>();
+      todosEmpleados.forEach(e => {
+        if (e.nombreCompleto) {
+          // Guardar nombre normalizado
+          empleadoPorNombre.set(normalizar(e.nombreCompleto), e.id);
+          // También guardar con palabras ordenadas alfabéticamente (para match "Apellido Nombre" vs "Nombre Apellido")
+          const palabras = normalizar(e.nombreCompleto).split(/\s+/).sort().join(' ');
+          empleadoPorNombre.set(palabras, e.id);
+        }
+      });
+
+      // Mapeo entidadFiscal → NIF para los que tienen entidadFiscalId
+      const entidadesFiscalesIds = [...new Set(movNominas.filter(m => m.entidadFiscalId).map(m => m.entidadFiscalId!))];
+      const entidadesFiscales = entidadesFiscalesIds.length > 0 ? await prisma.entidadFiscal.findMany({
         where: { id: { in: entidadesFiscalesIds }, tipo: 'PERSONAL' },
         select: { id: true, nifCif: true },
-      });
+      }) : [];
       const nifPorEntidad = new Map(entidadesFiscales.map(e => [e.id, e.nifCif]));
-      const nifsUnicos = [...new Set(entidadesFiscales.map(e => e.nifCif).filter(Boolean))] as string[];
-      const empleados = await prisma.empleado.findMany({
-        where: { nif: { in: nifsUnicos } },
-        select: { id: true, nif: true },
-      });
-      const empleadoPorNif = new Map(empleados.map(e => [e.nif, e.id]));
 
-      // Obtener todas las nóminas de esos empleados
-      const empleadoIds = [...new Set(empleados.map(e => e.id))];
+      // Obtener todas las nóminas
+      const empleadoIds = todosEmpleados.map(e => e.id);
       const todasNominas = await prisma.nomina.findMany({
         where: { empleadoId: { in: empleadoIds } },
         select: { id: true, empleadoId: true, mes: true, anio: true, netoPercibir: true },
       });
 
       for (const mov of movNominas) {
-        const nif = nifPorEntidad.get(mov.entidadFiscalId!);
-        if (!nif) continue;
-        const empId = empleadoPorNif.get(nif);
+        let empId: string | undefined;
+
+        // 1º: Buscar por entidadFiscalId → NIF → empleado
+        if (mov.entidadFiscalId) {
+          const nif = nifPorEntidad.get(mov.entidadFiscalId);
+          if (nif) empId = empleadoPorNif.get(nif);
+        }
+
+        // 2º: Buscar por tercero (nombre del empleado)
+        if (!empId && mov.tercero) {
+          const terceroNorm = normalizar(mov.tercero);
+          empId = empleadoPorNombre.get(terceroNorm);
+          if (!empId) {
+            // Intentar con palabras ordenadas
+            const palabras = terceroNorm.split(/\s+/).sort().join(' ');
+            empId = empleadoPorNombre.get(palabras);
+          }
+        }
+
         if (!empId) continue;
 
         const importeAbs = Math.abs(mov.importe);
         const fechaMov = new Date(mov.fechaOperacion);
-        // Las nóminas se pagan el mes siguiente o el mismo mes
-        // Buscar nómina del mes anterior o del mismo mes
         const mesActual = fechaMov.getMonth() + 1;
         const anioActual = fechaMov.getFullYear();
         const mesAnterior = mesActual === 1 ? 12 : mesActual - 1;
