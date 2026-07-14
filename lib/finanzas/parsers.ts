@@ -412,17 +412,60 @@ export function parseNorma43(content: string): MovimientoParsed[] {
 export function parseCaixaBankXLS(rows: any[][]): MovimientoParsed[] {
   const movimientos: MovimientoParsed[] = [];
   
-  // Buscar fila de cabecera (contiene "Número de cuenta" o "F. Operación")
+  // Detectar formato simplificado: cabecera "Fecha, Fecha valor, Movimiento, Más datos, Importe, Saldo"
   let headerRow = -1;
+  let formatoSimplificado = false;
   for (let i = 0; i < Math.min(rows.length, 10); i++) {
     const row = rows[i];
-    if (row && row.some((cell: any) => String(cell || '').includes('Operaci'))) {
+    if (!row) continue;
+    const rowStr = row.map((c: any) => String(c || '').toLowerCase()).join('|');
+    if (rowStr.includes('fecha') && rowStr.includes('movimiento') && rowStr.includes('importe')) {
+      headerRow = i;
+      formatoSimplificado = true;
+      break;
+    }
+    if (row.some((cell: any) => String(cell || '').includes('Operaci'))) {
       headerRow = i;
       break;
     }
   }
   
   if (headerRow === -1) return movimientos;
+  
+  // Formato simplificado: Fecha | Fecha valor | Movimiento | Más datos | Importe | Saldo
+  if (formatoSimplificado) {
+    for (let i = headerRow + 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (!row || row.length < 5) continue;
+      
+      // Fechas como número de serie Excel o string DD/MM/YYYY
+      const fechaOp = parseExcelDate(row[0]);
+      const fechaVal = parseExcelDate(row[1]) || fechaOp;
+      if (!fechaOp) continue;
+      
+      const concepto = String(row[2] || '').trim();
+      const masDatos = String(row[3] || '').trim();
+      const importe = typeof row[4] === 'number' ? row[4] : parseFloat(String(row[4] || '0').replace(',', '.'));
+      const saldo = row[5] !== undefined && row[5] !== '' ? (typeof row[5] === 'number' ? row[5] : parseFloat(String(row[5] || '0').replace(',', '.'))) : null;
+      
+      if (isNaN(importe) || importe === 0) continue;
+      
+      const conceptoFinal = masDatos ? `${concepto} ${masDatos}` : concepto;
+      
+      movimientos.push({
+        fechaOperacion: fechaOp,
+        fechaValor: fechaVal,
+        concepto: conceptoFinal,
+        importe,
+        saldo: saldo !== null && !isNaN(saldo) ? saldo : null,
+        referencia: null,
+        codigoOperacion: null,
+        infoAdicional: null,
+        hashUnico: generarHash('caixabank', fechaOp.toISOString(), conceptoFinal, importe, saldo !== null && !isNaN(saldo) ? saldo : null),
+      });
+    }
+    return movimientos;
+  }
   
   // Procesar filas de datos
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -488,6 +531,30 @@ export function parseCaixaBankXLS(rows: any[][]): MovimientoParsed[] {
 // =============================================
 // UTILIDADES
 // =============================================
+
+function parseExcelDate(value: any): Date | null {
+  if (value === null || value === undefined || value === '') return null;
+  // Si es un número de serie Excel (ej: 46204)
+  if (typeof value === 'number') {
+    // Excel serial date: días desde 1900-01-01 (con bug del 29/02/1900)
+    const excelEpoch = new Date(1899, 11, 30); // 30 dic 1899
+    const date = new Date(excelEpoch.getTime() + value * 86400000);
+    return date;
+  }
+  // Si es string, intentar DD/MM/YYYY o DD/MM/YY
+  const str = String(value).trim();
+  const parts = str.split('/');
+  if (parts.length === 3) {
+    const day = parseInt(parts[0]);
+    const month = parseInt(parts[1]) - 1;
+    let year = parseInt(parts[2]);
+    if (year < 100) year += 2000;
+    if (!isNaN(day) && !isNaN(month) && !isNaN(year)) {
+      return new Date(year, month, day);
+    }
+  }
+  return null;
+}
 
 function parseFechaES(str: string): Date | null {
   // DD/MM/YYYY
@@ -561,7 +628,7 @@ export function detectarFormato(filename: string, content?: string): string {
   if (lower.includes('u266') || lower.includes('guissona')) return 'guissona';
   if (lower.includes('santander') || lower.includes('movimientoscuenta')) return 'santander';
   if (lower.startsWith('tt') && (lower.endsWith('.xls') || lower.endsWith('.xlsx'))) return 'caixabank';
-  if (lower.includes('caixabank') || lower.includes('caixa_bank')) return 'caixabank';
+  if (lower.includes('caixabank') || lower.includes('caixa_bank') || lower.includes('movimientos_cuenta')) return 'caixabank';
   
   // Intentar detectar por contenido
   if (content) {
