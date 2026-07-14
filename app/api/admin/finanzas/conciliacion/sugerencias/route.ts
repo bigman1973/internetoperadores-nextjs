@@ -38,6 +38,8 @@ export async function GET(req: NextRequest) {
         whereClause.OR = [
           { proveedor: { contains: buscar, mode: 'insensitive' } },
           { numFactura: { contains: buscar, mode: 'insensitive' } },
+          { cif: { contains: buscar, mode: 'insensitive' } },
+          { concepto: { contains: buscar, mode: 'insensitive' } },
         ];
       }
 

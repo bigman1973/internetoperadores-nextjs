@@ -19,7 +19,9 @@ export async function GET(req: NextRequest) {
     if (buscar) {
       where.OR = [
         { concepto: { contains: buscar, mode: 'insensitive' } },
+        { tercero: { contains: buscar, mode: 'insensitive' } },
         { entidadFiscal: { razonSocial: { contains: buscar, mode: 'insensitive' } } },
+        { entidadFiscal: { nombreComercial: { contains: buscar, mode: 'insensitive' } } },
         { entidadFiscal: { nifCif: { contains: buscar, mode: 'insensitive' } } },
         { entregaACuentaEmpleado: { nombreCompleto: { contains: buscar, mode: 'insensitive' } } },
       ];
