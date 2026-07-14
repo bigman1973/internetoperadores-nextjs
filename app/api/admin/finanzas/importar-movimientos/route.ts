@@ -203,6 +203,7 @@ export async function POST(req: NextRequest) {
             referencia: mov.referencia,
             codigoOperacion: mov.codigoOperacion,
             infoAdicional: mov.infoAdicional,
+            tercero: mov.tercero,
             hashUnico: mov.hashUnico,
             origenArchivo: filename,
           },

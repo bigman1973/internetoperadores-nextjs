@@ -14,6 +14,7 @@ export interface MovimientoParsed {
   referencia: string | null;
   codigoOperacion: string | null;
   infoAdicional: string | null;
+  tercero: string | null; // Destinatario (salidas) u Ordenante (entradas)
   hashUnico: string;
 }
 
@@ -59,6 +60,20 @@ export function parseSantanderXLSX(rows: any[][]): MovimientoParsed[] {
     
     if (isNaN(importe)) continue;
     
+    // Extraer tercero del concepto de Santander
+    // Formato salida: "Transferencia (Inmediata) A Favor De [DESTINATARIO] Concepto [X]"
+    // Formato entrada: "Transferencia (Inmediata) De [ORDENANTE], Concepto [X]"
+    let tercero: string | null = null;
+    const salidaMatch = concepto.match(/Transferencia\s*(?:Inmediata\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
+    if (salidaMatch) {
+      tercero = salidaMatch[1].replace(/[,.]\s*$/, '').trim();
+    } else {
+      const entradaMatch = concepto.match(/Transferencia\s*(?:Inmediata\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
+      if (entradaMatch) {
+        tercero = entradaMatch[1].replace(/[,.]\s*$/, '').trim();
+      }
+    }
+
     movimientos.push({
       fechaOperacion: fechaOp,
       fechaValor: fechaVal,
@@ -68,6 +83,7 @@ export function parseSantanderXLSX(rows: any[][]): MovimientoParsed[] {
       referencia,
       codigoOperacion: codigo,
       infoAdicional,
+      tercero,
       hashUnico: generarHash('santander', fechaOp.toISOString(), concepto, importe, saldo),
     });
   }
@@ -110,6 +126,18 @@ export function parseSantanderTXT(content: string): MovimientoParsed[] {
     
     if (!fechaOp || !fechaVal || isNaN(importe)) continue;
     
+    // Extraer tercero del concepto de Santander TXT
+    let tercero: string | null = null;
+    const salidaM = concepto.match(/Transferencia\s*(?:Inmediata\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
+    if (salidaM) {
+      tercero = salidaM[1].replace(/[,.]\s*$/, '').trim();
+    } else {
+      const entradaM = concepto.match(/Transferencia\s*(?:Inmediata\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
+      if (entradaM) {
+        tercero = entradaM[1].replace(/[,.]\s*$/, '').trim();
+      }
+    }
+
     movimientos.push({
       fechaOperacion: fechaOp,
       fechaValor: fechaVal,
@@ -119,6 +147,7 @@ export function parseSantanderTXT(content: string): MovimientoParsed[] {
       referencia: null,
       codigoOperacion: codigo,
       infoAdicional: null,
+      tercero,
       hashUnico: generarHash('santander', fechaOp.toISOString(), concepto, importe, saldo),
     });
   }
@@ -152,6 +181,20 @@ export function parseCaixaGuissonaCSV(content: string): MovimientoParsed[] {
     
     if (isNaN(importe)) continue;
     
+    // Extraer tercero del concepto de Caixa Guissona
+    // Formato: "TF/[ORDENANTE] [CONCEPTO]" o "RB/[CONCEPTO]"
+    let tercero: string | null = null;
+    const tfMatch = concepto.match(/^TF\/(.+?)(?:\s{2,}|\s+(?:TRASPAS|SIN CONCEPTO|NO\.|FRA|PAGO|TRASPASO|ENVIADO))/i);
+    if (tfMatch) {
+      tercero = tfMatch[1].trim();
+    } else if (concepto.startsWith('TF/')) {
+      // TF/NOMBRE sin separador claro → todo después de TF/ es el tercero
+      const contenido = concepto.substring(3).trim();
+      // Separar nombre del concepto: buscar patrón de referencia
+      const refMatch = contenido.match(/^([A-Z\u00C0-\u00FF][A-Z\u00C0-\u00FF\s.,]+?)(?:\s+(?:NO\.|FRA|PAGO|SIN|TRASPAS|TRASPASO).*)?$/i);
+      tercero = refMatch ? refMatch[1].trim() : contenido.substring(0, 60).trim();
+    }
+
     movimientos.push({
       fechaOperacion: fechaOp,
       fechaValor: fechaVal,
@@ -161,6 +204,7 @@ export function parseCaixaGuissonaCSV(content: string): MovimientoParsed[] {
       referencia: null,
       codigoOperacion: null,
       infoAdicional: null,
+      tercero,
       hashUnico: generarHash('guissona', fechaOp.toISOString(), concepto, importe, isNaN(saldo) ? null : saldo),
     });
   }
@@ -199,6 +243,26 @@ export function parseBBVACSV(content: string): MovimientoParsed[] {
     
     if (isNaN(importe)) continue;
     
+    // Extraer tercero del concepto de BBVA
+    // El campo Observacions suele contener el destinatario/ordenante
+    // Formato TRANSFERÈNCIES: "TRANSFERÈNCIES | [DESTINATARIO]\n[ORDENANTE] - [REF]"
+    // En CSV llega como: Concepte="TRANSFERÈNCIES", Observacions="[DESTINATARIO/CONCEPTO]"
+    let tercero: string | null = null;
+    if (observacions) {
+      // Si el concepto es TRANSFERÈNCIES, el observacions es el tercero o concepto libre
+      if (/TRANSFER/i.test(concepte)) {
+        // Limpiar: quitar referencias numéricas, "Internet Operadores -" prefijo
+        const obs = observacions.trim();
+        // Si empieza con "Internet Operadores" seguido de referencia, el tercero está en otra parte
+        if (!/^Internet Operadores\s*[-,]/i.test(obs) && !/^INTERNET OPERADORES\s*[-,]/i.test(obs)) {
+          tercero = obs.replace(/\s*[-|]\s*\d+$/, '').trim() || null;
+        }
+      } else {
+        // Para otros tipos (domiciliaciones, etc.), el observacions suele ser el tercero
+        tercero = observacions.trim() || null;
+      }
+    }
+
     movimientos.push({
       fechaOperacion: fechaOp,
       fechaValor: fechaVal,
@@ -208,6 +272,7 @@ export function parseBBVACSV(content: string): MovimientoParsed[] {
       referencia: remesa,
       codigoOperacion: codigo,
       infoAdicional: null,
+      tercero,
       hashUnico: generarHash('bbva', fechaOp.toISOString(), concepto, importe, isNaN(saldo) ? null : saldo),
     });
   }
@@ -247,6 +312,9 @@ export function parseVividCSV(content: string): MovimientoParsed[] {
     
     if (isNaN(importe)) continue;
     
+    // Vivid ya tiene el tercero como campo separado: Counterparty name
+    const tercero = counterparty || null;
+
     movimientos.push({
       fechaOperacion: fecha,
       fechaValor: fecha,
@@ -256,6 +324,7 @@ export function parseVividCSV(content: string): MovimientoParsed[] {
       referencia: referencia || null,
       codigoOperacion: tipo,
       infoAdicional: null,
+      tercero,
       hashUnico: generarHash('vivid', fecha.toISOString(), concepto, importe, isNaN(saldo) ? null : saldo),
     });
   }
@@ -289,6 +358,9 @@ export function parseWiseXLSX(rows: any[][]): MovimientoParsed[] {
     
     if (isNaN(importe)) continue;
     
+    // Wise: el comercio (col 15) o la descripción (col 5) es el tercero
+    const tercero = comercio || descripcion || null;
+
     movimientos.push({
       fechaOperacion: fecha,
       fechaValor: fecha,
@@ -298,6 +370,7 @@ export function parseWiseXLSX(rows: any[][]): MovimientoParsed[] {
       referencia,
       codigoOperacion: row[21] ? String(row[21]) : null, // Tipo de transacción
       infoAdicional: row[22] ? String(row[22]) : null, // Tipo de detalles
+      tercero,
       hashUnico: generarHash('wise', fecha.toISOString(), concepto, importe, saldo),
     });
   }
@@ -353,6 +426,7 @@ export function parseNorma43(content: string): MovimientoParsed[] {
           referencia: line.substring(22, 27).trim() || null,
           codigoOperacion: null,
           infoAdicional: null,
+          tercero: null, // Norma43 no tiene campo separado de tercero
           hashUnico: '',
         };
         conceptoExtra = '';
@@ -512,6 +586,9 @@ export function parseCaixaBankXLS(rows: any[][]): MovimientoParsed[] {
     // Col 13 = Referencia 2 (BIC, etc.)
     const referencia = String(row[13] || '').trim() || null;
     
+    // CaixaBank: compl9 (col 22) es el ordenante/beneficiario
+    const tercero = (compl9 && compl9 !== 'NaN') ? compl9 : null;
+
     movimientos.push({
       fechaOperacion: fechaOp,
       fechaValor: fechaVal!,
@@ -521,6 +598,7 @@ export function parseCaixaBankXLS(rows: any[][]): MovimientoParsed[] {
       referencia: referencia !== 'NaN' ? referencia : null,
       codigoOperacion: conceptoComun || null,
       infoAdicional: conceptoPropio || null,
+      tercero,
       hashUnico: generarHash('caixabank', fechaOp.toISOString(), concepto, importe, saldo),
     });
   }

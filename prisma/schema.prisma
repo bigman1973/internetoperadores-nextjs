@@ -1028,6 +1028,7 @@ model MovimientoBancario {
   referencia      String?
   codigoOperacion String?  @map("codigo_operacion")
   infoAdicional   String?  @map("info_adicional")
+  tercero         String?  // Destinatario (salidas) u Ordenante (entradas) extraído del extracto
   // Categorización
   categoria       String?  // Imputación: Estructura, Operadora, Draxton, etc.
   tipoPago        String?  @map("tipo_pago") // Factura, IVA, SS, Nómina, etc.

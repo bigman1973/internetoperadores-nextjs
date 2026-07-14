@@ -154,36 +154,60 @@ export async function POST(req: NextRequest) {
     if (modo === 'clasificar' || modo === 'todo') {
       const sinCategoria = await prisma.movimientoBancario.findMany({
         where: { categoria: null },
-        select: { id: true, concepto: true, importe: true, cuentaId: true },
+        select: { id: true, concepto: true, importe: true, cuentaId: true, tercero: true },
       });
 
+      // Helper: detectar si el tercero es Internet Operadores
+      const esIO = (nombre: string | null) => {
+        if (!nombre) return false;
+        return /internet\s*operadores/i.test(nombre);
+      };
+
       for (const mov of sinCategoria) {
-        // Primero: usar extraerTercero para detectar traspasos de forma inteligente
-        const infoTercero = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
-        if (infoTercero.esInternetOperadores || infoTercero.tipo === 'traspaso') {
-          await prisma.movimientoBancario.update({
-            where: { id: mov.id },
-            data: {
-              categoria: 'Traspaso',
-              tipoPago: 'Transferencia',
-              tipoDocumento: 'justificante',
-              documentoRecibido: true,
-            },
-          });
-          resultados.clasificados++;
-          continue;
+        // 1º: Usar campo 'tercero' de la BD para detectar traspasos
+        // Un traspaso es cuando el tercero es Internet Operadores Y el concepto indica traspaso
+        if (esIO(mov.tercero)) {
+          // Verificar que el concepto indica traspaso (no un pago/cobro)
+          const esConceptoTraspaso = /traspas|traspaso|enviado por banco|sin concepto/i.test(mov.concepto)
+            && !/pago|factura|fra\b|zoom|suara/i.test(mov.concepto);
+          if (esConceptoTraspaso) {
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: {
+                categoria: 'Traspaso',
+                tipoPago: 'Transferencia',
+                tipoDocumento: 'justificante',
+                documentoRecibido: true,
+              },
+            });
+            resultados.clasificados++;
+            continue;
+          }
         }
 
-        // Luego: reglas de clasificación por patrón regex
+        // 2º: Fallback con extraerTercero para movimientos sin campo tercero
+        if (!mov.tercero) {
+          const infoTercero = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
+          if (infoTercero.esInternetOperadores || infoTercero.tipo === 'traspaso') {
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: {
+                categoria: 'Traspaso',
+                tipoPago: 'Transferencia',
+                tipoDocumento: 'justificante',
+                documentoRecibido: true,
+                tercero: infoTercero.nombre,
+              },
+            });
+            resultados.clasificados++;
+            continue;
+          }
+        }
+
+        // 3º: Reglas de clasificación por patrón regex (NO traspasos)
         for (const regla of REGLAS_CLASIFICACION) {
+          if (regla.categoria === 'Traspaso') continue; // Traspasos solo por campo tercero
           if (regla.patron.test(mov.concepto)) {
-            // Doble verificación para reglas de traspaso: confirmar con extraerTercero
-            if (regla.categoria === 'Traspaso') {
-              // Si extraerTercero no lo detectó como traspaso, NO clasificar como tal
-              if (!infoTercero.esInternetOperadores && infoTercero.tipo !== 'traspaso') {
-                continue; // Saltar esta regla, probar la siguiente
-              }
-            }
             const data: any = {
               categoria: regla.categoria,
               tipoPago: regla.tipoPago,
@@ -267,11 +291,11 @@ export async function POST(req: NextRequest) {
         // entidadFiscal puede no tener patrones
       }
 
-      // Identificar tercero por extracción inteligente del concepto (todos los bancos)
+      // Identificar proveedor/cliente usando el campo 'tercero' de la BD
       try {
         const sinProveedorAun = await prisma.movimientoBancario.findMany({
           where: { entidadFiscalId: null, categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS'] } },
-          select: { id: true, concepto: true, importe: true, cuentaId: true },
+          select: { id: true, concepto: true, importe: true, cuentaId: true, tercero: true },
         });
 
         // Cargar todas las entidades fiscales para buscar por nombre
@@ -280,21 +304,39 @@ export async function POST(req: NextRequest) {
           select: { id: true, razonSocial: true, nombreComercial: true },
         });
 
+        // Helper para normalizar nombre y buscar entidad
+        const buscarEntidad = (nombre: string) => {
+          const nombreNorm = nombre.toLowerCase().replace(/[,.]|\s*(s\.?l\.?u?\.?|s\.?a\.?u?\.?|sociedad limitada)\s*$/gi, '').trim();
+          if (nombreNorm.length < 3) return null;
+          return todasEntidades.find(e => {
+            const razon = (e.razonSocial || '').toLowerCase().replace(/[,.]|\s*(s\.?l\.?u?\.?|s\.?a\.?u?\.?)\s*$/gi, '').trim();
+            const comercial = (e.nombreComercial || '').toLowerCase();
+            return (razon && (razon.includes(nombreNorm) || nombreNorm.includes(razon)))
+              || (comercial && (comercial.includes(nombreNorm) || nombreNorm.includes(comercial)));
+          }) || null;
+        };
+
         for (const mov of sinProveedorAun) {
-          const info = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
-          if (info.nombre && !info.esInternetOperadores && info.nombre.length > 3) {
-            // Buscar entidad fiscal que coincida con el nombre del tercero
-            const nombreNorm = info.nombre.toLowerCase().replace(/[,.]|\s*(s\.?l\.?|s\.?a\.?|sociedad limitada)\s*$/gi, '').trim();
-            const entidad = todasEntidades.find(e => {
-              const razon = e.razonSocial?.toLowerCase() || '';
-              const comercial = e.nombreComercial?.toLowerCase() || '';
-              return razon.includes(nombreNorm) || nombreNorm.includes(razon.replace(/[,.]|\s*(s\.?l\.?|s\.?a\.?)\s*$/gi, '').trim())
-                || (comercial && (comercial.includes(nombreNorm) || nombreNorm.includes(comercial)));
-            });
+          // 1º: Usar campo tercero de la BD (directo del extracto)
+          if (mov.tercero && !/internet\s*operadores/i.test(mov.tercero)) {
+            const entidad = buscarEntidad(mov.tercero);
             if (entidad) {
               await prisma.movimientoBancario.update({
                 where: { id: mov.id },
                 data: { entidadFiscalId: entidad.id },
+              });
+              continue;
+            }
+          }
+
+          // 2º: Fallback con extraerTercero del concepto
+          const info = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
+          if (info.nombre && !info.esInternetOperadores && info.nombre.length > 3) {
+            const entidad = buscarEntidad(info.nombre);
+            if (entidad) {
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: { entidadFiscalId: entidad.id, tercero: mov.tercero || info.nombre },
               });
             }
           }
