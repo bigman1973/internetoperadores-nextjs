@@ -29,7 +29,8 @@ export async function POST(req: NextRequest) {
     const filename = file.name;
     const buffer = Buffer.from(await file.arrayBuffer());
     let movimientos: MovimientoParsed[] = [];
-    let formato = bancoManual || detectarFormato(filename);
+    const contentForDetection = buffer.toString('utf-8').substring(0, 500);
+    let formato = bancoManual || detectarFormato(filename, contentForDetection);
 
     // Parsear según formato
     switch (formato) {
