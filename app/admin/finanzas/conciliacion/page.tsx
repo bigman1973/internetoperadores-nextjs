@@ -116,6 +116,12 @@ export default function ConciliacionPage() {
   const [showNominaModal, setShowNominaModal] = useState<string | null>(null); // movimientoId
   const [nominasList, setNominasList] = useState<any[]>([]);
   const [loadingNominas, setLoadingNominas] = useState(false);
+  // Modal de vincular con empleado (sin necesidad de entidadFiscal)
+  const [showEmpleadoNominaModal, setShowEmpleadoNominaModal] = useState<string | null>(null); // movimientoId
+  const [empleadoNominaList, setEmpleadoNominaList] = useState<any[]>([]);
+  const [empleadoNominaSeleccionado, setEmpleadoNominaSeleccionado] = useState<any | null>(null);
+  const [loadingEmpleadoNomina, setLoadingEmpleadoNomina] = useState(false);
+  const [buscarEmpleadoNomina, setBuscarEmpleadoNomina] = useState('');
   // Modal de movimientos similares
   const [showDetalleVinculacion, setShowDetalleVinculacion] = useState<Movimiento | null>(null);
 
@@ -553,8 +559,40 @@ export default function ConciliacionPage() {
     });
     setShowNominaModal(null);
     setNominasList([]);
+    setShowEmpleadoNominaModal(null);
+    setEmpleadoNominaList([]);
+    setEmpleadoNominaSeleccionado(null);
     fetchMovimientos();
     fetchEstado();
+  }
+
+  async function fetchEmpleadosNomina(movimientoId: string) {
+    setShowEmpleadoNominaModal(movimientoId);
+    setEmpleadoNominaSeleccionado(null);
+    setBuscarEmpleadoNomina('');
+    setLoadingEmpleadoNomina(true);
+    try {
+      const res = await fetch(`/api/admin/finanzas/nominas/empleados?movimientoId=${movimientoId}`);
+      const data = await res.json();
+      setEmpleadoNominaList(data.empleados || []);
+    } catch (e) {
+      setEmpleadoNominaList([]);
+    }
+    setLoadingEmpleadoNomina(false);
+  }
+
+  async function seleccionarEmpleadoNomina(empleado: any) {
+    setEmpleadoNominaSeleccionado(empleado);
+    // Cargar nóminas de este empleado
+    setLoadingNominas(true);
+    try {
+      const res = await fetch(`/api/admin/finanzas/nominas?empleadoId=${empleado.id}`);
+      const data = await res.json();
+      setNominasList(data.nominas || []);
+    } catch (e) {
+      setNominasList([]);
+    }
+    setLoadingNominas(false);
   }
 
   const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -1618,16 +1656,14 @@ export default function ConciliacionPage() {
                                 <LinkIcon className="h-3.5 w-3.5" />
                                 Vincular
                               </button>
-                              {mov.entidadFiscal?.tipo === 'PERSONAL' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); fetchNominas(mov.id, mov.entidadFiscal!.id); }}
-                                  className="flex items-center gap-1 px-2 py-1 text-xs text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded border border-indigo-200"
-                                  title="Vincular con nómina del empleado"
-                                >
-                                  <BanknotesIcon className="h-3.5 w-3.5" />
-                                  Nómina
-                                </button>
-                              )}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); fetchEmpleadosNomina(mov.id); }}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded border border-purple-200"
+                                title="Vincular con nómina de empleado"
+                              >
+                                <UserIcon className="h-3.5 w-3.5" />
+                                Personal
+                              </button>
                               {mov.pendienteFactura ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); quitarPendienteFactura(mov.id); }}
@@ -1817,6 +1853,131 @@ export default function ConciliacionPage() {
         </div>
         );
       })()}
+      {/* Modal de vincular con empleado/nómina */}
+      {showEmpleadoNominaModal && (() => {
+        const movActual = movimientos.find(m => m.id === showEmpleadoNominaModal);
+        const empleadosFiltrados = buscarEmpleadoNomina
+          ? empleadoNominaList.filter((e: any) => e.nombreCompleto.toLowerCase().includes(buscarEmpleadoNomina.toLowerCase()))
+          : empleadoNominaList;
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] flex flex-col">
+              <div className="p-4 border-b">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-gray-900">Vincular con empleado / nómina</h3>
+                    <p className="text-sm text-gray-500">{empleadoNominaSeleccionado ? 'Selecciona la nómina a vincular' : 'Selecciona el empleado'}</p>
+                  </div>
+                  <button onClick={() => { setShowEmpleadoNominaModal(null); setEmpleadoNominaList([]); setEmpleadoNominaSeleccionado(null); setNominasList([]); }} className="text-gray-400 hover:text-gray-600">
+                    <XMarkIcon className="h-6 w-6" />
+                  </button>
+                </div>
+                {movActual && (
+                  <div className="mt-2 px-3 py-2 bg-purple-50 rounded-lg">
+                    <p className="text-xs text-purple-600">Movimiento: <span className="font-bold">{formatEUR(Math.abs(movActual.importe))}</span> — {movActual.concepto.substring(0, 60)}...</p>
+                  </div>
+                )}
+              </div>
+              <div className="overflow-y-auto flex-1 p-4">
+                {!empleadoNominaSeleccionado ? (
+                  <>
+                    <input
+                      type="text"
+                      placeholder="Buscar empleado..."
+                      value={buscarEmpleadoNomina}
+                      onChange={(e) => setBuscarEmpleadoNomina(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg text-sm mb-3 focus:ring-2 focus:ring-purple-200 focus:border-purple-400"
+                      autoFocus
+                    />
+                    {loadingEmpleadoNomina ? (
+                      <p className="text-sm text-gray-500">Cargando empleados...</p>
+                    ) : empleadosFiltrados.length === 0 ? (
+                      <p className="text-sm text-gray-500">No se encontraron empleados.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {empleadosFiltrados.map((emp: any) => (
+                          <button
+                            key={emp.id}
+                            onClick={() => seleccionarEmpleadoNomina(emp)}
+                            className="w-full text-left px-4 py-3 rounded-lg border transition-colors bg-white border-gray-200 hover:bg-purple-50 hover:border-purple-300 cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium text-sm text-gray-900">{emp.nombreCompleto}</span>
+                                {emp.departamento && <span className="ml-2 text-xs text-gray-400">{emp.departamento}</span>}
+                              </div>
+                              <div className="text-right">
+                                <span className="text-xs text-purple-600 font-medium">{emp.totalNominas} nóm.</span>
+                                {emp.nominasPendientes > 0 && (
+                                  <span className="ml-1 text-xs text-amber-600">({emp.nominasPendientes} pdte.)</span>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => { setEmpleadoNominaSeleccionado(null); setNominasList([]); }}
+                      className="flex items-center gap-1 text-sm text-purple-600 hover:text-purple-800 mb-3"
+                    >
+                      ← Volver a empleados
+                    </button>
+                    <div className="px-3 py-2 bg-gray-50 rounded-lg mb-3">
+                      <p className="text-sm font-medium text-gray-700">{empleadoNominaSeleccionado.nombreCompleto}</p>
+                    </div>
+                    {loadingNominas ? (
+                      <p className="text-sm text-gray-500">Cargando nóminas...</p>
+                    ) : nominasList.length === 0 ? (
+                      <p className="text-sm text-gray-500">No se encontraron nóminas para este empleado.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {nominasList.map((n: any) => (
+                          <button
+                            key={n.id}
+                            onClick={() => vincularNomina(showEmpleadoNominaModal!, n.id)}
+                            className={`w-full text-left px-4 py-3 rounded-lg border transition-colors cursor-pointer ${
+                              n.vinculada || n.numMovimientos > 0
+                                ? 'bg-green-50 border-green-200 hover:bg-green-100'
+                                : 'bg-white border-purple-200 hover:bg-purple-50 hover:border-purple-400'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <span className="font-medium text-sm text-gray-900">{MESES[n.mes]} {n.anio}</span>
+                                {n.numMovimientos > 0 && <span className="ml-2 text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">ya vinculada</span>}
+                              </div>
+                              <div className="text-right">
+                                <span className="font-bold text-sm text-purple-700">{formatEUR(n.netoPercibir)}</span>
+                              </div>
+                            </div>
+                            {movActual && Math.abs(Math.abs(movActual.importe) - n.netoPercibir) < 5 && (
+                              <p className="text-[10px] text-green-600 mt-1 font-medium">✓ Importe coincide</p>
+                            )}
+                            {n.costeTotalEmpresa && (
+                              <p className="text-[11px] text-gray-400 mt-0.5">Coste empresa: {formatEUR(n.costeTotalEmpresa)}</p>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div className="p-4 border-t">
+                <button
+                  onClick={() => { setShowEmpleadoNominaModal(null); setEmpleadoNominaList([]); setEmpleadoNominaSeleccionado(null); setNominasList([]); }}
+                  className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-50"
+                >Cerrar</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Modal de detalle de vinculación */}
       {showDetalleVinculacion && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowDetalleVinculacion(null)}>

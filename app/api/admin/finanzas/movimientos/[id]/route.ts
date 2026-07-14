@@ -61,7 +61,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       if (nominaId) {
         // Al vincular nómina, conciliar automáticamente
         data.conciliado = true;
-        data.tipoDocumento = 'justificante';
+        data.tipoDocumento = 'nomina';
         data.documentoRecibido = true;
         data.categoria = 'Sueldos y Salarios';
         data.tipoPago = 'Nómina';
