@@ -431,14 +431,14 @@ export default function FacturasPage() {
             <div className="bg-white rounded-lg border-2 border-gray-200 p-4 text-center">
               <p className="text-xs text-gray-500 uppercase font-medium">Total en OneDrive</p>
               <p className="text-2xl font-bold text-gray-900">
-                {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0) + (syncStatus.confirming_draxton?.total || 0)}
+                {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0)}
               </p>
               <p className="text-xs text-gray-400">archivos</p>
             </div>
             <div className="bg-white rounded-lg border-2 border-green-200 p-4 text-center">
               <p className="text-xs text-gray-500 uppercase font-medium">Importadas</p>
               <p className="text-2xl font-bold text-green-700">
-                {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0) + (syncStatus.confirming_draxton?.yaImportados || 0)}
+                {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0)}
               </p>
               <p className="text-xs text-gray-400">ya en el sistema</p>
             </div>
@@ -451,7 +451,7 @@ export default function FacturasPage() {
             </div>
           </div>
           {/* Desglose por carpeta */}
-          <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
             <div className="bg-gray-50 rounded-lg border p-3">
               <p className="text-xs font-medium text-blue-700 truncate">Pdte. Contabilizar</p>
               <div className="flex items-baseline gap-1 mt-1">
@@ -472,16 +472,7 @@ export default function FacturasPage() {
                 <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.materiales?.nuevos} pendientes</p>
               )}
             </div>
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-purple-700 truncate">Confirming Draxton</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.confirming_draxton?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.confirming_draxton?.total || 0}</span>
-              </div>
-              {(syncStatus.confirming_draxton?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.confirming_draxton?.nuevos} pendientes</p>
-              )}
-            </div>
+
             <div className="bg-gray-50 rounded-lg border p-3">
               <p className="text-xs font-medium text-green-700 truncate">Trimestre 1</p>
               <div className="flex items-baseline gap-1 mt-1">
