@@ -396,6 +396,7 @@ export async function POST(req: NextRequest) {
                 data: {
                   conciliado: true,
                   facturaId: facturaMatch.id,
+                  documentoRecibido: true,
                   ...(entidadFiscal ? { entidadFiscalId: entidadFiscal.id } : {}),
                 },
               });
@@ -430,7 +431,7 @@ export async function POST(req: NextRequest) {
           if (facturaMatch) {
             await prisma.movimientoBancario.update({
               where: { id: mov.id },
-              data: { conciliado: true, facturaId: facturaMatch.id },
+              data: { conciliado: true, facturaId: facturaMatch.id, documentoRecibido: true },
             });
             resultados.conciliadosFacturasRecibidas++;
             continue;
@@ -491,7 +492,7 @@ export async function POST(req: NextRequest) {
           if (facturasMatch.length === 1) {
             await prisma.movimientoBancario.update({
               where: { id: mov.id },
-              data: { conciliado: true, facturaId: facturasMatch[0].id },
+              data: { conciliado: true, facturaId: facturasMatch[0].id, documentoRecibido: true },
             });
             resultados.conciliadosFacturasRecibidas++;
             continue;
