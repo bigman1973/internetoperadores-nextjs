@@ -382,30 +382,33 @@ export default function ConciliacionPage() {
 
   async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante' | 'traspaso') {
     const docRecibido = tipo === 'ticket' || tipo === 'justificante' || tipo === 'traspaso' ? true : false;
-    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+    // Actualización optimista
+    setMovimientos(prev => prev.map(m => m.id === movimientoId ? { ...m, tipoDocumento: tipo, documentoRecibido: docRecibido } : m));
+    fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tipoDocumento: tipo, documentoRecibido: docRecibido }),
     });
-    fetchMovimientos();
   }
 
   async function toggleDocumentoRecibido(movimientoId: string, recibido: boolean) {
-    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+    // Actualización optimista
+    setMovimientos(prev => prev.map(m => m.id === movimientoId ? { ...m, documentoRecibido: recibido } : m));
+    fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ documentoRecibido: recibido }),
     });
-    fetchMovimientos();
   }
 
   async function quitarTipoDocumento(movimientoId: string) {
-    await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+    // Actualización optimista
+    setMovimientos(prev => prev.map(m => m.id === movimientoId ? { ...m, tipoDocumento: null, documentoRecibido: null } : m));
+    fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tipoDocumento: null, documentoRecibido: null }),
     });
-    fetchMovimientos();
   }
 
   async function desvincularTercero(movimientoId: string) {
