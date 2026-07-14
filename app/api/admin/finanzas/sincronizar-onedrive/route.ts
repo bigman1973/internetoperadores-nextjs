@@ -25,13 +25,13 @@ async function getDriveId(): Promise<string> {
 
 // Mapeo de carpetas con sus imputaciones por defecto y estado inicial
 const CARPETAS_CONFIG: Record<string, { nombre: string; imputacion: string; estadoInicial: 'PENDIENTE_REVISION' | 'CONTABILIZADA' }> = {
-  pendiente: { nombre: CARPETAS.PENDIENTE_CONTABILIZAR, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
   materiales: { nombre: CARPETAS.COMPRA_MATERIALES, imputacion: 'Compra materiales', estadoInicial: 'PENDIENTE_REVISION' },
+  pendiente: { nombre: CARPETAS.PENDIENTE_CONTABILIZAR, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
+  confirming_draxton: { nombre: CARPETAS.CONFIRMING_DRAXTON, imputacion: 'Draxton', estadoInicial: 'CONTABILIZADA' },
   trimestre1: { nombre: CARPETAS.TRIMESTRE_1, imputacion: 'Estructura', estadoInicial: 'CONTABILIZADA' },
   trimestre2: { nombre: CARPETAS.TRIMESTRE_2, imputacion: 'Estructura', estadoInicial: 'CONTABILIZADA' },
   trimestre3: { nombre: CARPETAS.TRIMESTRE_3, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
   trimestre4: { nombre: CARPETAS.TRIMESTRE_4, imputacion: 'Estructura', estadoInicial: 'PENDIENTE_REVISION' },
-  confirming_draxton: { nombre: CARPETAS.CONFIRMING_DRAXTON, imputacion: 'Draxton', estadoInicial: 'CONTABILIZADA' },
 };
 
 /**
@@ -48,15 +48,15 @@ export async function GET() {
     });
     const idsImportados = new Set(facturasExistentes.map(f => f.oneDriveItemId!));
     
-    // Filtrar solo PDFs/imágenes no importados
+    // Filtrar solo PDFs/imágenes no importados (listFolderContents recursiva ya excluye carpetas)
     const filtrar = (items: any[]) => items.filter((item: any) => {
-      if (item.folder) return false;
       const ext = item.name.toLowerCase().split('.').pop();
       const esFactura = ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'tiff'].includes(ext || '');
       return esFactura && !idsImportados.has(item.id);
     });
 
-    const contarArchivos = (items: any[]) => items.filter((i: any) => !i.folder).length;
+    // Con la búsqueda recursiva, listFolderContents ya solo devuelve archivos (no carpetas)
+    const contarArchivos = (items: any[]) => items.length;
     
     // Listar todas las carpetas
     const resultado: Record<string, { total: number; nuevos: number; yaImportados: number }> = {};
@@ -128,7 +128,6 @@ export async function POST(req: NextRequest) {
       const items = await listFolderContents(driveId, fullPath);
       
       const archivos = items.filter((item: any) => {
-        if (item.folder) return false;
         const ext = item.name.toLowerCase().split('.').pop();
         return ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'tiff'].includes(ext || '');
       });

@@ -134,10 +134,31 @@ export async function getSiteDrive(siteId: string): Promise<string> {
 /**
  * Lista archivos en una carpeta del drive
  */
-export async function listFolderContents(driveId: string, folderPath: string): Promise<any[]> {
+export async function listFolderContents(driveId: string, folderPath: string, recursive = true): Promise<any[]> {
   const encodedPath = encodeURIComponent(folderPath).replace(/%2F/g, '/');
   const result = await graphFetch(`/drives/${driveId}/root:/${encodedPath}:/children?$top=200`);
-  return result.value || [];
+  const items = result.value || [];
+  
+  if (!recursive) return items;
+  
+  // Buscar recursivamente en subcarpetas
+  const allItems: any[] = [];
+  for (const item of items) {
+    if (item.folder) {
+      // Es una subcarpeta, buscar dentro recursivamente
+      try {
+        const subItems = await listFolderContents(driveId, `${folderPath}/${item.name}`, true);
+        allItems.push(...subItems);
+      } catch (e) {
+        // Si la subcarpeta da error, la saltamos
+        console.log(`Error accediendo subcarpeta ${item.name}:`, e);
+      }
+    } else {
+      allItems.push(item);
+    }
+  }
+  
+  return allItems;
 }
 
 /**
@@ -193,11 +214,11 @@ export const FACTURAS_BASE_PATH = '2. Contabilidad y finanzas/2. Facturas recibi
 export const CARPETAS = {
   COMPRA_MATERIALES: '1. Compra de materiales 2026',
   PENDIENTE_CONTABILIZAR: '2. Pendiente de contabilizar o revisar 2026',
-  TRIMESTRE_1: '3. Trimestre 1 2026',
-  TRIMESTRE_2: '4. Trimestre 2 2026',
-  TRIMESTRE_3: '5. Trimestre 3 2026',
-  TRIMESTRE_4: '6. Trimestre 4 2026',
-  CONFIRMING_DRAXTON: 'Confirming Draxton 2026',
+  CONFIRMING_DRAXTON: '3. Confirming Draxton 2026',
+  TRIMESTRE_1: '4. Trimestre 1 2026',
+  TRIMESTRE_2: '5. Trimestre 2 2026',
+  TRIMESTRE_3: '6. Trimestre 3 2026',
+  TRIMESTRE_4: '7. Trimestre 4 2026',
 };
 
 /**
