@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
           fecha: true,
           total: true,
           base: true,
+          archivoUrl: true,
+          archivoOneDrive: true,
         },
         orderBy: { fecha: 'desc' },
         take: 500,

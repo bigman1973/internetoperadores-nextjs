@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon, CalendarDaysIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon, CalendarDaysIcon, ChevronDownIcon, EyeIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -39,6 +39,8 @@ interface Sugerencia {
   total: number;
   score: number;
   reasons: string[];
+  archivoUrl?: string;
+  archivoOneDrive?: string;
 }
 
 interface EmpleadoSimple {
@@ -933,6 +935,17 @@ export default function ConciliacionPage() {
                         }`}>
                           {sug.score}
                         </span>
+                      )}
+                      {(sug.archivoUrl || sug.archivoOneDrive) && (
+                        <a
+                          href={`/api/admin/finanzas/facturas/${sug.id}/pdf`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors"
+                          title="Ver PDF de la factura"
+                        >
+                          <EyeIcon className="h-4 w-4" />
+                        </a>
                       )}
                       <button
                         onClick={() => conciliarManual(movId, sug.id)}
