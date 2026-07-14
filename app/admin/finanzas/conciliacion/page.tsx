@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon, CalendarDaysIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -126,6 +126,16 @@ export default function ConciliacionPage() {
   const [similaresPatron, setSimilaresPatron] = useState('');
   const [similaresModoFactura, setSimilaresModoFactura] = useState(false);
 
+  // Filtro de período
+  const [filtroFecha, setFiltroFecha] = useState<'todos' | 'mes' | 'trimestre' | 'anio' | 'personalizado'>('todos');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [mesSeleccionado, setMesSeleccionado] = useState('');
+  const [trimestreSeleccionado, setTrimestreSeleccionado] = useState('');
+  const [anioSeleccionado, setAnioSeleccionado] = useState('2026');
+  const [showFechaDropdown, setShowFechaDropdown] = useState(false);
+  const fechaRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchCuentas();
     fetchEstado();
@@ -133,7 +143,18 @@ export default function ConciliacionPage() {
 
   useEffect(() => {
     fetchMovimientos();
-  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial, filtroDocumento]);
+  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial, filtroDocumento, fechaDesde, fechaHasta]);
+
+  // Cerrar dropdown de fecha al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (fechaRef.current && !fechaRef.current.contains(e.target as Node)) {
+        setShowFechaDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   async function fetchCuentas() {
     try {
@@ -170,6 +191,8 @@ export default function ConciliacionPage() {
     if (filtroEspecial === 'traspasoPendiente') params.set('traspasoPendiente', 'true');
     if (filtroEspecial === 'pendientesValidar') params.set('pendientesValidar', 'true');
     if (buscarMovimiento.trim()) params.set('buscar', buscarMovimiento.trim());
+    if (fechaDesde) params.set('desde', fechaDesde);
+    if (fechaHasta) params.set('hasta', fechaHasta);
     if (filtroDocumento === 'sinTipoDoc') {
       params.set('tipoDocumento', 'null');
     } else if (filtroDocumento === 'facturaPendiente') {
@@ -875,6 +898,63 @@ export default function ConciliacionPage() {
     );
   }
 
+  function aplicarFiltroFecha(tipo: 'mes' | 'trimestre' | 'anio' | 'personalizado', valor?: string) {
+    const anio = anioSeleccionado || '2026';
+    let desde = '';
+    let hasta = '';
+
+    if (tipo === 'mes' && valor) {
+      const mes = parseInt(valor);
+      desde = `${anio}-${String(mes).padStart(2, '0')}-01`;
+      const ultimoDia = new Date(parseInt(anio), mes, 0).getDate();
+      hasta = `${anio}-${String(mes).padStart(2, '0')}-${ultimoDia}`;
+      setMesSeleccionado(valor);
+      setTrimestreSeleccionado('');
+    } else if (tipo === 'trimestre' && valor) {
+      const t = parseInt(valor);
+      const mesInicio = (t - 1) * 3 + 1;
+      const mesFin = t * 3;
+      desde = `${anio}-${String(mesInicio).padStart(2, '0')}-01`;
+      const ultimoDia = new Date(parseInt(anio), mesFin, 0).getDate();
+      hasta = `${anio}-${String(mesFin).padStart(2, '0')}-${ultimoDia}`;
+      setTrimestreSeleccionado(valor);
+      setMesSeleccionado('');
+    } else if (tipo === 'anio') {
+      desde = `${anio}-01-01`;
+      hasta = `${anio}-12-31`;
+      setMesSeleccionado('');
+      setTrimestreSeleccionado('');
+    }
+
+    setFiltroFecha(tipo);
+    setFechaDesde(desde);
+    setFechaHasta(hasta);
+    setPage(1);
+    if (tipo !== 'personalizado') setShowFechaDropdown(false);
+  }
+
+  function limpiarFiltroFecha() {
+    setFiltroFecha('todos');
+    setFechaDesde('');
+    setFechaHasta('');
+    setMesSeleccionado('');
+    setTrimestreSeleccionado('');
+    setPage(1);
+    setShowFechaDropdown(false);
+  }
+
+  function getFechaLabel(): string {
+    if (filtroFecha === 'todos') return 'Periodo';
+    if (filtroFecha === 'anio') return anioSeleccionado;
+    if (filtroFecha === 'trimestre') return `T${trimestreSeleccionado} ${anioSeleccionado}`;
+    if (filtroFecha === 'mes') {
+      const meses = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+      return `${meses[parseInt(mesSeleccionado) - 1]} ${anioSeleccionado}`;
+    }
+    if (filtroFecha === 'personalizado') return `${fechaDesde} \u2192 ${fechaHasta}`;
+    return 'Periodo';
+  }
+
   return (
     <div className="p-6 space-y-4">
       {/* Header */}
@@ -1051,8 +1131,8 @@ export default function ConciliacionPage() {
         </div>
       )}
 
-      {/* KPI Nóminas */}
-      {estado && (estado.nominasTotal > 0) && (
+      {/* KPI Nóminas / Personal */}
+      {estado && (
         <div className="grid grid-cols-4 gap-3">
           <div onClick={() => { setFiltroDocumento('nomina'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroDocumento === 'nomina' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-200'}`} title="Todos los movimientos clasificados como nómina">
             <p className="text-xs text-purple-600 uppercase font-medium">Total Nóminas</p>
@@ -1119,6 +1199,121 @@ export default function ConciliacionPage() {
             <option key={c.id} value={c.id}>{c.banco} - {c.alias}</option>
           ))}
         </select>
+        {/* Selector de período */}
+        <div className="relative" ref={fechaRef}>
+          <button
+            onClick={() => setShowFechaDropdown(!showFechaDropdown)}
+            className={`flex items-center gap-2 px-3 py-1.5 text-sm border rounded-lg ${
+              filtroFecha !== 'todos' ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <CalendarDaysIcon className="h-4 w-4" />
+            <span>{getFechaLabel()}</span>
+            <ChevronDownIcon className="h-3 w-3" />
+          </button>
+          {filtroFecha !== 'todos' && (
+            <button
+              onClick={limpiarFiltroFecha}
+              className="absolute -top-1 -right-1 bg-blue-500 text-white rounded-full p-0.5"
+            >
+              <XMarkIcon className="h-3 w-3" />
+            </button>
+          )}
+          {showFechaDropdown && (
+            <div className="absolute z-50 mt-1 w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-3">
+              {/* Selector de año */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xs text-gray-500 font-medium">Año:</span>
+                {['2024', '2025', '2026'].map(a => (
+                  <button
+                    key={a}
+                    onClick={() => { setAnioSeleccionado(a); }}
+                    className={`px-2 py-1 text-xs rounded ${
+                      anioSeleccionado === a ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {a}
+                  </button>
+                ))}
+                <button
+                  onClick={() => aplicarFiltroFecha('anio')}
+                  className="ml-auto px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Todo {anioSeleccionado}
+                </button>
+              </div>
+              {/* Trimestres */}
+              <div className="mb-3">
+                <span className="text-xs text-gray-500 font-medium block mb-1">Trimestre:</span>
+                <div className="grid grid-cols-4 gap-1">
+                  {[1, 2, 3, 4].map(t => (
+                    <button
+                      key={t}
+                      onClick={() => aplicarFiltroFecha('trimestre', String(t))}
+                      className={`px-2 py-1.5 text-xs rounded border ${
+                        trimestreSeleccionado === String(t) && filtroFecha === 'trimestre'
+                          ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      T{t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Meses */}
+              <div className="mb-3">
+                <span className="text-xs text-gray-500 font-medium block mb-1">Mes:</span>
+                <div className="grid grid-cols-6 gap-1">
+                  {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => (
+                    <button
+                      key={m}
+                      onClick={() => aplicarFiltroFecha('mes', String(i + 1))}
+                      className={`px-1 py-1.5 text-xs rounded border ${
+                        mesSeleccionado === String(i + 1) && filtroFecha === 'mes'
+                          ? 'bg-blue-100 border-blue-300 text-blue-700 font-medium'
+                          : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Personalizado */}
+              <div className="border-t pt-2">
+                <span className="text-xs text-gray-500 font-medium block mb-1">Personalizado:</span>
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="date"
+                    value={filtroFecha === 'personalizado' ? fechaDesde : ''}
+                    onChange={(e) => {
+                      setFechaDesde(e.target.value);
+                      setFiltroFecha('personalizado');
+                      setMesSeleccionado('');
+                      setTrimestreSeleccionado('');
+                    }}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 w-32"
+                  />
+                  <span className="text-xs text-gray-400">a</span>
+                  <input
+                    type="date"
+                    value={filtroFecha === 'personalizado' ? fechaHasta : ''}
+                    onChange={(e) => {
+                      setFechaHasta(e.target.value);
+                      setFiltroFecha('personalizado');
+                      setMesSeleccionado('');
+                      setTrimestreSeleccionado('');
+                      setPage(1);
+                      setShowFechaDropdown(false);
+                    }}
+                    className="text-xs border border-gray-300 rounded px-2 py-1 w-32"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <select
           value={filtroDocumento}
           onChange={(e) => { setFiltroDocumento(e.target.value as any); setPage(1); }}
@@ -1465,13 +1660,18 @@ export default function ConciliacionPage() {
         </div>
 
         {/* Paginacion */}
-        {total > 30 && (
+        {total > 0 && (
           <div className="border-t px-4 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">Pagina {page} · {total} movimientos</p>
-            <div className="flex gap-2">
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Anterior</button>
-              <button onClick={() => setPage(p => p + 1)} disabled={page * 30 >= total} className="px-3 py-1 text-sm border rounded disabled:opacity-50">Siguiente</button>
-            </div>
+            <p className="text-xs text-gray-500">
+              Mostrando {(page - 1) * 30 + 1} - {Math.min(page * 30, total)} de {total} movimientos
+              {total > 30 && (<span className="ml-2 text-gray-400">· Página {page} de {Math.ceil(total / 30)}</span>)}
+            </p>
+            {total > 30 && (
+              <div className="flex gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 text-sm border rounded disabled:opacity-50 hover:bg-gray-50">Anterior</button>
+                <button onClick={() => setPage(p => p + 1)} disabled={page * 30 >= total} className="px-3 py-1 text-sm border rounded disabled:opacity-50 hover:bg-gray-50">Siguiente</button>
+              </div>
+            )}
           </div>
         )}
       </div>
