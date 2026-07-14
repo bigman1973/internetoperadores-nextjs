@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { extraerTercero } from '@/lib/finanzas/extraer-tercero';
 
 /**
  * Motor de conciliación automática MEJORADO
@@ -43,20 +44,26 @@ const REGLAS_CLASIFICACION = [
   { patron: /Emision Remesa Sepa/i, categoria: 'Operadora', tipoPago: 'Remesa' },
   { patron: /Liquidacion Por Emision/i, categoria: 'Gastos Financieros', tipoPago: 'Comisión' },
   
-  // Traspasos propios
-  { patron: /Transferencia.*Internet Operadores.*Concepto\s*Traspas/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Transferencia Inmediata A Favor De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Transferencia Inmediata De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /TRF IMMEDIATA.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /TF\/INTERNET OPERADORES.*TRASPAS/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Traspasos propios (SOLO cuando ordenante Y destinatario son Internet Operadores)
+  // Santander: "Transferencia Inmediata A Favor De Internet Operadores Concepto Traspas..."
+  { patron: /Transferencia.*A Favor De Internet Operadores.*(Concepto\s*)?(Traspas|Traspaso)/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Santander: "Transferencia Inmediata A Favor De Internet Operadores Concepto Enviado Por Banco"
+  { patron: /Transferencia.*A Favor De Internet Operadores.*Enviado Por Banco/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Santander (entrada): "Transferencia Inmediata De Internet Operadores S.l., Concepto Traspas..."
+  { patron: /Transferencia.*De Internet Operadores.*(Concepto\s*)?(Traspas|Traspaso)/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // BBVA: "TRANSFERÈNCIES - TRASPAS..." o "TRANSFERÈNCIES - TRASPASO..."
+  { patron: /TRANSFER(È|E)NCIES\s*-\s*(TRASPAS|TRASPASO)/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Caixa Guissona: "TF/INTERNET OPERADORES SL TRASPAS..." o "TF/INTERNET OPERADORES SL TRASPASO..."
+  { patron: /TF\/INTERNET OPERADORES.*(TRASPAS|TRASPASO)/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Caixa Guissona: "TF/INTERNET OPERADORES SL ENVIADO POR..."
   { patron: /TF\/INTERNET OPERADORES.*ENVIADO POR/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Internet Operadores.*TRASPAS.*VIVID/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Internet Operadores.*TRASPAS.*SANTANDER/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Internet Operadores.*TRASPAS.*GUISSONA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Internet Operadores.*TRASPAS.*CAIXA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /Internet Operadores.*TRASPAS.*BBVA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /TRANSFER(\s|E).*INMEDIATA.*Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
-  { patron: /TRANSFERÈNCIES.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Vivid: "Internet Operadores Sl - TRASPAS..."
+  { patron: /Internet Operadores\s+S\.?l\.?\s*-\s*TRASPAS/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Vivid: "TRANSFER INMEDIATA Internet Operadores Sl" (recepción de traspaso)
+  { patron: /TRANSFER INMEDIATA\s+Internet Operadores\s+S/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Vivid: "Internet Operadores Sl NOTPROVIDE TRASPASO..." (recepción de traspaso en Vivid)
+  { patron: /NOTPROVIDE\s*TRASPASO/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  // Caixa Guissona: "TRASPAS A GIRO" (interno)
   { patron: /TRASPAS A GIRO/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   
   // Proveedores conocidos
@@ -147,12 +154,36 @@ export async function POST(req: NextRequest) {
     if (modo === 'clasificar' || modo === 'todo') {
       const sinCategoria = await prisma.movimientoBancario.findMany({
         where: { categoria: null },
-        select: { id: true, concepto: true, importe: true },
+        select: { id: true, concepto: true, importe: true, cuentaId: true },
       });
 
       for (const mov of sinCategoria) {
+        // Primero: usar extraerTercero para detectar traspasos de forma inteligente
+        const infoTercero = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
+        if (infoTercero.esInternetOperadores || infoTercero.tipo === 'traspaso') {
+          await prisma.movimientoBancario.update({
+            where: { id: mov.id },
+            data: {
+              categoria: 'Traspaso',
+              tipoPago: 'Transferencia',
+              tipoDocumento: 'justificante',
+              documentoRecibido: true,
+            },
+          });
+          resultados.clasificados++;
+          continue;
+        }
+
+        // Luego: reglas de clasificación por patrón regex
         for (const regla of REGLAS_CLASIFICACION) {
           if (regla.patron.test(mov.concepto)) {
+            // Doble verificación para reglas de traspaso: confirmar con extraerTercero
+            if (regla.categoria === 'Traspaso') {
+              // Si extraerTercero no lo detectó como traspaso, NO clasificar como tal
+              if (!infoTercero.esInternetOperadores && infoTercero.tipo !== 'traspaso') {
+                continue; // Saltar esta regla, probar la siguiente
+              }
+            }
             const data: any = {
               categoria: regla.categoria,
               tipoPago: regla.tipoPago,
@@ -234,6 +265,42 @@ export async function POST(req: NextRequest) {
         }
       } catch (e) {
         // entidadFiscal puede no tener patrones
+      }
+
+      // Identificar tercero por extracción inteligente del concepto (todos los bancos)
+      try {
+        const sinProveedorAun = await prisma.movimientoBancario.findMany({
+          where: { entidadFiscalId: null, categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS'] } },
+          select: { id: true, concepto: true, importe: true, cuentaId: true },
+        });
+
+        // Cargar todas las entidades fiscales para buscar por nombre
+        const todasEntidades = await prisma.entidadFiscal.findMany({
+          where: { activo: true },
+          select: { id: true, razonSocial: true, nombreComercial: true },
+        });
+
+        for (const mov of sinProveedorAun) {
+          const info = extraerTercero(mov.concepto, mov.importe, mov.cuentaId);
+          if (info.nombre && !info.esInternetOperadores && info.nombre.length > 3) {
+            // Buscar entidad fiscal que coincida con el nombre del tercero
+            const nombreNorm = info.nombre.toLowerCase().replace(/[,.]|\s*(s\.?l\.?|s\.?a\.?|sociedad limitada)\s*$/gi, '').trim();
+            const entidad = todasEntidades.find(e => {
+              const razon = e.razonSocial?.toLowerCase() || '';
+              const comercial = e.nombreComercial?.toLowerCase() || '';
+              return razon.includes(nombreNorm) || nombreNorm.includes(razon.replace(/[,.]|\s*(s\.?l\.?|s\.?a\.?)\s*$/gi, '').trim())
+                || (comercial && (comercial.includes(nombreNorm) || nombreNorm.includes(comercial)));
+            });
+            if (entidad) {
+              await prisma.movimientoBancario.update({
+                where: { id: mov.id },
+                data: { entidadFiscalId: entidad.id },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        // Error en vinculación por tercero
       }
     }
 
