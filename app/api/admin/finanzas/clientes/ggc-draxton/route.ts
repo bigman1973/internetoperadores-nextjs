@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-// CIFs de las entidades Draxton
-const DRAXTON_CIFS = ['B62926118', 'B66605593', 'B95358081', 'B63219620', 'IT01166730299'];
+// Nombres de clientes Draxton (grupo)
+const DRAXTON_CLIENTES = ['Draxton', 'Fuchosa', 'Altec', 'Infun'];
 
 /**
- * GET: Obtiene facturas emitidas a Draxton, movimientos de cobro y KPIs
+ * GET: Obtiene facturas emitidas a Draxton, documentos confirming, movimientos de cobro y KPIs
  */
 export async function GET(request: NextRequest) {
   try {
@@ -15,16 +15,12 @@ export async function GET(request: NextRequest) {
     const startDate = new Date(`${year}-01-01`);
     const endDate = new Date(`${year + 1}-01-01`);
 
-    // 1. Facturas emitidas a Draxton
+    // 1. Facturas emitidas a Draxton (buscar por nombre de cliente)
     const facturasEmitidas = await prisma.facturaEmitida.findMany({
       where: {
-        OR: [
-          { cif: { in: DRAXTON_CIFS } },
-          { cliente: { contains: 'Draxton', mode: 'insensitive' } },
-          { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
-          { cliente: { contains: 'Altec', mode: 'insensitive' } },
-          { cliente: { contains: 'Infun', mode: 'insensitive' } },
-        ],
+        OR: DRAXTON_CLIENTES.map(nombre => ({
+          cliente: { contains: nombre, mode: 'insensitive' as const },
+        })),
         fecha: { gte: startDate, lt: endDate },
       },
       orderBy: { fecha: 'desc' },
@@ -45,7 +41,27 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // 2. Movimientos bancarios de cobro Draxton/Confirming (ingresos)
+    // 2. Documentos de confirming (facturas recibidas de la carpeta Confirming Draxton)
+    const documentosConfirming = await prisma.facturaRecibida.findMany({
+      where: {
+        carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
+      },
+      orderBy: { fecha: 'desc' },
+      select: {
+        id: true,
+        proveedor: true,
+        numFactura: true,
+        fecha: true,
+        total: true,
+        base: true,
+        archivoUrl: true,
+        archivoOneDrive: true,
+        carpetaOrigen: true,
+        estado: true,
+      },
+    });
+
+    // 3. Movimientos bancarios de cobro Draxton/Confirming (ingresos)
     const movimientosCobro = await prisma.movimientoBancario.findMany({
       where: {
         fechaOperacion: { gte: startDate, lt: endDate },
@@ -53,7 +69,9 @@ export async function GET(request: NextRequest) {
         OR: [
           { concepto: { contains: 'Draxton', mode: 'insensitive' } },
           { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
+          { concepto: { contains: 'CESION DE CREDITO', mode: 'insensitive' } },
           { tercero: { contains: 'Draxton', mode: 'insensitive' } },
+          { tercero: { contains: 'Caixabank', mode: 'insensitive' } },
           { facturaEmitidaId: { not: null } },
         ],
       },
@@ -73,7 +91,19 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    // 3. KPIs
+    // Filtrar movimientos: solo los que realmente son de Draxton/Confirming
+    // (Caixabank puede tener muchos movimientos que no son de Draxton)
+    const movimientosRelevantes = movimientosCobro.filter(m => {
+      if (m.facturaEmitidaId) return true;
+      const concepto = (m.concepto || '').toLowerCase();
+      const tercero = (m.tercero || '').toLowerCase();
+      return concepto.includes('draxton') || 
+             concepto.includes('confirming') || 
+             concepto.includes('cesion de credito') ||
+             tercero.includes('draxton');
+    });
+
+    // 4. KPIs
     const totalFacturado = facturasEmitidas.reduce((sum, f) => sum + f.total, 0);
     const totalCobrado = facturasEmitidas.reduce((sum, f) => sum + (f.importeCobrado || 0), 0);
     const pendienteCobro = totalFacturado - totalCobrado;
@@ -81,12 +111,13 @@ export async function GET(request: NextRequest) {
     const facturasPendientes = facturasEmitidas.filter(f => f.estado !== 'COBRADA').length;
 
     // Movimientos sin factura vinculada
-    const movimientosSinVincular = movimientosCobro.filter(m => !m.facturaEmitidaId).length;
-    const totalIngresado = movimientosCobro.reduce((sum, m) => sum + Number(m.importe), 0);
+    const movimientosSinVincular = movimientosRelevantes.filter(m => !m.facturaEmitidaId).length;
+    const totalIngresado = movimientosRelevantes.reduce((sum, m) => sum + Number(m.importe), 0);
 
     return NextResponse.json({
       facturasEmitidas,
-      movimientosCobro,
+      documentosConfirming,
+      movimientosCobro: movimientosRelevantes,
       kpis: {
         totalFacturado,
         totalCobrado,
@@ -94,9 +125,10 @@ export async function GET(request: NextRequest) {
         totalFacturas: facturasEmitidas.length,
         facturasConCobro,
         facturasPendientes,
-        totalMovimientos: movimientosCobro.length,
+        totalMovimientos: movimientosRelevantes.length,
         movimientosSinVincular,
         totalIngresado,
+        totalDocumentosConfirming: documentosConfirming.length,
       },
     });
   } catch (error: any) {

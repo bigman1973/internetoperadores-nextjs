@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react';
 import {
   BuildingOffice2Icon,
-  BanknotesIcon,
   CheckCircleIcon,
   ClockIcon,
   LinkIcon,
   XMarkIcon,
   MagnifyingGlassIcon,
+  EyeIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 
 interface FacturaEmitida {
@@ -39,6 +40,19 @@ interface MovimientoCobro {
   facturaEmitida: { numFactura: string; cliente: string; total: number } | null;
 }
 
+interface DocumentoConfirming {
+  id: string;
+  proveedor: string | null;
+  numFactura: string | null;
+  fecha: string | null;
+  total: number | null;
+  base: number | null;
+  archivoUrl: string | null;
+  archivoOneDrive: string | null;
+  carpetaOrigen: string | null;
+  estado: string;
+}
+
 interface KPIs {
   totalFacturado: number;
   totalCobrado: number;
@@ -49,15 +63,17 @@ interface KPIs {
   totalMovimientos: number;
   movimientosSinVincular: number;
   totalIngresado: number;
+  totalDocumentosConfirming: number;
 }
 
 export default function GGCDraxtonPage() {
   const [facturas, setFacturas] = useState<FacturaEmitida[]>([]);
   const [movimientos, setMovimientos] = useState<MovimientoCobro[]>([]);
+  const [documentos, setDocumentos] = useState<DocumentoConfirming[]>([]);
   const [kpis, setKpis] = useState<KPIs | null>(null);
   const [loading, setLoading] = useState(true);
   const [year, setYear] = useState(2026);
-  const [tab, setTab] = useState<'facturas' | 'movimientos'>('facturas');
+  const [tab, setTab] = useState<'facturas' | 'movimientos' | 'documentos'>('facturas');
   const [busqueda, setBusqueda] = useState('');
 
   // Modal de vincular
@@ -75,6 +91,7 @@ export default function GGCDraxtonPage() {
       const data = await res.json();
       setFacturas(data.facturasEmitidas || []);
       setMovimientos(data.movimientosCobro || []);
+      setDocumentos(data.documentosConfirming || []);
       setKpis(data.kpis || null);
     } catch (e) {
       console.error(e);
@@ -99,7 +116,7 @@ export default function GGCDraxtonPage() {
   }
 
   const formatMoney = (n: number) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-  const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
+  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' }) : '-';
 
   // Filtrar facturas por búsqueda
   const facturasFiltradas = facturas.filter(f =>
@@ -113,6 +130,12 @@ export default function GGCDraxtonPage() {
     !busqueda || m.concepto?.toLowerCase().includes(busqueda.toLowerCase()) ||
     m.tercero?.toLowerCase().includes(busqueda.toLowerCase()) ||
     m.facturaEmitida?.numFactura.toLowerCase().includes(busqueda.toLowerCase())
+  );
+
+  // Filtrar documentos por búsqueda
+  const documentosFiltrados = documentos.filter(d =>
+    !busqueda || d.proveedor?.toLowerCase().includes(busqueda.toLowerCase()) ||
+    d.numFactura?.toLowerCase().includes(busqueda.toLowerCase())
   );
 
   // Facturas candidatas para vincular (no cobradas o parcialmente cobradas)
@@ -148,7 +171,7 @@ export default function GGCDraxtonPage() {
 
       {/* KPIs */}
       {kpis && (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
           <div className="bg-white rounded-lg border-2 border-indigo-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Facturado</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(kpis.totalFacturado)}</p>
@@ -173,7 +196,7 @@ export default function GGCDraxtonPage() {
           <div className="bg-white rounded-lg border-2 border-gray-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Ingresado</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(kpis.totalIngresado)}</p>
-            <p className="text-xs text-gray-400">{kpis.totalMovimientos} movimientos</p>
+            <p className="text-xs text-gray-400">{kpis.totalMovimientos} mov.</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-green-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Vinculados</p>
@@ -184,6 +207,11 @@ export default function GGCDraxtonPage() {
             <p className="text-xs text-gray-500 uppercase">Sin vincular</p>
             <p className="text-lg font-bold text-red-600">{kpis.movimientosSinVincular}</p>
             <p className="text-xs text-gray-400">sin factura</p>
+          </div>
+          <div className="bg-white rounded-lg border-2 border-purple-100 p-3">
+            <p className="text-xs text-gray-500 uppercase">Docs Confirming</p>
+            <p className="text-lg font-bold text-purple-700">{kpis.totalDocumentosConfirming}</p>
+            <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-purple-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Diferencia</p>
@@ -208,7 +236,13 @@ export default function GGCDraxtonPage() {
             onClick={() => setTab('movimientos')}
             className={`px-4 py-2 text-sm font-medium ${tab === 'movimientos' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
           >
-            Cobros / Confirming ({movimientos.length})
+            Cobros Banco ({movimientos.length})
+          </button>
+          <button
+            onClick={() => setTab('documentos')}
+            className={`px-4 py-2 text-sm font-medium ${tab === 'documentos' ? 'bg-purple-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+          >
+            Docs Confirming ({documentos.length})
           </button>
         </div>
         <div className="relative flex-1 max-w-sm">
@@ -282,6 +316,11 @@ export default function GGCDraxtonPage() {
               )}
             </tbody>
           </table>
+          {facturasFiltradas.length > 0 && (
+            <div className="px-4 py-2 bg-gray-50 border-t text-sm text-gray-500">
+              {facturasFiltradas.length} facturas · Total: {formatMoney(facturasFiltradas.reduce((s, f) => s + f.total, 0))}
+            </div>
+          )}
         </div>
       )}
 
@@ -344,6 +383,78 @@ export default function GGCDraxtonPage() {
               )}
             </tbody>
           </table>
+          {movimientosFiltrados.length > 0 && (
+            <div className="px-4 py-2 bg-gray-50 border-t text-sm text-gray-500">
+              {movimientosFiltrados.length} movimientos · Total ingresado: {formatMoney(movimientosFiltrados.reduce((s, m) => s + Number(m.importe), 0))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tabla de Documentos Confirming */}
+      {tab === 'documentos' && (
+        <div className="bg-white rounded-lg border overflow-hidden">
+          <div className="px-4 py-3 bg-purple-50 border-b">
+            <p className="text-sm text-purple-700">
+              <DocumentTextIcon className="h-4 w-4 inline mr-1" />
+              Documentos de la carpeta &quot;Confirming Draxton 2026&quot; en OneDrive — justificantes de cobro por confirming
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Fecha</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Proveedor/Emisor</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Nº Documento</th>
+                <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Estado</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">PDF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">Cargando...</td></tr>
+              ) : documentosFiltrados.length === 0 ? (
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">No hay documentos</td></tr>
+              ) : (
+                documentosFiltrados.map(d => (
+                  <tr key={d.id} className="border-b hover:bg-gray-50">
+                    <td className="px-3 py-2 text-gray-600">{formatDate(d.fecha)}</td>
+                    <td className="px-3 py-2 text-gray-700">{d.proveedor || 'Sin identificar'}</td>
+                    <td className="px-3 py-2 font-medium text-gray-900">{d.numFactura || '-'}</td>
+                    <td className="px-3 py-2 text-right font-medium text-green-700">
+                      {d.total ? formatMoney(d.total) : '-'}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        d.estado === 'CONTABILIZADA' ? 'bg-green-100 text-green-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {d.estado}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">
+                      {(d.archivoUrl || d.archivoOneDrive) && (
+                        <a
+                          href={d.archivoUrl || d.archivoOneDrive || '#'}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          <EyeIcon className="h-5 w-5" />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          {documentosFiltrados.length > 0 && (
+            <div className="px-4 py-2 bg-gray-50 border-t text-sm text-gray-500">
+              {documentosFiltrados.length} documentos · Total: {formatMoney(documentosFiltrados.reduce((s, d) => s + (d.total || 0), 0))}
+            </div>
+          )}
         </div>
       )}
 

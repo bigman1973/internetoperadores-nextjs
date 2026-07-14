@@ -14,7 +14,10 @@ export async function GET(req: NextRequest) {
     const sinImputar = searchParams.get('sinImputar');
     const countOnly = searchParams.get('count');
 
-    const where: any = {};
+    const where: any = {
+      // Excluir documentos de Confirming Draxton (se gestionan en GGC-Draxton)
+      NOT: { carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' } },
+    };
     if (estado) where.estado = estado;
     if (proveedor) where.proveedor = { contains: proveedor, mode: 'insensitive' };
     if (desde) where.fecha = { ...where.fecha, gte: new Date(desde) };
