@@ -1287,7 +1287,7 @@ model FacturaEmitida {
   id              String   @id @default(uuid())
   cliente         String   // Nombre del cliente
   cif             String?  // CIF/NIF del cliente
-  numFactura      String   @unique @map("num_factura") // Ej: CLL26/1234
+  numFactura      String   @map("num_factura") // Ej: CLL26/1234
   serie           String?  // Serie de facturación (CLL, INST, etc.)
   fecha           DateTime
   fechaVencimiento DateTime? @map("fecha_vencimiento")
