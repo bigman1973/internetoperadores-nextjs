@@ -66,6 +66,10 @@ interface EstadoConciliacion {
   entregasACuentaCount: number;
   entregasACuentaImporte: number;
   facturasRecibidasSinConciliar: number;
+  nominasTotal: number;
+  nominasConciliadas: number;
+  nominasPendientes: number;
+  nominasImporte: number;
   traspasosTotal: number;
   traspasosConContrapartida: number;
   traspasosPendientes: number;
@@ -107,7 +111,7 @@ export default function ConciliacionPage() {
   // Buscador de movimientos
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
-  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'traspaso' | 'sinTipoDoc' | 'facturaPendiente'>('');
+  const [filtroDocumento, setFiltroDocumento] = useState<'' | 'factura' | 'ticket' | 'justificante' | 'traspaso' | 'nomina' | 'sinTipoDoc' | 'facturaPendiente'>('');
   // Modal de vincular nómina
   const [showNominaModal, setShowNominaModal] = useState<string | null>(null); // movimientoId
   const [nominasList, setNominasList] = useState<any[]>([]);
@@ -381,7 +385,7 @@ export default function ConciliacionPage() {
     fetchEstado();
   }
 
-  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante' | 'traspaso') {
+  async function marcarTipoDocumento(movimientoId: string, tipo: 'factura' | 'ticket' | 'justificante' | 'traspaso' | 'nomina') {
     const docRecibido = tipo === 'ticket' || tipo === 'justificante' || tipo === 'traspaso' ? true : false;
     // Actualización optimista
     setMovimientos(prev => prev.map(m => m.id === movimientoId ? { ...m, tipoDocumento: tipo, documentoRecibido: docRecibido } : m));
@@ -1047,6 +1051,32 @@ export default function ConciliacionPage() {
         </div>
       )}
 
+      {/* KPI Nóminas */}
+      {estado && (estado.nominasTotal > 0) && (
+        <div className="grid grid-cols-4 gap-3">
+          <div onClick={() => { setFiltroDocumento('nomina'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroDocumento === 'nomina' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-200'}`} title="Todos los movimientos clasificados como nómina">
+            <p className="text-xs text-purple-600 uppercase font-medium">Total Nóminas</p>
+            <p className="text-2xl font-bold text-purple-700">{estado.nominasTotal}</p>
+            <p className="text-[10px] text-gray-400">{estado.nominasImporte ? estado.nominasImporte.toLocaleString('es-ES', {style:'currency',currency:'EUR'}) : ''}</p>
+          </div>
+          <div className="bg-white border border-purple-200 rounded-lg p-4" title="Nóminas conciliadas con documento de nómina del empleado">
+            <p className="text-xs text-purple-600 uppercase font-medium">Conciliadas</p>
+            <p className="text-2xl font-bold text-green-700">{estado.nominasConciliadas}</p>
+            <p className="text-[10px] text-gray-400">Con nómina vinculada</p>
+          </div>
+          <div onClick={() => { setFiltroDocumento('nomina'); setFiltroEspecial(''); setFiltroConciliado('false'); setPage(1); }} className="bg-white border border-purple-200 rounded-lg p-4 cursor-pointer hover:shadow-md" title="Nóminas pendientes de vincular con documento">
+            <p className="text-xs text-orange-600 uppercase font-medium">Pdte. Vincular</p>
+            <p className="text-2xl font-bold text-orange-700">{estado.nominasPendientes}</p>
+            <p className="text-[10px] text-gray-400">Sin nómina vinculada</p>
+          </div>
+          <div className="bg-white border border-purple-200 rounded-lg p-4">
+            <p className="text-xs text-gray-500 uppercase font-medium">% Conciliadas</p>
+            <p className="text-2xl font-bold text-gray-700">{estado.nominasTotal > 0 ? Math.round((estado.nominasConciliadas / estado.nominasTotal) * 100) : 0}%</p>
+            <p className="text-[10px] text-gray-400">Nóminas con documento</p>
+          </div>
+        </div>
+      )}
+
       {/* Resultado conciliacion automatica */}
       {resultadoConciliacion && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
@@ -1097,6 +1127,7 @@ export default function ConciliacionPage() {
           <option value="">Todos los docs</option>
           <option value="factura">Con Factura</option>
           <option value="facturaPendiente">Factura pendiente</option>
+          <option value="nomina">Nómina</option>
           <option value="traspaso">Traspaso</option>
           <option value="ticket">Con Ticket</option>
           <option value="justificante">Con Justificante</option>
@@ -1272,6 +1303,13 @@ export default function ConciliacionPage() {
                                 >
                                   Trasp.
                                 </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); marcarTipoDocumento(mov.id, 'nomina'); }}
+                                  className="text-[10px] px-1.5 py-0.5 border border-purple-200 text-purple-600 rounded hover:bg-purple-50"
+                                  title="Nómina de empleado"
+                                >
+                                  Nóm.
+                                </button>
                               </>
                             ) : mov.tipoDocumento === 'factura' ? (
                               <div className="flex items-center gap-1">
@@ -1299,6 +1337,12 @@ export default function ConciliacionPage() {
                                 className="text-[10px] px-1.5 py-0.5 bg-cyan-100 text-cyan-700 border border-cyan-200 rounded font-medium hover:bg-cyan-200 cursor-pointer"
                                 title="Clic para quitar tipo de documento"
                               >Traspaso</button>
+                            ) : mov.tipoDocumento === 'nomina' ? (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}
+                                className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 border border-purple-200 rounded font-medium hover:bg-purple-200 cursor-pointer"
+                                title="Clic para quitar tipo de documento"
+                              >Nómina</button>
                             ) : (
                               <button
                                 onClick={(e) => { e.stopPropagation(); quitarTipoDocumento(mov.id); }}

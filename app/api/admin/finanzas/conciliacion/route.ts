@@ -867,6 +867,12 @@ export async function GET() {
     const conFacturaEmitidaVinculada = await prisma.movimientoBancario.count({ where: { facturaEmitidaId: { not: null } } });
     const sinProveedorGastos = await prisma.movimientoBancario.count({ where: { entidadFiscalId: null, importe: { lt: 0 }, categoria: { notIn: ['Traspaso', 'Sueldos y Salarios', 'IMPUESTOS'] } } });
 
+    // KPIs de nóminas
+    const nominasConciliadas = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'nomina', conciliado: true } });
+    const nominasPendientes = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'nomina', conciliado: false } });
+    const nominasTotal = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'nomina' } });
+    const nominasImporte = await prisma.movimientoBancario.aggregate({ where: { tipoDocumento: 'nomina' }, _sum: { importe: true } });
+
     // KPIs de traspasos
     const traspasosTotal = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'traspaso' } });
     const traspasosConContrapartida = await prisma.movimientoBancario.count({ where: { tipoDocumento: 'traspaso', traspasoRelacionadoId: { not: null } } });
@@ -920,6 +926,10 @@ export async function GET() {
         pendienteCobro,
       },
       facturasRecibidasSinConciliar,
+      nominasTotal,
+      nominasConciliadas,
+      nominasPendientes,
+      nominasImporte: Math.abs(nominasImporte._sum.importe || 0),
       traspasosTotal,
       traspasosConContrapartida,
       traspasosPendientes,
