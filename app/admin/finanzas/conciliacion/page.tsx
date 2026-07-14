@@ -120,6 +120,7 @@ export default function ConciliacionPage() {
   const [similaresSeleccionados, setSimilaresSeleccionados] = useState<Set<string>>(new Set());
   const [similaresMovId, setSimilaresMovId] = useState<string | null>(null);
   const [similaresPatron, setSimilaresPatron] = useState('');
+  const [similaresModoFactura, setSimilaresModoFactura] = useState(false);
 
   useEffect(() => {
     fetchCuentas();
@@ -384,11 +385,23 @@ export default function ConciliacionPage() {
     const docRecibido = tipo === 'ticket' || tipo === 'justificante' || tipo === 'traspaso' ? true : false;
     // Actualización optimista
     setMovimientos(prev => prev.map(m => m.id === movimientoId ? { ...m, tipoDocumento: tipo, documentoRecibido: docRecibido } : m));
-    fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
+    const res = await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ tipoDocumento: tipo, documentoRecibido: docRecibido }),
     });
+    // Si es factura y hay otros movimientos del mismo tercero sin tipo doc, ofrecer marcar en bloque
+    if (tipo === 'factura') {
+      const result = await res.json();
+      if (result.similaresTercero && result.similaresTercero.length > 0) {
+        setSimilaresList(result.similaresTercero);
+        setSimilaresSeleccionados(new Set(result.similaresTercero.map((m: any) => m.id)));
+        setSimilaresMovId(movimientoId);
+        setSimilaresPatron(result.terceroUsado || 'mismo tercero');
+        setSimilaresModoFactura(true);
+        setShowSimilaresModal(true);
+      }
+    }
   }
 
   async function toggleDocumentoRecibido(movimientoId: string, recibido: boolean) {
@@ -458,15 +471,27 @@ export default function ConciliacionPage() {
 
   async function aplicarSimilaresSeleccionados() {
     if (!similaresMovId || similaresSeleccionados.size === 0) return;
-    await fetch(`/api/admin/finanzas/movimientos/${similaresMovId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ asignarProveedorASimilares: true, idsSeleccionados: Array.from(similaresSeleccionados) }),
-    });
+    if (similaresModoFactura) {
+      // Marcar como factura en bloque
+      await fetch(`/api/admin/finanzas/movimientos/${similaresMovId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marcarFacturaASimilares: true, idsSeleccionados: Array.from(similaresSeleccionados) }),
+      });
+      // Actualización optimista de la lista local
+      setMovimientos(prev => prev.map(m => similaresSeleccionados.has(m.id) ? { ...m, tipoDocumento: 'factura', documentoRecibido: false } : m));
+    } else {
+      await fetch(`/api/admin/finanzas/movimientos/${similaresMovId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asignarProveedorASimilares: true, idsSeleccionados: Array.from(similaresSeleccionados) }),
+      });
+    }
     setShowSimilaresModal(false);
     setSimilaresList([]);
     setSimilaresSeleccionados(new Set());
     setSimilaresMovId(null);
+    setSimilaresModoFactura(false);
     fetchMovimientos();
     fetchEstado();
   }
@@ -1413,10 +1438,10 @@ export default function ConciliacionPage() {
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[80vh] flex flex-col">
             <div className="p-4 border-b flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Movimientos similares encontrados</h3>
-                <p className="text-sm text-gray-500">Patrón: <span className="font-mono bg-gray-100 px-1 rounded">{similaresPatron}</span> · {similaresList.length} movimientos</p>
+                <h3 className="text-lg font-bold text-gray-900">{similaresModoFactura ? 'Marcar como Factura en bloque' : 'Movimientos similares encontrados'}</h3>
+                <p className="text-sm text-gray-500">{similaresModoFactura ? 'Tercero' : 'Patrón'}: <span className="font-mono bg-gray-100 px-1 rounded">{similaresPatron}</span> · {similaresList.length} movimientos sin tipo doc</p>
               </div>
-              <button onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); }} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); setSimilaresModoFactura(false); }} className="text-gray-400 hover:text-gray-600">
                 <XMarkIcon className="h-6 w-6" />
               </button>
             </div>
@@ -1461,14 +1486,14 @@ export default function ConciliacionPage() {
             </div>
             <div className="p-4 border-t flex items-center justify-between">
               <button
-                onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); }}
+                onClick={() => { setShowSimilaresModal(false); setSimilaresList([]); setSimilaresModoFactura(false); }}
                 className="px-4 py-2 text-sm text-gray-600 border rounded-lg hover:bg-gray-50"
-              >Cancelar (no asignar)</button>
+              >{similaresModoFactura ? 'Cancelar' : 'Cancelar (no asignar)'}</button>
               <button
                 onClick={aplicarSimilaresSeleccionados}
                 disabled={similaresSeleccionados.size === 0}
                 className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium"
-              >Asignar tercero a {similaresSeleccionados.size} movimiento(s)</button>
+              >{similaresModoFactura ? `Marcar como Factura ${similaresSeleccionados.size} movimiento(s)` : `Asignar tercero a ${similaresSeleccionados.size} movimiento(s)`}</button>
             </div>
           </div>
         </div>

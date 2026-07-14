@@ -6,7 +6,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   try {
     const { id } = await context.params;
     const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados, nominaId } = body;
+    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados, nominaId, marcarFacturaASimilares } = body;
 
     const data: any = {};
     if (categoria !== undefined) data.categoria = categoria;
@@ -91,6 +91,18 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     // Solo marcar documentoRecibido=false para indicar que falta la factura física
     if (tipoDocumento === 'factura' && !data.conciliado) {
       data.documentoRecibido = false;
+    }
+
+    // Si se pide marcar como factura a movimientos del mismo tercero
+    if (marcarFacturaASimilares && idsSeleccionados && Array.isArray(idsSeleccionados) && idsSeleccionados.length > 0) {
+      await prisma.movimientoBancario.updateMany({
+        where: {
+          id: { in: idsSeleccionados },
+          tipoDocumento: null,
+        },
+        data: { tipoDocumento: 'factura', documentoRecibido: false },
+      });
+      return NextResponse.json({ ok: true, marcados: idsSeleccionados.length });
     }
 
     // Si se pide asignar proveedor a movimientos similares
@@ -217,7 +229,29 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
       proveedorNombre = movimiento.entidadFiscal?.razonSocial || '';
     }
 
-    return NextResponse.json({ movimiento, similares, movimientosSimilares, patronUsado, proveedorNombre });
+    // Buscar movimientos del mismo tercero sin tipo documento para ofrecer marcar como factura en bloque
+    let similaresTercero: any[] = [];
+    if (tipoDocumento === 'factura' && movimiento.tercero) {
+      similaresTercero = await prisma.movimientoBancario.findMany({
+        where: {
+          id: { not: id },
+          tercero: { equals: movimiento.tercero, mode: 'insensitive' },
+          tipoDocumento: null,
+          importe: { lt: 0 }, // solo gastos
+        },
+        select: {
+          id: true,
+          fechaOperacion: true,
+          concepto: true,
+          importe: true,
+          cuenta: { select: { banco: true } },
+        },
+        orderBy: { fechaOperacion: 'desc' },
+        take: 200,
+      });
+    }
+
+    return NextResponse.json({ movimiento, similares, movimientosSimilares, patronUsado, proveedorNombre, similaresTercero, terceroUsado: movimiento.tercero });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
