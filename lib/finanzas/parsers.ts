@@ -240,8 +240,8 @@ export function parseVividCSV(content: string): MovimientoParsed[] {
     const counterparty = parts[1].trim();
     const tipo = parts[4].trim();
     const referencia = parts[5].trim();
-    const importe = parseFloat(parts[8].trim());
-    const saldo = parseFloat(parts[13].trim());
+    const importe = parseImporteES(parts[8].trim());
+    const saldo = parseImporteES(parts[13].trim());
     
     const concepto = referencia ? `${counterparty} - ${referencia}` : `${counterparty} (${tipo})`;
     
