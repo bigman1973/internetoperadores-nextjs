@@ -423,6 +423,53 @@ export default function FacturasPage() {
         </div>
       )}
 
+      {/* KPI OneDrive: Total archivos vs importados */}
+      {syncStatus && (
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-xs text-gray-500">En OneDrive</p>
+            <p className="text-xl font-bold text-gray-900">
+              {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0) + (syncStatus.confirming_draxton?.total || 0)}
+            </p>
+            <p className="text-xs text-gray-400">Total archivos</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-xs text-gray-500">Importadas</p>
+            <p className="text-xl font-bold text-green-700">
+              {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0) + (syncStatus.confirming_draxton?.yaImportados || 0)}
+            </p>
+            <p className="text-xs text-gray-400">Ya en el sistema</p>
+          </div>
+          <div className="bg-white rounded-lg border p-3">
+            <p className="text-xs text-gray-500">Pendientes</p>
+            <p className={`text-xl font-bold ${syncStatus.totalNuevos > 0 ? 'text-orange-600' : 'text-green-700'}`}>
+              {syncStatus.totalNuevos}
+            </p>
+            <p className="text-xs text-gray-400">Por importar</p>
+          </div>
+          <div className="bg-white rounded-lg border-l-4 border-l-blue-400 border p-3">
+            <p className="text-xs text-gray-500">Pendiente Contab.</p>
+            <p className="text-sm font-bold text-gray-900">{syncStatus.pendientes?.total || 0}</p>
+            <p className="text-xs text-gray-400">{syncStatus.pendientes?.nuevos || 0} nuevos</p>
+          </div>
+          <div className="bg-white rounded-lg border-l-4 border-l-amber-400 border p-3">
+            <p className="text-xs text-gray-500">Materiales</p>
+            <p className="text-sm font-bold text-gray-900">{syncStatus.materiales?.total || 0}</p>
+            <p className="text-xs text-gray-400">{syncStatus.materiales?.nuevos || 0} nuevos</p>
+          </div>
+          <div className="bg-white rounded-lg border-l-4 border-l-green-400 border p-3">
+            <p className="text-xs text-gray-500">T1 + T2</p>
+            <p className="text-sm font-bold text-gray-900">{(syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0)}</p>
+            <p className="text-xs text-gray-400">{(syncStatus.trimestre1?.nuevos || 0) + (syncStatus.trimestre2?.nuevos || 0)} nuevos</p>
+          </div>
+          <div className="bg-white rounded-lg border-l-4 border-l-purple-400 border p-3">
+            <p className="text-xs text-gray-500">Confirming</p>
+            <p className="text-sm font-bold text-gray-900">{syncStatus.confirming_draxton?.total || 0}</p>
+            <p className="text-xs text-gray-400">{syncStatus.confirming_draxton?.nuevos || 0} nuevos</p>
+          </div>
+        </div>
+      )}
+
       {/* Resumen fiscal */}
       {resumen && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
