@@ -61,16 +61,43 @@ export function parseSantanderXLSX(rows: any[][]): MovimientoParsed[] {
     if (isNaN(importe)) continue;
     
     // Extraer tercero del concepto de Santander
-    // Formato salida: "Transferencia (Inmediata) A Favor De [DESTINATARIO] Concepto [X]"
-    // Formato entrada: "Transferencia (Inmediata) De [ORDENANTE], Concepto [X]"
     let tercero: string | null = null;
-    const salidaMatch = concepto.match(/Transferencia\s*(?:Inmediata\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
+    
+    // Transferencia salida: "Transferencia (Inmediata) A Favor De [DESTINATARIO] Concepto [X]"
+    const salidaMatch = concepto.match(/Transferencia\s*(?:\(Inmediata\)\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
     if (salidaMatch) {
       tercero = salidaMatch[1].replace(/[,.]\s*$/, '').trim();
-    } else {
-      const entradaMatch = concepto.match(/Transferencia\s*(?:Inmediata\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
+    }
+    // Transferencia entrada: "Transferencia (Inmediata) De [ORDENANTE], Concepto [X]"
+    if (!tercero) {
+      const entradaMatch = concepto.match(/Transferencia\s*(?:\(Inmediata\)\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
       if (entradaMatch) {
         tercero = entradaMatch[1].replace(/[,.]\s*$/, '').trim();
+      }
+    }
+    // Compra: "Compra [COMERCIO], [LUGAR], Tarjeta [NUM]" o "Compra Internet En [COMERCIO], [LUGAR]"
+    if (!tercero) {
+      const compraMatch = concepto.match(/^Compra(?:\s+Internet)?\s+(?:En\s+)?(.+?),\s+.+?,\s+Tarj/i)
+        || concepto.match(/^Compra(?:\s+Internet)?\s+(?:En\s+)?(.+?),\s+.+?\s+Es,\s+Tarj/i)
+        || concepto.match(/^Compra(?:\s+Internet)?\s+(?:En\s+)?(.+?),\s+/i);
+      if (compraMatch) {
+        tercero = compraMatch[1].replace(/[,.]\s*$/, '').trim();
+      }
+    }
+    // Pago Movil: "Pago Movil En [COMERCIO], [LUGAR] Es, Tarj."
+    if (!tercero) {
+      const pagoMatch = concepto.match(/^Pago Movil En\s+(.+?),\s+.+?\s+Es,\s+Tarj/i)
+        || concepto.match(/^Pago Movil En\s+(.+?),\s+/i);
+      if (pagoMatch) {
+        tercero = pagoMatch[1].replace(/[,.]\s*$/, '').trim();
+      }
+    }
+    // Recibo: "Recibo [EMPRESA] Nº Recibo [NUM]"
+    if (!tercero) {
+      const reciboMatch = concepto.match(/^Recibo\s+(.+?)\s+(?:Nº|N\u00ba|Nº)\s*Recibo/i)
+        || concepto.match(/^Recibo\s+(.+?)\s+(?:Ref|De\b)/i);
+      if (reciboMatch) {
+        tercero = reciboMatch[1].replace(/[,.]\s*$/, '').trim();
       }
     }
 
@@ -126,16 +153,29 @@ export function parseSantanderTXT(content: string): MovimientoParsed[] {
     
     if (!fechaOp || !fechaVal || isNaN(importe)) continue;
     
-    // Extraer tercero del concepto de Santander TXT
+    // Extraer tercero del concepto de Santander TXT (misma lógica que XLSX)
     let tercero: string | null = null;
-    const salidaM = concepto.match(/Transferencia\s*(?:Inmediata\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
+    const salidaM = concepto.match(/Transferencia\s*(?:\(Inmediata\)\s*)?A Favor De\s+(.+?)(?:\s+Concepto|$)/i);
     if (salidaM) {
       tercero = salidaM[1].replace(/[,.]\s*$/, '').trim();
-    } else {
-      const entradaM = concepto.match(/Transferencia\s*(?:Inmediata\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
+    }
+    if (!tercero) {
+      const entradaM = concepto.match(/Transferencia\s*(?:\(Inmediata\)\s*)?De\s+(.+?)(?:,\s*(?:Referencia|Concepto)|$)/i);
       if (entradaM) {
         tercero = entradaM[1].replace(/[,.]\s*$/, '').trim();
       }
+    }
+    if (!tercero) {
+      const compraM = concepto.match(/^Compra(?:\s+Internet)?\s+(?:En\s+)?(.+?),\s+/i);
+      if (compraM) tercero = compraM[1].replace(/[,.]\s*$/, '').trim();
+    }
+    if (!tercero) {
+      const pagoM = concepto.match(/^Pago Movil En\s+(.+?),\s+/i);
+      if (pagoM) tercero = pagoM[1].replace(/[,.]\s*$/, '').trim();
+    }
+    if (!tercero) {
+      const reciboM = concepto.match(/^Recibo\s+(.+?)\s+(?:N\u00ba|N\u00b0|Ref|De\b)/i);
+      if (reciboM) tercero = reciboM[1].replace(/[,.]\s*$/, '').trim();
     }
 
     movimientos.push({
@@ -182,17 +222,54 @@ export function parseCaixaGuissonaCSV(content: string): MovimientoParsed[] {
     if (isNaN(importe)) continue;
     
     // Extraer tercero del concepto de Caixa Guissona
-    // Formato: "TF/[ORDENANTE] [CONCEPTO]" o "RB/[CONCEPTO]"
     let tercero: string | null = null;
-    const tfMatch = concepto.match(/^TF\/(.+?)(?:\s{2,}|\s+(?:TRASPAS|SIN CONCEPTO|NO\.|FRA|PAGO|TRASPASO|ENVIADO))/i);
-    if (tfMatch) {
-      tercero = tfMatch[1].trim();
-    } else if (concepto.startsWith('TF/')) {
-      // TF/NOMBRE sin separador claro → todo después de TF/ es el tercero
-      const contenido = concepto.substring(3).trim();
-      // Separar nombre del concepto: buscar patrón de referencia
-      const refMatch = contenido.match(/^([A-Z\u00C0-\u00FF][A-Z\u00C0-\u00FF\s.,]+?)(?:\s+(?:NO\.|FRA|PAGO|SIN|TRASPAS|TRASPASO).*)?$/i);
-      tercero = refMatch ? refMatch[1].trim() : contenido.substring(0, 60).trim();
+    
+    if (concepto.startsWith('TF/')) {
+      // Formato: "TF/[ORDENANTE] [CONCEPTO]"
+      const tfMatch2 = concepto.match(/^TF\/(.+?)(?:\s{2,}|\s+(?:TRASPAS|SIN CONCEPTO|NO\.|FRA|PAGO|TRASPASO|ENVIADO))/i);
+      if (tfMatch2) {
+        tercero = tfMatch2[1].trim();
+      } else {
+        const contenido = concepto.substring(3).trim();
+        const refMatch = contenido.match(/^([A-Z\u00C0-\u00FF][A-Z\u00C0-\u00FF\s.,]+?)(?:\s+(?:NO\.|FRA|PAGO|SIN|TRASPAS|TRASPASO).*)?$/i);
+        tercero = refMatch ? refMatch[1].trim() : contenido.substring(0, 60).trim();
+      }
+    } else if (/^R\./i.test(concepto)) {
+      // Formato: "R.[EMPRESA] FACTURA/FAC/N./YC..." (recibo domiciliado)
+      const rMatch = concepto.match(/^R\.(.+?)(?:\s+(?:FACTURA|FAC|N\.|YC|FRA|FACT)[\s./]|$)/i);
+      if (rMatch) {
+        tercero = rMatch[1].trim();
+      }
+    } else if (/^DEV\.R\./i.test(concepto)) {
+      // Formato: "DEV.R. [EMPRESA]" (devolución de recibo)
+      const devMatch = concepto.match(/^DEV\.R\.\s*(.+?)$/i);
+      if (devMatch) {
+        tercero = devMatch[1].trim();
+      }
+    } else if (/^TRASPAS A /i.test(concepto)) {
+      // Formato: "TRASPAS A [PERSONA/EMPRESA] A COMPTE/CONPTE"
+      const trMatch = concepto.match(/^TRASPAS A\s+(.+?)\s+A\s+CO[MN]PTE/i);
+      if (trMatch) {
+        tercero = trMatch[1].trim();
+      } else {
+        const trMatch2 = concepto.match(/^TRASPAS A\s+(.+?)$/i);
+        if (trMatch2) tercero = trMatch2[1].trim();
+      }
+    } else if (/^TRF IMMEDIATA/i.test(concepto)) {
+      // Formato: "TRF IMMEDIATA [EMPRESA] [CONCEPTO]"
+      const trfMatch = concepto.match(/^TRF IMMEDIATA\s+(.+?)(?:\s+A CUENTA|\s+PAGO|\s+FRA|$)/i);
+      if (trfMatch) {
+        tercero = trfMatch[1].trim();
+      }
+    } else if (/^E\s+/i.test(concepto)) {
+      // Formato: "E [EMPRESA] [NÚMERO_TARJETA]" (compra con tarjeta)
+      const eMatch = concepto.match(/^E\s+(.+?)\s+\d{4}/i);
+      if (eMatch) {
+        tercero = eMatch[1].trim();
+      }
+    } else if (/^RB\//i.test(concepto)) {
+      // Formato: "RB/[EMPRESA]" (recibo)
+      tercero = concepto.substring(3).trim() || null;
     }
 
     movimientos.push({
