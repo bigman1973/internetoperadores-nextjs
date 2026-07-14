@@ -770,6 +770,13 @@ export default function ConciliacionPage() {
                 <BanknotesIcon className="h-3.5 w-3.5" />
                 Vincular con tercero
               </button>
+              <button
+                onClick={() => fetchEmpleadosNomina(movId)}
+                className="px-2 py-1 bg-purple-50 border border-purple-300 rounded hover:bg-purple-100 text-purple-700 font-medium flex items-center gap-1"
+              >
+                <UserIcon className="h-3.5 w-3.5" />
+                Personal / Nómina
+              </button>
             </div>
 
             {/* Selector de empleado para entrega a cuenta */}
@@ -1656,14 +1663,7 @@ export default function ConciliacionPage() {
                                 <LinkIcon className="h-3.5 w-3.5" />
                                 Vincular
                               </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); fetchEmpleadosNomina(mov.id); }}
-                                className="flex items-center gap-1 px-2 py-1 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded border border-purple-200"
-                                title="Vincular con nómina de empleado"
-                              >
-                                <UserIcon className="h-3.5 w-3.5" />
-                                Personal
-                              </button>
+
                               {mov.pendienteFactura ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); quitarPendienteFactura(mov.id); }}
