@@ -425,47 +425,103 @@ export default function FacturasPage() {
 
       {/* KPI OneDrive: Total archivos vs importados */}
       {syncStatus && (
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-          <div className="bg-white rounded-lg border p-3">
-            <p className="text-xs text-gray-500">En OneDrive</p>
-            <p className="text-xl font-bold text-gray-900">
-              {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0) + (syncStatus.confirming_draxton?.total || 0)}
-            </p>
-            <p className="text-xs text-gray-400">Total archivos</p>
+        <div className="space-y-3">
+          {/* Resumen general */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-lg border-2 border-gray-200 p-4 text-center">
+              <p className="text-xs text-gray-500 uppercase font-medium">Total en OneDrive</p>
+              <p className="text-2xl font-bold text-gray-900">
+                {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0) + (syncStatus.confirming_draxton?.total || 0)}
+              </p>
+              <p className="text-xs text-gray-400">archivos</p>
+            </div>
+            <div className="bg-white rounded-lg border-2 border-green-200 p-4 text-center">
+              <p className="text-xs text-gray-500 uppercase font-medium">Importadas</p>
+              <p className="text-2xl font-bold text-green-700">
+                {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0) + (syncStatus.confirming_draxton?.yaImportados || 0)}
+              </p>
+              <p className="text-xs text-gray-400">ya en el sistema</p>
+            </div>
+            <div className={`bg-white rounded-lg border-2 p-4 text-center ${syncStatus.totalNuevos > 0 ? 'border-orange-300' : 'border-green-200'}`}>
+              <p className="text-xs text-gray-500 uppercase font-medium">Pendientes</p>
+              <p className={`text-2xl font-bold ${syncStatus.totalNuevos > 0 ? 'text-orange-600' : 'text-green-700'}`}>
+                {syncStatus.totalNuevos}
+              </p>
+              <p className="text-xs text-gray-400">por importar</p>
+            </div>
           </div>
-          <div className="bg-white rounded-lg border p-3">
-            <p className="text-xs text-gray-500">Importadas</p>
-            <p className="text-xl font-bold text-green-700">
-              {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0) + (syncStatus.confirming_draxton?.yaImportados || 0)}
-            </p>
-            <p className="text-xs text-gray-400">Ya en el sistema</p>
-          </div>
-          <div className="bg-white rounded-lg border p-3">
-            <p className="text-xs text-gray-500">Pendientes</p>
-            <p className={`text-xl font-bold ${syncStatus.totalNuevos > 0 ? 'text-orange-600' : 'text-green-700'}`}>
-              {syncStatus.totalNuevos}
-            </p>
-            <p className="text-xs text-gray-400">Por importar</p>
-          </div>
-          <div className="bg-white rounded-lg border-l-4 border-l-blue-400 border p-3">
-            <p className="text-xs text-gray-500">Pendiente Contab.</p>
-            <p className="text-sm font-bold text-gray-900">{syncStatus.pendientes?.total || 0}</p>
-            <p className="text-xs text-gray-400">{syncStatus.pendientes?.nuevos || 0} nuevos</p>
-          </div>
-          <div className="bg-white rounded-lg border-l-4 border-l-amber-400 border p-3">
-            <p className="text-xs text-gray-500">Materiales</p>
-            <p className="text-sm font-bold text-gray-900">{syncStatus.materiales?.total || 0}</p>
-            <p className="text-xs text-gray-400">{syncStatus.materiales?.nuevos || 0} nuevos</p>
-          </div>
-          <div className="bg-white rounded-lg border-l-4 border-l-green-400 border p-3">
-            <p className="text-xs text-gray-500">T1 + T2</p>
-            <p className="text-sm font-bold text-gray-900">{(syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0)}</p>
-            <p className="text-xs text-gray-400">{(syncStatus.trimestre1?.nuevos || 0) + (syncStatus.trimestre2?.nuevos || 0)} nuevos</p>
-          </div>
-          <div className="bg-white rounded-lg border-l-4 border-l-purple-400 border p-3">
-            <p className="text-xs text-gray-500">Confirming</p>
-            <p className="text-sm font-bold text-gray-900">{syncStatus.confirming_draxton?.total || 0}</p>
-            <p className="text-xs text-gray-400">{syncStatus.confirming_draxton?.nuevos || 0} nuevos</p>
+          {/* Desglose por carpeta */}
+          <div className="grid grid-cols-2 md:grid-cols-7 gap-2">
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-blue-700 truncate">Pdte. Contabilizar</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.pendientes?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.pendientes?.total || 0}</span>
+              </div>
+              {(syncStatus.pendientes?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.pendientes?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-amber-700 truncate">Materiales</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.materiales?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.materiales?.total || 0}</span>
+              </div>
+              {(syncStatus.materiales?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.materiales?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-purple-700 truncate">Confirming Draxton</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.confirming_draxton?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.confirming_draxton?.total || 0}</span>
+              </div>
+              {(syncStatus.confirming_draxton?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.confirming_draxton?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-green-700 truncate">Trimestre 1</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre1?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.trimestre1?.total || 0}</span>
+              </div>
+              {(syncStatus.trimestre1?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre1?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-green-700 truncate">Trimestre 2</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre2?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.trimestre2?.total || 0}</span>
+              </div>
+              {(syncStatus.trimestre2?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre2?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-teal-700 truncate">Trimestre 3</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre3?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.trimestre3?.total || 0}</span>
+              </div>
+              {(syncStatus.trimestre3?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre3?.nuevos} pendientes</p>
+              )}
+            </div>
+            <div className="bg-gray-50 rounded-lg border p-3">
+              <p className="text-xs font-medium text-teal-700 truncate">Trimestre 4</p>
+              <div className="flex items-baseline gap-1 mt-1">
+                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre4?.yaImportados || 0}</span>
+                <span className="text-xs text-gray-400">/ {syncStatus.trimestre4?.total || 0}</span>
+              </div>
+              {(syncStatus.trimestre4?.nuevos || 0) > 0 && (
+                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre4?.nuevos} pendientes</p>
+              )}
+            </div>
           </div>
         </div>
       )}
