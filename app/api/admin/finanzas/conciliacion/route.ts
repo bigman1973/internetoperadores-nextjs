@@ -46,7 +46,17 @@ const REGLAS_CLASIFICACION = [
   // Traspasos propios
   { patron: /Transferencia.*Internet Operadores.*Concepto\s*Traspas/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   { patron: /Transferencia Inmediata A Favor De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Transferencia Inmediata De Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   { patron: /TRF IMMEDIATA.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TF\/INTERNET OPERADORES.*TRASPAS/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TF\/INTERNET OPERADORES.*ENVIADO POR/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Internet Operadores.*TRASPAS.*VIVID/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Internet Operadores.*TRASPAS.*SANTANDER/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Internet Operadores.*TRASPAS.*GUISSONA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Internet Operadores.*TRASPAS.*CAIXA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /Internet Operadores.*TRASPAS.*BBVA/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TRANSFER(\s|E).*INMEDIATA.*Internet Operadores/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
+  { patron: /TRANSFERÈNCIES.*INTERNET OPERADORES/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   { patron: /TRASPAS A GIRO/i, categoria: 'Traspaso', tipoPago: 'Transferencia', tipoDocumento: 'justificante' },
   
   // Proveedores conocidos
@@ -367,7 +377,7 @@ export async function POST(req: NextRequest) {
       }
 
       // 4. TRASPASOS ENTRE CUENTAS PROPIAS
-      // Buscar traspasos no conciliados con datos completos
+      // Buscar traspasos clasificados como 'Traspaso' que no están conciliados
       const traspasos = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,
@@ -382,13 +392,13 @@ export async function POST(req: NextRequest) {
 
       for (const mov of sinVincular) {
         if (usados.has(mov.id)) continue;
-        // Buscar contrapartida: mismo importe (signo opuesto), diferente cuenta, fecha cercana (±5 días)
         const fechaMin = new Date(mov.fechaOperacion);
-        fechaMin.setDate(fechaMin.getDate() - 5);
+        fechaMin.setDate(fechaMin.getDate() - 7);
         const fechaMax = new Date(mov.fechaOperacion);
-        fechaMax.setDate(fechaMax.getDate() + 5);
+        fechaMax.setDate(fechaMax.getDate() + 7);
 
-        const contrapartida = sinVincular.find(c => 
+        // Primero buscar entre los otros traspasos clasificados
+        let contrapartida = sinVincular.find(c => 
           c.id !== mov.id && 
           !usados.has(c.id) &&
           c.cuentaId !== mov.cuentaId &&
@@ -397,15 +407,33 @@ export async function POST(req: NextRequest) {
           new Date(c.fechaOperacion) <= fechaMax
         );
 
+        // Si no se encuentra entre los clasificados, buscar en TODOS los movimientos sin conciliar
+        // (la contrapartida puede no tener categoría 'Traspaso' aún)
+        if (!contrapartida) {
+          const contrapartidaDB = await prisma.movimientoBancario.findFirst({
+            where: {
+              conciliado: false,
+              cuentaId: { not: mov.cuentaId },
+              importe: { gte: -mov.importe - 0.05, lte: -mov.importe + 0.05 },
+              fechaOperacion: { gte: fechaMin, lte: fechaMax },
+              id: { notIn: [...usados] },
+            },
+            select: { id: true, importe: true, fechaOperacion: true, cuentaId: true },
+          });
+          if (contrapartidaDB) {
+            contrapartida = contrapartidaDB as any;
+          }
+        }
+
         if (contrapartida) {
           // Vincular ambos
           await prisma.movimientoBancario.update({
             where: { id: mov.id },
-            data: { conciliado: true, tipoDocumento: 'traspaso', traspasoRelacionadoId: contrapartida.id },
+            data: { conciliado: true, tipoDocumento: 'traspaso', categoria: 'Traspaso', traspasoRelacionadoId: contrapartida.id },
           });
           await prisma.movimientoBancario.update({
             where: { id: contrapartida.id },
-            data: { conciliado: true, tipoDocumento: 'traspaso', traspasoRelacionadoId: mov.id },
+            data: { conciliado: true, tipoDocumento: 'traspaso', categoria: 'Traspaso', traspasoRelacionadoId: mov.id },
           });
           usados.add(mov.id);
           usados.add(contrapartida.id);
@@ -416,7 +444,6 @@ export async function POST(req: NextRequest) {
             where: { id: mov.id },
             data: { conciliado: false, tipoDocumento: 'traspaso' },
           });
-          // No incrementamos conciliadosTraspasos porque no está conciliado
         }
       }
 
