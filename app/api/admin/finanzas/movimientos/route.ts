@@ -75,6 +75,13 @@ export async function GET(req: NextRequest) {
     // Filtros especiales
     const pendienteFactura = searchParams.get('pendienteFactura');
     if (pendienteFactura === 'true') where.pendienteFactura = true;
+    const pdteRecibir = searchParams.get('pdteRecibir');
+    if (pdteRecibir === 'true') {
+      where.OR = [
+        { pendienteFactura: true },
+        { tipoDocumento: 'factura', documentoRecibido: false },
+      ];
+    }
     const pagoACuentaVola = searchParams.get('pagoACuentaVola');
     if (pagoACuentaVola === 'true') where.pagoACuentaVola = true;
     const tipoDocumento = searchParams.get('tipoDocumento');
@@ -120,10 +127,21 @@ export async function GET(req: NextRequest) {
       where.tipoDocumento = { in: ['factura', 'ticket'] };
     }
 
+    // Ordenación dinámica
+    const sortBy = searchParams.get('sortBy') || 'fechaOperacion';
+    const sortDir = (searchParams.get('sortDir') || 'desc') as 'asc' | 'desc';
+    let orderBy: any = { fechaOperacion: sortDir };
+    if (sortBy === 'importe') orderBy = { importe: sortDir };
+    else if (sortBy === 'tercero') orderBy = { tercero: sortDir };
+    else if (sortBy === 'categoria') orderBy = { categoria: sortDir };
+    else if (sortBy === 'concepto') orderBy = { concepto: sortDir };
+    else if (sortBy === 'banco') orderBy = { cuenta: { banco: sortDir } };
+    else orderBy = { fechaOperacion: sortDir };
+
     const [movimientos, total] = await Promise.all([
       prisma.movimientoBancario.findMany({
         where,
-        orderBy: { fechaOperacion: 'desc' },
+        orderBy,
         skip: (page - 1) * limit,
         take: limit,
         include: {

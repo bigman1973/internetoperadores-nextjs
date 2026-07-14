@@ -94,7 +94,7 @@ export default function ConciliacionPage() {
   const [filtroTipo, setFiltroTipo] = useState<'gastos' | 'ingresos' | 'todos'>('gastos');
   const [filtroBanco, setFiltroBanco] = useState('');
   const [filtroConciliado, setFiltroConciliado] = useState<'false' | 'true' | ''>('false');
-  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pendientesValidar' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor' | 'traspasoPendiente'>('');
+  const [filtroEspecial, setFiltroEspecial] = useState<'' | 'pendienteFactura' | 'pdteRecibir' | 'pendientesValidar' | 'pagoVola' | 'sinDocumento' | 'entregaACuenta' | 'conProveedor' | 'conFacturaRecibida' | 'conFacturaEmitida' | 'sinProveedor' | 'traspasoPendiente'>('');
   const [cuentas, setCuentas] = useState<any[]>([]);
   const [tabSugerencias, setTabSugerencias] = useState<'sugeridas' | 'todas'>('sugeridas');
   const [tipoSugerencia, setTipoSugerencia] = useState<'factura_recibida' | 'factura_emitida'>('factura_recibida');
@@ -108,6 +108,9 @@ export default function ConciliacionPage() {
   const [terceros, setTerceros] = useState<any[]>([]);
   const [loadingTerceros, setLoadingTerceros] = useState(false);
   const [buscarTercero, setBuscarTercero] = useState('');
+  // Ordenación por columnas
+  const [sortBy, setSortBy] = useState<'fechaOperacion' | 'importe' | 'tercero' | 'categoria' | 'concepto' | 'banco'>('fechaOperacion');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   // Buscador de movimientos
   const [buscarMovimiento, setBuscarMovimiento] = useState('');
   // Filtro por tipo de documento
@@ -149,7 +152,7 @@ export default function ConciliacionPage() {
 
   useEffect(() => {
     fetchMovimientos();
-  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial, filtroDocumento, fechaDesde, fechaHasta]);
+  }, [page, filtroTipo, filtroBanco, filtroConciliado, filtroEspecial, filtroDocumento, fechaDesde, fechaHasta, sortBy, sortDir]);
 
   // Cerrar dropdown de fecha al hacer clic fuera
   useEffect(() => {
@@ -187,6 +190,7 @@ export default function ConciliacionPage() {
     if (filtroConciliado) params.set('conciliado', filtroConciliado);
     if (filtroBanco) params.set('cuentaId', filtroBanco);
     if (filtroEspecial === 'pendienteFactura') params.set('pendienteFactura', 'true');
+    if (filtroEspecial === 'pdteRecibir') params.set('pdteRecibir', 'true');
     if (filtroEspecial === 'pagoVola') params.set('pagoACuentaVola', 'true');
     if (filtroEspecial === 'sinDocumento') params.set('sinDocumento', 'true');
     if (filtroEspecial === 'entregaACuenta') params.set('entregaACuenta', 'true');
@@ -206,6 +210,10 @@ export default function ConciliacionPage() {
       params.set('conciliado', 'false');
     } else if (filtroDocumento) {
       params.set('tipoDocumento', filtroDocumento);
+    }
+    if (sortBy !== 'fechaOperacion' || sortDir !== 'desc') {
+      params.set('sortBy', sortBy);
+      params.set('sortDir', sortDir);
     }
     const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
     const json = await res.json();
@@ -1051,9 +1059,9 @@ export default function ConciliacionPage() {
             <p className="text-2xl font-bold text-amber-700">{estado.sinConciliar.toLocaleString()}</p>
           </button>
           <button
-            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('pendienteFactura'); setPage(1); }}
+            onClick={() => { setFiltroConciliado(''); setFiltroEspecial('pdteRecibir'); setPage(1); }}
             className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md relative group ${
-              filtroEspecial === 'pendienteFactura' ? 'ring-2 ring-orange-400 shadow-md' : ''
+              filtroEspecial === 'pdteRecibir' ? 'ring-2 ring-orange-400 shadow-md' : ''
             }`}
             title="Movimientos marcados como pendientes de recibir factura del proveedor"
           >
@@ -1391,6 +1399,7 @@ export default function ConciliacionPage() {
         {filtroEspecial && (
           <span className={`flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg ${
             filtroEspecial === 'pendienteFactura' ? 'bg-orange-50 border border-orange-200 text-orange-700' :
+            filtroEspecial === 'pdteRecibir' ? 'bg-orange-50 border border-orange-200 text-orange-700' :
             filtroEspecial === 'pendientesValidar' ? 'bg-yellow-50 border border-yellow-200 text-yellow-700' :
             filtroEspecial === 'sinDocumento' ? 'bg-red-50 border border-red-200 text-red-700' :
             filtroEspecial === 'pagoVola' ? 'bg-purple-50 border border-purple-200 text-purple-700' :
@@ -1402,7 +1411,8 @@ export default function ConciliacionPage() {
             filtroEspecial === 'traspasoPendiente' ? 'bg-cyan-50 border border-cyan-200 text-cyan-700' :
             'bg-amber-50 border border-amber-200 text-amber-700'
           }`}>
-            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pdte. recibir factura' : 
+            {filtroEspecial === 'pendienteFactura' ? 'Filtrando: Pdte. recibir factura' :
+             filtroEspecial === 'pdteRecibir' ? 'Filtrando: Pdte. recibir (factura + sin documento)' :
              filtroEspecial === 'pendientesValidar' ? 'Filtrando: Pdte. validar factura' :
              filtroEspecial === 'pagoVola' ? 'Filtrando: Pagos Vola' :
              filtroEspecial === 'entregaACuenta' ? 'Filtrando: Entregas a cuenta' :
@@ -1425,12 +1435,39 @@ export default function ConciliacionPage() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Banco</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tercero</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoria</th>
+                {[
+                  { key: 'fechaOperacion', label: 'Fecha', align: 'left' },
+                  { key: 'banco', label: 'Banco', align: 'left' },
+                  { key: 'concepto', label: 'Concepto', align: 'left' },
+                  { key: 'importe', label: 'Importe', align: 'right' },
+                  { key: 'tercero', label: 'Tercero', align: 'left' },
+                  { key: 'categoria', label: 'Categoría', align: 'left' },
+                ].map(col => (
+                  <th
+                    key={col.key}
+                    className={`px-4 py-3 text-xs font-medium uppercase cursor-pointer select-none hover:bg-gray-100 transition-colors ${
+                      col.align === 'right' ? 'text-right' : 'text-left'
+                    } ${
+                      sortBy === col.key ? 'text-blue-700 bg-blue-50/50' : 'text-gray-500'
+                    }`}
+                    onClick={() => {
+                      if (sortBy === col.key) {
+                        setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy(col.key as any);
+                        setSortDir(col.key === 'fechaOperacion' ? 'desc' : 'asc');
+                      }
+                      setPage(1);
+                    }}
+                  >
+                    <span className={`flex items-center gap-1 ${col.align === 'right' ? 'justify-end' : 'justify-start'}`}>
+                      {col.label}
+                      {sortBy === col.key && (
+                        <span className="text-blue-500">{sortDir === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </span>
+                  </th>
+                ))}
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo Doc</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">Acciones</th>
