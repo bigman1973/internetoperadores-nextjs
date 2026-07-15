@@ -329,6 +329,15 @@ export default function DatosFiscalesPage() {
                             <p className="text-[10px] text-gray-400">Pendientes</p>
                           </div>
                         </div>
+                        {/* Botón Mayor Contable */}
+                        <div className="flex gap-2">
+                          <a
+                            href={`/admin/finanzas/datos-fiscales/${expandedRow}/mayor`}
+                            className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm font-medium inline-flex items-center gap-2"
+                          >
+                            Mayor Contable
+                          </a>
+                        </div>
                         {/* KPI adicional para clientes: Total Facturado */}
                         {detalle.resumenFacturas && detalle.resumenFacturas.numFacturas > 0 && (
                           <div className="bg-white border border-blue-200 rounded-lg p-3 inline-block">
