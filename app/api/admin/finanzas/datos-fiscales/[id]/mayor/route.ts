@@ -46,13 +46,34 @@ export async function GET(req: NextRequest, context: { params: Promise<{ id: str
 
     // 2. Obtener facturas recibidas de esta entidad (por CIF) en el año
     let facturasRecibidas: any[] = [];
+    // Buscar facturas recibidas por CIF O por nombre del proveedor (muchas tienen CIF null)
+    const condiciones: string[] = [];
+    const params: any[] = [fechaInicio, fechaFin];
+    let paramIdx = 3;
+    
     if (entidad.nifCif) {
+      condiciones.push(`cif = $${paramIdx}`);
+      params.push(entidad.nifCif);
+      paramIdx++;
+    }
+    if (entidad.razonSocial) {
+      condiciones.push(`proveedor ILIKE $${paramIdx}`);
+      params.push(`%${entidad.razonSocial}%`);
+      paramIdx++;
+    }
+    if (entidad.nombreComercial && entidad.nombreComercial !== entidad.razonSocial) {
+      condiciones.push(`proveedor ILIKE $${paramIdx}`);
+      params.push(`%${entidad.nombreComercial}%`);
+      paramIdx++;
+    }
+    
+    if (condiciones.length > 0) {
       facturasRecibidas = await prisma.$queryRawUnsafe(`
         SELECT id, num_factura, proveedor, total, fecha, fecha_vencimiento, cif
         FROM facturas_recibidas
-        WHERE cif = $1 AND fecha >= $2 AND fecha <= $3
+        WHERE (${condiciones.join(' OR ')}) AND fecha >= $1 AND fecha <= $2
         ORDER BY fecha ASC
-      `, entidad.nifCif, fechaInicio, fechaFin);
+      `, ...params);
     }
 
     // 3. Obtener facturas emitidas de esta entidad (por CIF o nombre) en el año
