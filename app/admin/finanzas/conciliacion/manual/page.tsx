@@ -1,6 +1,6 @@
 'use client';
-import { useState, useEffect } from 'react';
-import { LinkIcon, MagnifyingGlassIcon, ArrowPathIcon, CheckCircleIcon, XMarkIcon, ArrowsRightLeftIcon, FunnelIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect, useCallback } from 'react';
+import { LinkIcon, MagnifyingGlassIcon, ArrowPathIcon, CheckCircleIcon, XMarkIcon, UserGroupIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -9,7 +9,8 @@ interface Movimiento {
   importe: number;
   conciliado: boolean;
   tercero: string | null;
-  entidadFiscal: { razonSocial: string } | null;
+  tipoDocumento: string | null;
+  entidadFiscal: { id: string; razonSocial: string } | null;
   cuenta: { banco: string; alias: string };
 }
 
@@ -20,10 +21,25 @@ interface FacturaRecibida {
   total: number;
   fecha: string;
   fechaVencimiento: string | null;
+  cif: string;
   conciliada: boolean;
 }
 
+interface EntidadFiscal {
+  id: string;
+  razonSocial: string;
+  tipo: string;
+  nifCif: string | null;
+}
+
 export default function ConciliacionManualPage() {
+  // Selector de tercero
+  const [terceroSeleccionado, setTerceroSeleccionado] = useState<EntidadFiscal | null>(null);
+  const [buscarTercero, setBuscarTercero] = useState('');
+  const [tercerosList, setTercerosList] = useState<EntidadFiscal[]>([]);
+  const [showTerceroDropdown, setShowTerceroDropdown] = useState(false);
+  const [loadingTerceros, setLoadingTerceros] = useState(false);
+
   // Estado movimientos
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
   const [totalMov, setTotalMov] = useState(0);
@@ -32,6 +48,7 @@ export default function ConciliacionManualPage() {
   const [filtroImporteMov, setFiltroImporteMov] = useState('');
   const [filtroFechaDesdeMov, setFiltroFechaDesdeMov] = useState('');
   const [filtroFechaHastaMov, setFiltroFechaHastaMov] = useState('');
+  const [filtroTipoDocMov, setFiltroTipoDocMov] = useState('');
   const [sortMov, setSortMov] = useState<'fecha' | 'importe'>('fecha');
   const [sortDirMov, setSortDirMov] = useState<'asc' | 'desc'>('desc');
   const [loadingMov, setLoadingMov] = useState(false);
@@ -56,10 +73,10 @@ export default function ConciliacionManualPage() {
   const [autoConciliando, setAutoConciliando] = useState(false);
   const [autoResultado, setAutoResultado] = useState<any>(null);
 
-  useEffect(() => { fetchMovimientos(); }, [pageMov, sortMov, sortDirMov]);
-  useEffect(() => { fetchFacturas(); }, [pageFact, sortFact, sortDirFact]);
+  useEffect(() => { fetchMovimientos(); }, [pageMov, sortMov, sortDirMov, filtroTipoDocMov, terceroSeleccionado]);
+  useEffect(() => { fetchFacturas(); }, [pageFact, sortFact, sortDirFact, terceroSeleccionado]);
 
-  async function fetchMovimientos() {
+  const fetchMovimientos = useCallback(async () => {
     setLoadingMov(true);
     const params = new URLSearchParams({
       page: pageMov.toString(),
@@ -72,7 +89,11 @@ export default function ConciliacionManualPage() {
     if (filtroImporteMov) params.set('importeExacto', filtroImporteMov);
     if (filtroFechaDesdeMov) params.set('desde', filtroFechaDesdeMov);
     if (filtroFechaHastaMov) params.set('hasta', filtroFechaHastaMov);
-    // Solo gastos (pagos a proveedores)
+    if (filtroTipoDocMov) {
+      if (filtroTipoDocMov === 'sinTipoDoc') params.set('tipoDocumento', 'null');
+      else params.set('tipoDocumento', filtroTipoDocMov);
+    }
+    if (terceroSeleccionado) params.set('entidadFiscalId', terceroSeleccionado.id);
     params.set('tipo', 'gastos');
     try {
       const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
@@ -81,9 +102,9 @@ export default function ConciliacionManualPage() {
       setTotalMov(json.total || 0);
     } catch (e) { console.error(e); }
     setLoadingMov(false);
-  }
+  }, [pageMov, sortMov, sortDirMov, buscarMov, filtroImporteMov, filtroFechaDesdeMov, filtroFechaHastaMov, filtroTipoDocMov, terceroSeleccionado]);
 
-  async function fetchFacturas() {
+  const fetchFacturas = useCallback(async () => {
     setLoadingFact(true);
     const params = new URLSearchParams({
       page: pageFact.toString(),
@@ -96,6 +117,7 @@ export default function ConciliacionManualPage() {
     if (filtroImporteFact) params.set('importeExacto', filtroImporteFact);
     if (filtroFechaDesdeFact) params.set('desde', filtroFechaDesdeFact);
     if (filtroFechaHastaFact) params.set('hasta', filtroFechaHastaFact);
+    if (terceroSeleccionado) params.set('entidadFiscalId', terceroSeleccionado.id);
     try {
       const res = await fetch(`/api/admin/finanzas/conciliacion/manual?${params}`);
       const json = await res.json();
@@ -103,6 +125,34 @@ export default function ConciliacionManualPage() {
       setTotalFact(json.total || 0);
     } catch (e) { console.error(e); }
     setLoadingFact(false);
+  }, [pageFact, sortFact, sortDirFact, buscarFact, filtroImporteFact, filtroFechaDesdeFact, filtroFechaHastaFact, terceroSeleccionado]);
+
+  async function buscarTerceros(texto: string) {
+    setBuscarTercero(texto);
+    if (texto.length < 2) { setTercerosList([]); return; }
+    setLoadingTerceros(true);
+    try {
+      const res = await fetch(`/api/admin/finanzas/datos-fiscales?buscar=${encodeURIComponent(texto)}&limit=10&activo=true`);
+      const json = await res.json();
+      setTercerosList((json.entidades || []).map((e: any) => ({ id: e.id, razonSocial: e.razonSocial, tipo: e.tipo, nifCif: e.nifCif })));
+    } catch (e) { console.error(e); }
+    setLoadingTerceros(false);
+  }
+
+  function seleccionarTercero(ent: EntidadFiscal) {
+    setTerceroSeleccionado(ent);
+    setBuscarTercero('');
+    setShowTerceroDropdown(false);
+    setTercerosList([]);
+    setPageMov(1);
+    setPageFact(1);
+  }
+
+  function limpiarTercero() {
+    setTerceroSeleccionado(null);
+    setBuscarTercero('');
+    setPageMov(1);
+    setPageFact(1);
   }
 
   async function vincular() {
@@ -169,25 +219,64 @@ export default function ConciliacionManualPage() {
   const totalPagesFact = Math.ceil(totalFact / 25);
 
   return (
-    <div className="p-4 max-w-[1800px] mx-auto">
-      {/* Header */}
+    <div className="max-w-[1800px] mx-auto">
+      {/* Header con selector de tercero */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Conciliación Manual</h1>
-          <p className="text-sm text-gray-500">Selecciona un movimiento y una factura para vincularlos</p>
+          <p className="text-sm text-gray-500">Selecciona un movimiento y una factura para vincularlos. Filtra por tercero para ver solo sus datos.</p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={ejecutarAutoConciliacion}
-            disabled={autoConciliando}
-            className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 text-sm"
-          >
-            <ArrowPathIcon className={`w-4 h-4 ${autoConciliando ? 'animate-spin' : ''}`} />
-            Auto-conciliar
-          </button>
-          <a href="/admin/finanzas/conciliacion" className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 text-sm">
-            ← Conciliación clásica
-          </a>
+        <button
+          onClick={ejecutarAutoConciliacion}
+          disabled={autoConciliando}
+          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-2 text-sm"
+        >
+          <ArrowPathIcon className={`w-4 h-4 ${autoConciliando ? 'animate-spin' : ''}`} />
+          Auto-conciliar
+        </button>
+      </div>
+
+      {/* Selector de tercero */}
+      <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="flex items-center gap-3">
+          <UserGroupIcon className="w-5 h-5 text-gray-500" />
+          <span className="text-sm font-medium text-gray-700">Filtrar por tercero:</span>
+          {terceroSeleccionado ? (
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium">
+                {terceroSeleccionado.razonSocial}
+                {terceroSeleccionado.nifCif && <span className="text-purple-500 ml-1">({terceroSeleccionado.nifCif})</span>}
+              </span>
+              <button onClick={limpiarTercero} className="text-gray-400 hover:text-red-500">
+                <XMarkIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="relative flex-1 max-w-md">
+              <input
+                type="text"
+                placeholder="Buscar proveedor, cliente, persona..."
+                value={buscarTercero}
+                onChange={(e) => { buscarTerceros(e.target.value); setShowTerceroDropdown(true); }}
+                onFocus={() => setShowTerceroDropdown(true)}
+                className="w-full px-3 py-1.5 border rounded-lg text-sm text-gray-900"
+              />
+              {showTerceroDropdown && tercerosList.length > 0 && (
+                <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                  {tercerosList.map((ent) => (
+                    <button
+                      key={ent.id}
+                      onClick={() => seleccionarTercero(ent)}
+                      className="w-full text-left px-3 py-2 hover:bg-purple-50 text-sm border-b last:border-b-0"
+                    >
+                      <span className="font-medium text-gray-800">{ent.razonSocial}</span>
+                      <span className="text-xs text-gray-500 ml-2">{ent.tipo} {ent.nifCif && `· ${ent.nifCif}`}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {loadingTerceros && <span className="absolute right-3 top-2 text-xs text-gray-400">...</span>}
+            </div>
+          )}
         </div>
       </div>
 
@@ -265,7 +354,7 @@ export default function ConciliacionManualPage() {
                 value={buscarMov}
                 onChange={(e) => setBuscarMov(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (setPageMov(1), fetchMovimientos())}
-                className="flex-1 min-w-[120px] px-2 py-1 border rounded text-xs text-gray-900"
+                className="flex-1 min-w-[100px] px-2 py-1 border rounded text-xs text-gray-900"
               />
               <input
                 type="text"
@@ -275,6 +364,24 @@ export default function ConciliacionManualPage() {
                 onKeyDown={(e) => e.key === 'Enter' && (setPageMov(1), fetchMovimientos())}
                 className="w-20 px-2 py-1 border rounded text-xs text-gray-900"
               />
+              <select
+                value={filtroTipoDocMov}
+                onChange={(e) => { setFiltroTipoDocMov(e.target.value); setPageMov(1); }}
+                className="px-2 py-1 border rounded text-xs text-gray-900 bg-white"
+              >
+                <option value="">Tipo doc...</option>
+                <option value="factura">Factura</option>
+                <option value="ticket">Ticket</option>
+                <option value="justificante">Justificante</option>
+                <option value="traspaso">Traspaso</option>
+                <option value="nomina">Nómina</option>
+                <option value="sinTipoDoc">Sin tipo</option>
+              </select>
+              <button onClick={() => { setPageMov(1); fetchMovimientos(); }} className="px-2 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">
+                <MagnifyingGlassIcon className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="flex gap-2 mt-2 flex-wrap">
               <input
                 type="date"
                 value={filtroFechaDesdeMov}
@@ -287,9 +394,6 @@ export default function ConciliacionManualPage() {
                 onChange={(e) => { setFiltroFechaHastaMov(e.target.value); setPageMov(1); }}
                 className="px-2 py-1 border rounded text-xs text-gray-900"
               />
-              <button onClick={() => { setPageMov(1); fetchMovimientos(); }} className="px-2 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">
-                <MagnifyingGlassIcon className="w-3 h-3" />
-              </button>
             </div>
             {/* Ordenación */}
             <div className="flex gap-2 mt-2 text-xs">
@@ -304,7 +408,7 @@ export default function ConciliacionManualPage() {
             </div>
           </div>
           {/* Lista movimientos */}
-          <div className="overflow-y-auto max-h-[600px]">
+          <div className="overflow-y-auto max-h-[550px]">
             {loadingMov ? (
               <div className="p-4 text-center text-gray-500 text-sm">Cargando...</div>
             ) : movimientos.length === 0 ? (
@@ -317,7 +421,17 @@ export default function ConciliacionManualPage() {
                   className={`p-2 border-b cursor-pointer hover:bg-purple-50 transition-colors ${selectedMov?.id === mov.id ? 'bg-purple-100 border-l-4 border-l-purple-500' : ''}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">{new Date(mov.fechaOperacion).toLocaleDateString('es-ES')}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">{new Date(mov.fechaOperacion).toLocaleDateString('es-ES')}</span>
+                      {mov.tipoDocumento && (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                          mov.tipoDocumento === 'factura' ? 'bg-blue-100 text-blue-700' :
+                          mov.tipoDocumento === 'ticket' ? 'bg-yellow-100 text-yellow-700' :
+                          mov.tipoDocumento === 'traspaso' ? 'bg-gray-100 text-gray-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>{mov.tipoDocumento}</span>
+                      )}
+                    </div>
                     <span className="text-sm font-semibold text-red-600">{Math.abs(mov.importe).toFixed(2)}€</span>
                   </div>
                   <p className="text-xs text-gray-800 truncate mt-0.5">{mov.concepto}</p>
@@ -367,6 +481,11 @@ export default function ConciliacionManualPage() {
                 onKeyDown={(e) => e.key === 'Enter' && (setPageFact(1), fetchFacturas())}
                 className="w-20 px-2 py-1 border rounded text-xs text-gray-900"
               />
+              <button onClick={() => { setPageFact(1); fetchFacturas(); }} className="px-2 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">
+                <MagnifyingGlassIcon className="w-3 h-3" />
+              </button>
+            </div>
+            <div className="flex gap-2 mt-2 flex-wrap">
               <input
                 type="date"
                 value={filtroFechaDesdeFact}
@@ -379,9 +498,6 @@ export default function ConciliacionManualPage() {
                 onChange={(e) => { setFiltroFechaHastaFact(e.target.value); setPageFact(1); }}
                 className="px-2 py-1 border rounded text-xs text-gray-900"
               />
-              <button onClick={() => { setPageFact(1); fetchFacturas(); }} className="px-2 py-1 bg-gray-200 rounded text-xs hover:bg-gray-300">
-                <MagnifyingGlassIcon className="w-3 h-3" />
-              </button>
             </div>
             {/* Ordenación */}
             <div className="flex gap-2 mt-2 text-xs">
@@ -400,7 +516,7 @@ export default function ConciliacionManualPage() {
             </div>
           </div>
           {/* Lista facturas */}
-          <div className="overflow-y-auto max-h-[600px]">
+          <div className="overflow-y-auto max-h-[550px]">
             {loadingFact ? (
               <div className="p-4 text-center text-gray-500 text-sm">Cargando...</div>
             ) : facturas.length === 0 ? (

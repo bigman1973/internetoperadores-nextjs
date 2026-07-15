@@ -116,6 +116,10 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Filtro por entidad fiscal específica (selector de tercero)
+    const entidadFiscalId = searchParams.get('entidadFiscalId');
+    if (entidadFiscalId) where.entidadFiscalId = entidadFiscalId;
+
     // Filtros de niveles de conciliación
     const conProveedor = searchParams.get('conProveedor');
     if (conProveedor === 'true') where.entidadFiscalId = { not: null };

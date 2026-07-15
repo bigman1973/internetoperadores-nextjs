@@ -56,6 +56,14 @@ export async function GET(req: NextRequest) {
       paramIdx++;
     }
 
+    // Filtro por entidad fiscal (tercero) - busca por CIF de la entidad
+    const entidadFiscalId = searchParams.get('entidadFiscalId') || '';
+    if (entidadFiscalId) {
+      conditions += ` AND fr.cif IN (SELECT nif_cif FROM entidades_fiscales WHERE id = $${paramIdx})`;
+      params.push(entidadFiscalId);
+      paramIdx++;
+    }
+
     // Ordenación
     let orderBy = 'fr.fecha DESC';
     if (sortBy === 'fecha') orderBy = `fr.fecha ${sortDir.toUpperCase()}`;
