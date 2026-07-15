@@ -553,7 +553,7 @@ export default function GGCDraxtonPage() {
                                 step="0.01"
                                 value={editTotalValue}
                                 onChange={(e) => setEditTotalValue(e.target.value)}
-                                className="w-32 border rounded px-2 py-1 text-sm"
+                                className="w-32 border rounded px-2 py-1 text-sm text-gray-900"
                                 autoFocus
                               />
                               <button
@@ -660,7 +660,7 @@ export default function GGCDraxtonPage() {
                             value={newLinea.confirmingId === d.id ? newLinea.numFactura : ''}
                             onChange={(e) => setNewLinea({ confirmingId: d.id, numFactura: e.target.value, importe: newLinea.confirmingId === d.id ? newLinea.importe : '' })}
                             onFocus={() => { if (newLinea.confirmingId !== d.id) setNewLinea({ confirmingId: d.id, numFactura: '', importe: '' }); }}
-                            className="w-40 border rounded px-2 py-1.5 text-xs"
+                            className="w-40 border rounded px-2 py-1.5 text-xs text-gray-900"
                           />
                           <input
                             type="number"
@@ -669,7 +669,7 @@ export default function GGCDraxtonPage() {
                             value={newLinea.confirmingId === d.id ? newLinea.importe : ''}
                             onChange={(e) => setNewLinea({ ...newLinea, confirmingId: d.id, importe: e.target.value })}
                             onFocus={() => { if (newLinea.confirmingId !== d.id) setNewLinea({ confirmingId: d.id, numFactura: '', importe: '' }); }}
-                            className="w-28 border rounded px-2 py-1.5 text-xs"
+                            className="w-28 border rounded px-2 py-1.5 text-xs text-gray-900"
                           />
                           <button
                             onClick={() => addLinea(d.id)}
