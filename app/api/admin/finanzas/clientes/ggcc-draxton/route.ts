@@ -54,10 +54,23 @@ export async function GET(request: NextRequest) {
         fecha: true,
         total: true,
         base: true,
+        totalConfirming: true,
         archivoUrl: true,
         archivoOneDrive: true,
         carpetaOrigen: true,
         estado: true,
+        confirmingLineas: {
+          select: {
+            id: true,
+            numFactura: true,
+            importe: true,
+            notas: true,
+            facturaEmitida: {
+              select: { id: true, numFactura: true, cliente: true, total: true },
+            },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
     });
 

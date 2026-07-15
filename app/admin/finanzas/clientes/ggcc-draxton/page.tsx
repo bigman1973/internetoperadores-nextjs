@@ -10,6 +10,11 @@ import {
   MagnifyingGlassIcon,
   EyeIcon,
   DocumentTextIcon,
+  PlusIcon,
+  TrashIcon,
+  PencilIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
 } from '@heroicons/react/24/outline';
 
 interface FacturaEmitida {
@@ -40,6 +45,14 @@ interface MovimientoCobro {
   facturaEmitida: { numFactura: string; cliente: string; total: number } | null;
 }
 
+interface ConfirmingLineaData {
+  id: string;
+  numFactura: string;
+  importe: number;
+  notas: string | null;
+  facturaEmitida: { id: string; numFactura: string; cliente: string; total: number } | null;
+}
+
 interface DocumentoConfirming {
   id: string;
   proveedor: string | null;
@@ -47,10 +60,12 @@ interface DocumentoConfirming {
   fecha: string | null;
   total: number | null;
   base: number | null;
+  totalConfirming: number | null;
   archivoUrl: string | null;
   archivoOneDrive: string | null;
   carpetaOrigen: string | null;
   estado: string;
+  confirmingLineas: ConfirmingLineaData[];
 }
 
 interface KPIs {
@@ -79,6 +94,13 @@ export default function GGCDraxtonPage() {
   // Modal de vincular
   const [modalVincular, setModalVincular] = useState<{ movimiento: MovimientoCobro } | null>(null);
   const [busquedaFactura, setBusquedaFactura] = useState('');
+
+  // Confirming detalle expandido
+  const [expandedConfirming, setExpandedConfirming] = useState<string | null>(null);
+  const [editingTotal, setEditingTotal] = useState<string | null>(null);
+  const [editTotalValue, setEditTotalValue] = useState('');
+  const [newLinea, setNewLinea] = useState<{ confirmingId: string; numFactura: string; importe: string }>({ confirmingId: '', numFactura: '', importe: '' });
+  const [savingLinea, setSavingLinea] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -110,6 +132,61 @@ export default function GGCDraxtonPage() {
         setModalVincular(null);
         fetchData();
       }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  // --- Confirming Lineas ---
+  async function addLinea(confirmingId: string) {
+    if (!newLinea.numFactura.trim()) return;
+    setSavingLinea(true);
+    try {
+      const res = await fetch('/api/admin/finanzas/clientes/ggcc-draxton/confirming-lineas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmingId,
+          numFactura: newLinea.numFactura.trim(),
+          importe: newLinea.importe || '0',
+        }),
+      });
+      if (res.ok) {
+        setNewLinea({ confirmingId: '', numFactura: '', importe: '' });
+        fetchData();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingLinea(false);
+  }
+
+  async function deleteLinea(lineaId: string) {
+    if (!confirm('¿Eliminar esta línea?')) return;
+    try {
+      await fetch('/api/admin/finanzas/clientes/ggcc-draxton/confirming-lineas', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: lineaId }),
+      });
+      fetchData();
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function saveTotalConfirming(confirmingId: string) {
+    try {
+      await fetch('/api/admin/finanzas/clientes/ggcc-draxton/confirming-lineas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmingId,
+          totalConfirming: editTotalValue,
+        }),
+      });
+      setEditingTotal(null);
+      fetchData();
     } catch (e) {
       console.error(e);
     }
@@ -335,45 +412,37 @@ export default function GGCDraxtonPage() {
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Concepto</th>
                 <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
                 <th className="text-left px-3 py-2 font-medium text-gray-600">Factura vinculada</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Estado</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Acciones</th>
+                <th className="text-left px-3 py-2 font-medium text-gray-600">Acción</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-8 text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">Cargando...</td></tr>
               ) : movimientosFiltrados.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-8 text-gray-400">No hay movimientos</td></tr>
+                <tr><td colSpan={6} className="text-center py-8 text-gray-400">No hay movimientos</td></tr>
               ) : (
                 movimientosFiltrados.map(m => (
-                  <tr key={m.id} className={`border-b hover:bg-gray-50 ${!m.facturaEmitidaId ? 'bg-orange-50/50' : ''}`}>
+                  <tr key={m.id} className="border-b hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-600">{formatDate(m.fechaOperacion)}</td>
-                    <td className="px-3 py-2 text-gray-600">{m.cuenta?.banco || '-'}</td>
+                    <td className="px-3 py-2 text-gray-700">{m.cuenta?.banco || '-'}</td>
                     <td className="px-3 py-2 text-gray-700 max-w-[300px] truncate">{m.concepto}</td>
                     <td className="px-3 py-2 text-right font-medium text-green-700">{formatMoney(Number(m.importe))}</td>
                     <td className="px-3 py-2">
                       {m.facturaEmitida ? (
                         <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                          {m.facturaEmitida.numFactura}
+                          {m.facturaEmitida.numFactura} ({formatMoney(m.facturaEmitida.total)})
                         </span>
                       ) : (
                         <span className="text-xs text-gray-400">Sin vincular</span>
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {m.facturaEmitidaId ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <ClockIcon className="h-5 w-5 text-orange-500" />
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
                       {!m.facturaEmitidaId && (
                         <button
                           onClick={() => { setModalVincular({ movimiento: m }); setBusquedaFactura(''); }}
-                          className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200 flex items-center gap-1"
+                          className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200"
                         >
-                          <LinkIcon className="h-3.5 w-3.5" />
+                          <LinkIcon className="h-3.5 w-3.5 inline mr-1" />
                           Vincular
                         </button>
                       )}
@@ -385,74 +454,241 @@ export default function GGCDraxtonPage() {
           </table>
           {movimientosFiltrados.length > 0 && (
             <div className="px-4 py-2 bg-gray-50 border-t text-sm text-gray-500">
-              {movimientosFiltrados.length} movimientos · Total ingresado: {formatMoney(movimientosFiltrados.reduce((s, m) => s + Number(m.importe), 0))}
+              {movimientosFiltrados.length} movimientos · Total: {formatMoney(movimientosFiltrados.reduce((s, m) => s + Number(m.importe), 0))}
             </div>
           )}
         </div>
       )}
 
-      {/* Tabla de Documentos Confirming */}
+      {/* Tabla de Documentos Confirming con detalle expandible */}
       {tab === 'documentos' && (
         <div className="bg-white rounded-lg border overflow-hidden">
           <div className="px-4 py-3 bg-purple-50 border-b">
-            <p className="text-sm text-purple-700">
-              <DocumentTextIcon className="h-4 w-4 inline mr-1" />
-              Documentos de la carpeta &quot;Confirming Draxton 2026&quot; en OneDrive — justificantes de cobro por confirming
+            <p className="text-sm text-purple-700 font-medium">
+              Documentos de cesión de créditos (confirming) de la carpeta OneDrive.
+              Haz clic en un documento para ver/añadir las facturas que incluye.
             </p>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Fecha</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Proveedor/Emisor</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Nº Documento</th>
-                <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">Estado</th>
-                <th className="text-left px-3 py-2 font-medium text-gray-600">PDF</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">Cargando...</td></tr>
-              ) : documentosFiltrados.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">No hay documentos</td></tr>
-              ) : (
-                documentosFiltrados.map(d => (
-                  <tr key={d.id} className="border-b hover:bg-gray-50">
-                    <td className="px-3 py-2 text-gray-600">{formatDate(d.fecha)}</td>
-                    <td className="px-3 py-2 text-gray-700">{d.proveedor || 'Sin identificar'}</td>
-                    <td className="px-3 py-2 font-medium text-gray-900">{d.numFactura || '-'}</td>
-                    <td className="px-3 py-2 text-right font-medium text-green-700">
-                      {d.total ? formatMoney(d.total) : '-'}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        d.estado === 'CONTABILIZADA' ? 'bg-green-100 text-green-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {d.estado}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {(d.archivoUrl || d.archivoOneDrive) && (
-                        <a
-                          href={`/api/admin/finanzas/facturas/${d.id}/pdf`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <EyeIcon className="h-5 w-5" />
-                        </a>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <div className="divide-y">
+            {loading ? (
+              <div className="text-center py-8 text-gray-400">Cargando...</div>
+            ) : documentosFiltrados.length === 0 ? (
+              <div className="text-center py-8 text-gray-400">No hay documentos</div>
+            ) : (
+              documentosFiltrados.map(d => {
+                const isExpanded = expandedConfirming === d.id;
+                const totalLineas = d.confirmingLineas.reduce((s, l) => s + l.importe, 0);
+                const displayTotal = d.totalConfirming ?? d.total ?? 0;
+
+                return (
+                  <div key={d.id}>
+                    {/* Fila principal del documento */}
+                    <div
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 ${isExpanded ? 'bg-purple-50/50' : ''}`}
+                      onClick={() => setExpandedConfirming(isExpanded ? null : d.id)}
+                    >
+                      <div className="flex-shrink-0">
+                        {isExpanded ? (
+                          <ChevronDownIcon className="h-4 w-4 text-purple-600" />
+                        ) : (
+                          <ChevronRightIcon className="h-4 w-4 text-gray-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-gray-900 truncate">
+                            {d.archivoOneDrive?.split('/').pop() || d.proveedor || 'Sin identificar'}
+                          </span>
+                          {d.confirmingLineas.length > 0 && (
+                            <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">
+                              {d.confirmingLineas.length} fact.
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {formatDate(d.fecha)} · {d.proveedor !== 'DESCONOCIDO' ? d.proveedor : ''}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className="text-sm font-bold text-green-700">
+                          {displayTotal > 0 ? formatMoney(displayTotal) : '-'}
+                        </p>
+                        {d.confirmingLineas.length > 0 && totalLineas > 0 && (
+                          <p className={`text-xs ${Math.abs(totalLineas - displayTotal) < 0.01 ? 'text-green-600' : 'text-orange-600'}`}>
+                            Suma fact: {formatMoney(totalLineas)}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          d.estado === 'CONTABILIZADA' ? 'bg-green-100 text-green-700' :
+                          'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {d.estado}
+                        </span>
+                        {(d.archivoUrl || d.archivoOneDrive) && (
+                          <a
+                            href={`/api/admin/finanzas/facturas/${d.id}/pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <EyeIcon className="h-5 w-5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Panel expandido: detalle de facturas incluidas */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-1 bg-gray-50/50 border-t border-dashed">
+                        {/* Total del confirming editable */}
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className="text-xs font-medium text-gray-600 uppercase">Total Confirming:</span>
+                          {editingTotal === d.id ? (
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={editTotalValue}
+                                onChange={(e) => setEditTotalValue(e.target.value)}
+                                className="w-32 border rounded px-2 py-1 text-sm"
+                                autoFocus
+                              />
+                              <button
+                                onClick={() => saveTotalConfirming(d.id)}
+                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700"
+                              >
+                                Guardar
+                              </button>
+                              <button
+                                onClick={() => setEditingTotal(null)}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-green-700">
+                                {displayTotal > 0 ? formatMoney(displayTotal) : 'Sin definir'}
+                              </span>
+                              <button
+                                onClick={() => { setEditingTotal(d.id); setEditTotalValue((d.totalConfirming ?? d.total ?? 0).toString()); }}
+                                className="text-gray-400 hover:text-gray-600"
+                              >
+                                <PencilIcon className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Lista de facturas incluidas */}
+                        <div className="mb-3">
+                          <p className="text-xs font-medium text-gray-600 uppercase mb-2">Facturas incluidas en este confirming:</p>
+                          {d.confirmingLineas.length === 0 ? (
+                            <p className="text-xs text-gray-400 italic mb-2">No hay facturas añadidas aún</p>
+                          ) : (
+                            <table className="w-full text-xs mb-2">
+                              <thead>
+                                <tr className="text-gray-500">
+                                  <th className="text-left py-1 pr-2">Nº Factura</th>
+                                  <th className="text-left py-1 pr-2">Cliente</th>
+                                  <th className="text-right py-1 pr-2">Importe</th>
+                                  <th className="text-right py-1 pr-2">Total Factura</th>
+                                  <th className="py-1"></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {d.confirmingLineas.map(linea => (
+                                  <tr key={linea.id} className="border-t border-gray-200">
+                                    <td className="py-1.5 pr-2 font-medium text-gray-900">
+                                      {linea.numFactura}
+                                      {linea.facturaEmitida && (
+                                        <CheckCircleIcon className="h-3.5 w-3.5 inline ml-1 text-green-500" />
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-gray-600">
+                                      {linea.facturaEmitida?.cliente || '-'}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-right font-medium text-gray-900">
+                                      {formatMoney(linea.importe)}
+                                    </td>
+                                    <td className="py-1.5 pr-2 text-right text-gray-500">
+                                      {linea.facturaEmitida ? formatMoney(linea.facturaEmitida.total) : '-'}
+                                    </td>
+                                    <td className="py-1.5 text-right">
+                                      <button
+                                        onClick={() => deleteLinea(linea.id)}
+                                        className="text-red-400 hover:text-red-600"
+                                      >
+                                        <TrashIcon className="h-3.5 w-3.5" />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                                <tr className="border-t-2 border-gray-300">
+                                  <td colSpan={2} className="py-1.5 pr-2 font-medium text-gray-700">
+                                    Total ({d.confirmingLineas.length} facturas)
+                                  </td>
+                                  <td className="py-1.5 pr-2 text-right font-bold text-gray-900">
+                                    {formatMoney(totalLineas)}
+                                  </td>
+                                  <td colSpan={2} className="py-1.5 text-right">
+                                    {displayTotal > 0 && Math.abs(totalLineas - displayTotal) >= 0.01 && (
+                                      <span className="text-orange-600 font-medium">
+                                        Dif: {formatMoney(displayTotal - totalLineas)}
+                                      </span>
+                                    )}
+                                    {displayTotal > 0 && Math.abs(totalLineas - displayTotal) < 0.01 && (
+                                      <span className="text-green-600 font-medium">Cuadra</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+
+                        {/* Formulario para añadir nueva línea */}
+                        <div className="flex items-center gap-2 pt-2 border-t border-gray-200">
+                          <PlusIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          <input
+                            type="text"
+                            placeholder="Nº factura (ej: DRAX26/45)"
+                            value={newLinea.confirmingId === d.id ? newLinea.numFactura : ''}
+                            onChange={(e) => setNewLinea({ confirmingId: d.id, numFactura: e.target.value, importe: newLinea.confirmingId === d.id ? newLinea.importe : '' })}
+                            onFocus={() => { if (newLinea.confirmingId !== d.id) setNewLinea({ confirmingId: d.id, numFactura: '', importe: '' }); }}
+                            className="w-40 border rounded px-2 py-1.5 text-xs"
+                          />
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder="Importe"
+                            value={newLinea.confirmingId === d.id ? newLinea.importe : ''}
+                            onChange={(e) => setNewLinea({ ...newLinea, confirmingId: d.id, importe: e.target.value })}
+                            onFocus={() => { if (newLinea.confirmingId !== d.id) setNewLinea({ confirmingId: d.id, numFactura: '', importe: '' }); }}
+                            className="w-28 border rounded px-2 py-1.5 text-xs"
+                          />
+                          <button
+                            onClick={() => addLinea(d.id)}
+                            disabled={savingLinea || !(newLinea.confirmingId === d.id && newLinea.numFactura.trim())}
+                            className="text-xs bg-purple-600 text-white px-3 py-1.5 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {savingLinea ? 'Guardando...' : 'Añadir'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
           {documentosFiltrados.length > 0 && (
             <div className="px-4 py-2 bg-gray-50 border-t text-sm text-gray-500">
-              {documentosFiltrados.length} documentos · Total: {formatMoney(documentosFiltrados.reduce((s, d) => s + (d.total || 0), 0))}
+              {documentosFiltrados.length} documentos · Total: {formatMoney(documentosFiltrados.reduce((s, d) => s + (d.totalConfirming ?? d.total ?? 0), 0))}
             </div>
           )}
         </div>
@@ -506,7 +742,7 @@ export default function GGCDraxtonPage() {
                             {formatMoney(f.total)}
                           </p>
                           {importeMatch && (
-                            <p className="text-xs text-green-600">✓ Importe coincide</p>
+                            <p className="text-xs text-green-600">Importe coincide</p>
                           )}
                         </div>
                       </div>

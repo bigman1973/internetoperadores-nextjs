@@ -1118,17 +1118,38 @@ model FacturaRecibida {
   telefonoServicio String?  @map("telefono_servicio") // Teléfono del servicio (Telefónica fijas)
   fechaVencimiento DateTime? @map("fecha_vencimiento") // Fecha vencimiento de pago
   deducibleIva    Boolean  @default(true) @map("deducible_iva")
+  // Confirming
+  totalConfirming  Float?   @map("total_confirming") // Total del confirming (editable)
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   movimientos     MovimientoBancario[]
+  confirmingLineas ConfirmingLinea[]
 
   @@index([estado])
   @@index([proveedor])
   @@index([fecha])
   @@index([imputacion])
   @@map("facturas_recibidas")
+}
+
+model ConfirmingLinea {
+  id               String   @id @default(uuid())
+  confirmingId     String   @map("confirming_id")
+  numFactura       String   @map("num_factura")
+  importe          Float    @default(0)
+  facturaEmitidaId String?  @map("factura_emitida_id")
+  notas            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @map("updated_at")
+
+  confirming       FacturaRecibida  @relation(fields: [confirmingId], references: [id], onDelete: Cascade)
+  facturaEmitida   FacturaEmitida?  @relation(fields: [facturaEmitidaId], references: [id], onDelete: SetNull)
+
+  @@index([confirmingId])
+  @@index([facturaEmitidaId])
+  @@map("confirming_lineas")
 }
 
 model Gasto {
@@ -1318,6 +1339,7 @@ model FacturaEmitida {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   movimientosBancarios MovimientoBancario[]
+  confirmingLineas ConfirmingLinea[]
 
   @@index([cliente])
   @@index([estado])
