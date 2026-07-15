@@ -104,7 +104,17 @@ export async function GET(req: NextRequest) {
     if (entregaACuenta === 'true') where.entregaACuentaEmpleadoId = { not: null };
     const tipo = searchParams.get('tipo');
     if (tipo === 'ingresos') where.importe = { gt: 0 };
-    if (tipo === 'cargos') where.importe = { lt: 0 };
+    if (tipo === 'cargos' || tipo === 'gastos') where.importe = { lt: 0 };
+
+    // Filtro por importe exacto (para conciliación manual)
+    const importeExacto = searchParams.get('importeExacto');
+    if (importeExacto) {
+      const imp = parseFloat(importeExacto);
+      if (!isNaN(imp)) {
+        // Buscar movimientos cuyo ABS(importe) esté dentro de ±0.02 del valor
+        where.AND = [...(where.AND || []), { importe: { gte: -(imp + 0.02) } }, { importe: { lte: -(imp - 0.02) } }];
+      }
+    }
 
     // Filtros de niveles de conciliación
     const conProveedor = searchParams.get('conProveedor');
