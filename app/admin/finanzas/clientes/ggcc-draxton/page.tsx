@@ -238,7 +238,7 @@ export default function GGCDraxtonPage() {
           <select
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value))}
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border rounded-lg px-3 py-2 text-sm text-gray-900"
           >
             <option value={2026}>2026</option>
             <option value={2025}>2025</option>
@@ -329,7 +329,7 @@ export default function GGCDraxtonPage() {
             placeholder="Buscar..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+            className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm text-gray-900"
           />
         </div>
       </div>
@@ -716,7 +716,7 @@ export default function GGCDraxtonPage() {
                 placeholder="Buscar factura por número, cliente..."
                 value={busquedaFactura}
                 onChange={(e) => setBusquedaFactura(e.target.value)}
-                className="w-full border rounded-lg px-3 py-2 text-sm"
+                className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
                 autoFocus
               />
             </div>
