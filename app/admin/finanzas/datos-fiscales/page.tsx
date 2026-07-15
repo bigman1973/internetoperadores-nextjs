@@ -200,7 +200,7 @@ export default function DatosFiscalesPage() {
               value={buscar}
               onChange={e => setBuscar(e.target.value)}
               placeholder="Buscar por nombre, NIF o cuenta contable..."
-              className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
+              className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm text-gray-900"
             />
           </div>
           <button type="submit" className="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Buscar</button>
@@ -209,7 +209,7 @@ export default function DatosFiscalesPage() {
           <select
             value={filtroCategoria}
             onChange={e => { setFiltroCategoria(e.target.value); setPage(1); }}
-            className="border rounded-lg px-3 py-2 text-sm"
+            className="border rounded-lg px-3 py-2 text-sm text-gray-900"
           >
             <option value="">Todas las categorías</option>
             {categorias.map(c => <option key={c} value={c}>{c}</option>)}
@@ -520,41 +520,41 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Razón Social *</label>
-                <input type="text" required value={form.razonSocial} onChange={e => setForm({...form, razonSocial: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" required value={form.razonSocial} onChange={e => setForm({...form, razonSocial: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nombre Comercial</label>
-                <input type="text" value={form.nombreComercial} onChange={e => setForm({...form, nombreComercial: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.nombreComercial} onChange={e => setForm({...form, nombreComercial: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">NIF/CIF</label>
-                <input type="text" value={form.nifCif} onChange={e => setForm({...form, nifCif: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.nifCif} onChange={e => setForm({...form, nifCif: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Cuenta Contable A3</label>
-                <input type="text" value={form.cuentaContableA3} onChange={e => setForm({...form, cuentaContableA3: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder={tipo === 'PROVEEDOR' ? '400XXXX' : tipo === 'CLIENTE' ? '430XXXX' : tipo === 'AAPP' ? '475XXXX' : '465XXXX'} />
+                <input type="text" value={form.cuentaContableA3} onChange={e => setForm({...form, cuentaContableA3: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono text-gray-900" placeholder={tipo === 'PROVEEDOR' ? '400XXXX' : tipo === 'CLIENTE' ? '430XXXX' : tipo === 'AAPP' ? '475XXXX' : '465XXXX'} />
               </div>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Dirección Fiscal</label>
-              <input type="text" value={form.direccionFiscal} onChange={e => setForm({...form, direccionFiscal: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+              <input type="text" value={form.direccionFiscal} onChange={e => setForm({...form, direccionFiscal: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
             </div>
             <div className="grid grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">C.P.</label>
-                <input type="text" value={form.codigoPostal} onChange={e => setForm({...form, codigoPostal: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.codigoPostal} onChange={e => setForm({...form, codigoPostal: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Población</label>
-                <input type="text" value={form.poblacion} onChange={e => setForm({...form, poblacion: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.poblacion} onChange={e => setForm({...form, poblacion: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Provincia</label>
-                <input type="text" value={form.provincia} onChange={e => setForm({...form, provincia: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.provincia} onChange={e => setForm({...form, provincia: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">País</label>
-                <input type="text" value={form.pais} onChange={e => setForm({...form, pais: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.pais} onChange={e => setForm({...form, pais: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
             </div>
           </fieldset>
@@ -565,19 +565,19 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Email Facturación</label>
-                <input type="email" value={form.emailFacturacion} onChange={e => setForm({...form, emailFacturacion: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="email" value={form.emailFacturacion} onChange={e => setForm({...form, emailFacturacion: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Email General</label>
-                <input type="email" value={form.emailGeneral} onChange={e => setForm({...form, emailGeneral: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="email" value={form.emailGeneral} onChange={e => setForm({...form, emailGeneral: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Teléfono</label>
-                <input type="text" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.telefono} onChange={e => setForm({...form, telefono: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Persona de Contacto</label>
-                <input type="text" value={form.personaContacto} onChange={e => setForm({...form, personaContacto: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" />
+                <input type="text" value={form.personaContacto} onChange={e => setForm({...form, personaContacto: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
             </div>
           </fieldset>
@@ -588,29 +588,29 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Categoría Interna</label>
-                <select value={form.categoriaInterna} onChange={e => setForm({...form, categoriaInterna: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm">
+                <select value={form.categoriaInterna} onChange={e => setForm({...form, categoriaInterna: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                   <option value="">Sin categoría</option>
                   {CATEGORIAS_PROVEEDOR.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Forma de Pago</label>
-                <select value={form.formaPago} onChange={e => setForm({...form, formaPago: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm">
+                <select value={form.formaPago} onChange={e => setForm({...form, formaPago: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900">
                   <option value="">Sin definir</option>
                   {FORMAS_PAGO.map(f => <option key={f} value={f}>{f.charAt(0).toUpperCase() + f.slice(1)}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Día de Pago</label>
-                <input type="number" min="1" max="31" value={form.diaPago} onChange={e => setForm({...form, diaPago: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="1-31" />
+                <input type="number" min="1" max="31" value={form.diaPago} onChange={e => setForm({...form, diaPago: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" placeholder="1-31" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Plazo Vencimiento (días)</label>
-                <input type="number" min="0" value={form.plazoVencimiento} onChange={e => setForm({...form, plazoVencimiento: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm" placeholder="30, 60, 90..." />
+                <input type="number" min="0" value={form.plazoVencimiento} onChange={e => setForm({...form, plazoVencimiento: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" placeholder="30, 60, 90..." />
               </div>
               <div className="col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">IBAN</label>
-                <input type="text" value={form.iban} onChange={e => setForm({...form, iban: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" placeholder="ES12 1234 5678 1234 5678 12" />
+                <input type="text" value={form.iban} onChange={e => setForm({...form, iban: e.target.value})} className="w-full border rounded-lg px-3 py-2 text-sm font-mono text-gray-900" placeholder="ES12 1234 5678 1234 5678 12" />
               </div>
             </div>
           </fieldset>
@@ -623,7 +623,7 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
               <textarea
                 value={form.patronesBancarios}
                 onChange={e => setForm({...form, patronesBancarios: e.target.value})}
-                className="w-full border rounded-lg px-3 py-2 text-sm font-mono"
+                className="w-full border rounded-lg px-3 py-2 text-sm font-mono text-gray-900"
                 rows={3}
                 placeholder='["ISPGestion", "ISP Gestion", "ISPGESTION"]'
               />
@@ -637,7 +637,7 @@ function FormularioEntidad({ entidad, tipo, onGuardar, onCerrar }: {
             <textarea
               value={form.notas}
               onChange={e => setForm({...form, notas: e.target.value})}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
+              className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900"
               rows={2}
               placeholder="Observaciones internas..."
             />
