@@ -7,9 +7,9 @@ const openai = new OpenAI({
 
 export const maxDuration = 120;
 
-const systemPrompt = `Extrae datos de este documento comercial de telecomunicaciones. Responde SOLO con JSON válido (sin markdown, sin backticks):
+const systemPrompt = `Eres un experto en contratos de telecomunicaciones. Extrae datos de este documento comercial/oferta de un proveedor de telecomunicaciones. Responde SOLO con JSON válido (sin markdown, sin backticks):
 {
-  "proveedor": "Nombre empresa que emite el documento",
+  "proveedor": "Nombre empresa que emite el documento (ej: Telefónica, Vodafone, Orange, MasMovil, Lyntia...)",
   "cifProveedor": null,
   "titulo": "Título descriptivo del servicio contratado",
   "tipo": "Servicios Internet",
@@ -20,15 +20,22 @@ const systemPrompt = `Extrae datos de este documento comercial de telecomunicaci
   "permanenciaMeses": numero o null,
   "prorrogaAutomatica": true,
   "plazoProrroga": null,
-  "importeMensual": numero total mensual o null,
+  "importeMensual": numero total mensual de TODOS los servicios sumados o null,
   "importeAnual": numero total anual o null,
   "formaPago": null,
   "contactoProveedor": null,
-  "notas": "Resumen breve",
+  "notas": "Resumen breve del contrato",
   "condicionesEspeciales": null,
-  "servicios": [{"ubicacion":"","servicio":"","velocidad":"","precioMensual":0,"fechaInicioServicio":null}]
+  "servicios": [{"ubicacion":"nombre sede o dirección","servicio":"tipo servicio (FTTO, FTTH, F.O. dedicada, etc)","velocidad":"100M/100M","precioMensual":258.83,"fechaInicioServicio":null}]
 }
-Reglas: cifProveedor SIEMPRE null (el usuario lo pondrá). Busca tablas de precios para importeMensual y servicios. precioMensual es la cuota mensual recurrente, NO el alta.`;
+REGLAS IMPORTANTES:
+1. cifProveedor SIEMPRE null (el usuario lo pondrá manualmente).
+2. BUSCA TABLAS DE PRECIOS/VALORACIÓN ECONÓMICA. Los precios mensuales (€/m, €/mes, Mensual) son la cuota recurrente, NO el alta.
+3. Cada servicio/sede debe tener su precioMensual individual extraído de la tabla de valoración económica.
+4. importeMensual es la SUMA de todos los precioMensual de los servicios.
+5. Si hay sección "Valoración Económica" o "Resumen Económico", usa esos precios.
+6. permanenciaMeses: busca "contrato mínimo de X meses" o "permanencia X meses".
+7. Incluye SOLO servicios de conectividad/internet de las sedes del cliente final (no incluir CEX Premium, soporte, ni sedes internacionales salvo que sean relevantes).`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,12 +44,34 @@ export async function POST(req: NextRequest) {
 
     // Si tenemos imágenes, usar Vision
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
-      // Seleccionar páginas estratégicas: primera (portada/datos) + mitad del doc (tablas económicas)
+      // Seleccionar páginas estratégicas para maximizar la captura de precios
       const total = imagenes.length;
-      const selectedIndexes: number[] = [0]; // Siempre la primera página
-      if (total > 4) selectedIndexes.push(Math.floor(total * 0.6)); // Página al 60% (tablas económicas)
-      else if (total > 1) selectedIndexes.push(total - 1); // Última si es corto
-      const imagenesLimitadas = selectedIndexes.map(i => imagenes[i]);
+      const selectedIndexes: number[] = [];
+      
+      if (total <= 4) {
+        // Si hay pocas páginas, enviar todas
+        for (let i = 0; i < total; i++) selectedIndexes.push(i);
+      } else if (total <= 8) {
+        // Documento medio: primera, mitad y última
+        selectedIndexes.push(0);
+        selectedIndexes.push(Math.floor(total * 0.5));
+        selectedIndexes.push(total - 1);
+      } else {
+        // Documento largo (>8 páginas): enviar 4 páginas estratégicas
+        // Página 1 (portada/datos generales)
+        selectedIndexes.push(0);
+        // Página 2 (suele tener datos de control/cliente)
+        selectedIndexes.push(1);
+        // Página al 60-65% (donde suelen estar las tablas de precios/valoración económica)
+        selectedIndexes.push(Math.floor(total * 0.63));
+        // Página al 70% (condiciones/permanencia)
+        selectedIndexes.push(Math.floor(total * 0.70));
+      }
+      
+      // Eliminar duplicados
+      const uniqueIndexes = [...new Set(selectedIndexes)].filter(i => i < total);
+      const imagenesLimitadas = uniqueIndexes.map(i => imagenes[i]);
+      
       const imageContents: any[] = imagenesLimitadas.map((img: string) => ({
         type: 'image_url',
         image_url: {
@@ -55,7 +84,7 @@ export async function POST(req: NextRequest) {
         model: 'gpt-4o',
         messages: [
           { role: 'user', content: [
-            { type: 'text', text: systemPrompt + '\n\nExtrae los datos de este documento comercial.' + (texto && texto.trim().length > 50 ? '\n\nTexto del documento:\n' + texto.substring(0, 10000) : '') },
+            { type: 'text', text: systemPrompt + '\n\nAnaliza las siguientes páginas del documento y extrae los datos. PRESTA ESPECIAL ATENCIÓN a las tablas con columnas "Mensual (€/m)" o "Precio" para obtener los importes de cada servicio.' + (texto && texto.trim().length > 50 ? '\n\nTexto adicional del documento:\n' + texto.substring(0, 8000) : '') },
             ...imageContents,
           ] },
         ],
@@ -85,6 +114,7 @@ export async function POST(req: NextRequest) {
         success: true,
         datos: mapearDatos(datos, nombreArchivo),
         documentoNombre: nombreArchivo || 'contrato.pdf',
+        paginasAnalizadas: uniqueIndexes.map(i => i + 1),
       });
     }
 
