@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
-export async function GET() {
+// GET - Obtener contratos de proveedor (todos o filtrados por contratoClienteId)
+export async function GET(req: NextRequest) {
   try {
-    const contratos = await prisma.contratoDraxton.findMany({
+    const { searchParams } = new URL(req.url);
+    const contratoClienteId = searchParams.get('contratoClienteId');
+
+    const where = contratoClienteId ? { contratoClienteId } : {};
+
+    const contratos = await prisma.contratoProveedorDraxton.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
-      include: { contratosProveedor: true },
     });
     return NextResponse.json(contratos);
   } catch (error: any) {
@@ -13,12 +19,26 @@ export async function GET() {
   }
 }
 
+// POST - Crear nuevo contrato de proveedor
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const contrato = await prisma.contratoDraxton.create({
+    if (!body.contratoClienteId) {
+      return NextResponse.json({ error: 'contratoClienteId es requerido' }, { status: 400 });
+    }
+    if (!body.proveedor) {
+      return NextResponse.json({ error: 'proveedor es requerido' }, { status: 400 });
+    }
+    if (!body.titulo) {
+      return NextResponse.json({ error: 'titulo es requerido' }, { status: 400 });
+    }
+
+    const contrato = await prisma.contratoProveedorDraxton.create({
       data: {
+        contratoClienteId: body.contratoClienteId,
+        proveedor: body.proveedor,
+        cifProveedor: body.cifProveedor || null,
         titulo: body.titulo,
         tipo: body.tipo || 'Servicios Internet',
         fechaFirma: body.fechaFirma ? new Date(body.fechaFirma) : null,
@@ -32,7 +52,6 @@ export async function POST(req: NextRequest) {
         importeAnual: body.importeAnual ? parseFloat(body.importeAnual) : null,
         formaPago: body.formaPago || null,
         estado: body.estado || 'Activo',
-        contactoCliente: body.contactoCliente || null,
         contactoProveedor: body.contactoProveedor || null,
         notas: body.notas || null,
         condicionesEspeciales: body.condicionesEspeciales || null,
@@ -48,6 +67,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// PUT - Actualizar contrato de proveedor (parcial)
 export async function PUT(req: NextRequest) {
   try {
     const body = await req.json();
@@ -57,9 +77,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
     }
 
-    // Solo actualizar campos que se envían explícitamente (actualización parcial)
     const data: any = {};
 
+    if (fields.proveedor !== undefined) data.proveedor = fields.proveedor;
+    if (fields.cifProveedor !== undefined) data.cifProveedor = fields.cifProveedor || null;
     if (fields.titulo !== undefined) data.titulo = fields.titulo;
     if (fields.tipo !== undefined) data.tipo = fields.tipo;
     if (fields.fechaFirma !== undefined) data.fechaFirma = fields.fechaFirma ? new Date(fields.fechaFirma) : null;
@@ -73,7 +94,6 @@ export async function PUT(req: NextRequest) {
     if (fields.importeAnual !== undefined) data.importeAnual = fields.importeAnual ? parseFloat(fields.importeAnual) : null;
     if (fields.formaPago !== undefined) data.formaPago = fields.formaPago || null;
     if (fields.estado !== undefined) data.estado = fields.estado;
-    if (fields.contactoCliente !== undefined) data.contactoCliente = fields.contactoCliente || null;
     if (fields.contactoProveedor !== undefined) data.contactoProveedor = fields.contactoProveedor || null;
     if (fields.notas !== undefined) data.notas = fields.notas || null;
     if (fields.condicionesEspeciales !== undefined) data.condicionesEspeciales = fields.condicionesEspeciales || null;
@@ -81,7 +101,7 @@ export async function PUT(req: NextRequest) {
     if (fields.documentoUrl !== undefined) data.documentoUrl = fields.documentoUrl || null;
     if (fields.documentoNombre !== undefined) data.documentoNombre = fields.documentoNombre || null;
 
-    const contrato = await prisma.contratoDraxton.update({
+    const contrato = await prisma.contratoProveedorDraxton.update({
       where: { id },
       data,
     });
@@ -92,6 +112,7 @@ export async function PUT(req: NextRequest) {
   }
 }
 
+// DELETE - Eliminar contrato de proveedor
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -101,7 +122,7 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
     }
 
-    await prisma.contratoDraxton.delete({ where: { id } });
+    await prisma.contratoProveedorDraxton.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

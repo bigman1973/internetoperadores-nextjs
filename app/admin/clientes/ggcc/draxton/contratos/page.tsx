@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Fragment } from 'react'
-import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon, PencilIcon } from '@heroicons/react/24/outline'
+import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon, PencilIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline'
 
 interface Servicio {
   ubicacion: string;
@@ -9,6 +9,32 @@ interface Servicio {
   velocidad: string;
   precioMensual: number;
   fechaInicioServicio?: string | null;
+}
+
+interface ContratoProveedor {
+  id: string;
+  contratoClienteId: string;
+  proveedor: string;
+  cifProveedor: string | null;
+  titulo: string;
+  tipo: string;
+  fechaFirma: string | null;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+  fechaInicioServicio: string | null;
+  permanenciaMeses: number | null;
+  prorrogaAutomatica: boolean;
+  plazoProrroga: string | null;
+  importeMensual: number | null;
+  importeAnual: number | null;
+  formaPago: string | null;
+  estado: string;
+  contactoProveedor: string | null;
+  notas: string | null;
+  condicionesEspeciales: string | null;
+  serviciosJson: Servicio[] | null;
+  documentoUrl: string | null;
+  documentoNombre: string | null;
 }
 
 interface Contrato {
@@ -33,30 +59,66 @@ interface Contrato {
   serviciosJson: Servicio[] | null;
   documentoUrl: string | null;
   documentoNombre: string | null;
+  contratosProveedor?: ContratoProveedor[];
 }
 
 const TIPOS_CONTRATO = ['Servicios Internet', 'Mantenimiento', 'Guardias', 'Consultoría', 'Otro'];
 const ESTADOS = ['Activo', 'Vencido', 'En renovación', 'Cancelado'];
 const FORMAS_PAGO = ['confirming', 'transferencia', 'domiciliacion', 'tarjeta'];
 
+// Calcular meses activos de un contrato en un año dado
+function calcularMesesEnAnio(fechaInicioStr: string | null, fechaFinStr: string | null, anio: number): number {
+  if (!fechaInicioStr) return 0;
+  const inicio = new Date(fechaInicioStr);
+  const fin = fechaFinStr ? new Date(fechaFinStr) : new Date(anio, 11, 31);
+  const inicioAnio = new Date(anio, 0, 1);
+  const finAnio = new Date(anio, 11, 31);
+
+  const desde = inicio > inicioAnio ? inicio : inicioAnio;
+  const hasta = fin < finAnio ? fin : finAnio;
+
+  if (desde > hasta) return 0;
+
+  // Calcular diferencia en meses (proporcional)
+  const diffMs = hasta.getTime() - desde.getTime();
+  const meses = diffMs / (1000 * 60 * 60 * 24 * 30.44); // promedio días/mes
+  return Math.min(12, Math.max(0, Math.round(meses * 100) / 100));
+}
+
 export default function DraxtonContratosPage() {
   const [contratos, setContratos] = useState<Contrato[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showProveedorForm, setShowProveedorForm] = useState(false);
   const [analizando, setAnalizando] = useState(false);
+  const [analizandoProveedor, setAnalizandoProveedor] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingProveedorId, setEditingProveedorId] = useState<string | null>(null);
+  const [proveedorParentId, setProveedorParentId] = useState<string | null>(null);
 
-  // Form state
+  // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
     titulo: '',
     tipo: 'Servicios Internet',
     estado: 'Activo',
     prorrogaAutomatica: true,
   });
+
+  // Form state contrato proveedor
+  const [formProv, setFormProv] = useState<Partial<ContratoProveedor>>({
+    proveedor: '',
+    titulo: '',
+    tipo: 'Servicios Internet',
+    estado: 'Activo',
+    prorrogaAutomatica: true,
+  });
+
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [archivoProv, setArchivoProv] = useState<File | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [dragActiveProv, setDragActiveProv] = useState(false);
 
   useEffect(() => {
     fetchContratos();
@@ -105,10 +167,7 @@ export default function DraxtonContratosPage() {
       });
       const data = await res.json();
       if (data.success) {
-        setForm({
-          ...data.datos,
-          documentoNombre: data.documentoNombre,
-        });
+        setForm({ ...data.datos, documentoNombre: data.documentoNombre });
       } else {
         alert('Error al analizar: ' + (data.error || 'Error desconocido'));
       }
@@ -116,6 +175,32 @@ export default function DraxtonContratosPage() {
       alert('Error al analizar el PDF: ' + (err?.message || 'Error desconocido'));
     }
     setAnalizando(false);
+  }
+
+  async function analizarPDFProveedor(file: File) {
+    setAnalizandoProveedor(true);
+    try {
+      const texto = await extraerTextoPDF(file);
+      if (!texto || texto.trim().length < 50) {
+        alert('No se pudo extraer texto del PDF.');
+        setAnalizandoProveedor(false);
+        return;
+      }
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos-proveedor/analizar-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto, nombreArchivo: file.name }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFormProv({ ...formProv, ...data.datos, documentoNombre: data.documentoNombre });
+      } else {
+        alert('Error al analizar: ' + (data.error || 'Error desconocido'));
+      }
+    } catch (err: any) {
+      alert('Error al analizar el PDF: ' + (err?.message || 'Error desconocido'));
+    }
+    setAnalizandoProveedor(false);
   }
 
   function handleEditar(c: Contrato) {
@@ -145,6 +230,35 @@ export default function DraxtonContratosPage() {
     setShowForm(true);
   }
 
+  function handleEditarProveedor(cp: ContratoProveedor) {
+    setFormProv({
+      proveedor: cp.proveedor,
+      cifProveedor: cp.cifProveedor,
+      titulo: cp.titulo,
+      tipo: cp.tipo,
+      fechaFirma: cp.fechaFirma ? cp.fechaFirma.split('T')[0] : '',
+      fechaInicio: cp.fechaInicio ? cp.fechaInicio.split('T')[0] : '',
+      fechaFin: cp.fechaFin ? cp.fechaFin.split('T')[0] : '',
+      fechaInicioServicio: cp.fechaInicioServicio ? cp.fechaInicioServicio.split('T')[0] : '',
+      permanenciaMeses: cp.permanenciaMeses,
+      prorrogaAutomatica: cp.prorrogaAutomatica,
+      plazoProrroga: cp.plazoProrroga,
+      importeMensual: cp.importeMensual,
+      importeAnual: cp.importeAnual,
+      formaPago: cp.formaPago,
+      estado: cp.estado,
+      contactoProveedor: cp.contactoProveedor,
+      notas: cp.notas,
+      condicionesEspeciales: cp.condicionesEspeciales,
+      serviciosJson: cp.serviciosJson,
+      documentoUrl: cp.documentoUrl,
+      documentoNombre: cp.documentoNombre,
+    });
+    setEditingProveedorId(cp.id);
+    setProveedorParentId(cp.contratoClienteId);
+    setShowProveedorForm(true);
+  }
+
   async function handleEliminar(id: string) {
     if (!confirm('¿Estás seguro de eliminar este contrato? Esta acción no se puede deshacer.')) return;
     try {
@@ -161,11 +275,23 @@ export default function DraxtonContratosPage() {
     }
   }
 
-  async function handleGuardar() {
-    if (!form.titulo) {
-      alert('El título es obligatorio');
-      return;
+  async function handleEliminarProveedor(id: string) {
+    if (!confirm('¿Eliminar este contrato de proveedor?')) return;
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/contratos-proveedor?id=${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchContratos();
+      } else {
+        const data = await res.json();
+        alert('Error al eliminar: ' + (data.error || 'Error desconocido'));
+      }
+    } catch {
+      alert('Error de conexión al eliminar');
     }
+  }
+
+  async function handleGuardar() {
+    if (!form.titulo) { alert('El título es obligatorio'); return; }
     setGuardando(true);
     try {
       const method = editingId ? 'PUT' : 'POST';
@@ -191,35 +317,71 @@ export default function DraxtonContratosPage() {
     setGuardando(false);
   }
 
+  async function handleGuardarProveedor() {
+    if (!formProv.proveedor) { alert('El proveedor es obligatorio'); return; }
+    if (!formProv.titulo) { alert('El título es obligatorio'); return; }
+    setGuardando(true);
+    try {
+      const method = editingProveedorId ? 'PUT' : 'POST';
+      const body = editingProveedorId
+        ? { ...formProv, id: editingProveedorId }
+        : { ...formProv, contratoClienteId: proveedorParentId };
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos-proveedor', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        setShowProveedorForm(false);
+        setFormProv({ proveedor: '', titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true });
+        setArchivoProv(null);
+        setEditingProveedorId(null);
+        setProveedorParentId(null);
+        fetchContratos();
+      } else {
+        const data = await res.json();
+        alert('Error al guardar: ' + (data.error || 'Error desconocido'));
+      }
+    } catch {
+      alert('Error de conexión al guardar');
+    }
+    setGuardando(false);
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) {
-      setArchivo(file);
-      analizarPDF(file);
-    }
+    if (file) { setArchivo(file); analizarPDF(file); }
+  }
+
+  function handleFileChangeProv(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) { setArchivoProv(file); analizarPDFProveedor(file); }
   }
 
   function handleDrag(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
+    e.preventDefault(); e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') setDragActive(true);
+    else if (e.type === 'dragleave') setDragActive(false);
   }
 
   function handleDrop(e: React.DragEvent) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
+    e.preventDefault(); e.stopPropagation(); setDragActive(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type === 'application/pdf') {
-      setArchivo(file);
-      analizarPDF(file);
-    } else {
-      alert('Solo se aceptan archivos PDF');
-    }
+    if (file && file.type === 'application/pdf') { setArchivo(file); analizarPDF(file); }
+    else alert('Solo se aceptan archivos PDF');
+  }
+
+  function handleDragProv(e: React.DragEvent) {
+    e.preventDefault(); e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') setDragActiveProv(true);
+    else if (e.type === 'dragleave') setDragActiveProv(false);
+  }
+
+  function handleDropProv(e: React.DragEvent) {
+    e.preventDefault(); e.stopPropagation(); setDragActiveProv(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type === 'application/pdf') { setArchivoProv(file); analizarPDFProveedor(file); }
+    else alert('Solo se aceptan archivos PDF');
   }
 
   function updateServicio(index: number, field: keyof Servicio, value: string | number | null) {
@@ -228,20 +390,47 @@ export default function DraxtonContratosPage() {
     setForm({ ...form, serviciosJson: servicios });
   }
 
+  function updateServicioProv(index: number, field: keyof Servicio, value: string | number | null) {
+    const servicios = [...(formProv.serviciosJson || [])];
+    servicios[index] = { ...servicios[index], [field]: value };
+    setFormProv({ ...formProv, serviciosJson: servicios });
+  }
+
   const formatDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-ES') : '—';
   const formatCurrency = (n: number | string | null | undefined) => {
     const num = typeof n === 'string' ? parseFloat(n) : n;
     return num != null && !isNaN(num) ? num.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '—';
   };
 
-  // KPIs
-  const activos = contratos.filter(c => c.estado === 'Activo').length;
-  const proximoVencimiento = contratos
-    .filter(c => c.estado === 'Activo' && c.fechaFin)
-    .sort((a, b) => new Date(a.fechaFin!).getTime() - new Date(b.fechaFin!).getTime())[0];
-  const valorTotal = contratos
-    .filter(c => c.estado === 'Activo')
-    .reduce((sum, c) => sum + (Number(c.importeAnual) || 0), 0);
+  // KPIs mejorados
+  const activos = contratos.filter(c => c.estado === 'Activo');
+  const contratoActivo = activos[0]; // Principal para KPIs
+  const importeMensual = contratoActivo ? Number(contratoActivo.importeMensual) || 0 : 0;
+  const permanencia = contratoActivo?.permanenciaMeses || 0;
+  const valorTotalContrato = permanencia > 0 ? importeMensual * permanencia : 0;
+
+  // Prórroga info
+  const prorrogable = contratoActivo?.prorrogaAutomatica;
+  const plazoProrroga = contratoActivo?.plazoProrroga || '';
+  const mesesProrroga = plazoProrroga.includes('1 año') || plazoProrroga.includes('12') ? 12 :
+    plazoProrroga.includes('2 año') || plazoProrroga.includes('24') ? 24 :
+    plazoProrroga.includes('6') ? 6 : 12; // default 12
+  const importeProrroga = importeMensual * mesesProrroga;
+
+  // Importe por año - usar fechaInicioServicio (si existe) o fechaInicio
+  const fechaRef = contratoActivo?.fechaInicioServicio || contratoActivo?.fechaInicio || null;
+  const fechaFinContrato = contratoActivo?.fechaFin || null;
+  const currentYear = new Date().getFullYear();
+
+  const importeAnioActual = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, currentYear) * importeMensual * 100) / 100 : 0;
+  const importe2026 = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2026) * importeMensual * 100) / 100 : 0;
+  const importe2027 = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2027) * importeMensual * 100) / 100 : 0;
+
+  // Coste proveedor total
+  const costeTotalProveedores = activos.reduce((sum, c) => {
+    const provs = c.contratosProveedor || [];
+    return sum + provs.filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
+  }, 0);
 
   return (
     <div className="space-y-6">
@@ -252,7 +441,7 @@ export default function DraxtonContratosPage() {
             <DocumentDuplicateIcon className="w-6 h-6 text-indigo-600" />
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Gestión de Contratos</h2>
-              <p className="text-sm text-gray-500">Documentación, vencimientos y datos generales de los contratos con Draxton</p>
+              <p className="text-sm text-gray-500">Contratos de cliente y proveedor con Draxton</p>
             </div>
           </div>
           <button
@@ -260,36 +449,51 @@ export default function DraxtonContratosPage() {
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
           >
             <PlusIcon className="w-4 h-4" />
-            Nuevo Contrato
+            Nuevo Contrato Cliente
           </button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Contratos Activos</div>
-          <div className="text-2xl font-bold text-green-700 mt-1">{activos}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Próximo Vencimiento</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">
-            {proximoVencimiento ? formatDate(proximoVencimiento.fechaFin) : '—'}
+      {/* KPIs mejorados */}
+      {contratoActivo && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contrato</div>
+            <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(valorTotalContrato)}</div>
+            <p className="text-[10px] text-gray-400">{permanencia} meses × {formatCurrency(importeMensual)}</p>
           </div>
-          {proximoVencimiento && (
-            <p className="text-xs text-gray-500 mt-1 truncate">{proximoVencimiento.titulo}</p>
-          )}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Prórroga</div>
+            <div className="text-lg font-bold text-gray-900 mt-1">{prorrogable ? `Sí (${plazoProrroga || '12 meses'})` : 'No'}</div>
+            {prorrogable && <p className="text-[10px] text-gray-400">Importe: {formatCurrency(importeProrroga)}</p>}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
+            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importeAnioActual)}</div>
+            <p className="text-[10px] text-gray-400">Según fecha inicio servicio</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2026</div>
+            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importe2026)}</div>
+            <p className="text-[10px] text-gray-400">{Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2026) * 10) / 10} meses</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2027</div>
+            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importe2027)}</div>
+            <p className="text-[10px] text-gray-400">{Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2027) * 10) / 10} meses</p>
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Coste Proveedores/mes</div>
+            <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
+            <p className="text-[10px] text-gray-400">Margen: {formatCurrency(importeMensual - costeTotalProveedores)}</p>
+          </div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Valor Total Contratos</div>
-          <div className="text-2xl font-bold text-indigo-700 mt-1">{formatCurrency(valorTotal)}</div>
-        </div>
-      </div>
+      )}
 
       {/* Tabla de contratos */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
-          <h3 className="text-sm font-semibold text-gray-700">Contratos</h3>
+          <h3 className="text-sm font-semibold text-gray-700">Contratos Cliente</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -297,12 +501,12 @@ export default function DraxtonContratosPage() {
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contrato</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Inicio Contrato</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Inicio Servicio</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Fin</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/mes</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">€/año</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">Valor Total</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
+                <th className="text-center px-4 py-3 font-medium text-gray-600">Proveedores</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Acciones</th>
               </tr>
             </thead>
@@ -310,40 +514,41 @@ export default function DraxtonContratosPage() {
               {loading ? (
                 <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
               ) : contratos.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados. Haz clic en &quot;Nuevo Contrato&quot; para añadir el primero.</td></tr>
-              ) : contratos.map(c => (
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados.</td></tr>
+              ) : contratos.map(c => {
+                const mensual = Number(c.importeMensual) || 0;
+                const perm = c.permanenciaMeses || 0;
+                const valorTotal = perm > 0 ? mensual * perm : Number(c.importeAnual) || 0;
+                const numProveedores = c.contratosProveedor?.length || 0;
+                return (
                 <Fragment key={c.id}>
                   <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
-                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{c.titulo}</td>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[250px] truncate">{c.titulo}</td>
                     <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicio)}</td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio || c.fechaInicio)}</td>
                     <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaFin)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeMensual)}</td>
-                    <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeAnual)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 font-bold">{formatCurrency(valorTotal)}</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         c.estado === 'Activo' ? 'bg-green-100 text-green-700' :
                         c.estado === 'Vencido' ? 'bg-red-100 text-red-700' :
                         c.estado === 'En renovación' ? 'bg-amber-100 text-amber-700' :
                         'bg-gray-100 text-gray-700'
-                      }`}>
-                        {c.estado}
-                      </span>
+                      }`}>{c.estado}</span>
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      {numProveedores > 0 ? (
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-700">{numProveedores}</span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleEditar(c); }}
-                        className="text-indigo-600 hover:text-indigo-800"
-                        title="Editar"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); handleEditar(c); }} className="text-indigo-600 hover:text-indigo-800" title="Editar">
                         <PencilIcon className="w-4 h-4" />
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }}
-                        className="text-red-500 hover:text-red-700"
-                        title="Eliminar"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }} className="text-red-500 hover:text-red-700" title="Eliminar">
                         <TrashIcon className="w-4 h-4" />
                       </button>
                       {c.documentoUrl && (
@@ -353,7 +558,7 @@ export default function DraxtonContratosPage() {
                       )}
                     </td>
                   </tr>
-                  {/* Detalle expandido - dentro del mismo Fragment */}
+                  {/* Detalle expandido */}
                   {expandedId === c.id && (
                     <tr>
                       <td colSpan={9} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
@@ -387,7 +592,7 @@ export default function DraxtonContratosPage() {
                         )}
                         {c.contactoProveedor && (
                           <div className="mb-2">
-                            <p className="text-[10px] text-gray-500 uppercase">Contacto Proveedor</p>
+                            <p className="text-[10px] text-gray-500 uppercase">Contacto Proveedor (nuestro)</p>
                             <p className="text-sm">{c.contactoProveedor}</p>
                           </div>
                         )}
@@ -436,19 +641,77 @@ export default function DraxtonContratosPage() {
                             </table>
                           </div>
                         )}
+
+                        {/* CONTRATOS DE PROVEEDOR */}
+                        <div className="mt-6 border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <BuildingOfficeIcon className="w-4 h-4 text-purple-600" />
+                              <p className="text-xs font-semibold text-gray-700 uppercase">Contratos de Proveedor ({c.contratosProveedor?.length || 0})</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setProveedorParentId(c.id); setEditingProveedorId(null); setFormProv({ proveedor: '', titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setShowProveedorForm(true); }}
+                              className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 inline-flex items-center gap-1"
+                            >
+                              <PlusIcon className="w-3 h-3" />
+                              Añadir Proveedor
+                            </button>
+                          </div>
+                          {c.contratosProveedor && c.contratosProveedor.length > 0 ? (
+                            <table className="w-full text-xs border rounded-lg overflow-hidden">
+                              <thead className="bg-purple-50">
+                                <tr>
+                                  <th className="text-left px-3 py-2">Proveedor</th>
+                                  <th className="text-left px-3 py-2">Contrato</th>
+                                  <th className="text-left px-3 py-2">Inicio</th>
+                                  <th className="text-left px-3 py-2">Fin</th>
+                                  <th className="text-right px-3 py-2">€/mes</th>
+                                  <th className="text-center px-3 py-2">Estado</th>
+                                  <th className="text-center px-3 py-2">Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y bg-white">
+                                {c.contratosProveedor.map(cp => (
+                                  <tr key={cp.id}>
+                                    <td className="px-3 py-2 font-medium text-purple-700">{cp.proveedor}</td>
+                                    <td className="px-3 py-2 max-w-[200px] truncate">{cp.titulo}</td>
+                                    <td className="px-3 py-2">{formatDate(cp.fechaInicioServicio || cp.fechaInicio)}</td>
+                                    <td className="px-3 py-2">{formatDate(cp.fechaFin)}</td>
+                                    <td className="px-3 py-2 text-right font-medium">{formatCurrency(cp.importeMensual)}</td>
+                                    <td className="px-3 py-2 text-center">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                                        cp.estado === 'Activo' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+                                      }`}>{cp.estado}</span>
+                                    </td>
+                                    <td className="px-3 py-2 text-center flex items-center justify-center gap-1">
+                                      <button onClick={(e) => { e.stopPropagation(); handleEditarProveedor(cp); }} className="text-indigo-600 hover:text-indigo-800" title="Editar">
+                                        <PencilIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button onClick={(e) => { e.stopPropagation(); handleEliminarProveedor(cp.id); }} className="text-red-500 hover:text-red-700" title="Eliminar">
+                                        <TrashIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                      {cp.documentoUrl && (
+                                        <a href={cp.documentoUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-700" onClick={e => e.stopPropagation()}>
+                                          <EyeIcon className="w-3.5 h-3.5" />
+                                        </a>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="text-xs text-gray-400 italic">No hay contratos de proveedor vinculados. Añade uno para controlar costes y margen.</p>
+                          )}
+                        </div>
+
                         {/* Botones editar/eliminar en el detalle */}
                         <div className="mt-4 flex gap-2 border-t pt-3">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleEditar(c); }}
-                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); handleEditar(c); }} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1">
                             <PencilIcon className="w-3 h-3" />
                             Editar contrato
                           </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }}
-                            className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 inline-flex items-center gap-1"
-                          >
+                          <button onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }} className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 inline-flex items-center gap-1">
                             <TrashIcon className="w-3 h-3" />
                             Eliminar
                           </button>
@@ -457,30 +720,27 @@ export default function DraxtonContratosPage() {
                     </tr>
                   )}
                 </Fragment>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal Nuevo/Editar Contrato */}
+      {/* Modal Nuevo/Editar Contrato Cliente */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Editar Contrato' : 'Nuevo Contrato'}</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Editar Contrato' : 'Nuevo Contrato Cliente'}</h2>
               <button onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); setEditingId(null); }}>
                 <XMarkIcon className="w-5 h-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
 
-            {/* Upload PDF - con Drag & Drop */}
+            {/* Upload PDF */}
             <div
               className={`mb-6 p-4 border-2 border-dashed rounded-lg transition-colors ${dragActive ? 'border-indigo-600 bg-indigo-100' : 'border-indigo-300 bg-indigo-50'}`}
-              onDragEnter={handleDrag}
-              onDragOver={handleDrag}
-              onDragLeave={handleDrag}
-              onDrop={handleDrop}
+              onDragEnter={handleDrag} onDragOver={handleDrag} onDragLeave={handleDrag} onDrop={handleDrop}
             >
               <div className="flex items-center gap-3">
                 <DocumentArrowUpIcon className="w-8 h-8 text-indigo-500" />
@@ -489,130 +749,63 @@ export default function DraxtonContratosPage() {
                   <p className="text-xs text-indigo-500">Se analizará automáticamente con IA para extraer los datos</p>
                 </div>
                 <label className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 cursor-pointer inline-flex items-center gap-2">
-                  {analizando ? (
-                    <>
-                      <ArrowPathIcon className="w-4 h-4 animate-spin" />
-                      Analizando...
-                    </>
-                  ) : (
-                    <>
-                      <PlusIcon className="w-4 h-4" />
-                      Seleccionar PDF
-                    </>
-                  )}
+                  {analizando ? (<><ArrowPathIcon className="w-4 h-4 animate-spin" />Analizando...</>) : (<><PlusIcon className="w-4 h-4" />Seleccionar PDF</>)}
                   <input type="file" accept=".pdf" className="hidden" onChange={handleFileChange} disabled={analizando} />
                 </label>
               </div>
-              {archivo && (
-                <p className="text-xs text-indigo-600 mt-2">📄 {archivo.name}</p>
-              )}
+              {archivo && <p className="text-xs text-indigo-600 mt-2">📄 {archivo.name}</p>}
             </div>
 
             {/* Formulario */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Título *</label>
-                <input
-                  type="text"
-                  value={form.titulo || ''}
-                  onChange={e => setForm({ ...form, titulo: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  placeholder="Ej: Contrato Servicios Internet Draxton 2025"
-                />
+                <input type="text" value={form.titulo || ''} onChange={e => setForm({ ...form, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Contrato Servicios Internet Draxton 2025" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
-                <select
-                  value={form.tipo || 'Servicios Internet'}
-                  onChange={e => setForm({ ...form, tipo: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                >
+                <select value={form.tipo || 'Servicios Internet'} onChange={e => setForm({ ...form, tipo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                   {TIPOS_CONTRATO.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
-                <select
-                  value={form.estado || 'Activo'}
-                  onChange={e => setForm({ ...form, estado: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                >
+                <select value={form.estado || 'Activo'} onChange={e => setForm({ ...form, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                   {ESTADOS.map(e => <option key={e} value={e}>{e}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Firma</label>
-                <input
-                  type="date"
-                  value={form.fechaFirma || ''}
-                  onChange={e => setForm({ ...form, fechaFirma: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="date" value={form.fechaFirma || ''} onChange={e => setForm({ ...form, fechaFirma: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Contrato</label>
-                <input
-                  type="date"
-                  value={form.fechaInicio || ''}
-                  onChange={e => setForm({ ...form, fechaInicio: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="date" value={form.fechaInicio || ''} onChange={e => setForm({ ...form, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Fin Contrato</label>
-                <input
-                  type="date"
-                  value={form.fechaFin || ''}
-                  onChange={e => setForm({ ...form, fechaFin: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="date" value={form.fechaFin || ''} onChange={e => setForm({ ...form, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Servicio Real</label>
-                <input
-                  type="date"
-                  value={form.fechaInicioServicio || ''}
-                  onChange={e => setForm({ ...form, fechaInicioServicio: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
-                <p className="text-[10px] text-gray-400 mt-1">Fecha real en que se activó el servicio (puede diferir de la fecha contractual)</p>
+                <input type="date" value={form.fechaInicioServicio || ''} onChange={e => setForm({ ...form, fechaInicioServicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                <p className="text-[10px] text-gray-400 mt-1">Fecha real en que se activó el servicio</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Permanencia (meses)</label>
-                <input
-                  type="number"
-                  value={form.permanenciaMeses || ''}
-                  onChange={e => setForm({ ...form, permanenciaMeses: parseInt(e.target.value) || null })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="number" value={form.permanenciaMeses || ''} onChange={e => setForm({ ...form, permanenciaMeses: parseInt(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Importe Mensual (€)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.importeMensual || ''}
-                  onChange={e => setForm({ ...form, importeMensual: parseFloat(e.target.value) || null })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="number" step="0.01" value={form.importeMensual || ''} onChange={e => setForm({ ...form, importeMensual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Importe Anual (€)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={form.importeAnual || ''}
-                  onChange={e => setForm({ ...form, importeAnual: parseFloat(e.target.value) || null })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                />
+                <input type="number" step="0.01" value={form.importeAnual || ''} onChange={e => setForm({ ...form, importeAnual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Forma de Pago</label>
-                <select
-                  value={form.formaPago || ''}
-                  onChange={e => setForm({ ...form, formaPago: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                >
+                <select value={form.formaPago || ''} onChange={e => setForm({ ...form, formaPago: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                   <option value="">Seleccionar...</option>
                   {FORMAS_PAGO.map(f => <option key={f} value={f} className="capitalize">{f}</option>)}
                 </select>
@@ -625,73 +818,36 @@ export default function DraxtonContratosPage() {
                     Sí
                   </label>
                   {form.prorrogaAutomatica && (
-                    <input
-                      type="text"
-                      value={form.plazoProrroga || ''}
-                      onChange={e => setForm({ ...form, plazoProrroga: e.target.value })}
-                      className="flex-1 px-3 py-1 border rounded-lg text-sm text-gray-900"
-                      placeholder="Ej: 1 año"
-                    />
+                    <input type="text" value={form.plazoProrroga || ''} onChange={e => setForm({ ...form, plazoProrroga: e.target.value })} className="flex-1 px-3 py-1 border rounded-lg text-sm text-gray-900" placeholder="Ej: 1 año" />
                   )}
                 </div>
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Contacto Cliente</label>
-                <input
-                  type="text"
-                  value={form.contactoCliente || ''}
-                  onChange={e => setForm({ ...form, contactoCliente: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  placeholder="Nombre - email - teléfono"
-                />
+                <input type="text" value={form.contactoCliente || ''} onChange={e => setForm({ ...form, contactoCliente: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Nombre - email - teléfono" />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Contacto Proveedor</label>
-                <input
-                  type="text"
-                  value={form.contactoProveedor || ''}
-                  onChange={e => setForm({ ...form, contactoProveedor: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  placeholder="Nombre - email - teléfono"
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1">Contacto Proveedor (nuestro)</label>
+                <input type="text" value={form.contactoProveedor || ''} onChange={e => setForm({ ...form, contactoProveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Nombre - email - teléfono" />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Notas / Resumen</label>
-                <textarea
-                  value={form.notas || ''}
-                  onChange={e => setForm({ ...form, notas: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  rows={3}
-                  placeholder="Resumen de las condiciones principales..."
-                />
+                <textarea value={form.notas || ''} onChange={e => setForm({ ...form, notas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={3} placeholder="Resumen de las condiciones principales..." />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Condiciones Especiales</label>
-                <textarea
-                  value={form.condicionesEspeciales || ''}
-                  onChange={e => setForm({ ...form, condicionesEspeciales: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  rows={2}
-                  placeholder="Penalizaciones, exclusiones, cláusulas relevantes..."
-                />
+                <textarea value={form.condicionesEspeciales || ''} onChange={e => setForm({ ...form, condicionesEspeciales: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={2} placeholder="Penalizaciones, exclusiones, cláusulas relevantes..." />
               </div>
               <div className="md:col-span-2">
                 <label className="block text-xs font-medium text-gray-600 mb-1">URL Documento (SharePoint/OneDrive)</label>
-                <input
-                  type="url"
-                  value={form.documentoUrl || ''}
-                  onChange={e => setForm({ ...form, documentoUrl: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
-                  placeholder="Pega aquí el enlace de SharePoint del contrato..."
-                />
-                <p className="text-[10px] text-gray-400 mt-1">Copia el enlace del archivo o carpeta en OneDrive/SharePoint</p>
+                <input type="url" value={form.documentoUrl || ''} onChange={e => setForm({ ...form, documentoUrl: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Pega aquí el enlace de SharePoint del contrato..." />
               </div>
             </div>
 
-            {/* Servicios extraídos - con fecha inicio por servicio */}
+            {/* Servicios extraídos */}
             {form.serviciosJson && Array.isArray(form.serviciosJson) && form.serviciosJson.length > 0 && (
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-xs font-medium text-green-700 mb-2">✓ {form.serviciosJson.length} servicios detectados en el contrato</p>
+                <p className="text-xs font-medium text-green-700 mb-2">✓ {form.serviciosJson.length} servicios detectados</p>
                 <table className="w-full text-xs">
                   <thead className="bg-green-100">
                     <tr>
@@ -709,38 +865,192 @@ export default function DraxtonContratosPage() {
                         <td className="px-2 py-1">{s.servicio}</td>
                         <td className="px-2 py-1">{s.velocidad}</td>
                         <td className="px-2 py-1">
-                          <input
-                            type="date"
-                            value={s.fechaInicioServicio || ''}
-                            onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)}
-                            className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28"
-                            title="Fecha inicio servicio específica (opcional, si difiere de la global)"
-                          />
+                          <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
                         </td>
-                        <td className="px-2 py-1 text-right">{s.precioMensual?.toFixed(2)}€</td>
+                        <td className="px-2 py-1 text-right">{typeof s.precioMensual === 'number' ? s.precioMensual.toFixed(2) : s.precioMensual}€</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="text-[10px] text-gray-500 mt-2">Si un servicio no tiene fecha propia, se usa la fecha global de inicio de servicio.</p>
               </div>
             )}
 
             {/* Botones */}
             <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-              <button
-                onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); setEditingId(null); }}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-              >
+              <button onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); setEditingId(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
                 Cancelar
               </button>
-              <button
-                onClick={handleGuardar}
-                disabled={guardando || !form.titulo}
-                className="px-6 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2"
-              >
+              <button onClick={handleGuardar} disabled={guardando || !form.titulo} className="px-6 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2">
                 {guardando ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : null}
                 {editingId ? 'Guardar Cambios' : 'Guardar Contrato'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nuevo/Editar Contrato Proveedor */}
+      {showProveedorForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-lg font-semibold text-gray-900">
+                <span className="text-purple-600">{editingProveedorId ? 'Editar' : 'Nuevo'} Contrato Proveedor</span>
+              </h2>
+              <button onClick={() => { setShowProveedorForm(false); setFormProv({ proveedor: '', titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivoProv(null); setEditingProveedorId(null); }}>
+                <XMarkIcon className="w-5 h-5 text-gray-400 hover:text-gray-600" />
+              </button>
+            </div>
+
+            {/* Upload PDF Proveedor */}
+            <div
+              className={`mb-6 p-4 border-2 border-dashed rounded-lg transition-colors ${dragActiveProv ? 'border-purple-600 bg-purple-100' : 'border-purple-300 bg-purple-50'}`}
+              onDragEnter={handleDragProv} onDragOver={handleDragProv} onDragLeave={handleDragProv} onDrop={handleDropProv}
+            >
+              <div className="flex items-center gap-3">
+                <DocumentArrowUpIcon className="w-8 h-8 text-purple-500" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-purple-700">{dragActiveProv ? 'Suelta el PDF aquí' : 'Sube o arrastra el PDF del contrato de proveedor'}</p>
+                  <p className="text-xs text-purple-500">Se analizará con IA para extraer datos del proveedor</p>
+                </div>
+                <label className="px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 cursor-pointer inline-flex items-center gap-2">
+                  {analizandoProveedor ? (<><ArrowPathIcon className="w-4 h-4 animate-spin" />Analizando...</>) : (<><PlusIcon className="w-4 h-4" />Seleccionar PDF</>)}
+                  <input type="file" accept=".pdf" className="hidden" onChange={handleFileChangeProv} disabled={analizandoProveedor} />
+                </label>
+              </div>
+              {archivoProv && <p className="text-xs text-purple-600 mt-2">📄 {archivoProv.name}</p>}
+            </div>
+
+            {/* Formulario Proveedor */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor *</label>
+                <input type="text" value={formProv.proveedor || ''} onChange={e => setFormProv({ ...formProv, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Adamo, Lyntia, Avatel..." />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">CIF Proveedor</label>
+                <input type="text" value={formProv.cifProveedor || ''} onChange={e => setFormProv({ ...formProv, cifProveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="B12345678" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Título *</label>
+                <input type="text" value={formProv.titulo || ''} onChange={e => setFormProv({ ...formProv, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Contrato Fibra Barcelona - Adamo" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+                <select value={formProv.tipo || 'Servicios Internet'} onChange={e => setFormProv({ ...formProv, tipo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                  {TIPOS_CONTRATO.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
+                <select value={formProv.estado || 'Activo'} onChange={e => setFormProv({ ...formProv, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                  {ESTADOS.map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Firma</label>
+                <input type="date" value={formProv.fechaFirma || ''} onChange={e => setFormProv({ ...formProv, fechaFirma: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                <input type="date" value={formProv.fechaInicio || ''} onChange={e => setFormProv({ ...formProv, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                <input type="date" value={formProv.fechaFin || ''} onChange={e => setFormProv({ ...formProv, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Servicio Real</label>
+                <input type="date" value={formProv.fechaInicioServicio || ''} onChange={e => setFormProv({ ...formProv, fechaInicioServicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Permanencia (meses)</label>
+                <input type="number" value={formProv.permanenciaMeses || ''} onChange={e => setFormProv({ ...formProv, permanenciaMeses: parseInt(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Importe Mensual (€)</label>
+                <input type="number" step="0.01" value={formProv.importeMensual || ''} onChange={e => setFormProv({ ...formProv, importeMensual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Importe Anual (€)</label>
+                <input type="number" step="0.01" value={formProv.importeAnual || ''} onChange={e => setFormProv({ ...formProv, importeAnual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Forma de Pago</label>
+                <select value={formProv.formaPago || ''} onChange={e => setFormProv({ ...formProv, formaPago: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                  <option value="">Seleccionar...</option>
+                  {FORMAS_PAGO.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Prórroga Automática</label>
+                <div className="flex items-center gap-4 mt-2">
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={formProv.prorrogaAutomatica ?? true} onChange={e => setFormProv({ ...formProv, prorrogaAutomatica: e.target.checked })} className="rounded" />
+                    Sí
+                  </label>
+                  {formProv.prorrogaAutomatica && (
+                    <input type="text" value={formProv.plazoProrroga || ''} onChange={e => setFormProv({ ...formProv, plazoProrroga: e.target.value })} className="flex-1 px-3 py-1 border rounded-lg text-sm text-gray-900" placeholder="Ej: 1 año" />
+                  )}
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Contacto Proveedor</label>
+                <input type="text" value={formProv.contactoProveedor || ''} onChange={e => setFormProv({ ...formProv, contactoProveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Nombre - email - teléfono" />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Notas</label>
+                <textarea value={formProv.notas || ''} onChange={e => setFormProv({ ...formProv, notas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={2} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Condiciones Especiales</label>
+                <textarea value={formProv.condicionesEspeciales || ''} onChange={e => setFormProv({ ...formProv, condicionesEspeciales: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={2} />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">URL Documento</label>
+                <input type="url" value={formProv.documentoUrl || ''} onChange={e => setFormProv({ ...formProv, documentoUrl: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Enlace SharePoint/OneDrive..." />
+              </div>
+            </div>
+
+            {/* Servicios extraídos proveedor */}
+            {formProv.serviciosJson && Array.isArray(formProv.serviciosJson) && formProv.serviciosJson.length > 0 && (
+              <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                <p className="text-xs font-medium text-purple-700 mb-2">✓ {formProv.serviciosJson.length} servicios detectados</p>
+                <table className="w-full text-xs">
+                  <thead className="bg-purple-100">
+                    <tr>
+                      <th className="text-left px-2 py-1">Ubicación</th>
+                      <th className="text-left px-2 py-1">Servicio</th>
+                      <th className="text-left px-2 py-1">Velocidad</th>
+                      <th className="text-left px-2 py-1">Inicio</th>
+                      <th className="text-right px-2 py-1">€/mes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(formProv.serviciosJson as Servicio[]).map((s, i) => (
+                      <tr key={i} className="border-t border-purple-100">
+                        <td className="px-2 py-1">{s.ubicacion}</td>
+                        <td className="px-2 py-1">{s.servicio}</td>
+                        <td className="px-2 py-1">{s.velocidad}</td>
+                        <td className="px-2 py-1">
+                          <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicioProv(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
+                        </td>
+                        <td className="px-2 py-1 text-right">{typeof s.precioMensual === 'number' ? s.precioMensual.toFixed(2) : s.precioMensual}€</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Botones */}
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
+              <button onClick={() => { setShowProveedorForm(false); setFormProv({ proveedor: '', titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivoProv(null); setEditingProveedorId(null); }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+                Cancelar
+              </button>
+              <button onClick={handleGuardarProveedor} disabled={guardando || !formProv.proveedor || !formProv.titulo} className="px-6 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 inline-flex items-center gap-2">
+                {guardando ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : null}
+                {editingProveedorId ? 'Guardar Cambios' : 'Guardar Contrato Proveedor'}
               </button>
             </div>
           </div>

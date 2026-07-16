@@ -1867,6 +1867,38 @@ model ContratoDraxton {
   documentoNombre       String?  @map("documento_nombre")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
+  contratosProveedor    ContratoProveedorDraxton[]
 
   @@map("contratos_draxton")
+}
+
+model ContratoProveedorDraxton {
+  id                    String   @id @default(uuid())
+  contratoClienteId     String   @map("contrato_cliente_id")
+  contratoCliente       ContratoDraxton @relation(fields: [contratoClienteId], references: [id], onDelete: Cascade)
+  proveedor             String
+  cifProveedor          String?  @map("cif_proveedor")
+  titulo                String
+  tipo                  String   @default("Servicios Internet")
+  fechaFirma            DateTime? @map("fecha_firma") @db.Date
+  fechaInicio           DateTime? @map("fecha_inicio") @db.Date
+  fechaFin              DateTime? @map("fecha_fin") @db.Date
+  fechaInicioServicio   DateTime? @map("fecha_inicio_servicio") @db.Date
+  permanenciaMeses      Int?     @map("permanencia_meses")
+  prorrogaAutomatica    Boolean  @default(true) @map("prorroga_automatica")
+  plazoProrroga         String?  @map("plazo_prorroga")
+  importeMensual        Decimal? @map("importe_mensual") @db.Decimal(12, 2)
+  importeAnual          Decimal? @map("importe_anual") @db.Decimal(12, 2)
+  formaPago             String?  @map("forma_pago")
+  estado                String   @default("Activo")
+  contactoProveedor     String?  @map("contacto_proveedor")
+  notas                 String?
+  condicionesEspeciales String?  @map("condiciones_especiales")
+  serviciosJson         Json?    @map("servicios_json")
+  documentoUrl          String?  @map("documento_url")
+  documentoNombre       String?  @map("documento_nombre")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("contratos_proveedor_draxton")
 }
