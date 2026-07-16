@@ -67,14 +67,36 @@ export default function DraxtonContratosPage() {
     setLoading(false);
   }
 
+  async function extraerTextoPDF(file: File): Promise<string> {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfjsLib = await import('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let texto = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item: any) => item.str).join(' ');
+      texto += pageText + '\n';
+    }
+    return texto;
+  }
+
   async function analizarPDF(file: File) {
     setAnalizando(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      // Extraer texto del PDF en el navegador
+      const texto = await extraerTextoPDF(file);
+      if (!texto || texto.trim().length < 50) {
+        alert('No se pudo extraer texto del PDF. Puede ser un escaneo/imagen sin texto seleccionable.');
+        setAnalizando(false);
+        return;
+      }
+      // Enviar solo el texto al servidor
       const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos/analizar-pdf', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto, nombreArchivo: file.name }),
       });
       const data = await res.json();
       if (data.success) {
@@ -85,8 +107,8 @@ export default function DraxtonContratosPage() {
       } else {
         alert('Error al analizar: ' + (data.error || 'Error desconocido'));
       }
-    } catch (err) {
-      alert('Error de conexión al analizar el PDF');
+    } catch (err: any) {
+      alert('Error al analizar el PDF: ' + (err?.message || 'Error desconocido'));
     }
     setAnalizando(false);
   }
