@@ -21,7 +21,19 @@ export async function POST(req: NextRequest) {
 
     const textoLimitado = texto.substring(0, 80000);
 
-    const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones con proveedores/operadores mayoristas. Analiza el texto del contrato proporcionado y extrae los datos estructurados. Este es un contrato que Internet Operadores firma CON UN PROVEEDOR (operador mayorista como Adamo, Lyntia, Avatel, etc.) para poder dar servicio a su cliente final. Responde SOLO con un JSON válido (sin markdown, sin backticks) con la siguiente estructura:
+    const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones con proveedores/operadores mayoristas. Analiza el texto del contrato proporcionado y extrae los datos estructurados. Este es un contrato que Internet Operadores firma CON UN PROVEEDOR (operador mayorista como Telefónica, Adamo, Lyntia, Avatel, etc.) para poder dar servicio a su cliente final. 
+
+REGLAS DE EXTRACCIÓN ESPECÍFICAS:
+1. "proveedor": Busca el nombre de la empresa que emite la oferta (ej. "Telefónica Empresas", "Adamo", etc.).
+2. "titulo": Crea un título descriptivo basado en el objeto del contrato (ej. "Acceso a Internet Internacional").
+3. "fechaFirma": Busca la fecha de la oferta o firma (suele estar en la portada o al final).
+4. "permanenciaMeses": Busca "Periodo de contratación", "permanencia" o "duración" (ej. "36 meses" -> 36).
+5. "servicios": Busca tablas de "Valoración económica", "Desglose económico" o "Características de las conexiones". Extrae cada sede/ubicación, el servicio (ej. "Ethernet 100Mb"), la velocidad y el precio mensual ("Mes" o "Cuota mensual").
+6. "importeMensual": Suma el total de las cuotas mensuales de todos los servicios.
+7. "notas": Resume brevemente el objeto del contrato y las sedes involucradas.
+8. "condicionesEspeciales": Extrae condiciones de facturación, penalizaciones, o plazos de provisión.
+
+Responde SOLO con un JSON válido (sin markdown, sin backticks) con la siguiente estructura:
 {
   "proveedor": "Nombre del proveedor/operador mayorista",
   "cifProveedor": "CIF/NIF del proveedor o null",
