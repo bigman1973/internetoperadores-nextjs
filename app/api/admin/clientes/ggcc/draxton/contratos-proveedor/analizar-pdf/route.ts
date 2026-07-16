@@ -66,12 +66,13 @@ export async function POST(req: NextRequest) {
 
     // Si tenemos imágenes, usar Vision
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
-      // Construir mensajes con imágenes para GPT-4o Vision
-      const imageContents: any[] = imagenes.map((img: string) => ({
+      // Construir mensajes con imágenes para GPT-4o Vision (máximo 6 imágenes)
+      const imagenesLimitadas = imagenes.slice(0, 6);
+      const imageContents: any[] = imagenesLimitadas.map((img: string) => ({
         type: 'image_url',
         image_url: {
           url: `data:image/jpeg;base64,${img}`,
-          detail: 'high',
+          detail: 'auto',
         },
       }));
 

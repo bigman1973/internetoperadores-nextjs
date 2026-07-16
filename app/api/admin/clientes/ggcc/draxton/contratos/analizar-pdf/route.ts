@@ -56,11 +56,13 @@ export async function POST(req: NextRequest) {
 
     // Si tenemos imágenes, usar Vision
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
-      const imageContents: any[] = imagenes.map((img: string) => ({
+      // Máximo 6 imágenes para evitar rechazo
+      const imagenesLimitadas = imagenes.slice(0, 6);
+      const imageContents: any[] = imagenesLimitadas.map((img: string) => ({
         type: 'image_url',
         image_url: {
           url: `data:image/jpeg;base64,${img}`,
-          detail: 'high',
+          detail: 'auto',
         },
       }));
 

@@ -162,17 +162,26 @@ export default function DraxtonContratosPage() {
     pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const images: string[] = [];
-    const maxPages = Math.min(pdf.numPages, 8); // Limitar a 8 páginas para no exceder body limit de Vercel
-    for (let i = 1; i <= maxPages; i++) {
-      const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 1.2 }); // Scale 1.2 para balance calidad/tamaño
+    // Seleccionar páginas clave: primeras 5 + páginas intermedias con tablas económicas
+    const totalPages = pdf.numPages;
+    const pagesToRender: number[] = [];
+    // Siempre las primeras 5 (portada + datos principales)
+    for (let i = 1; i <= Math.min(5, totalPages); i++) pagesToRender.push(i);
+    // Si hay más de 5 páginas, añadir páginas 6-10 (donde suelen estar las tablas económicas)
+    if (totalPages > 5) {
+      for (let i = 6; i <= Math.min(10, totalPages); i++) pagesToRender.push(i);
+    }
+    
+    for (const pageNum of pagesToRender) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.0 });
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext('2d')!;
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // Calidad 0.5 para reducir tamaño
-      images.push(dataUrl.split(',')[1]); // Solo el base64 sin el prefijo
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.4); // Calidad 0.4 para reducir tamaño
+      images.push(dataUrl.split(',')[1]);
     }
     return images;
   }
@@ -958,13 +967,21 @@ export default function DraxtonContratosPage() {
                   <tbody>
                     {(form.serviciosJson as Servicio[]).map((s, i) => (
                       <tr key={i} className="border-t border-green-100">
-                        <td className="px-2 py-1">{s.ubicacion}</td>
-                        <td className="px-2 py-1">{s.servicio}</td>
-                        <td className="px-2 py-1">{s.velocidad}</td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.ubicacion || ''} onChange={e => updateServicio(i, 'ubicacion', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-full" placeholder="Ubicación" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.servicio || ''} onChange={e => updateServicio(i, 'servicio', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-full" placeholder="Servicio" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.velocidad || ''} onChange={e => updateServicio(i, 'velocidad', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20" placeholder="Vel." />
+                        </td>
                         <td className="px-2 py-1">
                           <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
                         </td>
-                        <td className="px-2 py-1 text-right">{typeof s.precioMensual === 'number' ? s.precioMensual.toFixed(2) : s.precioMensual}€</td>
+                        <td className="px-2 py-1 text-right">
+                          <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicio(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1126,13 +1143,21 @@ export default function DraxtonContratosPage() {
                   <tbody>
                     {(formProv.serviciosJson as Servicio[]).map((s, i) => (
                       <tr key={i} className="border-t border-purple-100">
-                        <td className="px-2 py-1">{s.ubicacion}</td>
-                        <td className="px-2 py-1">{s.servicio}</td>
-                        <td className="px-2 py-1">{s.velocidad}</td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.ubicacion || ''} onChange={e => updateServicioProv(i, 'ubicacion', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-full" placeholder="Ubicación" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.servicio || ''} onChange={e => updateServicioProv(i, 'servicio', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-full" placeholder="Servicio" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input type="text" value={s.velocidad || ''} onChange={e => updateServicioProv(i, 'velocidad', e.target.value)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20" placeholder="Vel." />
+                        </td>
                         <td className="px-2 py-1">
                           <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicioProv(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
                         </td>
-                        <td className="px-2 py-1 text-right">{typeof s.precioMensual === 'number' ? s.precioMensual.toFixed(2) : s.precioMensual}€</td>
+                        <td className="px-2 py-1 text-right">
+                          <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicioProv(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
