@@ -1845,6 +1845,7 @@ model ImportacionExtracto {
 
 model ContratoDraxton {
   id                    String   @id @default(uuid())
+  codigoContrato        String?  @unique @map("codigo_contrato")
   titulo                String
   tipo                  String   @default("Servicios Internet")
   fechaFirma            DateTime? @map("fecha_firma") @db.Date
@@ -1874,6 +1875,7 @@ model ContratoDraxton {
 
 model ContratoProveedorDraxton {
   id                    String   @id @default(uuid())
+  codigoContrato        String?  @unique @map("codigo_contrato")
   contratoClienteId     String   @map("contrato_cliente_id")
   contratoCliente       ContratoDraxton @relation(fields: [contratoClienteId], references: [id], onDelete: Cascade)
   proveedor             String

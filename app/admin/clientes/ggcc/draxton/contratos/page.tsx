@@ -14,6 +14,7 @@ interface Servicio {
 
 interface ContratoProveedor {
   id: string;
+  codigoContrato: string | null;
   contratoClienteId: string;
   proveedor: string;
   cifProveedor: string | null;
@@ -40,6 +41,7 @@ interface ContratoProveedor {
 
 interface Contrato {
   id: string;
+  codigoContrato: string | null;
   titulo: string;
   tipo: string;
   fechaFirma: string | null;
@@ -80,15 +82,14 @@ function calcularMesesEnAnio(fechaInicioStr: string | null, fechaFinStr: string 
 
   if (desde > hasta) return 0;
 
-  // Calcular meses con precisión: diferencia de meses + fracción de días
+  // Calcular meses completos
   let meses = (hasta.getFullYear() - desde.getFullYear()) * 12 + (hasta.getMonth() - desde.getMonth());
-  // Ajustar por días parciales del mes
-  const diasDesde = desde.getDate();
-  const diasHasta = hasta.getDate();
-  const diasEnMesFin = new Date(hasta.getFullYear(), hasta.getMonth() + 1, 0).getDate();
-  meses += (diasHasta - diasDesde + 1) / diasEnMesFin;
+  // Si el día de inicio es 1, contar el mes completo; si no, solo si hay suficientes días
+  if (hasta.getDate() >= desde.getDate() - 1) {
+    meses += 1; // Contar el mes parcial como completo si cubre la mayoría
+  }
   
-  return Math.min(12, Math.max(0, Math.round(meses * 100) / 100));
+  return Math.min(12, Math.max(0, Math.floor(meses)));
 }
 
 export default function DraxtonContratosPage() {
@@ -460,11 +461,11 @@ export default function DraxtonContratosPage() {
       prorrogable: c.prorrogaAutomatica,
       plazoProrroga: plazo,
       importeProrroga: mensual * mesesProrr,
-      importeAnio1: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual * 100) / 100 : 0,
+      importeAnio1: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual : 0,
       mesesAnio1: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) : 0,
-      importeAnio2: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) * mensual * 100) / 100 : 0,
+      importeAnio2: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) * mensual : 0,
       mesesAnio2: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) : 0,
-      importeAnio3: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 2) * mensual * 100) / 100 : 0,
+      importeAnio3: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 2) * mensual : 0,
       mesesAnio3: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 2) : 0,
     };
   });
@@ -508,7 +509,7 @@ export default function DraxtonContratosPage() {
       {activos.length > 0 && (
         <div className="space-y-3">
           {/* Totales */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contratos</div>
               <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(totalValorContrato)}</div>
@@ -517,17 +518,22 @@ export default function DraxtonContratosPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio1)}</div>
-              <p className="text-[10px] text-gray-400">Según fecha inicio servicio</p>
+              <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio1, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 1}</div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio2)}</div>
-              <p className="text-[10px] text-gray-400">Todos los contratos</p>
+              <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio2, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 2}</div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio3)}</div>
-              <p className="text-[10px] text-gray-400">Todos los contratos</p>
+              <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio3, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Total Costes/mes</div>
+              <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
+              <p className="text-[10px] text-gray-400">Proveedores activos</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Margen Mensual</div>
@@ -543,44 +549,52 @@ export default function DraxtonContratosPage() {
                   <tr>
                     <th className="text-left px-4 py-2 font-medium text-gray-600">Contrato</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">€/mes</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">Coste/mes</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">Margen</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
-                    <th className="text-center px-4 py-2 font-medium text-gray-600">Prórroga</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 1}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 2}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {datosContratos.map(d => (
+                  {datosContratos.map(d => {
+                    const contrato = activos.find(c => c.id === d.id);
+                    const costeContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
+                    const margenContrato = d.mensual - costeContrato;
+                    const margenPct = d.mensual > 0 ? ((margenContrato / d.mensual) * 100).toFixed(1) : '0';
+                    return (
                     <tr key={d.id}>
                       <td className="px-4 py-2 text-gray-900 font-medium max-w-[200px] truncate">{d.titulo}</td>
                       <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(d.mensual)}</td>
-                      <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(d.valorTotal)}</td>
-                      <td className="px-4 py-2 text-center">
-                        {d.prorrogable ? (
-                          <span className="text-green-700">{d.plazoProrroga || 'Sí'} ({formatCurrency(d.importeProrroga)})</span>
-                        ) : <span className="text-gray-400">No</span>}
+                      <td className="px-4 py-2 text-right text-red-600">{formatCurrency(costeContrato)}</td>
+                      <td className="px-4 py-2 text-right text-green-600 font-medium">
+                        {formatCurrency(margenContrato)}
+                        <span className="text-[9px] text-gray-400 block">{margenPct}%</span>
                       </td>
+                      <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(d.valorTotal)}</td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
                         {formatCurrency(d.importeAnio1)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio1 * 10) / 10} meses</span>
+                        <span className="text-[9px] text-gray-400 block">{d.mesesAnio1} meses</span>
                       </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
                         {formatCurrency(d.importeAnio2)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio2 * 10) / 10} meses</span>
+                        <span className="text-[9px] text-gray-400 block">{d.mesesAnio2} meses</span>
                       </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
                         {formatCurrency(d.importeAnio3)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio3 * 10) / 10} meses</span>
+                        <span className="text-[9px] text-gray-400 block">{d.mesesAnio3} meses</span>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {datosContratos.length > 1 && (
                     <tr className="bg-gray-50 font-bold">
                       <td className="px-4 py-2 text-gray-900">TOTAL</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores)}</td>
+                      <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores)}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
-                      <td className="px-4 py-2"></td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio3)}</td>
@@ -602,6 +616,7 @@ export default function DraxtonContratosPage() {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">ID</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contrato</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Inicio Servicio</th>
@@ -615,9 +630,9 @@ export default function DraxtonContratosPage() {
             </thead>
             <tbody className="divide-y">
               {loading ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
               ) : contratos.length === 0 ? (
-                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados.</td></tr>
+                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados.</td></tr>
               ) : contratos.map(c => {
                 const mensual = Number(c.importeMensual) || 0;
                 const perm = c.permanenciaMeses || 0;
@@ -626,6 +641,7 @@ export default function DraxtonContratosPage() {
                 return (
                 <Fragment key={c.id}>
                   <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
+                    <td className="px-4 py-3 text-xs font-mono text-indigo-600">{c.codigoContrato || '—'}</td>
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-[250px] truncate">{c.titulo}</td>
                     <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
                     <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio || c.fechaInicio)}</td>
@@ -863,7 +879,11 @@ export default function DraxtonContratosPage() {
 
             {/* Formulario */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="md:col-span-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID Contrato</label>
+                <input type="text" value={form.codigoContrato || ''} onChange={e => setForm({ ...form, codigoContrato: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 font-mono" placeholder="Ej: DRX-CLI-001" />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Título *</label>
                 <input type="text" value={form.titulo || ''} onChange={e => setForm({ ...form, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Contrato Servicios Internet Draxton 2025" />
               </div>
@@ -1069,7 +1089,11 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">CIF Proveedor</label>
                 <input type="text" value={formProv.cifProveedor || ''} onChange={e => setFormProv({ ...formProv, cifProveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="B12345678" />
               </div>
-              <div className="md:col-span-2">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">ID Contrato</label>
+                <input type="text" value={formProv.codigoContrato || ''} onChange={e => setFormProv({ ...formProv, codigoContrato: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 font-mono" placeholder="Ej: DRX-PRV-001" />
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Título *</label>
                 <input type="text" value={formProv.titulo || ''} onChange={e => setFormProv({ ...formProv, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Contrato Fibra Barcelona - Adamo" />
               </div>

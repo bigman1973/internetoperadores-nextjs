@@ -19,6 +19,7 @@ export async function POST(req: NextRequest) {
 
     const contrato = await prisma.contratoDraxton.create({
       data: {
+        codigoContrato: body.codigoContrato || null,
         titulo: body.titulo,
         tipo: body.tipo || 'Servicios Internet',
         fechaFirma: body.fechaFirma ? new Date(body.fechaFirma) : null,
@@ -60,6 +61,7 @@ export async function PUT(req: NextRequest) {
     // Solo actualizar campos que se envían explícitamente (actualización parcial)
     const data: any = {};
 
+    if (fields.codigoContrato !== undefined) data.codigoContrato = fields.codigoContrato || null;
     if (fields.titulo !== undefined) data.titulo = fields.titulo;
     if (fields.tipo !== undefined) data.tipo = fields.tipo;
     if (fields.fechaFirma !== undefined) data.fechaFirma = fields.fechaFirma ? new Date(fields.fechaFirma) : null;

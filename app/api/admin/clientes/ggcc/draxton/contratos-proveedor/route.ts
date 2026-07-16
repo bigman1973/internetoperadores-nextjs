@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
 
     const contrato = await prisma.contratoProveedorDraxton.create({
       data: {
+        codigoContrato: body.codigoContrato || null,
         contratoClienteId: body.contratoClienteId,
         proveedor: body.proveedor,
         cifProveedor: body.cifProveedor || null,
@@ -79,6 +80,7 @@ export async function PUT(req: NextRequest) {
 
     const data: any = {};
 
+    if (fields.codigoContrato !== undefined) data.codigoContrato = fields.codigoContrato || null;
     if (fields.proveedor !== undefined) data.proveedor = fields.proveedor;
     if (fields.cifProveedor !== undefined) data.cifProveedor = fields.cifProveedor || null;
     if (fields.titulo !== undefined) data.titulo = fields.titulo;
