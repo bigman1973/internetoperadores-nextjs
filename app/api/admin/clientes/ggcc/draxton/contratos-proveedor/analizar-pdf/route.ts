@@ -37,18 +37,22 @@ export async function POST(req: NextRequest) {
 
     // Si tenemos imágenes, usar Vision
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
-      // Enviar máximo 3 imágenes para evitar filtros de contenido
-      const imagenesLimitadas = imagenes.slice(0, 3);
+      // Seleccionar páginas estratégicas: primera (portada/datos) + mitad del doc (tablas económicas)
+      const total = imagenes.length;
+      const selectedIndexes: number[] = [0]; // Siempre la primera página
+      if (total > 4) selectedIndexes.push(Math.floor(total * 0.6)); // Página al 60% (tablas económicas)
+      else if (total > 1) selectedIndexes.push(total - 1); // Última si es corto
+      const imagenesLimitadas = selectedIndexes.map(i => imagenes[i]);
       const imageContents: any[] = imagenesLimitadas.map((img: string) => ({
         type: 'image_url',
         image_url: {
           url: `data:image/jpeg;base64,${img}`,
-          detail: 'low',
+          detail: 'high',
         },
       }));
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         messages: [
           { role: 'user', content: [
             { type: 'text', text: systemPrompt + '\n\nExtrae los datos de este documento comercial.' + (texto && texto.trim().length > 50 ? '\n\nTexto del documento:\n' + texto.substring(0, 10000) : '') },
@@ -94,7 +98,7 @@ export async function POST(req: NextRequest) {
     const textoLimitado = texto.substring(0, 80000);
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: [
         { role: 'user', content: systemPrompt + '\n\nExtrae los datos de este documento comercial:\n\n' + textoLimitado },
       ],

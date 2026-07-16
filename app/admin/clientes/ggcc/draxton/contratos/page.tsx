@@ -162,25 +162,20 @@ export default function DraxtonContratosPage() {
     pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const images: string[] = [];
-    // Seleccionar páginas clave: primeras 5 + páginas intermedias con tablas económicas
     const totalPages = pdf.numPages;
-    const pagesToRender: number[] = [];
-    // Siempre las primeras 5 (portada + datos principales)
-    for (let i = 1; i <= Math.min(5, totalPages); i++) pagesToRender.push(i);
-    // Si hay más de 5 páginas, añadir páginas 6-10 (donde suelen estar las tablas económicas)
-    if (totalPages > 5) {
-      for (let i = 6; i <= Math.min(10, totalPages); i++) pagesToRender.push(i);
-    }
+    // Estrategia: renderizar TODAS las páginas a baja calidad para que el backend elija las mejores
+    // El backend limitará cuántas envía a GPT
+    const maxPages = Math.min(totalPages, 12);
     
-    for (const pageNum of pagesToRender) {
-      const page = await pdf.getPage(pageNum);
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
       const viewport = page.getViewport({ scale: 1.0 });
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext('2d')!;
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.4); // Calidad 0.4 para reducir tamaño
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
       images.push(dataUrl.split(',')[1]);
     }
     return images;
