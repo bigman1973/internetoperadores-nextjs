@@ -27,8 +27,9 @@ export async function POST(req: NextRequest) {
   "titulo": "Título descriptivo del contrato",
   "tipo": "Servicios Internet|Mantenimiento|Guardias|Consultoría|Otro",
   "fechaFirma": "YYYY-MM-DD o null",
-  "fechaInicio": "YYYY-MM-DD o null",
+  "fechaInicio": "YYYY-MM-DD o null (fecha inicio contractual)",
   "fechaFin": "YYYY-MM-DD o null",
+  "fechaInicioServicio": "YYYY-MM-DD o null (fecha real en que se activó el servicio, puede diferir de fechaInicio contractual)",
   "permanenciaMeses": número o null,
   "prorrogaAutomatica": true/false,
   "plazoProrroga": "descripción del plazo de prórroga o null",
@@ -44,12 +45,13 @@ export async function POST(req: NextRequest) {
       "ubicacion": "Ciudad/Planta",
       "servicio": "Descripción del servicio",
       "velocidad": "Velocidad contratada",
-      "precioMensual": número
+      "precioMensual": número,
+      "fechaInicioServicio": "YYYY-MM-DD o null (si el servicio tiene fecha de inicio específica diferente a la global)"
     }
   ]
 }
 
-Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los servicios mensuales. Para importeAnual, multiplica por 12.`;
+Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los servicios mensuales. Para importeAnual, multiplica por 12. La fechaInicioServicio es la fecha REAL en que se activó el servicio (puede ser posterior a la fecha contractual por instalaciones, migraciones, etc.).`;
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -88,6 +90,7 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
         fechaFirma: datos.fechaFirma || null,
         fechaInicio: datos.fechaInicio || datos.fechaFirma || null,
         fechaFin: datos.fechaFin || null,
+        fechaInicioServicio: datos.fechaInicioServicio || null,
         permanenciaMeses: datos.permanenciaMeses || null,
         prorrogaAutomatica: datos.prorrogaAutomatica ?? true,
         plazoProrroga: datos.plazoProrroga || null,
@@ -98,7 +101,13 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
         contactoProveedor: datos.contactoProveedor || null,
         notas: datos.notas || null,
         condicionesEspeciales: datos.condicionesEspeciales || null,
-        serviciosJson: datos.servicios || null,
+        serviciosJson: datos.servicios?.map((s: any) => ({
+          ubicacion: s.ubicacion || '',
+          servicio: s.servicio || '',
+          velocidad: s.velocidad || '',
+          precioMensual: s.precioMensual || 0,
+          fechaInicioServicio: s.fechaInicioServicio || null,
+        })) || null,
       },
       documentoNombre: nombreArchivo || 'contrato.pdf',
     });

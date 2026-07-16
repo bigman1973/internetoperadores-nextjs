@@ -8,6 +8,7 @@ interface Servicio {
   servicio: string;
   velocidad: string;
   precioMensual: number;
+  fechaInicioServicio?: string | null;
 }
 
 interface Contrato {
@@ -17,6 +18,7 @@ interface Contrato {
   fechaFirma: string | null;
   fechaInicio: string | null;
   fechaFin: string | null;
+  fechaInicioServicio: string | null;
   permanenciaMeses: number | null;
   prorrogaAutomatica: boolean;
   plazoProrroga: string | null;
@@ -44,6 +46,7 @@ export default function DraxtonContratosPage() {
   const [analizando, setAnalizando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Form state
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -113,6 +116,42 @@ export default function DraxtonContratosPage() {
     setAnalizando(false);
   }
 
+  function handleEditar(c: Contrato) {
+    setForm({
+      titulo: c.titulo,
+      tipo: c.tipo,
+      fechaFirma: c.fechaFirma ? c.fechaFirma.split('T')[0] : null,
+      fechaInicio: c.fechaInicio ? c.fechaInicio.split('T')[0] : null,
+      fechaFin: c.fechaFin ? c.fechaFin.split('T')[0] : null,
+      fechaInicioServicio: c.fechaInicioServicio ? c.fechaInicioServicio.split('T')[0] : null,
+      permanenciaMeses: c.permanenciaMeses,
+      prorrogaAutomatica: c.prorrogaAutomatica,
+      plazoProrroga: c.plazoProrroga,
+      importeMensual: c.importeMensual,
+      importeAnual: c.importeAnual,
+      formaPago: c.formaPago,
+      estado: c.estado,
+      contactoCliente: c.contactoCliente,
+      contactoProveedor: c.contactoProveedor,
+      notas: c.notas,
+      condicionesEspeciales: c.condicionesEspeciales,
+      serviciosJson: c.serviciosJson,
+      documentoUrl: c.documentoUrl,
+      documentoNombre: c.documentoNombre,
+    });
+    setEditingId(c.id);
+    setShowForm(true);
+  }
+
+  async function handleEliminar(id: string) {
+    if (!confirm('¿Estás seguro de eliminar este contrato?')) return;
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/contratos?id=${id}`, { method: 'DELETE' });
+      if (res.ok) fetchContratos();
+      else alert('Error al eliminar');
+    } catch { alert('Error de conexión'); }
+  }
+
   async function handleGuardar() {
     if (!form.titulo) {
       alert('El título es obligatorio');
@@ -120,15 +159,18 @@ export default function DraxtonContratosPage() {
     }
     setGuardando(true);
     try {
+      const method = editingId ? 'PUT' : 'POST';
+      const body = editingId ? { ...form, id: editingId } : form;
       const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos', {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         setShowForm(false);
         setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true });
         setArchivo(null);
+        setEditingId(null);
         fetchContratos();
       } else {
         alert('Error al guardar');
@@ -168,6 +210,12 @@ export default function DraxtonContratosPage() {
     } else {
       alert('Solo se aceptan archivos PDF');
     }
+  }
+
+  function updateServicio(index: number, field: keyof Servicio, value: string | number | null) {
+    const servicios = [...(form.serviciosJson || [])];
+    servicios[index] = { ...servicios[index], [field]: value };
+    setForm({ ...form, serviciosJson: servicios });
   }
 
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '—';
@@ -236,24 +284,26 @@ export default function DraxtonContratosPage() {
               <tr>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Contrato</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Tipo</th>
-                <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Inicio</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Inicio Contrato</th>
+                <th className="text-left px-4 py-3 font-medium text-gray-600">Inicio Servicio</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Fin</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Importe Mensual</th>
-                <th className="text-right px-4 py-3 font-medium text-gray-600">Importe Anual</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">€/mes</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-600">€/año</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
               ) : contratos.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados. Haz clic en &quot;Nuevo Contrato&quot; para añadir el primero.</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados. Haz clic en &quot;Nuevo Contrato&quot; para añadir el primero.</td></tr>
               ) : contratos.map(c => (
                 <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
                   <td className="px-4 py-3 font-medium text-gray-900">{c.titulo}</td>
                   <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicio)}</td>
+                  <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio)}</td>
                   <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaFin)}</td>
                   <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeMensual)}</td>
                   <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeAnual)}</td>
@@ -279,11 +329,15 @@ export default function DraxtonContratosPage() {
               {/* Detalle expandido */}
               {contratos.map(c => expandedId === c.id && (
                 <tr key={`detail-${c.id}`}>
-                  <td colSpan={8} className="bg-gray-50 px-6 py-4">
+                  <td colSpan={9} className="bg-gray-50 px-6 py-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                       <div>
                         <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
                         <p className="text-sm font-medium">{formatDate(c.fechaFirma)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-gray-500 uppercase">Inicio Servicio Real</p>
+                        <p className="text-sm font-medium">{formatDate(c.fechaInicioServicio)}</p>
                       </div>
                       <div>
                         <p className="text-[10px] text-gray-500 uppercase">Permanencia</p>
@@ -332,6 +386,7 @@ export default function DraxtonContratosPage() {
                               <th className="text-left px-3 py-2">Ubicación</th>
                               <th className="text-left px-3 py-2">Servicio</th>
                               <th className="text-left px-3 py-2">Velocidad</th>
+                              <th className="text-left px-3 py-2">Inicio Servicio</th>
                               <th className="text-right px-3 py-2">Precio/mes</th>
                             </tr>
                           </thead>
@@ -341,6 +396,7 @@ export default function DraxtonContratosPage() {
                                 <td className="px-3 py-2">{s.ubicacion}</td>
                                 <td className="px-3 py-2">{s.servicio}</td>
                                 <td className="px-3 py-2">{s.velocidad}</td>
+                                <td className="px-3 py-2">{s.fechaInicioServicio ? formatDate(s.fechaInicioServicio) : <span className="text-gray-400 italic">global</span>}</td>
                                 <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
                               </tr>
                             ))}
@@ -348,6 +404,15 @@ export default function DraxtonContratosPage() {
                         </table>
                       </div>
                     )}
+                    {/* Botones editar/eliminar */}
+                    <div className="mt-4 flex gap-2 border-t pt-3">
+                      <button onClick={(e) => { e.stopPropagation(); handleEditar(c); }} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
+                        Editar contrato
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }} className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
+                        Eliminar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -361,8 +426,8 @@ export default function DraxtonContratosPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">Nuevo Contrato</h2>
-              <button onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); }}>
+              <h2 className="text-lg font-semibold text-gray-900">{editingId ? 'Editar Contrato' : 'Nuevo Contrato'}</h2>
+              <button onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); setEditingId(null); }}>
                 <XMarkIcon className="w-5 h-5 text-gray-400 hover:text-gray-600" />
               </button>
             </div>
@@ -443,7 +508,7 @@ export default function DraxtonContratosPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Contrato</label>
                 <input
                   type="date"
                   value={form.fechaInicio?.slice(0, 10) || ''}
@@ -452,13 +517,23 @@ export default function DraxtonContratosPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Fin Contrato</label>
                 <input
                   type="date"
                   value={form.fechaFin?.slice(0, 10) || ''}
                   onChange={e => setForm({ ...form, fechaFin: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Servicio Real</label>
+                <input
+                  type="date"
+                  value={form.fechaInicioServicio?.slice(0, 10) || ''}
+                  onChange={e => setForm({ ...form, fechaInicioServicio: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Fecha real en que se activó el servicio (puede diferir de la fecha contractual)</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Permanencia (meses)</label>
@@ -571,7 +646,7 @@ export default function DraxtonContratosPage() {
               </div>
             </div>
 
-            {/* Servicios extraídos */}
+            {/* Servicios extraídos - con fecha inicio por servicio */}
             {form.serviciosJson && Array.isArray(form.serviciosJson) && form.serviciosJson.length > 0 && (
               <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
                 <p className="text-xs font-medium text-green-700 mb-2">✓ {form.serviciosJson.length} servicios detectados en el contrato</p>
@@ -581,6 +656,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Ubicación</th>
                       <th className="text-left px-2 py-1">Servicio</th>
                       <th className="text-left px-2 py-1">Velocidad</th>
+                      <th className="text-left px-2 py-1">Inicio Servicio</th>
                       <th className="text-right px-2 py-1">€/mes</th>
                     </tr>
                   </thead>
@@ -590,18 +666,28 @@ export default function DraxtonContratosPage() {
                         <td className="px-2 py-1">{s.ubicacion}</td>
                         <td className="px-2 py-1">{s.servicio}</td>
                         <td className="px-2 py-1">{s.velocidad}</td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="date"
+                            value={s.fechaInicioServicio?.slice(0, 10) || ''}
+                            onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)}
+                            className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28"
+                            title="Fecha inicio servicio específica (opcional, si difiere de la global)"
+                          />
+                        </td>
                         <td className="px-2 py-1 text-right">{s.precioMensual?.toFixed(2)}€</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                <p className="text-[10px] text-gray-500 mt-2">Si un servicio no tiene fecha propia, se usa la fecha global de inicio de servicio.</p>
               </div>
             )}
 
             {/* Botones */}
             <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
               <button
-                onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); }}
+                onClick={() => { setShowForm(false); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setArchivo(null); setEditingId(null); }}
                 className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
               >
                 Cancelar

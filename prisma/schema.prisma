@@ -1850,6 +1850,7 @@ model ContratoDraxton {
   fechaFirma            DateTime? @map("fecha_firma") @db.Date
   fechaInicio           DateTime? @map("fecha_inicio") @db.Date
   fechaFin              DateTime? @map("fecha_fin") @db.Date
+  fechaInicioServicio   DateTime? @map("fecha_inicio_servicio") @db.Date
   permanenciaMeses      Int?     @map("permanencia_meses")
   prorrogaAutomatica    Boolean  @default(true) @map("prorroga_automatica")
   plazoProrroga         String?  @map("plazo_prorroga")
