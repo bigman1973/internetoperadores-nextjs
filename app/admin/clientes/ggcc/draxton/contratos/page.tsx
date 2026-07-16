@@ -72,16 +72,21 @@ function calcularMesesEnAnio(fechaInicioStr: string | null, fechaFinStr: string 
   const inicio = new Date(fechaInicioStr);
   const fin = fechaFinStr ? new Date(fechaFinStr) : new Date(anio, 11, 31);
   const inicioAnio = new Date(anio, 0, 1);
-  const finAnio = new Date(anio, 11, 31);
+  const finAnio = new Date(anio + 1, 0, 0); // 31 dic del año
 
   const desde = inicio > inicioAnio ? inicio : inicioAnio;
   const hasta = fin < finAnio ? fin : finAnio;
 
   if (desde > hasta) return 0;
 
-  // Calcular diferencia en meses (proporcional)
-  const diffMs = hasta.getTime() - desde.getTime();
-  const meses = diffMs / (1000 * 60 * 60 * 24 * 30.44); // promedio días/mes
+  // Calcular meses con precisión: diferencia de meses + fracción de días
+  let meses = (hasta.getFullYear() - desde.getFullYear()) * 12 + (hasta.getMonth() - desde.getMonth());
+  // Ajustar por días parciales del mes
+  const diasDesde = desde.getDate();
+  const diasHasta = hasta.getDate();
+  const diasEnMesFin = new Date(hasta.getFullYear(), hasta.getMonth() + 1, 0).getDate();
+  meses += (diasHasta - diasDesde + 1) / diasEnMesFin;
+  
   return Math.min(12, Math.max(0, Math.round(meses * 100) / 100));
 }
 
@@ -402,29 +407,44 @@ export default function DraxtonContratosPage() {
     return num != null && !isNaN(num) ? num.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '—';
   };
 
-  // KPIs mejorados
+  // KPIs mejorados - soporta múltiples contratos
   const activos = contratos.filter(c => c.estado === 'Activo');
-  const contratoActivo = activos[0]; // Principal para KPIs
-  const importeMensual = contratoActivo ? Number(contratoActivo.importeMensual) || 0 : 0;
-  const permanencia = contratoActivo?.permanenciaMeses || 0;
-  const valorTotalContrato = permanencia > 0 ? importeMensual * permanencia : 0;
-
-  // Prórroga info
-  const prorrogable = contratoActivo?.prorrogaAutomatica;
-  const plazoProrroga = contratoActivo?.plazoProrroga || '';
-  const mesesProrroga = plazoProrroga.includes('1 año') || plazoProrroga.includes('12') ? 12 :
-    plazoProrroga.includes('2 año') || plazoProrroga.includes('24') ? 24 :
-    plazoProrroga.includes('6') ? 6 : 12; // default 12
-  const importeProrroga = importeMensual * mesesProrroga;
-
-  // Importe por año - usar fechaInicioServicio (si existe) o fechaInicio
-  const fechaRef = contratoActivo?.fechaInicioServicio || contratoActivo?.fechaInicio || null;
-  const fechaFinContrato = contratoActivo?.fechaFin || null;
   const currentYear = new Date().getFullYear();
 
-  const importeAnioActual = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, currentYear) * importeMensual * 100) / 100 : 0;
-  const importe2026 = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2026) * importeMensual * 100) / 100 : 0;
-  const importe2027 = fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2027) * importeMensual * 100) / 100 : 0;
+  // Calcular datos por contrato
+  const datosContratos = activos.map(c => {
+    const mensual = Number(c.importeMensual) || 0;
+    const perm = c.permanenciaMeses || 0;
+    const fechaRef = c.fechaInicioServicio || c.fechaInicio || null;
+    const fechaFin = c.fechaFin || null;
+    const plazo = c.plazoProrroga || '';
+    const mesesProrr = plazo.includes('1 año') || plazo.includes('12') ? 12 :
+      plazo.includes('2 año') || plazo.includes('24') ? 24 :
+      plazo.includes('6') ? 6 : 12;
+    return {
+      id: c.id,
+      titulo: c.titulo,
+      mensual,
+      valorTotal: perm > 0 ? mensual * perm : 0,
+      permanencia: perm,
+      prorrogable: c.prorrogaAutomatica,
+      plazoProrroga: plazo,
+      importeProrroga: mensual * mesesProrr,
+      importeAnioActual: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual * 100) / 100 : 0,
+      mesesAnioActual: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) : 0,
+      importe2026: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, 2026) * mensual * 100) / 100 : 0,
+      meses2026: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, 2026) : 0,
+      importe2027: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, 2027) * mensual * 100) / 100 : 0,
+      meses2027: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, 2027) : 0,
+    };
+  });
+
+  // Totales
+  const totalValorContrato = datosContratos.reduce((s, d) => s + d.valorTotal, 0);
+  const totalMensual = datosContratos.reduce((s, d) => s + d.mensual, 0);
+  const totalAnioActual = datosContratos.reduce((s, d) => s + d.importeAnioActual, 0);
+  const total2026 = datosContratos.reduce((s, d) => s + d.importe2026, 0);
+  const total2027 = datosContratos.reduce((s, d) => s + d.importe2027, 0);
 
   // Coste proveedor total
   const costeTotalProveedores = activos.reduce((sum, c) => {
@@ -455,38 +475,91 @@ export default function DraxtonContratosPage() {
       </div>
 
       {/* KPIs mejorados */}
-      {contratoActivo && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contrato</div>
-            <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(valorTotalContrato)}</div>
-            <p className="text-[10px] text-gray-400">{permanencia} meses × {formatCurrency(importeMensual)}</p>
+      {activos.length > 0 && (
+        <div className="space-y-3">
+          {/* Totales */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contratos</div>
+              <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(totalValorContrato)}</div>
+              <p className="text-[10px] text-gray-400">{activos.length} contrato{activos.length > 1 ? 's' : ''} activo{activos.length > 1 ? 's' : ''}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnioActual)}</div>
+              <p className="text-[10px] text-gray-400">Según fecha inicio servicio</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2026</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(total2026)}</div>
+              <p className="text-[10px] text-gray-400">Todos los contratos</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2027</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(total2027)}</div>
+              <p className="text-[10px] text-gray-400">Todos los contratos</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Coste Proveedores/mes</div>
+              <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
+              <p className="text-[10px] text-gray-400">Margen: {formatCurrency(totalMensual - costeTotalProveedores)}/mes</p>
+            </div>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Prórroga</div>
-            <div className="text-lg font-bold text-gray-900 mt-1">{prorrogable ? `Sí (${plazoProrroga || '12 meses'})` : 'No'}</div>
-            {prorrogable && <p className="text-[10px] text-gray-400">Importe: {formatCurrency(importeProrroga)}</p>}
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
-            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importeAnioActual)}</div>
-            <p className="text-[10px] text-gray-400">Según fecha inicio servicio</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2026</div>
-            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importe2026)}</div>
-            <p className="text-[10px] text-gray-400">{Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2026) * 10) / 10} meses</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2027</div>
-            <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(importe2027)}</div>
-            <p className="text-[10px] text-gray-400">{Math.round(calcularMesesEnAnio(fechaRef, fechaFinContrato, 2027) * 10) / 10} meses</p>
-          </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <div className="text-[10px] text-gray-500 uppercase tracking-wide">Coste Proveedores/mes</div>
-            <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
-            <p className="text-[10px] text-gray-400">Margen: {formatCurrency(importeMensual - costeTotalProveedores)}</p>
-          </div>
+          {/* Desglose por contrato */}
+          {datosContratos.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-xs">
+                <thead className="bg-gray-50 border-b">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium text-gray-600">Contrato</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">€/mes</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
+                    <th className="text-center px-4 py-2 font-medium text-gray-600">Prórroga</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">2026</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">2027</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {datosContratos.map(d => (
+                    <tr key={d.id}>
+                      <td className="px-4 py-2 text-gray-900 font-medium max-w-[200px] truncate">{d.titulo}</td>
+                      <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(d.mensual)}</td>
+                      <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(d.valorTotal)}</td>
+                      <td className="px-4 py-2 text-center">
+                        {d.prorrogable ? (
+                          <span className="text-green-700">{d.plazoProrroga || 'Sí'} ({formatCurrency(d.importeProrroga)})</span>
+                        ) : <span className="text-gray-400">No</span>}
+                      </td>
+                      <td className="px-4 py-2 text-right text-indigo-700 font-medium">
+                        {formatCurrency(d.importeAnioActual)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnioActual * 10) / 10} meses</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-indigo-700 font-medium">
+                        {formatCurrency(d.importe2026)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.meses2026 * 10) / 10} meses</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-indigo-700 font-medium">
+                        {formatCurrency(d.importe2027)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.meses2027 * 10) / 10} meses</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {datosContratos.length > 1 && (
+                    <tr className="bg-gray-50 font-bold">
+                      <td className="px-4 py-2 text-gray-900">TOTAL</td>
+                      <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
+                      <td className="px-4 py-2"></td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnioActual)}</td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(total2026)}</td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(total2027)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
