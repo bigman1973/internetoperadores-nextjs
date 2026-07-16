@@ -163,19 +163,19 @@ export default function DraxtonContratosPage() {
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
     const images: string[] = [];
     const totalPages = pdf.numPages;
-    // Estrategia: renderizar TODAS las páginas a baja calidad para que el backend elija las mejores
-    // El backend limitará cuántas envía a GPT
-    const maxPages = Math.min(totalPages, 12);
+    // Renderizar todas las páginas (hasta 20) a baja calidad para que el backend elija las mejores
+    // El backend selecciona 4 páginas estratégicas para enviar a GPT
+    const maxPages = Math.min(totalPages, 20);
     
     for (let i = 1; i <= maxPages; i++) {
       const page = await pdf.getPage(i);
-      const viewport = page.getViewport({ scale: 1.0 });
+      const viewport = page.getViewport({ scale: 0.8 });
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext('2d')!;
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.4);
       images.push(dataUrl.split(',')[1]);
     }
     return images;
