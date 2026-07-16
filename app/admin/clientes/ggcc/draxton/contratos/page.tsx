@@ -536,6 +536,17 @@ export default function DraxtonContratosPage() {
                   placeholder="Penalizaciones, exclusiones, cláusulas relevantes..."
                 />
               </div>
+              <div className="md:col-span-2">
+                <label className="block text-xs font-medium text-gray-600 mb-1">URL Documento (SharePoint/OneDrive)</label>
+                <input
+                  type="url"
+                  value={form.documentoUrl || ''}
+                  onChange={e => setForm({ ...form, documentoUrl: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
+                  placeholder="Pega aquí el enlace de SharePoint del contrato..."
+                />
+                <p className="text-[10px] text-gray-400 mt-1">Copia el enlace del archivo o carpeta en OneDrive/SharePoint</p>
+              </div>
             </div>
 
             {/* Servicios extraídos */}

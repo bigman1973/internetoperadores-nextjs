@@ -6,9 +6,6 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || undefined,
 });
 
-// Máximo 4.5MB para enviar a GPT (Vercel tiene límite de body 4.5MB en serverless)
-const MAX_FILE_SIZE = 4.5 * 1024 * 1024;
-
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
@@ -19,17 +16,30 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    
-    // Verificar tamaño
-    if (arrayBuffer.byteLength > MAX_FILE_SIZE) {
+    const buffer = Buffer.from(arrayBuffer);
+
+    // Extraer texto del PDF usando pdf-parse
+    let textoExtraido = '';
+    try {
+      const pdfParse = (await import('pdf-parse')).default;
+      const pdfData = await pdfParse(buffer);
+      textoExtraido = pdfData.text;
+    } catch (pdfErr: any) {
       return NextResponse.json({ 
-        error: `El archivo es demasiado grande (${(arrayBuffer.byteLength / 1024 / 1024).toFixed(1)}MB). Máximo 4.5MB. Intenta con un PDF más ligero o las primeras páginas del contrato.`
+        error: 'No se pudo leer el PDF. Asegúrate de que no está protegido con contraseña. ' + (pdfErr.message || '')
       }, { status: 400 });
     }
 
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    if (!textoExtraido || textoExtraido.trim().length < 50) {
+      return NextResponse.json({ 
+        error: 'El PDF no contiene texto extraíble (puede ser un escaneo/imagen). Intenta con un PDF con texto seleccionable.'
+      }, { status: 400 });
+    }
 
-    const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones. Analiza el documento PDF proporcionado y extrae los datos estructurados del contrato. Responde SOLO con un JSON válido (sin markdown, sin backticks) con la siguiente estructura:
+    // Limitar texto a ~80.000 caracteres (~20k tokens) para no exceder el contexto
+    const textoLimitado = textoExtraido.substring(0, 80000);
+
+    const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones. Analiza el texto del contrato proporcionado y extrae los datos estructurados. Responde SOLO con un JSON válido (sin markdown, sin backticks) con la siguiente estructura:
 {
   "titulo": "Título descriptivo del contrato",
   "tipo": "Servicios Internet|Mantenimiento|Guardias|Consultoría|Otro",
@@ -58,25 +68,11 @@ export async function POST(req: NextRequest) {
 
 Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los servicios mensuales. Para importeAnual, multiplica por 12.`;
 
-    const userContent: any[] = [
-      {
-        type: 'file',
-        file: {
-          filename: file.name || 'contrato.pdf',
-          file_data: `data:application/pdf;base64,${base64}`,
-        },
-      },
-      {
-        type: 'text',
-        text: 'Analiza este contrato y extrae todos los datos estructurados según el formato JSON indicado.',
-      },
-    ];
-
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userContent },
+        { role: 'user', content: `Analiza este contrato y extrae todos los datos estructurados:\n\n${textoLimitado}` },
       ],
       max_tokens: 4000,
       temperature: 0.1,
@@ -86,7 +82,7 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
     
     if (!content) {
       return NextResponse.json({ 
-        error: 'GPT no devolvió respuesta. Intenta con un PDF más pequeño.'
+        error: 'GPT no devolvió respuesta. Intenta de nuevo.'
       }, { status: 500 });
     }
 
@@ -97,7 +93,7 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
       datos = JSON.parse(cleanContent);
     } catch {
       return NextResponse.json({ 
-        error: 'No se pudo parsear la respuesta de GPT. Respuesta: ' + content.substring(0, 200)
+        error: 'No se pudo parsear la respuesta de GPT. Respuesta parcial: ' + content.substring(0, 200)
       }, { status: 500 });
     }
 
@@ -126,16 +122,13 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
   } catch (error: any) {
     console.error('Error analizando PDF:', error?.message || error);
     
-    // Mensajes de error más descriptivos
     let errorMsg = 'Error desconocido';
-    if (error?.message?.includes('timeout') || error?.message?.includes('TIMEOUT')) {
-      errorMsg = 'Timeout: el PDF es demasiado grande para procesarse. Intenta con menos páginas.';
+    if (error?.message?.includes('timeout') || error?.message?.includes('TIMEOUT') || error?.message?.includes('FUNCTION_INVOCATION_TIMEOUT')) {
+      errorMsg = 'Timeout del servidor. El PDF es muy complejo. Intenta de nuevo.';
     } else if (error?.message?.includes('401') || error?.message?.includes('Unauthorized')) {
-      errorMsg = 'Error de autenticación con OpenAI. Verifica la API key.';
+      errorMsg = 'Error de autenticación con OpenAI. Contacta al administrador.';
     } else if (error?.message?.includes('429')) {
       errorMsg = 'Límite de rate de OpenAI alcanzado. Espera un momento e intenta de nuevo.';
-    } else if (error?.message?.includes('413') || error?.message?.includes('too large')) {
-      errorMsg = 'El archivo es demasiado grande para la API. Intenta con un PDF más pequeño.';
     } else if (error?.message) {
       errorMsg = error.message;
     }
@@ -146,9 +139,6 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
   }
 }
 
-// Aumentar el límite de body para esta ruta
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
+// Configurar el runtime para permitir más tiempo de ejecución
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 segundos máximo
