@@ -957,6 +957,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Velocidad</th>
                       <th className="text-left px-2 py-1">Inicio Servicio</th>
                       <th className="text-right px-2 py-1">€/mes</th>
+                      <th className="px-2 py-1 w-8"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -977,11 +978,25 @@ export default function DraxtonContratosPage() {
                         <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicio(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
                         </td>
+                        <td className="px-2 py-1 text-center">
+                          <button type="button" onClick={() => { const updated = [...(form.serviciosJson as Servicio[])]; updated.splice(i, 1); setForm({...form, serviciosJson: updated}); }} className="text-red-400 hover:text-red-600" title="Eliminar servicio">
+                            <TrashIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                <button type="button" onClick={() => { const updated = [...(form.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]; setForm({...form, serviciosJson: updated}); }} className="mt-2 text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1">
+                  <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
+                </button>
               </div>
+            )}
+            {/* Botón añadir servicio siempre visible */}
+            {(!form.serviciosJson || !Array.isArray(form.serviciosJson) || form.serviciosJson.length === 0) && (
+              <button type="button" onClick={() => { setForm({...form, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1 border border-green-300 rounded px-3 py-1.5">
+                <PlusIcon className="w-3.5 h-3.5" /> Añadir servicios manualmente
+              </button>
             )}
 
             {/* Botones */}
@@ -1133,6 +1148,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Velocidad</th>
                       <th className="text-left px-2 py-1">Inicio</th>
                       <th className="text-right px-2 py-1">€/mes</th>
+                      <th className="px-2 py-1 w-8"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1153,11 +1169,25 @@ export default function DraxtonContratosPage() {
                         <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicioProv(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
                         </td>
+                        <td className="px-2 py-1 text-center">
+                          <button type="button" onClick={() => { const updated = [...(formProv.serviciosJson as Servicio[])]; updated.splice(i, 1); setFormProv({...formProv, serviciosJson: updated}); }} className="text-red-400 hover:text-red-600" title="Eliminar servicio">
+                            <TrashIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                <button type="button" onClick={() => { const updated = [...(formProv.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]; setFormProv({...formProv, serviciosJson: updated}); }} className="mt-2 text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1">
+                  <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
+                </button>
               </div>
+            )}
+            {/* Botón añadir servicio siempre visible */}
+            {(!formProv.serviciosJson || !Array.isArray(formProv.serviciosJson) || formProv.serviciosJson.length === 0) && (
+              <button type="button" onClick={() => { setFormProv({...formProv, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1 border border-purple-300 rounded px-3 py-1.5">
+                <PlusIcon className="w-3.5 h-3.5" /> Añadir servicios manualmente
+              </button>
             )}
 
             {/* Botones */}
