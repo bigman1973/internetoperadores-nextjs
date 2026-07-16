@@ -3,7 +3,6 @@ import OpenAI from 'openai';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  baseURL: process.env.OPENAI_BASE_URL || undefined,
 });
 
 export const maxDuration = 120;
@@ -65,19 +64,16 @@ export async function POST(req: NextRequest) {
         },
       }));
 
-      const userContent: any[] = [
-        { type: 'text', text: `Analiza este contrato de cliente de telecomunicaciones y extrae todos los datos estructurados. Presta especial atención a las tablas de servicios y precios.${texto && texto.trim().length > 50 ? `\n\nTexto extraído del PDF (puede estar incompleto):\n${texto.substring(0, 20000)}` : ''}` },
-        ...imageContents,
-      ];
-
       const response = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userContent },
+          { role: 'user', content: [
+            { type: 'text', text: systemPrompt + '\n\nAnaliza este contrato de cliente de telecomunicaciones y extrae todos los datos estructurados. Presta especial atención a las tablas de servicios y precios.' + (texto && texto.trim().length > 50 ? '\n\nTexto extraído del PDF (puede estar incompleto):\n' + texto.substring(0, 15000) : '') },
+            ...imageContents,
+          ] },
         ],
         max_tokens: 4000,
-        temperature: 0.1,
+        temperature: 0,
       });
 
       const content = response.choices[0]?.message?.content || '';
@@ -115,11 +111,10 @@ export async function POST(req: NextRequest) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Analiza este contrato y extrae todos los datos estructurados:\n\n${textoLimitado}` },
+        { role: 'user', content: systemPrompt + '\n\nAnaliza este contrato y extrae todos los datos estructurados:\n\n' + textoLimitado },
       ],
       max_tokens: 4000,
-      temperature: 0.1,
+      temperature: 0,
     });
 
     const content = response.choices[0]?.message?.content || '';
