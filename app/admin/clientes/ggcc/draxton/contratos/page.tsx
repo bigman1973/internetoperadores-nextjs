@@ -433,7 +433,8 @@ export default function DraxtonContratosPage() {
   const formatDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-ES') : '—';
   const formatCurrency = (n: number | string | null | undefined) => {
     const num = typeof n === 'string' ? parseFloat(n) : n;
-    return num != null && !isNaN(num) ? num.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '—';
+    if (num == null || isNaN(num)) return '—';
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', useGrouping: true }).format(num);
   };
 
   // KPIs mejorados - soporta múltiples contratos
@@ -999,8 +1000,8 @@ export default function DraxtonContratosPage() {
                     <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
                   </button>
                   <div className="text-xs font-semibold text-green-800 flex gap-4">
-                    <span>Total Alta: {((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0)).toFixed(2)} €</span>
-                    <span>Total Mensual: {((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0)).toFixed(2)} €/mes</span>
+                    <span>Total Alta: {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0))} €</span>
+                    <span>Total Mensual: {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0))} €/mes</span>
                   </div>
                 </div>
               </div>
@@ -1200,8 +1201,8 @@ export default function DraxtonContratosPage() {
                     <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
                   </button>
                   <div className="text-xs font-semibold text-purple-800 flex gap-4">
-                    <span>Total Alta: {((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0)).toFixed(2)} €</span>
-                    <span>Total Mensual: {((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0)).toFixed(2)} €/mes</span>
+                    <span>Total Alta: {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0))} €</span>
+                    <span>Total Mensual: {new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true }).format((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0))} €/mes</span>
                   </div>
                 </div>
               </div>
