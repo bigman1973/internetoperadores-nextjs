@@ -53,6 +53,7 @@ export default function DraxtonContratosPage() {
     prorrogaAutomatica: true,
   });
   const [archivo, setArchivo] = useState<File | null>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   useEffect(() => {
     fetchContratos();
@@ -121,6 +122,29 @@ export default function DraxtonContratosPage() {
     if (file) {
       setArchivo(file);
       analizarPDF(file);
+    }
+  }
+
+  function handleDrag(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'dragenter' || e.type === 'dragover') {
+      setDragActive(true);
+    } else if (e.type === 'dragleave') {
+      setDragActive(false);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file && file.type === 'application/pdf') {
+      setArchivo(file);
+      analizarPDF(file);
+    } else {
+      alert('Solo se aceptan archivos PDF');
     }
   }
 
@@ -321,12 +345,18 @@ export default function DraxtonContratosPage() {
               </button>
             </div>
 
-            {/* Upload PDF */}
-            <div className="mb-6 p-4 border-2 border-dashed border-indigo-300 rounded-lg bg-indigo-50">
+            {/* Upload PDF - con Drag & Drop */}
+            <div
+              className={`mb-6 p-4 border-2 border-dashed rounded-lg transition-colors ${dragActive ? 'border-indigo-600 bg-indigo-100' : 'border-indigo-300 bg-indigo-50'}`}
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+            >
               <div className="flex items-center gap-3">
                 <DocumentArrowUpIcon className="w-8 h-8 text-indigo-500" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-indigo-700">Sube el PDF del contrato</p>
+                  <p className="text-sm font-medium text-indigo-700">{dragActive ? 'Suelta el PDF aquí' : 'Sube o arrastra el PDF del contrato'}</p>
                   <p className="text-xs text-indigo-500">Se analizará automáticamente con IA para extraer los datos</p>
                 </div>
                 <label className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 cursor-pointer inline-flex items-center gap-2">
