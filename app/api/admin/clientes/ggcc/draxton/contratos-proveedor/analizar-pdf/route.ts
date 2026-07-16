@@ -7,57 +7,28 @@ const openai = new OpenAI({
 
 export const maxDuration = 120;
 
-const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones con proveedores/operadores mayoristas. Analiza las imágenes del contrato proporcionado y extrae los datos estructurados. Este es un contrato que Internet Operadores firma CON UN PROVEEDOR (operador mayorista como Telefónica, Adamo, Lyntia, Avatel, Vodafone, etc.) para poder dar servicio a su cliente final.
-
-REGLAS DE EXTRACCIÓN ESPECÍFICAS:
-1. "proveedor": Busca el nombre de la empresa que emite la oferta/contrato (ej. "Telefónica Empresas", "Adamo Business", etc.). Suele estar en la portada o cabecera.
-2. "cifProveedor": Busca el CIF/NIF real del proveedor en el documento (formato español: letra + 8 dígitos, ej. B82387770). SOLO pon el CIF si lo ves LITERALMENTE escrito en el documento. Si no aparece explícitamente, SIEMPRE pon null. NUNCA inventes un CIF como B12345678 o similar.
-3. "titulo": Crea un título descriptivo basado en el OBJETO del contrato (ej. "Acceso a Internet Internacional - 3 sedes Europa"). No uses el nombre del archivo.
-4. "fechaFirma": Busca la fecha de la oferta (portada) o la fecha de firma (última página). Formato YYYY-MM-DD.
-5. "permanenciaMeses": Busca "Periodo de contratación", "permanencia", "duración del contrato" o similar. Extrae el número de meses (ej. "36 meses" -> 36).
-6. "servicios": MUY IMPORTANTE - Busca tablas de "Valoración económica", "Desglose económico", "Resumen de servicios" o similar. Para CADA línea/sede extrae:
-   - ubicacion: País, ciudad o sede
-   - servicio: Tipo de servicio (ej. "Ethernet 100Mb con C1111-4P Security")
-   - velocidad: Ancho de banda (ej. "100M", "1 Gbps")
-   - precioMensual: Cuota MENSUAL en euros (columna "Mes", "€/mes", "Cuota mensual"). NO confundir con alta.
-7. "importeMensual": Suma el TOTAL de cuotas mensuales de todos los servicios. Busca la fila "TOTAL" en la tabla económica.
-8. "importeAnual": importeMensual × 12.
-9. "notas": Resume brevemente: qué servicio se contrata, para qué sedes, y condiciones relevantes.
-10. "condicionesEspeciales": Penalizaciones por baja anticipada, condiciones de facturación, plazos de provisión.
-11. "formaPago": Busca si indica domiciliación, transferencia, confirming, etc.
-12. "prorrogaAutomatica": Busca si el contrato se prorroga automáticamente al vencer.
-
-Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura:
+const systemPrompt = `Extrae datos de este documento comercial de telecomunicaciones. Responde SOLO con JSON válido (sin markdown, sin backticks):
 {
-  "proveedor": "Nombre del proveedor/operador mayorista",
-  "cifProveedor": "CIF/NIF real del proveedor o null si no aparece",
-  "titulo": "Título descriptivo del contrato",
-  "tipo": "Servicios Internet|Mantenimiento|Guardias|Consultoría|Otro",
+  "proveedor": "Nombre empresa que emite el documento",
+  "cifProveedor": null,
+  "titulo": "Título descriptivo del servicio contratado",
+  "tipo": "Servicios Internet",
   "fechaFirma": "YYYY-MM-DD o null",
-  "fechaInicio": "YYYY-MM-DD o null (fecha inicio contractual)",
+  "fechaInicio": "YYYY-MM-DD o null",
   "fechaFin": "YYYY-MM-DD o null",
-  "fechaInicioServicio": "YYYY-MM-DD o null (fecha real en que se activó el servicio)",
-  "permanenciaMeses": número o null,
-  "prorrogaAutomatica": true/false,
-  "plazoProrroga": "descripción del plazo de prórroga o null",
-  "importeMensual": número decimal o null (TOTAL mensual de todos los servicios),
-  "importeAnual": número decimal o null,
-  "formaPago": "confirming|transferencia|domiciliacion|otro|null",
-  "contactoProveedor": "Nombre - email - teléfono del contacto del proveedor o null",
-  "notas": "Resumen breve del objeto del contrato",
-  "condicionesEspeciales": "Penalizaciones, exclusiones, cláusulas especiales relevantes",
-  "servicios": [
-    {
-      "ubicacion": "Ciudad/País/Sede",
-      "servicio": "Descripción del servicio contratado",
-      "velocidad": "Velocidad/Caudal contratado",
-      "precioMensual": número (cuota mensual en euros),
-      "fechaInicioServicio": "YYYY-MM-DD o null"
-    }
-  ]
+  "fechaInicioServicio": null,
+  "permanenciaMeses": numero o null,
+  "prorrogaAutomatica": true,
+  "plazoProrroga": null,
+  "importeMensual": numero total mensual o null,
+  "importeAnual": numero total anual o null,
+  "formaPago": null,
+  "contactoProveedor": null,
+  "notas": "Resumen breve",
+  "condicionesEspeciales": null,
+  "servicios": [{"ubicacion":"","servicio":"","velocidad":"","precioMensual":0,"fechaInicioServicio":null}]
 }
-
-Si no puedes determinar un campo con certeza, usa null. NUNCA inventes datos (especialmente CIF, precios o fechas).`;
+Reglas: cifProveedor SIEMPRE null (el usuario lo pondrá). Busca tablas de precios para importeMensual y servicios. precioMensual es la cuota mensual recurrente, NO el alta.`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -66,21 +37,21 @@ export async function POST(req: NextRequest) {
 
     // Si tenemos imágenes, usar Vision
     if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
-      // Construir mensajes con imágenes para GPT-4o Vision (máximo 6 imágenes)
-      const imagenesLimitadas = imagenes.slice(0, 6);
+      // Enviar máximo 3 imágenes para evitar filtros de contenido
+      const imagenesLimitadas = imagenes.slice(0, 3);
       const imageContents: any[] = imagenesLimitadas.map((img: string) => ({
         type: 'image_url',
         image_url: {
           url: `data:image/jpeg;base64,${img}`,
-          detail: 'auto',
+          detail: 'low',
         },
       }));
 
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-4o-mini',
         messages: [
           { role: 'user', content: [
-            { type: 'text', text: systemPrompt + '\n\nAnaliza este contrato de proveedor de telecomunicaciones y extrae todos los datos estructurados. Presta especial atención a las tablas de precios y condiciones económicas.' + (texto && texto.trim().length > 50 ? '\n\nTexto extraído del PDF (puede estar incompleto):\n' + texto.substring(0, 15000) : '') },
+            { type: 'text', text: systemPrompt + '\n\nExtrae los datos de este documento comercial.' + (texto && texto.trim().length > 50 ? '\n\nTexto del documento:\n' + texto.substring(0, 10000) : '') },
             ...imageContents,
           ] },
         ],
@@ -123,9 +94,9 @@ export async function POST(req: NextRequest) {
     const textoLimitado = texto.substring(0, 80000);
 
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o',
+      model: 'gpt-4o-mini',
       messages: [
-        { role: 'user', content: systemPrompt + '\n\nAnaliza este contrato de proveedor y extrae todos los datos estructurados:\n\n' + textoLimitado },
+        { role: 'user', content: systemPrompt + '\n\nExtrae los datos de este documento comercial:\n\n' + textoLimitado },
       ],
       max_tokens: 4000,
       temperature: 0,
