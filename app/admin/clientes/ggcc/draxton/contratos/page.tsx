@@ -530,9 +530,9 @@ export default function DraxtonContratosPage() {
               <p className="text-[10px] text-gray-400">Todos los contratos</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Coste Proveedores/mes</div>
-              <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
-              <p className="text-[10px] text-gray-400">Margen: {formatCurrency(totalMensual - costeTotalProveedores)}/mes</p>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Margen Mensual</div>
+              <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(totalMensual - costeTotalProveedores)}</div>
+              <p className="text-[10px] text-gray-400">{totalMensual > 0 ? (((totalMensual - costeTotalProveedores) / totalMensual) * 100).toFixed(1) : '0'}% sobre facturación</p>
             </div>
           </div>
           {/* Desglose por contrato */}
