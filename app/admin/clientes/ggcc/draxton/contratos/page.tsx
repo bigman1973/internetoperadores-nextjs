@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon } from '@heroicons/react/24/outline'
+import { useState, useEffect, Fragment } from 'react'
+import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon, PencilIcon } from '@heroicons/react/24/outline'
 
 interface Servicio {
   ubicacion: string;
@@ -64,9 +64,13 @@ export default function DraxtonContratosPage() {
 
   async function fetchContratos() {
     setLoading(true);
-    const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos');
-    const data = await res.json();
-    setContratos(data);
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos');
+      const data = await res.json();
+      setContratos(data);
+    } catch (err) {
+      console.error('Error al cargar contratos:', err);
+    }
     setLoading(false);
   }
 
@@ -88,14 +92,12 @@ export default function DraxtonContratosPage() {
   async function analizarPDF(file: File) {
     setAnalizando(true);
     try {
-      // Extraer texto del PDF en el navegador
       const texto = await extraerTextoPDF(file);
       if (!texto || texto.trim().length < 50) {
         alert('No se pudo extraer texto del PDF. Puede ser un escaneo/imagen sin texto seleccionable.');
         setAnalizando(false);
         return;
       }
-      // Enviar solo el texto al servidor
       const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos/analizar-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -120,10 +122,10 @@ export default function DraxtonContratosPage() {
     setForm({
       titulo: c.titulo,
       tipo: c.tipo,
-      fechaFirma: c.fechaFirma ? c.fechaFirma.split('T')[0] : null,
-      fechaInicio: c.fechaInicio ? c.fechaInicio.split('T')[0] : null,
-      fechaFin: c.fechaFin ? c.fechaFin.split('T')[0] : null,
-      fechaInicioServicio: c.fechaInicioServicio ? c.fechaInicioServicio.split('T')[0] : null,
+      fechaFirma: c.fechaFirma ? c.fechaFirma.split('T')[0] : '',
+      fechaInicio: c.fechaInicio ? c.fechaInicio.split('T')[0] : '',
+      fechaFin: c.fechaFin ? c.fechaFin.split('T')[0] : '',
+      fechaInicioServicio: c.fechaInicioServicio ? c.fechaInicioServicio.split('T')[0] : '',
       permanenciaMeses: c.permanenciaMeses,
       prorrogaAutomatica: c.prorrogaAutomatica,
       plazoProrroga: c.plazoProrroga,
@@ -144,12 +146,19 @@ export default function DraxtonContratosPage() {
   }
 
   async function handleEliminar(id: string) {
-    if (!confirm('¿Estás seguro de eliminar este contrato?')) return;
+    if (!confirm('¿Estás seguro de eliminar este contrato? Esta acción no se puede deshacer.')) return;
     try {
       const res = await fetch(`/api/admin/clientes/ggcc/draxton/contratos?id=${id}`, { method: 'DELETE' });
-      if (res.ok) fetchContratos();
-      else alert('Error al eliminar');
-    } catch { alert('Error de conexión'); }
+      if (res.ok) {
+        setExpandedId(null);
+        fetchContratos();
+      } else {
+        const data = await res.json();
+        alert('Error al eliminar: ' + (data.error || 'Error desconocido'));
+      }
+    } catch {
+      alert('Error de conexión al eliminar');
+    }
   }
 
   async function handleGuardar() {
@@ -173,10 +182,11 @@ export default function DraxtonContratosPage() {
         setEditingId(null);
         fetchContratos();
       } else {
-        alert('Error al guardar');
+        const data = await res.json();
+        alert('Error al guardar: ' + (data.error || 'Error desconocido'));
       }
     } catch {
-      alert('Error de conexión');
+      alert('Error de conexión al guardar');
     }
     setGuardando(false);
   }
@@ -218,8 +228,11 @@ export default function DraxtonContratosPage() {
     setForm({ ...form, serviciosJson: servicios });
   }
 
-  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '—';
-  const formatCurrency = (n: number | null) => n != null ? n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '—';
+  const formatDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('es-ES') : '—';
+  const formatCurrency = (n: number | string | null | undefined) => {
+    const num = typeof n === 'string' ? parseFloat(n) : n;
+    return num != null && !isNaN(num) ? num.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' }) : '—';
+  };
 
   // KPIs
   const activos = contratos.filter(c => c.estado === 'Activo').length;
@@ -243,7 +256,7 @@ export default function DraxtonContratosPage() {
             </div>
           </div>
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => { setEditingId(null); setForm({ titulo: '', tipo: 'Servicios Internet', estado: 'Activo', prorrogaAutomatica: true }); setShowForm(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
           >
             <PlusIcon className="w-4 h-4" />
@@ -264,7 +277,7 @@ export default function DraxtonContratosPage() {
             {proximoVencimiento ? formatDate(proximoVencimiento.fechaFin) : '—'}
           </div>
           {proximoVencimiento && (
-            <p className="text-xs text-gray-500 mt-1">{proximoVencimiento.titulo}</p>
+            <p className="text-xs text-gray-500 mt-1 truncate">{proximoVencimiento.titulo}</p>
           )}
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -299,129 +312,158 @@ export default function DraxtonContratosPage() {
               ) : contratos.length === 0 ? (
                 <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados. Haz clic en &quot;Nuevo Contrato&quot; para añadir el primero.</td></tr>
               ) : contratos.map(c => (
-                <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{c.titulo}</td>
-                  <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicio)}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio)}</td>
-                  <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaFin)}</td>
-                  <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeMensual)}</td>
-                  <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeAnual)}</td>
-                  <td className="px-4 py-3 text-center">
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      c.estado === 'Activo' ? 'bg-green-100 text-green-700' :
-                      c.estado === 'Vencido' ? 'bg-red-100 text-red-700' :
-                      c.estado === 'En renovación' ? 'bg-amber-100 text-amber-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {c.estado}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {c.documentoUrl && (
-                      <a href={c.documentoUrl} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800" onClick={e => e.stopPropagation()}>
-                        <EyeIcon className="w-4 h-4 inline" />
-                      </a>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {/* Detalle expandido */}
-              {contratos.map(c => expandedId === c.id && (
-                <tr key={`detail-${c.id}`}>
-                  <td colSpan={9} className="bg-gray-50 px-6 py-4">
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
-                        <p className="text-sm font-medium">{formatDate(c.fechaFirma)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase">Inicio Servicio Real</p>
-                        <p className="text-sm font-medium">{formatDate(c.fechaInicioServicio)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase">Permanencia</p>
-                        <p className="text-sm font-medium">{c.permanenciaMeses ? `${c.permanenciaMeses} meses` : '—'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase">Prórroga</p>
-                        <p className="text-sm font-medium">{c.prorrogaAutomatica ? `Sí (${c.plazoProrroga || 'automática'})` : 'No'}</p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-gray-500 uppercase">Forma de Pago</p>
-                        <p className="text-sm font-medium capitalize">{c.formaPago || '—'}</p>
-                      </div>
-                    </div>
-                    {c.contactoCliente && (
-                      <div className="mb-2">
-                        <p className="text-[10px] text-gray-500 uppercase">Contacto Cliente</p>
-                        <p className="text-sm">{c.contactoCliente}</p>
-                      </div>
-                    )}
-                    {c.contactoProveedor && (
-                      <div className="mb-2">
-                        <p className="text-[10px] text-gray-500 uppercase">Contacto Proveedor</p>
-                        <p className="text-sm">{c.contactoProveedor}</p>
-                      </div>
-                    )}
-                    {c.notas && (
-                      <div className="mb-2">
-                        <p className="text-[10px] text-gray-500 uppercase">Notas</p>
-                        <p className="text-sm text-gray-700">{c.notas}</p>
-                      </div>
-                    )}
-                    {c.condicionesEspeciales && (
-                      <div className="mb-2">
-                        <p className="text-[10px] text-gray-500 uppercase">Condiciones Especiales</p>
-                        <p className="text-sm text-gray-700">{c.condicionesEspeciales}</p>
-                      </div>
-                    )}
-                    {/* Tabla de servicios */}
-                    {c.serviciosJson && Array.isArray(c.serviciosJson) && c.serviciosJson.length > 0 && (
-                      <div className="mt-4">
-                        <p className="text-[10px] text-gray-500 uppercase mb-2">Servicios Incluidos</p>
-                        <table className="w-full text-xs border rounded-lg overflow-hidden">
-                          <thead className="bg-gray-100">
-                            <tr>
-                              <th className="text-left px-3 py-2">Ubicación</th>
-                              <th className="text-left px-3 py-2">Servicio</th>
-                              <th className="text-left px-3 py-2">Velocidad</th>
-                              <th className="text-left px-3 py-2">Inicio Servicio</th>
-                              <th className="text-right px-3 py-2">Precio/mes</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y bg-white">
-                            {(c.serviciosJson as Servicio[]).map((s, i) => (
-                              <tr key={i}>
-                                <td className="px-3 py-2">{s.ubicacion}</td>
-                                <td className="px-3 py-2">{s.servicio}</td>
-                                <td className="px-3 py-2">{s.velocidad}</td>
-                                <td className="px-3 py-2">{s.fechaInicioServicio ? formatDate(s.fechaInicioServicio) : <span className="text-gray-400 italic">global</span>}</td>
-                                <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                    {/* Botones editar/eliminar */}
-                    <div className="mt-4 flex gap-2 border-t pt-3">
-                      <button onClick={(e) => { e.stopPropagation(); handleEditar(c); }} className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
-                        Editar contrato
+                <Fragment key={c.id}>
+                  <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
+                    <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{c.titulo}</td>
+                    <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicio)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaInicioServicio)}</td>
+                    <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaFin)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeMensual)}</td>
+                    <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeAnual)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        c.estado === 'Activo' ? 'bg-green-100 text-green-700' :
+                        c.estado === 'Vencido' ? 'bg-red-100 text-red-700' :
+                        c.estado === 'En renovación' ? 'bg-amber-100 text-amber-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {c.estado}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEditar(c); }}
+                        className="text-indigo-600 hover:text-indigo-800"
+                        title="Editar"
+                      >
+                        <PencilIcon className="w-4 h-4" />
                       </button>
-                      <button onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }} className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100">
-                        Eliminar
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }}
+                        className="text-red-500 hover:text-red-700"
+                        title="Eliminar"
+                      >
+                        <TrashIcon className="w-4 h-4" />
                       </button>
-                    </div>
-                  </td>
-                </tr>
+                      {c.documentoUrl && (
+                        <a href={c.documentoUrl} target="_blank" rel="noopener noreferrer" className="text-gray-500 hover:text-gray-700" onClick={e => e.stopPropagation()} title="Ver documento">
+                          <EyeIcon className="w-4 h-4" />
+                        </a>
+                      )}
+                    </td>
+                  </tr>
+                  {/* Detalle expandido - dentro del mismo Fragment */}
+                  {expandedId === c.id && (
+                    <tr>
+                      <td colSpan={9} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
+                            <p className="text-sm font-medium">{formatDate(c.fechaFirma)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase">Inicio Servicio Real</p>
+                            <p className="text-sm font-medium text-indigo-700">{formatDate(c.fechaInicioServicio)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase">Permanencia</p>
+                            <p className="text-sm font-medium">{c.permanenciaMeses ? `${c.permanenciaMeses} meses` : '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase">Prórroga</p>
+                            <p className="text-sm font-medium">{c.prorrogaAutomatica ? `Sí (${c.plazoProrroga || 'automática'})` : 'No'}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] text-gray-500 uppercase">Forma de Pago</p>
+                            <p className="text-sm font-medium capitalize">{c.formaPago || '—'}</p>
+                          </div>
+                        </div>
+                        {c.contactoCliente && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-500 uppercase">Contacto Cliente</p>
+                            <p className="text-sm">{c.contactoCliente}</p>
+                          </div>
+                        )}
+                        {c.contactoProveedor && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-500 uppercase">Contacto Proveedor</p>
+                            <p className="text-sm">{c.contactoProveedor}</p>
+                          </div>
+                        )}
+                        {c.notas && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-500 uppercase">Notas</p>
+                            <p className="text-sm text-gray-700">{c.notas}</p>
+                          </div>
+                        )}
+                        {c.condicionesEspeciales && (
+                          <div className="mb-2">
+                            <p className="text-[10px] text-gray-500 uppercase">Condiciones Especiales</p>
+                            <p className="text-sm text-gray-700">{c.condicionesEspeciales}</p>
+                          </div>
+                        )}
+                        {/* Tabla de servicios */}
+                        {c.serviciosJson && Array.isArray(c.serviciosJson) && c.serviciosJson.length > 0 && (
+                          <div className="mt-4">
+                            <p className="text-[10px] text-gray-500 uppercase mb-2">Servicios Incluidos ({c.serviciosJson.length})</p>
+                            <table className="w-full text-xs border rounded-lg overflow-hidden">
+                              <thead className="bg-gray-100">
+                                <tr>
+                                  <th className="text-left px-3 py-2">Ubicación</th>
+                                  <th className="text-left px-3 py-2">Servicio</th>
+                                  <th className="text-left px-3 py-2">Velocidad</th>
+                                  <th className="text-left px-3 py-2">Inicio Servicio</th>
+                                  <th className="text-right px-3 py-2">Precio/mes</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y bg-white">
+                                {(c.serviciosJson as Servicio[]).map((s, i) => (
+                                  <tr key={i}>
+                                    <td className="px-3 py-2 font-medium">{s.ubicacion}</td>
+                                    <td className="px-3 py-2">{s.servicio}</td>
+                                    <td className="px-3 py-2">{s.velocidad}</td>
+                                    <td className="px-3 py-2">
+                                      {s.fechaInicioServicio
+                                        ? formatDate(s.fechaInicioServicio)
+                                        : <span className="text-gray-400 italic">global</span>
+                                      }
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        {/* Botones editar/eliminar en el detalle */}
+                        <div className="mt-4 flex gap-2 border-t pt-3">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEditar(c); }}
+                            className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1"
+                          >
+                            <PencilIcon className="w-3 h-3" />
+                            Editar contrato
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleEliminar(c.id); }}
+                            className="px-3 py-1.5 text-xs bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 inline-flex items-center gap-1"
+                          >
+                            <TrashIcon className="w-3 h-3" />
+                            Eliminar
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* Modal Nuevo Contrato */}
+      {/* Modal Nuevo/Editar Contrato */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto p-6">
@@ -502,7 +544,7 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Firma</label>
                 <input
                   type="date"
-                  value={form.fechaFirma?.slice(0, 10) || ''}
+                  value={form.fechaFirma || ''}
                   onChange={e => setForm({ ...form, fechaFirma: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 />
@@ -511,7 +553,7 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Contrato</label>
                 <input
                   type="date"
-                  value={form.fechaInicio?.slice(0, 10) || ''}
+                  value={form.fechaInicio || ''}
                   onChange={e => setForm({ ...form, fechaInicio: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 />
@@ -520,7 +562,7 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Fin Contrato</label>
                 <input
                   type="date"
-                  value={form.fechaFin?.slice(0, 10) || ''}
+                  value={form.fechaFin || ''}
                   onChange={e => setForm({ ...form, fechaFin: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 />
@@ -529,7 +571,7 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio Servicio Real</label>
                 <input
                   type="date"
-                  value={form.fechaInicioServicio?.slice(0, 10) || ''}
+                  value={form.fechaInicioServicio || ''}
                   onChange={e => setForm({ ...form, fechaInicioServicio: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 />
@@ -669,7 +711,7 @@ export default function DraxtonContratosPage() {
                         <td className="px-2 py-1">
                           <input
                             type="date"
-                            value={s.fechaInicioServicio?.slice(0, 10) || ''}
+                            value={s.fechaInicioServicio || ''}
                             onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)}
                             className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28"
                             title="Fecha inicio servicio específica (opcional, si difiere de la global)"
@@ -698,7 +740,7 @@ export default function DraxtonContratosPage() {
                 className="px-6 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-2"
               >
                 {guardando ? <ArrowPathIcon className="w-4 h-4 animate-spin" /> : null}
-                Guardar Contrato
+                {editingId ? 'Guardar Cambios' : 'Guardar Contrato'}
               </button>
             </div>
           </div>
