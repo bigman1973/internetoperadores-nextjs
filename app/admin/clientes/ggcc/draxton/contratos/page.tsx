@@ -430,21 +430,21 @@ export default function DraxtonContratosPage() {
       prorrogable: c.prorrogaAutomatica,
       plazoProrroga: plazo,
       importeProrroga: mensual * mesesProrr,
-      importeAnioActual: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual * 100) / 100 : 0,
-      mesesAnioActual: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) : 0,
-      importe2026: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, 2026) * mensual * 100) / 100 : 0,
-      meses2026: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, 2026) : 0,
-      importe2027: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, 2027) * mensual * 100) / 100 : 0,
-      meses2027: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, 2027) : 0,
+      importeAnio1: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual * 100) / 100 : 0,
+      mesesAnio1: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) : 0,
+      importeAnio2: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) * mensual * 100) / 100 : 0,
+      mesesAnio2: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) : 0,
+      importeAnio3: fechaRef ? Math.round(calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 2) * mensual * 100) / 100 : 0,
+      mesesAnio3: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 2) : 0,
     };
   });
 
   // Totales
   const totalValorContrato = datosContratos.reduce((s, d) => s + d.valorTotal, 0);
   const totalMensual = datosContratos.reduce((s, d) => s + d.mensual, 0);
-  const totalAnioActual = datosContratos.reduce((s, d) => s + d.importeAnioActual, 0);
-  const total2026 = datosContratos.reduce((s, d) => s + d.importe2026, 0);
-  const total2027 = datosContratos.reduce((s, d) => s + d.importe2027, 0);
+  const totalAnio1 = datosContratos.reduce((s, d) => s + d.importeAnio1, 0);
+  const totalAnio2 = datosContratos.reduce((s, d) => s + d.importeAnio2, 0);
+  const totalAnio3 = datosContratos.reduce((s, d) => s + d.importeAnio3, 0);
 
   // Coste proveedor total
   const costeTotalProveedores = activos.reduce((sum, c) => {
@@ -486,17 +486,17 @@ export default function DraxtonContratosPage() {
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
-              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnioActual)}</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio1)}</div>
               <p className="text-[10px] text-gray-400">Según fecha inicio servicio</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2026</div>
-              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(total2026)}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 1}</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio2)}</div>
               <p className="text-[10px] text-gray-400">Todos los contratos</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe 2027</div>
-              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(total2027)}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 2}</div>
+              <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio3)}</div>
               <p className="text-[10px] text-gray-400">Todos los contratos</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -516,8 +516,8 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
                     <th className="text-center px-4 py-2 font-medium text-gray-600">Prórroga</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
-                    <th className="text-right px-4 py-2 font-medium text-gray-600">2026</th>
-                    <th className="text-right px-4 py-2 font-medium text-gray-600">2027</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 1}</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 2}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -532,16 +532,16 @@ export default function DraxtonContratosPage() {
                         ) : <span className="text-gray-400">No</span>}
                       </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
-                        {formatCurrency(d.importeAnioActual)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnioActual * 10) / 10} meses</span>
+                        {formatCurrency(d.importeAnio1)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio1 * 10) / 10} meses</span>
                       </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
-                        {formatCurrency(d.importe2026)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.meses2026 * 10) / 10} meses</span>
+                        {formatCurrency(d.importeAnio2)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio2 * 10) / 10} meses</span>
                       </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
-                        {formatCurrency(d.importe2027)}
-                        <span className="text-[9px] text-gray-400 block">{Math.round(d.meses2027 * 10) / 10} meses</span>
+                        {formatCurrency(d.importeAnio3)}
+                        <span className="text-[9px] text-gray-400 block">{Math.round(d.mesesAnio3 * 10) / 10} meses</span>
                       </td>
                     </tr>
                   ))}
@@ -551,9 +551,9 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2"></td>
-                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnioActual)}</td>
-                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(total2026)}</td>
-                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(total2027)}</td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
+                      <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio3)}</td>
                     </tr>
                   )}
                 </tbody>
