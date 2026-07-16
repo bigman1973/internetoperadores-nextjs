@@ -156,19 +156,41 @@ export default function DraxtonContratosPage() {
     return texto;
   }
 
+  async function extraerImagenesPDF(file: File): Promise<string[]> {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdfjsLib = await import('pdfjs-dist');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const images: string[] = [];
+    const maxPages = Math.min(pdf.numPages, 8); // Limitar a 8 páginas para no exceder body limit de Vercel
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({ scale: 1.2 }); // Scale 1.2 para balance calidad/tamaño
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // Calidad 0.5 para reducir tamaño
+      images.push(dataUrl.split(',')[1]); // Solo el base64 sin el prefijo
+    }
+    return images;
+  }
+
   async function analizarPDF(file: File) {
     setAnalizando(true);
     try {
+      const imagenes = await extraerImagenesPDF(file);
       const texto = await extraerTextoPDF(file);
-      if (!texto || texto.trim().length < 50) {
-        alert('No se pudo extraer texto del PDF. Puede ser un escaneo/imagen sin texto seleccionable.');
-        setAnalizando(false);
-        return;
-      }
+      
       const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos/analizar-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ texto, nombreArchivo: file.name }),
+        body: JSON.stringify({ 
+          texto: texto || '', 
+          imagenes: imagenes.length > 0 ? imagenes : undefined,
+          nombreArchivo: file.name 
+        }),
       });
       const data = await res.json();
       if (data.success) {
@@ -185,16 +207,18 @@ export default function DraxtonContratosPage() {
   async function analizarPDFProveedor(file: File) {
     setAnalizandoProveedor(true);
     try {
+      // Intentar primero con imágenes (Vision) para capturar tablas gráficas
+      const imagenes = await extraerImagenesPDF(file);
       const texto = await extraerTextoPDF(file);
-      if (!texto || texto.trim().length < 50) {
-        alert('No se pudo extraer texto del PDF.');
-        setAnalizandoProveedor(false);
-        return;
-      }
+      
       const res = await fetch('/api/admin/clientes/ggcc/draxton/contratos-proveedor/analizar-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ texto, nombreArchivo: file.name }),
+        body: JSON.stringify({ 
+          texto: texto || '', 
+          imagenes: imagenes.length > 0 ? imagenes : undefined,
+          nombreArchivo: file.name 
+        }),
       });
       const data = await res.json();
       if (data.success) {

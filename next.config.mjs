@@ -7,6 +7,13 @@ const nextConfig = {
   },
   serverExternalPackages: ['@prisma/client', 'pdf-parse'],
 
+  // Aumentar límite de body para enviar imágenes de PDF a GPT Vision
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
+  },
+
   // Optimizar imágenes
   images: {
     formats: ['image/avif', 'image/webp'],

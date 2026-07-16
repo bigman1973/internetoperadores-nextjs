@@ -6,30 +6,27 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || undefined,
 });
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { texto, nombreArchivo } = body;
+const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones. Analiza el contrato proporcionado y extrae los datos estructurados. Este es un contrato que Internet Operadores firma CON UN CLIENTE (como Draxton, una empresa industrial) para prestarle servicios de telecomunicaciones.
 
-    if (!texto || texto.trim().length < 50) {
-      return NextResponse.json({ 
-        error: 'No se pudo extraer texto del PDF. Puede ser un escaneo/imagen sin texto seleccionable.'
-      }, { status: 400 });
-    }
+REGLAS DE EXTRACCIÓN:
+1. "titulo": Título descriptivo del contrato basado en su objeto.
+2. "fechaFirma": Fecha de firma o de la oferta. Formato YYYY-MM-DD.
+3. "permanenciaMeses": Busca "permanencia", "duración", "periodo de contratación".
+4. "servicios": Busca tablas de servicios/sedes con ubicación, tipo de servicio, velocidad y precio mensual.
+5. "importeMensual": Suma total de cuotas mensuales.
+6. "importeAnual": importeMensual × 12.
+7. "fechaInicioServicio": Fecha REAL en que se activó el servicio (puede diferir de la contractual).
 
-    // Limitar texto a ~80.000 caracteres (~20k tokens)
-    const textoLimitado = texto.substring(0, 80000);
-
-    const systemPrompt = `Eres un asistente experto en análisis de contratos de telecomunicaciones. Analiza el texto del contrato proporcionado y extrae los datos estructurados. Responde SOLO con un JSON válido (sin markdown, sin backticks) con la siguiente estructura:
+Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estructura:
 {
   "titulo": "Título descriptivo del contrato",
   "tipo": "Servicios Internet|Mantenimiento|Guardias|Consultoría|Otro",
   "fechaFirma": "YYYY-MM-DD o null",
   "fechaInicio": "YYYY-MM-DD o null (fecha inicio contractual)",
   "fechaFin": "YYYY-MM-DD o null",
-  "fechaInicioServicio": "YYYY-MM-DD o null (fecha real en que se activó el servicio, puede diferir de fechaInicio contractual)",
+  "fechaInicioServicio": "YYYY-MM-DD o null",
   "permanenciaMeses": número o null,
   "prorrogaAutomatica": true/false,
   "plazoProrroga": "descripción del plazo de prórroga o null",
@@ -37,21 +34,83 @@ export async function POST(req: NextRequest) {
   "importeAnual": número decimal o null,
   "formaPago": "confirming|transferencia|domiciliacion|otro",
   "contactoCliente": "Nombre - email - teléfono del contacto del cliente",
-  "contactoProveedor": "Nombre - email - teléfono del contacto del proveedor",
+  "contactoProveedor": "Nombre - email - teléfono del contacto del proveedor (nosotros)",
   "notas": "Resumen breve de las condiciones principales",
   "condicionesEspeciales": "Penalizaciones, exclusiones, cláusulas especiales relevantes",
   "servicios": [
     {
-      "ubicacion": "Ciudad/Planta",
+      "ubicacion": "Ciudad/Planta/Sede",
       "servicio": "Descripción del servicio",
       "velocidad": "Velocidad contratada",
       "precioMensual": número,
-      "fechaInicioServicio": "YYYY-MM-DD o null (si el servicio tiene fecha de inicio específica diferente a la global)"
+      "fechaInicioServicio": "YYYY-MM-DD o null"
     }
   ]
 }
 
-Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los servicios mensuales. Para importeAnual, multiplica por 12. La fechaInicioServicio es la fecha REAL en que se activó el servicio (puede ser posterior a la fecha contractual por instalaciones, migraciones, etc.).`;
+Si no puedes determinar un campo, usa null. NUNCA inventes datos.`;
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { texto, imagenes, nombreArchivo } = body;
+
+    // Si tenemos imágenes, usar Vision
+    if (imagenes && Array.isArray(imagenes) && imagenes.length > 0) {
+      const imageContents: any[] = imagenes.map((img: string) => ({
+        type: 'image_url',
+        image_url: {
+          url: `data:image/jpeg;base64,${img}`,
+          detail: 'high',
+        },
+      }));
+
+      const userContent: any[] = [
+        { type: 'text', text: `Analiza este contrato de cliente de telecomunicaciones y extrae todos los datos estructurados. Presta especial atención a las tablas de servicios y precios.${texto && texto.trim().length > 50 ? `\n\nTexto extraído del PDF (puede estar incompleto):\n${texto.substring(0, 20000)}` : ''}` },
+        ...imageContents,
+      ];
+
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        max_tokens: 4000,
+        temperature: 0.1,
+      });
+
+      const content = response.choices[0]?.message?.content || '';
+      
+      if (!content) {
+        return NextResponse.json({ error: 'GPT no devolvió respuesta.' }, { status: 500 });
+      }
+
+      let datos;
+      try {
+        const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        datos = JSON.parse(cleanContent);
+      } catch {
+        return NextResponse.json({ 
+          error: 'No se pudo parsear la respuesta de GPT. Respuesta: ' + content.substring(0, 300)
+        }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        datos: mapearDatos(datos, nombreArchivo),
+        documentoNombre: nombreArchivo || 'contrato.pdf',
+      });
+    }
+
+    // Fallback: solo texto
+    if (!texto || texto.trim().length < 50) {
+      return NextResponse.json({ 
+        error: 'No se pudo extraer texto ni imágenes del PDF.'
+      }, { status: 400 });
+    }
+
+    const textoLimitado = texto.substring(0, 80000);
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -66,49 +125,22 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
     const content = response.choices[0]?.message?.content || '';
     
     if (!content) {
-      return NextResponse.json({ 
-        error: 'GPT no devolvió respuesta. Intenta de nuevo.'
-      }, { status: 500 });
+      return NextResponse.json({ error: 'GPT no devolvió respuesta.' }, { status: 500 });
     }
 
-    // Intentar parsear el JSON de la respuesta
     let datos;
     try {
       const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       datos = JSON.parse(cleanContent);
     } catch {
       return NextResponse.json({ 
-        error: 'No se pudo parsear la respuesta de GPT. Respuesta parcial: ' + content.substring(0, 200)
+        error: 'No se pudo parsear la respuesta. Respuesta: ' + content.substring(0, 200)
       }, { status: 500 });
     }
 
     return NextResponse.json({
       success: true,
-      datos: {
-        titulo: datos.titulo || (nombreArchivo || '').replace('.pdf', ''),
-        tipo: datos.tipo || 'Servicios Internet',
-        fechaFirma: datos.fechaFirma || null,
-        fechaInicio: datos.fechaInicio || datos.fechaFirma || null,
-        fechaFin: datos.fechaFin || null,
-        fechaInicioServicio: datos.fechaInicioServicio || null,
-        permanenciaMeses: datos.permanenciaMeses || null,
-        prorrogaAutomatica: datos.prorrogaAutomatica ?? true,
-        plazoProrroga: datos.plazoProrroga || null,
-        importeMensual: datos.importeMensual || null,
-        importeAnual: datos.importeAnual || null,
-        formaPago: datos.formaPago || null,
-        contactoCliente: datos.contactoCliente || null,
-        contactoProveedor: datos.contactoProveedor || null,
-        notas: datos.notas || null,
-        condicionesEspeciales: datos.condicionesEspeciales || null,
-        serviciosJson: datos.servicios?.map((s: any) => ({
-          ubicacion: s.ubicacion || '',
-          servicio: s.servicio || '',
-          velocidad: s.velocidad || '',
-          precioMensual: s.precioMensual || 0,
-          fechaInicioServicio: s.fechaInicioServicio || null,
-        })) || null,
-      },
+      datos: mapearDatos(datos, nombreArchivo),
       documentoNombre: nombreArchivo || 'contrato.pdf',
     });
   } catch (error: any) {
@@ -129,4 +161,32 @@ Si no puedes determinar un campo, usa null. Para importeMensual, suma todos los 
       error: 'Error al analizar: ' + errorMsg
     }, { status: 500 });
   }
+}
+
+function mapearDatos(datos: any, nombreArchivo?: string) {
+  return {
+    titulo: datos.titulo || (nombreArchivo || '').replace('.pdf', ''),
+    tipo: datos.tipo || 'Servicios Internet',
+    fechaFirma: datos.fechaFirma || null,
+    fechaInicio: datos.fechaInicio || datos.fechaFirma || null,
+    fechaFin: datos.fechaFin || null,
+    fechaInicioServicio: datos.fechaInicioServicio || null,
+    permanenciaMeses: datos.permanenciaMeses || null,
+    prorrogaAutomatica: datos.prorrogaAutomatica ?? true,
+    plazoProrroga: datos.plazoProrroga || null,
+    importeMensual: datos.importeMensual || null,
+    importeAnual: datos.importeAnual || (datos.importeMensual ? datos.importeMensual * 12 : null),
+    formaPago: datos.formaPago || null,
+    contactoCliente: datos.contactoCliente || null,
+    contactoProveedor: datos.contactoProveedor || null,
+    notas: datos.notas || null,
+    condicionesEspeciales: datos.condicionesEspeciales || null,
+    serviciosJson: datos.servicios?.map((s: any) => ({
+      ubicacion: s.ubicacion || '',
+      servicio: s.servicio || '',
+      velocidad: s.velocidad || '',
+      precioMensual: s.precioMensual || 0,
+      fechaInicioServicio: s.fechaInicioServicio || null,
+    })) || null,
+  };
 }
