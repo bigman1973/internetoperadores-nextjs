@@ -41,6 +41,7 @@ Responde SOLO con un JSON válido (sin markdown, sin backticks) con esta estruct
       "ubicacion": "Ciudad/Planta/Sede",
       "servicio": "Descripción del servicio",
       "velocidad": "Velocidad contratada",
+      "importeAlta": número (coste de alta/instalación, 0 si no aplica),
       "precioMensual": número,
       "fechaInicioServicio": "YYYY-MM-DD o null"
     }
@@ -182,6 +183,7 @@ function mapearDatos(datos: any, nombreArchivo?: string) {
       ubicacion: s.ubicacion || '',
       servicio: s.servicio || '',
       velocidad: s.velocidad || '',
+      importeAlta: s.importeAlta || 0,
       precioMensual: s.precioMensual || 0,
       fechaInicioServicio: s.fechaInicioServicio || null,
     })) || null,

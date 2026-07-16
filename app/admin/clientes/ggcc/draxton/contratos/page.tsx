@@ -8,6 +8,7 @@ interface Servicio {
   servicio: string;
   velocidad: string;
   precioMensual: number;
+  importeAlta?: number;
   fechaInicioServicio?: string | null;
 }
 
@@ -720,6 +721,7 @@ export default function DraxtonContratosPage() {
                                   <th className="text-left px-3 py-2">Servicio</th>
                                   <th className="text-left px-3 py-2">Velocidad</th>
                                   <th className="text-left px-3 py-2">Inicio Servicio</th>
+                                  <th className="text-right px-3 py-2">Alta €</th>
                                   <th className="text-right px-3 py-2">Precio/mes</th>
                                 </tr>
                               </thead>
@@ -735,6 +737,7 @@ export default function DraxtonContratosPage() {
                                         : <span className="text-gray-400 italic">global</span>
                                       }
                                     </td>
+                                    <td className="px-3 py-2 text-right">{s.importeAlta ? formatCurrency(s.importeAlta) : <span className="text-gray-300">0</span>}</td>
                                     <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
                                   </tr>
                                 ))}
@@ -956,6 +959,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Servicio</th>
                       <th className="text-left px-2 py-1">Velocidad</th>
                       <th className="text-left px-2 py-1">Inicio Servicio</th>
+                      <th className="text-right px-2 py-1">Alta €</th>
                       <th className="text-right px-2 py-1">€/mes</th>
                       <th className="px-2 py-1 w-8"></th>
                     </tr>
@@ -976,6 +980,9 @@ export default function DraxtonContratosPage() {
                           <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicio(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
                         </td>
                         <td className="px-2 py-1 text-right">
+                          <input type="number" step="0.01" value={s.importeAlta || ''} onChange={e => updateServicio(i, 'importeAlta', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-16 text-right" placeholder="0" />
+                        </td>
+                        <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicio(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
                         </td>
                         <td className="px-2 py-1 text-center">
@@ -987,14 +994,20 @@ export default function DraxtonContratosPage() {
                     ))}
                   </tbody>
                 </table>
-                <button type="button" onClick={() => { const updated = [...(form.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]; setForm({...form, serviciosJson: updated}); }} className="mt-2 text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1">
-                  <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
-                </button>
+                <div className="flex items-center justify-between mt-2">
+                  <button type="button" onClick={() => { const updated = [...(form.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, importeAlta: 0, fechaInicioServicio: null }]; setForm({...form, serviciosJson: updated}); }} className="text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1">
+                    <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
+                  </button>
+                  <div className="text-xs font-semibold text-green-800 flex gap-4">
+                    <span>Total Alta: {((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0)).toFixed(2)} €</span>
+                    <span>Total Mensual: {((form.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0)).toFixed(2)} €/mes</span>
+                  </div>
+                </div>
               </div>
             )}
             {/* Botón añadir servicio siempre visible */}
             {(!form.serviciosJson || !Array.isArray(form.serviciosJson) || form.serviciosJson.length === 0) && (
-              <button type="button" onClick={() => { setForm({...form, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1 border border-green-300 rounded px-3 py-1.5">
+              <button type="button" onClick={() => { setForm({...form, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, importeAlta: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-green-700 hover:text-green-900 font-medium inline-flex items-center gap-1 border border-green-300 rounded px-3 py-1.5">
                 <PlusIcon className="w-3.5 h-3.5" /> Añadir servicios manualmente
               </button>
             )}
@@ -1147,6 +1160,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Servicio</th>
                       <th className="text-left px-2 py-1">Velocidad</th>
                       <th className="text-left px-2 py-1">Inicio</th>
+                      <th className="text-right px-2 py-1">Alta €</th>
                       <th className="text-right px-2 py-1">€/mes</th>
                       <th className="px-2 py-1 w-8"></th>
                     </tr>
@@ -1167,6 +1181,9 @@ export default function DraxtonContratosPage() {
                           <input type="date" value={s.fechaInicioServicio || ''} onChange={e => updateServicioProv(i, 'fechaInicioServicio', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28" />
                         </td>
                         <td className="px-2 py-1 text-right">
+                          <input type="number" step="0.01" value={s.importeAlta || ''} onChange={e => updateServicioProv(i, 'importeAlta', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-16 text-right" placeholder="0" />
+                        </td>
+                        <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicioProv(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
                         </td>
                         <td className="px-2 py-1 text-center">
@@ -1178,14 +1195,20 @@ export default function DraxtonContratosPage() {
                     ))}
                   </tbody>
                 </table>
-                <button type="button" onClick={() => { const updated = [...(formProv.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]; setFormProv({...formProv, serviciosJson: updated}); }} className="mt-2 text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1">
-                  <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
-                </button>
+                <div className="flex items-center justify-between mt-2">
+                  <button type="button" onClick={() => { const updated = [...(formProv.serviciosJson as Servicio[] || []), { ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, importeAlta: 0, fechaInicioServicio: null }]; setFormProv({...formProv, serviciosJson: updated}); }} className="text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1">
+                    <PlusIcon className="w-3.5 h-3.5" /> Añadir servicio
+                  </button>
+                  <div className="text-xs font-semibold text-purple-800 flex gap-4">
+                    <span>Total Alta: {((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.importeAlta || 0), 0)).toFixed(2)} €</span>
+                    <span>Total Mensual: {((formProv.serviciosJson as Servicio[]).reduce((sum, s) => sum + (s.precioMensual || 0), 0)).toFixed(2)} €/mes</span>
+                  </div>
+                </div>
               </div>
             )}
             {/* Botón añadir servicio siempre visible */}
             {(!formProv.serviciosJson || !Array.isArray(formProv.serviciosJson) || formProv.serviciosJson.length === 0) && (
-              <button type="button" onClick={() => { setFormProv({...formProv, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1 border border-purple-300 rounded px-3 py-1.5">
+              <button type="button" onClick={() => { setFormProv({...formProv, serviciosJson: [{ ubicacion: '', servicio: '', velocidad: '', precioMensual: 0, importeAlta: 0, fechaInicioServicio: null }]}); }} className="mt-4 text-xs text-purple-700 hover:text-purple-900 font-medium inline-flex items-center gap-1 border border-purple-300 rounded px-3 py-1.5">
                 <PlusIcon className="w-3.5 h-3.5" /> Añadir servicios manualmente
               </button>
             )}

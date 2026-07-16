@@ -26,16 +26,17 @@ const systemPrompt = `Eres un experto en contratos de telecomunicaciones. Extrae
   "contactoProveedor": null,
   "notas": "Resumen breve del contrato",
   "condicionesEspeciales": null,
-  "servicios": [{"ubicacion":"nombre sede o dirección","servicio":"tipo servicio (FTTO, FTTH, F.O. dedicada, etc)","velocidad":"100M/100M","precioMensual":258.83,"fechaInicioServicio":null}]
+  "servicios": [{"ubicacion":"nombre sede o dirección","servicio":"tipo servicio (FTTO, FTTH, F.O. dedicada, etc)","velocidad":"100M/100M","importeAlta":0,"precioMensual":258.83,"fechaInicioServicio":null}]
 }
 REGLAS IMPORTANTES:
 1. cifProveedor SIEMPRE null (el usuario lo pondrá manualmente).
 2. BUSCA TABLAS DE PRECIOS/VALORACIÓN ECONÓMICA. Los precios mensuales (€/m, €/mes, Mensual) son la cuota recurrente, NO el alta.
 3. Cada servicio/sede debe tener su precioMensual individual extraído de la tabla de valoración económica.
 4. importeMensual es la SUMA de todos los precioMensual de los servicios.
-5. Si hay sección "Valoración Económica" o "Resumen Económico", usa esos precios.
-6. permanenciaMeses: busca "contrato mínimo de X meses" o "permanencia X meses".
-7. Incluye SOLO servicios de conectividad/internet de las sedes del cliente final (no incluir CEX Premium, soporte, ni sedes internacionales salvo que sean relevantes).`;
+5. importeAlta es el coste de alta/instalación de cada servicio (columna "Alta (€)" en la tabla). Si es 0 o no aparece, poner 0.
+6. Si hay sección "Valoración Económica" o "Resumen Económico", usa esos precios.
+7. permanenciaMeses: busca "contrato mínimo de X meses" o "permanencia X meses".
+8. Incluye SOLO servicios de conectividad/internet de las sedes del cliente final (no incluir CEX Premium, soporte, ni sedes internacionales salvo que sean relevantes).`;
 
 export async function POST(req: NextRequest) {
   try {
@@ -202,6 +203,7 @@ function mapearDatos(datos: any, nombreArchivo?: string) {
       ubicacion: s.ubicacion || '',
       servicio: s.servicio || '',
       velocidad: s.velocidad || '',
+      importeAlta: s.importeAlta || 0,
       precioMensual: s.precioMensual || 0,
       fechaInicioServicio: s.fechaInicioServicio || null,
     })) || null,
