@@ -11,7 +11,7 @@ const systemPrompt = `Eres un asistente experto en análisis de contratos de tel
 
 REGLAS DE EXTRACCIÓN ESPECÍFICAS:
 1. "proveedor": Busca el nombre de la empresa que emite la oferta/contrato (ej. "Telefónica Empresas", "Adamo Business", etc.). Suele estar en la portada o cabecera.
-2. "cifProveedor": Busca el CIF/NIF real del proveedor en el documento. Si no lo encuentras, pon null. NUNCA inventes un CIF.
+2. "cifProveedor": Busca el CIF/NIF real del proveedor en el documento (formato español: letra + 8 dígitos, ej. B82387770). SOLO pon el CIF si lo ves LITERALMENTE escrito en el documento. Si no aparece explícitamente, SIEMPRE pon null. NUNCA inventes un CIF como B12345678 o similar.
 3. "titulo": Crea un título descriptivo basado en el OBJETO del contrato (ej. "Acceso a Internet Internacional - 3 sedes Europa"). No uses el nombre del archivo.
 4. "fechaFirma": Busca la fecha de la oferta (portada) o la fecha de firma (última página). Formato YYYY-MM-DD.
 5. "permanenciaMeses": Busca "Periodo de contratación", "permanencia", "duración del contrato" o similar. Extrae el número de meses (ej. "36 meses" -> 36).
