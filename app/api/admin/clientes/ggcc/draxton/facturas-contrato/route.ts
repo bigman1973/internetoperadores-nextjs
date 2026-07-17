@@ -63,9 +63,9 @@ export async function GET(request: NextRequest) {
       factura: v.factura ? {
         id: v.factura.id,
         fecha: v.factura.fecha,
-        numero: v.factura.numero,
+        numero: v.factura.numeroDocumento,
         documento: v.factura.documento,
-        clienteNombre: v.factura.clienteNombre,
+        clienteNombre: v.factura.nombreCompleto,
         baseImponible: v.factura.base,
         total: v.factura.total,
       } : null,
@@ -73,9 +73,9 @@ export async function GET(request: NextRequest) {
     candidatas: facturasCandidatas.map(f => ({
       id: f.id,
       fecha: f.fecha,
-      numero: f.numero,
+      numero: f.numeroDocumento,
       documento: f.documento,
-      clienteNombre: f.clienteNombre,
+      clienteNombre: f.nombreCompleto,
       baseImponible: f.base,
       total: f.total,
       codigoCliente: f.codigoCliente,

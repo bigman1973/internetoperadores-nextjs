@@ -1092,13 +1092,13 @@ export default function DraxtonContratosPage() {
                                     <td className="px-3 py-2 font-medium text-gray-900">{s.ubicacion}</td>
                                     <td className="px-3 py-2 text-gray-700">{s.servicio}</td>
                                     <td className="px-3 py-2 text-gray-700">{s.velocidad}</td>
-                                    <td className="px-3 py-2">
+                                    <td className="px-3 py-2 text-gray-700">
                                       {s.fechaInicioServicio
                                         ? formatDate(s.fechaInicioServicio)
                                         : <span className="text-gray-400 italic">global</span>
                                       }
                                     </td>
-                                    <td className="px-3 py-2 text-right">{s.importeAlta ? formatCurrency(s.importeAlta) : <span className="text-gray-300">0</span>}</td>
+                                    <td className="px-3 py-2 text-right text-gray-700">{s.importeAlta ? formatCurrency(s.importeAlta) : <span className="text-gray-400">—</span>}</td>
                                     <td className="px-3 py-2 text-right font-bold text-gray-900">{formatCurrency(s.precioMensual)}</td>
                                     <td className="px-3 py-2 text-purple-700 text-xs">
                                       {s.empresaGrupoId ? (empresasGrupo.find(e => e.id === s.empresaGrupoId)?.nombre || 'Asignada') : <span className="text-gray-400">General</span>}

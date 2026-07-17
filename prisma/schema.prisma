@@ -267,6 +267,7 @@ model Factura {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   // Relaciones conciliación
   devoluciones      DevolucionRemesa[]
+  facturasContratoDraxton FacturaContratoDraxton[]
 
   @@index([idCliente])
   @@index([codigoCliente])
@@ -1872,6 +1873,7 @@ model ContratoDraxton {
   clienteFacturacionId  Int?     @map("cliente_facturacion_id")
   clienteFacturacion    ClienteWeb? @relation(fields: [clienteFacturacionId], references: [id])
   contratosProveedor    ContratoProveedorDraxton[]
+  facturasVinculadas    FacturaContratoDraxton[]
 
   @@map("contratos_draxton")
 }
@@ -1918,6 +1920,8 @@ model FacturaContratoDraxton {
   notas                 String?
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
+  factura               Factura  @relation(fields: [facturaId], references: [id])
+  contratoDraxton       ContratoDraxton @relation(fields: [contratoDraxtonId], references: [id], onDelete: Cascade)
 
   @@unique([facturaId, contratoDraxtonId])
   @@index([contratoDraxtonId])
