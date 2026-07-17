@@ -1908,6 +1908,23 @@ model ContratoProveedorDraxton {
   @@map("contratos_proveedor_draxton")
 }
 
+model FacturaContratoDraxton {
+  id                    String   @id @default(uuid())
+  facturaId             Int      @map("factura_id")
+  contratoDraxtonId     String   @map("contrato_draxton_id")
+  empresaGrupoDraxtonId String?  @map("empresa_grupo_draxton_id")
+  importeAsignado       Decimal  @map("importe_asignado") @db.Decimal(12, 2)
+  auto                  Boolean  @default(true)  // true = vinculación automática, false = manual
+  notas                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([facturaId, contratoDraxtonId])
+  @@index([contratoDraxtonId])
+  @@index([facturaId])
+  @@map("facturas_contratos_draxton")
+}
+
 model EmpresaGrupoDraxton {
   id            String     @id @default(uuid())
   nombre        String

@@ -128,6 +128,10 @@ export default function DraxtonContratosPage() {
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState<{id: number; nombre: string; cif: string | null; municipio: string | null; provincia: string | null}[]>([]);
   const [buscando, setBuscando] = useState(false);
+  const [facturasResumen, setFacturasResumen] = useState<{resumenPorContrato: Record<string, {facturado: number; facturas: number}>; totalFacturado: number; totalFacturas: number}>({resumenPorContrato: {}, totalFacturado: 0, totalFacturas: 0});
+  const [facturasDetalle, setFacturasDetalle] = useState<any>(null);
+  const [vinculando, setVinculando] = useState(false);
+  const [showFacturasCandidatas, setShowFacturasCandidatas] = useState(false);
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -154,7 +158,70 @@ export default function DraxtonContratosPage() {
   useEffect(() => {
     fetchContratos();
     fetchEmpresasGrupo();
+    fetchFacturasResumen();
   }, []);
+
+  async function fetchFacturasResumen() {
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/facturas-resumen?anio=${new Date().getFullYear()}`);
+      const data = await res.json();
+      setFacturasResumen(data);
+    } catch (err) {
+      console.error('Error al cargar resumen facturas:', err);
+    }
+  }
+
+  async function fetchFacturasDetalle(contratoId: string) {
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/facturas-contrato?contratoId=${contratoId}&anio=${new Date().getFullYear()}`);
+      const data = await res.json();
+      setFacturasDetalle(data);
+    } catch (err) {
+      console.error('Error al cargar facturas detalle:', err);
+    }
+  }
+
+  async function vincularAutomaticamente(contratoId: string) {
+    setVinculando(true);
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contratoId, modo: 'auto', anio: new Date().getFullYear() }),
+      });
+      await fetchFacturasDetalle(contratoId);
+      await fetchFacturasResumen();
+    } catch (err) {
+      console.error('Error vinculando facturas:', err);
+    }
+    setVinculando(false);
+  }
+
+  async function vincularManual(contratoId: string, facturaIds: string[]) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contratoId, modo: 'manual', facturaIds }),
+      });
+      await fetchFacturasDetalle(contratoId);
+      await fetchFacturasResumen();
+    } catch (err) {
+      console.error('Error vinculando facturas:', err);
+    }
+  }
+
+  async function desvincularFactura(contratoId: string, facturaId: string) {
+    try {
+      await fetch(`/api/admin/clientes/ggcc/draxton/facturas-contrato?contratoId=${contratoId}&facturaId=${facturaId}`, {
+        method: 'DELETE',
+      });
+      await fetchFacturasDetalle(contratoId);
+      await fetchFacturasResumen();
+    } catch (err) {
+      console.error('Error desvinculando factura:', err);
+    }
+  }
 
   async function fetchEmpresasGrupo() {
     try {
@@ -679,6 +746,24 @@ export default function DraxtonContratosPage() {
               </div>
             </div>
           )}
+          {/* KPI Facturación */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Facturado {currentYear}</div>
+              <div className="text-lg font-bold text-blue-700 mt-1">{formatCurrency(facturasResumen.totalFacturado)}</div>
+              <p className="text-[10px] text-gray-400">{facturasResumen.totalFacturas} facturas vinculadas</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Pendiente Facturar</div>
+              <div className="text-lg font-bold text-orange-600 mt-1">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</div>
+              <p className="text-[10px] text-gray-400">{totalAnio1 > 0 ? ((Math.max(0, totalAnio1 - facturasResumen.totalFacturado) / totalAnio1) * 100).toFixed(1) : '0'}% pendiente</p>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">% Facturado</div>
+              <div className="text-lg font-bold text-emerald-600 mt-1">{totalAnio1 > 0 ? ((facturasResumen.totalFacturado / totalAnio1) * 100).toFixed(1) : '0'}%</div>
+              <p className="text-[10px] text-gray-400">de {formatCurrency(totalAnio1)} esperado</p>
+            </div>
+          </div>
           {/* Desglose por contrato */}
           {datosContratos.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -691,6 +776,8 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Margen</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Alta</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
+                    <th className="text-right px-4 py-2 font-medium text-blue-600">Facturado</th>
+                    <th className="text-right px-4 py-2 font-medium text-orange-600">Pendiente</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 1}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 2}</th>
@@ -721,6 +808,14 @@ export default function DraxtonContratosPage() {
                         {altaProvContrato > 0 && <span className="text-[9px] text-red-500 block">Coste: {formatCurrency(altaProvContrato)}</span>}
                       </td>
                       <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(d.valorTotal)}</td>
+                      <td className="px-4 py-2 text-right text-blue-700 font-medium">
+                        {formatCurrency(facturasResumen.resumenPorContrato[d.id]?.facturado || 0)}
+                        <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[d.id]?.facturas || 0} fact.</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-orange-600 font-medium">
+                        {formatCurrency(Math.max(0, d.importeAnio1 - (facturasResumen.resumenPorContrato[d.id]?.facturado || 0)))}
+                        <span className="text-[9px] text-gray-400 block">{d.importeAnio1 > 0 ? (((facturasResumen.resumenPorContrato[d.id]?.facturado || 0) / d.importeAnio1) * 100).toFixed(0) : '0'}%</span>
+                      </td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
                         {formatCurrency(d.importeAnio1)}
                         <span className="text-[9px] text-gray-400 block">{d.mesesAnio1} meses</span>
@@ -744,6 +839,8 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores)}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
+                      <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
+                      <td className="px-4 py-2 text-right text-orange-700">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio3)}</td>
@@ -860,6 +957,8 @@ export default function DraxtonContratosPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha Fin</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/mes</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Valor Total</th>
+                <th className="text-right px-4 py-3 font-medium text-blue-600">Facturado</th>
+                <th className="text-right px-4 py-3 font-medium text-orange-600">Pendiente</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Estado</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Proveedores</th>
                 <th className="text-center px-4 py-3 font-medium text-gray-600">Acciones</th>
@@ -867,9 +966,9 @@ export default function DraxtonContratosPage() {
             </thead>
             <tbody className="divide-y">
               {loading ? (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">Cargando...</td></tr>
               ) : contratos.length === 0 ? (
-                <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados.</td></tr>
+                <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">No hay contratos registrados.</td></tr>
               ) : contratos.map(c => {
                 const mensual = Number(c.importeMensual) || 0;
                 const perm = c.permanenciaMeses || 0;
@@ -877,7 +976,7 @@ export default function DraxtonContratosPage() {
                 const numProveedores = c.contratosProveedor?.length || 0;
                 return (
                 <Fragment key={c.id}>
-                  <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}>
+                  <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => { const newId = expandedId === c.id ? null : c.id; setExpandedId(newId); if (newId) { fetchFacturasDetalle(newId); setShowFacturasCandidatas(false); } else { setFacturasDetalle(null); } }}>
                     <td className="px-4 py-3 text-xs font-mono text-indigo-600">{c.codigoContrato || '—'}</td>
                     <td className="px-4 py-3 font-medium text-gray-900 max-w-[250px] truncate">{c.titulo}</td>
                     <td className="px-4 py-3 text-gray-600">{c.tipo}</td>
@@ -885,6 +984,13 @@ export default function DraxtonContratosPage() {
                     <td className="px-4 py-3 text-gray-600">{formatDate(c.fechaFin)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 font-medium">{formatCurrency(c.importeMensual)}</td>
                     <td className="px-4 py-3 text-right text-gray-900 font-bold">{formatCurrency(valorTotal)}</td>
+                    <td className="px-4 py-3 text-right text-blue-700 font-medium text-xs">
+                      {formatCurrency(facturasResumen.resumenPorContrato[c.id]?.facturado || 0)}
+                      {(facturasResumen.resumenPorContrato[c.id]?.facturas || 0) > 0 && <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[c.id]?.facturas} fact.</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right text-orange-600 font-medium text-xs">
+                      {(() => { const esperado = calcularMesesEnAnio(c.fechaInicioServicio || c.fechaInicio, c.fechaFin, currentYear) * mensual; const facturado = facturasResumen.resumenPorContrato[c.id]?.facturado || 0; const pendiente = Math.max(0, esperado - facturado); const pct = esperado > 0 ? ((facturado / esperado) * 100).toFixed(0) : '0'; return <>{formatCurrency(pendiente)}<span className="text-[9px] text-gray-400 block">{pct}% fact.</span></>; })()}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         c.estado === 'Activo' ? 'bg-green-100 text-green-700' :
@@ -917,7 +1023,7 @@ export default function DraxtonContratosPage() {
                   {/* Detalle expandido */}
                   {expandedId === c.id && (
                     <tr>
-                      <td colSpan={10} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                      <td colSpan={12} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                           <div>
                             <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
@@ -1064,6 +1170,121 @@ export default function DraxtonContratosPage() {
                             </table>
                           ) : (
                             <p className="text-xs text-gray-400 italic">No hay contratos de proveedor vinculados. Añade uno para controlar costes y margen.</p>
+                          )}
+                        </div>
+
+                        {/* Facturas Vinculadas */}
+                        <div className="mt-4 border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-gray-700 uppercase">Facturas Vinculadas</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); vincularAutomaticamente(c.id); }}
+                                disabled={vinculando}
+                                className="px-2 py-1 text-[10px] bg-blue-50 text-blue-700 rounded border border-blue-200 hover:bg-blue-100 disabled:opacity-50"
+                              >
+                                {vinculando ? 'Vinculando...' : '⚡ Vincular automáticamente'}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); fetchFacturasDetalle(c.id); setShowFacturasCandidatas(!showFacturasCandidatas); }}
+                                className="px-2 py-1 text-[10px] bg-gray-50 text-gray-700 rounded border border-gray-200 hover:bg-gray-100"
+                              >
+                                📋 {showFacturasCandidatas ? 'Ocultar candidatas' : 'Vincular manualmente'}
+                              </button>
+                            </div>
+                          </div>
+                          {/* Mini KPIs facturación del contrato */}
+                          {(() => {
+                            const esperadoContrato = calcularMesesEnAnio(c.fechaInicioServicio || c.fechaInicio, c.fechaFin, currentYear) * (Number(c.importeMensual) || 0);
+                            const facturadoContrato = facturasResumen.resumenPorContrato[c.id]?.facturado || 0;
+                            const pendienteContrato = Math.max(0, esperadoContrato - facturadoContrato);
+                            const pctContrato = esperadoContrato > 0 ? ((facturadoContrato / esperadoContrato) * 100).toFixed(1) : '0';
+                            return (
+                              <div className="grid grid-cols-3 gap-2 mb-3">
+                                <div className="bg-blue-50 rounded-lg p-2 text-center">
+                                  <p className="text-[9px] text-blue-600 uppercase">Facturado</p>
+                                  <p className="text-sm font-bold text-blue-700">{formatCurrency(facturadoContrato)}</p>
+                                </div>
+                                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                                  <p className="text-[9px] text-gray-600 uppercase">Esperado {currentYear}</p>
+                                  <p className="text-sm font-bold text-gray-700">{formatCurrency(esperadoContrato)}</p>
+                                </div>
+                                <div className="bg-orange-50 rounded-lg p-2 text-center">
+                                  <p className="text-[9px] text-orange-600 uppercase">Pendiente ({pctContrato}%)</p>
+                                  <p className="text-sm font-bold text-orange-700">{formatCurrency(pendienteContrato)}</p>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                          {/* Tabla de facturas vinculadas */}
+                          {facturasDetalle && facturasDetalle.vinculadas && facturasDetalle.vinculadas.length > 0 && expandedId === c.id && (
+                            <table className="w-full text-xs mb-3">
+                              <thead className="bg-blue-50">
+                                <tr>
+                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Fecha</th>
+                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Nº Factura</th>
+                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Empresa</th>
+                                  <th className="text-right px-3 py-1.5 font-medium text-blue-700">Base Imp.</th>
+                                  <th className="text-center px-3 py-1.5 font-medium text-blue-700">Tipo</th>
+                                  <th className="text-center px-3 py-1.5 font-medium text-blue-700">Acción</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y">
+                                {facturasDetalle.vinculadas.map((fv: any) => (
+                                  <tr key={fv.id} className="hover:bg-blue-50/50">
+                                    <td className="px-3 py-1.5 text-gray-600">{fv.factura?.fecha ? new Date(fv.factura.fecha).toLocaleDateString('es-ES') : '—'}</td>
+                                    <td className="px-3 py-1.5 font-mono text-gray-900">{fv.factura?.numero || fv.factura?.documento || '—'}</td>
+                                    <td className="px-3 py-1.5 text-gray-700">{fv.factura?.clienteNombre || '—'}</td>
+                                    <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fv.importeAsignado || fv.factura?.baseImponible)}</td>
+                                    <td className="px-3 py-1.5 text-center">
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] ${fv.tipoVinculacion === 'auto' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                        {fv.tipoVinculacion}
+                                      </span>
+                                    </td>
+                                    <td className="px-3 py-1.5 text-center">
+                                      <button onClick={(e) => { e.stopPropagation(); desvincularFactura(c.id, fv.facturaId); }} className="text-red-500 hover:text-red-700 text-[10px]">
+                                        ✕ Desvincular
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                          {/* Facturas candidatas para vincular manualmente */}
+                          {showFacturasCandidatas && facturasDetalle && facturasDetalle.candidatas && facturasDetalle.candidatas.length > 0 && expandedId === c.id && (
+                            <div className="bg-yellow-50 rounded-lg p-3 mb-3">
+                              <p className="text-[10px] font-medium text-yellow-700 mb-2">Facturas candidatas (sin vincular):</p>
+                              <table className="w-full text-xs">
+                                <thead className="bg-yellow-100">
+                                  <tr>
+                                    <th className="text-left px-3 py-1 font-medium text-yellow-800">Fecha</th>
+                                    <th className="text-left px-3 py-1 font-medium text-yellow-800">Nº Factura</th>
+                                    <th className="text-left px-3 py-1 font-medium text-yellow-800">Empresa</th>
+                                    <th className="text-right px-3 py-1 font-medium text-yellow-800">Base Imp.</th>
+                                    <th className="text-center px-3 py-1 font-medium text-yellow-800">Acción</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-yellow-200">
+                                  {facturasDetalle.candidatas.map((fc: any) => (
+                                    <tr key={fc.id} className="hover:bg-yellow-100/50">
+                                      <td className="px-3 py-1.5 text-gray-600">{fc.fecha ? new Date(fc.fecha).toLocaleDateString('es-ES') : '—'}</td>
+                                      <td className="px-3 py-1.5 font-mono text-gray-900">{fc.numero || fc.documento || '—'}</td>
+                                      <td className="px-3 py-1.5 text-gray-700">{fc.clienteNombre || '—'}</td>
+                                      <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fc.baseImponible)}</td>
+                                      <td className="px-3 py-1.5 text-center">
+                                        <button onClick={(e) => { e.stopPropagation(); vincularManual(c.id, [fc.id]); }} className="text-blue-600 hover:text-blue-800 text-[10px] font-medium">
+                                          + Vincular
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                          {(!facturasDetalle || !facturasDetalle.vinculadas || facturasDetalle.vinculadas.length === 0) && expandedId === c.id && !showFacturasCandidatas && (
+                            <p className="text-xs text-gray-400 italic">No hay facturas vinculadas. Usa "Vincular automáticamente" para detectar facturas por empresa e importe.</p>
                           )}
                         </div>
 
