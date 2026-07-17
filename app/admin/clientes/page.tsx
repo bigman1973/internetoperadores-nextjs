@@ -341,18 +341,30 @@ async function getClientes(searchParams: SearchParams) {
     tiposFacturacion: c.clienteIdIsp ? (tiposFacturacionMap[c.clienteIdIsp] || null) : null,
   }))
 
-  // Contar activos con facturación (clientes activos que tienen al menos un contrato activo)
-  const allContratosActivos = await prisma.contratoServicio.findMany({
-    where: { activo: true },
-    select: { clienteId: true },
-    distinct: ['clienteId'],
-  })
+  // Contar activos con facturación: contratos activos O facturas emitidas en el año en curso
+  const anioActual = new Date().getFullYear()
+  const [allContratosActivos, facturasAnioActual] = await Promise.all([
+    prisma.contratoServicio.findMany({
+      where: { activo: true },
+      select: { clienteId: true },
+      distinct: ['clienteId'],
+    }),
+    prisma.factura.findMany({
+      where: { ejercicio: anioActual },
+      select: { codigoCliente: true },
+      distinct: ['codigoCliente'],
+    }),
+  ])
   const idsConContratosGlobal = new Set(allContratosActivos.map(c => c.clienteId))
+  const codigosConFacturas = new Set(facturasAnioActual.map(f => f.codigoCliente))
   const allClientesActivos = await prisma.clienteWeb.findMany({
     where: { activo: true },
-    select: { clienteIdIsp: true, personaFisica: true },
+    select: { clienteIdIsp: true, personaFisica: true, codigo: true },
   })
-  const clientesConFactList = allClientesActivos.filter(c => c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp))
+  const clientesConFactList = allClientesActivos.filter(c => 
+    (c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp)) ||
+    (c.codigo && codigosConFacturas.has(c.codigo))
+  )
   const activosConFact = clientesConFactList.length
   const activosConFactParticular = clientesConFactList.filter(c => c.personaFisica === true).length
   const activosConFactEmpresa = activosConFact - activosConFactParticular
@@ -395,15 +407,15 @@ export default async function ClientesPage({
 
       {/* Tarjetas de estadísticas */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <div className="rounded-lg bg-white shadow border border-gray-200 p-4">
+        <div className="rounded-lg bg-white shadow border border-gray-200 p-4" title="Total de clientes registrados en la plataforma (activos + dados de baja)">
           <p className="text-xs font-medium text-gray-500">Total Clientes</p>
           <p className="text-xl sm:text-2xl font-bold text-gray-900">{totalActivos + totalInactivos}</p>
         </div>
-        <div className="rounded-lg bg-white shadow border border-green-200 p-4">
+        <div className="rounded-lg bg-white shadow border border-green-200 p-4" title="Clientes activos actualmente (sin fecha de baja en ISPGestión)">
           <p className="text-xs font-medium text-green-600">Activos</p>
           <p className="text-xl sm:text-2xl font-bold text-green-700">{totalActivos}</p>
         </div>
-        <div className="rounded-lg bg-white shadow border border-orange-200 p-4">
+        <div className="rounded-lg bg-white shadow border border-orange-200 p-4" title={`Clientes activos con contrato activo O con facturas emitidas en ${new Date().getFullYear()}`}>
           <p className="text-xs font-medium text-orange-600">Con Facturación</p>
           <p className="text-xl sm:text-2xl font-bold text-orange-600">{activosConFact}</p>
           <div className="mt-1 flex gap-3 text-xs">
@@ -411,11 +423,11 @@ export default async function ClientesPage({
             <span className="text-gray-500"><span className="font-semibold text-orange-700">{activosConFactParticular}</span> Particulares</span>
           </div>
         </div>
-        <div className="rounded-lg bg-white shadow border border-yellow-200 p-4">
+        <div className="rounded-lg bg-white shadow border border-yellow-200 p-4" title={`Clientes activos sin contrato activo ni facturas en ${new Date().getFullYear()}`}>
           <p className="text-xs font-medium text-yellow-600">Sin Facturación</p>
           <p className="text-xl sm:text-2xl font-bold text-yellow-600">{activosSinFact}</p>
         </div>
-        <div className="rounded-lg bg-white shadow border border-red-200 p-4">
+        <div className="rounded-lg bg-white shadow border border-red-200 p-4" title="Clientes con fecha de baja en ISPGestión (inactivos)">
           <p className="text-xs font-medium text-red-600">Dados de Baja</p>
           <p className="text-xl sm:text-2xl font-bold text-red-700">{totalInactivos}</p>
         </div>
