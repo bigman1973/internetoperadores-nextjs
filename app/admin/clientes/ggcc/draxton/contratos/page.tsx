@@ -452,10 +452,13 @@ export default function DraxtonContratosPage() {
     const mesesProrr = plazo.includes('1 año') || plazo.includes('12') ? 12 :
       plazo.includes('2 año') || plazo.includes('24') ? 24 :
       plazo.includes('6') ? 6 : 12;
+    // Calcular alta del contrato cliente (suma de altas de servicios)
+    const altaCliente = Array.isArray(c.serviciosJson) ? (c.serviciosJson as Servicio[]).reduce((s, srv) => s + (srv.importeAlta || 0), 0) : 0;
     return {
       id: c.id,
       titulo: c.titulo,
       mensual,
+      altaCliente,
       valorTotal: perm > 0 ? mensual * perm : 0,
       permanencia: perm,
       prorrogable: c.prorrogaAutomatica,
@@ -482,6 +485,17 @@ export default function DraxtonContratosPage() {
     const provs = c.contratosProveedor || [];
     return sum + provs.filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
   }, 0);
+
+  // Altas totales
+  const totalAltaCliente = datosContratos.reduce((s, d) => s + d.altaCliente, 0);
+  const totalAltaProveedor = activos.reduce((sum, c) => {
+    const provs = c.contratosProveedor || [];
+    return sum + provs.filter(p => p.estado === 'Activo').reduce((s, p) => {
+      const servicios = Array.isArray(p.serviciosJson) ? (p.serviciosJson as Servicio[]) : [];
+      return s + servicios.reduce((ss, srv) => ss + (srv.importeAlta || 0), 0);
+    }, 0);
+  }, 0);
+  const margenAltas = totalAltaCliente - totalAltaProveedor;
 
   return (
     <div className="space-y-6">
@@ -541,6 +555,26 @@ export default function DraxtonContratosPage() {
               <p className="text-[10px] text-gray-400">{totalMensual > 0 ? (((totalMensual - costeTotalProveedores) / totalMensual) * 100).toFixed(1) : '0'}% sobre facturación</p>
             </div>
           </div>
+          {/* KPI Altas */}
+          {(totalAltaCliente > 0 || totalAltaProveedor > 0) && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] text-gray-500 uppercase tracking-wide">Alta Cliente</div>
+                <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAltaCliente)}</div>
+                <p className="text-[10px] text-gray-400">Importe único facturado</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] text-gray-500 uppercase tracking-wide">Coste Alta Proveedor</div>
+                <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(totalAltaProveedor)}</div>
+                <p className="text-[10px] text-gray-400">Coste instalación</p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="text-[10px] text-gray-500 uppercase tracking-wide">Margen Altas</div>
+                <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(margenAltas)}</div>
+                <p className="text-[10px] text-gray-400">{totalAltaCliente > 0 ? ((margenAltas / totalAltaCliente) * 100).toFixed(1) : '0'}%</p>
+              </div>
+            </div>
+          )}
           {/* Desglose por contrato */}
           {datosContratos.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -551,6 +585,7 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">€/mes</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Coste/mes</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Margen</th>
+                    <th className="text-right px-4 py-2 font-medium text-gray-600">Alta</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 1}</th>
@@ -563,6 +598,11 @@ export default function DraxtonContratosPage() {
                     const costeContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
                     const margenContrato = d.mensual - costeContrato;
                     const margenPct = d.mensual > 0 ? ((margenContrato / d.mensual) * 100).toFixed(1) : '0';
+                    // Alta proveedor de este contrato
+                    const altaProvContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => {
+                      const srvs = Array.isArray(p.serviciosJson) ? (p.serviciosJson as Servicio[]) : [];
+                      return s + srvs.reduce((ss, srv) => ss + (srv.importeAlta || 0), 0);
+                    }, 0);
                     return (
                     <tr key={d.id}>
                       <td className="px-4 py-2 text-gray-900 font-medium max-w-[200px] truncate">{d.titulo}</td>
@@ -571,6 +611,10 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-green-600 font-medium">
                         {formatCurrency(margenContrato)}
                         <span className="text-[9px] text-gray-400 block">{margenPct}%</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {d.altaCliente > 0 ? formatCurrency(d.altaCliente) : <span className="text-gray-300">—</span>}
+                        {altaProvContrato > 0 && <span className="text-[9px] text-red-500 block">Coste: {formatCurrency(altaProvContrato)}</span>}
                       </td>
                       <td className="px-4 py-2 text-right text-gray-900 font-semibold">{formatCurrency(d.valorTotal)}</td>
                       <td className="px-4 py-2 text-right text-indigo-700 font-medium">
@@ -594,6 +638,7 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
                       <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores)}</td>
                       <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores)}</td>
+                      <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
