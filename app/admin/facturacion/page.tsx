@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 
 interface FacturaResumen {
@@ -63,7 +64,8 @@ export default function FacturacionPage() {
   const [activeView, setActiveView] = useState<'facturas' | 'remesas'>('facturas')
   const [data, setData] = useState<any>(null)
   const [facturasFilter, setFacturasFilter] = useState<'todas' | 'cobradas' | 'pendientes'>('todas')
-  const [searchTerm, setSearchTerm] = useState('')
+  const searchParams = useSearchParams()
+  const [searchTerm, setSearchTerm] = useState(searchParams.get('buscar') || '')
   const [serieFilter, setSerieFilter] = useState('')
   const [mesFilter, setMesFilter] = useState('')
   const [serieMesFilter, setSerieMesFilter] = useState('')
@@ -126,6 +128,7 @@ export default function FacturacionPage() {
     if (facturasFilter === 'pendientes' && f.situacion !== 'PENDIENTE') return false
     if (searchTerm && !f.nombreCompleto.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !f.documento?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+        !f.numeroDocumento?.toLowerCase().includes(searchTerm.toLowerCase()) &&
         !f.codigoCliente.includes(searchTerm)) return false
     if (serieFilter && f.serieFactura !== serieFilter) return false
     if (mesFilter && !f.fecha.startsWith(mesFilter)) return false

@@ -1233,7 +1233,11 @@ export default function DraxtonContratosPage() {
                                 {facturasDetalle.vinculadas.map((fv: any) => (
                                   <tr key={fv.id} className="hover:bg-blue-50/50">
                                     <td className="px-3 py-1.5 text-gray-600">{fv.factura?.fecha ? new Date(fv.factura.fecha).toLocaleDateString('es-ES') : '—'}</td>
-                                    <td className="px-3 py-1.5 font-mono text-gray-900">{fv.factura?.numero || fv.factura?.documento || '—'}</td>
+                                    <td className="px-3 py-1.5 font-mono">
+                                      <a href={`/admin/facturacion?buscar=${encodeURIComponent(fv.factura?.numero || fv.factura?.documento || '')}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline" onClick={(e) => e.stopPropagation()}>
+                                        {fv.factura?.numero || fv.factura?.documento || '—'}
+                                      </a>
+                                    </td>
                                     <td className="px-3 py-1.5 text-gray-700">{fv.factura?.clienteNombre || '—'}</td>
                                     <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fv.importeAsignado || fv.factura?.baseImponible)}</td>
                                     <td className="px-3 py-1.5 text-center">
