@@ -125,6 +125,9 @@ export default function DraxtonContratosPage() {
   const [empresasGrupo, setEmpresasGrupo] = useState<EmpresaGrupo[]>([]);
   const [showEmpresasForm, setShowEmpresasForm] = useState(false);
   const [formEmpresa, setFormEmpresa] = useState<Partial<EmpresaGrupo>>({ nombre: '', activa: true });
+  const [busquedaCliente, setBusquedaCliente] = useState('');
+  const [resultadosBusqueda, setResultadosBusqueda] = useState<{id: number; nombre: string; cif: string | null; municipio: string | null; provincia: string | null}[]>([]);
+  const [buscando, setBuscando] = useState(false);
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -160,6 +163,48 @@ export default function DraxtonContratosPage() {
       setEmpresasGrupo(data);
     } catch (err) {
       console.error('Error al cargar empresas del grupo:', err);
+    }
+  }
+
+  async function buscarClientes(q: string) {
+    setBusquedaCliente(q);
+    if (q.length < 2) { setResultadosBusqueda([]); return; }
+    setBuscando(true);
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/buscar-clientes?q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      setResultadosBusqueda(data);
+    } catch (err) {
+      console.error('Error buscando clientes:', err);
+    }
+    setBuscando(false);
+  }
+
+  async function agregarEmpresaDesdeCliente(cliente: {id: number; nombre: string; cif: string | null; municipio: string | null; provincia: string | null}) {
+    // Verificar que no esté ya añadida
+    if (empresasGrupo.some(e => e.clienteWebId === cliente.id)) {
+      alert('Esta empresa ya está en el grupo');
+      return;
+    }
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/empresas-grupo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nombre: cliente.nombre,
+          cif: cliente.cif,
+          poblacion: cliente.municipio,
+          provincia: cliente.provincia,
+          clienteWebId: cliente.id,
+          activa: true,
+        }),
+      });
+      setBusquedaCliente('');
+      setResultadosBusqueda([]);
+      setShowEmpresasForm(false);
+      fetchEmpresasGrupo();
+    } catch (err) {
+      console.error('Error al añadir empresa:', err);
     }
   }
 
@@ -725,14 +770,36 @@ export default function DraxtonContratosPage() {
         </div>
         {showEmpresasForm && (
           <div className="px-6 py-4 bg-purple-50 border-b border-purple-100">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <input type="text" value={formEmpresa.nombre || ''} onChange={e => setFormEmpresa({...formEmpresa, nombre: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="Nombre empresa *" />
-              <input type="text" value={formEmpresa.cif || ''} onChange={e => setFormEmpresa({...formEmpresa, cif: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="CIF" />
-              <input type="text" value={formEmpresa.poblacion || ''} onChange={e => setFormEmpresa({...formEmpresa, poblacion: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="Población" />
-              <div className="flex gap-2">
-                <button onClick={guardarEmpresa} disabled={!formEmpresa.nombre} className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50">Guardar</button>
-                <button onClick={() => setShowEmpresasForm(false)} className="px-4 py-2 border text-sm rounded-lg hover:bg-gray-50">Cancelar</button>
-              </div>
+            <div className="relative">
+              <input
+                type="text"
+                value={busquedaCliente}
+                onChange={e => buscarClientes(e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg text-sm"
+                placeholder="Buscar cliente por nombre o CIF..."
+                autoFocus
+              />
+              {buscando && <p className="text-xs text-gray-400 mt-1">Buscando...</p>}
+              {resultadosBusqueda.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                  {resultadosBusqueda.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => agregarEmpresaDesdeCliente(c)}
+                      className="w-full text-left px-4 py-2 hover:bg-purple-50 border-b last:border-b-0 text-sm flex items-center justify-between"
+                    >
+                      <span className="font-medium text-gray-900">{c.nombre}</span>
+                      <span className="text-xs text-gray-500">{c.cif || ''} {c.municipio ? `• ${c.municipio}` : ''}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {busquedaCliente.length >= 2 && resultadosBusqueda.length === 0 && !buscando && (
+                <p className="text-xs text-gray-400 mt-1">No se encontraron clientes con ese nombre o CIF</p>
+              )}
+            </div>
+            <div className="flex justify-end mt-2">
+              <button onClick={() => { setShowEmpresasForm(false); setBusquedaCliente(''); setResultadosBusqueda([]); }} className="px-4 py-2 border text-sm rounded-lg hover:bg-gray-50">Cancelar</button>
             </div>
           </div>
         )}
@@ -1106,7 +1173,7 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Empresa Facturación</label>
                 <select value={form.clienteFacturacionId || ''} onChange={e => setForm({ ...form, clienteFacturacionId: e.target.value ? parseInt(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                   <option value="">Sin asignar (general)</option>
-                  {empresasGrupo.filter(e => e.activa && e.clienteWebId).map(e => <option key={e.id} value={e.clienteWebId!}>{e.nombre}{e.cif ? ` (${e.cif})` : ''}</option>)}
+                  {empresasGrupo.filter(e => e.activa).map(e => <option key={e.id} value={e.clienteWebId || 0}>{e.nombre}{e.cif ? ` (${e.cif})` : ''}</option>)}
                 </select>
               </div>
               <div>
