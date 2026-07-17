@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const contratos = await prisma.contratoDraxton.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { contratosProveedor: true },
+      include: { contratosProveedor: true, clienteFacturacion: { select: { id: true, nombre: true, cif: true } } },
     });
     return NextResponse.json(contratos);
   } catch (error: any) {
@@ -40,6 +40,7 @@ export async function POST(req: NextRequest) {
         serviciosJson: body.serviciosJson || null,
         documentoUrl: body.documentoUrl || null,
         documentoNombre: body.documentoNombre || null,
+        clienteFacturacionId: body.clienteFacturacionId || null,
       },
     });
 
@@ -82,6 +83,7 @@ export async function PUT(req: NextRequest) {
     if (fields.serviciosJson !== undefined) data.serviciosJson = fields.serviciosJson;
     if (fields.documentoUrl !== undefined) data.documentoUrl = fields.documentoUrl || null;
     if (fields.documentoNombre !== undefined) data.documentoNombre = fields.documentoNombre || null;
+    if (fields.clienteFacturacionId !== undefined) data.clienteFacturacionId = fields.clienteFacturacionId || null;
 
     const contrato = await prisma.contratoDraxton.update({
       where: { id },

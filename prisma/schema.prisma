@@ -209,6 +209,7 @@ model ClienteWeb {
   organoGestor         String?               @map("organo_gestor")
   unidadTramitadora    String?               @map("unidad_tramitadora")
   notificaciones       NotificacionCliente[]
+  contratosDraxton     ContratoDraxton[]
 
   @@index([activo])
   @@index([municipio])
@@ -1868,6 +1869,8 @@ model ContratoDraxton {
   documentoNombre       String?  @map("documento_nombre")
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
+  clienteFacturacionId  Int?     @map("cliente_facturacion_id")
+  clienteFacturacion    ClienteWeb? @relation(fields: [clienteFacturacionId], references: [id])
   contratosProveedor    ContratoProveedorDraxton[]
 
   @@map("contratos_draxton")
@@ -1904,3 +1907,23 @@ model ContratoProveedorDraxton {
 
   @@map("contratos_proveedor_draxton")
 }
+
+model EmpresaGrupoDraxton {
+  id            String     @id @default(uuid())
+  nombre        String
+  cif           String?    @unique
+  direccion     String?
+  poblacion     String?
+  provincia     String?
+  contacto      String?
+  email         String?
+  telefono      String?
+  activa        Boolean    @default(true)
+  notas         String?
+  clienteWebId  Int?       @unique @map("cliente_web_id")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@map("empresas_grupo_draxton")
+}
+

@@ -10,6 +10,22 @@ interface Servicio {
   precioMensual: number;
   importeAlta?: number;
   fechaInicioServicio?: string | null;
+  empresaGrupoId?: string | null;
+  empresaGrupoNombre?: string;
+}
+
+interface EmpresaGrupo {
+  id: string;
+  nombre: string;
+  cif: string | null;
+  direccion?: string | null;
+  poblacion?: string | null;
+  provincia?: string | null;
+  contacto?: string | null;
+  email?: string | null;
+  telefono?: string | null;
+  activa: boolean;
+  clienteWebId?: number | null;
 }
 
 interface ContratoProveedor {
@@ -62,6 +78,8 @@ interface Contrato {
   serviciosJson: Servicio[] | null;
   documentoUrl: string | null;
   documentoNombre: string | null;
+  clienteFacturacionId?: number | null;
+  clienteFacturacion?: { id: number; nombre: string; cif: string | null } | null;
   contratosProveedor?: ContratoProveedor[];
 }
 
@@ -104,6 +122,9 @@ export default function DraxtonContratosPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingProveedorId, setEditingProveedorId] = useState<string | null>(null);
   const [proveedorParentId, setProveedorParentId] = useState<string | null>(null);
+  const [empresasGrupo, setEmpresasGrupo] = useState<EmpresaGrupo[]>([]);
+  const [showEmpresasForm, setShowEmpresasForm] = useState(false);
+  const [formEmpresa, setFormEmpresa] = useState<Partial<EmpresaGrupo>>({ nombre: '', activa: true });
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -129,7 +150,43 @@ export default function DraxtonContratosPage() {
 
   useEffect(() => {
     fetchContratos();
+    fetchEmpresasGrupo();
   }, []);
+
+  async function fetchEmpresasGrupo() {
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/empresas-grupo');
+      const data = await res.json();
+      setEmpresasGrupo(data);
+    } catch (err) {
+      console.error('Error al cargar empresas del grupo:', err);
+    }
+  }
+
+  async function guardarEmpresa() {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/empresas-grupo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formEmpresa),
+      });
+      setFormEmpresa({ nombre: '', activa: true });
+      setShowEmpresasForm(false);
+      fetchEmpresasGrupo();
+    } catch (err) {
+      console.error('Error al guardar empresa:', err);
+    }
+  }
+
+  async function eliminarEmpresa(id: string) {
+    if (!confirm('¿Eliminar esta empresa del grupo?')) return;
+    try {
+      await fetch(`/api/admin/clientes/ggcc/draxton/empresas-grupo?id=${id}`, { method: 'DELETE' });
+      fetchEmpresasGrupo();
+    } catch (err) {
+      console.error('Error al eliminar empresa:', err);
+    }
+  }
 
   async function fetchContratos() {
     setLoading(true);
@@ -260,6 +317,8 @@ export default function DraxtonContratosPage() {
       serviciosJson: c.serviciosJson,
       documentoUrl: c.documentoUrl,
       documentoNombre: c.documentoNombre,
+      clienteFacturacionId: c.clienteFacturacionId,
+      codigoContrato: c.codigoContrato,
     });
     setEditingId(c.id);
     setShowForm(true);
@@ -652,6 +711,72 @@ export default function DraxtonContratosPage() {
         </div>
       )}
 
+      {/* Empresas del Grupo */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <BuildingOfficeIcon className="w-5 h-5 text-purple-600" />
+            <h3 className="text-sm font-semibold text-gray-700">Empresas del Grupo Draxton</h3>
+            <span className="text-xs text-gray-400">({empresasGrupo.length})</span>
+          </div>
+          <button onClick={() => setShowEmpresasForm(!showEmpresasForm)} className="text-xs text-purple-600 hover:text-purple-800 font-medium inline-flex items-center gap-1">
+            <PlusIcon className="w-3 h-3" /> Añadir empresa
+          </button>
+        </div>
+        {showEmpresasForm && (
+          <div className="px-6 py-4 bg-purple-50 border-b border-purple-100">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <input type="text" value={formEmpresa.nombre || ''} onChange={e => setFormEmpresa({...formEmpresa, nombre: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="Nombre empresa *" />
+              <input type="text" value={formEmpresa.cif || ''} onChange={e => setFormEmpresa({...formEmpresa, cif: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="CIF" />
+              <input type="text" value={formEmpresa.poblacion || ''} onChange={e => setFormEmpresa({...formEmpresa, poblacion: e.target.value})} className="px-3 py-2 border rounded-lg text-sm" placeholder="Población" />
+              <div className="flex gap-2">
+                <button onClick={guardarEmpresa} disabled={!formEmpresa.nombre} className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 disabled:opacity-50">Guardar</button>
+                <button onClick={() => setShowEmpresasForm(false)} className="px-4 py-2 border text-sm rounded-lg hover:bg-gray-50">Cancelar</button>
+              </div>
+            </div>
+          </div>
+        )}
+        {empresasGrupo.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Empresa</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">CIF</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Población</th>
+                  <th className="text-left px-4 py-2 font-medium text-gray-600">Contacto</th>
+                  <th className="text-center px-4 py-2 font-medium text-gray-600">Estado</th>
+                  <th className="text-center px-4 py-2 font-medium text-gray-600">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {empresasGrupo.map(emp => (
+                  <tr key={emp.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-2 font-medium text-gray-900">{emp.nombre}</td>
+                    <td className="px-4 py-2 text-gray-600 font-mono">{emp.cif || '—'}</td>
+                    <td className="px-4 py-2 text-gray-600">{emp.poblacion || '—'}</td>
+                    <td className="px-4 py-2 text-gray-600">{emp.contacto || emp.email || '—'}</td>
+                    <td className="px-4 py-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${emp.activa ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {emp.activa ? 'Activa' : 'Inactiva'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 text-center">
+                      <button onClick={() => eliminarEmpresa(emp.id)} className="text-red-500 hover:text-red-700" title="Eliminar">
+                        <TrashIcon className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {empresasGrupo.length === 0 && !showEmpresasForm && (
+          <div className="px-6 py-8 text-center text-gray-400 text-sm">No hay empresas del grupo registradas. Añade la primera.</div>
+        )}
+      </div>
+
       {/* Tabla de contratos */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
@@ -725,7 +850,7 @@ export default function DraxtonContratosPage() {
                   {/* Detalle expandido */}
                   {expandedId === c.id && (
                     <tr>
-                      <td colSpan={9} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                      <td colSpan={10} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                           <div>
                             <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
@@ -785,6 +910,7 @@ export default function DraxtonContratosPage() {
                                   <th className="text-left px-3 py-2">Inicio Servicio</th>
                                   <th className="text-right px-3 py-2">Alta €</th>
                                   <th className="text-right px-3 py-2">Precio/mes</th>
+                                  <th className="text-left px-3 py-2">Empresa</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y bg-white">
@@ -801,6 +927,9 @@ export default function DraxtonContratosPage() {
                                     </td>
                                     <td className="px-3 py-2 text-right">{s.importeAlta ? formatCurrency(s.importeAlta) : <span className="text-gray-300">0</span>}</td>
                                     <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
+                                    <td className="px-3 py-2 text-purple-700 text-xs">
+                                      {s.empresaGrupoId ? (empresasGrupo.find(e => e.id === s.empresaGrupoId)?.nombre || 'Asignada') : <span className="text-gray-400">General</span>}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -974,6 +1103,13 @@ export default function DraxtonContratosPage() {
                 <input type="number" step="0.01" value={form.importeAnual || ''} onChange={e => setForm({ ...form, importeAnual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
               <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Empresa Facturación</label>
+                <select value={form.clienteFacturacionId || ''} onChange={e => setForm({ ...form, clienteFacturacionId: e.target.value ? parseInt(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                  <option value="">Sin asignar (general)</option>
+                  {empresasGrupo.filter(e => e.activa && e.clienteWebId).map(e => <option key={e.id} value={e.clienteWebId!}>{e.nombre}{e.cif ? ` (${e.cif})` : ''}</option>)}
+                </select>
+              </div>
+              <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Forma de Pago</label>
                 <select value={form.formaPago || ''} onChange={e => setForm({ ...form, formaPago: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                   <option value="">Seleccionar...</option>
@@ -1027,6 +1163,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Inicio Servicio</th>
                       <th className="text-right px-2 py-1">Alta €</th>
                       <th className="text-right px-2 py-1">€/mes</th>
+                      <th className="text-left px-2 py-1">Empresa</th>
                       <th className="px-2 py-1 w-8"></th>
                     </tr>
                   </thead>
@@ -1050,6 +1187,12 @@ export default function DraxtonContratosPage() {
                         </td>
                         <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicio(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <select value={s.empresaGrupoId || ''} onChange={e => updateServicio(i, 'empresaGrupoId', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28">
+                            <option value="">General</option>
+                            {empresasGrupo.filter(emp => emp.activa).map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
+                          </select>
                         </td>
                         <td className="px-2 py-1 text-center">
                           <button type="button" onClick={() => { const updated = [...(form.serviciosJson as Servicio[])]; updated.splice(i, 1); setForm({...form, serviciosJson: updated}); }} className="text-red-400 hover:text-red-600" title="Eliminar servicio">
@@ -1232,6 +1375,7 @@ export default function DraxtonContratosPage() {
                       <th className="text-left px-2 py-1">Inicio</th>
                       <th className="text-right px-2 py-1">Alta €</th>
                       <th className="text-right px-2 py-1">€/mes</th>
+                      <th className="text-left px-2 py-1">Empresa</th>
                       <th className="px-2 py-1 w-8"></th>
                     </tr>
                   </thead>
@@ -1255,6 +1399,12 @@ export default function DraxtonContratosPage() {
                         </td>
                         <td className="px-2 py-1 text-right">
                           <input type="number" step="0.01" value={s.precioMensual || ''} onChange={e => updateServicioProv(i, 'precioMensual', e.target.value ? parseFloat(e.target.value) : 0)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-20 text-right" placeholder="0.00" />
+                        </td>
+                        <td className="px-2 py-1">
+                          <select value={s.empresaGrupoId || ''} onChange={e => updateServicioProv(i, 'empresaGrupoId', e.target.value || null)} className="px-1 py-0.5 border rounded text-xs text-gray-900 w-28">
+                            <option value="">General</option>
+                            {empresasGrupo.filter(emp => emp.activa).map(emp => <option key={emp.id} value={emp.id}>{emp.nombre}</option>)}
+                          </select>
                         </td>
                         <td className="px-2 py-1 text-center">
                           <button type="button" onClick={() => { const updated = [...(formProv.serviciosJson as Servicio[])]; updated.splice(i, 1); setFormProv({...formProv, serviciosJson: updated}); }} className="text-red-400 hover:text-red-600" title="Eliminar servicio">
