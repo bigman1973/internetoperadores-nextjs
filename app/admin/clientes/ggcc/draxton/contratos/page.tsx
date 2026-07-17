@@ -1026,47 +1026,47 @@ export default function DraxtonContratosPage() {
                       <td colSpan={12} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
                         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
                           <div>
-                            <p className="text-[10px] text-gray-500 uppercase">Fecha Firma</p>
-                            <p className="text-sm font-medium">{formatDate(c.fechaFirma)}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Fecha Firma</p>
+                            <p className="text-sm font-bold text-gray-900">{formatDate(c.fechaFirma)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-gray-500 uppercase">Inicio Servicio Real</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Inicio Servicio Real</p>
                             <p className="text-sm font-medium text-indigo-700">{formatDate(c.fechaInicioServicio)}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-gray-500 uppercase">Permanencia</p>
-                            <p className="text-sm font-medium">{c.permanenciaMeses ? `${c.permanenciaMeses} meses` : '—'}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Permanencia</p>
+                            <p className="text-sm font-bold text-gray-900">{c.permanenciaMeses ? `${c.permanenciaMeses} meses` : '—'}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-gray-500 uppercase">Prórroga</p>
-                            <p className="text-sm font-medium">{c.prorrogaAutomatica ? `Sí (${c.plazoProrroga || 'automática'})` : 'No'}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Prórroga</p>
+                            <p className="text-sm font-bold text-gray-900">{c.prorrogaAutomatica ? `Sí (${c.plazoProrroga || 'automática'})` : 'No'}</p>
                           </div>
                           <div>
-                            <p className="text-[10px] text-gray-500 uppercase">Forma de Pago</p>
-                            <p className="text-sm font-medium capitalize">{c.formaPago || '—'}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Forma de Pago</p>
+                            <p className="text-sm font-bold text-gray-900 capitalize">{c.formaPago || '—'}</p>
                           </div>
                         </div>
                         {c.contactoCliente && (
                           <div className="mb-2">
-                            <p className="text-[10px] text-gray-500 uppercase">Contacto Cliente</p>
-                            <p className="text-sm">{c.contactoCliente}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Contacto Cliente</p>
+                            <p className="text-sm text-gray-900">{c.contactoCliente}</p>
                           </div>
                         )}
                         {c.contactoProveedor && (
                           <div className="mb-2">
-                            <p className="text-[10px] text-gray-500 uppercase">Contacto Proveedor (nuestro)</p>
-                            <p className="text-sm">{c.contactoProveedor}</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Contacto Proveedor (nuestro)</p>
+                            <p className="text-sm text-gray-900">{c.contactoProveedor}</p>
                           </div>
                         )}
                         {c.notas && (
                           <div className="mb-2">
-                            <p className="text-[10px] text-gray-500 uppercase">Notas</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Notas</p>
                             <p className="text-sm text-gray-700">{c.notas}</p>
                           </div>
                         )}
                         {c.condicionesEspeciales && (
                           <div className="mb-2">
-                            <p className="text-[10px] text-gray-500 uppercase">Condiciones Especiales</p>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Condiciones Especiales</p>
                             <p className="text-sm text-gray-700">{c.condicionesEspeciales}</p>
                           </div>
                         )}
@@ -1075,23 +1075,23 @@ export default function DraxtonContratosPage() {
                           <div className="mt-4">
                             <p className="text-[10px] text-gray-500 uppercase mb-2">Servicios Incluidos ({c.serviciosJson.length})</p>
                             <table className="w-full text-xs border rounded-lg overflow-hidden">
-                              <thead className="bg-gray-100">
+                              <thead className="bg-gray-200">
                                 <tr>
-                                  <th className="text-left px-3 py-2">Ubicación</th>
-                                  <th className="text-left px-3 py-2">Servicio</th>
-                                  <th className="text-left px-3 py-2">Velocidad</th>
-                                  <th className="text-left px-3 py-2">Inicio Servicio</th>
-                                  <th className="text-right px-3 py-2">Alta €</th>
-                                  <th className="text-right px-3 py-2">Precio/mes</th>
-                                  <th className="text-left px-3 py-2">Empresa</th>
+                                  <th className="text-left px-3 py-2 text-gray-800 font-semibold">Ubicación</th>
+                                  <th className="text-left px-3 py-2 text-gray-800 font-semibold">Servicio</th>
+                                  <th className="text-left px-3 py-2 text-gray-800 font-semibold">Velocidad</th>
+                                  <th className="text-left px-3 py-2 text-gray-800 font-semibold">Inicio Servicio</th>
+                                  <th className="text-right px-3 py-2 text-gray-800 font-semibold">Alta €</th>
+                                  <th className="text-right px-3 py-2 text-gray-800 font-semibold">Precio/mes</th>
+                                  <th className="text-left px-3 py-2 text-gray-800 font-semibold">Empresa</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y bg-white">
                                 {(c.serviciosJson as Servicio[]).map((s, i) => (
                                   <tr key={i}>
-                                    <td className="px-3 py-2 font-medium">{s.ubicacion}</td>
-                                    <td className="px-3 py-2">{s.servicio}</td>
-                                    <td className="px-3 py-2">{s.velocidad}</td>
+                                    <td className="px-3 py-2 font-medium text-gray-900">{s.ubicacion}</td>
+                                    <td className="px-3 py-2 text-gray-700">{s.servicio}</td>
+                                    <td className="px-3 py-2 text-gray-700">{s.velocidad}</td>
                                     <td className="px-3 py-2">
                                       {s.fechaInicioServicio
                                         ? formatDate(s.fechaInicioServicio)
@@ -1099,7 +1099,7 @@ export default function DraxtonContratosPage() {
                                       }
                                     </td>
                                     <td className="px-3 py-2 text-right">{s.importeAlta ? formatCurrency(s.importeAlta) : <span className="text-gray-300">0</span>}</td>
-                                    <td className="px-3 py-2 text-right font-medium">{formatCurrency(s.precioMensual)}</td>
+                                    <td className="px-3 py-2 text-right font-bold text-gray-900">{formatCurrency(s.precioMensual)}</td>
                                     <td className="px-3 py-2 text-purple-700 text-xs">
                                       {s.empresaGrupoId ? (empresasGrupo.find(e => e.id === s.empresaGrupoId)?.nombre || 'Asignada') : <span className="text-gray-400">General</span>}
                                     </td>
@@ -1127,15 +1127,15 @@ export default function DraxtonContratosPage() {
                           </div>
                           {c.contratosProveedor && c.contratosProveedor.length > 0 ? (
                             <table className="w-full text-xs border rounded-lg overflow-hidden">
-                              <thead className="bg-purple-50">
+                              <thead className="bg-purple-100">
                                 <tr>
-                                  <th className="text-left px-3 py-2">Proveedor</th>
-                                  <th className="text-left px-3 py-2">Contrato</th>
-                                  <th className="text-left px-3 py-2">Inicio</th>
-                                  <th className="text-left px-3 py-2">Fin</th>
-                                  <th className="text-right px-3 py-2">€/mes</th>
-                                  <th className="text-center px-3 py-2">Estado</th>
-                                  <th className="text-center px-3 py-2">Acciones</th>
+                                  <th className="text-left px-3 py-2 text-purple-900 font-semibold">Proveedor</th>
+                                  <th className="text-left px-3 py-2 text-purple-900 font-semibold">Contrato</th>
+                                  <th className="text-left px-3 py-2 text-purple-900 font-semibold">Inicio</th>
+                                  <th className="text-left px-3 py-2 text-purple-900 font-semibold">Fin</th>
+                                  <th className="text-right px-3 py-2 text-purple-900 font-semibold">€/mes</th>
+                                  <th className="text-center px-3 py-2 text-purple-900 font-semibold">Estado</th>
+                                  <th className="text-center px-3 py-2 text-purple-900 font-semibold">Acciones</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y bg-white">
