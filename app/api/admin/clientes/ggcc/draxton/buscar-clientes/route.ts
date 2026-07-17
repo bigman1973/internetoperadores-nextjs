@@ -10,21 +10,24 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get('q') || '';
 
-  // Buscar clientes activos por nombre o CIF
+  // Buscar clientes por nombre, CIF o NIF (incluye activos e inactivos)
   const clientes = await prisma.clienteWeb.findMany({
     where: {
-      activo: true,
       OR: q ? [
         { nombre: { contains: q, mode: 'insensitive' } },
         { cif: { contains: q, mode: 'insensitive' } },
+        { nif: { contains: q, mode: 'insensitive' } },
+        { codigo: { contains: q, mode: 'insensitive' } },
       ] : undefined,
     },
     select: {
       id: true,
       nombre: true,
       cif: true,
+      nif: true,
       municipio: true,
       provincia: true,
+      activo: true,
     },
     orderBy: { nombre: 'asc' },
     take: 50,

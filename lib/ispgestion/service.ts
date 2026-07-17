@@ -97,8 +97,7 @@ export async function syncClients() {
         
         // El email puede tener varios separados por coma, coger el primero
         const rawEmail = client.email || '';
-        const email = rawEmail.split(',')[0].trim();
-        if (!email) continue;
+        const email = rawEmail.split(',')[0].trim() || `sin-email-${ispId}@placeholder.local`;
         
         const nombreCompleto = client.nombrecompleto || `${client.nombre || ''} ${client.apellidos || ''}`.trim() || 'Sin nombre';
         const activo = !client.fecha_fin;
