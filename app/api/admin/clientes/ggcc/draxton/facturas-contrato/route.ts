@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-// GET: Obtener facturas vinculadas a un contrato + facturas candidatas
+// GET: Obtener facturas vinculadas a un contrato + facturas candidatas + matriz facturación
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
@@ -45,11 +45,17 @@ export async function GET(request: NextRequest) {
         where: {
           codigoCliente: { in: codigosCliente },
           ejercicio: anio,
-          id: { notIn: idsYaVinculados },
+          id: { notIn: idsYaVinculados.length > 0 ? idsYaVinculados : [0] },
         },
         orderBy: { fecha: 'desc' },
       })
     : []
+
+  // Servicios del contrato
+  const servicios = (contrato.serviciosJson as any[]) || []
+
+  // Construir matriz de facturación: servicio × mes
+  const matrizFacturacion = construirMatrizFacturacion(vinculaciones, servicios, anio)
 
   // Calcular resumen
   const totalFacturado = vinculaciones.reduce((sum, v) => sum + Number(v.importeAsignado), 0)
@@ -58,16 +64,21 @@ export async function GET(request: NextRequest) {
     vinculadas: vinculaciones.map(v => ({
       id: v.id,
       facturaId: v.facturaId,
-      importeAsignado: v.importeAsignado,
+      importeAsignado: Number(v.importeAsignado),
       tipoVinculacion: v.auto ? 'auto' : 'manual',
+      estado: v.estado || 'auto',
+      servicioIndex: v.servicioIndex,
+      notas: v.notas,
       factura: v.factura ? {
         id: v.factura.id,
         fecha: v.factura.fecha,
         numero: v.factura.numeroDocumento,
         documento: v.factura.documento,
         clienteNombre: v.factura.nombreCompleto,
-        baseImponible: v.factura.base,
-        total: v.factura.total,
+        codigoCliente: v.factura.codigoCliente,
+        baseImponible: Number(v.factura.base),
+        total: Number(v.factura.total),
+        situacion: v.factura.situacion,
       } : null,
     })),
     candidatas: facturasCandidatas.map(f => ({
@@ -76,12 +87,22 @@ export async function GET(request: NextRequest) {
       numero: f.numeroDocumento,
       documento: f.documento,
       clienteNombre: f.nombreCompleto,
-      baseImponible: f.base,
-      total: f.total,
       codigoCliente: f.codigoCliente,
+      baseImponible: Number(f.base),
+      total: Number(f.total),
+      situacion: f.situacion,
     })),
+    servicios: servicios.map((s, i) => ({
+      index: i,
+      ubicacion: s.ubicacion,
+      servicio: s.servicio,
+      precioMensual: Number(s.precioMensual || 0),
+      empresaGrupoId: s.empresaGrupoId,
+    })),
+    matrizFacturacion,
     totalFacturado,
     totalFacturas: vinculaciones.length,
+    codigosEmpresa: codigosCliente,
   })
 }
 
@@ -117,6 +138,7 @@ export async function POST(request: NextRequest) {
             contratoDraxtonId: contratoId,
             importeAsignado: f.base,
             auto: false,
+            estado: 'pendiente',
           },
           update: {
             importeAsignado: f.base,
@@ -129,11 +151,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ vinculadas: vinculaciones.length, modo: 'manual' })
   }
 
-  // Modo automático: buscar facturas que coincidan por empresa asignada + importe mensual
+  // Modo automático: buscar facturas y asignar inteligentemente a servicios
   if (modo === 'auto') {
     const ejercicio = anio || new Date().getFullYear()
 
-    // Obtener contrato con sus servicios
     const contrato = await prisma.contratoDraxton.findUnique({
       where: { id: contratoId },
     })
@@ -142,7 +163,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
     }
 
-    // Obtener códigos de cliente SOLO de empresas asignadas a este contrato
     const codigosCliente = await obtenerCodigosClienteContrato(contrato)
 
     if (codigosCliente.length === 0) {
@@ -153,60 +173,108 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Obtener vinculaciones existentes para este contrato
+    // Obtener vinculaciones existentes
     const vinculacionesExistentes = await prisma.facturaContratoDraxton.findMany({
       where: { contratoDraxtonId: contratoId },
       select: { facturaId: true },
     })
     const idsYaVinculados = new Set(vinculacionesExistentes.map(v => v.facturaId))
 
-    // Obtener facturas de las empresas asignadas en el año
+    // Obtener facturas candidatas
     const facturasCandidatas = await prisma.factura.findMany({
       where: {
         codigoCliente: { in: codigosCliente },
         ejercicio: ejercicio,
         id: { notIn: Array.from(idsYaVinculados) },
       },
+      orderBy: { fecha: 'asc' },
     })
 
-    // Lógica de matching: 
-    // Comparar importe de factura con el €/mes del contrato o de los servicios asignados a esa empresa
-    const importeMensualContrato = Number(contrato.importeMensual || 0)
+    // Servicios del contrato con info de empresa
     const servicios = (contrato.serviciosJson as any[]) || []
+    const serviciosConEmpresa = await enriquecerServiciosConCodigo(servicios)
 
-    // Crear mapa de importes esperados por código de cliente
-    const importesPorCodigo = await calcularImportesPorCodigo(servicios, contrato)
-
-    let vinculadas = 0
+    // Matching inteligente: asignar facturas a servicios
     const nuevasVinculaciones: any[] = []
 
-    for (const factura of facturasCandidatas) {
-      const baseFactura = Number(factura.base)
-      let coincide = false
+    // Agrupar facturas por mes y código de cliente
+    const facturasPorMesYCliente = new Map<string, typeof facturasCandidatas>()
+    for (const f of facturasCandidatas) {
+      const fecha = new Date(f.fecha)
+      const key = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}_${f.codigoCliente}`
+      if (!facturasPorMesYCliente.has(key)) facturasPorMesYCliente.set(key, [])
+      facturasPorMesYCliente.get(key)!.push(f)
+    }
 
-      // 1. Comparar con el importe esperado para esa empresa específica (±5% tolerancia)
-      const importeEsperado = importesPorCodigo[factura.codigoCliente]
-      if (importeEsperado && importeEsperado > 0) {
-        if (Math.abs(baseFactura - importeEsperado) / importeEsperado <= 0.05) {
-          coincide = true
+    // Para cada grupo mes+cliente, intentar asignar a servicios
+    for (const [key, facturas] of facturasPorMesYCliente) {
+      const codigoCliente = key.split('_')[1]
+      
+      // Encontrar servicios que corresponden a este código de cliente
+      const serviciosDeEstaEmpresa = serviciosConEmpresa
+        .filter(s => s.codigoCliente === codigoCliente)
+        .sort((a, b) => b.precioMensual - a.precioMensual) // Mayor precio primero
+
+      if (serviciosDeEstaEmpresa.length === 0) continue
+
+      // Si hay un solo servicio para esta empresa, asignar todas las facturas que coincidan en importe
+      if (serviciosDeEstaEmpresa.length === 1) {
+        const servicio = serviciosDeEstaEmpresa[0]
+        for (const f of facturas) {
+          const baseFactura = Number(f.base)
+          if (servicio.precioMensual > 0 && Math.abs(baseFactura - servicio.precioMensual) / servicio.precioMensual <= 0.05) {
+            nuevasVinculaciones.push({
+              facturaId: f.id,
+              contratoDraxtonId: contratoId,
+              importeAsignado: f.base,
+              auto: true,
+              estado: 'auto',
+              servicioIndex: servicio.index,
+            })
+          }
         }
-      }
+      } else {
+        // Múltiples servicios para la misma empresa: matching por importe
+        // Ordenar facturas por importe descendente
+        const facturasOrdenadas = [...facturas].sort((a, b) => Number(b.base) - Number(a.base))
+        const serviciosUsados = new Set<number>()
 
-      // 2. Si solo hay una empresa asignada, comparar con el importe total del contrato (±5%)
-      if (!coincide && codigosCliente.length === 1 && importeMensualContrato > 0) {
-        if (Math.abs(baseFactura - importeMensualContrato) / importeMensualContrato <= 0.05) {
-          coincide = true
+        for (const f of facturasOrdenadas) {
+          const baseFactura = Number(f.base)
+          // Buscar servicio con importe similar que no haya sido usado este mes
+          const servicioMatch = serviciosDeEstaEmpresa.find(s => 
+            !serviciosUsados.has(s.index) &&
+            s.precioMensual > 0 &&
+            Math.abs(baseFactura - s.precioMensual) / s.precioMensual <= 0.05
+          )
+
+          if (servicioMatch) {
+            nuevasVinculaciones.push({
+              facturaId: f.id,
+              contratoDraxtonId: contratoId,
+              importeAsignado: f.base,
+              auto: true,
+              estado: 'auto',
+              servicioIndex: servicioMatch.index,
+            })
+            serviciosUsados.add(servicioMatch.index)
+          } else {
+            // Si todos los servicios tienen el mismo precio, asignar secuencialmente
+            const servicioLibre = serviciosDeEstaEmpresa.find(s => !serviciosUsados.has(s.index))
+            if (servicioLibre && servicioLibre.precioMensual > 0 && 
+                Math.abs(baseFactura - servicioLibre.precioMensual) / servicioLibre.precioMensual <= 0.05) {
+              nuevasVinculaciones.push({
+                facturaId: f.id,
+                contratoDraxtonId: contratoId,
+                importeAsignado: f.base,
+                auto: true,
+                estado: 'auto',
+                servicioIndex: servicioLibre.index,
+              })
+              serviciosUsados.add(servicioLibre.index)
+            }
+          }
         }
-      }
-
-      if (coincide) {
-        nuevasVinculaciones.push({
-          facturaId: factura.id,
-          contratoDraxtonId: contratoId,
-          importeAsignado: factura.base,
-          auto: true,
-        })
-        vinculadas++
       }
     }
 
@@ -222,22 +290,51 @@ export async function POST(request: NextRequest) {
               },
             },
             create: v,
-            update: { importeAsignado: v.importeAsignado, auto: true },
+            update: { 
+              importeAsignado: v.importeAsignado, 
+              auto: true, 
+              estado: 'auto',
+              servicioIndex: v.servicioIndex,
+            },
           })
         )
       )
     }
 
     return NextResponse.json({
-      vinculadas,
+      vinculadas: nuevasVinculaciones.length,
       candidatasAnalizadas: facturasCandidatas.length,
       codigosEmpresa: codigosCliente,
-      importesEsperados: importesPorCodigo,
       modo: 'auto',
     })
   }
 
   return NextResponse.json({ error: 'Modo no válido (usar "auto" o "manual")' }, { status: 400 })
+}
+
+// PATCH: Actualizar vinculación (asignar servicio, cambiar estado, notas)
+export async function PATCH(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+
+  const body = await request.json()
+  const { vinculacionId, servicioIndex, estado, notas } = body
+
+  if (!vinculacionId) {
+    return NextResponse.json({ error: 'vinculacionId requerido' }, { status: 400 })
+  }
+
+  const updateData: any = {}
+  if (servicioIndex !== undefined) updateData.servicioIndex = servicioIndex
+  if (estado) updateData.estado = estado
+  if (notas !== undefined) updateData.notas = notas
+
+  const updated = await prisma.facturaContratoDraxton.update({
+    where: { id: vinculacionId },
+    data: updateData,
+  })
+
+  return NextResponse.json({ ok: true, updated })
 }
 
 // DELETE: Desvincular una factura de un contrato
@@ -307,47 +404,64 @@ async function obtenerCodigosClienteContrato(contrato: any): Promise<string[]> {
     .map(c => c.codigo as string)
 }
 
-// Calcular importes esperados por código de cliente (para matching)
-async function calcularImportesPorCodigo(servicios: any[], contrato: any): Promise<Record<string, number>> {
-  const importesPorCodigo: Record<string, number> = {}
-
-  // Agrupar servicios por empresaGrupoId
-  const serviciosConEmpresa = servicios.filter(s => s.empresaGrupoId)
+// Enriquecer servicios con código de cliente para matching
+async function enriquecerServiciosConCodigo(servicios: any[]): Promise<any[]> {
+  const empresaGrupoIds = [...new Set(servicios.filter(s => s.empresaGrupoId).map(s => s.empresaGrupoId))]
   
-  if (serviciosConEmpresa.length > 0) {
-    const empresaGrupoIds = [...new Set(serviciosConEmpresa.map(s => s.empresaGrupoId))]
-    const empresas = await prisma.empresaGrupoDraxton.findMany({
-      where: { id: { in: empresaGrupoIds }, clienteWebId: { not: null } },
-      select: { id: true, clienteWebId: true },
-    })
+  if (empresaGrupoIds.length === 0) return servicios.map((s, i) => ({ ...s, index: i, codigoCliente: null }))
 
-    const clienteWebIds = empresas.map(e => e.clienteWebId as number)
-    const clientes = await prisma.clienteWeb.findMany({
-      where: { id: { in: clienteWebIds } },
-      select: { id: true, codigo: true },
-    })
+  const empresas = await prisma.empresaGrupoDraxton.findMany({
+    where: { id: { in: empresaGrupoIds }, clienteWebId: { not: null } },
+    select: { id: true, clienteWebId: true },
+  })
 
-    for (const servicio of serviciosConEmpresa) {
-      const empresa = empresas.find(e => e.id === servicio.empresaGrupoId)
-      if (empresa) {
-        const cliente = clientes.find(c => c.id === empresa.clienteWebId)
-        if (cliente && cliente.codigo) {
-          importesPorCodigo[cliente.codigo] = (importesPorCodigo[cliente.codigo] || 0) + Number(servicio.precioMensual || 0)
+  const clienteWebIds = empresas.map(e => e.clienteWebId as number)
+  const clientes = await prisma.clienteWeb.findMany({
+    where: { id: { in: clienteWebIds } },
+    select: { id: true, codigo: true },
+  })
+
+  return servicios.map((s, i) => {
+    const empresa = empresas.find(e => e.id === s.empresaGrupoId)
+    const cliente = empresa ? clientes.find(c => c.id === empresa.clienteWebId) : null
+    return {
+      ...s,
+      index: i,
+      precioMensual: Number(s.precioMensual || 0),
+      codigoCliente: cliente?.codigo || null,
+    }
+  })
+}
+
+// Construir matriz de facturación: servicio × mes
+function construirMatrizFacturacion(vinculaciones: any[], servicios: any[], anio: number) {
+  const meses = Array.from({ length: 12 }, (_, i) => i + 1)
+  
+  // Inicializar matriz
+  const matriz: Record<number, Record<number, { facturado: boolean; importe: number; facturaId?: number }>> = {}
+  servicios.forEach((_, i) => {
+    matriz[i] = {}
+    meses.forEach(m => {
+      matriz[i][m] = { facturado: false, importe: 0 }
+    })
+  })
+
+  // Rellenar con vinculaciones que tienen servicioIndex asignado
+  for (const v of vinculaciones) {
+    if (v.servicioIndex !== null && v.servicioIndex !== undefined && v.factura) {
+      const fecha = new Date(v.factura.fecha)
+      if (fecha.getFullYear() === anio) {
+        const mes = fecha.getMonth() + 1
+        if (matriz[v.servicioIndex] && matriz[v.servicioIndex][mes]) {
+          matriz[v.servicioIndex][mes] = {
+            facturado: true,
+            importe: Number(v.importeAsignado),
+            facturaId: v.facturaId,
+          }
         }
       }
     }
   }
 
-  // Si no hay asignación por servicio pero hay empresa de facturación global
-  if (Object.keys(importesPorCodigo).length === 0 && contrato.clienteFacturacionId) {
-    const cliente = await prisma.clienteWeb.findUnique({
-      where: { id: contrato.clienteFacturacionId },
-      select: { codigo: true },
-    })
-    if (cliente && cliente.codigo) {
-      importesPorCodigo[cliente.codigo] = Number(contrato.importeMensual || 0)
-    }
-  }
-
-  return importesPorCodigo
+  return matriz
 }

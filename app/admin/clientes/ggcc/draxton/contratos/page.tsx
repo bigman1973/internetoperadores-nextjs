@@ -132,6 +132,8 @@ export default function DraxtonContratosPage() {
   const [facturasDetalle, setFacturasDetalle] = useState<any>(null);
   const [vinculando, setVinculando] = useState(false);
   const [showFacturasCandidatas, setShowFacturasCandidatas] = useState(false);
+  const [facturaExpandidaId, setFacturaExpandidaId] = useState<string | null>(null);
+  const [showMatriz, setShowMatriz] = useState(false);
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -220,6 +222,33 @@ export default function DraxtonContratosPage() {
       await fetchFacturasResumen();
     } catch (err) {
       console.error('Error desvinculando factura:', err);
+    }
+  }
+
+  async function asignarServicioFactura(vinculacionId: string, servicioIndex: number | null, contratoId: string) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vinculacionId, servicioIndex, estado: servicioIndex !== null ? 'asignada' : 'pendiente' }),
+      });
+      await fetchFacturasDetalle(contratoId);
+      await fetchFacturasResumen();
+    } catch (err) {
+      console.error('Error asignando servicio:', err);
+    }
+  }
+
+  async function cambiarEstadoFactura(vinculacionId: string, estado: string, contratoId: string) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vinculacionId, estado }),
+      });
+      await fetchFacturasDetalle(contratoId);
+    } catch (err) {
+      console.error('Error cambiando estado:', err);
     }
   }
 
@@ -1176,7 +1205,17 @@ export default function DraxtonContratosPage() {
                         {/* Facturas Vinculadas */}
                         <div className="mt-4 border-t pt-4">
                           <div className="flex items-center justify-between mb-3">
-                            <p className="text-xs font-semibold text-gray-700 uppercase">Facturas Vinculadas</p>
+                            <div className="flex items-center gap-3">
+                              <p className="text-xs font-semibold text-gray-700 uppercase">Facturas Vinculadas</p>
+                              {facturasDetalle && facturasDetalle.matrizFacturacion && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setShowMatriz(!showMatriz); }}
+                                  className={`px-2 py-0.5 text-[9px] rounded border ${showMatriz ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200'} hover:bg-indigo-50`}
+                                >
+                                  {showMatriz ? '✕ Cerrar matriz' : '▦ Matriz servicios'}
+                                </button>
+                              )}
+                            </div>
                             <div className="flex gap-2">
                               <button
                                 onClick={(e) => { e.stopPropagation(); vincularAutomaticamente(c.id); }}
@@ -1216,45 +1255,159 @@ export default function DraxtonContratosPage() {
                               </div>
                             );
                           })()}
-                          {/* Tabla de facturas vinculadas */}
+
+                          {/* Matriz de facturación: servicio × mes */}
+                          {showMatriz && facturasDetalle && facturasDetalle.matrizFacturacion && facturasDetalle.servicios && expandedId === c.id && (
+                            <div className="mb-4 overflow-x-auto">
+                              <table className="w-full text-[10px] border border-gray-200 rounded">
+                                <thead className="bg-indigo-50">
+                                  <tr>
+                                    <th className="text-left px-2 py-1.5 font-medium text-indigo-700 min-w-[120px]">Servicio</th>
+                                    {['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'].map((m, i) => (
+                                      <th key={i} className="text-center px-1 py-1.5 font-medium text-indigo-700 w-10">{m}</th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {facturasDetalle.servicios.map((srv: any) => (
+                                    <tr key={srv.index}>
+                                      <td className="px-2 py-1.5 text-gray-800 font-medium truncate max-w-[150px]" title={`${srv.ubicacion} - ${formatCurrency(srv.precioMensual)}/mes`}>
+                                        {srv.ubicacion}
+                                      </td>
+                                      {Array.from({length: 12}, (_, m) => m + 1).map(mes => {
+                                        const celda = facturasDetalle.matrizFacturacion[srv.index]?.[mes];
+                                        return (
+                                          <td key={mes} className="text-center px-1 py-1.5">
+                                            {celda?.facturado ? (
+                                              <span className="inline-block w-5 h-5 leading-5 rounded bg-green-100 text-green-700 font-bold" title={`${formatCurrency(celda.importe)}`}>✓</span>
+                                            ) : mes <= new Date().getMonth() + 1 ? (
+                                              <span className="inline-block w-5 h-5 leading-5 rounded bg-red-50 text-red-400" title="No facturado">✗</span>
+                                            ) : (
+                                              <span className="inline-block w-5 h-5 leading-5 rounded bg-gray-50 text-gray-300">•</span>
+                                            )}
+                                          </td>
+                                        );
+                                      })}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* Tabla de facturas vinculadas con selector de servicio */}
                           {facturasDetalle && facturasDetalle.vinculadas && facturasDetalle.vinculadas.length > 0 && expandedId === c.id && (
                             <table className="w-full text-xs mb-3">
                               <thead className="bg-blue-50">
                                 <tr>
-                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Fecha</th>
-                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Nº Factura</th>
-                                  <th className="text-left px-3 py-1.5 font-medium text-blue-700">Empresa</th>
-                                  <th className="text-right px-3 py-1.5 font-medium text-blue-700">Base Imp.</th>
-                                  <th className="text-center px-3 py-1.5 font-medium text-blue-700">Tipo</th>
-                                  <th className="text-center px-3 py-1.5 font-medium text-blue-700">Acción</th>
+                                  <th className="text-left px-2 py-1.5 font-medium text-blue-700">Fecha</th>
+                                  <th className="text-left px-2 py-1.5 font-medium text-blue-700">Nº Factura</th>
+                                  <th className="text-left px-2 py-1.5 font-medium text-blue-700">Empresa</th>
+                                  <th className="text-right px-2 py-1.5 font-medium text-blue-700">Base Imp.</th>
+                                  <th className="text-left px-2 py-1.5 font-medium text-blue-700">Servicio asignado</th>
+                                  <th className="text-center px-2 py-1.5 font-medium text-blue-700">Estado</th>
+                                  <th className="text-center px-2 py-1.5 font-medium text-blue-700">Acción</th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y">
                                 {facturasDetalle.vinculadas.map((fv: any) => (
-                                  <tr key={fv.id} className="hover:bg-blue-50/50">
-                                    <td className="px-3 py-1.5 text-gray-600">{fv.factura?.fecha ? new Date(fv.factura.fecha).toLocaleDateString('es-ES') : '—'}</td>
-                                    <td className="px-3 py-1.5 font-mono">
-                                      <a href={`/admin/facturacion?buscar=${encodeURIComponent(fv.factura?.numero || fv.factura?.documento || '')}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 hover:underline" onClick={(e) => e.stopPropagation()}>
-                                        {fv.factura?.numero || fv.factura?.documento || '—'}
-                                      </a>
-                                    </td>
-                                    <td className="px-3 py-1.5 text-gray-700">{fv.factura?.clienteNombre || '—'}</td>
-                                    <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fv.importeAsignado || fv.factura?.baseImponible)}</td>
-                                    <td className="px-3 py-1.5 text-center">
-                                      <span className={`px-1.5 py-0.5 rounded text-[9px] ${fv.tipoVinculacion === 'auto' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                                        {fv.tipoVinculacion}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-1.5 text-center">
-                                      <button onClick={(e) => { e.stopPropagation(); desvincularFactura(c.id, fv.facturaId); }} className="text-red-500 hover:text-red-700 text-[10px]">
-                                        ✕ Desvincular
-                                      </button>
-                                    </td>
-                                  </tr>
+                                  <Fragment key={fv.id}>
+                                    <tr className={`hover:bg-blue-50/50 cursor-pointer ${facturaExpandidaId === fv.id ? 'bg-blue-50' : ''}`}
+                                        onClick={(e) => { e.stopPropagation(); setFacturaExpandidaId(facturaExpandidaId === fv.id ? null : fv.id); }}>
+                                      <td className="px-2 py-1.5 text-gray-600">{fv.factura?.fecha ? new Date(fv.factura.fecha).toLocaleDateString('es-ES') : '—'}</td>
+                                      <td className="px-2 py-1.5 font-mono text-blue-700 font-medium">{fv.factura?.numero || fv.factura?.documento || '—'}</td>
+                                      <td className="px-2 py-1.5 text-gray-700 truncate max-w-[180px]" title={fv.factura?.clienteNombre}>{fv.factura?.clienteNombre || '—'}</td>
+                                      <td className="px-2 py-1.5 text-right font-bold text-gray-900">{formatCurrency(fv.importeAsignado || fv.factura?.baseImponible)}</td>
+                                      <td className="px-2 py-1.5">
+                                        <select
+                                          value={fv.servicioIndex ?? ''}
+                                          onChange={(e) => { e.stopPropagation(); asignarServicioFactura(fv.id, e.target.value === '' ? null : parseInt(e.target.value), c.id); }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-full max-w-[160px] bg-white"
+                                        >
+                                          <option value="">-- Sin asignar --</option>
+                                          {facturasDetalle.servicios?.map((srv: any) => (
+                                            <option key={srv.index} value={srv.index}>{srv.ubicacion} ({formatCurrency(srv.precioMensual)})</option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                      <td className="px-2 py-1.5 text-center">
+                                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${
+                                          fv.estado === 'asignada' ? 'bg-green-100 text-green-700' :
+                                          fv.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-700' :
+                                          'bg-gray-100 text-gray-600'
+                                        }`}>
+                                          {fv.estado === 'asignada' ? '✓ Asignada' : fv.estado === 'pendiente' ? '○ Pendiente' : '⚡ Auto'}
+                                        </span>
+                                      </td>
+                                      <td className="px-2 py-1.5 text-center">
+                                        <button onClick={(e) => { e.stopPropagation(); desvincularFactura(c.id, fv.facturaId); }} className="text-red-500 hover:text-red-700 text-[10px]">
+                                          ✕
+                                        </button>
+                                      </td>
+                                    </tr>
+                                    {/* Detalle inline de la factura */}
+                                    {facturaExpandidaId === fv.id && (
+                                      <tr>
+                                        <td colSpan={7} className="bg-blue-50/70 px-4 py-3 border-l-4 border-blue-400">
+                                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Nº Documento</p>
+                                              <p className="font-medium text-gray-900">{fv.factura?.numero || '—'}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Empresa (cliente)</p>
+                                              <p className="font-medium text-gray-900">{fv.factura?.clienteNombre || '—'}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Código Cliente</p>
+                                              <p className="font-medium text-gray-900">{fv.factura?.codigoCliente || '—'}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Situación</p>
+                                              <p className={`font-medium ${fv.factura?.situacion === 'COBRADA' ? 'text-green-700' : 'text-orange-600'}`}>{fv.factura?.situacion || '—'}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Base Imponible</p>
+                                              <p className="font-bold text-gray-900">{formatCurrency(fv.factura?.baseImponible)}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Total (con IVA)</p>
+                                              <p className="font-bold text-gray-900">{formatCurrency(fv.factura?.total)}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Servicio esperado</p>
+                                              <p className="font-medium text-indigo-700">
+                                                {fv.servicioIndex !== null && fv.servicioIndex !== undefined && facturasDetalle.servicios?.[fv.servicioIndex]
+                                                  ? `${facturasDetalle.servicios[fv.servicioIndex].ubicacion} (${formatCurrency(facturasDetalle.servicios[fv.servicioIndex].precioMensual)}/mes)`
+                                                  : 'Sin asignar'}
+                                              </p>
+                                            </div>
+                                            <div>
+                                              <p className="text-gray-500 text-[9px] uppercase">Diferencia vs esperado</p>
+                                              {(() => {
+                                                if (fv.servicioIndex === null || fv.servicioIndex === undefined) return <p className="text-gray-400">—</p>;
+                                                const srv = facturasDetalle.servicios?.[fv.servicioIndex];
+                                                if (!srv) return <p className="text-gray-400">—</p>;
+                                                const diff = Number(fv.importeAsignado) - srv.precioMensual;
+                                                return <p className={`font-medium ${Math.abs(diff) < 1 ? 'text-green-700' : diff > 0 ? 'text-orange-600' : 'text-red-600'}`}>{diff > 0 ? '+' : ''}{formatCurrency(diff)}</p>;
+                                              })()}
+                                            </div>
+                                          </div>
+                                          <div className="mt-2 flex gap-2">
+                                            <a href={`/admin/facturacion?buscar=${encodeURIComponent(fv.factura?.numero || '')}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline" onClick={(e) => e.stopPropagation()}>
+                                              Abrir en Facturación →
+                                            </a>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
                                 ))}
                               </tbody>
                             </table>
                           )}
+
                           {/* Facturas candidatas para vincular manualmente */}
                           {showFacturasCandidatas && facturasDetalle && facturasDetalle.candidatas && facturasDetalle.candidatas.length > 0 && expandedId === c.id && (
                             <div className="bg-yellow-50 rounded-lg p-3 mb-3">

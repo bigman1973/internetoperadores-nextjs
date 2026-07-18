@@ -1915,7 +1915,9 @@ model FacturaContratoDraxton {
   facturaId             Int      @map("factura_id")
   contratoDraxtonId     String   @map("contrato_draxton_id")
   empresaGrupoDraxtonId String?  @map("empresa_grupo_draxton_id")
+  servicioIndex         Int?     @map("servicio_index")  // Índice del servicio en serviciosJson (null = sin asignar)
   importeAsignado       Decimal  @map("importe_asignado") @db.Decimal(12, 2)
+  estado                String   @default("auto") @map("estado")  // auto, pendiente, asignada
   auto                  Boolean  @default(true)  // true = vinculación automática, false = manual
   notas                 String?
   createdAt             DateTime @default(now()) @map("created_at")
@@ -1926,6 +1928,7 @@ model FacturaContratoDraxton {
   @@unique([facturaId, contratoDraxtonId])
   @@index([contratoDraxtonId])
   @@index([facturaId])
+  @@index([servicioIndex])
   @@map("facturas_contratos_draxton")
 }
 
