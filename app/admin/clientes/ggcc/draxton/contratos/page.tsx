@@ -712,7 +712,7 @@ export default function DraxtonContratosPage() {
             <DocumentDuplicateIcon className="w-6 h-6 text-indigo-600" />
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Gestión de Contratos</h2>
-              <p className="text-sm text-gray-500">Contratos de cliente y proveedor con Draxton</p>
+              <p className="text-sm text-gray-500">Contratos de cliente y proveedor con Draxton <span className="text-gray-400">· Todos los importes sin impuestos (base imponible)</span></p>
             </div>
           </div>
           <button
