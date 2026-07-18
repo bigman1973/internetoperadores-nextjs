@@ -222,7 +222,12 @@ export async function POST(request: NextRequest) {
         const servicio = serviciosDeEstaEmpresa[0]
         for (const f of facturas) {
           const baseFactura = Number(f.base)
-          if (servicio.precioMensual > 0 && Math.abs(baseFactura - servicio.precioMensual) / servicio.precioMensual <= 0.05) {
+          const importeAlta = Number(servicio.importeAlta || 0)
+          const precioConAlta = servicio.precioMensual + importeAlta
+          // Match normal (mensual) o match con alta incluida (primera factura)
+          const matchMensual = servicio.precioMensual > 0 && Math.abs(baseFactura - servicio.precioMensual) / servicio.precioMensual <= 0.05
+          const matchConAlta = importeAlta > 0 && precioConAlta > 0 && Math.abs(baseFactura - precioConAlta) / precioConAlta <= 0.05
+          if (matchMensual || matchConAlta) {
             nuevasVinculaciones.push({
               facturaId: f.id,
               contratoDraxtonId: contratoId,
@@ -242,11 +247,14 @@ export async function POST(request: NextRequest) {
         for (const f of facturasOrdenadas) {
           const baseFactura = Number(f.base)
           // Buscar servicio con importe similar que no haya sido usado este mes
-          const servicioMatch = serviciosDeEstaEmpresa.find(s => 
-            !serviciosUsados.has(s.index) &&
-            s.precioMensual > 0 &&
-            Math.abs(baseFactura - s.precioMensual) / s.precioMensual <= 0.05
-          )
+          const servicioMatch = serviciosDeEstaEmpresa.find(s => {
+            if (serviciosUsados.has(s.index) || s.precioMensual <= 0) return false
+            const importeAlta = Number(s.importeAlta || 0)
+            const precioConAlta = s.precioMensual + importeAlta
+            const matchMensual = Math.abs(baseFactura - s.precioMensual) / s.precioMensual <= 0.05
+            const matchConAlta = importeAlta > 0 && precioConAlta > 0 && Math.abs(baseFactura - precioConAlta) / precioConAlta <= 0.05
+            return matchMensual || matchConAlta
+          })
 
           if (servicioMatch) {
             nuevasVinculaciones.push({
@@ -261,17 +269,22 @@ export async function POST(request: NextRequest) {
           } else {
             // Si todos los servicios tienen el mismo precio, asignar secuencialmente
             const servicioLibre = serviciosDeEstaEmpresa.find(s => !serviciosUsados.has(s.index))
-            if (servicioLibre && servicioLibre.precioMensual > 0 && 
-                Math.abs(baseFactura - servicioLibre.precioMensual) / servicioLibre.precioMensual <= 0.05) {
-              nuevasVinculaciones.push({
-                facturaId: f.id,
-                contratoDraxtonId: contratoId,
-                importeAsignado: f.base,
-                auto: true,
-                estado: 'auto',
-                servicioIndex: servicioLibre.index,
-              })
-              serviciosUsados.add(servicioLibre.index)
+            if (servicioLibre && servicioLibre.precioMensual > 0) {
+              const importeAltaLibre = Number(servicioLibre.importeAlta || 0)
+              const precioConAltaLibre = servicioLibre.precioMensual + importeAltaLibre
+              const matchMensualLibre = Math.abs(baseFactura - servicioLibre.precioMensual) / servicioLibre.precioMensual <= 0.05
+              const matchConAltaLibre = importeAltaLibre > 0 && precioConAltaLibre > 0 && Math.abs(baseFactura - precioConAltaLibre) / precioConAltaLibre <= 0.05
+              if (matchMensualLibre || matchConAltaLibre) {
+                nuevasVinculaciones.push({
+                  facturaId: f.id,
+                  contratoDraxtonId: contratoId,
+                  importeAsignado: f.base,
+                  auto: true,
+                  estado: 'auto',
+                  servicioIndex: servicioLibre.index,
+                })
+                serviciosUsados.add(servicioLibre.index)
+              }
             }
           }
         }

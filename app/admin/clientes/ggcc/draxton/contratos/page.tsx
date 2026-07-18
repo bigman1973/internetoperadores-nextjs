@@ -1411,9 +1411,27 @@ export default function DraxtonContratosPage() {
                           {/* Facturas candidatas para vincular manualmente */}
                           {showFacturasCandidatas && facturasDetalle && facturasDetalle.candidatas && facturasDetalle.candidatas.length > 0 && expandedId === c.id && (
                             <div className="bg-yellow-50 rounded-lg p-3 mb-3">
-                              <p className="text-[10px] font-medium text-yellow-700 mb-2">Facturas candidatas (sin vincular):</p>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-[10px] font-medium text-yellow-700">Facturas candidatas ({facturasDetalle.candidatas.length} disponibles):</p>
+                                <div className="flex gap-1 flex-wrap">
+                                  {(() => {
+                                    const empresasUnicas = [...new Set(facturasDetalle.candidatas.map((fc: any) => fc.clienteNombre))];
+                                    return empresasUnicas.map((emp: string) => (
+                                      <button
+                                        key={emp}
+                                        onClick={(e) => { e.stopPropagation(); /* Filter handled inline below */ }}
+                                        className="px-1.5 py-0.5 text-[9px] bg-yellow-200 text-yellow-800 rounded hover:bg-yellow-300 truncate max-w-[120px]"
+                                        title={emp}
+                                      >
+                                        {emp?.split(' ').slice(0, 2).join(' ')}
+                                      </button>
+                                    ));
+                                  })()}
+                                </div>
+                              </div>
+                              <div className="max-h-[300px] overflow-y-auto">
                               <table className="w-full text-xs">
-                                <thead className="bg-yellow-100">
+                                <thead className="bg-yellow-100 sticky top-0">
                                   <tr>
                                     <th className="text-left px-3 py-1 font-medium text-yellow-800">Fecha</th>
                                     <th className="text-left px-3 py-1 font-medium text-yellow-800">Nº Factura</th>
@@ -1427,7 +1445,7 @@ export default function DraxtonContratosPage() {
                                     <tr key={fc.id} className="hover:bg-yellow-100/50">
                                       <td className="px-3 py-1.5 text-gray-600">{fc.fecha ? new Date(fc.fecha).toLocaleDateString('es-ES') : '—'}</td>
                                       <td className="px-3 py-1.5 font-mono text-gray-900">{fc.numero || fc.documento || '—'}</td>
-                                      <td className="px-3 py-1.5 text-gray-700">{fc.clienteNombre || '—'}</td>
+                                      <td className="px-3 py-1.5 text-gray-700 truncate max-w-[150px]" title={fc.clienteNombre}>{fc.clienteNombre || '—'}</td>
                                       <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fc.baseImponible)}</td>
                                       <td className="px-3 py-1.5 text-center">
                                         <button onClick={(e) => { e.stopPropagation(); vincularManual(c.id, [fc.id]); }} className="text-blue-600 hover:text-blue-800 text-[10px] font-medium">
@@ -1438,6 +1456,7 @@ export default function DraxtonContratosPage() {
                                   ))}
                                 </tbody>
                               </table>
+                              </div>
                             </div>
                           )}
                           {(!facturasDetalle || !facturasDetalle.vinculadas || facturasDetalle.vinculadas.length === 0) && expandedId === c.id && !showFacturasCandidatas && (
