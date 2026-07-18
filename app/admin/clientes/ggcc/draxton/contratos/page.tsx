@@ -1094,22 +1094,27 @@ export default function DraxtonContratosPage() {
                           const hoy = new Date();
                           const diaFact = c.diaFacturacion;
                           const mesOffset = c.mesFacturacion === 'anterior' ? -1 : c.mesFacturacion === 'siguiente' ? 1 : 0;
-                          // Calcular cuántas facturas deberían haberse emitido hasta hoy
+                          // Usar fecha inicio servicio como inicio real del contrato
                           const inicioServicio = new Date(c.fechaInicioServicio);
-                          const inicioAnio = new Date(currentYear, 0, 1);
-                          const desde = inicioServicio > inicioAnio ? inicioServicio : inicioAnio;
+                          const mesInicioServicio = inicioServicio.getFullYear() === currentYear ? inicioServicio.getMonth() : 0;
+                          // Solo calcular si el contrato ya empezó en el año actual
+                          if (inicioServicio.getFullYear() > currentYear) return null;
                           let mesesEsperados = 0;
-                          for (let m = desde.getMonth(); m <= hoy.getMonth(); m++) {
-                            // El mes facturado depende del offset
+                          // Iterar desde el mes de inicio del servicio hasta hoy
+                          for (let m = mesInicioServicio; m <= hoy.getMonth(); m++) {
+                            // El mes que cubre esta factura
                             const mesCubierto = m + mesOffset;
-                            if (mesCubierto < desde.getMonth() || mesCubierto > 11) continue;
-                            // Si el día de facturación ya pasó este mes (o es un mes anterior)
+                            if (mesCubierto < mesInicioServicio) continue;
+                            // Si el día de facturación ya pasó este mes (o es un mes anterior al actual)
                             if (m < hoy.getMonth() || (m === hoy.getMonth() && hoy.getDate() >= diaFact)) {
                               mesesEsperados++;
                             }
                           }
-                          const mensual = c.serviciosJson ? (c.serviciosJson as any[]).reduce((s: number, sv: any) => s + Number(sv.precioMensual || 0), 0) : 0;
-                          const esperadoAFecha = mesesEsperados * mensual;
+                          const servicios = c.serviciosJson ? (c.serviciosJson as any[]) : [];
+                          const mensual = servicios.reduce((s: number, sv: any) => s + Number(sv.precioMensual || 0), 0);
+                          // Incluir el alta en el esperado (se cobra una sola vez en la primera factura)
+                          const totalAltas = servicios.reduce((s: number, sv: any) => s + Number(sv.alta || 0), 0);
+                          const esperadoAFecha = (mesesEsperados * mensual) + totalAltas;
                           const facturado = facturasResumen.resumenPorContrato?.[c.id]?.facturado || 0;
                           const retraso = esperadoAFecha - facturado;
                           if (retraso > mensual * 0.5) {
@@ -1118,7 +1123,18 @@ export default function DraxtonContratosPage() {
                                 <span className="text-red-600 text-lg">⚠️</span>
                                 <div>
                                   <p className="text-xs font-semibold text-red-700">Facturación con retraso</p>
-                                  <p className="text-[10px] text-red-600">Esperado a hoy: {formatCurrency(esperadoAFecha)} ({mesesEsperados} meses) — Facturado: {formatCurrency(facturado)} — <span className="font-bold">Diferencia: {formatCurrency(retraso)}</span></p>
+                                  <p className="text-[10px] text-red-600">Esperado a hoy: {formatCurrency(esperadoAFecha)} ({mesesEsperados} meses + altas {formatCurrency(totalAltas)}) — Facturado: {formatCurrency(facturado)} — <span className="font-bold">Diferencia: {formatCurrency(retraso)}</span></p>
+                                </div>
+                              </div>
+                            );
+                          }
+                          if (retraso <= 0) {
+                            return (
+                              <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                                <span className="text-green-600 text-lg">✓</span>
+                                <div>
+                                  <p className="text-xs font-semibold text-green-700">Facturación al día</p>
+                                  <p className="text-[10px] text-green-600">Esperado a hoy: {formatCurrency(esperadoAFecha)} ({mesesEsperados} meses + altas) — Facturado: {formatCurrency(facturado)}</p>
                                 </div>
                               </div>
                             );
