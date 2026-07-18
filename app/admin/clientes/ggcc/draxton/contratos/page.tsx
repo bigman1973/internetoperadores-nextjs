@@ -670,7 +670,7 @@ export default function DraxtonContratosPage() {
       prorrogable: c.prorrogaAutomatica,
       plazoProrroga: plazo,
       importeProrroga: mensual * mesesProrr,
-      importeAnio1: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual : 0,
+      importeAnio1: fechaRef ? (calcularMesesEnAnio(fechaRef, fechaFin, currentYear) * mensual) + (new Date(fechaRef).getFullYear() === currentYear ? altaCliente : 0) : 0,
       mesesAnio1: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear) : 0,
       importeAnio2: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) * mensual : 0,
       mesesAnio2: fechaRef ? calcularMesesEnAnio(fechaRef, fechaFin, currentYear + 1) : 0,
@@ -732,13 +732,13 @@ export default function DraxtonContratosPage() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contratos</div>
-              <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(totalValorContrato)}</div>
-              <p className="text-[10px] text-gray-400">{activos.length} contrato{activos.length > 1 ? 's' : ''} activo{activos.length > 1 ? 's' : ''}</p>
+              <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(totalValorContrato + totalAltaCliente)}</div>
+              <p className="text-[10px] text-gray-400">{activos.length} contrato{activos.length > 1 ? 's' : ''} activo{activos.length > 1 ? 's' : ''}{totalAltaCliente > 0 ? ` (incl. altas)` : ''}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio1)}</div>
-              <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio1, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
+              <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio1, 0) / Math.max(datosContratos.length, 1) | 0} meses{totalAltaCliente > 0 && datosContratos.some(d => new Date(d.id).getFullYear() === currentYear) ? ' + altas' : ''}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
               <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 1}</div>
@@ -1024,7 +1024,7 @@ export default function DraxtonContratosPage() {
                       {(facturasResumen.resumenPorContrato[c.id]?.facturas || 0) > 0 && <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[c.id]?.facturas} fact.</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-orange-600 font-medium text-xs">
-                      {(() => { const esperado = calcularMesesEnAnio(c.fechaInicioServicio || c.fechaInicio, c.fechaFin, currentYear) * mensual; const facturado = facturasResumen.resumenPorContrato[c.id]?.facturado || 0; const pendiente = Math.max(0, esperado - facturado); const pct = esperado > 0 ? ((facturado / esperado) * 100).toFixed(0) : '0'; return <>{formatCurrency(pendiente)}<span className="text-[9px] text-gray-400 block">{pct}% fact.</span></>; })()}
+                      {(() => { const svs = c.serviciosJson ? (c.serviciosJson as any[]) : []; const altas = svs.reduce((s: number, sv: any) => s + Number(sv.alta || 0), 0); const inicioSv = new Date(c.fechaInicioServicio || c.fechaInicio || ''); const esAnioInicio = inicioSv.getFullYear() === currentYear; const altasAnio = esAnioInicio ? altas : 0; const esperado = (calcularMesesEnAnio(c.fechaInicioServicio || c.fechaInicio, c.fechaFin, currentYear) * mensual) + altasAnio; const facturado = facturasResumen.resumenPorContrato[c.id]?.facturado || 0; const pendiente = Math.max(0, esperado - facturado); const pct = esperado > 0 ? ((facturado / esperado) * 100).toFixed(0) : '0'; return <>{formatCurrency(pendiente)}<span className="text-[9px] text-gray-400 block">{pct}% fact.</span></>; })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
@@ -1033,6 +1033,30 @@ export default function DraxtonContratosPage() {
                         c.estado === 'En renovación' ? 'bg-amber-100 text-amber-700' :
                         'bg-gray-100 text-gray-700'
                       }`}>{c.estado}</span>
+                      {/* Badge facturación al día / retraso */}
+                      {(() => {
+                        if (!c.diaFacturacion || !c.mesFacturacion || !c.fechaInicioServicio) return null;
+                        const hoy = new Date();
+                        const diaFact = c.diaFacturacion;
+                        const mesOffset = c.mesFacturacion === 'anterior' ? -1 : c.mesFacturacion === 'siguiente' ? 1 : 0;
+                        const inicioServicio = new Date(c.fechaInicioServicio);
+                        if (inicioServicio.getFullYear() > currentYear) return null;
+                        const mesInicioServicio = inicioServicio.getFullYear() === currentYear ? inicioServicio.getMonth() : 0;
+                        let mesesEsp = 0;
+                        for (let m = mesInicioServicio; m <= hoy.getMonth(); m++) {
+                          const mesCubierto = m + mesOffset;
+                          if (mesCubierto < mesInicioServicio) continue;
+                          if (m < hoy.getMonth() || (m === hoy.getMonth() && hoy.getDate() >= diaFact)) mesesEsp++;
+                        }
+                        const svs = c.serviciosJson ? (c.serviciosJson as any[]) : [];
+                        const mens = svs.reduce((s: number, sv: any) => s + Number(sv.precioMensual || 0), 0);
+                        const altas = svs.reduce((s: number, sv: any) => s + Number(sv.alta || 0), 0);
+                        const esperado = (mesesEsp * mens) + altas;
+                        const fact = facturasResumen.resumenPorContrato?.[c.id]?.facturado || 0;
+                        const retraso = esperado - fact;
+                        if (retraso > mens * 0.5) return <span className="ml-1 text-[9px] text-red-600" title={`Retraso: ${formatCurrency(retraso)}`}>⚠️</span>;
+                        return <span className="ml-1 text-[9px] text-green-600" title="Facturación al día">✓</span>;
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {numProveedores > 0 ? (
