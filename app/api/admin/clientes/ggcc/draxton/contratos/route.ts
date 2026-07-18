@@ -38,6 +38,8 @@ export async function POST(req: NextRequest) {
         notas: body.notas || null,
         condicionesEspeciales: body.condicionesEspeciales || null,
         serviciosJson: body.serviciosJson || null,
+        diaFacturacion: body.diaFacturacion ? parseInt(body.diaFacturacion) : null,
+        mesFacturacion: body.mesFacturacion || null,
         documentoUrl: body.documentoUrl || null,
         documentoNombre: body.documentoNombre || null,
         clienteFacturacionId: body.clienteFacturacionId || null,
@@ -81,6 +83,8 @@ export async function PUT(req: NextRequest) {
     if (fields.notas !== undefined) data.notas = fields.notas || null;
     if (fields.condicionesEspeciales !== undefined) data.condicionesEspeciales = fields.condicionesEspeciales || null;
     if (fields.serviciosJson !== undefined) data.serviciosJson = fields.serviciosJson;
+    if (fields.diaFacturacion !== undefined) data.diaFacturacion = fields.diaFacturacion ? parseInt(fields.diaFacturacion) : null;
+    if (fields.mesFacturacion !== undefined) data.mesFacturacion = fields.mesFacturacion || null;
     if (fields.documentoUrl !== undefined) data.documentoUrl = fields.documentoUrl || null;
     if (fields.documentoNombre !== undefined) data.documentoNombre = fields.documentoNombre || null;
     if (fields.clienteFacturacionId !== undefined) data.clienteFacturacionId = fields.clienteFacturacionId || null;

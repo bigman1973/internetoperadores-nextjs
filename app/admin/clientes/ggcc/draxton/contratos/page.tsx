@@ -51,6 +51,8 @@ interface ContratoProveedor {
   notas: string | null;
   condicionesEspeciales: string | null;
   serviciosJson: Servicio[] | null;
+  diaFacturacion: number | null;
+  mesFacturacion: string | null;
   documentoUrl: string | null;
   documentoNombre: string | null;
 }
@@ -76,6 +78,8 @@ interface Contrato {
   notas: string | null;
   condicionesEspeciales: string | null;
   serviciosJson: Servicio[] | null;
+  diaFacturacion: number | null;
+  mesFacturacion: string | null;
   documentoUrl: string | null;
   documentoNombre: string | null;
   clienteFacturacionId?: number | null;
@@ -456,6 +460,8 @@ export default function DraxtonContratosPage() {
       notas: c.notas,
       condicionesEspeciales: c.condicionesEspeciales,
       serviciosJson: c.serviciosJson,
+      diaFacturacion: c.diaFacturacion,
+      mesFacturacion: c.mesFacturacion,
       documentoUrl: c.documentoUrl,
       documentoNombre: c.documentoNombre,
       clienteFacturacionId: c.clienteFacturacionId,
@@ -783,7 +789,7 @@ export default function DraxtonContratosPage() {
               <p className="text-[10px] text-gray-400">{facturasResumen.totalFacturas} facturas vinculadas</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Pendiente Facturar</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Pendiente {currentYear}</div>
               <div className="text-lg font-bold text-orange-600 mt-1">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</div>
               <p className="text-[10px] text-gray-400">{totalAnio1 > 0 ? ((Math.max(0, totalAnio1 - facturasResumen.totalFacturado) / totalAnio1) * 100).toFixed(1) : '0'}% pendiente</p>
             </div>
@@ -1053,7 +1059,7 @@ export default function DraxtonContratosPage() {
                   {expandedId === c.id && (
                     <tr>
                       <td colSpan={12} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
-                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
+                        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
                           <div>
                             <p className="text-[10px] text-gray-600 uppercase font-semibold">Fecha Firma</p>
                             <p className="text-sm font-bold text-gray-900">{formatDate(c.fechaFirma)}</p>
@@ -1074,7 +1080,51 @@ export default function DraxtonContratosPage() {
                             <p className="text-[10px] text-gray-600 uppercase font-semibold">Forma de Pago</p>
                             <p className="text-sm font-bold text-gray-900 capitalize">{c.formaPago || '—'}</p>
                           </div>
+                          <div>
+                            <p className="text-[10px] text-gray-600 uppercase font-semibold">Facturación</p>
+                            <p className="text-sm font-bold text-gray-900">
+                              {c.diaFacturacion ? `Día ${c.diaFacturacion}` : '—'}
+                              {c.mesFacturacion && <span className="text-gray-500 font-normal"> ({c.mesFacturacion === 'anterior' ? 'mes anterior' : c.mesFacturacion === 'en_curso' ? 'mes en curso' : c.mesFacturacion === 'siguiente' ? 'mes siguiente' : c.mesFacturacion})</span>}
+                            </p>
+                          </div>
                         </div>
+                        {/* Alarma de facturación pendiente */}
+                        {(() => {
+                          if (!c.diaFacturacion || !c.mesFacturacion || !c.fechaInicioServicio) return null;
+                          const hoy = new Date();
+                          const diaFact = c.diaFacturacion;
+                          const mesOffset = c.mesFacturacion === 'anterior' ? -1 : c.mesFacturacion === 'siguiente' ? 1 : 0;
+                          // Calcular cuántas facturas deberían haberse emitido hasta hoy
+                          const inicioServicio = new Date(c.fechaInicioServicio);
+                          const inicioAnio = new Date(currentYear, 0, 1);
+                          const desde = inicioServicio > inicioAnio ? inicioServicio : inicioAnio;
+                          let mesesEsperados = 0;
+                          for (let m = desde.getMonth(); m <= hoy.getMonth(); m++) {
+                            // El mes facturado depende del offset
+                            const mesCubierto = m + mesOffset;
+                            if (mesCubierto < desde.getMonth() || mesCubierto > 11) continue;
+                            // Si el día de facturación ya pasó este mes (o es un mes anterior)
+                            if (m < hoy.getMonth() || (m === hoy.getMonth() && hoy.getDate() >= diaFact)) {
+                              mesesEsperados++;
+                            }
+                          }
+                          const mensual = c.serviciosJson ? (c.serviciosJson as any[]).reduce((s: number, sv: any) => s + Number(sv.precioMensual || 0), 0) : 0;
+                          const esperadoAFecha = mesesEsperados * mensual;
+                          const facturado = facturasResumen.resumenPorContrato?.[c.id]?.facturado || 0;
+                          const retraso = esperadoAFecha - facturado;
+                          if (retraso > mensual * 0.5) {
+                            return (
+                              <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                                <span className="text-red-600 text-lg">⚠️</span>
+                                <div>
+                                  <p className="text-xs font-semibold text-red-700">Facturación con retraso</p>
+                                  <p className="text-[10px] text-red-600">Esperado a hoy: {formatCurrency(esperadoAFecha)} ({mesesEsperados} meses) — Facturado: {formatCurrency(facturado)} — <span className="font-bold">Diferencia: {formatCurrency(retraso)}</span></p>
+                                </div>
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
                         {c.contactoCliente && (
                           <div className="mb-2">
                             <p className="text-[10px] text-gray-600 uppercase font-semibold">Contacto Cliente</p>
@@ -1579,6 +1629,21 @@ export default function DraxtonContratosPage() {
                   <option value="">Seleccionar...</option>
                   {FORMAS_PAGO.map(f => <option key={f} value={f} className="capitalize">{f}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Día de Facturación</label>
+                <input type="number" min="1" max="31" value={form.diaFacturacion || ''} onChange={e => setForm({ ...form, diaFacturacion: parseInt(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="1-31" />
+                <p className="text-[10px] text-gray-400 mt-1">Día del mes en que se emite la factura</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Mes que se factura</label>
+                <select value={form.mesFacturacion || ''} onChange={e => setForm({ ...form, mesFacturacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                  <option value="">Seleccionar...</option>
+                  <option value="anterior">Mes anterior</option>
+                  <option value="en_curso">Mes en curso</option>
+                  <option value="siguiente">Mes siguiente</option>
+                </select>
+                <p className="text-[10px] text-gray-400 mt-1">Qué mes cubre la factura emitida</p>
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Prórroga Automática</label>

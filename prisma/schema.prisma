@@ -1866,6 +1866,8 @@ model ContratoDraxton {
   notas                 String?
   condicionesEspeciales String?  @map("condiciones_especiales")
   serviciosJson         Json?    @map("servicios_json")
+  diaFacturacion        Int?     @map("dia_facturacion")
+  mesFacturacion        String?  @map("mes_facturacion")
   documentoUrl          String?  @map("documento_url")
   documentoNombre       String?  @map("documento_nombre")
   createdAt             DateTime @default(now()) @map("created_at")
