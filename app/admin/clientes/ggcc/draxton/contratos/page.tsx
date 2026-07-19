@@ -1622,20 +1622,58 @@ export default function DraxtonContratosPage() {
                               <p className="text-[9px] text-gray-400 mt-2">Estos valores se usan para calcular automáticamente el coste y el importe a facturar cuando se registra un desplazamiento.</p>
                             </div>
 
-                            {/* Tarifas por nivel de técnico */}
+                            {/* Tarifas por nivel de técnico - Editable */}
                             <div className="mb-4 p-3 bg-white border rounded-lg">
-                              <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Tarifas Coste Técnico por Nivel (€/semana)</p>
-                              {guardiasData.tarifas && guardiasData.tarifas.length > 0 ? (
-                                <div className="grid grid-cols-3 gap-4">
-                                  {guardiasData.tarifas.filter((t: any) => t.vigente).map((t: any) => (
-                                    <div key={t.id} className="flex justify-between text-xs border-b pb-1">
-                                      <span className="text-gray-600">Nivel {t.nivel}</span>
-                                      <span className="font-bold text-gray-900">{formatCurrency(t.importeSemana)}</span>
-                                    </div>
-                                  ))}
+                              <div className="flex justify-between items-center mb-2">
+                                <p className="text-[10px] text-gray-500 uppercase font-semibold">Tarifas Coste Técnico por Nivel (€/semana)</p>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const n1 = (document.getElementById('tarifa-n1') as HTMLInputElement)?.value;
+                                    const n2 = (document.getElementById('tarifa-n2') as HTMLInputElement)?.value;
+                                    const n3 = (document.getElementById('tarifa-n3') as HTMLInputElement)?.value;
+                                    const niveles = [
+                                      { nivel: 1, importeSemana: parseFloat(n1) || 0 },
+                                      { nivel: 2, importeSemana: parseFloat(n2) || 0 },
+                                      { nivel: 3, importeSemana: parseFloat(n3) || 0 },
+                                    ].filter(n => n.importeSemana > 0);
+                                    for (const niv of niveles) {
+                                      await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ action: 'addTarifa', nivel: niv.nivel, importeSemana: niv.importeSemana, fechaDesde: new Date().toISOString().slice(0, 10) })
+                                      });
+                                    }
+                                    fetchGuardiasData();
+                                  }}
+                                  className="px-2 py-1 text-[10px] bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >Guardar niveles</button>
+                              </div>
+                              <div className="grid grid-cols-3 gap-3" onClick={e => e.stopPropagation()}>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Nivel 1 (€/semana)</label>
+                                  <input id="tarifa-n1" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 1 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="100.00" />
                                 </div>
-                              ) : (
-                                <p className="text-xs text-gray-400 italic">Sin tarifas por nivel configuradas. Configúralas desde Contrato de Guardias → Calendario.</p>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Nivel 2 (€/semana)</label>
+                                  <input id="tarifa-n2" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 2 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="150.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Nivel 3 (€/semana)</label>
+                                  <input id="tarifa-n3" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 3 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="175.00" />
+                                </div>
+                              </div>
+                              {guardiasData.tarifas && guardiasData.tarifas.filter((t: any) => !t.vigente).length > 0 && (
+                                <details className="mt-2">
+                                  <summary className="text-[9px] text-gray-400 cursor-pointer">Histórico de tarifas anteriores</summary>
+                                  <div className="mt-1 space-y-0.5">
+                                    {guardiasData.tarifas.filter((t: any) => !t.vigente).map((t: any) => (
+                                      <div key={t.id} className="text-[9px] text-gray-400">
+                                        N{t.nivel}: {formatCurrency(t.importeSemana)} (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')} hasta {t.fechaHasta ? new Date(t.fechaHasta).toLocaleDateString('es-ES') : '—'})
+                                      </div>
+                                    ))}
+                                  </div>
+                                </details>
                               )}
                             </div>
 
