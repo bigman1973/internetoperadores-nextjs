@@ -1965,6 +1965,9 @@ model GuardiaConfig {
   contratoId            String   @unique @map("contrato_id") // FK al ContratoDraxton tipo Guardias
   margenDesplazamiento  Float?   @map("margen_desplazamiento") // % margen sobre coste desplazamiento
   precioHoraCliente     Float?   @map("precio_hora_cliente") // Precio/hora que se cobra a Draxton
+  costeHoraTecnico      Float?   @map("coste_hora_tecnico") // Coste/hora del técnico en desplazamiento
+  costeDesplazFijo      Float?   @map("coste_desplaz_fijo") // Coste fijo por desplazamiento (km, gasolina, etc.)
+  precioDesplazCliente  Float?   @map("precio_desplaz_cliente") // Precio fijo desplazamiento que se cobra a Draxton
   observaciones         String?  @db.Text
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")

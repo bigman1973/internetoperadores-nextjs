@@ -66,6 +66,9 @@ interface Config {
   id: string
   margenDesplazamiento: number | null
   precioHoraCliente: number | null
+  costeHoraTecnico: number | null
+  costeDesplazFijo: number | null
+  precioDesplazCliente: number | null
   observaciones: string | null
 }
 
@@ -768,15 +771,32 @@ export default function DraxtonContratoGuardiasPage() {
                 <>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
-                    <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                    <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => {
+                      const horas = parseFloat(e.target.value) || 0;
+                      const costeHora = config?.costeHoraTecnico || 0;
+                      const costeFijo = config?.costeDesplazFijo || 0;
+                      const precioHoraCliente = config?.precioHoraCliente || 0;
+                      const precioFijoCliente = config?.precioDesplazCliente || 0;
+                      const costeCalc = (horas * costeHora) + costeFijo;
+                      const factCalc = (horas * precioHoraCliente) + precioFijoCliente;
+                      setFormIncidencia({
+                        ...formIncidencia,
+                        horasDesplazamiento: e.target.value,
+                        costeDesplazamiento: costeCalc > 0 ? costeCalc.toFixed(2) : formIncidencia.costeDesplazamiento,
+                        importeClienteDesp: factCalc > 0 ? factCalc.toFixed(2) : formIncidencia.importeClienteDesp,
+                      });
+                    }} className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                    {config?.costeHoraTecnico && <p className="text-[9px] text-gray-400 mt-0.5">Auto: {config.costeHoraTecnico}€/h + {config.costeDesplazFijo || 0}€ fijo</p>}
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Coste desplazamiento (€)</label>
                     <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Coste real del desplazamiento" />
+                    <p className="text-[9px] text-gray-400 mt-0.5">Calculado automáticamente o editable manualmente</p>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Importe a facturar a Draxton (€)</label>
                     <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Importe con margen" />
+                    {config?.precioHoraCliente && <p className="text-[9px] text-gray-400 mt-0.5">Auto: {config.precioHoraCliente}€/h + {config.precioDesplazCliente || 0}€ fijo</p>}
                   </div>
                 </>
               )}

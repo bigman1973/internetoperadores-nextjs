@@ -1572,23 +1572,75 @@ export default function DraxtonContratosPage() {
                         {c.tipo === 'Guardias' && guardiasData && (
                           <div className="mt-4 border-t pt-4">
                             <p className="text-[10px] text-gray-500 uppercase mb-3 font-semibold">💰 Costes y Facturación de Guardias</p>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                              {/* Tarifas por nivel */}
-                              <div className="bg-white border rounded-lg p-3">
-                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Tarifas Coste Técnico (€/semana)</p>
-                                {guardiasData.tarifas && guardiasData.tarifas.length > 0 ? (
-                                  <div className="space-y-1">
-                                    {guardiasData.tarifas.filter((t: any) => t.vigente).map((t: any) => (
-                                      <div key={t.id} className="flex justify-between text-xs">
-                                        <span className="text-gray-600">Nivel {t.nivel}</span>
-                                        <span className="font-bold text-gray-900">{formatCurrency(t.importeSemana)}</span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <p className="text-xs text-gray-400 italic">Sin tarifas configuradas</p>
-                                )}
+                            
+                            {/* Panel de Configuración de Tarifas */}
+                            <div className="mb-4 p-4 bg-gray-50 border rounded-lg">
+                              <div className="flex justify-between items-center mb-3">
+                                <p className="text-[10px] text-gray-500 uppercase font-semibold">⚙️ Configuración de Tarifas</p>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    const form = document.getElementById('guardias-config-form') as HTMLFormElement;
+                                    if (!form) return;
+                                    const formData = new FormData(form);
+                                    const body = {
+                                      action: 'updateConfig',
+                                      costeHoraTecnico: parseFloat(formData.get('costeHoraTecnico') as string) || null,
+                                      costeDesplazFijo: parseFloat(formData.get('costeDesplazFijo') as string) || null,
+                                      precioHoraCliente: parseFloat(formData.get('precioHoraCliente') as string) || null,
+                                      precioDesplazCliente: parseFloat(formData.get('precioDesplazCliente') as string) || null,
+                                      margenDesplazamiento: parseFloat(formData.get('margenDesplazamiento') as string) || null,
+                                    };
+                                    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                                    fetchGuardiasData();
+                                  }}
+                                  className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >Guardar tarifas</button>
                               </div>
+                              <form id="guardias-config-form" className="grid grid-cols-2 md:grid-cols-5 gap-3" onClick={e => e.stopPropagation()}>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Coste hora técnico (€)</label>
+                                  <input name="costeHoraTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeHoraTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 25.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Coste fijo desplaz. (€)</label>
+                                  <input name="costeDesplazFijo" type="number" step="0.01" defaultValue={guardiasData.config?.costeDesplazFijo || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 50.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Precio hora cliente (€)</label>
+                                  <input name="precioHoraCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioHoraCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 45.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Precio fijo desplaz. cliente (€)</label>
+                                  <input name="precioDesplazCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioDesplazCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 75.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Margen desplaz. (%)</label>
+                                  <input name="margenDesplazamiento" type="number" step="0.1" defaultValue={guardiasData.config?.margenDesplazamiento || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 30" />
+                                </div>
+                              </form>
+                              <p className="text-[9px] text-gray-400 mt-2">Estos valores se usan para calcular automáticamente el coste y el importe a facturar cuando se registra un desplazamiento.</p>
+                            </div>
+
+                            {/* Tarifas por nivel de técnico */}
+                            <div className="mb-4 p-3 bg-white border rounded-lg">
+                              <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Tarifas Coste Técnico por Nivel (€/semana)</p>
+                              {guardiasData.tarifas && guardiasData.tarifas.length > 0 ? (
+                                <div className="grid grid-cols-3 gap-4">
+                                  {guardiasData.tarifas.filter((t: any) => t.vigente).map((t: any) => (
+                                    <div key={t.id} className="flex justify-between text-xs border-b pb-1">
+                                      <span className="text-gray-600">Nivel {t.nivel}</span>
+                                      <span className="font-bold text-gray-900">{formatCurrency(t.importeSemana)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400 italic">Sin tarifas por nivel configuradas. Configúralas desde Contrato de Guardias → Calendario.</p>
+                              )}
+                            </div>
+
+                            {/* Resumen de costes */}
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                               {/* Coste acumulado guardias */}
                               <div className="bg-white border rounded-lg p-3">
                                 <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Coste Guardias {new Date().getFullYear()}</p>
@@ -1602,21 +1654,20 @@ export default function DraxtonContratosPage() {
                                         <span className="font-bold text-gray-900">{totalSemanas}</span>
                                       </div>
                                       <div className="flex justify-between text-xs">
-                                        <span className="text-gray-600">Coste total</span>
+                                        <span className="text-gray-600">Coste total técnicos</span>
                                         <span className="font-bold text-red-600">{formatCurrency(costeTotal)}</span>
                                       </div>
                                     </div>
                                   );
                                 })()}
                               </div>
-                              {/* Desplazamientos (desde incidencias) */}
+                              {/* Desplazamientos - Coste */}
                               <div className="bg-white border rounded-lg p-3">
-                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Desplazamientos</p>
+                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Coste Desplazamientos</p>
                                 {(() => {
                                   const incDesplaz = guardiasData.incidencias?.filter((i: any) => i.tipoResolucion === 'desplazamiento') || [];
                                   const totalHoras = incDesplaz.reduce((s: number, i: any) => s + (i.horasDesplazamiento || 0), 0);
                                   const totalCoste = incDesplaz.reduce((s: number, i: any) => s + (i.costeDesplazamiento || 0), 0);
-                                  const totalFacturar = incDesplaz.reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
                                   return (
                                     <div className="space-y-1">
                                       <div className="flex justify-between text-xs">
@@ -1628,18 +1679,37 @@ export default function DraxtonContratosPage() {
                                         <span className="font-bold text-gray-900">{totalHoras}h</span>
                                       </div>
                                       <div className="flex justify-between text-xs">
-                                        <span className="text-gray-600">Coste desplazamientos</span>
+                                        <span className="text-gray-600">Coste total</span>
                                         <span className="font-bold text-red-600">{formatCurrency(totalCoste)}</span>
                                       </div>
-                                      <div className="flex justify-between text-xs border-t pt-1 mt-1">
-                                        <span className="text-gray-600">A facturar a Draxton</span>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                              {/* Desplazamientos - Facturación a Draxton */}
+                              <div className="bg-white border rounded-lg p-3">
+                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Facturar a Draxton</p>
+                                {(() => {
+                                  const incDesplaz = guardiasData.incidencias?.filter((i: any) => i.tipoResolucion === 'desplazamiento') || [];
+                                  const totalFacturar = incDesplaz.reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
+                                  const totalCoste = incDesplaz.reduce((s: number, i: any) => s + (i.costeDesplazamiento || 0), 0);
+                                  const margen = totalFacturar - totalCoste;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Total a facturar</span>
                                         <span className="font-bold text-green-600">{formatCurrency(totalFacturar)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Margen desplaz.</span>
+                                        <span className={`font-bold ${margen >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatCurrency(margen)}</span>
                                       </div>
                                     </div>
                                   );
                                 })()}
                               </div>
                             </div>
+
                             {/* Detalle de desplazamientos con incidencias */}
                             {(() => {
                               const incDesplaz = guardiasData.incidencias?.filter((i: any) => i.tipoResolucion === 'desplazamiento') || [];
@@ -1655,7 +1725,8 @@ export default function DraxtonContratosPage() {
                                         <th className="text-left px-3 py-1.5 text-gray-700">Resumen</th>
                                         <th className="text-right px-3 py-1.5 text-gray-700">Horas</th>
                                         <th className="text-right px-3 py-1.5 text-gray-700">Coste</th>
-                                        <th className="text-right px-3 py-1.5 text-gray-700">Facturar Draxton</th>
+                                        <th className="text-right px-3 py-1.5 text-gray-700">Facturar</th>
+                                        <th className="text-right px-3 py-1.5 text-gray-700">Margen</th>
                                       </tr>
                                     </thead>
                                     <tbody>
@@ -1663,10 +1734,11 @@ export default function DraxtonContratosPage() {
                                         <tr key={inc.id} className="border-t">
                                           <td className="px-3 py-1.5 text-gray-700">{new Date(inc.fechaHora).toLocaleDateString('es-ES')}</td>
                                           <td className="px-3 py-1.5 text-gray-700">{inc.asignacion?.tecnico?.empleado?.nombreCompleto || '—'}</td>
-                                          <td className="px-3 py-1.5 text-gray-700">{inc.resumen}</td>
+                                          <td className="px-3 py-1.5 text-gray-700 max-w-[200px] truncate">{inc.resumen}</td>
                                           <td className="px-3 py-1.5 text-right text-gray-900 font-medium">{inc.horasDesplazamiento || 0}h</td>
                                           <td className="px-3 py-1.5 text-right text-red-600 font-medium">{formatCurrency(inc.costeDesplazamiento)}</td>
                                           <td className="px-3 py-1.5 text-right text-green-600 font-medium">{formatCurrency(inc.importeClienteDesp)}</td>
+                                          <td className="px-3 py-1.5 text-right font-medium" style={{ color: (inc.importeClienteDesp || 0) - (inc.costeDesplazamiento || 0) >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency((inc.importeClienteDesp || 0) - (inc.costeDesplazamiento || 0))}</td>
                                         </tr>
                                       ))}
                                     </tbody>
@@ -1674,10 +1746,6 @@ export default function DraxtonContratosPage() {
                                 </div>
                               );
                             })()}
-                            {/* Margen desplazamiento configurable */}
-                            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
-                              <span className="font-medium">Margen desplazamiento:</span> Pendiente de configurar. Los importes de coste y facturación se informan desde cada incidencia con desplazamiento en Contrato de Guardias.
-                            </div>
                           </div>
                         )}
 

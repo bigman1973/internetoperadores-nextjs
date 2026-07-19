@@ -267,6 +267,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, incidencia })
       }
 
+      case 'updateConfig': {
+        let config = await prisma.guardiaConfig.findUnique({ where: { contratoId: CONTRATO_GUARDIAS_ID } })
+        if (!config) {
+          config = await prisma.guardiaConfig.create({ data: { contratoId: CONTRATO_GUARDIAS_ID } })
+        }
+        const updated = await prisma.guardiaConfig.update({
+          where: { id: config.id },
+          data: {
+            costeHoraTecnico: body.costeHoraTecnico ?? null,
+            costeDesplazFijo: body.costeDesplazFijo ?? null,
+            precioHoraCliente: body.precioHoraCliente ?? null,
+            precioDesplazCliente: body.precioDesplazCliente ?? null,
+            margenDesplazamiento: body.margenDesplazamiento ?? null,
+          }
+        })
+        return NextResponse.json({ success: true, config: updated })
+      }
+
       default:
         return NextResponse.json({ error: `Acción no reconocida: ${action}` }, { status: 400 })
     }
