@@ -1049,7 +1049,7 @@ export default function DraxtonContratosPage() {
                       }`}>{c.estado}</span>
                       {/* Badge facturación al día / retraso */}
                       {(() => {
-                        if (!c.diaFacturacion || !c.mesFacturacion || !c.fechaInicioServicio) return null;
+                        if (!c.diaFacturacion || !c.mesFacturacion || !c.fechaInicioServicio) return <span className="ml-1 text-[9px] text-gray-400" title="Sin día de facturación configurado">—</span>;
                         const hoy = new Date();
                         const diaFact = c.diaFacturacion;
                         const mesOffset = c.mesFacturacion === 'anterior' ? -1 : c.mesFacturacion === 'siguiente' ? 1 : 0;
@@ -1067,6 +1067,9 @@ export default function DraxtonContratosPage() {
                         const altas = svs.reduce((s: number, sv: any) => s + Number(sv.alta || 0), 0);
                         const esperado = (mesesEsp * mens) + altas;
                         const fact = facturasResumen.resumenPorContrato?.[c.id]?.facturado || 0;
+                        const numFact = facturasResumen.resumenPorContrato?.[c.id]?.facturas || 0;
+                        // Si debería haber facturas pero no hay ninguna vinculada
+                        if (mesesEsp > 0 && numFact === 0) return <span className="ml-1 text-[9px] text-orange-500" title="Sin facturación vinculada. Vincula facturas para verificar.">⊘</span>;
                         const retraso = esperado - fact;
                         if (retraso > mens * 0.5) return <span className="ml-1 text-[9px] text-red-600" title={`Retraso: ${formatCurrency(retraso)}`}>⚠️</span>;
                         return <span className="ml-1 text-[9px] text-green-600" title="Facturación al día">✓</span>;
@@ -1154,6 +1157,19 @@ export default function DraxtonContratosPage() {
                           const totalAltas = servicios.reduce((s: number, sv: any) => s + Number(sv.alta || 0), 0);
                           const esperadoAFecha = (mesesEsperados * mensual) + totalAltas;
                           const facturado = facturasResumen.resumenPorContrato?.[c.id]?.facturado || 0;
+                          const numFactVinc = facturasResumen.resumenPorContrato?.[c.id]?.facturas || 0;
+                          // Si debería haber facturas pero no hay ninguna vinculada
+                          if (mesesEsperados > 0 && numFactVinc === 0) {
+                            return (
+                              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-3 flex items-center gap-2">
+                                <span className="text-orange-500 text-lg">⊘</span>
+                                <div>
+                                  <p className="text-xs font-semibold text-orange-700">Sin facturación vinculada</p>
+                                  <p className="text-[10px] text-orange-600">Esperado a hoy: {formatCurrency(esperadoAFecha)} ({mesesEsperados} meses + altas). Vincula facturas para verificar el estado.</p>
+                                </div>
+                              </div>
+                            );
+                          }
                           const retraso = esperadoAFecha - facturado;
                           if (retraso > mensual * 0.5) {
                             return (
@@ -1683,15 +1699,29 @@ export default function DraxtonContratosPage() {
                               <div className="bg-white border rounded-lg p-3">
                                 <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Coste Guardias {new Date().getFullYear()}</p>
                                 {(() => {
-                                  const totalSemanas = guardiasData.asignaciones?.length || 0;
-                                  const costeTotal = guardiasData.asignaciones?.reduce((s: number, a: any) => s + (a.importeSemana || 0), 0) || 0;
+                                  // Calcular semanas del año hasta hoy
+                                  const hoy = new Date();
+                                  const inicioAnio = new Date(hoy.getFullYear(), 0, 1);
+                                  const semanasTranscurridas = Math.ceil((hoy.getTime() - inicioAnio.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                                  const semanasAsignadas = guardiasData.asignaciones?.length || 0;
+                                  const semanasSinAsignar = Math.max(0, semanasTranscurridas - semanasAsignadas);
+                                  const COSTE_DEFECTO_SEMANA = 200;
+                                  const costeAsignadas = guardiasData.asignaciones?.reduce((s: number, a: any) => s + (a.importeSemana || 0), 0) || 0;
+                                  const costeSinAsignar = semanasSinAsignar * COSTE_DEFECTO_SEMANA;
+                                  const costeTotal = costeAsignadas + costeSinAsignar;
                                   return (
                                     <div className="space-y-1">
                                       <div className="flex justify-between text-xs">
                                         <span className="text-gray-600">Semanas asignadas</span>
-                                        <span className="font-bold text-gray-900">{totalSemanas}</span>
+                                        <span className="font-bold text-gray-900">{semanasAsignadas} / {semanasTranscurridas}</span>
                                       </div>
-                                      <div className="flex justify-between text-xs">
+                                      {semanasSinAsignar > 0 && (
+                                        <div className="flex justify-between text-xs">
+                                          <span className="text-orange-600">Sin asignar (200€/sem)</span>
+                                          <span className="font-bold text-orange-600">{semanasSinAsignar} sem → {formatCurrency(costeSinAsignar)}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex justify-between text-xs border-t pt-1">
                                         <span className="text-gray-600">Coste total técnicos</span>
                                         <span className="font-bold text-red-600">{formatCurrency(costeTotal)}</span>
                                       </div>
