@@ -770,7 +770,14 @@ export default function DraxtonContratoGuardiasPage() {
                     <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
                     <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
                   </div>
-
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Coste desplazamiento (€)</label>
+                    <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Coste real del desplazamiento" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600">Importe a facturar a Draxton (€)</label>
+                    <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" placeholder="Importe con margen" />
+                  </div>
                 </>
               )}
 

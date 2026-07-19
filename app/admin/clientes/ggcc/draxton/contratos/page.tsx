@@ -138,6 +138,7 @@ export default function DraxtonContratosPage() {
   const [showFacturasCandidatas, setShowFacturasCandidatas] = useState(false);
   const [facturaExpandidaId, setFacturaExpandidaId] = useState<string | null>(null);
   const [showMatriz, setShowMatriz] = useState(false);
+  const [guardiasData, setGuardiasData] = useState<any>(null);
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -165,6 +166,7 @@ export default function DraxtonContratosPage() {
     fetchContratos();
     fetchEmpresasGrupo();
     fetchFacturasResumen();
+    fetchGuardiasData();
   }, []);
 
   async function fetchFacturasResumen() {
@@ -174,6 +176,18 @@ export default function DraxtonContratosPage() {
       setFacturasResumen(data);
     } catch (err) {
       console.error('Error al cargar resumen facturas:', err);
+    }
+  }
+
+  async function fetchGuardiasData() {
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/guardias');
+      if (res.ok) {
+        const data = await res.json();
+        setGuardiasData(data);
+      }
+    } catch (err) {
+      console.error('Error al cargar datos de guardias:', err);
     }
   }
 
@@ -1553,6 +1567,119 @@ export default function DraxtonContratosPage() {
                             <p className="text-xs text-gray-400 italic">No hay facturas vinculadas. Usa "Vincular automáticamente" para detectar facturas por empresa e importe.</p>
                           )}
                         </div>
+
+                        {/* Sección de Costes de Guardias (solo para contratos tipo Guardias) */}
+                        {c.tipo === 'Guardias' && guardiasData && (
+                          <div className="mt-4 border-t pt-4">
+                            <p className="text-[10px] text-gray-500 uppercase mb-3 font-semibold">💰 Costes y Facturación de Guardias</p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                              {/* Tarifas por nivel */}
+                              <div className="bg-white border rounded-lg p-3">
+                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Tarifas Coste Técnico (€/semana)</p>
+                                {guardiasData.tarifas && guardiasData.tarifas.length > 0 ? (
+                                  <div className="space-y-1">
+                                    {guardiasData.tarifas.filter((t: any) => t.vigente).map((t: any) => (
+                                      <div key={t.id} className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Nivel {t.nivel}</span>
+                                        <span className="font-bold text-gray-900">{formatCurrency(t.importeSemana)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-xs text-gray-400 italic">Sin tarifas configuradas</p>
+                                )}
+                              </div>
+                              {/* Coste acumulado guardias */}
+                              <div className="bg-white border rounded-lg p-3">
+                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Coste Guardias {new Date().getFullYear()}</p>
+                                {(() => {
+                                  const totalSemanas = guardiasData.asignaciones?.length || 0;
+                                  const costeTotal = guardiasData.asignaciones?.reduce((s: number, a: any) => s + (a.importeSemana || 0), 0) || 0;
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Semanas asignadas</span>
+                                        <span className="font-bold text-gray-900">{totalSemanas}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Coste total</span>
+                                        <span className="font-bold text-red-600">{formatCurrency(costeTotal)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                              {/* Desplazamientos (desde incidencias) */}
+                              <div className="bg-white border rounded-lg p-3">
+                                <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Desplazamientos</p>
+                                {(() => {
+                                  const incDesplaz = guardiasData.incidencias?.filter((i: any) => i.tipoResolucion === 'desplazamiento') || [];
+                                  const totalHoras = incDesplaz.reduce((s: number, i: any) => s + (i.horasDesplazamiento || 0), 0);
+                                  const totalCoste = incDesplaz.reduce((s: number, i: any) => s + (i.costeDesplazamiento || 0), 0);
+                                  const totalFacturar = incDesplaz.reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
+                                  return (
+                                    <div className="space-y-1">
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Nº desplazamientos</span>
+                                        <span className="font-bold text-gray-900">{incDesplaz.length}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Horas totales</span>
+                                        <span className="font-bold text-gray-900">{totalHoras}h</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs">
+                                        <span className="text-gray-600">Coste desplazamientos</span>
+                                        <span className="font-bold text-red-600">{formatCurrency(totalCoste)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-xs border-t pt-1 mt-1">
+                                        <span className="text-gray-600">A facturar a Draxton</span>
+                                        <span className="font-bold text-green-600">{formatCurrency(totalFacturar)}</span>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                            {/* Detalle de desplazamientos con incidencias */}
+                            {(() => {
+                              const incDesplaz = guardiasData.incidencias?.filter((i: any) => i.tipoResolucion === 'desplazamiento') || [];
+                              if (incDesplaz.length === 0) return <p className="text-xs text-gray-400 italic">No hay desplazamientos registrados.</p>;
+                              return (
+                                <div>
+                                  <p className="text-[10px] text-gray-500 uppercase mb-2 font-semibold">Detalle Desplazamientos</p>
+                                  <table className="w-full text-xs border rounded-lg overflow-hidden">
+                                    <thead className="bg-gray-200">
+                                      <tr>
+                                        <th className="text-left px-3 py-1.5 text-gray-700">Fecha</th>
+                                        <th className="text-left px-3 py-1.5 text-gray-700">Técnico</th>
+                                        <th className="text-left px-3 py-1.5 text-gray-700">Resumen</th>
+                                        <th className="text-right px-3 py-1.5 text-gray-700">Horas</th>
+                                        <th className="text-right px-3 py-1.5 text-gray-700">Coste</th>
+                                        <th className="text-right px-3 py-1.5 text-gray-700">Facturar Draxton</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {incDesplaz.map((inc: any) => (
+                                        <tr key={inc.id} className="border-t">
+                                          <td className="px-3 py-1.5 text-gray-700">{new Date(inc.fechaHora).toLocaleDateString('es-ES')}</td>
+                                          <td className="px-3 py-1.5 text-gray-700">{inc.asignacion?.tecnico?.empleado?.nombreCompleto || '—'}</td>
+                                          <td className="px-3 py-1.5 text-gray-700">{inc.resumen}</td>
+                                          <td className="px-3 py-1.5 text-right text-gray-900 font-medium">{inc.horasDesplazamiento || 0}h</td>
+                                          <td className="px-3 py-1.5 text-right text-red-600 font-medium">{formatCurrency(inc.costeDesplazamiento)}</td>
+                                          <td className="px-3 py-1.5 text-right text-green-600 font-medium">{formatCurrency(inc.importeClienteDesp)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              );
+                            })()}
+                            {/* Margen desplazamiento configurable */}
+                            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-700">
+                              <span className="font-medium">Margen desplazamiento:</span> Pendiente de configurar. Los importes de coste y facturación se informan desde cada incidencia con desplazamiento en Contrato de Guardias.
+                            </div>
+                          </div>
+                        )}
 
                         {/* Botones editar/eliminar en el detalle */}
                         <div className="mt-4 flex gap-2 border-t pt-3">
