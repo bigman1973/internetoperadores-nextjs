@@ -1458,6 +1458,7 @@ model Empleado {
   calendario        CalendarioPersonal[]
   saldoVacaciones   SaldoVacaciones[]
   entregasACuenta   MovimientoBancario[] @relation("EntregasCuentaEmpleado")
+  guardiaTecnicos   GuardiaTecnico[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1953,3 +1954,122 @@ model EmpresaGrupoDraxton {
   @@map("empresas_grupo_draxton")
 }
 
+
+// =============================================
+// MÓDULO GUARDIAS DRAXTON
+// =============================================
+
+// Configuración del contrato de guardias
+model GuardiaConfig {
+  id                    String   @id @default(uuid())
+  contratoId            String   @unique @map("contrato_id") // FK al ContratoDraxton tipo Guardias
+  margenDesplazamiento  Float?   @map("margen_desplazamiento") // % margen sobre coste desplazamiento
+  precioHoraCliente     Float?   @map("precio_hora_cliente") // Precio/hora que se cobra a Draxton
+  observaciones         String?  @db.Text
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tecnicos              GuardiaTecnico[]
+  tarifas               GuardiaTarifa[]
+  asignaciones          GuardiaAsignacion[]
+  incidencias           GuardiaIncidencia[]
+
+  @@map("guardia_config")
+}
+
+// Técnicos asignados al contrato de guardias
+model GuardiaTecnico {
+  id              String         @id @default(uuid())
+  configId        String         @map("config_id")
+  empleadoId      String         @map("empleado_id")
+  nivel           Int            @default(1) // 1, 2, 3
+  activo          Boolean        @default(true)
+  fechaAlta       DateTime       @map("fecha_alta") @db.Date
+  fechaBaja       DateTime?      @map("fecha_baja") @db.Date
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relaciones
+  config          GuardiaConfig  @relation(fields: [configId], references: [id])
+  empleado        Empleado       @relation(fields: [empleadoId], references: [id])
+  asignaciones    GuardiaAsignacion[]
+
+  @@unique([configId, empleadoId])
+  @@map("guardia_tecnicos")
+}
+
+// Tarifas por nivel (con histórico de cambios)
+model GuardiaTarifa {
+  id              String         @id @default(uuid())
+  configId        String         @map("config_id")
+  nivel           Int            // 1, 2, 3
+  importeSemana   Float          @map("importe_semana") // Coste por semana de guardia
+  fechaDesde      DateTime       @map("fecha_desde") @db.Date
+  fechaHasta      DateTime?      @map("fecha_hasta") @db.Date // null = vigente
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relaciones
+  config          GuardiaConfig  @relation(fields: [configId], references: [id])
+
+  @@index([configId, nivel, fechaDesde])
+  @@map("guardia_tarifas")
+}
+
+// Asignación semanal de técnico de guardia
+model GuardiaAsignacion {
+  id              String         @id @default(uuid())
+  configId        String         @map("config_id")
+  tecnicoId       String         @map("tecnico_id")
+  semanaInicio    DateTime       @map("semana_inicio") @db.Date // Lunes de la semana
+  semanaFin       DateTime       @map("semana_fin") @db.Date    // Domingo de la semana
+  importeSemana   Float?         @map("importe_semana") // Coste de esa semana (snapshot)
+  notas           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relaciones
+  config          GuardiaConfig  @relation(fields: [configId], references: [id])
+  tecnico         GuardiaTecnico @relation(fields: [tecnicoId], references: [id])
+  incidencias     GuardiaIncidencia[]
+
+  @@unique([configId, semanaInicio])
+  @@map("guardia_asignaciones")
+}
+
+// Registro de incidencias durante guardias
+model GuardiaIncidencia {
+  id                    String         @id @default(uuid())
+  configId              String         @map("config_id")
+  asignacionId          String?        @map("asignacion_id") // Semana en que ocurrió
+  // Datos de la incidencia
+  fechaHora             DateTime       @map("fecha_hora")
+  resumen               String         @db.Text
+  descripcion           String?        @db.Text
+  avisadoPor            String         @map("avisado_por") // Quién dio el aviso
+  departamento          String?        // Departamento que avisa
+  zonaAfectada          String?        @map("zona_afectada")
+  urgencia              String         @default("inmediata") // "inmediata" | "puede_esperar"
+  // Resolución
+  estado                String         @default("abierta") // "abierta" | "en_curso" | "resuelta"
+  tipoResolucion        String?        @map("tipo_resolucion") // "remoto" | "desplazamiento"
+  fechaResolucion       DateTime?      @map("fecha_resolucion")
+  detalleResolucion     String?        @map("detalle_resolucion") @db.Text
+  // Desplazamiento (si aplica)
+  horasDesplazamiento   Float?         @map("horas_desplazamiento")
+  costeDesplazamiento   Float?         @map("coste_desplazamiento") // Coste real (km, peajes, etc.)
+  importeClienteDesp    Float?         @map("importe_cliente_desp") // Lo que se cobra a Draxton
+  // Escalado
+  escaladoInterno       Boolean        @default(false) @map("escalado_interno")
+  escaladoCliente       Boolean        @default(false) @map("escalado_cliente")
+  detalleEscalado       String?        @map("detalle_escalado") @db.Text
+  // Timestamps
+  createdAt             DateTime       @default(now()) @map("created_at")
+  updatedAt             DateTime       @updatedAt @map("updated_at")
+
+  // Relaciones
+  config                GuardiaConfig  @relation(fields: [configId], references: [id])
+  asignacion            GuardiaAsignacion? @relation(fields: [asignacionId], references: [id])
+
+  @@index([configId, fechaHora])
+  @@index([estado])
+  @@map("guardia_incidencias")
+}
