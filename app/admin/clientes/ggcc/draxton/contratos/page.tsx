@@ -731,32 +731,32 @@ export default function DraxtonContratosPage() {
           {/* Totales */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Valor Total Contratos</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Valor Total Contratos <span className="cursor-help" title="Suma de (mensualidad × permanencia) + altas de todos los contratos activos">ⓘ</span></div>
               <div className="text-lg font-bold text-gray-900 mt-1">{formatCurrency(totalValorContrato + totalAltaCliente)}</div>
               <p className="text-[10px] text-gray-400">{activos.length} contrato{activos.length > 1 ? 's' : ''} activo{activos.length > 1 ? 's' : ''}{totalAltaCliente > 0 ? ` (incl. altas)` : ''}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Importe {currentYear} <span className="cursor-help" title="Mensualidad × meses activos en el año + altas (si es primer año). Los meses mostrados son la media de meses activos de los contratos.">ⓘ</span></div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio1)}</div>
               <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio1, 0) / Math.max(datosContratos.length, 1) | 0} meses{totalAltaCliente > 0 && datosContratos.some(d => new Date(d.id).getFullYear() === currentYear) ? ' + altas' : ''}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 1}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Importe {currentYear + 1} <span className="cursor-help" title="Mensualidad × meses activos en el año. Los meses mostrados son la media de meses activos de los contratos.">ⓘ</span></div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio2)}</div>
               <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio2, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Importe {currentYear + 2}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Importe {currentYear + 2} <span className="cursor-help" title="Mensualidad × meses activos en el año. Los meses mostrados son la media de meses activos de los contratos.">ⓘ</span></div>
               <div className="text-lg font-bold text-indigo-700 mt-1">{formatCurrency(totalAnio3)}</div>
               <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio3, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Total Costes/mes</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Total Costes/mes <span className="cursor-help" title="Suma de importes mensuales de todos los contratos de proveedor activos">ⓘ</span></div>
               <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
               <p className="text-[10px] text-gray-400">Proveedores activos</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Margen Mensual</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Margen Mensual <span className="cursor-help" title="Ingresos mensuales cliente - costes mensuales proveedor. Porcentaje = margen / ingresos.">ⓘ</span></div>
               <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(totalMensual - costeTotalProveedores)}</div>
               <p className="text-[10px] text-gray-400">{totalMensual > 0 ? (((totalMensual - costeTotalProveedores) / totalMensual) * 100).toFixed(1) : '0'}% sobre facturación</p>
             </div>
@@ -784,17 +784,17 @@ export default function DraxtonContratosPage() {
           {/* KPI Facturación */}
           <div className="grid grid-cols-3 gap-3">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Facturado {currentYear}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Facturado {currentYear} <span className="cursor-help" title="Suma de base imponible de todas las facturas vinculadas a contratos en el año actual">ⓘ</span></div>
               <div className="text-lg font-bold text-blue-700 mt-1">{formatCurrency(facturasResumen.totalFacturado)}</div>
               <p className="text-[10px] text-gray-400">{facturasResumen.totalFacturas} facturas vinculadas</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">Pendiente {currentYear}</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Pendiente {currentYear} <span className="cursor-help" title="Importe esperado del año (meses × mensualidad + altas) menos lo ya facturado">ⓘ</span></div>
               <div className="text-lg font-bold text-orange-600 mt-1">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</div>
               <p className="text-[10px] text-gray-400">{totalAnio1 > 0 ? ((Math.max(0, totalAnio1 - facturasResumen.totalFacturado) / totalAnio1) * 100).toFixed(1) : '0'}% pendiente</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide">% Facturado</div>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">% Facturado <span className="cursor-help" title="Porcentaje del importe esperado del año que ya ha sido facturado y vinculado">ⓘ</span></div>
               <div className="text-lg font-bold text-emerald-600 mt-1">{totalAnio1 > 0 ? ((facturasResumen.totalFacturado / totalAnio1) * 100).toFixed(1) : '0'}%</div>
               <p className="text-[10px] text-gray-400">de {formatCurrency(totalAnio1)} esperado</p>
             </div>
