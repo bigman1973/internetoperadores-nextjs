@@ -1993,9 +1993,26 @@ model GuardiaTecnico {
   config          GuardiaConfig  @relation(fields: [configId], references: [id])
   empleado        Empleado       @relation(fields: [empleadoId], references: [id])
   asignaciones    GuardiaAsignacion[]
+  historicoNiveles GuardiaTecnicoHistorico[]
 
   @@unique([configId, empleadoId])
   @@map("guardia_tecnicos")
+}
+
+// Histórico de cambios de nivel de un técnico
+model GuardiaTecnicoHistorico {
+  id              String         @id @default(uuid())
+  tecnicoId       String         @map("tecnico_id")
+  nivelAnterior   Int            @map("nivel_anterior")
+  nivelNuevo      Int            @map("nivel_nuevo")
+  fechaCambio     DateTime       @map("fecha_cambio") @db.Date
+  motivo          String?        // Motivo del cambio (opcional)
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relaciones
+  tecnico         GuardiaTecnico @relation(fields: [tecnicoId], references: [id])
+
+  @@map("guardia_tecnicos_historico")
 }
 
 // Tarifas por nivel (con histórico de cambios)

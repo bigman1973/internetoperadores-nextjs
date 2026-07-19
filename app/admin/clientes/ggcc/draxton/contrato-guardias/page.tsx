@@ -3,6 +3,14 @@
 import { useState, useEffect, Fragment } from 'react'
 import { ShieldCheckIcon, PlusIcon, PencilIcon, TrashIcon, ExclamationTriangleIcon, CheckCircleIcon, ClockIcon, UserIcon } from '@heroicons/react/24/outline'
 
+interface HistoricoNivel {
+  id: string
+  nivelAnterior: number
+  nivelNuevo: number
+  fechaCambio: string
+  motivo: string | null
+}
+
 interface Tecnico {
   id: string
   empleadoId: string
@@ -11,6 +19,7 @@ interface Tecnico {
   fechaAlta: string
   fechaBaja: string | null
   empleado: { id: string; nombreCompleto: string; categoria: string; estado: string }
+  historicoNiveles: HistoricoNivel[]
 }
 
 interface Tarifa {
@@ -124,6 +133,7 @@ export default function DraxtonContratoGuardiasPage() {
 
   useEffect(() => { fetchData() }, [anio])
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const formatCurrency = (n: number | string | null | undefined) => {
     const num = typeof n === 'string' ? parseFloat(n) : n
     if (num == null || isNaN(num)) return '—'
@@ -190,7 +200,12 @@ export default function DraxtonContratoGuardiasPage() {
     await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'updateTecnico', tecnicoId: editingTecnico.id, nivel: formTecnico.nivel })
+      body: JSON.stringify({
+        action: 'updateTecnico',
+        tecnicoId: editingTecnico.id,
+        nivel: formTecnico.nivel,
+        fechaCambio: new Date().toISOString().split('T')[0],
+      })
     })
     setEditingTecnico(null)
     setShowAddTecnico(false)
@@ -289,8 +304,7 @@ export default function DraxtonContratoGuardiasPage() {
   const incResueltas = incidencias.filter(i => i.estado === 'resuelta').length
   const incDesplazamiento = incidencias.filter(i => i.tipoResolucion === 'desplazamiento').length
   const incRemotas = incidencias.filter(i => i.tipoResolucion === 'remoto').length
-  const totalCosteGuardias = asignaciones.reduce((s, a) => s + (a.importeSemana || 0), 0)
-  const totalCosteDesplazamientos = incidencias.reduce((s, i) => s + (i.costeDesplazamiento || 0), 0)
+  // Costes se gestionan desde el detalle del contrato (no visible para técnicos)
 
   if (loading) return <div className="p-8 text-center text-gray-400">Cargando...</div>
 
@@ -305,7 +319,6 @@ export default function DraxtonContratoGuardiasPage() {
               <h2 className="text-lg font-semibold text-gray-900">Contrato de Guardias</h2>
               <p className="text-sm text-gray-500">
                 {contrato?.titulo || 'Sin configurar'} · {formatDate(contrato?.fechaInicio || null)} — {formatDate(contrato?.fechaFin || null)}
-                <span className="ml-2 text-gray-400">· {formatCurrency(contrato?.importeMensual)} /mes</span>
               </p>
             </div>
           </div>
@@ -336,14 +349,9 @@ export default function DraxtonContratoGuardiasPage() {
           <p className="text-[10px] text-gray-400">{totalIncidencias > 0 ? ((incDesplazamiento / totalIncidencias) * 100).toFixed(0) : 0}%</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
-          <div className="text-[10px] text-gray-500 uppercase">Coste Guardias</div>
-          <div className="text-lg font-bold text-indigo-700">{formatCurrency(totalCosteGuardias)}</div>
-          <p className="text-[10px] text-gray-400">{asignaciones.length} semanas</p>
-        </div>
-        <div className="bg-white rounded-xl border p-4">
-          <div className="text-[10px] text-gray-500 uppercase">Coste Desplaz.</div>
-          <div className="text-lg font-bold text-red-600">{formatCurrency(totalCosteDesplazamientos)}</div>
-          <p className="text-[10px] text-gray-400">{incDesplazamiento} intervenciones</p>
+          <div className="text-[10px] text-gray-500 uppercase">Semanas Asignadas</div>
+          <div className="text-lg font-bold text-indigo-700">{asignaciones.length}</div>
+          <p className="text-[10px] text-gray-400">de {semanas.length} semanas</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-[10px] text-gray-500 uppercase">Técnicos</div>
@@ -383,53 +391,59 @@ export default function DraxtonContratoGuardiasPage() {
                   {tecnicos.length === 0 ? (
                     <p className="text-sm text-gray-400">No hay técnicos asignados</p>
                   ) : tecnicos.map(t => (
-                    <div key={t.id} className={`flex items-center justify-between p-2 rounded border ${t.activo ? 'bg-white' : 'bg-gray-50 opacity-60'}`}>
-                      <div className="flex items-center gap-2">
-                        <UserIcon className="w-4 h-4 text-gray-400" />
-                        <span className="text-sm font-medium text-gray-900">{t.empleado.nombreCompleto}</span>
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
-                          N{t.nivel}
-                        </span>
-                        {!t.activo && <span className="text-[10px] text-red-500">(Baja {formatDate(t.fechaBaja)})</span>}
+                    <div key={t.id} className={`p-2 rounded border ${t.activo ? 'bg-white' : 'bg-gray-50 opacity-60'}`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <UserIcon className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-900">{t.empleado.nombreCompleto}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
+                            N{t.nivel}
+                          </span>
+                          {!t.activo && <span className="text-[10px] text-red-500">(Baja {formatDate(t.fechaBaja)})</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-gray-400">Alta: {formatDate(t.fechaAlta)}</span>
+                          {t.activo && (
+                            <>
+                              <button onClick={() => { setEditingTecnico(t); setFormTecnico({ empleadoId: t.empleadoId, nivel: t.nivel, fechaAlta: t.fechaAlta.split('T')[0] }); setShowAddTecnico(true) }} className="p-1 text-gray-400 hover:text-indigo-600" title="Editar nivel">
+                                <PencilIcon className="w-3.5 h-3.5" />
+                              </button>
+                              <button onClick={() => handleDarBajaTecnico(t.id)} className="p-1 text-gray-400 hover:text-red-600" title="Dar de baja">
+                                <TrashIcon className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-gray-400">Alta: {formatDate(t.fechaAlta)}</span>
-                        {t.activo && (
-                          <>
-                            <button onClick={() => { setEditingTecnico(t); setFormTecnico({ empleadoId: t.empleadoId, nivel: t.nivel, fechaAlta: t.fechaAlta.split('T')[0] }); setShowAddTecnico(true) }} className="p-1 text-gray-400 hover:text-indigo-600" title="Editar nivel">
-                              <PencilIcon className="w-3.5 h-3.5" />
-                            </button>
-                            <button onClick={() => handleDarBajaTecnico(t.id)} className="p-1 text-gray-400 hover:text-red-600" title="Dar de baja">
-                              <TrashIcon className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      {/* Histórico de niveles */}
+                      {t.historicoNiveles && t.historicoNiveles.length > 0 && (
+                        <div className="mt-1.5 ml-6 border-l-2 border-gray-200 pl-2 space-y-0.5">
+                          {t.historicoNiveles.map(h => (
+                            <div key={h.id} className="text-[10px] text-gray-500">
+                              <span className="text-gray-400">{formatDate(h.fechaCambio)}</span>
+                              {' '}N{h.nivelAnterior} → N{h.nivelNuevo}
+                              {h.motivo && <span className="ml-1 italic">({h.motivo})</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Tarifas */}
+              {/* Niveles (sin importes) */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Tarifas por Nivel</h3>
-                  <button onClick={() => setShowAddTarifa(true)} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                    <PlusIcon className="w-3 h-3" /> Nueva tarifa
-                  </button>
+                  <h3 className="text-sm font-semibold text-gray-700">Niveles Configurados</h3>
                 </div>
                 <div className="space-y-2">
-                  {tarifas.length === 0 ? (
-                    <p className="text-sm text-gray-400">No hay tarifas configuradas</p>
-                  ) : tarifas.filter(t => !t.fechaHasta).map(t => (
-                    <div key={t.id} className="flex items-center justify-between p-2 rounded border bg-white">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
-                          Nivel {t.nivel}
-                        </span>
-                        <span className="text-sm font-bold text-gray-900">{formatCurrency(t.importeSemana)}/semana</span>
-                      </div>
-                      <span className="text-[10px] text-gray-400">Desde {formatDate(t.fechaDesde)}</span>
+                  {[1, 2, 3].map(nivel => (
+                    <div key={nivel} className="flex items-center p-2 rounded border bg-white">
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${nivel === 1 ? 'bg-blue-100 text-blue-700' : nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
+                        Nivel {nivel}
+                      </span>
+                      <span className="ml-2 text-xs text-gray-500">{tecnicos.filter(t => t.nivel === nivel && t.activo).length} técnicos</span>
                     </div>
                   ))}
                 </div>
@@ -446,7 +460,6 @@ export default function DraxtonContratoGuardiasPage() {
                       <th className="px-2 py-2 text-left font-medium text-gray-600 w-16">Sem.</th>
                       <th className="px-2 py-2 text-left font-medium text-gray-600">Período</th>
                       <th className="px-2 py-2 text-left font-medium text-gray-600">Técnico de Guardia</th>
-                      <th className="px-2 py-2 text-right font-medium text-gray-600">Coste</th>
                       <th className="px-2 py-2 text-center font-medium text-gray-600">Incid.</th>
                     </tr>
                   </thead>
@@ -483,7 +496,7 @@ export default function DraxtonContratoGuardiasPage() {
                               </select>
                             )}
                           </td>
-                          <td className="px-2 py-1.5 text-right text-gray-600">{asig?.importeSemana ? formatCurrency(asig.importeSemana) : '—'}</td>
+
                           <td className="px-2 py-1.5 text-center">
                             {incSemana.length > 0 ? (
                               <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{incSemana.length}</span>
@@ -547,7 +560,7 @@ export default function DraxtonContratoGuardiasPage() {
                         </div>
                         {inc.tipoResolucion === 'desplazamiento' && (
                           <div className="mt-1 text-[11px] text-orange-700">
-                            Horas: {inc.horasDesplazamiento || '—'} · Coste: {formatCurrency(inc.costeDesplazamiento)} · Facturar: {formatCurrency(inc.importeClienteDesp)}
+                            Horas desplazamiento: {inc.horasDesplazamiento || '—'}
                           </div>
                         )}
                       </div>
@@ -583,12 +596,12 @@ export default function DraxtonContratoGuardiasPage() {
                 </div>
               </div>
               <div className="border rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Costes Acumulados {anio}</h4>
+                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Actividad Operativa {anio}</h4>
                 <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Guardias (técnicos)</span><span className="font-bold text-indigo-700">{formatCurrency(totalCosteGuardias)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Desplazamientos (coste)</span><span className="font-bold text-red-600">{formatCurrency(totalCosteDesplazamientos)}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Facturado a Draxton (desplaz.)</span><span className="font-bold text-blue-600">{formatCurrency(incidencias.reduce((s, i) => s + (i.importeClienteDesp || 0), 0))}</span></div>
-                  <div className="flex justify-between text-sm border-t pt-2"><span className="text-gray-600">Horas desplazamiento total</span><span className="font-bold text-gray-900">{incidencias.reduce((s, i) => s + (i.horasDesplazamiento || 0), 0).toFixed(1)}h</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Semanas cubiertas</span><span className="font-bold text-indigo-700">{asignaciones.length} de {semanas.length}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Horas desplazamiento total</span><span className="font-bold text-orange-600">{incidencias.reduce((s, i) => s + (i.horasDesplazamiento || 0), 0).toFixed(1)}h</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Técnicos activos</span><span className="font-bold text-gray-900">{tecnicos.filter(t => t.activo).length}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Técnicos históricos (baja)</span><span className="font-bold text-gray-500">{tecnicos.filter(t => !t.activo).length}</span></div>
                 </div>
               </div>
               <div className="border rounded-lg p-4">
@@ -757,14 +770,7 @@ export default function DraxtonContratoGuardiasPage() {
                     <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
                     <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">Coste desplazamiento (€)</label>
-                    <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">Importe a facturar a Draxton (€)</label>
-                    <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
-                  </div>
+
                 </>
               )}
 

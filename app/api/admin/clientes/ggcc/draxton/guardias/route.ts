@@ -16,7 +16,10 @@ export async function GET(req: NextRequest) {
       where: { contratoId: CONTRATO_GUARDIAS_ID },
       include: {
         tecnicos: {
-          include: { empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } } },
+          include: {
+            empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } },
+            historicoNiveles: { orderBy: { fechaCambio: 'asc' } }
+          },
           orderBy: { fechaAlta: 'asc' }
         },
         tarifas: { orderBy: [{ nivel: 'asc' }, { fechaDesde: 'desc' }] },
@@ -29,7 +32,10 @@ export async function GET(req: NextRequest) {
         data: { contratoId: CONTRATO_GUARDIAS_ID },
         include: {
           tecnicos: {
-            include: { empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } } },
+            include: {
+              empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } },
+              historicoNiveles: { orderBy: { fechaCambio: 'asc' } }
+            },
             orderBy: { fechaAlta: 'asc' }
           },
           tarifas: { orderBy: [{ nivel: 'asc' }, { fechaDesde: 'desc' }] },
@@ -137,10 +143,27 @@ export async function POST(req: NextRequest) {
       }
 
       case 'updateTecnico': {
+        // Obtener técnico actual para registrar histórico
+        const tecnicoActual = await prisma.guardiaTecnico.findUnique({ where: { id: body.tecnicoId } })
+        if (!tecnicoActual) return NextResponse.json({ error: 'Técnico no encontrado' }, { status: 404 })
+        
+        // Si cambia el nivel, crear registro histórico
+        if (body.nivel && body.nivel !== tecnicoActual.nivel) {
+          await prisma.guardiaTecnicoHistorico.create({
+            data: {
+              tecnicoId: body.tecnicoId,
+              nivelAnterior: tecnicoActual.nivel,
+              nivelNuevo: body.nivel,
+              fechaCambio: new Date(body.fechaCambio || new Date()),
+              motivo: body.motivo || null,
+            }
+          })
+        }
+        
         const tecnico = await prisma.guardiaTecnico.update({
           where: { id: body.tecnicoId },
           data: {
-            nivel: body.nivel,
+            nivel: body.nivel || undefined,
             activo: body.activo,
             fechaBaja: body.fechaBaja ? new Date(body.fechaBaja) : undefined,
           }
