@@ -85,6 +85,7 @@ export default function DraxtonContratoGuardiasPage() {
   const [showAddTarifa, setShowAddTarifa] = useState(false)
   const [showIncidenciaForm, setShowIncidenciaForm] = useState(false)
   const [editingIncidencia, setEditingIncidencia] = useState<Incidencia | null>(null)
+  const [editingTecnico, setEditingTecnico] = useState<Tecnico | null>(null)
   const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([])
 
   // Forms
@@ -182,6 +183,32 @@ export default function DraxtonContratoGuardiasPage() {
     setShowAddTecnico(false)
     setFormTecnico({ empleadoId: '', nivel: 1, fechaAlta: '' })
     fetchData()
+  }
+
+  const handleEditTecnico = async () => {
+    if (!editingTecnico) return
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'updateTecnico', tecnicoId: editingTecnico.id, nivel: formTecnico.nivel })
+    })
+    setEditingTecnico(null)
+    setShowAddTecnico(false)
+    fetchData()
+  }
+
+  const handleDarBajaTecnico = async (tecnicoId: string) => {
+    if (!confirm('¿Dar de baja a este técnico del contrato de guardias?')) return
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'removeTecnico', tecnicoId })
+    })
+    fetchData()
+  }
+
+  const handlePrintInforme = () => {
+    window.print()
   }
 
   const handleAddTarifa = async () => {
@@ -363,9 +390,21 @@ export default function DraxtonContratoGuardiasPage() {
                         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
                           N{t.nivel}
                         </span>
-                        {!t.activo && <span className="text-[10px] text-red-500">(Baja)</span>}
+                        {!t.activo && <span className="text-[10px] text-red-500">(Baja {formatDate(t.fechaBaja)})</span>}
                       </div>
-                      <span className="text-[10px] text-gray-400">{formatDate(t.fechaAlta)}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-400">Alta: {formatDate(t.fechaAlta)}</span>
+                        {t.activo && (
+                          <>
+                            <button onClick={() => { setEditingTecnico(t); setFormTecnico({ empleadoId: t.empleadoId, nivel: t.nivel, fechaAlta: t.fechaAlta.split('T')[0] }); setShowAddTecnico(true) }} className="p-1 text-gray-400 hover:text-indigo-600" title="Editar nivel">
+                              <PencilIcon className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDarBajaTecnico(t.id)} className="p-1 text-gray-400 hover:text-red-600" title="Dar de baja">
+                              <TrashIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -526,8 +565,13 @@ export default function DraxtonContratoGuardiasPage() {
 
         {/* TAB: INFORMES */}
         {tab === 'informes' && (
-          <div className="p-6 space-y-6">
-            <h3 className="text-sm font-semibold text-gray-700">Informes de Guardias</h3>
+          <div className="p-6 space-y-6 print:p-0">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-700">Informes de Guardias — {anio}</h3>
+              <button onClick={handlePrintInforme} className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-800 text-white text-xs font-medium rounded-lg hover:bg-gray-900 print:hidden">
+                🖨️ Imprimir Informe
+              </button>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="border rounded-lg p-4">
                 <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Resumen por Tipo de Resolución</h4>
@@ -566,37 +610,47 @@ export default function DraxtonContratoGuardiasPage() {
         )}
       </div>
 
-      {/* MODAL: Añadir Técnico */}
+      {/* MODAL: Añadir/Editar Técnico */}
       {showAddTecnico && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddTecnico(false)}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }}>
           <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">Añadir Técnico a Guardias</h3>
+            <h3 className="text-lg font-semibold mb-4">{editingTecnico ? 'Editar Técnico' : 'Añadir Técnico a Guardias'}</h3>
             <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600">Empleado</label>
-                <select value={formTecnico.empleadoId} onChange={e => setFormTecnico({ ...formTecnico, empleadoId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1">
-                  <option value="">— Seleccionar —</option>
-                  {empleadosDisponibles.filter((e: any) => e.categoria === 'TÉCNICO' && !tecnicos.find(t => t.empleadoId === e.id)).map((e: any) => (
-                    <option key={e.id} value={e.id}>{e.nombreCompleto} {e.estado === 'BAJA' ? '(BAJA)' : ''}</option>
-                  ))}
-                </select>
-              </div>
+              {!editingTecnico && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Empleado</label>
+                  <select value={formTecnico.empleadoId} onChange={e => setFormTecnico({ ...formTecnico, empleadoId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1">
+                    <option value="">— Seleccionar —</option>
+                    {empleadosDisponibles.filter((e: any) => !tecnicos.find(t => t.empleadoId === e.id)).map((e: any) => (
+                      <option key={e.id} value={e.id}>{e.nombreCompleto} — {e.categoria || 'Sin categoría'} {e.estado === 'BAJA' ? '(BAJA)' : ''}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {editingTecnico && (
+                <div className="p-3 bg-gray-50 rounded border">
+                  <p className="text-sm font-medium text-gray-900">{editingTecnico.empleado.nombreCompleto}</p>
+                  <p className="text-xs text-gray-500">Alta: {formatDate(editingTecnico.fechaAlta)} — Nivel actual: N{editingTecnico.nivel}</p>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-gray-600">Nivel</label>
                 <select value={formTecnico.nivel} onChange={e => setFormTecnico({ ...formTecnico, nivel: parseInt(e.target.value) })} className="w-full border rounded px-3 py-2 text-sm mt-1">
-                  <option value={1}>Nivel 1 (100€/sem)</option>
-                  <option value={2}>Nivel 2 (150€/sem)</option>
-                  <option value={3}>Nivel 3 (175€/sem)</option>
+                  <option value={1}>Nivel 1</option>
+                  <option value={2}>Nivel 2</option>
+                  <option value={3}>Nivel 3</option>
                 </select>
               </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Fecha Alta</label>
-                <input type="date" value={formTecnico.fechaAlta} onChange={e => setFormTecnico({ ...formTecnico, fechaAlta: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
-              </div>
+              {!editingTecnico && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Fecha Alta</label>
+                  <input type="date" value={formTecnico.fechaAlta} onChange={e => setFormTecnico({ ...formTecnico, fechaAlta: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1" />
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setShowAddTecnico(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-              <button onClick={handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Añadir</button>
+              <button onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button onClick={editingTecnico ? handleEditTecnico : handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{editingTecnico ? 'Guardar cambios' : 'Añadir'}</button>
             </div>
           </div>
         </div>
