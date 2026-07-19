@@ -706,6 +706,21 @@ export default function DraxtonContratosPage() {
     return sum + provs.filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
   }, 0);
 
+  // Coste guardias mensual total (para TOTAL de tabla)
+  const costeGuardiasTotalMensual = (() => {
+    const contratoGuardias = activos.find(c => c.tipo === 'Guardias');
+    if (!contratoGuardias || !guardiasData) return 0;
+    const hoy = new Date();
+    const inicioAnio = new Date(hoy.getFullYear(), 0, 1);
+    const semanasTranscurridas = Math.ceil((hoy.getTime() - inicioAnio.getTime()) / (7 * 24 * 60 * 60 * 1000));
+    const semanasAsignadas = guardiasData.asignaciones?.length || 0;
+    const semanasSinAsignar = Math.max(0, semanasTranscurridas - semanasAsignadas);
+    const costeAsignadas = guardiasData.asignaciones?.reduce((s: number, a: any) => s + (a.importeSemana || 0), 0) || 0;
+    const costeSinAsignar = semanasSinAsignar * 200;
+    const mesesTranscurridos = hoy.getMonth() + 1;
+    return (costeAsignadas + costeSinAsignar) / mesesTranscurridos;
+  })();
+
   // Altas totales
   const totalAltaCliente = datosContratos.reduce((s, d) => s + d.altaCliente, 0);
   const totalAltaProveedor = activos.reduce((sum, c) => {
@@ -826,6 +841,7 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Alta</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
                     <th className="text-right px-4 py-2 font-medium text-blue-600">Facturado</th>
+                    <th className="text-right px-4 py-2 font-medium text-purple-600">Fact. extra</th>
                     <th className="text-right px-4 py-2 font-medium text-orange-600">Pendiente</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear + 1}</th>
@@ -860,7 +876,10 @@ export default function DraxtonContratosPage() {
                     <tr key={d.id}>
                       <td className="px-4 py-2 text-gray-900 font-medium max-w-[200px] truncate">{d.titulo}</td>
                       <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(d.mensual)}</td>
-                      <td className="px-4 py-2 text-right text-red-600">{formatCurrency(costeContrato)}</td>
+                      <td className="px-4 py-2 text-right text-red-600">
+                        {formatCurrency(costeContrato + costeGuardiasMensual)}
+                        {costeGuardiasMensual > 0 && <span className="text-[9px] text-gray-400 block">Prov: {formatCurrency(costeContrato)} + Téc: {formatCurrency(costeGuardiasMensual)}</span>}
+                      </td>
                       <td className="px-4 py-2 text-right text-green-600 font-medium">
                         {formatCurrency(margenContrato)}
                         <span className="text-[9px] text-gray-400 block">{margenPct}%</span>
@@ -873,6 +892,13 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-blue-700 font-medium">
                         {formatCurrency(facturasResumen.resumenPorContrato[d.id]?.facturado || 0)}
                         <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[d.id]?.facturas || 0} fact.</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-purple-600 font-medium">
+                        {(() => {
+                          if (contrato?.tipo !== 'Guardias' || !guardiasData?.incidencias) return <span className="text-gray-300">—</span>;
+                          const factExtra = guardiasData.incidencias.filter((i: any) => i.tipoResolucion === 'desplazamiento').reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
+                          return factExtra > 0 ? <>{formatCurrency(factExtra)}<span className="text-[9px] text-gray-400 block">desplaz.</span></> : <span className="text-gray-300">—</span>;
+                        })()}
                       </td>
                       <td className="px-4 py-2 text-right text-orange-600 font-medium">
                         {formatCurrency(Math.max(0, d.importeAnio1 - (facturasResumen.resumenPorContrato[d.id]?.facturado || 0)))}
@@ -897,11 +923,18 @@ export default function DraxtonContratosPage() {
                     <tr className="bg-gray-50 font-bold">
                       <td className="px-4 py-2 text-gray-900">TOTAL</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
-                      <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores)}</td>
-                      <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores)}</td>
+                      <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores + costeGuardiasTotalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores - costeGuardiasTotalMensual)}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
+                      <td className="px-4 py-2 text-right text-purple-700">
+                        {(() => {
+                          if (!guardiasData?.incidencias) return '—';
+                          const factExtra = guardiasData.incidencias.filter((i: any) => i.tipoResolucion === 'desplazamiento').reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
+                          return factExtra > 0 ? formatCurrency(factExtra) : '—';
+                        })()}
+                      </td>
                       <td className="px-4 py-2 text-right text-orange-700">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
@@ -1670,7 +1703,7 @@ export default function DraxtonContratosPage() {
                                       await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ action: 'addTarifa', nivel: niv.nivel, importeSemana: niv.importeSemana, fechaDesde: new Date().toISOString().slice(0, 10) })
+                                        body: JSON.stringify({ action: 'addTarifa', nivel: niv.nivel, importeSemana: niv.importeSemana, fechaDesde: (document.getElementById('tarifa-fecha') as HTMLInputElement)?.value || new Date().toISOString().slice(0, 10) })
                                       });
                                     }
                                     fetchGuardiasData();
@@ -1678,7 +1711,7 @@ export default function DraxtonContratosPage() {
                                   className="px-2 py-1 text-[10px] bg-indigo-600 text-white rounded hover:bg-indigo-700"
                                 >Guardar niveles</button>
                               </div>
-                              <div className="grid grid-cols-3 gap-3" onClick={e => e.stopPropagation()}>
+                              <div className="grid grid-cols-4 gap-3" onClick={e => e.stopPropagation()}>
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Nivel 1 (€/semana)</label>
                                   <input id="tarifa-n1" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 1 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="100.00" />
@@ -1690,6 +1723,10 @@ export default function DraxtonContratosPage() {
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Nivel 3 (€/semana)</label>
                                   <input id="tarifa-n3" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 3 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="175.00" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-500 block mb-1">Fecha desde</label>
+                                  <input id="tarifa-fecha" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className="w-full border rounded px-2 py-1.5 text-xs" />
                                 </div>
                               </div>
                               {/* Tarifas vigentes con opción de eliminar */}
