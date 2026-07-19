@@ -206,6 +206,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, tarifa })
       }
 
+      case 'deleteTarifa': {
+        await prisma.guardiaTarifa.delete({ where: { id: body.tarifaId } })
+        return NextResponse.json({ success: true })
+      }
+
       case 'asignarSemana': {
         const asignacion = await prisma.guardiaAsignacion.upsert({
           where: { configId_semanaInicio: { configId: config.id, semanaInicio: new Date(body.semanaInicio) } },

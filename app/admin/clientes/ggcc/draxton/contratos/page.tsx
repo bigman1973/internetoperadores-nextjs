@@ -836,7 +836,20 @@ export default function DraxtonContratosPage() {
                   {datosContratos.map(d => {
                     const contrato = activos.find(c => c.id === d.id);
                     const costeContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
-                    const margenContrato = d.mensual - costeContrato;
+                    // Para contratos de guardias, añadir previsión de coste técnicos (200€/sem sin asignar)
+                    let costeGuardiasMensual = 0;
+                    if (contrato?.tipo === 'Guardias' && guardiasData) {
+                      const hoy = new Date();
+                      const inicioAnio = new Date(hoy.getFullYear(), 0, 1);
+                      const semanasTranscurridas = Math.ceil((hoy.getTime() - inicioAnio.getTime()) / (7 * 24 * 60 * 60 * 1000));
+                      const semanasAsignadas = guardiasData.asignaciones?.length || 0;
+                      const semanasSinAsignar = Math.max(0, semanasTranscurridas - semanasAsignadas);
+                      const costeAsignadas = guardiasData.asignaciones?.reduce((s: number, a: any) => s + (a.importeSemana || 0), 0) || 0;
+                      const costeSinAsignar = semanasSinAsignar * 200;
+                      const mesesTranscurridos = hoy.getMonth() + 1;
+                      costeGuardiasMensual = (costeAsignadas + costeSinAsignar) / mesesTranscurridos;
+                    }
+                    const margenContrato = d.mensual - costeContrato - costeGuardiasMensual;
                     const margenPct = d.mensual > 0 ? ((margenContrato / d.mensual) * 100).toFixed(1) : '0';
                     // Alta proveedor de este contrato
                     const altaProvContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => {
@@ -1679,13 +1692,50 @@ export default function DraxtonContratosPage() {
                                   <input id="tarifa-n3" type="number" step="0.01" defaultValue={guardiasData.tarifas?.find((t: any) => t.nivel === 3 && t.vigente)?.importeSemana || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="175.00" />
                                 </div>
                               </div>
+                              {/* Tarifas vigentes con opción de eliminar */}
+                              {guardiasData.tarifas && guardiasData.tarifas.filter((t: any) => t.vigente).length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  <p className="text-[9px] text-gray-500 font-semibold">Tarifas vigentes:</p>
+                                  {guardiasData.tarifas.filter((t: any) => t.vigente).map((t: any) => (
+                                    <div key={t.id} className="flex items-center justify-between text-[10px] bg-green-50 border border-green-200 rounded px-2 py-1">
+                                      <span className="text-green-800">N{t.nivel}: {formatCurrency(t.importeSemana)}/sem (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')})</span>
+                                      <button
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (!confirm(`¿Eliminar tarifa N${t.nivel}?`)) return;
+                                          await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ action: 'deleteTarifa', tarifaId: t.id })
+                                          });
+                                          fetchGuardiasData();
+                                        }}
+                                        className="text-red-500 hover:text-red-700 text-[9px] ml-2"
+                                      >✕</button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                               {guardiasData.tarifas && guardiasData.tarifas.filter((t: any) => !t.vigente).length > 0 && (
                                 <details className="mt-2">
                                   <summary className="text-[9px] text-gray-400 cursor-pointer">Histórico de tarifas anteriores</summary>
                                   <div className="mt-1 space-y-0.5">
                                     {guardiasData.tarifas.filter((t: any) => !t.vigente).map((t: any) => (
-                                      <div key={t.id} className="text-[9px] text-gray-400">
-                                        N{t.nivel}: {formatCurrency(t.importeSemana)} (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')} hasta {t.fechaHasta ? new Date(t.fechaHasta).toLocaleDateString('es-ES') : '—'})
+                                      <div key={t.id} className="flex items-center justify-between text-[9px] text-gray-400">
+                                        <span>N{t.nivel}: {formatCurrency(t.importeSemana)} (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')} hasta {t.fechaHasta ? new Date(t.fechaHasta).toLocaleDateString('es-ES') : '—'})</span>
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (!confirm(`¿Eliminar tarifa histórica N${t.nivel}?`)) return;
+                                            await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+                                              method: 'POST',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ action: 'deleteTarifa', tarifaId: t.id })
+                                            });
+                                            fetchGuardiasData();
+                                          }}
+                                          className="text-red-400 hover:text-red-600 text-[9px] ml-2"
+                                        >✕</button>
                                       </div>
                                     ))}
                                   </div>
