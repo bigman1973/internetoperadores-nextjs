@@ -202,6 +202,18 @@ export default function DraxtonContratoGuardiasPage() {
     fetchData()
   }
 
+  const handleEliminarAsignacion = async (asignacionId: string, semanaInicio: Date, semanaFin: Date) => {
+    if (!confirm('¿Quitar la asignación de esta semana?')) return
+    try {
+      await fetch(`/api/admin/clientes/ggcc/draxton/guardias?type=asignacion&id=${asignacionId}`, {
+        method: 'DELETE',
+      })
+    } catch (e) {
+      console.error('Error eliminando asignación:', e)
+    }
+    fetchData()
+  }
+
   const handleAddTecnico = async () => {
     if (!formTecnico.empleadoId) return
     await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
@@ -500,20 +512,25 @@ export default function DraxtonContratoGuardiasPage() {
                             {sem.inicio.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} — {sem.fin.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
                           </td>
                           <td className="px-2 py-1.5">
-                            {asig ? (
-                              <span className="text-gray-900 font-medium">{asig.tecnico.empleado.nombreCompleto}</span>
-                            ) : (
+                            <div className="flex items-center gap-1">
                               <select
-                                className="border rounded px-1 py-0.5 text-xs w-full max-w-[200px]"
-                                defaultValue=""
-                                onChange={e => handleAsignar(sem.inicio, sem.fin, e.target.value)}
+                                className={`border rounded px-1 py-0.5 text-xs w-full max-w-[200px] ${asig ? 'border-transparent bg-transparent font-medium text-gray-900 hover:border-gray-300 hover:bg-white cursor-pointer' : ''}`}
+                                value={asig?.tecnicoId || ''}
+                                onChange={e => {
+                                  if (e.target.value === '__eliminar__') {
+                                    handleEliminarAsignacion(asig!.id, sem.inicio, sem.fin)
+                                  } else if (e.target.value) {
+                                    handleAsignar(sem.inicio, sem.fin, e.target.value)
+                                  }
+                                }}
                               >
                                 <option value="">— Asignar —</option>
                                 {tecnicos.filter(t => t.activo).map(t => (
                                   <option key={t.id} value={t.id}>{t.empleado.nombreCompleto} (N{t.nivel})</option>
                                 ))}
+                                {asig && <option value="__eliminar__" className="text-red-600">✕ Quitar asignación</option>}
                               </select>
-                            )}
+                            </div>
                           </td>
 
                           <td className="px-2 py-1.5 text-center">
