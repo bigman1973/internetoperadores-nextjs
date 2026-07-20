@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
   const matrizFacturacion = construirMatrizFacturacion(vinculaciones, servicios, anio)
 
   // Calcular resumen
-  const totalFacturado = vinculaciones.reduce((sum, v) => sum + Number(v.importeAsignado), 0)
+  const totalFacturado = vinculaciones.filter(v => v.tipoFacturacion !== 'adicional').reduce((sum, v) => sum + Number(v.importeAsignado), 0)
+  const totalFacturadoAdicional = vinculaciones.filter(v => v.tipoFacturacion === 'adicional').reduce((sum, v) => sum + Number(v.importeAsignado), 0)
 
   return NextResponse.json({
     vinculadas: vinculaciones.map(v => ({
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
       facturaId: v.facturaId,
       importeAsignado: Number(v.importeAsignado),
       tipoVinculacion: v.auto ? 'auto' : 'manual',
+      tipoFacturacion: v.tipoFacturacion || 'mensualidad',
       estado: v.estado || 'auto',
       servicioIndex: v.servicioIndex,
       notas: v.notas,
@@ -101,6 +103,7 @@ export async function GET(request: NextRequest) {
     })),
     matrizFacturacion,
     totalFacturado,
+    totalFacturadoAdicional,
     totalFacturas: vinculaciones.length,
     codigosEmpresa: codigosCliente,
   })
@@ -112,7 +115,7 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json()
-  const { contratoId, modo, facturaIds, anio } = body
+  const { contratoId, modo, facturaIds, anio, tipoFacturacion } = body
 
   if (!contratoId) {
     return NextResponse.json({ error: 'contratoId requerido' }, { status: 400 })
@@ -139,10 +142,12 @@ export async function POST(request: NextRequest) {
             importeAsignado: f.base,
             auto: false,
             estado: 'pendiente',
+            tipoFacturacion: tipoFacturacion || 'mensualidad',
           },
           update: {
             importeAsignado: f.base,
             auto: false,
+            tipoFacturacion: tipoFacturacion || 'mensualidad',
           },
         })
       )
@@ -331,7 +336,7 @@ export async function PATCH(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const body = await request.json()
-  const { vinculacionId, servicioIndex, estado, notas } = body
+  const { vinculacionId, servicioIndex, estado, notas, tipoFacturacion } = body
 
   if (!vinculacionId) {
     return NextResponse.json({ error: 'vinculacionId requerido' }, { status: 400 })
@@ -341,6 +346,7 @@ export async function PATCH(request: NextRequest) {
   if (servicioIndex !== undefined) updateData.servicioIndex = servicioIndex
   if (estado) updateData.estado = estado
   if (notas !== undefined) updateData.notas = notas
+  if (tipoFacturacion) updateData.tipoFacturacion = tipoFacturacion
 
   const updated = await prisma.facturaContratoDraxton.update({
     where: { id: vinculacionId },

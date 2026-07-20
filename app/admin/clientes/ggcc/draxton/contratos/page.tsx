@@ -132,7 +132,7 @@ export default function DraxtonContratosPage() {
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState<{id: number; nombre: string; cif: string | null; municipio: string | null; provincia: string | null}[]>([]);
   const [buscando, setBuscando] = useState(false);
-  const [facturasResumen, setFacturasResumen] = useState<{resumenPorContrato: Record<string, {facturado: number; facturas: number}>; totalFacturado: number; totalFacturas: number}>({resumenPorContrato: {}, totalFacturado: 0, totalFacturas: 0});
+  const [facturasResumen, setFacturasResumen] = useState<{resumenPorContrato: Record<string, {facturado: number; facturas: number; facturadoAdicional: number; facturasAdicional: number}>; totalFacturado: number; totalFacturas: number; totalFacturadoAdicional: number; totalFacturasAdicional: number}>({resumenPorContrato: {}, totalFacturado: 0, totalFacturas: 0, totalFacturadoAdicional: 0, totalFacturasAdicional: 0});
   const [facturasDetalle, setFacturasDetalle] = useState<any>(null);
   const [vinculando, setVinculando] = useState(false);
   const [showFacturasCandidatas, setShowFacturasCandidatas] = useState(false);
@@ -217,12 +217,12 @@ export default function DraxtonContratosPage() {
     setVinculando(false);
   }
 
-  async function vincularManual(contratoId: string, facturaIds: string[]) {
+  async function vincularManual(contratoId: string, facturaIds: string[], tipoFacturacion: string = 'mensualidad') {
     try {
       await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contratoId, modo: 'manual', facturaIds }),
+        body: JSON.stringify({ contratoId, modo: 'manual', facturaIds, tipoFacturacion }),
       });
       await fetchFacturasDetalle(contratoId);
       await fetchFacturasResumen();
@@ -895,9 +895,8 @@ export default function DraxtonContratosPage() {
                       </td>
                       <td className="px-4 py-2 text-right text-purple-600 font-medium">
                         {(() => {
-                          if (contrato?.tipo !== 'Guardias' || !guardiasData?.incidencias) return <span className="text-gray-300">—</span>;
-                          const factExtra = guardiasData.incidencias.filter((i: any) => i.tipoResolucion === 'desplazamiento').reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
-                          return factExtra > 0 ? <>{formatCurrency(factExtra)}<span className="text-[9px] text-gray-400 block">desplaz.</span></> : <span className="text-gray-300">—</span>;
+                          const adicional = facturasResumen.resumenPorContrato[d.id]?.facturadoAdicional || 0;
+                          return adicional > 0 ? <>{formatCurrency(adicional)}<span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[d.id]?.facturasAdicional || 0} fact.</span></> : <span className="text-gray-300">—</span>;
                         })()}
                       </td>
                       <td className="px-4 py-2 text-right text-orange-600 font-medium">
@@ -928,13 +927,7 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
-                      <td className="px-4 py-2 text-right text-purple-700">
-                        {(() => {
-                          if (!guardiasData?.incidencias) return '—';
-                          const factExtra = guardiasData.incidencias.filter((i: any) => i.tipoResolucion === 'desplazamiento').reduce((s: number, i: any) => s + (i.importeClienteDesp || 0), 0);
-                          return factExtra > 0 ? formatCurrency(factExtra) : '—';
-                        })()}
-                      </td>
+                      <td className="px-4 py-2 text-right text-purple-700">{facturasResumen.totalFacturadoAdicional > 0 ? formatCurrency(facturasResumen.totalFacturadoAdicional) : '—'}</td>
                       <td className="px-4 py-2 text-right text-orange-700">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio2)}</td>
@@ -1472,6 +1465,7 @@ export default function DraxtonContratosPage() {
                                   <th className="text-right px-2 py-1.5 font-medium text-blue-700">Base Imp.</th>
                                   <th className="text-left px-2 py-1.5 font-medium text-blue-700">Servicio asignado</th>
                                   <th className="text-center px-2 py-1.5 font-medium text-blue-700">Estado</th>
+                                  <th className="text-center px-2 py-1.5 font-medium text-blue-700">Tipo</th>
                                   <th className="text-center px-2 py-1.5 font-medium text-blue-700">Acción</th>
                                 </tr>
                               </thead>
@@ -1507,6 +1501,26 @@ export default function DraxtonContratosPage() {
                                         </span>
                                       </td>
                                       <td className="px-2 py-1.5 text-center">
+                                        <select
+                                          value={fv.tipoFacturacion || 'mensualidad'}
+                                          onChange={async (e) => {
+                                            e.stopPropagation();
+                                            await fetch('/api/admin/clientes/ggcc/draxton/facturas-contrato', {
+                                              method: 'PATCH',
+                                              headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ vinculacionId: fv.id, tipoFacturacion: e.target.value }),
+                                            });
+                                            await fetchFacturasDetalle(c.id);
+                                            await fetchFacturasResumen();
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className={`text-[9px] border rounded px-1 py-0.5 ${fv.tipoFacturacion === 'adicional' ? 'bg-purple-50 border-purple-300 text-purple-700' : 'bg-white border-gray-300 text-gray-700'}`}
+                                        >
+                                          <option value="mensualidad">Mensual</option>
+                                          <option value="adicional">Adicional</option>
+                                        </select>
+                                      </td>
+                                      <td className="px-2 py-1.5 text-center">
                                         <button onClick={(e) => { e.stopPropagation(); desvincularFactura(c.id, fv.facturaId); }} className="text-red-500 hover:text-red-700 text-[10px]">
                                           ✕
                                         </button>
@@ -1515,7 +1529,7 @@ export default function DraxtonContratosPage() {
                                     {/* Detalle inline de la factura */}
                                     {facturaExpandidaId === fv.id && (
                                       <tr>
-                                        <td colSpan={7} className="bg-blue-50/70 px-4 py-3 border-l-4 border-blue-400">
+                                        <td colSpan={8} className="bg-blue-50/70 px-4 py-3 border-l-4 border-blue-400">
                                           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[11px]">
                                             <div>
                                               <p className="text-gray-500 text-[9px] uppercase">Nº Documento</p>
@@ -1613,9 +1627,12 @@ export default function DraxtonContratosPage() {
                                       <td className="px-3 py-1.5 font-mono text-gray-900">{fc.numero || fc.documento || '—'}</td>
                                       <td className="px-3 py-1.5 text-gray-700 truncate max-w-[150px]" title={fc.clienteNombre}>{fc.clienteNombre || '—'}</td>
                                       <td className="px-3 py-1.5 text-right font-medium text-gray-900">{formatCurrency(fc.baseImponible)}</td>
-                                      <td className="px-3 py-1.5 text-center">
-                                        <button onClick={(e) => { e.stopPropagation(); vincularManual(c.id, [fc.id]); }} className="text-blue-600 hover:text-blue-800 text-[10px] font-medium">
-                                          + Vincular
+                                      <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                        <button onClick={(e) => { e.stopPropagation(); vincularManual(c.id, [fc.id], 'mensualidad'); }} className="text-blue-600 hover:text-blue-800 text-[10px] font-medium">
+                                          + Mensual
+                                        </button>
+                                        <button onClick={(e) => { e.stopPropagation(); vincularManual(c.id, [fc.id], 'adicional'); }} className="text-purple-600 hover:text-purple-800 text-[10px] font-medium ml-2">
+                                          + Adicional
                                         </button>
                                       </td>
                                     </tr>

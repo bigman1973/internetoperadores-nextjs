@@ -25,28 +25,38 @@ export async function GET(request: NextRequest) {
 
   const facturasMap = new Map(facturas.map(f => [f.id, f]))
 
-  // Agrupar por contrato
-  const resumenPorContrato: Record<string, { facturado: number; facturas: number }> = {}
+  // Agrupar por contrato separando mensualidad vs adicional
+  const resumenPorContrato: Record<string, { facturado: number; facturas: number; facturadoAdicional: number; facturasAdicional: number }> = {}
 
   for (const vinc of vinculaciones) {
     const factura = facturasMap.get(vinc.facturaId)
     if (!factura) continue // factura no es del año seleccionado
 
     if (!resumenPorContrato[vinc.contratoDraxtonId]) {
-      resumenPorContrato[vinc.contratoDraxtonId] = { facturado: 0, facturas: 0 }
+      resumenPorContrato[vinc.contratoDraxtonId] = { facturado: 0, facturas: 0, facturadoAdicional: 0, facturasAdicional: 0 }
     }
-    resumenPorContrato[vinc.contratoDraxtonId].facturado += Number(vinc.importeAsignado)
-    resumenPorContrato[vinc.contratoDraxtonId].facturas++
+
+    if (vinc.tipoFacturacion === 'adicional') {
+      resumenPorContrato[vinc.contratoDraxtonId].facturadoAdicional += Number(vinc.importeAsignado)
+      resumenPorContrato[vinc.contratoDraxtonId].facturasAdicional++
+    } else {
+      resumenPorContrato[vinc.contratoDraxtonId].facturado += Number(vinc.importeAsignado)
+      resumenPorContrato[vinc.contratoDraxtonId].facturas++
+    }
   }
 
   // Calcular totales
   const totalFacturado = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturado, 0)
   const totalFacturas = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturas, 0)
+  const totalFacturadoAdicional = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturadoAdicional, 0)
+  const totalFacturasAdicional = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturasAdicional, 0)
 
   return NextResponse.json({
     anio,
     resumenPorContrato,
     totalFacturado,
     totalFacturas,
+    totalFacturadoAdicional,
+    totalFacturasAdicional,
   })
 }
