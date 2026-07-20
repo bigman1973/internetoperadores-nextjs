@@ -1459,6 +1459,7 @@ model Empleado {
   saldoVacaciones   SaldoVacaciones[]
   entregasACuenta   MovimientoBancario[] @relation("EntregasCuentaEmpleado")
   guardiaTecnicos   GuardiaTecnico[]
+  personalContratos PersonalContratoDraxton[] @relation("PersonalContratoDraxton")
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1877,6 +1878,7 @@ model ContratoDraxton {
   clienteFacturacion    ClienteWeb? @relation(fields: [clienteFacturacionId], references: [id])
   contratosProveedor    ContratoProveedorDraxton[]
   facturasVinculadas    FacturaContratoDraxton[]
+  personalAsignado      PersonalContratoDraxton[]
 
   @@map("contratos_draxton")
 }
@@ -1911,6 +1913,44 @@ model ContratoProveedorDraxton {
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   @@map("contratos_proveedor_draxton")
+}
+
+model PersonalContratoDraxton {
+  id                    String   @id @default(uuid())
+  contratoDraxtonId     String   @map("contrato_draxton_id")
+  empleadoId            String   @map("empleado_id")
+  porcentajeDedicacion  Float    @default(100) @map("porcentaje_dedicacion") // 25, 50, 75, 100
+  rol                   String?  // Responsable, Técnico, Soporte, etc.
+  funciones             String?  // Descripción de funciones del puesto
+  fechaInicio           DateTime? @map("fecha_inicio") @db.Date
+  fechaFin              DateTime? @map("fecha_fin") @db.Date
+  activo                Boolean  @default(true)
+  notas                 String?
+  // Relaciones
+  contratoDraxton       ContratoDraxton @relation(fields: [contratoDraxtonId], references: [id], onDelete: Cascade)
+  empleado              Empleado @relation("PersonalContratoDraxton", fields: [empleadoId], references: [id])
+  tareas                PersonalContratoTarea[]
+  // Timestamps
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([contratoDraxtonId, empleadoId])
+  @@index([contratoDraxtonId])
+  @@index([empleadoId])
+  @@map("personal_contratos_draxton")
+}
+
+model PersonalContratoTarea {
+  id                    String   @id @default(uuid())
+  personalContratoId    String   @map("personal_contrato_id")
+  personalContrato      PersonalContratoDraxton @relation(fields: [personalContratoId], references: [id], onDelete: Cascade)
+  descripcion           String
+  completada            Boolean  @default(false)
+  orden                 Int      @default(0)
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  @@index([personalContratoId])
+  @@map("personal_contrato_tareas")
 }
 
 model FacturaContratoDraxton {

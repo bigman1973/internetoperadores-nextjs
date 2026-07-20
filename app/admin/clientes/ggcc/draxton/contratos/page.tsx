@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Fragment } from 'react'
-import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon, PencilIcon, BuildingOfficeIcon } from '@heroicons/react/24/outline'
+import { DocumentDuplicateIcon, PlusIcon, XMarkIcon, ArrowPathIcon, DocumentArrowUpIcon, TrashIcon, EyeIcon, PencilIcon, BuildingOfficeIcon, UserGroupIcon, CheckCircleIcon } from '@heroicons/react/24/outline'
 
 interface Servicio {
   ubicacion: string;
@@ -139,6 +139,12 @@ export default function DraxtonContratosPage() {
   const [facturaExpandidaId, setFacturaExpandidaId] = useState<string | null>(null);
   const [showMatriz, setShowMatriz] = useState(false);
   const [guardiasData, setGuardiasData] = useState<any>(null);
+  const [personalContrato, setPersonalContrato] = useState<any[]>([]);
+  const [showPersonalForm, setShowPersonalForm] = useState(false);
+  const [personalFormContratoId, setPersonalFormContratoId] = useState<string | null>(null);
+  const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([]);
+  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' });
+  const [nuevaTarea, setNuevaTarea] = useState('');
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -167,6 +173,8 @@ export default function DraxtonContratosPage() {
     fetchEmpresasGrupo();
     fetchFacturasResumen();
     fetchGuardiasData();
+    fetchPersonalContrato();
+    fetchEmpleadosDisponibles();
   }, []);
 
   async function fetchFacturasResumen() {
@@ -188,6 +196,124 @@ export default function DraxtonContratosPage() {
       }
     } catch (err) {
       console.error('Error al cargar datos de guardias:', err);
+    }
+  }
+
+  async function fetchPersonalContrato(contratoId?: string) {
+    try {
+      const url = contratoId
+        ? `/api/admin/clientes/ggcc/draxton/personal-contrato?contratoId=${contratoId}`
+        : '/api/admin/clientes/ggcc/draxton/personal-contrato';
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setPersonalContrato(data.asignaciones || []);
+      }
+    } catch (err) {
+      console.error('Error al cargar personal:', err);
+    }
+  }
+
+  async function fetchEmpleadosDisponibles() {
+    try {
+      const res = await fetch('/api/admin/empleados?estado=ACTIVO&periodo=mes&mes=' + new Date().getMonth());
+      if (res.ok) {
+        const data = await res.json();
+        setEmpleadosDisponibles(data.empleados || []);
+      }
+    } catch (err) {
+      console.error('Error al cargar empleados:', err);
+    }
+  }
+
+  async function asignarPersonal(contratoId: string) {
+    if (!personalForm.empleadoId) return;
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'asignar',
+          contratoId,
+          empleadoId: personalForm.empleadoId,
+          porcentajeDedicacion: personalForm.porcentajeDedicacion,
+          rol: personalForm.rol || null,
+          funciones: personalForm.funciones || null,
+        }),
+      });
+      setShowPersonalForm(false);
+      setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' });
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error asignando personal:', err);
+    }
+  }
+
+  async function actualizarPersonal(asignacionId: string, data: any, contratoId: string) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'actualizar', asignacionId, ...data }),
+      });
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error actualizando personal:', err);
+    }
+  }
+
+  async function desasignarPersonal(asignacionId: string, contratoId: string) {
+    if (!confirm('¿Desasignar esta persona del contrato?')) return;
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'eliminar', asignacionId }),
+      });
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error desasignando:', err);
+    }
+  }
+
+  async function addTareaPersonal(asignacionId: string, descripcion: string, contratoId: string) {
+    if (!descripcion.trim()) return;
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'addTarea', asignacionId, descripcion }),
+      });
+      setNuevaTarea('');
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error añadiendo tarea:', err);
+    }
+  }
+
+  async function toggleTarea(tareaId: string, contratoId: string) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'toggleTarea', tareaId }),
+      });
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error toggle tarea:', err);
+    }
+  }
+
+  async function deleteTarea(tareaId: string, contratoId: string) {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'deleteTarea', tareaId }),
+      });
+      await fetchPersonalContrato(contratoId);
+    } catch (err) {
+      console.error('Error eliminando tarea:', err);
     }
   }
 
@@ -1358,6 +1484,204 @@ export default function DraxtonContratosPage() {
                             </table>
                           ) : (
                             <p className="text-xs text-gray-400 italic">No hay contratos de proveedor vinculados. Añade uno para controlar costes y margen.</p>
+                          )}
+                        </div>
+
+                        {/* PERSONAL ASIGNADO */}
+                        <div className="mt-6 border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <UserGroupIcon className="w-4 h-4 text-indigo-600" />
+                              <p className="text-xs font-semibold text-gray-700 uppercase">Personal Asignado ({personalContrato.filter(p => p.contratoDraxtonId === c.id && p.activo).length})</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setPersonalFormContratoId(c.id); setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' }); setShowPersonalForm(true); }}
+                              className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1"
+                            >
+                              <PlusIcon className="w-3 h-3" />
+                              Asignar Personal
+                            </button>
+                          </div>
+
+                          {/* Formulario inline de asignación */}
+                          {showPersonalForm && personalFormContratoId === c.id && (
+                            <div className="bg-indigo-50 rounded-lg p-4 mb-3 border border-indigo-200" onClick={e => e.stopPropagation()}>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Empleado *</label>
+                                  <select
+                                    value={personalForm.empleadoId}
+                                    onChange={e => setPersonalForm({...personalForm, empleadoId: e.target.value})}
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                  >
+                                    <option value="">-- Seleccionar --</option>
+                                    {empleadosDisponibles.map((emp: any) => (
+                                      <option key={emp.id} value={emp.id}>{emp.nombreCompleto} ({emp.categoria || 'Sin categoría'})</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Dedicación %</label>
+                                  <select
+                                    value={personalForm.porcentajeDedicacion}
+                                    onChange={e => setPersonalForm({...personalForm, porcentajeDedicacion: parseInt(e.target.value)})}
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                  >
+                                    <option value={10}>10%</option>
+                                    <option value={25}>25%</option>
+                                    <option value={50}>50%</option>
+                                    <option value={75}>75%</option>
+                                    <option value={100}>100%</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Rol</label>
+                                  <input
+                                    type="text"
+                                    value={personalForm.rol}
+                                    onChange={e => setPersonalForm({...personalForm, rol: e.target.value})}
+                                    placeholder="Ej: Responsable, Técnico..."
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                  />
+                                </div>
+                                <div className="flex items-end gap-2">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); asignarPersonal(c.id); }}
+                                    disabled={!personalForm.empleadoId}
+                                    className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                                  >
+                                    Asignar
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setShowPersonalForm(false); }}
+                                    className="px-3 py-1.5 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-gray-600 font-medium block mb-1">Funciones del puesto</label>
+                                <textarea
+                                  value={personalForm.funciones}
+                                  onChange={e => setPersonalForm({...personalForm, funciones: e.target.value})}
+                                  placeholder="Describe las funciones que desempeña esta persona en este contrato..."
+                                  className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5 h-16 resize-none"
+                                />
+                              </div>
+                              {/* Preview coste del empleado seleccionado */}
+                              {personalForm.empleadoId && (() => {
+                                const emp = empleadosDisponibles.find((e: any) => e.id === personalForm.empleadoId);
+                                if (!emp) return null;
+                                const nominas = emp.nominas || [];
+                                let costeMes = 0;
+                                let costeHora = 0;
+                                if (nominas.length > 0) {
+                                  const totalSinDesplaz = nominas.reduce((s: number, n: any) => s + (n.costeTotalEmpresa || 0) - (n.gastosDesplazamiento || 0), 0);
+                                  costeMes = totalSinDesplaz / nominas.length;
+                                  costeHora = costeMes / 143.33;
+                                } else if (emp.costeHoraActual) {
+                                  costeHora = emp.costeHoraActual;
+                                  costeMes = costeHora * 143.33;
+                                }
+                                const imputado = costeMes * (personalForm.porcentajeDedicacion / 100);
+                                return (
+                                  <div className="mt-2 bg-white rounded-lg p-2 border border-indigo-100 flex gap-4 text-[10px]">
+                                    <span className="text-gray-600">Coste empresa/mes: <strong className="text-gray-900">{costeMes.toFixed(2)}€</strong></span>
+                                    <span className="text-gray-600">Coste/hora: <strong className="text-gray-900">{costeHora.toFixed(2)}€/h</strong></span>
+                                    <span className="text-indigo-700">Imputado ({personalForm.porcentajeDedicacion}%): <strong>{imputado.toFixed(2)}€/mes</strong></span>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+
+                          {/* Lista de personal asignado */}
+                          {personalContrato.filter(p => p.contratoDraxtonId === c.id).length > 0 ? (
+                            <div className="space-y-3">
+                              {personalContrato.filter(p => p.contratoDraxtonId === c.id).map((pa: any) => (
+                                <div key={pa.id} className={`border rounded-lg p-3 ${pa.activo ? 'border-indigo-200 bg-white' : 'border-gray-200 bg-gray-50 opacity-60'}`} onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-3">
+                                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold">
+                                        {pa.empleado.nombreCompleto.split(' ').map((n: string) => n[0]).slice(0, 2).join('')}
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-900">{pa.empleado.nombreCompleto}</p>
+                                        <p className="text-[10px] text-gray-500">{pa.rol || pa.empleado.categoria || '—'} · {pa.porcentajeDedicacion}% dedicación</p>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-[10px]">
+                                      <span className="text-gray-600">Coste/mes: <strong className="text-gray-900">{pa.costeMensualTotal?.toFixed(2)}€</strong></span>
+                                      <span className="text-gray-600">€/hora: <strong className="text-gray-900">{pa.costeHora?.toFixed(2)}€</strong></span>
+                                      <span className="text-indigo-700 font-medium">Imputado: <strong>{pa.costeMensualImputado?.toFixed(2)}€/mes</strong></span>
+                                      <select
+                                        value={pa.porcentajeDedicacion}
+                                        onChange={e => actualizarPersonal(pa.id, { porcentajeDedicacion: parseInt(e.target.value) }, c.id)}
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
+                                      >
+                                        <option value={10}>10%</option>
+                                        <option value={25}>25%</option>
+                                        <option value={50}>50%</option>
+                                        <option value={75}>75%</option>
+                                        <option value={100}>100%</option>
+                                      </select>
+                                      <button onClick={() => desasignarPersonal(pa.id, c.id)} className="text-red-500 hover:text-red-700" title="Desasignar">
+                                        <TrashIcon className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Funciones */}
+                                  {pa.funciones && (
+                                    <div className="mb-2 bg-gray-50 rounded p-2">
+                                      <p className="text-[9px] text-gray-500 uppercase font-semibold mb-0.5">Funciones</p>
+                                      <p className="text-xs text-gray-700 whitespace-pre-wrap">{pa.funciones}</p>
+                                    </div>
+                                  )}
+
+                                  {/* Checklist de tareas */}
+                                  <div className="mt-2">
+                                    <p className="text-[9px] text-gray-500 uppercase font-semibold mb-1">Checklist de tareas ({pa.tareas?.filter((t: any) => t.completada).length || 0}/{pa.tareas?.length || 0})</p>
+                                    {pa.tareas && pa.tareas.length > 0 && (
+                                      <ul className="space-y-1 mb-2">
+                                        {pa.tareas.map((t: any) => (
+                                          <li key={t.id} className="flex items-center gap-2 text-xs">
+                                            <button
+                                              onClick={() => toggleTarea(t.id, c.id)}
+                                              className={`w-4 h-4 rounded border flex-shrink-0 flex items-center justify-center ${t.completada ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 hover:border-indigo-400'}`}
+                                            >
+                                              {t.completada && <CheckCircleIcon className="w-3 h-3" />}
+                                            </button>
+                                            <span className={`flex-1 ${t.completada ? 'line-through text-gray-400' : 'text-gray-700'}`}>{t.descripcion}</span>
+                                            <button onClick={() => deleteTarea(t.id, c.id)} className="text-red-400 hover:text-red-600 text-[10px]">✕</button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    <div className="flex gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="Nueva tarea..."
+                                        value={nuevaTarea}
+                                        onChange={e => setNuevaTarea(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addTareaPersonal(pa.id, nuevaTarea, c.id); } }}
+                                        className="flex-1 text-xs border border-gray-300 rounded px-2 py-1"
+                                      />
+                                      <button
+                                        onClick={() => addTareaPersonal(pa.id, nuevaTarea, c.id)}
+                                        disabled={!nuevaTarea.trim()}
+                                        className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200 disabled:opacity-50"
+                                      >
+                                        + Añadir
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 italic">No hay personal asignado. Haz clic en &quot;Asignar Personal&quot; para vincular empleados a este contrato.</p>
                           )}
                         </div>
 
