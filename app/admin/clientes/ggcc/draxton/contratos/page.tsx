@@ -834,6 +834,11 @@ export default function DraxtonContratosPage() {
     return sum + provs.filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
   }, 0);
 
+  // Coste personal asignado total mensual (imputado según % dedicación)
+  const costePersonalTotal = personalContrato
+    .filter(p => p.activo)
+    .reduce((sum, p) => sum + (p.costeMensualImputado || 0), 0);
+
   // Coste guardias mensual total (para TOTAL de tabla)
   const costeGuardiasTotalMensual = (() => {
     const contratoGuardias = activos.find(c => c.tipo === 'Guardias');
@@ -908,14 +913,14 @@ export default function DraxtonContratosPage() {
               <p className="text-[10px] text-gray-400">{datosContratos.reduce((s, d) => s + d.mesesAnio3, 0) / Math.max(datosContratos.length, 1) | 0} meses</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Total Costes/mes <span className="relative group cursor-help">ⓘ<span className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 text-[10px] normal-case tracking-normal text-white bg-gray-800 rounded shadow-lg">Suma de importes mensuales de todos los contratos de proveedor activos</span></span></div>
-              <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores)}</div>
-              <p className="text-[10px] text-gray-400">Proveedores activos</p>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Total Costes/mes <span className="relative group cursor-help">ⓘ<span className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 text-[10px] normal-case tracking-normal text-white bg-gray-800 rounded shadow-lg">Proveedores + personal asignado (imputado según % dedicación) + técnicos guardias</span></span></div>
+              <div className="text-lg font-bold text-red-600 mt-1">{formatCurrency(costeTotalProveedores + costePersonalTotal + costeGuardiasTotalMensual)}</div>
+              <p className="text-[10px] text-gray-400">Prov: {formatCurrency(costeTotalProveedores)} + Pers: {formatCurrency(costePersonalTotal)}{costeGuardiasTotalMensual > 0 ? ` + Téc: ${costeGuardiasTotalMensual.toFixed(0)}€` : ''}</p>
             </div>
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Margen Mensual <span className="relative group cursor-help">ⓘ<span className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 text-[10px] normal-case tracking-normal text-white bg-gray-800 rounded shadow-lg">Ingresos mensuales cliente - costes mensuales proveedor. Porcentaje = margen / ingresos.</span></span></div>
-              <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(totalMensual - costeTotalProveedores)}</div>
-              <p className="text-[10px] text-gray-400">{totalMensual > 0 ? (((totalMensual - costeTotalProveedores) / totalMensual) * 100).toFixed(1) : '0'}% sobre facturación</p>
+              <div className="text-[10px] text-gray-500 uppercase tracking-wide flex items-center gap-1">Margen Mensual <span className="relative group cursor-help">ⓘ<span className="absolute hidden group-hover:block z-50 bottom-full left-1/2 -translate-x-1/2 mb-1 w-48 p-2 text-[10px] normal-case tracking-normal text-white bg-gray-800 rounded shadow-lg">Ingresos mensuales cliente - costes (proveedores + personal + técnicos). Porcentaje = margen / ingresos.</span></span></div>
+              <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(totalMensual - costeTotalProveedores - costePersonalTotal - costeGuardiasTotalMensual)}</div>
+              <p className="text-[10px] text-gray-400">{totalMensual > 0 ? (((totalMensual - costeTotalProveedores - costePersonalTotal - costeGuardiasTotalMensual) / totalMensual) * 100).toFixed(1) : '0'}% sobre facturación</p>
             </div>
           </div>
           {/* KPI Altas */}
@@ -979,7 +984,9 @@ export default function DraxtonContratosPage() {
                 <tbody className="divide-y">
                   {datosContratos.map(d => {
                     const contrato = activos.find(c => c.id === d.id);
-                    const costeContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
+                    const costeProvContrato = (contrato?.contratosProveedor || []).filter(p => p.estado === 'Activo').reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
+                    const costePersonalContrato = personalContrato.filter(p => p.contratoDraxtonId === d.id && p.activo).reduce((s, p) => s + (p.costeMensualImputado || 0), 0);
+                    const costeContrato = costeProvContrato + costePersonalContrato;
                     // Para contratos de guardias, añadir previsión de coste técnicos (200€/sem sin asignar)
                     let costeGuardiasMensual = 0;
                     if (contrato?.tipo === 'Guardias' && guardiasData) {
@@ -1006,7 +1013,7 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(d.mensual)}</td>
                       <td className="px-4 py-2 text-right text-red-600">
                         {formatCurrency(costeContrato + costeGuardiasMensual)}
-                        {costeGuardiasMensual > 0 && <span className="text-[9px] text-gray-400 block">Prov: {formatCurrency(costeContrato)} + Téc: {formatCurrency(costeGuardiasMensual)}</span>}
+                        {(costePersonalContrato > 0 || costeGuardiasMensual > 0) && <span className="text-[9px] text-gray-400 block">{costeProvContrato > 0 ? `Prov: ${costeProvContrato.toFixed(0)}€` : ''}{costePersonalContrato > 0 ? `${costeProvContrato > 0 ? ' + ' : ''}Pers: ${costePersonalContrato.toFixed(0)}€` : ''}{costeGuardiasMensual > 0 ? ` + Téc: ${costeGuardiasMensual.toFixed(0)}€` : ''}</span>}
                       </td>
                       <td className="px-4 py-2 text-right text-green-600 font-medium">
                         {formatCurrency(margenContrato)}
@@ -1050,8 +1057,8 @@ export default function DraxtonContratosPage() {
                     <tr className="bg-gray-50 font-bold">
                       <td className="px-4 py-2 text-gray-900">TOTAL</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
-                      <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores + costeGuardiasTotalMensual)}</td>
-                      <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores - costeGuardiasTotalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores + costePersonalTotal + costeGuardiasTotalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores - costePersonalTotal - costeGuardiasTotalMensual)}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
