@@ -201,10 +201,8 @@ export default function DraxtonContratosPage() {
 
   async function fetchPersonalContrato(contratoId?: string) {
     try {
-      const url = contratoId
-        ? `/api/admin/clientes/ggcc/draxton/personal-contrato?contratoId=${contratoId}`
-        : '/api/admin/clientes/ggcc/draxton/personal-contrato';
-      const res = await fetch(url);
+      // Siempre cargar TODOS los contratos para tener datos completos en el dashboard
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/personal-contrato');
       if (res.ok) {
         const data = await res.json();
         setPersonalContrato(data.asignaciones || []);
