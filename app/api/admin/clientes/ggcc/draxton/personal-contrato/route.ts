@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
   // Acción: asignar empleado
   if (action === 'asignar') {
-    const { contratoId, empleadoId, porcentajeDedicacion, rol, funciones, fechaInicio } = body
+    const { contratoId, empleadoId, porcentajeDedicacion, rol, funciones, fechaInicio, fechaFin } = body
 
     if (!contratoId || !empleadoId) {
       return NextResponse.json({ error: 'contratoId y empleadoId requeridos' }, { status: 400 })
@@ -137,6 +137,7 @@ export async function POST(request: NextRequest) {
         rol: rol || null,
         funciones: funciones || null,
         fechaInicio: fechaInicio ? new Date(fechaInicio) : new Date(),
+        fechaFin: fechaFin ? new Date(fechaFin) : null,
       },
       update: {
         porcentajeDedicacion: porcentajeDedicacion || 100,

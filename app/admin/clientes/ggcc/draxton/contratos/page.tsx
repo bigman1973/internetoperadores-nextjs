@@ -143,7 +143,7 @@ export default function DraxtonContratosPage() {
   const [showPersonalForm, setShowPersonalForm] = useState(false);
   const [personalFormContratoId, setPersonalFormContratoId] = useState<string | null>(null);
   const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([]);
-  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' });
+  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
   const [nuevaTarea, setNuevaTarea] = useState('');
 
   // Form state contrato cliente
@@ -216,7 +216,7 @@ export default function DraxtonContratosPage() {
 
   async function fetchEmpleadosDisponibles() {
     try {
-      const res = await fetch('/api/admin/empleados?estado=ACTIVO&periodo=mes&mes=' + new Date().getMonth());
+      const res = await fetch('/api/admin/empleados?estado=todos&periodo=mes&mes=' + new Date().getMonth());
       if (res.ok) {
         const data = await res.json();
         setEmpleadosDisponibles(data.empleados || []);
@@ -239,10 +239,12 @@ export default function DraxtonContratosPage() {
           porcentajeDedicacion: personalForm.porcentajeDedicacion,
           rol: personalForm.rol || null,
           funciones: personalForm.funciones || null,
+          fechaInicio: personalForm.fechaInicio || null,
+          fechaFin: personalForm.fechaFin || null,
         }),
       });
       setShowPersonalForm(false);
-      setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' });
+      setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
       await fetchPersonalContrato(contratoId);
     } catch (err) {
       console.error('Error asignando personal:', err);
@@ -1495,7 +1497,7 @@ export default function DraxtonContratosPage() {
                               <p className="text-xs font-semibold text-gray-700 uppercase">Personal Asignado ({personalContrato.filter(p => p.contratoDraxtonId === c.id && p.activo).length})</p>
                             </div>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setPersonalFormContratoId(c.id); setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '' }); setShowPersonalForm(true); }}
+                              onClick={(e) => { e.stopPropagation(); setPersonalFormContratoId(c.id); setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' }); setShowPersonalForm(true); }}
                               className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1"
                             >
                               <PlusIcon className="w-3 h-3" />
@@ -1516,7 +1518,7 @@ export default function DraxtonContratosPage() {
                                   >
                                     <option value="">-- Seleccionar --</option>
                                     {empleadosDisponibles.map((emp: any) => (
-                                      <option key={emp.id} value={emp.id}>{emp.nombreCompleto} ({emp.categoria || 'Sin categoría'})</option>
+                                      <option key={emp.id} value={emp.id}>{emp.nombreCompleto} ({emp.categoria || 'Sin categoría'}){emp.estado === 'BAJA' ? ' [BAJA]' : ''}</option>
                                     ))}
                                   </select>
                                 </div>
@@ -1544,6 +1546,27 @@ export default function DraxtonContratosPage() {
                                     className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
                                   />
                                 </div>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Fecha desde *</label>
+                                  <input
+                                    type="date"
+                                    value={personalForm.fechaInicio}
+                                    onChange={e => setPersonalForm({...personalForm, fechaInicio: e.target.value})}
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Fecha hasta <span className="text-gray-400">(vacío = indefinido)</span></label>
+                                  <input
+                                    type="date"
+                                    value={personalForm.fechaFin}
+                                    onChange={e => setPersonalForm({...personalForm, fechaFin: e.target.value})}
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                  />
+                                </div>
+                                <div></div>
                                 <div className="flex items-end gap-2">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); asignarPersonal(c.id); }}
@@ -1608,7 +1631,7 @@ export default function DraxtonContratosPage() {
                                       </div>
                                       <div>
                                         <p className="text-sm font-medium text-gray-900">{pa.empleado.nombreCompleto}</p>
-                                        <p className="text-[10px] text-gray-500">{pa.rol || pa.empleado.categoria || '—'} · {pa.porcentajeDedicacion}% dedicación</p>
+                                        <p className="text-[10px] text-gray-500">{pa.rol || pa.empleado.categoria || '—'} · {pa.porcentajeDedicacion}% dedicación · <span className="text-indigo-600">{pa.fechaInicio ? new Date(pa.fechaInicio).toLocaleDateString('es-ES') : '—'} → {pa.fechaFin ? new Date(pa.fechaFin).toLocaleDateString('es-ES') : 'Indefinido'}</span></p>
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-3 text-[10px]">
