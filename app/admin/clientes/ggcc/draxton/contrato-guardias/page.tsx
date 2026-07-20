@@ -168,21 +168,37 @@ export default function DraxtonContratoGuardiasPage() {
 
   const semanas = getSemanasAnio(anio)
 
+  // Helper para formatear fecha local sin problemas de timezone
+  const toLocalDateStr = (d: Date) => {
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+
   const handleAsignar = async (semanaInicio: Date, semanaFin: Date, tecnicoId: string) => {
     if (!tecnicoId) return
     const tecnico = tecnicos.find(t => t.id === tecnicoId)
     const tarifa = tarifas.find(t => t.nivel === tecnico?.nivel && !t.fechaHasta)
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'asignarSemana',
-        tecnicoId,
-        semanaInicio: semanaInicio.toISOString().split('T')[0],
-        semanaFin: semanaFin.toISOString().split('T')[0],
-        importeSemana: tarifa?.importeSemana || null,
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'asignarSemana',
+          tecnicoId,
+          semanaInicio: toLocalDateStr(semanaInicio),
+          semanaFin: toLocalDateStr(semanaFin),
+          importeSemana: tarifa?.importeSemana || null,
+        })
       })
-    })
+      if (!res.ok) {
+        const err = await res.json()
+        console.error('Error asignando semana:', err)
+      }
+    } catch (e) {
+      console.error('Error asignando semana:', e)
+    }
     fetchData()
   }
 
@@ -246,8 +262,8 @@ export default function DraxtonContratoGuardiasPage() {
     // Buscar asignación de la semana actual
     const fecha = new Date(formIncidencia.fechaHora)
     const asig = asignaciones.find(a => {
-      const ini = new Date(a.semanaInicio)
-      const fin = new Date(a.semanaFin)
+      const ini = new Date(a.semanaInicio + 'T00:00:00')
+      const fin = new Date(a.semanaFin + 'T23:59:59')
       return fecha >= ini && fecha <= fin
     })
     await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
@@ -469,8 +485,8 @@ export default function DraxtonContratoGuardiasPage() {
                   <tbody className="divide-y">
                     {semanas.map(sem => {
                       const asig = asignaciones.find(a => {
-                        const ai = new Date(a.semanaInicio)
-                        return ai.getTime() === sem.inicio.getTime()
+                        const ai = a.semanaInicio.split('T')[0]
+                        return ai === toLocalDateStr(sem.inicio)
                       })
                       const incSemana = incidencias.filter(i => {
                         const f = new Date(i.fechaHora)
