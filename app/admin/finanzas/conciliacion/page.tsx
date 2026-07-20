@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon, CalendarDaysIcon, ChevronDownIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CheckCircleIcon, XMarkIcon, LinkIcon, BanknotesIcon, DocumentTextIcon, ArrowUturnLeftIcon, MagnifyingGlassIcon, ExclamationTriangleIcon, UserIcon, CalendarDaysIcon, ChevronDownIcon, EyeIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 
 interface Movimiento {
   id: string;
@@ -131,6 +131,7 @@ export default function ConciliacionPage() {
   const [showDetalleVinculacion, setShowDetalleVinculacion] = useState<Movimiento | null>(null);
 
   const [showSimilaresModal, setShowSimilaresModal] = useState(false);
+  const [showVideoTutorial, setShowVideoTutorial] = useState(false);
   const [similaresList, setSimilaresList] = useState<any[]>([]);
   const [similaresSeleccionados, setSimilaresSeleccionados] = useState<Set<string>>(new Set());
   const [similaresMovId, setSimilaresMovId] = useState<string | null>(null);
@@ -1031,14 +1032,24 @@ export default function ConciliacionPage() {
             Vincula movimientos bancarios con facturas
           </p>
         </div>
-        <button
-          onClick={ejecutarConciliacion}
-          disabled={conciliando}
-          className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium text-sm"
-        >
-          <ArrowPathIcon className={`h-4 w-4 ${conciliando ? 'animate-spin' : ''}`} />
-          {conciliando ? 'Conciliando...' : 'Conciliar Automaticamente'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowVideoTutorial(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 font-medium text-sm border border-indigo-200 transition-colors"
+            title="Ver videotutorial"
+          >
+            <PlayCircleIcon className="h-5 w-5" />
+            Tutorial
+          </button>
+          <button
+            onClick={ejecutarConciliacion}
+            disabled={conciliando}
+            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium text-sm"
+          >
+            <ArrowPathIcon className={`h-4 w-4 ${conciliando ? 'animate-spin' : ''}`} />
+            {conciliando ? 'Conciliando...' : 'Conciliar Automaticamente'}
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -2162,6 +2173,34 @@ export default function ConciliacionPage() {
               <div className="flex justify-end">
                 <button onClick={() => setShowDetalleVinculacion(null)} className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">Cerrar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal Video Tutorial */}
+      {showVideoTutorial && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setShowVideoTutorial(false)} />
+          <div className="relative bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden">
+            <div className="flex items-center justify-between p-4 border-b">
+              <div className="flex items-center gap-2">
+                <PlayCircleIcon className="h-5 w-5 text-indigo-600" />
+                <h3 className="font-semibold text-gray-900">Tutorial: Conciliación Bancaria</h3>
+              </div>
+              <button onClick={() => setShowVideoTutorial(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                <XMarkIcon className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-4">
+              <video
+                controls
+                autoPlay
+                className="w-full rounded-lg"
+                src="https://files.manuscdn.com/user_upload_by_module/session_file/310519663306876178/xDZYuOYdMKatbZge.mp4"
+              >
+                Tu navegador no soporta la reproducción de video.
+              </video>
+              <p className="text-xs text-gray-500 mt-3 text-center">Duración: 2:30 min — Guía rápida de conciliación bancaria</p>
             </div>
           </div>
         </div>
