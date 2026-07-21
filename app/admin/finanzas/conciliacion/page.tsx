@@ -2196,11 +2196,11 @@ export default function ConciliacionPage() {
                 controls
                 autoPlay
                 className="w-full rounded-lg"
-                src="https://files.manuscdn.com/user_upload_by_module/session_file/310519663306876178/NgJnknPNauVNYXlb.mp4"
+                src="https://files.manuscdn.com/user_upload_by_module/session_file/310519663306876178/LHLGCtxEIcMYKBNR.mp4"
               >
                 Tu navegador no soporta la reproducción de video.
               </video>
-              <p className="text-xs text-gray-500 mt-3 text-center">Duración: 2:30 min — Guía rápida de conciliación bancaria</p>
+              <p className="text-xs text-gray-500 mt-3 text-center">Duración: 2:28 min — Guía rápida de conciliación bancaria</p>
             </div>
           </div>
         </div>
