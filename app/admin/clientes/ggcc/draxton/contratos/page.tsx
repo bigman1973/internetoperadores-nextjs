@@ -84,6 +84,10 @@ interface Contrato {
   documentoNombre: string | null;
   clienteFacturacionId?: number | null;
   clienteFacturacion?: { id: number; nombre: string; cif: string | null } | null;
+  modalidadContrato?: string | null;
+  horasContratadas?: number | null;
+  nivelContratado?: number | null;
+  precioHoraContrato?: number | null;
   contratosProveedor?: ContratoProveedor[];
 }
 
@@ -143,7 +147,7 @@ export default function DraxtonContratosPage() {
   const [showPersonalForm, setShowPersonalForm] = useState(false);
   const [personalFormContratoId, setPersonalFormContratoId] = useState<string | null>(null);
   const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([]);
-  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
+  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, nivelTecnico: '', rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
   const [nuevaTarea, setNuevaTarea] = useState('');
 
   // Form state contrato cliente
@@ -235,6 +239,7 @@ export default function DraxtonContratosPage() {
           contratoId,
           empleadoId: personalForm.empleadoId,
           porcentajeDedicacion: personalForm.porcentajeDedicacion,
+          nivelTecnico: personalForm.nivelTecnico || null,
           rol: personalForm.rol || null,
           funciones: personalForm.funciones || null,
           fechaInicio: personalForm.fechaInicio || null,
@@ -242,7 +247,7 @@ export default function DraxtonContratosPage() {
         }),
       });
       setShowPersonalForm(false);
-      setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
+      setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, nivelTecnico: '', rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
       await fetchPersonalContrato(contratoId);
     } catch (err) {
       console.error('Error asignando personal:', err);
@@ -606,6 +611,10 @@ export default function DraxtonContratosPage() {
       documentoNombre: c.documentoNombre,
       clienteFacturacionId: c.clienteFacturacionId,
       codigoContrato: c.codigoContrato,
+      modalidadContrato: c.modalidadContrato,
+      horasContratadas: c.horasContratadas,
+      nivelContratado: c.nivelContratado,
+      precioHoraContrato: c.precioHoraContrato,
     });
     setEditingId(c.id);
     setShowForm(true);
@@ -1502,7 +1511,7 @@ export default function DraxtonContratosPage() {
                               <p className="text-xs font-semibold text-gray-700 uppercase">Personal Asignado ({personalContrato.filter(p => p.contratoDraxtonId === c.id && p.activo).length})</p>
                             </div>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setPersonalFormContratoId(c.id); setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' }); setShowPersonalForm(true); }}
+                              onClick={(e) => { e.stopPropagation(); setPersonalFormContratoId(c.id); setPersonalForm({ empleadoId: '', porcentajeDedicacion: 100, nivelTecnico: '', rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' }); setShowPersonalForm(true); }}
                               className="px-3 py-1.5 text-xs bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 inline-flex items-center gap-1"
                             >
                               <PlusIcon className="w-3 h-3" />
@@ -1529,16 +1538,27 @@ export default function DraxtonContratosPage() {
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-gray-600 font-medium block mb-1">Dedicación %</label>
-                                  <select
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="100"
                                     value={personalForm.porcentajeDedicacion}
-                                    onChange={e => setPersonalForm({...personalForm, porcentajeDedicacion: parseInt(e.target.value)})}
+                                    onChange={e => setPersonalForm({...personalForm, porcentajeDedicacion: parseInt(e.target.value) || 0})}
+                                    className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
+                                    placeholder="1-100"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Nivel Técnico</label>
+                                  <select
+                                    value={personalForm.nivelTecnico}
+                                    onChange={e => setPersonalForm({...personalForm, nivelTecnico: e.target.value})}
                                     className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
                                   >
-                                    <option value={10}>10%</option>
-                                    <option value={25}>25%</option>
-                                    <option value={50}>50%</option>
-                                    <option value={75}>75%</option>
-                                    <option value={100}>100%</option>
+                                    <option value="">Sin nivel</option>
+                                    <option value="1">Nivel 1 (×1)</option>
+                                    <option value="2">Nivel 2 (×2)</option>
+                                    <option value="3">Nivel 3 (×3)</option>
                                   </select>
                                 </div>
                                 <div>
@@ -1624,6 +1644,95 @@ export default function DraxtonContratosPage() {
                             </div>
                           )}
 
+                          {/* Balance de horas para contratos de Mantenimiento por horas */}
+                          {c.tipo === 'Mantenimiento' && c.modalidadContrato === 'horas' && c.horasContratadas && (
+                            (() => {
+                              const personalDelContrato = personalContrato.filter(p => p.contratoDraxtonId === c.id && p.activo);
+                              const horasContratadas = c.horasContratadas || 0;
+                              const nivelContratado = c.nivelContratado || 1;
+                              const precioHora = c.importeMensual && horasContratadas ? c.importeMensual / horasContratadas : 0;
+                              
+                              // Calcular horas consumidas equivalentes (ajustadas al nivel contratado)
+                              let horasConsumidas = 0;
+                              const detallePersonal: {nombre: string; dedicacion: number; nivel: number; horasBase: number; horasEquiv: number}[] = [];
+                              
+                              personalDelContrato.forEach((p: any) => {
+                                const nivel = p.nivelTecnico || 1;
+                                const horasBase = 143.33 * (p.porcentajeDedicacion / 100);
+                                // Si el técnico es de nivel superior al contratado, consume más horas
+                                const multiplicador = nivel / nivelContratado;
+                                const horasEquiv = horasBase * multiplicador;
+                                horasConsumidas += horasEquiv;
+                                detallePersonal.push({
+                                  nombre: p.empleado.nombreCompleto,
+                                  dedicacion: p.porcentajeDedicacion,
+                                  nivel,
+                                  horasBase: Math.round(horasBase * 10) / 10,
+                                  horasEquiv: Math.round(horasEquiv * 10) / 10,
+                                });
+                              });
+                              
+                              const balance = horasContratadas - horasConsumidas;
+                              const porcentajeUso = horasContratadas > 0 ? (horasConsumidas / horasContratadas) * 100 : 0;
+                              const isDeficit = balance < 0;
+                              const isSuperavit = balance > horasContratadas * 0.2;
+                              
+                              return (
+                                <div className={`mb-3 rounded-lg p-3 border ${isDeficit ? 'bg-red-50 border-red-200' : isSuperavit ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`} onClick={e => e.stopPropagation()}>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <p className="text-xs font-semibold text-gray-800">⏱ Balance de Horas</p>
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded ${isDeficit ? 'bg-red-100 text-red-700' : isSuperavit ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>
+                                      {porcentajeUso.toFixed(0)}% uso
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-3 mb-2 text-center">
+                                    <div>
+                                      <p className="text-[10px] text-gray-500">Contratadas/mes</p>
+                                      <p className="text-sm font-bold text-gray-900">{horasContratadas}h</p>
+                                      <p className="text-[9px] text-gray-400">N{nivelContratado} · {precioHora.toFixed(2)}€/h</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] text-gray-500">Consumidas equiv.</p>
+                                      <p className="text-sm font-bold text-gray-900">{horasConsumidas.toFixed(1)}h</p>
+                                      <p className="text-[9px] text-gray-400">{personalDelContrato.length} persona(s)</p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] text-gray-500">Balance</p>
+                                      <p className={`text-sm font-bold ${isDeficit ? 'text-red-600' : 'text-green-600'}`}>{balance > 0 ? '+' : ''}{balance.toFixed(1)}h</p>
+                                      <p className="text-[9px] text-gray-400">{isDeficit ? 'DÉFICIT' : 'Disponible'}</p>
+                                    </div>
+                                  </div>
+                                  {/* Barra de progreso */}
+                                  <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                                    <div className={`h-2 rounded-full ${porcentajeUso > 100 ? 'bg-red-500' : porcentajeUso > 80 ? 'bg-amber-500' : 'bg-green-500'}`} style={{width: `${Math.min(porcentajeUso, 100)}%`}}></div>
+                                  </div>
+                                  {/* Detalle por persona */}
+                                  {detallePersonal.length > 0 && (
+                                    <div className="text-[10px] text-gray-600 space-y-0.5">
+                                      {detallePersonal.map((d, i) => (
+                                        <div key={i} className="flex justify-between">
+                                          <span>{d.nombre} ({d.dedicacion}% · N{d.nivel})</span>
+                                          <span>{d.horasBase}h base → <strong>{d.horasEquiv}h equiv.</strong>{d.nivel !== nivelContratado ? ` (×${(d.nivel/nivelContratado).toFixed(1)})` : ''}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {/* Alertas y recomendaciones */}
+                                  {isDeficit && (
+                                    <div className="mt-2 p-2 bg-red-100 rounded text-[10px] text-red-700">
+                                      <strong>⚠️ Déficit de {Math.abs(balance).toFixed(1)}h/mes.</strong> Opciones: reducir dedicación de personal, bajar nivel de técnico, o negociar más horas con el cliente.
+                                    </div>
+                                  )}
+                                  {isSuperavit && (
+                                    <div className="mt-2 p-2 bg-amber-100 rounded text-[10px] text-amber-700">
+                                      <strong>💡 Superávit de {balance.toFixed(1)}h/mes.</strong> Puedes subir la dedicación del personal asignado o asignar más recursos.
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          )}
+
                           {/* Lista de personal asignado */}
                           {personalContrato.filter(p => p.contratoDraxtonId === c.id).length > 0 ? (
                             <div className="space-y-3">
@@ -1643,16 +1752,25 @@ export default function DraxtonContratosPage() {
                                       <span className="text-gray-600">Coste/mes: <strong className="text-gray-900">{pa.costeMensualTotal?.toFixed(2)}€</strong></span>
                                       <span className="text-gray-600">€/hora: <strong className="text-gray-900">{pa.costeHora?.toFixed(2)}€</strong></span>
                                       <span className="text-indigo-700 font-medium">Imputado: <strong>{pa.costeMensualImputado?.toFixed(2)}€/mes</strong></span>
-                                      <select
+                                      <input
+                                        type="number"
+                                        min="1"
+                                        max="100"
                                         value={pa.porcentajeDedicacion}
-                                        onChange={e => actualizarPersonal(pa.id, { porcentajeDedicacion: parseInt(e.target.value) }, c.id)}
+                                        onChange={e => actualizarPersonal(pa.id, { porcentajeDedicacion: parseInt(e.target.value) || 0 }, c.id)}
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-12 text-center"
+                                        title="% dedicación"
+                                      />
+                                      <select
+                                        value={pa.nivelTecnico || ''}
+                                        onChange={e => actualizarPersonal(pa.id, { nivelTecnico: e.target.value || null }, c.id)}
                                         className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
+                                        title="Nivel técnico"
                                       >
-                                        <option value={10}>10%</option>
-                                        <option value={25}>25%</option>
-                                        <option value={50}>50%</option>
-                                        <option value={75}>75%</option>
-                                        <option value={100}>100%</option>
+                                        <option value="">—</option>
+                                        <option value="1">N1</option>
+                                        <option value="2">N2</option>
+                                        <option value="3">N3</option>
                                       </select>
                                       <button onClick={() => desasignarPersonal(pa.id, c.id)} className="text-red-500 hover:text-red-700" title="Desasignar">
                                         <TrashIcon className="w-3.5 h-3.5" />
@@ -2375,6 +2493,43 @@ export default function DraxtonContratosPage() {
                 <label className="block text-xs font-medium text-gray-600 mb-1">Importe Anual (€)</label>
                 <input type="number" step="0.01" value={form.importeAnual || ''} onChange={e => setForm({ ...form, importeAnual: parseFloat(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
               </div>
+              {/* Campos específicos para contratos de Mantenimiento */}
+              {(form.tipo === 'Mantenimiento') && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Modalidad</label>
+                    <select value={form.modalidadContrato || ''} onChange={e => setForm({ ...form, modalidadContrato: e.target.value || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                      <option value="">Seleccionar...</option>
+                      <option value="horas">Por Horas</option>
+                      <option value="recurso">Por Recurso</option>
+                    </select>
+                  </div>
+                  {form.modalidadContrato === 'horas' && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Horas Contratadas/mes</label>
+                        <input type="number" step="1" value={form.horasContratadas || ''} onChange={e => setForm({ ...form, horasContratadas: parseInt(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: 40" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Nivel Técnico Contratado</label>
+                        <select value={form.nivelContratado || ''} onChange={e => setForm({ ...form, nivelContratado: parseInt(e.target.value) || null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                          <option value="">Seleccionar...</option>
+                          <option value="1">Nivel 1</option>
+                          <option value="2">Nivel 2</option>
+                          <option value="3">Nivel 3</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Precio/hora (calculado)</label>
+                        <div className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-gray-50">
+                          {form.importeMensual && form.horasContratadas ? (form.importeMensual / form.horasContratadas).toFixed(2) + '€/h' : '—'}
+                        </div>
+                        <p className="text-[10px] text-gray-400 mt-1">Importe mensual ÷ horas contratadas</p>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Empresa Facturación</label>
                 <select value={form.clienteFacturacionId || ''} onChange={e => setForm({ ...form, clienteFacturacionId: e.target.value ? parseInt(e.target.value) : null })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">

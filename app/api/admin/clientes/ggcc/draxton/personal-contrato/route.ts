@@ -89,6 +89,7 @@ export async function GET(request: NextRequest) {
         estado: a.empleado.estado,
       },
       porcentajeDedicacion: a.porcentajeDedicacion,
+      nivelTecnico: a.nivelTecnico,
       rol: a.rol,
       funciones: a.funciones,
       fechaInicio: a.fechaInicio,
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
 
   // Acción: asignar empleado
   if (action === 'asignar') {
-    const { contratoId, empleadoId, porcentajeDedicacion, rol, funciones, fechaInicio, fechaFin } = body
+    const { contratoId, empleadoId, porcentajeDedicacion, nivelTecnico, rol, funciones, fechaInicio, fechaFin } = body
 
     if (!contratoId || !empleadoId) {
       return NextResponse.json({ error: 'contratoId y empleadoId requeridos' }, { status: 400 })
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
         contratoDraxtonId: contratoId,
         empleadoId: empleadoId,
         porcentajeDedicacion: porcentajeDedicacion || 100,
+        nivelTecnico: nivelTecnico ? parseInt(nivelTecnico) : null,
         rol: rol || null,
         funciones: funciones || null,
         fechaInicio: fechaInicio ? new Date(fechaInicio) : new Date(),
@@ -141,6 +143,7 @@ export async function POST(request: NextRequest) {
       },
       update: {
         porcentajeDedicacion: porcentajeDedicacion || 100,
+        nivelTecnico: nivelTecnico ? parseInt(nivelTecnico) : undefined,
         rol: rol || undefined,
         funciones: funciones || undefined,
         activo: true,
@@ -152,7 +155,7 @@ export async function POST(request: NextRequest) {
 
   // Acción: actualizar asignación (dedicación, rol, funciones, etc.)
   if (action === 'actualizar') {
-    const { asignacionId, porcentajeDedicacion, rol, funciones, activo, notas } = body
+    const { asignacionId, porcentajeDedicacion, nivelTecnico, rol, funciones, activo, notas } = body
 
     if (!asignacionId) {
       return NextResponse.json({ error: 'asignacionId requerido' }, { status: 400 })
@@ -160,6 +163,7 @@ export async function POST(request: NextRequest) {
 
     const updateData: any = {}
     if (porcentajeDedicacion !== undefined) updateData.porcentajeDedicacion = porcentajeDedicacion
+    if (nivelTecnico !== undefined) updateData.nivelTecnico = nivelTecnico ? parseInt(nivelTecnico) : null
     if (rol !== undefined) updateData.rol = rol
     if (funciones !== undefined) updateData.funciones = funciones
     if (activo !== undefined) updateData.activo = activo

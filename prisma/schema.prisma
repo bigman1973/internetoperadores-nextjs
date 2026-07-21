@@ -1872,6 +1872,11 @@ model ContratoDraxton {
   mesFacturacion        String?  @map("mes_facturacion")
   documentoUrl          String?  @map("documento_url")
   documentoNombre       String?  @map("documento_nombre")
+  // Campos para contratos de mantenimiento IT
+  modalidadContrato     String?  @map("modalidad_contrato") // "horas" o "recurso"
+  horasContratadas      Float?   @map("horas_contratadas") // Horas mensuales contratadas
+  nivelContratado       Int?     @map("nivel_contratado") // 1, 2 o 3
+  precioHoraContrato    Decimal? @map("precio_hora_contrato") @db.Decimal(10, 2) // Calculado: importeMensual / horasContratadas
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
   clienteFacturacionId  Int?     @map("cliente_facturacion_id")
@@ -1919,7 +1924,8 @@ model PersonalContratoDraxton {
   id                    String   @id @default(uuid())
   contratoDraxtonId     String   @map("contrato_draxton_id")
   empleadoId            String   @map("empleado_id")
-  porcentajeDedicacion  Float    @default(100) @map("porcentaje_dedicacion") // 25, 50, 75, 100
+  porcentajeDedicacion  Float    @default(100) @map("porcentaje_dedicacion") // % libre (1-100)
+  nivelTecnico          Int?     @map("nivel_tecnico") // 1, 2 o 3 - multiplicador de consumo de horas
   rol                   String?  // Responsable, Técnico, Soporte, etc.
   funciones             String?  // Descripción de funciones del puesto
   fechaInicio           DateTime? @map("fecha_inicio") @db.Date

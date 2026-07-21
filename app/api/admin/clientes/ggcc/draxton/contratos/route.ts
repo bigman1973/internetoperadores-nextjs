@@ -43,6 +43,10 @@ export async function POST(req: NextRequest) {
         documentoUrl: body.documentoUrl || null,
         documentoNombre: body.documentoNombre || null,
         clienteFacturacionId: body.clienteFacturacionId || null,
+        modalidadContrato: body.modalidadContrato || null,
+        horasContratadas: body.horasContratadas ? parseFloat(body.horasContratadas) : null,
+        nivelContratado: body.nivelContratado ? parseInt(body.nivelContratado) : null,
+        precioHoraContrato: body.precioHoraContrato ? parseFloat(body.precioHoraContrato) : null,
       },
     });
 
@@ -88,6 +92,10 @@ export async function PUT(req: NextRequest) {
     if (fields.documentoUrl !== undefined) data.documentoUrl = fields.documentoUrl || null;
     if (fields.documentoNombre !== undefined) data.documentoNombre = fields.documentoNombre || null;
     if (fields.clienteFacturacionId !== undefined) data.clienteFacturacionId = fields.clienteFacturacionId || null;
+    if (fields.modalidadContrato !== undefined) data.modalidadContrato = fields.modalidadContrato || null;
+    if (fields.horasContratadas !== undefined) data.horasContratadas = fields.horasContratadas ? parseFloat(fields.horasContratadas) : null;
+    if (fields.nivelContratado !== undefined) data.nivelContratado = fields.nivelContratado ? parseInt(fields.nivelContratado) : null;
+    if (fields.precioHoraContrato !== undefined) data.precioHoraContrato = fields.precioHoraContrato ? parseFloat(fields.precioHoraContrato) : null;
 
     const contrato = await prisma.contratoDraxton.update({
       where: { id },
