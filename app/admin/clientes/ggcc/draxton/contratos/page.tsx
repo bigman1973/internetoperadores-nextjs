@@ -1627,10 +1627,10 @@ export default function DraxtonContratosPage() {
                                 if (nominas.length > 0) {
                                   const totalSinDesplaz = nominas.reduce((s: number, n: any) => s + (n.costeTotalEmpresa || 0) - (n.gastosDesplazamiento || 0), 0);
                                   costeMes = totalSinDesplaz / nominas.length;
-                                  costeHora = costeMes / 143.33;
+                                  costeHora = costeMes / 128.67; // 1544h/año (descontando 22 días vacaciones) ÷ 12 meses
                                 } else if (emp.costeHoraActual) {
                                   costeHora = emp.costeHoraActual;
-                                  costeMes = costeHora * 143.33;
+                                  costeMes = costeHora * 128.67;
                                 }
                                 const imputado = costeMes * (personalForm.porcentajeDedicacion / 100);
                                 return (
@@ -1658,7 +1658,7 @@ export default function DraxtonContratosPage() {
                               
                               personalDelContrato.forEach((p: any) => {
                                 const nivel = p.nivelTecnico || 1;
-                                const horasBase = 143.33 * (p.porcentajeDedicacion / 100);
+                                const horasBase = 128.67 * (p.porcentajeDedicacion / 100); // h/mes netas (sin vacaciones)
                                 // Si el técnico es de nivel superior al contratado, consume más horas
                                 const multiplicador = nivel / nivelContratado;
                                 const horasEquiv = horasBase * multiplicador;
