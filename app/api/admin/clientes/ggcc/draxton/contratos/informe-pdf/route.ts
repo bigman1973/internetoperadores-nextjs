@@ -74,9 +74,22 @@ export async function GET(req: NextRequest) {
       return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato, balanceHoras };
     });
 
+    // Calcular personas sobreasignadas (>100% dedicación total)
+    const dedicacionPorEmpleado: Record<string, { nombre: string; totalDedicacion: number; contratos: string[] }> = {};
+    personalAsignado.forEach(p => {
+      const empId = p.empleadoId;
+      if (!dedicacionPorEmpleado[empId]) {
+        dedicacionPorEmpleado[empId] = { nombre: p.empleado?.nombreCompleto || 'Sin nombre', totalDedicacion: 0, contratos: [] };
+      }
+      dedicacionPorEmpleado[empId].totalDedicacion += (p.porcentajeDedicacion || 0);
+      const contrato = contratos.find(c => c.id === p.contratoDraxtonId);
+      if (contrato) dedicacionPorEmpleado[empId].contratos.push(contrato.titulo);
+    });
+    const sobreasignados = Object.values(dedicacionPorEmpleado).filter(e => e.totalDedicacion > 100);
+
     const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
     const html = tipo === 'interno'
-      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl)
+      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, sobreasignados)
       : generarHTMLCliente(contratosData, fecha, logoUrl);
 
     return new NextResponse(html, {
@@ -275,7 +288,7 @@ function estilosBase(): string {
   `;
 }
 
-function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string): string {
+function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string, sobreasignados: { nombre: string; totalDedicacion: number; contratos: string[] }[] = []): string {
   const margenPctTotal = totalMensual > 0 ? ((totalMargen / totalMensual) * 100).toFixed(1) : '0';
 
   const filasContratos = contratos.map(c => `
@@ -385,6 +398,26 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
         <div class="kpi-value" style="color:${Number(margenPctTotal) >= 30 ? '#16a34a' : '#d97706'};">${margenPctTotal}%</div>
       </div>
     </div>
+
+    ${sobreasignados.length > 0 ? `
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="font-size:14px;">⚠️</span>
+        <span style="font-size:10px;font-weight:700;color:#b91c1c;text-transform:uppercase;">Recursos sobreasignados (${sobreasignados.length})</span>
+      </div>
+      <table class="sub-table" style="margin:0;">
+        <thead><tr><th>Recurso</th><th style="text-align:center;">Dedicación total</th><th>Contratos asignados</th></tr></thead>
+        <tbody>
+          ${sobreasignados.map(s => `
+            <tr>
+              <td style="font-weight:600;">${s.nombre}</td>
+              <td style="text-align:center;color:#dc2626;font-weight:700;">${s.totalDedicacion}%</td>
+              <td style="font-size:9px;color:#6b7280;">${s.contratos.join(', ')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
 
     <h2>Resumen de Contratos</h2>
     <table>

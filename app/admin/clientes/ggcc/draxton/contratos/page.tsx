@@ -846,6 +846,21 @@ export default function DraxtonContratosPage() {
     .filter(p => p.activo)
     .reduce((sum, p) => sum + (p.costeMensualImputado || 0), 0);
 
+  // Detectar personas sobreasignadas (>100% total entre todos los contratos)
+  const personasSobreasignadas = (() => {
+    const dedicacionPorEmpleado: Record<string, { nombre: string; totalDedicacion: number; contratos: string[] }> = {};
+    personalContrato.filter(p => p.activo).forEach(p => {
+      const empId = p.empleadoId;
+      if (!dedicacionPorEmpleado[empId]) {
+        dedicacionPorEmpleado[empId] = { nombre: p.empleado?.nombreCompleto || 'Sin nombre', totalDedicacion: 0, contratos: [] };
+      }
+      dedicacionPorEmpleado[empId].totalDedicacion += (p.porcentajeDedicacion || 0);
+      const contrato = activos.find(c => c.id === p.contratoDraxtonId);
+      if (contrato) dedicacionPorEmpleado[empId].contratos.push(contrato.titulo);
+    });
+    return Object.values(dedicacionPorEmpleado).filter(e => e.totalDedicacion > 100);
+  })();
+
   // Coste guardias mensual total (para TOTAL de tabla)
   const costeGuardiasTotalMensual = (() => {
     const contratoGuardias = activos.find(c => c.tipo === 'Guardias');
@@ -947,6 +962,24 @@ export default function DraxtonContratosPage() {
                 <div className="text-[10px] text-gray-500 uppercase tracking-wide">Margen Altas</div>
                 <div className="text-lg font-bold text-green-600 mt-1">{formatCurrency(margenAltas)}</div>
                 <p className="text-[10px] text-gray-400">{totalAltaCliente > 0 ? ((margenAltas / totalAltaCliente) * 100).toFixed(1) : '0'}%</p>
+              </div>
+            </div>
+          )}
+          {/* Alerta sobreasignación */}
+          {personasSobreasignadas.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-red-600 text-lg">⚠️</span>
+                <span className="text-xs font-bold text-red-700 uppercase">Recursos sobreasignados ({personasSobreasignadas.length})</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                {personasSobreasignadas.map((p, i) => (
+                  <div key={i} className="bg-white rounded-lg border border-red-100 p-2.5">
+                    <p className="text-xs font-semibold text-gray-900">{p.nombre}</p>
+                    <p className="text-[10px] text-red-600 font-bold">{p.totalDedicacion}% dedicación total</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">En: {p.contratos.join(', ')}</p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1605,11 +1638,10 @@ export default function DraxtonContratosPage() {
                                   <input
                                     type="number"
                                     min="1"
-                                    max="100"
                                     value={personalForm.porcentajeDedicacion}
                                     onChange={e => setPersonalForm({...personalForm, porcentajeDedicacion: parseInt(e.target.value) || 0})}
                                     className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5"
-                                    placeholder="1-100"
+                                    placeholder="%"
                                   />
                                 </div>
                                 <div>
@@ -1819,7 +1851,6 @@ export default function DraxtonContratosPage() {
                                       <input
                                         type="number"
                                         min="1"
-                                        max="100"
                                         value={pa.porcentajeDedicacion}
                                         onChange={e => actualizarPersonal(pa.id, { porcentajeDedicacion: parseInt(e.target.value) || 0 }, c.id)}
                                         className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-12 text-center"
