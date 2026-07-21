@@ -978,6 +978,7 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">€/mes</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Coste/mes</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Margen</th>
+                    <th className="text-right px-4 py-2 font-medium text-teal-600">Balance h.</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Alta</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
                     <th className="text-right px-4 py-2 font-medium text-blue-600">Facturado</th>
@@ -1026,6 +1027,29 @@ export default function DraxtonContratosPage() {
                         {formatCurrency(margenContrato)}
                         <span className="text-[9px] text-gray-400 block">{margenPct}%</span>
                       </td>
+                      <td className="px-4 py-2 text-right">
+                        {(() => {
+                          if (contrato?.modalidadContrato !== 'horas' || !contrato?.horasContratadas) return <span className="text-gray-300">—</span>;
+                          const nivelContratado = contrato.nivelContratado || 1;
+                          const personalDelC = personalContrato.filter((p: any) => p.contratoDraxtonId === d.id && p.activo);
+                          let horasConsumidas = 0;
+                          personalDelC.forEach((p: any) => {
+                            const nivel = p.nivelTecnico || 1;
+                            const horasBase = 128.67 * (p.porcentajeDedicacion / 100);
+                            const multiplicador = nivel / nivelContratado;
+                            horasConsumidas += horasBase * multiplicador;
+                          });
+                          const balance = contrato.horasContratadas - horasConsumidas;
+                          return (
+                            <>
+                              <span className={balance >= 0 ? 'text-teal-600 font-medium' : 'text-red-600 font-medium'}>
+                                {balance >= 0 ? '+' : ''}{balance.toFixed(1)}h
+                              </span>
+                              <span className="text-[9px] text-gray-400 block">{contrato.horasContratadas}h - {horasConsumidas.toFixed(1)}h</span>
+                            </>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-2 text-right text-gray-700">
                         {d.altaCliente > 0 ? formatCurrency(d.altaCliente) : <span className="text-gray-300">—</span>}
                         {altaProvContrato > 0 && <span className="text-[9px] text-red-500 block">Coste: {formatCurrency(altaProvContrato)}</span>}
@@ -1066,6 +1090,27 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalMensual)}</td>
                       <td className="px-4 py-2 text-right text-red-700">{formatCurrency(costeTotalProveedores + costePersonalTotal + costeGuardiasTotalMensual)}</td>
                       <td className="px-4 py-2 text-right text-green-700">{formatCurrency(totalMensual - costeTotalProveedores - costePersonalTotal - costeGuardiasTotalMensual)}</td>
+                      <td className="px-4 py-2 text-right text-teal-700">
+                        {(() => {
+                          let totalBalance = 0;
+                          let hayContratoHoras = false;
+                          activos.forEach((c: any) => {
+                            if (c.modalidadContrato === 'horas' && c.horasContratadas) {
+                              hayContratoHoras = true;
+                              const nivelC = c.nivelContratado || 1;
+                              const personalDelC = personalContrato.filter((p: any) => p.contratoDraxtonId === c.id && p.activo);
+                              let horasConsum = 0;
+                              personalDelC.forEach((p: any) => {
+                                const nivel = p.nivelTecnico || 1;
+                                horasConsum += 128.67 * (p.porcentajeDedicacion / 100) * (nivel / nivelC);
+                              });
+                              totalBalance += c.horasContratadas - horasConsum;
+                            }
+                          });
+                          if (!hayContratoHoras) return '—';
+                          return <span className={totalBalance >= 0 ? 'text-teal-700' : 'text-red-700'}>{totalBalance >= 0 ? '+' : ''}{totalBalance.toFixed(1)}h</span>;
+                        })()}
+                      </td>
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
