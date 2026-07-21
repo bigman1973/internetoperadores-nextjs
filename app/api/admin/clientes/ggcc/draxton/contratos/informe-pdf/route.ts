@@ -480,8 +480,10 @@ function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string): s
     ` : '';
 
     const horasHtml = c.balanceHoras ? `
-      <div class="balance-box balance-positive">
-        <strong>Horas contratadas:</strong> ${c.balanceHoras.contratadas}h/mes — Nivel técnico base: N${c.nivelContratado || 1}
+      <div class="balance-box ${c.balanceHoras.balance >= 0 ? 'balance-positive' : 'balance-negative'}">
+        <strong>Balance de horas:</strong> ${c.balanceHoras.contratadas}h contratadas — ${c.balanceHoras.consumidas.toFixed(1)}h consumidas = 
+        <span style="font-weight:800;color:${c.balanceHoras.balance >= 0 ? '#0d9488' : '#dc2626'};">${c.balanceHoras.balance >= 0 ? '+' : ''}${c.balanceHoras.balance.toFixed(1)}h disponibles</span>
+        — Nivel técnico base: N${c.nivelContratado || 1}
       </div>
     ` : '';
 
@@ -590,7 +592,7 @@ function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string): s
       <h3 style="margin-bottom:8px;">Contacto de soporte</h3>
       <div style="font-size:10px;color:#6b7280;line-height:1.8;">
         <div><strong>Email:</strong> soporte@internetoperadores.com</div>
-        <div><strong>Teléfono:</strong> 900 XXX XXX</div>
+        <div><strong>Teléfono:</strong> 900 730 034</div>
         <div><strong>Horario:</strong> L-V 8:00 - 18:00</div>
         <div><strong>Portal:</strong> www.internetoperadores.com</div>
       </div>
