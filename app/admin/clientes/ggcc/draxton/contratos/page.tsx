@@ -846,8 +846,8 @@ export default function DraxtonContratosPage() {
     .filter(p => p.activo)
     .reduce((sum, p) => sum + (p.costeMensualImputado || 0), 0);
 
-  // Detectar personas sobreasignadas (>100% total entre todos los contratos)
-  const personasSobreasignadas = (() => {
+  // Calcular dedicación total por empleado (todos los contratos activos)
+  const dedicacionEmpleados = (() => {
     const dedicacionPorEmpleado: Record<string, { nombre: string; totalDedicacion: number; contratos: string[] }> = {};
     personalContrato.filter(p => p.activo).forEach(p => {
       const empId = p.empleadoId;
@@ -858,8 +858,9 @@ export default function DraxtonContratosPage() {
       const contrato = activos.find(c => c.id === p.contratoDraxtonId);
       if (contrato) dedicacionPorEmpleado[empId].contratos.push(contrato.titulo);
     });
-    return Object.values(dedicacionPorEmpleado).filter(e => e.totalDedicacion > 100);
+    return Object.values(dedicacionPorEmpleado).sort((a, b) => b.totalDedicacion - a.totalDedicacion);
   })();
+  const personasSobreasignadas = dedicacionEmpleados.filter(e => e.totalDedicacion > 100);
 
   // Coste guardias mensual total (para TOTAL de tabla)
   const costeGuardiasTotalMensual = (() => {
@@ -965,18 +966,20 @@ export default function DraxtonContratosPage() {
               </div>
             </div>
           )}
-          {/* Alerta sobreasignación */}
-          {personasSobreasignadas.length > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          {/* Dedicación de recursos */}
+          {dedicacionEmpleados.length > 0 && (
+            <div className={`${personasSobreasignadas.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'} border rounded-xl p-4`}>
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-red-600 text-lg">⚠️</span>
-                <span className="text-xs font-bold text-red-700 uppercase">Recursos sobreasignados ({personasSobreasignadas.length})</span>
+                <span className="text-lg">{personasSobreasignadas.length > 0 ? '⚠️' : '👥'}</span>
+                <span className={`text-xs font-bold uppercase ${personasSobreasignadas.length > 0 ? 'text-red-700' : 'text-gray-700'}`}>
+                  Dedicación de recursos ({dedicacionEmpleados.length}){personasSobreasignadas.length > 0 && <span className="text-red-600 ml-2">· {personasSobreasignadas.length} sobreasignado{personasSobreasignadas.length > 1 ? 's' : ''}</span>}
+                </span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                {personasSobreasignadas.map((p, i) => (
-                  <div key={i} className="bg-white rounded-lg border border-red-100 p-2.5">
+                {dedicacionEmpleados.map((p, i) => (
+                  <div key={i} className={`rounded-lg border p-2.5 ${p.totalDedicacion > 100 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100'}`}>
                     <p className="text-xs font-semibold text-gray-900">{p.nombre}</p>
-                    <p className="text-[10px] text-red-600 font-bold">{p.totalDedicacion}% dedicación total</p>
+                    <p className={`text-[10px] font-bold ${p.totalDedicacion > 100 ? 'text-red-600' : p.totalDedicacion === 100 ? 'text-green-600' : 'text-blue-600'}`}>{p.totalDedicacion}% dedicación total</p>
                     <p className="text-[10px] text-gray-500 mt-0.5">En: {p.contratos.join(', ')}</p>
                   </div>
                 ))}

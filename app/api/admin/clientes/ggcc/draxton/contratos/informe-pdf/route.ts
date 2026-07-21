@@ -85,11 +85,11 @@ export async function GET(req: NextRequest) {
       const contrato = contratos.find(c => c.id === p.contratoDraxtonId);
       if (contrato) dedicacionPorEmpleado[empId].contratos.push(contrato.titulo);
     });
-    const sobreasignados = Object.values(dedicacionPorEmpleado).filter(e => e.totalDedicacion > 100);
+    const dedicacionEmpleados = Object.values(dedicacionPorEmpleado).sort((a, b) => b.totalDedicacion - a.totalDedicacion);
 
     const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
     const html = tipo === 'interno'
-      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, sobreasignados)
+      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, dedicacionEmpleados)
       : generarHTMLCliente(contratosData, fecha, logoUrl);
 
     return new NextResponse(html, {
@@ -288,7 +288,7 @@ function estilosBase(): string {
   `;
 }
 
-function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string, sobreasignados: { nombre: string; totalDedicacion: number; contratos: string[] }[] = []): string {
+function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string, dedicacionEmpleados: { nombre: string; totalDedicacion: number; contratos: string[] }[] = []): string {
   const margenPctTotal = totalMensual > 0 ? ((totalMargen / totalMensual) * 100).toFixed(1) : '0';
 
   const filasContratos = contratos.map(c => `
@@ -399,19 +399,19 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
       </div>
     </div>
 
-    ${sobreasignados.length > 0 ? `
-    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:12px 14px;margin-bottom:16px;">
+    ${dedicacionEmpleados.length > 0 ? `
+    <div style="background:${dedicacionEmpleados.some(e => e.totalDedicacion > 100) ? '#fef2f2' : '#f0fdf4'};border:1px solid ${dedicacionEmpleados.some(e => e.totalDedicacion > 100) ? '#fecaca' : '#bbf7d0'};border-radius:6px;padding:12px 14px;margin-bottom:16px;">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-        <span style="font-size:14px;">⚠️</span>
-        <span style="font-size:10px;font-weight:700;color:#b91c1c;text-transform:uppercase;">Recursos sobreasignados (${sobreasignados.length})</span>
+        <span style="font-size:14px;">${dedicacionEmpleados.some(e => e.totalDedicacion > 100) ? '⚠️' : '👥'}</span>
+        <span style="font-size:10px;font-weight:700;color:${dedicacionEmpleados.some(e => e.totalDedicacion > 100) ? '#b91c1c' : '#166534'};text-transform:uppercase;">Dedicación de recursos (${dedicacionEmpleados.length})${dedicacionEmpleados.filter(e => e.totalDedicacion > 100).length > 0 ? ` · ${dedicacionEmpleados.filter(e => e.totalDedicacion > 100).length} sobreasignado${dedicacionEmpleados.filter(e => e.totalDedicacion > 100).length > 1 ? 's' : ''}` : ''}</span>
       </div>
       <table class="sub-table" style="margin:0;">
         <thead><tr><th>Recurso</th><th style="text-align:center;">Dedicación total</th><th>Contratos asignados</th></tr></thead>
         <tbody>
-          ${sobreasignados.map(s => `
+          ${dedicacionEmpleados.map(s => `
             <tr>
               <td style="font-weight:600;">${s.nombre}</td>
-              <td style="text-align:center;color:#dc2626;font-weight:700;">${s.totalDedicacion}%</td>
+              <td style="text-align:center;font-weight:700;color:${s.totalDedicacion > 100 ? '#dc2626' : s.totalDedicacion === 100 ? '#16a34a' : '#2563eb'};">${s.totalDedicacion}%</td>
               <td style="font-size:9px;color:#6b7280;">${s.contratos.join(', ')}</td>
             </tr>
           `).join('')}
