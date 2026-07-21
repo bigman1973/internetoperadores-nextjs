@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
       where: { activo: true },
       include: {
         empleado: {
-          select: { id: true, nombre: true, apellidos: true, categoria: true, costeHoraActual: true },
+          select: { id: true, nombreCompleto: true, categoria: true, costeHoraActual: true },
         },
       },
     });
@@ -120,7 +120,7 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
         <table style="width:100%;margin-top:4px;font-size:10px;">
           <tr style="background:#f3f4f6;"><th style="padding:3px 4px;text-align:left;">Nombre</th><th style="padding:3px 4px;text-align:center;">Nivel</th><th style="padding:3px 4px;text-align:center;">Dedicación</th><th style="padding:3px 4px;text-align:right;">Coste imputado</th></tr>
           ${c.personalDelContrato.map((p: any) => `
-            <tr><td style="padding:3px 4px;">${p.empleado?.nombre || ''} ${p.empleado?.apellidos || ''}</td><td style="padding:3px 4px;text-align:center;">N${p.nivelTecnico || 1}</td><td style="padding:3px 4px;text-align:center;">${p.porcentajeDedicacion}%</td><td style="padding:3px 4px;text-align:right;color:#dc2626;">${formatCurrency(p.costeMensualImputado)}</td></tr>
+            <tr><td style="padding:3px 4px;">${p.empleado?.nombreCompleto || '—'}</td><td style="padding:3px 4px;text-align:center;">N${p.nivelTecnico || 1}</td><td style="padding:3px 4px;text-align:center;">${p.porcentajeDedicacion}%</td><td style="padding:3px 4px;text-align:right;color:#dc2626;">${formatCurrency(p.costeMensualImputado)}</td></tr>
           `).join('')}
         </table>
       </div>
@@ -260,7 +260,7 @@ function generarHTMLCliente(contratos: any[], fecha: string): string {
         <table style="width:100%;margin-top:4px;font-size:10px;">
           <tr style="background:#f3f4f6;"><th style="padding:3px 4px;text-align:left;">Recurso</th><th style="padding:3px 4px;text-align:center;">Nivel</th><th style="padding:3px 4px;text-align:center;">Dedicación</th><th style="padding:3px 4px;text-align:left;">Rol</th></tr>
           ${c.personalDelContrato.map((p: any) => `
-            <tr><td style="padding:3px 4px;">${p.empleado?.nombre || ''} ${p.empleado?.apellidos || ''}</td><td style="padding:3px 4px;text-align:center;">N${p.nivelTecnico || 1}</td><td style="padding:3px 4px;text-align:center;">${p.porcentajeDedicacion}%</td><td style="padding:3px 4px;">${p.rol || '—'}</td></tr>
+            <tr><td style="padding:3px 4px;">${p.empleado?.nombreCompleto || '—'}</td><td style="padding:3px 4px;text-align:center;">N${p.nivelTecnico || 1}</td><td style="padding:3px 4px;text-align:center;">${p.porcentajeDedicacion}%</td><td style="padding:3px 4px;">${p.rol || '—'}</td></tr>
           `).join('')}
         </table>
       </div>
