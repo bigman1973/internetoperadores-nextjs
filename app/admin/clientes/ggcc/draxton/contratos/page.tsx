@@ -2522,7 +2522,7 @@ export default function DraxtonContratosPage() {
                       <div>
                         <label className="block text-xs font-medium text-gray-600 mb-1">Precio/hora (calculado)</label>
                         <div className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900 bg-gray-50">
-                          {form.importeMensual && form.horasContratadas ? (form.importeMensual / form.horasContratadas).toFixed(2) + '€/h' : '—'}
+                          {Number(form.importeMensual) > 0 && Number(form.horasContratadas) > 0 ? (Number(form.importeMensual) / Number(form.horasContratadas)).toFixed(2) + '€/h' : '—'}
                         </div>
                         <p className="text-[10px] text-gray-400 mt-1">Importe mensual ÷ horas contratadas</p>
                       </div>
