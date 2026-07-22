@@ -12,12 +12,14 @@ import {
   ChartBarSquareIcon,
   DocumentChartBarIcon,
   BuildingOffice2Icon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 
 const tabs = [
   { name: 'Finanzas', href: '/admin/clientes/ggcc/draxton/finanzas', icon: BanknotesIcon },
   { name: 'Contratos', href: '/admin/clientes/ggcc/draxton/contratos', icon: DocumentDuplicateIcon },
   { name: 'Proyectos Singulares', href: '/admin/clientes/ggcc/draxton/proyectos-singulares', icon: RocketLaunchIcon },
+  { name: 'Proyectos Internos', href: '/admin/clientes/ggcc/draxton/proyectos', icon: WrenchScrewdriverIcon },
   { name: 'Personal', href: '/admin/clientes/ggcc/draxton/personal', icon: UserGroupIcon },
   { name: 'Contrato Guardias', href: '/admin/clientes/ggcc/draxton/contrato-guardias', icon: ShieldCheckIcon },
   { name: 'Seguimiento', href: '/admin/clientes/ggcc/draxton/seguimiento', icon: ClockIcon },
