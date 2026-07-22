@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
     const html = tipo === 'interno'
       ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, dedicacionEmpleados, proyectos)
-      : generarHTMLCliente(contratosData, fecha, logoUrl);
+      : generarHTMLCliente(contratosData, fecha, logoUrl, proyectos);
 
     return new NextResponse(html, {
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
@@ -544,7 +544,7 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
 </html>`;
 }
 
-function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string): string {
+function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string, proyectos: any[] = []): string {
   const totalMensual = contratos.reduce((s, c) => s + c.mensual, 0);
   const totalRecursos = contratos.reduce((s, c) => s + c.personalDelContrato.length, 0);
 
@@ -706,6 +706,68 @@ function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string): s
       <span>Página 2</span>
     </div>
   </div>
+
+  ${proyectos.length > 0 ? `
+  <!-- PÁGINA 3: Proyectos y Mejora Continua -->
+  <div class="page">
+    <div class="page-header">
+      <img src="${logoUrl}" alt="Internet Operadores" />
+      <div class="page-header-right">
+        <div style="font-size:10px;font-weight:600;color:#1f2937;">INFORME DE SERVICIOS</div>
+        <div>Cliente: <strong>Draxton</strong></div>
+        <div>${fecha}</div>
+      </div>
+    </div>
+
+    <h2 style="border-bottom:2px solid #059669;">Proyectos y Mejora Continua</h2>
+    <p style="font-size:9px;color:#6b7280;margin-bottom:14px;">Resumen de proyectos activos, mejoras implementadas y propuestas de optimización en curso para los servicios contratados.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+      <div class="kpi-box" style="border-left:3px solid #059669;">
+        <div class="kpi-label">Proyectos activos</div>
+        <div class="kpi-value" style="color:#059669;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'proyecto').length}</div>
+      </div>
+      <div class="kpi-box" style="border-left:3px solid #2563eb;">
+        <div class="kpi-label">Mejoras implementadas</div>
+        <div class="kpi-value" style="color:#2563eb;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'mejora_ejecutada').length}</div>
+      </div>
+      <div class="kpi-box" style="border-left:3px solid #d97706;">
+        <div class="kpi-label">Propuestas de mejora</div>
+        <div class="kpi-value" style="color:#d97706;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'propuesta_futura').length}</div>
+      </div>
+    </div>
+
+    ${['proyecto', 'mejora_ejecutada', 'propuesta_futura'].map(cat => {
+      const items = proyectos.filter((p: any) => p.categoria === cat);
+      if (items.length === 0) return '';
+      const catLabel = cat === 'proyecto' ? '\ud83d\ude80 Proyectos en Curso' : cat === 'mejora_ejecutada' ? '\u2705 Mejoras Implementadas' : '\ud83d\udca1 Propuestas de Optimización';
+      const catColor = cat === 'proyecto' ? '#059669' : cat === 'mejora_ejecutada' ? '#2563eb' : '#d97706';
+      return `
+        <h3 style="color:${catColor};margin:14px 0 8px;font-size:11px;">${catLabel} (${items.length})</h3>
+        <table class="sub-table">
+          <thead><tr><th>Proyecto</th><th style="text-align:center;">Estado</th><th style="text-align:center;">Prioridad</th></tr></thead>
+          <tbody>
+            ${items.map((p: any) => `
+              <tr>
+                <td style="font-weight:500;">
+                  ${p.titulo}
+                  ${p.descripcion ? `<div style="font-size:8px;color:#6b7280;margin-top:2px;max-width:350px;">${p.descripcion.substring(0, 150)}${p.descripcion.length > 150 ? '...' : ''}</div>` : ''}
+                  ${p.impacto ? `<div style="font-size:8px;color:#059669;margin-top:1px;font-style:italic;">\u2192 ${p.impacto.substring(0, 120)}${p.impacto.length > 120 ? '...' : ''}</div>` : ''}
+                </td>
+                <td style="text-align:center;"><span class="badge ${p.estado === 'completado' ? 'badge-green' : p.estado === 'en_curso' ? 'badge-orange' : 'badge-gray'}">${p.estado === 'en_curso' ? 'En curso' : p.estado === 'completado' ? 'Completado' : p.estado === 'planificado' ? 'Planificado' : 'Pausado'}</span></td>
+                <td style="text-align:center;"><span class="badge ${p.prioridad === 'alta' ? 'badge-red' : 'badge-gray'}">${p.prioridad}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }).join('')}
+
+    <div class="page-footer">
+      <span>Internet Operadores S.L. — www.internetoperadores.com</span>
+      <span>Página 3</span>
+    </div>
+  </div>` : ''}
 </body>
 </html>`;
 }
