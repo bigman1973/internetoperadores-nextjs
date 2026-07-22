@@ -1460,6 +1460,7 @@ model Empleado {
   entregasACuenta   MovimientoBancario[] @relation("EntregasCuentaEmpleado")
   guardiaTecnicos   GuardiaTecnico[]
   personalContratos PersonalContratoDraxton[] @relation("PersonalContratoDraxton")
+  proyectosDraxton   ProyectoContratoDraxton[] @relation("ProyectoResponsable")
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1884,6 +1885,7 @@ model ContratoDraxton {
   contratosProveedor    ContratoProveedorDraxton[]
   facturasVinculadas    FacturaContratoDraxton[]
   personalAsignado      PersonalContratoDraxton[]
+  proyectos             ProyectoContratoDraxton[]
 
   @@map("contratos_draxton")
 }
@@ -1980,6 +1982,36 @@ model FacturaContratoDraxton {
   @@index([facturaId])
   @@index([servicioIndex])
   @@map("facturas_contratos_draxton")
+}
+
+model ProyectoContratoDraxton {
+  id                    String   @id @default(uuid())
+  contratoDraxtonId     String   @map("contrato_draxton_id")
+  responsableId         String?  @map("responsable_id") // Empleado responsable
+  titulo                String
+  descripcion           String?  @db.Text
+  categoria             String   @default("proyecto") // proyecto, mejora_ejecutada, propuesta_futura
+  estado                String   @default("en_curso") // planificado, en_curso, completado, pausado
+  impacto               String?  @db.Text // Descripción del impacto operativo
+  ahorroEstimado        Decimal? @map("ahorro_estimado") @db.Decimal(12, 2)
+  fechaInicio           DateTime? @map("fecha_inicio") @db.Date
+  fechaFinPrevista      DateTime? @map("fecha_fin_prevista") @db.Date
+  fechaFinReal          DateTime? @map("fecha_fin_real") @db.Date
+  prioridad             String   @default("media") // alta, media, baja
+  orden                 Int      @default(0)
+  activo                Boolean  @default(true)
+  // Relaciones
+  contratoDraxton       ContratoDraxton @relation(fields: [contratoDraxtonId], references: [id], onDelete: Cascade)
+  responsable           Empleado? @relation("ProyectoResponsable", fields: [responsableId], references: [id])
+  // Timestamps
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([contratoDraxtonId])
+  @@index([responsableId])
+  @@index([categoria])
+  @@index([estado])
+  @@map("proyectos_contratos_draxton")
 }
 
 model EmpresaGrupoDraxton {

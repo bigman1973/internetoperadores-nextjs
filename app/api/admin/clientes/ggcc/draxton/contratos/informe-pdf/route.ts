@@ -36,6 +36,14 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    const proyectos = await prisma.proyectoContratoDraxton.findMany({
+      where: { activo: true },
+      include: {
+        responsable: { select: { id: true, nombreCompleto: true } },
+      },
+      orderBy: [{ categoria: 'asc' }, { orden: 'asc' }],
+    });
+
     const fecha = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric' });
 
     let totalMensual = 0;
@@ -89,7 +97,7 @@ export async function GET(req: NextRequest) {
 
     const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
     const html = tipo === 'interno'
-      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, dedicacionEmpleados)
+      ? generarHTMLInterno(contratosData, totalMensual, totalCostes, totalMargen, fecha, logoUrl, dedicacionEmpleados, proyectos)
       : generarHTMLCliente(contratosData, fecha, logoUrl);
 
     return new NextResponse(html, {
@@ -288,7 +296,7 @@ function estilosBase(): string {
   `;
 }
 
-function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string, dedicacionEmpleados: { nombre: string; totalDedicacion: number; contratos: string[] }[] = []): string {
+function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes: number, totalMargen: number, fecha: string, logoUrl: string, dedicacionEmpleados: { nombre: string; totalDedicacion: number; contratos: string[] }[] = [], proyectos: any[] = []): string {
   const margenPctTotal = totalMensual > 0 ? ((totalMargen / totalMensual) * 100).toFixed(1) : '0';
 
   const filasContratos = contratos.map(c => `
@@ -470,6 +478,68 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
       <span>Página 2</span>
     </div>
   </div>
+
+  ${proyectos.length > 0 ? `
+  <!-- PÁGINA 3: Proyectos Internos -->
+  <div class="page">
+    <div class="page-header">
+      <img src="${logoUrl}" alt="Internet Operadores" />
+      <div class="page-header-right">
+        <div style="font-size:10px;font-weight:600;color:#1f2937;">INFORME INTERNO</div>
+        <div>${fecha}</div>
+      </div>
+    </div>
+
+    <h2 style="border-bottom:2px solid #059669;">Proyectos Internos</h2>
+    <p style="font-size:9px;color:#6b7280;margin-bottom:14px;">Proyectos, mejoras ejecutadas y propuestas de mejora futura vinculados a los contratos activos.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+      <div class="kpi-box" style="border-left:3px solid #059669;">
+        <div class="kpi-label">Proyectos activos</div>
+        <div class="kpi-value" style="color:#059669;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'proyecto').length}</div>
+      </div>
+      <div class="kpi-box" style="border-left:3px solid #2563eb;">
+        <div class="kpi-label">Mejoras ejecutadas</div>
+        <div class="kpi-value" style="color:#2563eb;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'mejora_ejecutada').length}</div>
+      </div>
+      <div class="kpi-box" style="border-left:3px solid #d97706;">
+        <div class="kpi-label">Propuestas futuras</div>
+        <div class="kpi-value" style="color:#d97706;font-size:18px;">${proyectos.filter((p: any) => p.categoria === 'propuesta_futura').length}</div>
+      </div>
+    </div>
+
+    ${['proyecto', 'mejora_ejecutada', 'propuesta_futura'].map(cat => {
+      const items = proyectos.filter((p: any) => p.categoria === cat);
+      if (items.length === 0) return '';
+      const catLabel = cat === 'proyecto' ? '🚀 Proyectos en Curso' : cat === 'mejora_ejecutada' ? '✅ Mejoras Ejecutadas' : '💡 Propuestas Futuras';
+      const catColor = cat === 'proyecto' ? '#059669' : cat === 'mejora_ejecutada' ? '#2563eb' : '#d97706';
+      return `
+        <h3 style="color:${catColor};margin:14px 0 8px;font-size:11px;">${catLabel} (${items.length})</h3>
+        <table class="sub-table">
+          <thead><tr><th>Proyecto</th><th style="text-align:center;">Estado</th><th style="text-align:center;">Prioridad</th><th>Responsable</th></tr></thead>
+          <tbody>
+            ${items.map((p: any) => `
+              <tr>
+                <td style="font-weight:500;">
+                  ${p.titulo}
+                  ${p.descripcion ? `<div style="font-size:8px;color:#6b7280;margin-top:2px;max-width:300px;">${p.descripcion.substring(0, 120)}${p.descripcion.length > 120 ? '...' : ''}</div>` : ''}
+                  ${p.impacto ? `<div style="font-size:8px;color:#059669;margin-top:1px;font-style:italic;">→ ${p.impacto.substring(0, 100)}${p.impacto.length > 100 ? '...' : ''}</div>` : ''}
+                </td>
+                <td style="text-align:center;"><span class="badge ${p.estado === 'completado' ? 'badge-green' : p.estado === 'en_curso' ? 'badge-orange' : 'badge-gray'}">${p.estado === 'en_curso' ? 'En curso' : p.estado === 'completado' ? 'Completado' : p.estado === 'planificado' ? 'Planificado' : 'Pausado'}</span></td>
+                <td style="text-align:center;"><span class="badge ${p.prioridad === 'alta' ? 'badge-red' : 'badge-gray'}">${p.prioridad}</span></td>
+                <td style="font-size:9px;">${p.responsable?.nombreCompleto || '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }).join('')}
+
+    <div class="page-footer">
+      <span>Internet Operadores S.L. — Documento confidencial</span>
+      <span>Página 3</span>
+    </div>
+  </div>` : ''}
 </body>
 </html>`;
 }

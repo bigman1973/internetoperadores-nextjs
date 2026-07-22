@@ -144,6 +144,11 @@ export default function DraxtonContratosPage() {
   const [showMatriz, setShowMatriz] = useState(false);
   const [guardiasData, setGuardiasData] = useState<any>(null);
   const [personalContrato, setPersonalContrato] = useState<any[]>([]);
+  const [proyectosContrato, setProyectosContrato] = useState<any[]>([]);
+  const [showProyectoForm, setShowProyectoForm] = useState(false);
+  const [proyectoFormContratoId, setProyectoFormContratoId] = useState<string | null>(null);
+  const [editingProyectoId, setEditingProyectoId] = useState<string | null>(null);
+  const [proyectoForm, setProyectoForm] = useState({ titulo: '', descripcion: '', categoria: 'proyecto', estado: 'en_curso', impacto: '', ahorroEstimado: '', prioridad: 'media', responsableId: '', fechaInicio: '', fechaFinPrevista: '' });
   const [showPersonalForm, setShowPersonalForm] = useState(false);
   const [personalFormContratoId, setPersonalFormContratoId] = useState<string | null>(null);
   const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([]);
@@ -178,6 +183,7 @@ export default function DraxtonContratosPage() {
     fetchFacturasResumen();
     fetchGuardiasData();
     fetchPersonalContrato();
+    fetchProyectosContrato();
     fetchEmpleadosDisponibles();
   }, []);
 
@@ -213,6 +219,49 @@ export default function DraxtonContratosPage() {
       }
     } catch (err) {
       console.error('Error al cargar personal:', err);
+    }
+  }
+
+  async function fetchProyectosContrato() {
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato');
+      if (res.ok) {
+        const data = await res.json();
+        setProyectosContrato(data);
+      }
+    } catch (err) {
+      console.error('Error al cargar proyectos:', err);
+    }
+  }
+
+  async function guardarProyecto(contratoId: string) {
+    if (!proyectoForm.titulo) return;
+    try {
+      const method = editingProyectoId ? 'PUT' : 'POST';
+      const body = editingProyectoId
+        ? { id: editingProyectoId, ...proyectoForm, ahorroEstimado: proyectoForm.ahorroEstimado || null }
+        : { contratoDraxtonId: contratoId, ...proyectoForm, ahorroEstimado: proyectoForm.ahorroEstimado || null };
+      await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      setShowProyectoForm(false);
+      setEditingProyectoId(null);
+      setProyectoForm({ titulo: '', descripcion: '', categoria: 'proyecto', estado: 'en_curso', impacto: '', ahorroEstimado: '', prioridad: 'media', responsableId: '', fechaInicio: '', fechaFinPrevista: '' });
+      await fetchProyectosContrato();
+    } catch (err) {
+      console.error('Error guardando proyecto:', err);
+    }
+  }
+
+  async function eliminarProyecto(id: string) {
+    if (!confirm('¿Eliminar este proyecto?')) return;
+    try {
+      await fetch(`/api/admin/clientes/ggcc/draxton/proyectos-contrato?id=${id}`, { method: 'DELETE' });
+      await fetchProyectosContrato();
+    } catch (err) {
+      console.error('Error eliminando proyecto:', err);
     }
   }
 
@@ -1926,6 +1975,149 @@ export default function DraxtonContratosPage() {
                             </div>
                           ) : (
                             <p className="text-xs text-gray-400 italic">No hay personal asignado. Haz clic en &quot;Asignar Personal&quot; para vincular empleados a este contrato.</p>
+                          )}
+                        </div>
+
+                        {/* PROYECTOS INTERNOS */}
+                        <div className="mt-6 border-t pt-4">
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
+                              <p className="text-xs font-semibold text-gray-700 uppercase">Proyectos Internos ({proyectosContrato.filter(p => p.contratoDraxtonId === c.id).length})</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setProyectoFormContratoId(c.id); setEditingProyectoId(null); setProyectoForm({ titulo: '', descripcion: '', categoria: 'proyecto', estado: 'en_curso', impacto: '', ahorroEstimado: '', prioridad: 'media', responsableId: '', fechaInicio: '', fechaFinPrevista: '' }); setShowProyectoForm(true); }}
+                              className="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 inline-flex items-center gap-1"
+                            >
+                              <PlusIcon className="w-3 h-3" />
+                              Nuevo Proyecto
+                            </button>
+                          </div>
+
+                          {/* Formulario de proyecto */}
+                          {showProyectoForm && proyectoFormContratoId === c.id && (
+                            <div className="bg-emerald-50 rounded-lg p-4 mb-3 border border-emerald-200" onClick={e => e.stopPropagation()}>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                                <div className="md:col-span-2">
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Título *</label>
+                                  <input type="text" value={proyectoForm.titulo} onChange={e => setProyectoForm({...proyectoForm, titulo: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" placeholder="Nombre del proyecto" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Categoría</label>
+                                  <select value={proyectoForm.categoria} onChange={e => setProyectoForm({...proyectoForm, categoria: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+                                    <option value="proyecto">Proyecto activo</option>
+                                    <option value="mejora_ejecutada">Mejora ejecutada</option>
+                                    <option value="propuesta_futura">Propuesta futura</option>
+                                  </select>
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Estado</label>
+                                  <select value={proyectoForm.estado} onChange={e => setProyectoForm({...proyectoForm, estado: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+                                    <option value="planificado">Planificado</option>
+                                    <option value="en_curso">En curso</option>
+                                    <option value="completado">Completado</option>
+                                    <option value="pausado">Pausado</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Prioridad</label>
+                                  <select value={proyectoForm.prioridad} onChange={e => setProyectoForm({...proyectoForm, prioridad: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+                                    <option value="alta">Alta</option>
+                                    <option value="media">Media</option>
+                                    <option value="baja">Baja</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Responsable</label>
+                                  <select value={proyectoForm.responsableId} onChange={e => setProyectoForm({...proyectoForm, responsableId: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5">
+                                    <option value="">-- Sin asignar --</option>
+                                    {empleadosDisponibles.filter(e => e.estado === 'ACTIVO').map((emp: any) => (
+                                      <option key={emp.id} value={emp.id}>{emp.nombreCompleto}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Ahorro estimado (€)</label>
+                                  <input type="number" step="0.01" value={proyectoForm.ahorroEstimado} onChange={e => setProyectoForm({...proyectoForm, ahorroEstimado: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" placeholder="0.00" />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Descripción</label>
+                                  <textarea value={proyectoForm.descripcion} onChange={e => setProyectoForm({...proyectoForm, descripcion: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" rows={2} placeholder="Descripción del proyecto..." />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Impacto operativo</label>
+                                  <textarea value={proyectoForm.impacto} onChange={e => setProyectoForm({...proyectoForm, impacto: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" rows={2} placeholder="Impacto en la operativa..." />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Fecha inicio</label>
+                                  <input type="date" value={proyectoForm.fechaInicio} onChange={e => setProyectoForm({...proyectoForm, fechaInicio: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-gray-600 font-medium block mb-1">Fecha fin prevista</label>
+                                  <input type="date" value={proyectoForm.fechaFinPrevista} onChange={e => setProyectoForm({...proyectoForm, fechaFinPrevista: e.target.value})} className="w-full text-xs border border-gray-300 rounded-lg px-2 py-1.5" />
+                                </div>
+                              </div>
+                              <div className="flex gap-2">
+                                <button onClick={() => guardarProyecto(c.id)} className="px-4 py-1.5 text-xs bg-emerald-600 text-white rounded-lg hover:bg-emerald-700">{editingProyectoId ? 'Actualizar' : 'Crear'} Proyecto</button>
+                                <button onClick={() => { setShowProyectoForm(false); setEditingProyectoId(null); }} className="px-4 py-1.5 text-xs bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300">Cancelar</button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Listado de proyectos */}
+                          {proyectosContrato.filter(p => p.contratoDraxtonId === c.id).length > 0 ? (
+                            <div className="space-y-2">
+                              {['proyecto', 'mejora_ejecutada', 'propuesta_futura'].map(cat => {
+                                const proyectosCat = proyectosContrato.filter(p => p.contratoDraxtonId === c.id && p.categoria === cat);
+                                if (proyectosCat.length === 0) return null;
+                                const catLabel = cat === 'proyecto' ? 'Proyectos activos' : cat === 'mejora_ejecutada' ? 'Mejoras ejecutadas' : 'Propuestas futuras';
+                                const catColor = cat === 'proyecto' ? 'text-emerald-700 bg-emerald-50' : cat === 'mejora_ejecutada' ? 'text-blue-700 bg-blue-50' : 'text-amber-700 bg-amber-50';
+                                return (
+                                  <div key={cat}>
+                                    <p className={`text-[10px] font-bold uppercase px-2 py-1 rounded ${catColor} mb-1.5`}>{catLabel} ({proyectosCat.length})</p>
+                                    <div className="space-y-1.5">
+                                      {proyectosCat.map((proy: any) => (
+                                        <div key={proy.id} className="bg-white border border-gray-100 rounded-lg p-3 hover:border-emerald-200 transition-colors">
+                                          <div className="flex items-start justify-between">
+                                            <div className="flex-1">
+                                              <div className="flex items-center gap-2">
+                                                <span className={`w-2 h-2 rounded-full ${proy.estado === 'completado' ? 'bg-green-500' : proy.estado === 'en_curso' ? 'bg-blue-500' : proy.estado === 'planificado' ? 'bg-amber-500' : 'bg-gray-400'}`}></span>
+                                                <p className="text-xs font-semibold text-gray-900">{proy.titulo}</p>
+                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-medium ${proy.estado === 'completado' ? 'bg-green-100 text-green-700' : proy.estado === 'en_curso' ? 'bg-blue-100 text-blue-700' : proy.estado === 'planificado' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>{proy.estado === 'en_curso' ? 'En curso' : proy.estado === 'completado' ? 'Completado' : proy.estado === 'planificado' ? 'Planificado' : 'Pausado'}</span>
+                                                {proy.prioridad === 'alta' && <span className="text-[9px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">Alta</span>}
+                                              </div>
+                                              {proy.descripcion && <p className="text-[10px] text-gray-600 mt-1 ml-4">{proy.descripcion}</p>}
+                                              {proy.impacto && <p className="text-[10px] text-emerald-700 mt-0.5 ml-4 italic">→ {proy.impacto}</p>}
+                                              <div className="flex items-center gap-3 mt-1 ml-4">
+                                                {proy.responsable && <span className="text-[9px] text-gray-500">Resp: <strong>{proy.responsable.nombreCompleto}</strong></span>}
+                                                {proy.ahorroEstimado && <span className="text-[9px] text-green-600 font-medium">Ahorro: {Number(proy.ahorroEstimado).toLocaleString('es-ES', {minimumFractionDigits: 2})}€</span>}
+                                                {proy.fechaInicio && <span className="text-[9px] text-gray-400">Desde: {new Date(proy.fechaInicio).toLocaleDateString('es-ES')}</span>}
+                                              </div>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                              <button onClick={(e) => { e.stopPropagation(); setEditingProyectoId(proy.id); setProyectoFormContratoId(c.id); setProyectoForm({ titulo: proy.titulo, descripcion: proy.descripcion || '', categoria: proy.categoria, estado: proy.estado, impacto: proy.impacto || '', ahorroEstimado: proy.ahorroEstimado || '', prioridad: proy.prioridad, responsableId: proy.responsableId || '', fechaInicio: proy.fechaInicio ? proy.fechaInicio.split('T')[0] : '', fechaFinPrevista: proy.fechaFinPrevista ? proy.fechaFinPrevista.split('T')[0] : '' }); setShowProyectoForm(true); }} className="text-indigo-600 hover:text-indigo-800 p-1">
+                                                <PencilIcon className="w-3 h-3" />
+                                              </button>
+                                              <button onClick={(e) => { e.stopPropagation(); eliminarProyecto(proy.id); }} className="text-red-500 hover:text-red-700 p-1">
+                                                <TrashIcon className="w-3 h-3" />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400 italic">No hay proyectos documentados para este contrato.</p>
                           )}
                         </div>
 
