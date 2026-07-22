@@ -27,13 +27,52 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    const personalAsignado = await prisma.personalContratoDraxton.findMany({
+    const personalAsignadoRaw = await prisma.personalContratoDraxton.findMany({
       where: { activo: true },
       include: {
         empleado: {
-          select: { id: true, nombreCompleto: true, categoria: true, costeHoraActual: true },
+          select: {
+            id: true,
+            nombreCompleto: true,
+            categoria: true,
+            costeHoraActual: true,
+            nominas: {
+              where: { anio: new Date().getFullYear() },
+              orderBy: { mes: 'desc' },
+              take: 6,
+              select: {
+                costeTotalEmpresa: true,
+                gastosDesplazamiento: true,
+              },
+            },
+          },
         },
       },
+    });
+
+    // Calcular costeMensualImputado para cada asignación (misma lógica que personal-contrato)
+    const personalAsignado = personalAsignadoRaw.map(a => {
+      const nominas = a.empleado.nominas || [];
+      let costeMensualSinDesplaz = 0;
+
+      if (nominas.length > 0) {
+        const totalSinDesplaz = nominas.reduce((sum: number, n: any) => {
+          const costeEmpresa = Number(n.costeTotalEmpresa) || 0;
+          const desplazamiento = Number(n.gastosDesplazamiento) || 0;
+          return sum + (costeEmpresa - desplazamiento);
+        }, 0);
+        costeMensualSinDesplaz = totalSinDesplaz / nominas.length;
+      } else if (a.empleado.costeHoraActual) {
+        costeMensualSinDesplaz = a.empleado.costeHoraActual * 143.33;
+      }
+
+      const costeMensualImputado = costeMensualSinDesplaz * ((a.porcentajeDedicacion || 0) / 100);
+
+      return {
+        ...a,
+        costeMensualImputado,
+        costeMensualTotal: costeMensualSinDesplaz,
+      };
     });
 
     const proyectos = await prisma.proyectoContratoDraxton.findMany({
