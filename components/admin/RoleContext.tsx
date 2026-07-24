@@ -14,7 +14,7 @@ export const ROLES_DISPONIBLES = [
 
 export type RolId = typeof ROLES_DISPONIBLES[number]['id']
 
-// Permisos por sección según rol (coarse-grained, compatibilidad)
+// Permisos por sección según rol (SOLO se usan si el usuario NO tiene permisos granulares)
 export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
   SUPER_ADMIN: ['*'],
   GERENTE: [
@@ -40,6 +40,29 @@ export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
 // Secciones que requieren acceso exclusivo SUPER_ADMIN
 export const SECCIONES_SUPER_ADMIN_ONLY = ['finanzas-tickets']
 
+// Mapeo de secciones del sidebar a códigos de área granular
+const SECTION_TO_AREA: Record<string, string> = {
+  'dashboard': 'admin',
+  'tarifas': 'admin.tarifas',
+  'clientes': 'admin.clientes',
+  'clientes.ggcc.draxton': 'admin.clientes.ggcc.draxton',
+  'leads': 'admin.leads',
+  'comunicados': 'admin.comunicados',
+  'altas-pendientes': 'admin.altas_pendientes',
+  'contratos': 'admin.contratos',
+  'facturacion': 'admin.facturacion',
+  'finanzas': 'admin.finanzas',
+  'finanzas-tickets': 'admin.finanzas.tickets',
+  'estadisticas': 'admin.estadisticas',
+  'usuarios': 'admin.usuarios',
+  'subida-precios': 'admin.subida_precios',
+  'personal': 'admin.empleados',
+  'proyectos': 'admin.proyectos',
+  'historial': 'admin.historial',
+  'configuracion': 'admin.configuracion',
+  'portal-empleado': 'admin',
+}
+
 // Interfaz de permisos granulares
 interface PermisoGranular {
   areaId: string
@@ -57,34 +80,21 @@ interface UsuarioSimulado {
 }
 
 interface RoleContextType {
-  // Rol activo (puede ser simulado)
   activeRole: RolId | null
-  // Si está en modo "ver como"
   isViewingAs: boolean
-  // Si está viendo como un usuario específico
   isViewingAsUser: boolean
-  // Usuario simulado (si aplica)
   viewingUser: UsuarioSimulado | null
-  // Rol real del usuario
   realRole: string
-  // Roles reales del usuario (multi-rol)
   realRoles: string[]
-  // Si el usuario es SUPER_ADMIN
   isSuperAdmin: boolean
-  // Cambiar el rol simulado
   setViewAsRole: (role: RolId | null) => void
-  // Cambiar a "ver como usuario"
   setViewAsUser: (user: UsuarioSimulado | null) => void
-  // Verificar si tiene acceso a una sección (coarse-grained, compatibilidad)
   hasAccess: (section: string) => boolean
-  // Verificar permiso granular por código de área
   hasAreaAccess: (codigoArea: string, tipo?: 'lectura' | 'escritura') => boolean
-  // Obtener el rol efectivo (simulado o real)
   effectiveRole: RolId
-  // Permisos granulares cargados
   permisosGranulares: PermisoGranular[]
-  // ID del usuario efectivo (real o simulado)
   effectiveUserId: number | null
+  tienePermisosGranulares: boolean
 }
 
 const RoleContext = createContext<RoleContextType>({
@@ -102,6 +112,7 @@ const RoleContext = createContext<RoleContextType>({
   effectiveRole: 'SUPER_ADMIN',
   permisosGranulares: [],
   effectiveUserId: null,
+  tienePermisosGranulares: false,
 })
 
 export function RoleProvider({ 
@@ -118,6 +129,7 @@ export function RoleProvider({
   const [viewAsRole, setViewAsRole] = useState<RolId | null>(null)
   const [viewingUser, setViewingUser] = useState<UsuarioSimulado | null>(null)
   const [permisosGranulares, setPermisosGranulares] = useState<PermisoGranular[]>([])
+  const [permisosLoaded, setPermisosLoaded] = useState(false)
   
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
   const isViewingAsUser = isSuperAdmin && viewingUser !== null
@@ -129,6 +141,9 @@ export function RoleProvider({
 
   const effectiveUserId = isViewingAsUser ? viewingUser!.id : (userId || null)
 
+  // ¿Tiene permisos granulares asignados? (con al menos 1 lectura=true)
+  const tienePermisosGranulares = permisosGranulares.some(p => p.lectura || p.escritura)
+
   // Cargar permisos granulares del usuario efectivo
   useEffect(() => {
     const uid = isViewingAsUser ? viewingUser!.id : userId
@@ -137,9 +152,11 @@ export function RoleProvider({
     // SUPER_ADMIN sin simulación no necesita cargar permisos
     if (isSuperAdmin && !isViewingAs) {
       setPermisosGranulares([])
+      setPermisosLoaded(true)
       return
     }
 
+    setPermisosLoaded(false)
     fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`)
       .then(res => res.json())
       .then(data => {
@@ -151,82 +168,81 @@ export function RoleProvider({
             escritura: p.escritura,
           })))
         }
+        setPermisosLoaded(true)
       })
-      .catch(err => console.error('Error cargando permisos granulares:', err))
+      .catch(err => {
+        console.error('Error cargando permisos granulares:', err)
+        setPermisosLoaded(true)
+      })
   }, [userId, viewingUser, isViewingAs, isViewingAsUser, isSuperAdmin])
 
   const setViewAsUser = useCallback((user: UsuarioSimulado | null) => {
     setViewingUser(user)
     if (user) {
-      setViewAsRole(null) // Desactivar simulación de rol si se simula usuario
+      setViewAsRole(null)
     }
   }, [])
 
-  // Verificación coarse-grained (compatibilidad con sidebar y secciones existentes)
+  /**
+   * Verificar acceso a una sección del sidebar.
+   * REGLA PRINCIPAL: Si el usuario tiene permisos granulares asignados,
+   * SOLO se usan esos. Si no tiene ninguno, se usa el sistema de roles legacy.
+   */
   const hasAccess = useCallback((section: string) => {
-    // Si es SUPER_ADMIN real y no está simulando, acceso total
+    // SUPER_ADMIN real sin simulación: acceso total
     if (isSuperAdmin && !isViewingAs) return true
     
-    // Si está simulando un usuario, usar sus permisos granulares + rol
+    // Portal empleado siempre accesible
+    if (section === 'portal-empleado') return true
+
+    // Si está simulando un usuario específico
     if (isViewingAsUser && viewingUser) {
+      // Usar SOLO permisos granulares para el usuario simulado
+      if (tienePermisosGranulares) {
+        return checkGranularAccess(section, permisosGranulares)
+      }
+      // Si no tiene granulares, usar su rol
       const userRolesEff = viewingUser.roles?.length > 0 ? viewingUser.roles : [viewingUser.rol]
-      
-      // Verificar por rol del usuario simulado
-      const hasRoleAccess = userRolesEff.some(rol => {
-        const permisos = PERMISOS_POR_ROL[rol as RolId]
-        if (!permisos) return false
-        if (permisos.includes('*')) return true
-        return permisos.includes(section)
-      })
-
-      if (hasRoleAccess) return true
-
-      // Verificar por permisos granulares (mapear section a código de área)
-      const codigoArea = `admin.${section.replace(/-/g, '_')}`
-      return permisosGranulares.some(p => {
-        if (!p.lectura) return false
-        return codigoArea.startsWith(p.codigo) || p.codigo.startsWith(codigoArea)
-      })
-    }
-
-    // Si el usuario no tiene roles asignados, solo Portal Empleado
-    if (!isViewingAs && userRoles.length === 0) {
-      return section === 'portal-empleado'
-    }
-    
-    // Si es GERENTE (real o simulado), acceso a todo excepto tickets/gastos
-    if (effectiveRole === 'GERENTE') {
-      return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-    }
-    
-    // Secciones exclusivas de SUPER_ADMIN
-    if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) {
-      return false
-    }
-    
-    // Para multi-rol: verificar si ALGUNO de los roles del usuario tiene acceso
-    if (!isViewingAs && userRoles.length > 0) {
-      return userRoles.some(rol => {
+      return userRolesEff.some(rol => {
         const permisos = PERMISOS_POR_ROL[rol as RolId]
         if (!permisos) return false
         if (permisos.includes('*')) return true
         return permisos.includes(section)
       })
     }
-    
-    // Verificar permisos del rol efectivo (modo "ver como rol")
-    const permisos = PERMISOS_POR_ROL[effectiveRole]
-    if (!permisos) return false
-    if (permisos.includes('*')) return true
-    return permisos.includes(section)
-  }, [effectiveRole, isSuperAdmin, isViewingAs, isViewingAsUser, userRoles, viewingUser, permisosGranulares])
 
-  // Verificación granular por código de área (nuevo sistema)
+    // Si está simulando un rol (no un usuario)
+    if (isViewingAs && viewAsRole) {
+      if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
+      const permisos = PERMISOS_POR_ROL[effectiveRole]
+      if (!permisos) return false
+      if (permisos.includes('*')) return true
+      return permisos.includes(section)
+    }
+
+    // Usuario real (no simulación)
+    // Si tiene permisos granulares, SOLO usar esos
+    if (tienePermisosGranulares) {
+      return checkGranularAccess(section, permisosGranulares)
+    }
+
+    // Sin permisos granulares → sistema legacy de roles
+    if (userRoles.length === 0) return false
+    
+    if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
+    if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) return false
+    
+    return userRoles.some(rol => {
+      const permisos = PERMISOS_POR_ROL[rol as RolId]
+      if (!permisos) return false
+      if (permisos.includes('*')) return true
+      return permisos.includes(section)
+    })
+  }, [effectiveRole, isSuperAdmin, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
+
+  // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: 'lectura' | 'escritura' = 'lectura') => {
-    // SUPER_ADMIN sin simulación: acceso total
     if (isSuperAdmin && !isViewingAs) return true
-
-    // GERENTE sin simulación de usuario: acceso total
     if (effectiveRole === 'GERENTE' && !isViewingAsUser) return true
 
     // Construir cadena de herencia
@@ -236,7 +252,6 @@ export function RoleProvider({
       codigosHerencia.push(partes.slice(0, i).join('.'))
     }
 
-    // Buscar en permisos granulares
     for (const p of permisosGranulares) {
       if (codigosHerencia.includes(p.codigo)) {
         if (tipo === 'lectura' && p.lectura) return true
@@ -263,10 +278,31 @@ export function RoleProvider({
       effectiveRole,
       permisosGranulares,
       effectiveUserId,
+      tienePermisosGranulares,
     }}>
       {children}
     </RoleContext.Provider>
   )
+}
+
+/**
+ * Verifica si un usuario con permisos granulares tiene acceso a una sección del sidebar.
+ * La sección se mapea a un código de área, y se verifica si alguno de los permisos
+ * del usuario cubre esa área (directamente o por herencia hacia abajo).
+ */
+function checkGranularAccess(section: string, permisos: PermisoGranular[]): boolean {
+  const codigoArea = SECTION_TO_AREA[section] || `admin.${section.replace(/-/g, '_')}`
+  
+  return permisos.some(p => {
+    if (!p.lectura) return false
+    // El permiso cubre el área exacta
+    if (p.codigo === codigoArea) return true
+    // El permiso es un padre del área (herencia hacia abajo)
+    if (codigoArea.startsWith(p.codigo + '.')) return true
+    // El permiso es un hijo del área (si tiene acceso a un sub-apartado, debe ver el menú padre)
+    if (p.codigo.startsWith(codigoArea + '.')) return true
+    return false
+  })
 }
 
 export function useRole() {

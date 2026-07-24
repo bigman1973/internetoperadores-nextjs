@@ -24,12 +24,23 @@ interface Props {
   onClose: () => void
 }
 
+interface Perfil {
+  id: string
+  nombre: string
+  descripcion: string | null
+  color: string
+  permisos: Array<{ areaCodigo: string; lectura: boolean; escritura: boolean }>
+}
+
 export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose }: Props) {
   const [areas, setAreas] = useState<Area[]>([])
   const [permisos, setPermisos] = useState<PermisoUsuario[]>([])
+  const [perfiles, setPerfiles] = useState<Perfil[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+  const [showSavePerfil, setShowSavePerfil] = useState(false)
+  const [newPerfilNombre, setNewPerfilNombre] = useState('')
 
   useEffect(() => {
     loadData()
@@ -38,12 +49,14 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
   async function loadData() {
     setLoading(true)
     try {
-      const [areasRes, permisosRes] = await Promise.all([
+      const [areasRes, permisosRes, perfilesRes] = await Promise.all([
         fetch('/api/admin/permisos?action=areas'),
         fetch(`/api/admin/permisos?action=usuario&usuarioId=${usuarioId}`),
+        fetch('/api/admin/permisos?action=perfiles'),
       ])
       const areasData = await areasRes.json()
       const permisosData = await permisosRes.json()
+      const perfilesData = await perfilesRes.json()
 
       setAreas(areasData.areas || [])
       setPermisos((permisosData.permisos || []).map((p: any) => ({
@@ -52,10 +65,57 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
         lectura: p.lectura,
         escritura: p.escritura,
       })))
+      setPerfiles(perfilesData.perfiles || [])
     } catch (err) {
       console.error('Error cargando permisos:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function aplicarPerfil(perfil: Perfil) {
+    if (!confirm(`¿Aplicar perfil "${perfil.nombre}" a ${usuarioNombre}? Esto reemplazará todos los permisos actuales.`)) return
+    setSaving(true)
+    try {
+      await fetch('/api/admin/permisos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'aplicar_perfil', usuarioId, perfilId: perfil.id }),
+      })
+      await loadData()
+    } catch (err) {
+      console.error('Error aplicando perfil:', err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function guardarComoPerfil() {
+    if (!newPerfilNombre.trim()) return
+    const perfilPermisos = permisos
+      .filter(p => p.lectura || p.escritura)
+      .map(p => ({ areaCodigo: p.codigo, lectura: p.lectura, escritura: p.escritura }))
+
+    try {
+      await fetch('/api/admin/permisos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'guardar_perfil',
+          nombre: newPerfilNombre.trim(),
+          descripcion: `Creado desde permisos de ${usuarioNombre}`,
+          color: '#6366f1',
+          permisos: perfilPermisos,
+        }),
+      })
+      setShowSavePerfil(false)
+      setNewPerfilNombre('')
+      // Recargar perfiles
+      const res = await fetch('/api/admin/permisos?action=perfiles')
+      const data = await res.json()
+      setPerfiles(data.perfiles || [])
+    } catch (err) {
+      console.error('Error guardando perfil:', err)
     }
   }
 
@@ -277,6 +337,26 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
           </button>
         </div>
 
+        {/* Perfiles rápidos */}
+        {perfiles.length > 0 && (
+          <div className="px-6 py-3 border-b bg-indigo-50">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-indigo-700">Aplicar perfil:</span>
+              {perfiles.map(perfil => (
+                <button
+                  key={perfil.id}
+                  onClick={() => aplicarPerfil(perfil)}
+                  disabled={saving}
+                  className="px-3 py-1 text-xs font-medium rounded-full border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                  title={perfil.descripcion || ''}
+                >
+                  {perfil.nombre}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Leyenda */}
         <div className="px-6 py-2 bg-gray-50 border-b flex items-center gap-4 text-[10px] text-gray-500">
           <span><strong>Herencia:</strong> Si das acceso a un padre, los hijos heredan automáticamente.</span>
@@ -291,8 +371,31 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
-          <div className="text-[10px] text-gray-400">
-            {permisos.filter(p => p.lectura).length} áreas con lectura · {permisos.filter(p => p.escritura).length} con escritura
+          <div className="flex items-center gap-3">
+            <div className="text-[10px] text-gray-400">
+              {permisos.filter(p => p.lectura).length} áreas con lectura · {permisos.filter(p => p.escritura).length} con escritura
+            </div>
+            {!showSavePerfil ? (
+              <button
+                onClick={() => setShowSavePerfil(true)}
+                className="text-[10px] text-indigo-600 hover:text-indigo-800 underline"
+              >
+                Guardar como perfil
+              </button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={newPerfilNombre}
+                  onChange={e => setNewPerfilNombre(e.target.value)}
+                  placeholder="Nombre del perfil..."
+                  className="text-xs border border-gray-300 rounded px-2 py-1 w-40"
+                  onKeyDown={e => e.key === 'Enter' && guardarComoPerfil()}
+                />
+                <button onClick={guardarComoPerfil} className="text-[10px] text-green-600 font-semibold">Crear</button>
+                <button onClick={() => setShowSavePerfil(false)} className="text-[10px] text-gray-400">✕</button>
+              </div>
+            )}
           </div>
           <div className="flex gap-3">
             <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100">

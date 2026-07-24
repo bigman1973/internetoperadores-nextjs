@@ -59,6 +59,15 @@ export async function GET(request: Request) {
     return NextResponse.json({ usuarios })
   }
 
+  // Listar perfiles de permisos
+  if (action === 'perfiles') {
+    const perfiles = await prisma.perfilPermisos.findMany({
+      where: { activo: true },
+      orderBy: { nombre: 'asc' },
+    })
+    return NextResponse.json({ perfiles })
+  }
+
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 })
 }
 
@@ -165,6 +174,85 @@ export async function POST(request: Request) {
     })
 
     return NextResponse.json({ ok: true, area })
+  }
+
+  // Crear/actualizar perfil de permisos
+  if (action === 'guardar_perfil') {
+    const { id, nombre, descripcion, color, permisos: perfilPermisos } = body
+
+    if (!nombre || !Array.isArray(perfilPermisos)) {
+      return NextResponse.json({ error: 'nombre y permisos[] requeridos' }, { status: 400 })
+    }
+
+    let perfil
+    if (id) {
+      perfil = await prisma.perfilPermisos.update({
+        where: { id },
+        data: { nombre, descripcion, color, permisos: perfilPermisos },
+      })
+    } else {
+      perfil = await prisma.perfilPermisos.create({
+        data: { nombre, descripcion, color, permisos: perfilPermisos },
+      })
+    }
+
+    return NextResponse.json({ ok: true, perfil })
+  }
+
+  // Eliminar perfil
+  if (action === 'eliminar_perfil') {
+    const { id } = body
+    if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 })
+
+    await prisma.perfilPermisos.update({
+      where: { id },
+      data: { activo: false },
+    })
+
+    return NextResponse.json({ ok: true })
+  }
+
+  // Aplicar perfil a un usuario (copia los permisos del perfil al usuario)
+  if (action === 'aplicar_perfil') {
+    const { usuarioId, perfilId } = body
+
+    if (!usuarioId || !perfilId) {
+      return NextResponse.json({ error: 'usuarioId y perfilId requeridos' }, { status: 400 })
+    }
+
+    // Obtener perfil
+    const perfil = await prisma.perfilPermisos.findUnique({ where: { id: perfilId } })
+    if (!perfil) return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 404 })
+
+    const perfilPerms = perfil.permisos as Array<{ areaCodigo: string; lectura: boolean; escritura: boolean }>
+
+    // Obtener las áreas por código
+    const codigos = perfilPerms.map(p => p.areaCodigo)
+    const areas = await prisma.permisoArea.findMany({
+      where: { codigo: { in: codigos } },
+    })
+    const areaMap = new Map(areas.map(a => [a.codigo, a.id]))
+
+    // Borrar permisos actuales del usuario
+    await prisma.permisoUsuario.deleteMany({
+      where: { usuarioId: parseInt(usuarioId) },
+    })
+
+    // Crear permisos del perfil
+    const creates = perfilPerms
+      .filter(p => areaMap.has(p.areaCodigo) && (p.lectura || p.escritura))
+      .map(p => ({
+        usuarioId: parseInt(usuarioId),
+        areaId: areaMap.get(p.areaCodigo)!,
+        lectura: p.lectura,
+        escritura: p.escritura,
+      }))
+
+    if (creates.length > 0) {
+      await prisma.permisoUsuario.createMany({ data: creates })
+    }
+
+    return NextResponse.json({ ok: true, count: creates.length })
   }
 
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 })

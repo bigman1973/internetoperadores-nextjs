@@ -98,9 +98,9 @@ const navigation: NavEntry[] = [
     icon: UsersIcon,
     section: 'clientes',
     children: [
-      { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon },
-      { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon },
-      { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon },
+      { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon, section: 'clientes' },
+      { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon, section: 'clientes' },
+      { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon, section: 'clientes.ggcc.draxton' },
     ],
   },
   {
@@ -108,9 +108,9 @@ const navigation: NavEntry[] = [
     icon: InboxStackIcon,
     section: 'leads',
     children: [
-      { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon },
-      { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon },
-      { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon },
+      { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon, section: 'leads' },
+      { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon, section: 'leads' },
+      { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon, section: 'leads' },
     ],
   },
   { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon, section: 'comunicados' },
@@ -144,10 +144,10 @@ const navigation: NavEntry[] = [
     icon: BriefcaseIcon,
     section: 'personal',
     children: [
-      { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon },
-      { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon },
-      { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon },
-      { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon },
+      { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon, section: 'personal' },
+      { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon, section: 'personal' },
+      { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon, section: 'personal' },
+      { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon, section: 'personal' },
     ],
   },
   { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
@@ -182,6 +182,16 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
   }
 
   const canAccess = (item: NavItem | NavGroup) => {
+    // Para grupos, mostrar si al menos un hijo es accesible
+    if (isGroup(item)) {
+      const groupAccess = hasAccess(item.section || 'dashboard')
+      if (groupAccess) return true
+      // Verificar si algún hijo tiene acceso (para permisos granulares en sub-secciones)
+      return item.children.some(child => {
+        const childSection = child.section || item.section || 'dashboard'
+        return hasAccess(childSection)
+      })
+    }
     const section = item.section || 'dashboard'
     return hasAccess(section)
   }

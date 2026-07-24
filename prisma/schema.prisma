@@ -2211,3 +2211,16 @@ model PermisoUsuario {
   @@index([areaId])
   @@map("permiso_usuarios")
 }
+
+model PerfilPermisos {
+  id              String       @id @default(cuid())
+  nombre          String       @unique // ej: "Ventas", "Marketing", "Técnico Draxton"
+  descripcion     String?
+  color           String       @default("#6366f1") // Color para el badge
+  permisos        Json         // Array de { areaCodigo: string, lectura: boolean, escritura: boolean }
+  activo          Boolean      @default(true)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  @@map("perfiles_permisos")
+}
