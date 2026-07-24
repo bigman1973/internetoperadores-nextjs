@@ -255,6 +255,43 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, count: creates.length })
   }
 
+  // Auto-registrar área desde ProtectedRoute (solo SUPER_ADMIN puede auto-registrar)
+  if (action === 'auto_registrar') {
+    const { codigo, pathname: routePath } = body
+
+    if (!codigo) {
+      return NextResponse.json({ error: 'codigo requerido' }, { status: 400 })
+    }
+
+    // Verificar si ya existe
+    const existing = await prisma.permisoArea.findUnique({ where: { codigo } })
+    if (existing) {
+      return NextResponse.json({ ok: true, existed: true })
+    }
+
+    // Generar nombre legible a partir del código
+    const parts = codigo.replace('admin.', '').split('.')
+    const nombre = parts.map((p: string) => 
+      p.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+    ).join(' > ')
+
+    // Determinar padre
+    const parentParts = codigo.split('.')
+    parentParts.pop()
+    const padre = parentParts.length > 0 ? parentParts.join('.') : null
+
+    await prisma.permisoArea.create({
+      data: {
+        codigo,
+        nombre,
+        padre,
+        activo: true,
+      },
+    })
+
+    return NextResponse.json({ ok: true, created: true })
+  }
+
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 })
 }
 
