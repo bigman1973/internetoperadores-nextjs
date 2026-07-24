@@ -7,17 +7,12 @@ import { useEffect } from 'react'
 /**
  * Mapea una ruta del panel admin a un código de área de permisos.
  * La conversión es automática: /admin/clientes/ggcc/draxton/contratos → admin.clientes.ggcc.draxton.contratos
- * 
- * Esto permite que CUALQUIER nueva ruta que se cree quede automáticamente protegida
- * sin necesidad de configuración adicional.
  */
 function pathToAreaCode(pathname: string): string {
-  // Quitar /admin/ del inicio y convertir a formato de código
   const withoutAdmin = pathname.replace(/^\/admin\/?/, '')
   
   if (!withoutAdmin) return 'admin' // Dashboard principal
   
-  // Convertir: / → . , guiones → guiones bajos
   const code = 'admin.' + withoutAdmin
     .split('/')
     .filter(Boolean)
@@ -29,13 +24,11 @@ function pathToAreaCode(pathname: string): string {
 
 /**
  * Auto-registra el área en la base de datos si no existe.
- * Se ejecuta una vez por ruta visitada.
  */
 function useAutoRegisterArea(areaCode: string, pathname: string) {
   useEffect(() => {
     if (!areaCode || areaCode === 'admin') return
     
-    // Auto-registrar en background (no bloquea)
     fetch('/api/admin/permisos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -44,9 +37,7 @@ function useAutoRegisterArea(areaCode: string, pathname: string) {
         codigo: areaCode,
         pathname: pathname,
       }),
-    }).catch(() => {
-      // Silencioso - no es crítico si falla
-    })
+    }).catch(() => {})
   }, [areaCode, pathname])
 }
 
@@ -54,18 +45,23 @@ function useAutoRegisterArea(areaCode: string, pathname: string) {
  * Componente que protege las rutas del panel admin según permisos granulares.
  * 
  * Reglas:
- * - SUPER_ADMIN sin simulación: acceso total (no se bloquea nada)
- * - GERENTE sin simulación: acceso total (excepto finanzas-tickets)
+ * - SUPER_ADMIN sin simulación: acceso total
+ * - GERENTE sin simulación: acceso total
  * - Usuario con permisos granulares: solo accede a las áreas permitidas
- * - Usuario sin permisos granulares: usa sistema legacy de roles
- * 
- * La protección funciona por herencia:
- * - Si tienes acceso a "admin.clientes.ggcc.draxton" → accedes a todos sus hijos
- * - Si tienes acceso a "admin.clientes.ggcc.draxton.proyectos" → solo a esa sub-ruta
+ * - Usuario sin permisos granulares: usa sistema legacy de roles (no bloquea)
+ * - Mientras se cargan permisos: muestra loading (no bloquea ni deniega)
  */
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { hasAreaAccess, isSuperAdmin, isViewingAs, tienePermisosGranulares, effectiveRole, isViewingAsUser } = useRole()
+  const { 
+    hasAreaAccess, 
+    isSuperAdmin, 
+    isViewingAs, 
+    isViewingAsUser,
+    tienePermisosGranulares, 
+    effectiveRole, 
+    permisosLoaded 
+  } = useRole()
   
   const areaCode = pathToAreaCode(pathname)
   
@@ -77,12 +73,23 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     return <>{children}</>
   }
   
-  // GERENTE sin simulación de usuario: acceso total (excepto finanzas-tickets)
+  // GERENTE sin simulación de usuario: acceso total
   if (effectiveRole === 'GERENTE' && !isViewingAsUser) {
-    if (areaCode.includes('finanzas.tickets')) {
-      return <AccessDenied />
-    }
     return <>{children}</>
+  }
+  
+  // Dashboard siempre accesible
+  if (areaCode === 'admin') {
+    return <>{children}</>
+  }
+
+  // Si los permisos aún no se han cargado, mostrar loading
+  if (!permisosLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+      </div>
+    )
   }
   
   // Si el usuario tiene permisos granulares, verificar acceso por área
@@ -92,6 +99,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
     }
   }
   
+  // Sin permisos granulares → no bloquear (usa sistema legacy de roles del sidebar)
   return <>{children}</>
 }
 

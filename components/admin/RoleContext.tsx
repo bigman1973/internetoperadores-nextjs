@@ -97,6 +97,7 @@ interface RoleContextType {
   permisosGranulares: PermisoGranular[]
   effectiveUserId: number | null
   tienePermisosGranulares: boolean
+  permisosLoaded: boolean
 }
 
 const RoleContext = createContext<RoleContextType>({
@@ -115,6 +116,7 @@ const RoleContext = createContext<RoleContextType>({
   permisosGranulares: [],
   effectiveUserId: null,
   tienePermisosGranulares: false,
+  permisosLoaded: false,
 })
 
 export function RoleProvider({ 
@@ -288,6 +290,7 @@ export function RoleProvider({
       permisosGranulares,
       effectiveUserId,
       tienePermisosGranulares,
+      permisosLoaded,
     }}>
       {children}
     </RoleContext.Provider>
