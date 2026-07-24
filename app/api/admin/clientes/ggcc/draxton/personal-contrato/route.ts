@@ -155,7 +155,7 @@ export async function POST(request: NextRequest) {
 
   // Acción: actualizar asignación (dedicación, rol, funciones, etc.)
   if (action === 'actualizar') {
-    const { asignacionId, porcentajeDedicacion, nivelTecnico, rol, funciones, activo, notas } = body
+    const { asignacionId, porcentajeDedicacion, nivelTecnico, rol, funciones, activo, notas, fechaInicio, fechaFin } = body
 
     if (!asignacionId) {
       return NextResponse.json({ error: 'asignacionId requerido' }, { status: 400 })
@@ -168,6 +168,8 @@ export async function POST(request: NextRequest) {
     if (funciones !== undefined) updateData.funciones = funciones
     if (activo !== undefined) updateData.activo = activo
     if (notas !== undefined) updateData.notas = notas
+    if (fechaInicio !== undefined) updateData.fechaInicio = fechaInicio ? new Date(fechaInicio) : null
+    if (fechaFin !== undefined) updateData.fechaFin = fechaFin ? new Date(fechaFin) : null
 
     const updated = await prisma.personalContratoDraxton.update({
       where: { id: asignacionId },

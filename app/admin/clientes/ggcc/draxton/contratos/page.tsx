@@ -2019,6 +2019,29 @@ export default function DraxtonContratosPage() {
                                         <option value="2">N2</option>
                                         <option value="3">N3</option>
                                       </select>
+                                      <input
+                                        type="date"
+                                        value={pa.fechaInicio ? pa.fechaInicio.split('T')[0] : ''}
+                                        onChange={e => actualizarPersonal(pa.id, { fechaInicio: e.target.value || null }, c.id)}
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px]"
+                                        title="Fecha inicio"
+                                      />
+                                      <input
+                                        type="date"
+                                        value={pa.fechaFin ? pa.fechaFin.split('T')[0] : ''}
+                                        onChange={e => actualizarPersonal(pa.id, { fechaFin: e.target.value || null }, c.id)}
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px]"
+                                        title="Fecha fin"
+                                      />
+                                      <label className="flex items-center gap-1 text-[10px] cursor-pointer" title="Activo">
+                                        <input
+                                          type="checkbox"
+                                          checked={pa.activo}
+                                          onChange={e => actualizarPersonal(pa.id, { activo: e.target.checked }, c.id)}
+                                          className="w-3 h-3 rounded"
+                                        />
+                                        <span className={pa.activo ? 'text-green-600' : 'text-gray-400'}>Activo</span>
+                                      </label>
                                       <button onClick={() => desasignarPersonal(pa.id, c.id)} className="text-red-500 hover:text-red-700" title="Desasignar">
                                         <TrashIcon className="w-3.5 h-3.5" />
                                       </button>
