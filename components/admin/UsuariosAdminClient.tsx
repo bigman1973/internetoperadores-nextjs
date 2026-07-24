@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import PermisosUsuarioModal from './PermisosUsuarioModal';
 
 interface Usuario {
   id: number;
@@ -38,6 +39,7 @@ export default function UsuariosAdminClient() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [permisosUser, setPermisosUser] = useState<{id: number, nombre: string} | null>(null);
 
   useEffect(() => {
     fetchUsuarios();
@@ -298,6 +300,12 @@ export default function UsuariosAdminClient() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
+                      onClick={() => setPermisosUser({ id: user.id, nombre: user.nombre })}
+                      className="text-indigo-600 hover:text-indigo-900 mr-4"
+                    >
+                      Permisos
+                    </button>
+                    <button
                       onClick={() => openEditModal(user)}
                       className="text-orange-600 hover:text-orange-900 mr-4"
                     >
@@ -453,6 +461,15 @@ export default function UsuariosAdminClient() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Permisos Granulares */}
+      {permisosUser && (
+        <PermisosUsuarioModal
+          usuarioId={permisosUser.id}
+          usuarioNombre={permisosUser.nombre}
+          onClose={() => setPermisosUser(null)}
+        />
       )}
     </div>
   );

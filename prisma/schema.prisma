@@ -22,6 +22,7 @@ model UsuarioAdmin {
   historialCambios HistorialCambio[]
   tarifasCreadas   Tarifa[]          @relation("TarifaCreador")
   tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
+  permisos         PermisoUsuario[]
 
   @@map("usuarios_admin")
 }
@@ -2171,4 +2172,42 @@ model GuardiaIncidencia {
   @@index([configId, fechaHora])
   @@index([estado])
   @@map("guardia_incidencias")
+}
+
+// ==========================================
+// PERMISOS GRANULARES POR ÁREA
+// ==========================================
+
+model PermisoArea {
+  id              String           @id @default(cuid())
+  codigo          String           @unique // ej: "admin.ggcc.draxton.contratos"
+  nombre          String           // ej: "GGCC > Draxton > Contratos"
+  descripcion     String?
+  padre           String?          // código del padre, ej: "admin.ggcc.draxton"
+  orden           Int              @default(0)
+  activo          Boolean          @default(true)
+  createdAt       DateTime         @default(now()) @map("created_at")
+  permisos        PermisoUsuario[]
+
+  @@index([padre])
+  @@index([codigo])
+  @@map("permiso_areas")
+}
+
+model PermisoUsuario {
+  id              String       @id @default(cuid())
+  usuarioId       Int          @map("usuario_id")
+  areaId          String       @map("area_id")
+  lectura         Boolean      @default(false)
+  escritura       Boolean      @default(false)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  usuario         UsuarioAdmin @relation(fields: [usuarioId], references: [id])
+  area            PermisoArea  @relation(fields: [areaId], references: [id])
+
+  @@unique([usuarioId, areaId])
+  @@index([usuarioId])
+  @@index([areaId])
+  @@map("permiso_usuarios")
 }

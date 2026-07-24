@@ -25,6 +25,7 @@ export default async function AdminLayout({
       <RoleProvider 
         userRole={session.user.role || 'VENTAS'} 
         userRoles={session.user.roles || []}
+        userId={session.user.id ? parseInt(session.user.id as string) : undefined}
       >
         <SidebarProvider>
           <div className="min-h-screen bg-gray-50">
