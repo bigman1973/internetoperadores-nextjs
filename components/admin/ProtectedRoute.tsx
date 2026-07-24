@@ -68,6 +68,19 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   // Auto-registrar el área (solo para SUPER_ADMIN, en background)
   useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '', pathname)
   
+  // DEBUG - remover después
+  console.log('[ProtectedRoute]', {
+    pathname,
+    areaCode,
+    isSuperAdmin,
+    isViewingAs,
+    isViewingAsUser,
+    effectiveRole,
+    permisosLoaded,
+    tienePermisosGranulares,
+    hasAccess: tienePermisosGranulares ? hasAreaAccess(areaCode, 'lectura') : 'N/A (no granulares)',
+  })
+
   // SUPER_ADMIN real sin simulación: acceso total
   if (isSuperAdmin && !isViewingAs) {
     return <>{children}</>
