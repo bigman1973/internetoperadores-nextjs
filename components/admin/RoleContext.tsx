@@ -247,7 +247,7 @@ export function RoleProvider({
     if (isSuperAdmin && !isViewingAs) return true
     if (effectiveRole === 'GERENTE' && !isViewingAsUser) return true
 
-    // Construir cadena de herencia
+    // Construir cadena de herencia hacia arriba (padres del área solicitada)
     const partes = codigoArea.split('.')
     const codigosHerencia: string[] = []
     for (let i = 1; i <= partes.length; i++) {
@@ -255,7 +255,14 @@ export function RoleProvider({
     }
 
     for (const p of permisosGranulares) {
+      // El permiso cubre el área exacta o es un padre (herencia hacia abajo)
       if (codigosHerencia.includes(p.codigo)) {
+        if (tipo === 'lectura' && p.lectura) return true
+        if (tipo === 'escritura' && p.escritura) return true
+      }
+      // El permiso es un hijo del área solicitada (acceso al contenedor padre)
+      // Ej: tiene admin.clientes.ggcc.draxton.proyectos → puede acceder a admin.clientes.ggcc.draxton
+      if (p.codigo.startsWith(codigoArea + '.')) {
         if (tipo === 'lectura' && p.lectura) return true
         if (tipo === 'escritura' && p.escritura) return true
       }
