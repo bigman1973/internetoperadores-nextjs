@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 
   // Solo SUPER_ADMIN y GERENTE pueden gestionar permisos
   const user = session.user as any
-  if (!['SUPER_ADMIN', 'GERENTE'].includes(user.rol)) {
+  if (!['SUPER_ADMIN', 'GERENTE'].includes(user.role)) {
     return NextResponse.json({ error: 'Sin permisos para gestionar accesos' }, { status: 403 })
   }
 
