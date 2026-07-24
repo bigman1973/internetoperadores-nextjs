@@ -154,6 +154,9 @@ export default function DraxtonContratosPage() {
   const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([]);
   const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: 100, nivelTecnico: '', rol: '', funciones: '', fechaInicio: new Date().toISOString().split('T')[0], fechaFin: '' });
   const [nuevaTarea, setNuevaTarea] = useState('');
+  const [rentabilidadContratoId, setRentabilidadContratoId] = useState<string | null>(null);
+  const [rentabilidadData, setRentabilidadData] = useState<any>(null);
+  const [loadingRentabilidad, setLoadingRentabilidad] = useState(false);
 
   // Form state contrato cliente
   const [form, setForm] = useState<Partial<Contrato>>({
@@ -262,6 +265,27 @@ export default function DraxtonContratosPage() {
       await fetchProyectosContrato();
     } catch (err) {
       console.error('Error eliminando proyecto:', err);
+    }
+  }
+
+  async function toggleRentabilidad(contratoId: string) {
+    if (rentabilidadContratoId === contratoId) {
+      setRentabilidadContratoId(null);
+      setRentabilidadData(null);
+      return;
+    }
+    setRentabilidadContratoId(contratoId);
+    setLoadingRentabilidad(true);
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/contratos/rentabilidad-mensual?contratoId=${contratoId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setRentabilidadData(data);
+      }
+    } catch (err) {
+      console.error('Error cargando rentabilidad:', err);
+    } finally {
+      setLoadingRentabilidad(false);
     }
   }
 
@@ -1120,7 +1144,8 @@ export default function DraxtonContratosPage() {
                       return s + srvs.reduce((ss, srv) => ss + (srv.importeAlta || 0), 0);
                     }, 0);
                     return (
-                    <tr key={d.id}>
+                    <Fragment key={d.id}>
+                    <tr>
                       <td className="px-4 py-2 text-gray-900 font-medium max-w-[200px] truncate">{d.titulo}</td>
                       <td className="px-4 py-2 text-right text-gray-700">{formatCurrency(d.mensual)}</td>
                       <td className="px-4 py-2 text-right text-red-600">
@@ -1128,8 +1153,10 @@ export default function DraxtonContratosPage() {
                         {(costePersonalContrato > 0 || costeGuardiasMensual > 0) && <span className="text-[9px] text-gray-400 block">{costeProvContrato > 0 ? `Prov: ${costeProvContrato.toFixed(0)}€` : ''}{costePersonalContrato > 0 ? `${costeProvContrato > 0 ? ' + ' : ''}Pers: ${costePersonalContrato.toFixed(0)}€` : ''}{costeGuardiasMensual > 0 ? ` + Téc: ${costeGuardiasMensual.toFixed(0)}€` : ''}</span>}
                       </td>
                       <td className="px-4 py-2 text-right text-green-600 font-medium">
-                        {formatCurrency(margenContrato)}
-                        <span className="text-[9px] text-gray-400 block">{margenPct}%</span>
+                        <button onClick={() => toggleRentabilidad(d.id)} className="hover:underline cursor-pointer" title="Ver rentabilidad mensual">
+                          {formatCurrency(margenContrato)}
+                          <span className="text-[9px] text-gray-400 block">{margenPct}% {rentabilidadContratoId === d.id ? '▲' : '▼'}</span>
+                        </button>
                       </td>
                       <td className="px-4 py-2 text-right">
                         {(() => {
@@ -1186,6 +1213,79 @@ export default function DraxtonContratosPage() {
                         <span className="text-[9px] text-gray-400 block">{d.mesesAnio3} meses</span>
                       </td>
                     </tr>
+                    {rentabilidadContratoId === d.id && (
+                      <tr>
+                        <td colSpan={13} className="p-0">
+                          <div className="bg-gray-50 border-t border-b border-gray-200 px-4 py-3">
+                            {loadingRentabilidad ? (
+                              <div className="flex items-center gap-2 py-4 justify-center">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+                                <span className="text-xs text-gray-500">Calculando rentabilidad mensual...</span>
+                              </div>
+                            ) : rentabilidadData ? (
+                              <div>
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-xs font-semibold text-gray-700 uppercase">Rentabilidad Mensual — {rentabilidadData.contrato.titulo}</h4>
+                                  <div className="flex items-center gap-4 text-[10px]">
+                                    <span className="text-gray-500">Acumulado: <strong className="text-green-700">{formatCurrency(rentabilidadData.totales.margen)}</strong> ({rentabilidadData.totales.margenPct}%)</span>
+                                    <span className="text-gray-500">{rentabilidadData.totales.mesesCalculados} meses</span>
+                                  </div>
+                                </div>
+                                <div className="overflow-x-auto">
+                                  <table className="w-full text-[11px]">
+                                    <thead>
+                                      <tr className="bg-gray-100">
+                                        <th className="text-left px-3 py-1.5 font-medium text-gray-600">Mes</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-gray-600">Ingreso</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-gray-600">Proveedores</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-gray-600">Personal</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-gray-600">Coste Total</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-green-700">Margen</th>
+                                        <th className="text-right px-3 py-1.5 font-medium text-green-700">%</th>
+                                        <th className="text-left px-3 py-1.5 font-medium text-gray-600">Personal activo</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {rentabilidadData.meses.map((m: any) => (
+                                        <tr key={`${m.anio}-${m.mes}`} className="hover:bg-white">
+                                          <td className="px-3 py-1.5 font-medium text-gray-800 capitalize">{m.mesLabel}</td>
+                                          <td className="px-3 py-1.5 text-right text-gray-700">{formatCurrency(m.ingreso)}</td>
+                                          <td className="px-3 py-1.5 text-right text-red-600">{formatCurrency(m.costeProveedores)}</td>
+                                          <td className="px-3 py-1.5 text-right text-red-600">{formatCurrency(m.costePersonal)}</td>
+                                          <td className="px-3 py-1.5 text-right text-red-700 font-medium">{formatCurrency(m.costeTotal)}</td>
+                                          <td className={`px-3 py-1.5 text-right font-bold ${m.margen >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(m.margen)}</td>
+                                          <td className={`px-3 py-1.5 text-right font-medium ${m.margenPct >= 0 ? 'text-green-600' : 'text-red-600'}`}>{m.margenPct}%</td>
+                                          <td className="px-3 py-1.5 text-left">
+                                            <div className="flex flex-wrap gap-1">
+                                              {m.detallePersonal.map((p: any, i: number) => (
+                                                <span key={i} className="text-[9px] bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded">
+                                                  {p.nombre.split(',')[0]} ({p.dedicacion}%) → {p.coste.toFixed(0)}€
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                      <tr className="bg-gray-100 font-bold">
+                                        <td className="px-3 py-1.5 text-gray-900">TOTAL</td>
+                                        <td className="px-3 py-1.5 text-right text-gray-900">{formatCurrency(rentabilidadData.totales.ingreso)}</td>
+                                        <td className="px-3 py-1.5 text-right text-red-700">{formatCurrency(rentabilidadData.totales.costeProveedores)}</td>
+                                        <td className="px-3 py-1.5 text-right text-red-700">{formatCurrency(rentabilidadData.totales.costePersonal)}</td>
+                                        <td className="px-3 py-1.5 text-right text-red-800">{formatCurrency(rentabilidadData.totales.costeProveedores + rentabilidadData.totales.costePersonal)}</td>
+                                        <td className={`px-3 py-1.5 text-right font-bold ${rentabilidadData.totales.margen >= 0 ? 'text-green-800' : 'text-red-800'}`}>{formatCurrency(rentabilidadData.totales.margen)}</td>
+                                        <td className={`px-3 py-1.5 text-right ${rentabilidadData.totales.margenPct >= 0 ? 'text-green-700' : 'text-red-700'}`}>{rentabilidadData.totales.margenPct}%</td>
+                                        <td className="px-3 py-1.5"></td>
+                                      </tr>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                     );
                   })}
                   {datosContratos.length > 1 && (
