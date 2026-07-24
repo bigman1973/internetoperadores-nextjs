@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useRole } from '@/components/admin/RoleContext'
 import {
   BanknotesIcon,
   DocumentDuplicateIcon,
@@ -16,19 +17,23 @@ import {
 } from '@heroicons/react/24/outline'
 
 const tabs = [
-  { name: 'Finanzas', href: '/admin/clientes/ggcc/draxton/finanzas', icon: BanknotesIcon },
-  { name: 'Contratos', href: '/admin/clientes/ggcc/draxton/contratos', icon: DocumentDuplicateIcon },
-  { name: 'Proyectos Singulares', href: '/admin/clientes/ggcc/draxton/proyectos-singulares', icon: RocketLaunchIcon },
-  { name: 'Proyectos Internos', href: '/admin/clientes/ggcc/draxton/proyectos', icon: WrenchScrewdriverIcon },
-  { name: 'Personal', href: '/admin/clientes/ggcc/draxton/personal', icon: UserGroupIcon },
-  { name: 'Contrato Guardias', href: '/admin/clientes/ggcc/draxton/contrato-guardias', icon: ShieldCheckIcon },
-  { name: 'Seguimiento', href: '/admin/clientes/ggcc/draxton/seguimiento', icon: ClockIcon },
-  { name: 'KPIs', href: '/admin/clientes/ggcc/draxton/kpis', icon: ChartBarSquareIcon },
-  { name: 'Informes', href: '/admin/clientes/ggcc/draxton/informes', icon: DocumentChartBarIcon },
+  { name: 'Finanzas', href: '/admin/clientes/ggcc/draxton/finanzas', icon: BanknotesIcon, area: 'admin.clientes.ggcc.draxton.finanzas' },
+  { name: 'Contratos', href: '/admin/clientes/ggcc/draxton/contratos', icon: DocumentDuplicateIcon, area: 'admin.clientes.ggcc.draxton.contratos' },
+  { name: 'Proyectos Singulares', href: '/admin/clientes/ggcc/draxton/proyectos-singulares', icon: RocketLaunchIcon, area: 'admin.clientes.ggcc.draxton.proyectos_singulares' },
+  { name: 'Proyectos Internos', href: '/admin/clientes/ggcc/draxton/proyectos', icon: WrenchScrewdriverIcon, area: 'admin.clientes.ggcc.draxton.proyectos' },
+  { name: 'Personal', href: '/admin/clientes/ggcc/draxton/personal', icon: UserGroupIcon, area: 'admin.clientes.ggcc.draxton.personal' },
+  { name: 'Contrato Guardias', href: '/admin/clientes/ggcc/draxton/contrato-guardias', icon: ShieldCheckIcon, area: 'admin.clientes.ggcc.draxton.contrato_guardias' },
+  { name: 'Seguimiento', href: '/admin/clientes/ggcc/draxton/seguimiento', icon: ClockIcon, area: 'admin.clientes.ggcc.draxton.seguimiento' },
+  { name: 'KPIs', href: '/admin/clientes/ggcc/draxton/kpis', icon: ChartBarSquareIcon, area: 'admin.clientes.ggcc.draxton.kpis' },
+  { name: 'Informes', href: '/admin/clientes/ggcc/draxton/informes', icon: DocumentChartBarIcon, area: 'admin.clientes.ggcc.draxton.informes' },
 ]
 
 export default function DraxtonLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
+  const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
+
+  // Filtrar tabs según permisos granulares
+  const visibleTabs = tabs.filter(tab => hasAreaAccess(tab.area, 'lectura'))
 
   return (
     <div className="space-y-6">
@@ -49,7 +54,7 @@ export default function DraxtonLayout({ children }: { children: React.ReactNode 
       {/* Tabs de navegación */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-1 overflow-x-auto" aria-label="Tabs">
-          {tabs.map((tab) => {
+          {visibleTabs.map((tab) => {
             const isActive = pathname === tab.href || pathname.startsWith(tab.href + '/')
             return (
               <Link
