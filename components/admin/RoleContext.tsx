@@ -45,6 +45,8 @@ const SECTION_TO_AREA: Record<string, string> = {
   'dashboard': 'admin',
   'tarifas': 'admin.tarifas',
   'clientes': 'admin.clientes',
+  'clientes.todos': 'admin.clientes.todos',
+  'clientes.migracion_adamo': 'admin.clientes.migracion_adamo',
   'clientes.ggcc.draxton': 'admin.clientes.ggcc.draxton',
   'leads': 'admin.leads',
   'comunicados': 'admin.comunicados',
