@@ -25,6 +25,7 @@ interface Nomina {
   irpf: number | null;
   costeTotalEmpresa: number | null;
   complementoEspecie: number | null;
+  gastosDesplazamiento: number | null;
 }
 
 interface EntregaACuenta {
@@ -132,6 +133,24 @@ export default function AdminEmpleadosPage() {
       .filter(e => e.tipoEntrega === 'anticipo')
       .reduce((s, e) => s + Math.abs(e.importe || 0), 0);
     return { costesEmpresa, anticipos };
+  }
+
+  function getSalarioAnualSinDesplazamiento(emp: Empleado): { salarioAnual: number; meses: number; proyeccion12: number; desplazamientoTotal: number } | null {
+    if (!emp.nominas || emp.nominas.length === 0) return null;
+    const meses = emp.nominas.length;
+    const costeTotalSinDesplaz = emp.nominas.reduce((s, n) => {
+      const coste = n.costeTotalEmpresa || 0;
+      const desplaz = n.gastosDesplazamiento || 0;
+      return s + (coste - desplaz);
+    }, 0);
+    const desplazamientoTotal = emp.nominas.reduce((s, n) => s + (n.gastosDesplazamiento || 0), 0);
+    const mediaMensual = costeTotalSinDesplaz / meses;
+    return {
+      salarioAnual: costeTotalSinDesplaz,
+      meses,
+      proyeccion12: mediaMensual * 12,
+      desplazamientoTotal,
+    };
   }
 
   function getPeriodoLabel(): string {
@@ -322,18 +341,21 @@ export default function AdminEmpleadosPage() {
                 <th className="text-right px-4 py-3 font-medium text-gray-600">Coste Total</th>
                 <th className="text-right px-4 py-3 font-medium text-amber-700">Anticipos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/hora</th>
+                {periodo === 'anual' && (
+                  <th className="text-right px-4 py-3 font-medium text-blue-700">Salario Anual<br/><span className="text-xs font-normal">(sin desplaz.)</span></th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 11 : 10} className="px-4 py-8 text-center text-gray-400">
                     Cargando...
                   </td>
                 </tr>
               ) : empleados.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 11 : 10} className="px-4 py-8 text-center text-gray-400">
                     No hay empleados
                   </td>
                 </tr>
@@ -381,6 +403,21 @@ export default function AdminEmpleadosPage() {
                       <td className="px-4 py-3 text-right text-indigo-700 font-medium">
                         {emp.costeHoraActual ? `${emp.costeHoraActual.toFixed(2)} €` : '—'}
                       </td>
+                      {periodo === 'anual' && (() => {
+                        const sal = getSalarioAnualSinDesplazamiento(emp);
+                        if (!sal) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
+                        return (
+                          <td className="px-4 py-3 text-right">
+                            <div className="font-semibold text-blue-700">{formatEur(sal.proyeccion12)}</div>
+                            {sal.meses < 12 && (
+                              <div className="text-xs text-gray-400">proy. {sal.meses} meses</div>
+                            )}
+                            {sal.desplazamientoTotal > 0 && (
+                              <div className="text-xs text-orange-500">-{formatEur(sal.desplazamientoTotal)} desplaz.</div>
+                            )}
+                          </td>
+                        );
+                      })()}
                     </tr>
                   );
                 })
@@ -397,6 +434,14 @@ export default function AdminEmpleadosPage() {
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalCosteEmpresa)}</td>
                   <td className="px-4 py-3 text-right text-amber-800">{formatEur(totales.totalAnticipos)}</td>
                   <td className="px-4 py-3"></td>
+                  {periodo === 'anual' && (
+                    <td className="px-4 py-3 text-right text-blue-800">
+                      {formatEur(empleados.reduce((sum, emp) => {
+                        const sal = getSalarioAnualSinDesplazamiento(emp);
+                        return sum + (sal ? sal.proyeccion12 : 0);
+                      }, 0))}
+                    </td>
+                  )}
                 </tr>
               </tfoot>
             )}
