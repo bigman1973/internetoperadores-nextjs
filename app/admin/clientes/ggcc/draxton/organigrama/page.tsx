@@ -157,54 +157,15 @@ export default function OrganigramaDraxtonPage() {
     return TIPOS_ENTIDAD.find(t => t.value === tipo)?.label || tipo;
   }
 
-  // Componente de grupo de hijos con líneas correctas
-  function GrupoHijos({ hijos, nivel }: { hijos: NodoOrganigrama[]; nivel: number }) {
-    if (hijos.length === 0) return null;
-    if (hijos.length === 1) {
-      return (
-        <div className="flex flex-col items-center">
-          <div className="w-px h-8 bg-gray-400" />
-          <NodoArbol nodo={hijos[0]} nivel={nivel} />
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col items-center">
-        {/* Línea vertical del padre hacia la barra horizontal */}
-        <div className="w-px h-8 bg-gray-400" />
-        {/* Contenedor de hijos con barra horizontal */}
-        <div className="relative flex">
-          {/* Barra horizontal que conecta del primer hijo al último */}
-          <div className="absolute top-0 h-px bg-gray-400" style={{ left: '50%', right: '50%' }} />
-          {/* Calcular la barra: del centro del primer hijo al centro del último */}
-          <div className="absolute top-0 h-px bg-gray-400"
-            style={{
-              left: `calc(${100 / (2 * hijos.length)}%)`,
-              right: `calc(${100 / (2 * hijos.length)}%)`,
-            }}
-          />
-          {hijos.map((hijo, idx) => (
-            <div key={hijo.id} className="flex flex-col items-center px-3">
-              {/* Línea vertical desde la barra al nodo hijo */}
-              <div className="w-px h-8 bg-gray-400" />
-              <NodoArbol nodo={hijo} nivel={nivel} />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Componente de nodo del árbol
+  // Componente de nodo del árbol usando CSS tree clásico
   function NodoArbol({ nodo, nivel }: { nodo: NodoOrganigrama; nivel: number }) {
     const hijos = arbol.buildTree(nodo.id);
     const tipoStyle = getTipoStyle(nodo.tipoEntidad);
 
     return (
-      <div className="flex flex-col items-center">
-        {/* Nodo */}
+      <li className="org-li">
         <div
-          className={`relative border-2 rounded-lg px-4 py-3 min-w-[160px] max-w-[200px] text-center cursor-pointer hover:shadow-md transition-shadow ${tipoStyle}`}
+          className={`relative border-2 rounded-lg px-4 py-3 min-w-[140px] max-w-[180px] text-center cursor-pointer hover:shadow-md transition-shadow ${tipoStyle}`}
           onClick={() => openEdit(nodo)}
         >
           <p className="font-semibold text-sm leading-tight">{nodo.nombre}</p>
@@ -214,12 +175,14 @@ export default function OrganigramaDraxtonPage() {
           )}
           <p className="text-[10px] mt-1 opacity-60">{nodo.ubicacion}</p>
         </div>
-
-        {/* Hijos con líneas correctas */}
         {hijos.length > 0 && (
-          <GrupoHijos hijos={hijos} nivel={nivel + 1} />
+          <ul className="org-ul">
+            {hijos.map(hijo => (
+              <NodoArbol key={hijo.id} nodo={hijo} nivel={nivel + 1} />
+            ))}
+          </ul>
         )}
-      </div>
+      </li>
     );
   }
 
@@ -246,7 +209,7 @@ export default function OrganigramaDraxtonPage() {
             {UBICACIONES.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
           <button
-            onClick={() => window.print()}
+            onClick={() => window.open('/api/admin/clientes/ggcc/draxton/organigrama/imprimir', '_blank')}
             className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 border"
           >
             <PrinterIcon className="h-4 w-4" /> Imprimir
@@ -274,12 +237,33 @@ export default function OrganigramaDraxtonPage() {
         <>
           {/* Organigrama visual */}
           <div className="bg-white rounded-xl border p-8 overflow-x-auto">
-            <div className="flex justify-center min-w-[900px]">
-              <div className="flex flex-col items-center gap-0">
+            <style dangerouslySetInnerHTML={{ __html: `
+              .org-tree { display: flex; justify-content: center; padding-top: 10px; }
+              .org-ul { position: relative; padding-top: 30px; list-style: none; display: flex; justify-content: center; margin: 0; padding-left: 0; }
+              .org-li { position: relative; padding: 30px 8px 0 8px; display: flex; flex-direction: column; align-items: center; list-style: none; }
+              /* Línea vertical desde el padre (ul::before) */
+              .org-ul::before { content: ''; position: absolute; top: 0; left: 50%; width: 2px; height: 30px; background: #9ca3af; }
+              /* Línea vertical hacia cada hijo (li::before) */
+              .org-li::before { content: ''; position: absolute; top: 0; left: 50%; width: 2px; height: 30px; background: #9ca3af; }
+              /* Barra horizontal entre hermanos (li::after) */
+              .org-li::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: #9ca3af; }
+              /* Primer hijo: barra solo a la derecha */
+              .org-li:first-child::after { left: 50%; }
+              /* Último hijo: barra solo a la izquierda */
+              .org-li:last-child::after { right: 50%; }
+              /* Hijo único: sin barra horizontal */
+              .org-li:only-child::after { display: none; }
+              /* Raíz: sin líneas superiores */
+              .org-tree > .org-ul > .org-li::before,
+              .org-tree > .org-ul > .org-li::after,
+              .org-tree > .org-ul::before { display: none; }
+            `}} />
+            <div className="org-tree" style={{ minWidth: '900px' }}>
+              <ul className="org-ul">
                 {arbol.raices.map(raiz => (
                   <NodoArbol key={raiz.id} nodo={raiz} nivel={0} />
                 ))}
-              </div>
+              </ul>
             </div>
           </div>
 
