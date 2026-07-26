@@ -36,6 +36,16 @@ interface EntregaACuenta {
   fechaOperacion: string;
 }
 
+interface CondicionSalarial {
+  id: string;
+  fechaEfectiva: string;
+  brutoAnual: number;
+  motivo: string | null;
+  notas: string | null;
+  creadoPor: string | null;
+  createdAt: string;
+}
+
 interface Empleado {
   id: string;
   codigoNomina: string | null;
@@ -48,6 +58,7 @@ interface Empleado {
   costeHoraActual: number | null;
   nominas: Nomina[];
   entregasACuenta: EntregaACuenta[];
+  condicionesSalariales: CondicionSalarial[];
   _count: { imputaciones: number; asignaciones: number };
 }
 
@@ -78,6 +89,14 @@ const PERIODOS: { value: Periodo; label: string }[] = [
   { value: 'anual', label: 'Acumulado Anual' },
 ];
 
+const MOTIVOS = [
+  { value: 'incorporacion', label: 'Incorporación' },
+  { value: 'subida_anual', label: 'Subida anual' },
+  { value: 'promocion', label: 'Promoción' },
+  { value: 'revision', label: 'Revisión' },
+  { value: 'otro', label: 'Otro' },
+];
+
 export default function AdminEmpleadosPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [totales, setTotales] = useState<Totales | null>(null);
@@ -86,6 +105,10 @@ export default function AdminEmpleadosPage() {
   const [periodo, setPeriodo] = useState<Periodo>('mes');
   const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1);
   const [anioSeleccionado] = useState(2026);
+  // Condiciones salariales modal
+  const [modalEmpleado, setModalEmpleado] = useState<Empleado | null>(null);
+  const [condForm, setCondForm] = useState({ fechaEfectiva: '', brutoAnual: '', motivo: 'subida_anual', notas: '' });
+  const [condSaving, setCondSaving] = useState(false);
 
   useEffect(() => {
     fetchEmpleados();
@@ -109,6 +132,55 @@ export default function AdminEmpleadosPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function guardarCondicion() {
+    if (!modalEmpleado || !condForm.fechaEfectiva || !condForm.brutoAnual) return;
+    setCondSaving(true);
+    try {
+      await fetch('/api/admin/empleados/condiciones-salariales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          empleadoId: modalEmpleado.id,
+          fechaEfectiva: condForm.fechaEfectiva,
+          brutoAnual: condForm.brutoAnual,
+          motivo: condForm.motivo,
+          notas: condForm.notas || null,
+        }),
+      });
+      setCondForm({ fechaEfectiva: '', brutoAnual: '', motivo: 'subida_anual', notas: '' });
+      // Refrescar datos
+      await fetchEmpleados();
+      // Actualizar modal con datos frescos
+      const updated = empleados.find(e => e.id === modalEmpleado.id);
+      if (updated) setModalEmpleado(updated);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCondSaving(false);
+    }
+  }
+
+  async function eliminarCondicion(id: string) {
+    if (!confirm('¿Eliminar esta condición salarial?')) return;
+    try {
+      await fetch(`/api/admin/empleados/condiciones-salariales?id=${id}`, { method: 'DELETE' });
+      await fetchEmpleados();
+      if (modalEmpleado) {
+        const updated = empleados.find(e => e.id === modalEmpleado.id);
+        if (updated) setModalEmpleado(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function getCondicionVigente(emp: Empleado): CondicionSalarial | null {
+    if (!emp.condicionesSalariales || emp.condicionesSalariales.length === 0) return null;
+    const hoy = new Date().toISOString().split('T')[0];
+    // Condiciones ordenadas desc por fechaEfectiva, la primera que sea <= hoy es la vigente
+    return emp.condicionesSalariales.find(c => c.fechaEfectiva.split('T')[0] <= hoy) || null;
   }
 
   function getEmpleadoTotales(emp: Empleado) {
@@ -359,6 +431,9 @@ export default function AdminEmpleadosPage() {
                   <th className="text-right px-4 py-3 font-medium text-green-700">Bruto Trabajador<br/><span className="text-xs font-normal">(devengado)</span></th>
                 )}
                 {periodo === 'anual' && (
+                  <th className="text-right px-4 py-3 font-medium text-orange-700">Bruto Pactado<br/><span className="text-xs font-normal">(condición)</span></th>
+                )}
+                {periodo === 'anual' && (
                   <th className="text-right px-4 py-3 font-medium text-blue-700">Coste Empresa<br/><span className="text-xs font-normal">(sin desplaz.)</span></th>
                 )}
               </tr>
@@ -366,13 +441,13 @@ export default function AdminEmpleadosPage() {
             <tbody className="divide-y">
               {loading ? (
                 <tr>
-                  <td colSpan={periodo === 'anual' ? 12 : 10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 13 : 10} className="px-4 py-8 text-center text-gray-400">
                     Cargando...
                   </td>
                 </tr>
               ) : empleados.length === 0 ? (
                 <tr>
-                  <td colSpan={periodo === 'anual' ? 12 : 10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 13 : 10} className="px-4 py-8 text-center text-gray-400">
                     No hay empleados
                   </td>
                 </tr>
@@ -431,6 +506,30 @@ export default function AdminEmpleadosPage() {
                         );
                       })()}
                       {periodo === 'anual' && (() => {
+                        const cond = getCondicionVigente(emp);
+                        const bruto = getBrutoTrabajadorAnual(emp);
+                        if (!cond) return (
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={() => setModalEmpleado(emp)}
+                              className="text-xs text-gray-400 hover:text-orange-600 underline"
+                            >+ Añadir</button>
+                          </td>
+                        );
+                        const diff = bruto ? bruto.proyeccion12 - cond.brutoAnual : 0;
+                        return (
+                          <td className="px-4 py-3 text-right cursor-pointer" onClick={() => setModalEmpleado(emp)}>
+                            <div className="font-semibold text-orange-700">{formatEur(cond.brutoAnual)}</div>
+                            <div className="text-xs text-gray-400">desde {new Date(cond.fechaEfectiva).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}</div>
+                            {bruto && Math.abs(diff) > 50 && (
+                              <div className={`text-xs ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                {diff > 0 ? '+' : ''}{formatEur(diff)} vs real
+                              </div>
+                            )}
+                          </td>
+                        );
+                      })()}
+                      {periodo === 'anual' && (() => {
                         const sal = getSalarioAnualSinDesplazamiento(emp);
                         if (!sal) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
                         return (
@@ -470,6 +569,14 @@ export default function AdminEmpleadosPage() {
                     </td>
                   )}
                   {periodo === 'anual' && (
+                    <td className="px-4 py-3 text-right text-orange-800">
+                      {formatEur(empleados.reduce((sum, emp) => {
+                        const cond = getCondicionVigente(emp);
+                        return sum + (cond ? cond.brutoAnual : 0);
+                      }, 0))}
+                    </td>
+                  )}
+                  {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-blue-800">
                       {formatEur(empleados.reduce((sum, emp) => {
                         const sal = getSalarioAnualSinDesplazamiento(emp);
@@ -483,6 +590,106 @@ export default function AdminEmpleadosPage() {
           </table>
         </div>
       </div>
+
+      {/* Modal Condiciones Salariales */}
+      {modalEmpleado && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setModalEmpleado(null)}>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Condiciones Salariales</h3>
+                  <p className="text-sm text-gray-500">{modalEmpleado.nombreCompleto}</p>
+                </div>
+                <button onClick={() => setModalEmpleado(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              </div>
+            </div>
+
+            {/* Formulario nueva condición */}
+            <div className="p-6 border-b bg-gray-50">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Nueva condición salarial</h4>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500">Fecha efectiva</label>
+                  <input
+                    type="date"
+                    value={condForm.fechaEfectiva}
+                    onChange={e => setCondForm({ ...condForm, fechaEfectiva: e.target.value })}
+                    className="w-full px-3 py-1.5 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Bruto anual (€)</label>
+                  <input
+                    type="number"
+                    step="100"
+                    value={condForm.brutoAnual}
+                    onChange={e => setCondForm({ ...condForm, brutoAnual: e.target.value })}
+                    placeholder="32000"
+                    className="w-full px-3 py-1.5 border rounded text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Motivo</label>
+                  <select
+                    value={condForm.motivo}
+                    onChange={e => setCondForm({ ...condForm, motivo: e.target.value })}
+                    className="w-full px-3 py-1.5 border rounded text-sm"
+                  >
+                    {MOTIVOS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500">Notas</label>
+                  <input
+                    type="text"
+                    value={condForm.notas}
+                    onChange={e => setCondForm({ ...condForm, notas: e.target.value })}
+                    placeholder="Opcional"
+                    className="w-full px-3 py-1.5 border rounded text-sm"
+                  />
+                </div>
+              </div>
+              <button
+                onClick={guardarCondicion}
+                disabled={condSaving || !condForm.fechaEfectiva || !condForm.brutoAnual}
+                className="mt-3 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50"
+              >
+                {condSaving ? 'Guardando...' : 'Registrar condición'}
+              </button>
+            </div>
+
+            {/* Historial */}
+            <div className="p-6">
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">Historial de condiciones</h4>
+              {(!modalEmpleado.condicionesSalariales || modalEmpleado.condicionesSalariales.length === 0) ? (
+                <p className="text-sm text-gray-400">Sin condiciones registradas</p>
+              ) : (
+                <div className="space-y-2">
+                  {modalEmpleado.condicionesSalariales.map((c, idx) => (
+                    <div key={c.id} className={`flex items-center justify-between p-3 rounded-lg border ${idx === 0 ? 'bg-orange-50 border-orange-200' : 'bg-white'}`}>
+                      <div>
+                        <div className="font-semibold text-gray-900">{formatEur(c.brutoAnual)}/año</div>
+                        <div className="text-xs text-gray-500">
+                          Desde {new Date(c.fechaEfectiva).toLocaleDateString('es-ES')}
+                          {c.motivo && <span className="ml-2 px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">{MOTIVOS.find(m => m.value === c.motivo)?.label || c.motivo}</span>}
+                        </div>
+                        {c.notas && <div className="text-xs text-gray-400 mt-0.5">{c.notas}</div>}
+                      </div>
+                      <button
+                        onClick={() => eliminarCondicion(c.id)}
+                        className="text-red-400 hover:text-red-600 text-xs"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

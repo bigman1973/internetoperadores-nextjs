@@ -1462,6 +1462,7 @@ model Empleado {
   guardiaTecnicos   GuardiaTecnico[]
   personalContratos PersonalContratoDraxton[] @relation("PersonalContratoDraxton")
   proyectosDraxton   ProyectoContratoDraxton[] @relation("ProyectoResponsable")
+  condicionesSalariales CondicionSalarial[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1469,6 +1470,25 @@ model Empleado {
   @@index([estado])
   @@index([email])
   @@map("empleados")
+}
+
+model CondicionSalarial {
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  fechaEfectiva   DateTime @map("fecha_efectiva") @db.Date
+  brutoAnual      Float    @map("bruto_anual") // Salario bruto anual pactado
+  motivo          String?  // subida_anual, promocion, revision, incorporacion, etc.
+  notas           String?
+  creadoPor       String?  @map("creado_por") // Email del usuario que registró
+  // Relaciones
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([empleadoId])
+  @@index([fechaEfectiva])
+  @@map("condiciones_salariales")
 }
 
 model Nomina {

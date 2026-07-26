@@ -89,6 +89,9 @@ export async function GET(req: NextRequest) {
             fechaOperacion: true,
           },
         },
+        condicionesSalariales: {
+          orderBy: { fechaEfectiva: 'desc' },
+        },
         _count: {
           select: {
             imputaciones: true,
