@@ -11,6 +11,7 @@ import {
   ShieldCheckIcon,
   ScaleIcon,
   PencilIcon,
+  RocketLaunchIcon,
 } from '@heroicons/react/24/outline';
 
 interface DashboardData {
@@ -34,6 +35,14 @@ interface DashboardData {
   };
   bloque3: { preventivosEjecutados: number; preventivosplanificados: number; cumplimiento: number };
   bloque4: { horasContratadas: number; horasEjecutadas: number; overDelivery: number; saturacion: number };
+  proyectos: {
+    total: number;
+    activos: number;
+    completados: number;
+    planificados: number;
+    pausados: number;
+    lista: { id: string; titulo: string; descripcion: string | null; categoria: string; estado: string; impacto: string | null; ahorroEstimado: number | null; fechaInicio: string | null; fechaFinPrevista: string | null; fechaFinReal: string | null; prioridad: string; responsable: string | null }[];
+  };
   kpisAnuales: any[];
 }
 
@@ -357,6 +366,60 @@ export default function KpisDraxtonPage() {
               </div>
             )}
           </div>
+
+          {/* PROYECTOS INTERNOS */}
+          {data?.proyectos && data.proyectos.total > 0 && (
+            <div className="bg-white rounded-xl border p-6">
+              <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <RocketLaunchIcon className="h-5 w-5 text-orange-600" />
+                Proyectos Internos e Implementaciones
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                <div className="p-3 bg-orange-50 rounded-lg border border-orange-200 text-center">
+                  <p className="text-xl font-bold text-orange-700">{data.proyectos.activos}</p>
+                  <p className="text-xs text-orange-600">En curso</p>
+                </div>
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200 text-center">
+                  <p className="text-xl font-bold text-green-700">{data.proyectos.completados}</p>
+                  <p className="text-xs text-green-600">Completados</p>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-lg border text-center">
+                  <p className="text-xl font-bold text-gray-700">{data.proyectos.planificados}</p>
+                  <p className="text-xs text-gray-500">Planificados</p>
+                </div>
+                <div className="p-3 bg-yellow-50 rounded-lg border border-yellow-200 text-center">
+                  <p className="text-xl font-bold text-yellow-700">{data.proyectos.pausados}</p>
+                  <p className="text-xs text-yellow-600">Pausados</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {data.proyectos.lista.filter(p => p.estado === 'en_curso').map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-3 border rounded-lg border-l-4 border-l-orange-500">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{p.titulo}</p>
+                      {p.descripcion && <p className="text-xs text-gray-500 mt-0.5">{p.descripcion}</p>}
+                      <div className="flex gap-3 mt-1">
+                        {p.responsable && <span className="text-[10px] text-gray-400">👤 {p.responsable}</span>}
+                        {p.fechaFinPrevista && <span className="text-[10px] text-gray-400">📅 {new Date(p.fechaFinPrevista).toLocaleDateString('es-ES')}</span>}
+                      </div>
+                    </div>
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                      p.prioridad === 'alta' ? 'bg-red-100 text-red-700' : p.prioridad === 'media' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'
+                    }`}>{p.prioridad}</span>
+                  </div>
+                ))}
+                {data.proyectos.lista.filter(p => p.estado === 'completado').slice(0, 3).map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-3 border rounded-lg border-l-4 border-l-green-500 bg-green-50/30">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{p.titulo}</p>
+                      {p.impacto && <p className="text-xs text-green-600 mt-0.5 italic">{p.impacto}</p>}
+                    </div>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">completado</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Tabla resumen mensual */}
           <div className="bg-white rounded-xl border overflow-hidden">

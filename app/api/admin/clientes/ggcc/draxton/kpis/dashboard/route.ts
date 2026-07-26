@@ -92,6 +92,18 @@ export async function GET(req: NextRequest) {
     _count: { id: true },
   });
 
+  // === PROYECTOS INTERNOS ===
+  const proyectos = await prisma.proyectoContratoDraxton.findMany({
+    where: { activo: true },
+    include: { responsable: { select: { nombre: true, apellidos: true } } },
+    orderBy: [{ prioridad: 'asc' }, { orden: 'asc' }],
+  });
+
+  const proyectosActivos = proyectos.filter(p => p.estado === 'en_curso');
+  const proyectosCompletados = proyectos.filter(p => p.estado === 'completado');
+  const proyectosPlanificados = proyectos.filter(p => p.estado === 'planificado');
+  const proyectosPausados = proyectos.filter(p => p.estado === 'pausado');
+
   // === BLOQUE 2-4: KPIs manuales ===
   const kpiMensual = mes
     ? await prisma.kpiMensualDraxton.findUnique({
@@ -128,6 +140,27 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     filtros: { planta, anio, mes },
+    proyectos: {
+      total: proyectos.length,
+      activos: proyectosActivos.length,
+      completados: proyectosCompletados.length,
+      planificados: proyectosPlanificados.length,
+      pausados: proyectosPausados.length,
+      lista: proyectos.map(p => ({
+        id: p.id,
+        titulo: p.titulo,
+        descripcion: p.descripcion,
+        categoria: p.categoria,
+        estado: p.estado,
+        impacto: p.impacto,
+        ahorroEstimado: p.ahorroEstimado ? Number(p.ahorroEstimado) : null,
+        fechaInicio: p.fechaInicio,
+        fechaFinPrevista: p.fechaFinPrevista,
+        fechaFinReal: p.fechaFinReal,
+        prioridad: p.prioridad,
+        responsable: p.responsable ? `${p.responsable.nombre} ${p.responsable.apellidos}` : null,
+      })),
+    },
     bloque1: {
       totalTickets,
       ticketsCerrados,
