@@ -34,12 +34,15 @@ interface ContratoBalance {
     horasContratadas: number;
     nivelContratado: number;
     importeMensual: number;
+    fechaFin: string | null;
   };
   meses: BalanceMes[];
+  prevision: BalanceMes[];
   totalComprometidas: number;
   totalCubiertas: number;
   totalEquivalentes: number;
   saldoFinal: number;
+  saldoPrevistoFinContrato: number;
 }
 
 export default function DraxtonSeguimientoPage() {
@@ -321,6 +324,125 @@ export default function DraxtonSeguimientoPage() {
                     Esto puede deberse a bajas de personal, periodos sin cobertura completa, o asignaciones parciales.
                     Valorar: asignar recurso adicional, compensar con horas extra, o renegociar condiciones.
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* PREVISIÓN hasta fin de contrato */}
+            {item.prevision && item.prevision.length > 0 && (
+              <div className="border-t-2 border-dashed border-amber-300">
+                <div className="px-6 py-3 bg-amber-50 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ExclamationTriangleIcon className="w-5 h-5 text-amber-600" />
+                    <div>
+                      <span className="text-sm font-bold text-amber-800">Previsión hasta fin de contrato</span>
+                      <span className="text-xs text-amber-600 ml-2">
+                        ({item.contrato.fechaFin ? new Date(item.contrato.fechaFin).toLocaleDateString('es-ES') : 'Sin fecha fin'})
+                      </span>
+                    </div>
+                  </div>
+                  <div className={`text-right px-3 py-1.5 rounded-lg ${item.saldoPrevistoFinContrato >= 0 ? 'bg-green-100 border border-green-300' : 'bg-red-100 border border-red-300'}`}>
+                    <div className="text-[10px] text-gray-600">Saldo previsto fin contrato</div>
+                    <div className={`text-base font-bold ${item.saldoPrevistoFinContrato >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {item.saldoPrevistoFinContrato >= 0 ? '+' : ''}{item.saldoPrevistoFinContrato.toFixed(1)}h
+                    </div>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-amber-50/50 border-b">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium text-amber-700 w-8"></th>
+                        <th className="text-left px-4 py-2 font-medium text-amber-700">Mes</th>
+                        <th className="text-center px-4 py-2 font-medium text-amber-700">Días Lab.</th>
+                        <th className="text-right px-4 py-2 font-medium text-amber-700">Comprometidas</th>
+                        <th className="text-right px-4 py-2 font-medium text-amber-700">Cubiertas</th>
+                        <th className="text-right px-4 py-2 font-medium text-amber-700">Equivalentes</th>
+                        <th className="text-right px-4 py-2 font-medium text-amber-700">Saldo Mes</th>
+                        <th className="text-right px-4 py-2 font-medium text-amber-700">Saldo Acum.</th>
+                        <th className="text-center px-4 py-2 font-medium text-amber-700">Estado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y bg-amber-50/30">
+                      {item.prevision.map(m => {
+                        const key = `prev-${item.contrato.id}-${m.anio}-${m.mes}`;
+                        const expanded = expandedMeses[key];
+                        const isDeficit = m.saldoMes < -10;
+                        return (
+                          <Fragment key={key}>
+                            <tr
+                              className={`cursor-pointer hover:bg-amber-100/50 ${isDeficit ? 'bg-red-50/50' : ''}`}
+                              onClick={() => toggleMes(key)}
+                            >
+                              <td className="px-4 py-2">
+                                {expanded ? <ChevronUpIcon className="w-4 h-4 text-amber-400" /> : <ChevronDownIcon className="w-4 h-4 text-amber-400" />}
+                              </td>
+                              <td className="px-4 py-2 font-medium text-gray-700">{m.mesNombre} {m.anio !== anio ? m.anio : ''}</td>
+                              <td className="px-4 py-2 text-center text-gray-500">{m.diasLaborables}</td>
+                              <td className="px-4 py-2 text-right text-gray-600">{m.horasComprometidas}h</td>
+                              <td className="px-4 py-2 text-right text-indigo-600">{m.horasCubiertas}h</td>
+                              <td className="px-4 py-2 text-right text-purple-600">{m.horasEquivalentes}h</td>
+                              <td className={`px-4 py-2 text-right font-bold ${m.saldoMes >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {m.saldoMes >= 0 ? '+' : ''}{m.saldoMes}h
+                              </td>
+                              <td className={`px-4 py-2 text-right font-bold ${m.saldoAcumulado >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {m.saldoAcumulado >= 0 ? '+' : ''}{m.saldoAcumulado}h
+                              </td>
+                              <td className="px-4 py-2 text-center">
+                                {isDeficit ? (
+                                  <span className="inline-flex items-center gap-1 text-xs text-red-700 bg-red-100 px-2 py-0.5 rounded-full">
+                                    <ExclamationTriangleIcon className="w-3 h-3" /> Déficit
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                    Previsión
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr>
+                                <td colSpan={9} className="px-6 py-2 bg-amber-50">
+                                  <div className="text-xs">
+                                    <div className="font-semibold text-amber-700 mb-1">Personal previsto — {m.mesNombre} {m.anio}</div>
+                                    <table className="w-full">
+                                      <thead>
+                                        <tr className="text-amber-600">
+                                          <th className="text-left py-1">Persona</th>
+                                          <th className="text-center py-1">Dedicación</th>
+                                          <th className="text-center py-1">Nivel</th>
+                                          <th className="text-right py-1">Horas Base</th>
+                                          <th className="text-right py-1">Horas Equiv.</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {m.detalle.length > 0 ? m.detalle.map((d, i) => (
+                                          <tr key={i} className="text-gray-700">
+                                            <td className="py-1">{d.nombre}</td>
+                                            <td className="py-1 text-center">{d.dedicacion}%</td>
+                                            <td className="py-1 text-center">N{d.nivel}</td>
+                                            <td className="py-1 text-right">{d.horasBase}h</td>
+                                            <td className="py-1 text-right font-medium">{d.horasEquiv}h</td>
+                                          </tr>
+                                        )) : (
+                                          <tr><td colSpan={5} className="py-1 text-red-600 font-medium">Sin personal asignado — 0 horas cubiertas</td></tr>
+                                        )}
+                                      </tbody>
+                                    </table>
+                                    {m.detalle.length === 0 && (
+                                      <div className="mt-1 p-1.5 bg-red-100 border border-red-200 rounded text-red-800 text-[10px]">
+                                        ⚠️ Este mes no hay personal asignado. Se acumularán {m.horasComprometidas}h de déficit.
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}

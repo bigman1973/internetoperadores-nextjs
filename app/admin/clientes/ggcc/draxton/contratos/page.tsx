@@ -2005,13 +2005,13 @@ export default function DraxtonContratosPage() {
                                         min="1"
                                         value={pa.porcentajeDedicacion}
                                         onChange={e => actualizarPersonal(pa.id, { porcentajeDedicacion: parseInt(e.target.value) || 0 }, c.id)}
-                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-12 text-center"
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-12 text-center text-gray-900 font-semibold"
                                         title="% dedicación"
                                       />
                                       <select
                                         value={pa.nivelTecnico || ''}
                                         onChange={e => actualizarPersonal(pa.id, { nivelTecnico: e.target.value || null }, c.id)}
-                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5"
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 text-gray-900 font-semibold"
                                         title="Nivel técnico"
                                       >
                                         <option value="">—</option>
@@ -2023,14 +2023,14 @@ export default function DraxtonContratosPage() {
                                         type="date"
                                         value={pa.fechaInicio ? pa.fechaInicio.split('T')[0] : ''}
                                         onChange={e => actualizarPersonal(pa.id, { fechaInicio: e.target.value || null }, c.id)}
-                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px]"
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px] text-gray-900"
                                         title="Fecha inicio"
                                       />
                                       <input
                                         type="date"
                                         value={pa.fechaFin ? pa.fechaFin.split('T')[0] : ''}
                                         onChange={e => actualizarPersonal(pa.id, { fechaFin: e.target.value || null }, c.id)}
-                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px]"
+                                        className="text-[10px] border border-gray-300 rounded px-1 py-0.5 w-[105px] text-gray-900"
                                         title="Fecha fin"
                                       />
                                       <label className="flex items-center gap-1 text-[10px] cursor-pointer" title="Activo">

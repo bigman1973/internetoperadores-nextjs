@@ -102,6 +102,7 @@ export async function GET(req: NextRequest) {
         nivelContratado: true,
         importeMensual: true,
         fechaInicio: true,
+        fechaFin: true,
         personalAsignado: {
           include: {
             empleado: { select: { nombreCompleto: true, estado: true, fechaBaja: true } },
@@ -121,6 +122,7 @@ export async function GET(req: NextRequest) {
           nivelContratado: true,
           importeMensual: true,
           fechaInicio: true,
+          fechaFin: true,
           personalAsignado: {
             include: {
               empleado: { select: { nombreCompleto: true, estado: true, fechaBaja: true } },
@@ -132,12 +134,14 @@ export async function GET(req: NextRequest) {
     }
 
     const resultado: {
-      contrato: { id: string; titulo: string; horasContratadas: number; nivelContratado: number; importeMensual: number };
+      contrato: { id: string; titulo: string; horasContratadas: number; nivelContratado: number; importeMensual: number; fechaFin: string | null };
       meses: BalanceMes[];
+      prevision: BalanceMes[];
       totalComprometidas: number;
       totalCubiertas: number;
       totalEquivalentes: number;
       saldoFinal: number;
+      saldoPrevistoFinContrato: number;
     }[] = [];
 
     const mesActual = new Date().getMonth() + 1; // 1-12
@@ -217,6 +221,77 @@ export async function GET(req: NextRequest) {
         });
       }
 
+      // Previsión hasta fin de contrato con personal actual
+      const prevision: BalanceMes[] = [];
+      let saldoPrevisto = saldoAcumulado;
+      const fechaFinContrato = contrato.fechaFin ? new Date(contrato.fechaFin) : null;
+      const mesFinContrato = fechaFinContrato ? fechaFinContrato.getMonth() + 1 : 12;
+      const anioFinContrato = fechaFinContrato ? fechaFinContrato.getFullYear() : anio;
+
+      // Calcular meses futuros desde mesLimite+1 hasta fin de contrato
+      // Recorrer mes a mes hasta fin de contrato
+      let prevAnio = anio;
+      let prevMes = mesLimite + 1;
+      while (prevAnio < anioFinContrato || (prevAnio === anioFinContrato && prevMes <= mesFinContrato)) {
+        if (prevMes > 12) { prevMes = 1; prevAnio++; }
+        if (prevAnio > anioFinContrato || (prevAnio === anioFinContrato && prevMes > mesFinContrato)) break;
+
+        const diasLab = diasLaborablesMes(prevAnio, prevMes);
+        const HORAS_NETAS_MES = 128.67;
+        const detalle: BalanceMes['detalle'] = [];
+        let horasCubiertasMes = 0;
+        let horasEquivMes = 0;
+
+        // Solo personal activo (sin fechaFin o fechaFin >= este mes)
+        for (const p of personal) {
+          const fechaInicioAsig = p.fechaInicio ? new Date(p.fechaInicio) : null;
+          const fechaFinAsig = p.fechaFin ? new Date(p.fechaFin) : null;
+
+          // Si la asignación ya terminó, no aporta en la previsión
+          if (fechaFinAsig && fechaFinAsig < new Date(prevAnio, prevMes - 1, 1)) continue;
+
+          const diasActivos = diasLaborablesActivos(prevAnio, prevMes, fechaInicioAsig, fechaFinAsig);
+          const proporcion = diasLab > 0 ? diasActivos / diasLab : 0;
+          const horasBase = HORAS_NETAS_MES * (p.porcentajeDedicacion / 100) * proporcion;
+          const multiplicador = (p.nivelTecnico || 1) / nivelContratado;
+          const horasEquiv = horasBase * multiplicador;
+
+          horasCubiertasMes += horasBase;
+          horasEquivMes += horasEquiv;
+
+          if (diasActivos > 0) {
+            detalle.push({
+              nombre: p.empleado.nombreCompleto,
+              dedicacion: p.porcentajeDedicacion,
+              nivel: p.nivelTecnico || 1,
+              diasActivos,
+              diasTotales: diasLab,
+              horasBase: Math.round(horasBase * 10) / 10,
+              horasEquiv: Math.round(horasEquiv * 10) / 10,
+              activo: diasActivos === diasLab,
+            });
+          }
+        }
+
+        const saldoMes = horasEquivMes - horasContratadas;
+        saldoPrevisto += saldoMes;
+
+        prevision.push({
+          mes: prevMes,
+          mesNombre: MESES[prevMes - 1],
+          anio: prevAnio,
+          horasComprometidas: horasContratadas,
+          horasCubiertas: Math.round(horasCubiertasMes * 10) / 10,
+          horasEquivalentes: Math.round(horasEquivMes * 10) / 10,
+          saldoMes: Math.round(saldoMes * 10) / 10,
+          saldoAcumulado: Math.round(saldoPrevisto * 10) / 10,
+          diasLaborables: diasLab,
+          detalle,
+        });
+
+        prevMes++;
+      }
+
       resultado.push({
         contrato: {
           id: contrato.id,
@@ -224,12 +299,15 @@ export async function GET(req: NextRequest) {
           horasContratadas,
           nivelContratado,
           importeMensual: Number(contrato.importeMensual) || 0,
+          fechaFin: contrato.fechaFin ? contrato.fechaFin.toISOString() : null,
         },
         meses,
+        prevision,
         totalComprometidas,
         totalCubiertas: Math.round(totalCubiertas * 10) / 10,
         totalEquivalentes: Math.round(totalEquivalentes * 10) / 10,
         saldoFinal: Math.round(saldoAcumulado * 10) / 10,
+        saldoPrevistoFinContrato: Math.round(saldoPrevisto * 10) / 10,
       });
     }
 
