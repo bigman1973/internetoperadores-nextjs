@@ -153,15 +153,17 @@ export default function AdminEmpleadosPage() {
     };
   }
 
-  function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; meses: number; proyeccion12: number } | null {
+  function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; mesUsado: number; anioUsado: number; proyeccion12: number } | null {
     if (!emp.nominas || emp.nominas.length === 0) return null;
-    const meses = emp.nominas.length;
-    const brutoTotal = emp.nominas.reduce((s, n) => s + (n.devengadoTotal || 0), 0);
-    const mediaMensual = brutoTotal / meses;
+    // Usar la nómina más reciente (último mes disponible)
+    const sorted = [...emp.nominas].sort((a, b) => b.anio - a.anio || b.mes - a.mes);
+    const ultima = sorted[0];
+    const devengadoMes = ultima.devengadoTotal || 0;
     return {
-      brutoAnual: brutoTotal,
-      meses,
-      proyeccion12: mediaMensual * 12,
+      brutoAnual: devengadoMes,
+      mesUsado: ultima.mes,
+      anioUsado: ultima.anio,
+      proyeccion12: devengadoMes * 12,
     };
   }
 
@@ -424,9 +426,7 @@ export default function AdminEmpleadosPage() {
                         return (
                           <td className="px-4 py-3 text-right">
                             <div className="font-semibold text-green-700">{formatEur(bruto.proyeccion12)}</div>
-                            {bruto.meses < 12 && (
-                              <div className="text-xs text-gray-400">proy. {bruto.meses} meses</div>
-                            )}
+                            <div className="text-xs text-gray-400">base {bruto.mesUsado}/{bruto.anioUsado}</div>
                           </td>
                         );
                       })()}
