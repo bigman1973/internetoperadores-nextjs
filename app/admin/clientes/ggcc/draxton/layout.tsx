@@ -14,6 +14,7 @@ import {
   DocumentChartBarIcon,
   BuildingOffice2Icon,
   WrenchScrewdriverIcon,
+  UsersIcon,
 } from '@heroicons/react/24/outline'
 
 const tabs = [
@@ -26,6 +27,7 @@ const tabs = [
   { name: 'Seguimiento', href: '/admin/clientes/ggcc/draxton/seguimiento', icon: ClockIcon, area: 'admin.clientes.ggcc.draxton.seguimiento' },
   { name: 'KPIs', href: '/admin/clientes/ggcc/draxton/kpis', icon: ChartBarSquareIcon, area: 'admin.clientes.ggcc.draxton.kpis' },
   { name: 'Informes', href: '/admin/clientes/ggcc/draxton/informes', icon: DocumentChartBarIcon, area: 'admin.clientes.ggcc.draxton.informes' },
+  { name: 'Organigrama', href: '/admin/clientes/ggcc/draxton/organigrama', icon: UsersIcon, area: 'admin.clientes.ggcc.draxton.organigrama' },
 ]
 
 export default function DraxtonLayout({ children }: { children: React.ReactNode }) {

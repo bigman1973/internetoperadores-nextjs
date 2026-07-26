@@ -14,6 +14,7 @@ const tabs = [
   { href: '/admin/clientes/ggcc/draxton/seguimiento', area: 'admin.clientes.ggcc.draxton.seguimiento' },
   { href: '/admin/clientes/ggcc/draxton/kpis', area: 'admin.clientes.ggcc.draxton.kpis' },
   { href: '/admin/clientes/ggcc/draxton/informes', area: 'admin.clientes.ggcc.draxton.informes' },
+  { href: '/admin/clientes/ggcc/draxton/organigrama', area: 'admin.clientes.ggcc.draxton.organigrama' },
 ]
 
 export default function DraxtonPage() {

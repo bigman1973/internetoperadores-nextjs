@@ -2321,3 +2321,33 @@ model PerfilPermisos {
 
   @@map("perfiles_permisos")
 }
+
+
+model OrganigramaDraxton {
+  id              String   @id @default(uuid())
+  nombre          String   // Nombre completo de la persona
+  rol             String   // Cargo/función (ej: "IT Manager", "Helpdesk", "Advanced Support IT")
+  tipoEntidad     String   @map("tipo_entidad") // "interno", "io", "externo"
+  empresa         String?  // Nombre empresa si es externo (IO, Inkoova, Nextret, IPS, IPData, etc.)
+  ubicacion       String   @default("HQ") // HQ, BCN, LLEIDA, etc.
+  departamento    String?  // Infraestructura, ERP, Operaciones, Helpdesk, etc.
+  esColaborador   Boolean  @default(false) @map("es_colaborador") // true = aparece en sección colaboradores externos
+  especialidad    String?  // Para colaboradores: "Soporte código .NET", "Redes", etc.
+  email           String?
+  telefono        String?
+  notas           String?
+  reportaAId      String?  @map("reporta_a_id")
+  orden           Int      @default(0) // Orden visual dentro del mismo nivel
+  activo          Boolean  @default(true)
+  // Relaciones
+  reportaA        OrganigramaDraxton?  @relation("JerarquiaOrganigrama", fields: [reportaAId], references: [id])
+  subordinados    OrganigramaDraxton[] @relation("JerarquiaOrganigrama")
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([reportaAId])
+  @@index([tipoEntidad])
+  @@index([esColaborador])
+  @@map("organigrama_draxton")
+}
