@@ -20,6 +20,8 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
+  try {
+
   const { searchParams } = new URL(req.url);
   const mes = parseInt(searchParams.get('mes') || String(new Date().getMonth()));
   const anio = parseInt(searchParams.get('anio') || String(new Date().getFullYear()));
@@ -92,10 +94,10 @@ export async function GET(req: NextRequest) {
   // Contratos activos (facturación)
   const contratos = await prisma.contratoDraxton.findMany({
     where: { estado: 'Activo' },
-    select: { titulo: true, importeMensual: true, horasIncluidas: true },
+    select: { titulo: true, importeMensual: true, horasContratadas: true },
   });
   const totalFacturacion = contratos.reduce((s, c) => s + (Number(c.importeMensual) || 0), 0);
-  const totalHorasContratadas = contratos.reduce((s, c) => s + (c.horasIncluidas || 0), 0);
+  const totalHorasContratadas = contratos.reduce((s, c) => s + (c.horasContratadas || 0), 0);
 
   const plantaTexto = planta === 'TODAS' ? 'Todas las plantas' : `Planta ${planta.charAt(0) + planta.slice(1).toLowerCase()}`;
 
@@ -302,7 +304,7 @@ export async function GET(req: NextRequest) {
   <table>
     <thead><tr><th>Contrato</th><th style="text-align:right">Importe Mensual</th><th style="text-align:right">Horas Incluidas</th></tr></thead>
     <tbody>
-      ${contratos.map(c => `<tr><td>${c.titulo}</td><td style="text-align:right">${formatCurrency(Number(c.importeMensual))}</td><td style="text-align:right">${c.horasIncluidas || '—'}h</td></tr>`).join('')}
+      ${contratos.map(c => `<tr><td>${c.titulo}</td><td style="text-align:right">${formatCurrency(Number(c.importeMensual))}</td><td style="text-align:right">${c.horasContratadas || '—'}h</td></tr>`).join('')}
       <tr style="background:#f3f4f6;font-weight:700;"><td>TOTAL</td><td style="text-align:right">${formatCurrency(totalFacturacion)}</td><td style="text-align:right">${totalHorasContratadas}h</td></tr>
     </tbody>
   </table>
@@ -340,4 +342,12 @@ export async function GET(req: NextRequest) {
   return new NextResponse(html, {
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
   });
+
+  } catch (error: any) {
+    console.error('Error generando informe:', error);
+    return new NextResponse(`<html><body><h1>Error generando informe</h1><pre>${error.message}</pre></body></html>`, {
+      status: 500,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    });
+  }
 }
