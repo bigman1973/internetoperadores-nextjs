@@ -12,6 +12,7 @@ import {
   MapPinIcon,
   PhoneIcon,
   EnvelopeIcon,
+  PrinterIcon,
 } from '@heroicons/react/24/outline';
 
 interface NodoOrganigrama {
@@ -156,6 +157,44 @@ export default function OrganigramaDraxtonPage() {
     return TIPOS_ENTIDAD.find(t => t.value === tipo)?.label || tipo;
   }
 
+  // Componente de grupo de hijos con líneas correctas
+  function GrupoHijos({ hijos, nivel }: { hijos: NodoOrganigrama[]; nivel: number }) {
+    if (hijos.length === 0) return null;
+    if (hijos.length === 1) {
+      return (
+        <div className="flex flex-col items-center">
+          <div className="w-px h-8 bg-gray-400" />
+          <NodoArbol nodo={hijos[0]} nivel={nivel} />
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-col items-center">
+        {/* Línea vertical del padre hacia la barra horizontal */}
+        <div className="w-px h-8 bg-gray-400" />
+        {/* Contenedor de hijos con barra horizontal */}
+        <div className="relative flex">
+          {/* Barra horizontal que conecta del primer hijo al último */}
+          <div className="absolute top-0 h-px bg-gray-400" style={{ left: '50%', right: '50%' }} />
+          {/* Calcular la barra: del centro del primer hijo al centro del último */}
+          <div className="absolute top-0 h-px bg-gray-400"
+            style={{
+              left: `calc(${100 / (2 * hijos.length)}%)`,
+              right: `calc(${100 / (2 * hijos.length)}%)`,
+            }}
+          />
+          {hijos.map((hijo, idx) => (
+            <div key={hijo.id} className="flex flex-col items-center px-3">
+              {/* Línea vertical desde la barra al nodo hijo */}
+              <div className="w-px h-8 bg-gray-400" />
+              <NodoArbol nodo={hijo} nivel={nivel} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // Componente de nodo del árbol
   function NodoArbol({ nodo, nivel }: { nodo: NodoOrganigrama; nivel: number }) {
     const hijos = arbol.buildTree(nodo.id);
@@ -176,29 +215,9 @@ export default function OrganigramaDraxtonPage() {
           <p className="text-[10px] mt-1 opacity-60">{nodo.ubicacion}</p>
         </div>
 
-        {/* Hijos */}
+        {/* Hijos con líneas correctas */}
         {hijos.length > 0 && (
-          <>
-            {/* Línea vertical hacia abajo */}
-            <div className="w-px h-6 bg-gray-300" />
-            {/* Línea horizontal */}
-            {hijos.length > 1 && (
-              <div className="relative w-full flex justify-center">
-                <div className="absolute top-0 h-px bg-gray-300" style={{
-                  left: `${50 / hijos.length}%`,
-                  right: `${50 / hijos.length}%`,
-                }} />
-              </div>
-            )}
-            <div className="flex gap-4 items-start">
-              {hijos.map(hijo => (
-                <div key={hijo.id} className="flex flex-col items-center">
-                  <div className="w-px h-6 bg-gray-300" />
-                  <NodoArbol nodo={hijo} nivel={nivel + 1} />
-                </div>
-              ))}
-            </div>
-          </>
+          <GrupoHijos hijos={hijos} nivel={nivel + 1} />
         )}
       </div>
     );
@@ -226,6 +245,12 @@ export default function OrganigramaDraxtonPage() {
             <option value="todos">Todas las ubicaciones</option>
             {UBICACIONES.map(u => <option key={u} value={u}>{u}</option>)}
           </select>
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 border"
+          >
+            <PrinterIcon className="h-4 w-4" /> Imprimir
+          </button>
           <button
             onClick={() => openNew()}
             className="flex items-center gap-1 px-3 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700"
