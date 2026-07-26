@@ -35,7 +35,8 @@ import {
   SunIcon,
   BuildingOffice2Icon,
   StarIcon,
-  ArrowsRightLeftIcon
+  ArrowsRightLeftIcon,
+  AcademicCapIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
 
@@ -148,6 +149,7 @@ const navigation: NavEntry[] = [
       { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon, section: 'personal' },
       { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon, section: 'personal' },
       { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon, section: 'personal' },
+      { name: 'Plan de Carrera', href: '/admin/empleados/plan-carrera', icon: AcademicCapIcon, section: 'personal' },
     ],
   },
   { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },

@@ -1463,6 +1463,9 @@ model Empleado {
   personalContratos PersonalContratoDraxton[] @relation("PersonalContratoDraxton")
   proyectosDraxton   ProyectoContratoDraxton[] @relation("ProyectoResponsable")
   condicionesSalariales CondicionSalarial[]
+  objetivos         ObjetivoEmpleado[]
+  evaluaciones      EvaluacionDesempeno[]
+  formaciones       FormacionEmpleado[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -1470,6 +1473,80 @@ model Empleado {
   @@index([estado])
   @@index([email])
   @@map("empleados")
+}
+
+model ObjetivoEmpleado {
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  titulo          String
+  descripcion     String?
+  categoria       String   @default("rendimiento") // rendimiento, desarrollo, formacion, proyecto
+  periodo         String?  // "2026-H1", "2026", "2026-Q3", etc.
+  fechaInicio     DateTime? @map("fecha_inicio") @db.Date
+  fechaLimite     DateTime? @map("fecha_limite") @db.Date
+  estado          String   @default("pendiente") // pendiente, en_progreso, cumplido, no_cumplido, cancelado
+  progreso        Int      @default(0) // 0-100
+  peso            Int      @default(1) // Peso relativo del objetivo (1-5)
+  resultado       String?  // Descripción del resultado alcanzado
+  creadoPor       String?  @map("creado_por")
+  // Relaciones
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([empleadoId])
+  @@index([estado])
+  @@index([periodo])
+  @@map("objetivos_empleado")
+}
+
+model EvaluacionDesempeno {
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  periodo         String   // "2026-H1", "2026", etc.
+  fecha           DateTime @db.Date
+  evaluador       String?  // Nombre o email del evaluador
+  puntuacion      Int?     // 1-5 (1=insuficiente, 5=excepcional)
+  fortalezas      String?  // Texto libre
+  areasMetjora    String?  @map("areas_mejora") // Texto libre
+  comentarios     String?  // Comentarios generales
+  accionesAcordadas String? @map("acciones_acordadas") // Acciones de mejora pactadas
+  proximaRevision DateTime? @map("proxima_revision") @db.Date
+  // Relaciones
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([empleadoId])
+  @@index([periodo])
+  @@map("evaluaciones_desempeno")
+}
+
+model FormacionEmpleado {
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  titulo          String   // Nombre del curso/certificación
+  tipo            String   @default("curso") // curso, certificacion, taller, conferencia, mentoria, autoformacion
+  proveedor       String?  // Empresa/plataforma formadora
+  estado          String   @default("planificado") // planificado, en_curso, completado, cancelado
+  fechaInicio     DateTime? @map("fecha_inicio") @db.Date
+  fechaFin        DateTime? @map("fecha_fin") @db.Date
+  horas           Int?     // Horas de formación
+  coste           Float?   // Coste de la formación
+  certificado     Boolean  @default(false)
+  urlCertificado  String?  @map("url_certificado")
+  notas           String?
+  // Relaciones
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([empleadoId])
+  @@index([estado])
+  @@map("formaciones_empleado")
 }
 
 model CondicionSalarial {
