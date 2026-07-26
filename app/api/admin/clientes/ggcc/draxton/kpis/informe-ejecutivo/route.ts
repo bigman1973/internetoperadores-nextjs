@@ -272,7 +272,7 @@ export async function GET(req: NextRequest) {
   // Proyectos internos
   const proyectos = await prisma.proyectoContratoDraxton.findMany({
     where: { activo: true },
-    include: { responsable: { select: { nombre: true, apellidos: true } } },
+    include: { responsable: { select: { nombreCompleto: true } } },
     orderBy: [{ prioridad: 'asc' }, { orden: 'asc' }],
   });
 
@@ -446,7 +446,7 @@ export async function GET(req: NextRequest) {
       </div>
       ${p.descripcion ? `<div style="font-size:9px;color:#6b7280;margin-top:3px;">${p.descripcion}</div>` : ''}
       <div style="display:flex;gap:12px;margin-top:4px;font-size:8px;color:#9ca3af;">
-        ${p.responsable ? `<span>👤 ${p.responsable.nombre} ${p.responsable.apellidos}</span>` : ''}
+        ${p.responsable ? `<span>👤 ${p.responsable.nombreCompleto}</span>` : ''}
         ${p.fechaInicio ? `<span>Inicio: ${formatDate(p.fechaInicio)}</span>` : ''}
         ${p.fechaFinPrevista ? `<span>Previsto: ${formatDate(p.fechaFinPrevista)}</span>` : ''}
       </div>
