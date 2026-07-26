@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
         estado: estado || 'en_curso',
         impacto: impacto || null,
         ahorroEstimado: ahorroEstimado ? parseFloat(ahorroEstimado) : null,
+        importeVenta: body.importeVenta ? parseFloat(body.importeVenta) : null,
+        costeProveedores: body.costeProveedores ? parseFloat(body.costeProveedores) : null,
+        margenEstimado: body.margenEstimado ? parseFloat(body.margenEstimado) : null,
+        documentosJson: body.documentosJson || null,
         fechaInicio: fechaInicio ? new Date(fechaInicio) : null,
         fechaFinPrevista: fechaFinPrevista ? new Date(fechaFinPrevista) : null,
         fechaFinReal: fechaFinReal ? new Date(fechaFinReal) : null,
@@ -101,6 +105,10 @@ export async function PUT(req: NextRequest) {
     if (data.estado !== undefined) updateData.estado = data.estado;
     if (data.impacto !== undefined) updateData.impacto = data.impacto;
     if (data.ahorroEstimado !== undefined) updateData.ahorroEstimado = data.ahorroEstimado ? parseFloat(data.ahorroEstimado) : null;
+    if (data.importeVenta !== undefined) updateData.importeVenta = data.importeVenta ? parseFloat(data.importeVenta) : null;
+    if (data.costeProveedores !== undefined) updateData.costeProveedores = data.costeProveedores ? parseFloat(data.costeProveedores) : null;
+    if (data.margenEstimado !== undefined) updateData.margenEstimado = data.margenEstimado ? parseFloat(data.margenEstimado) : null;
+    if (data.documentosJson !== undefined) updateData.documentosJson = data.documentosJson;
     if (data.fechaInicio !== undefined) updateData.fechaInicio = data.fechaInicio ? new Date(data.fechaInicio) : null;
     if (data.fechaFinPrevista !== undefined) updateData.fechaFinPrevista = data.fechaFinPrevista ? new Date(data.fechaFinPrevista) : null;
     if (data.fechaFinReal !== undefined) updateData.fechaFinReal = data.fechaFinReal ? new Date(data.fechaFinReal) : null;

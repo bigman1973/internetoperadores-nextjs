@@ -2092,6 +2092,13 @@ model ProyectoContratoDraxton {
   estado                String   @default("en_curso") // planificado, en_curso, completado, pausado
   impacto               String?  @db.Text // Descripción del impacto operativo
   ahorroEstimado        Decimal? @map("ahorro_estimado") @db.Decimal(12, 2)
+  
+  // Datos económicos y documentales
+  importeVenta          Decimal? @map("importe_venta") @db.Decimal(12, 2)
+  costeProveedores      Decimal? @map("coste_proveedores") @db.Decimal(12, 2)
+  margenEstimado        Decimal? @map("margen_estimado") @db.Decimal(12, 2)
+  documentosJson        Json?    @map("documentos_json") // Array de { id, nombre, tipo, url, fecha, importe }
+
   fechaInicio           DateTime? @map("fecha_inicio") @db.Date
   fechaFinPrevista      DateTime? @map("fecha_fin_prevista") @db.Date
   fechaFinReal          DateTime? @map("fecha_fin_real") @db.Date
