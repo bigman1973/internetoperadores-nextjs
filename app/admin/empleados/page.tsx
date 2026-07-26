@@ -153,6 +153,22 @@ export default function AdminEmpleadosPage() {
     };
   }
 
+  function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; meses: number; proyeccion12: number } | null {
+    if (!emp.nominas || emp.nominas.length === 0) return null;
+    const meses = emp.nominas.length;
+    const brutoTotal = emp.nominas.reduce((s, n) => {
+      const neto = n.netoPercibir || 0;
+      const irpf = n.irpf || 0;
+      return s + neto + Math.abs(irpf);
+    }, 0);
+    const mediaMensual = brutoTotal / meses;
+    return {
+      brutoAnual: brutoTotal,
+      meses,
+      proyeccion12: mediaMensual * 12,
+    };
+  }
+
   function getPeriodoLabel(): string {
     switch (periodo) {
       case 'T1': return 'T1 (Ene-Mar)';
@@ -342,20 +358,23 @@ export default function AdminEmpleadosPage() {
                 <th className="text-right px-4 py-3 font-medium text-amber-700">Anticipos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/hora</th>
                 {periodo === 'anual' && (
-                  <th className="text-right px-4 py-3 font-medium text-blue-700">Salario Anual<br/><span className="text-xs font-normal">(sin desplaz.)</span></th>
+                  <th className="text-right px-4 py-3 font-medium text-green-700">Bruto Trabajador<br/><span className="text-xs font-normal">(neto + IRPF)</span></th>
+                )}
+                {periodo === 'anual' && (
+                  <th className="text-right px-4 py-3 font-medium text-blue-700">Coste Empresa<br/><span className="text-xs font-normal">(sin desplaz.)</span></th>
                 )}
               </tr>
             </thead>
             <tbody className="divide-y">
               {loading ? (
                 <tr>
-                  <td colSpan={periodo === 'anual' ? 11 : 10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 12 : 10} className="px-4 py-8 text-center text-gray-400">
                     Cargando...
                   </td>
                 </tr>
               ) : empleados.length === 0 ? (
                 <tr>
-                  <td colSpan={periodo === 'anual' ? 11 : 10} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={periodo === 'anual' ? 12 : 10} className="px-4 py-8 text-center text-gray-400">
                     No hay empleados
                   </td>
                 </tr>
@@ -404,6 +423,18 @@ export default function AdminEmpleadosPage() {
                         {emp.costeHoraActual ? `${emp.costeHoraActual.toFixed(2)} €` : '—'}
                       </td>
                       {periodo === 'anual' && (() => {
+                        const bruto = getBrutoTrabajadorAnual(emp);
+                        if (!bruto) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
+                        return (
+                          <td className="px-4 py-3 text-right">
+                            <div className="font-semibold text-green-700">{formatEur(bruto.proyeccion12)}</div>
+                            {bruto.meses < 12 && (
+                              <div className="text-xs text-gray-400">proy. {bruto.meses} meses</div>
+                            )}
+                          </td>
+                        );
+                      })()}
+                      {periodo === 'anual' && (() => {
                         const sal = getSalarioAnualSinDesplazamiento(emp);
                         if (!sal) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
                         return (
@@ -434,6 +465,14 @@ export default function AdminEmpleadosPage() {
                   <td className="px-4 py-3 text-right text-gray-900">{formatEur(totales.totalCosteEmpresa)}</td>
                   <td className="px-4 py-3 text-right text-amber-800">{formatEur(totales.totalAnticipos)}</td>
                   <td className="px-4 py-3"></td>
+                  {periodo === 'anual' && (
+                    <td className="px-4 py-3 text-right text-green-800">
+                      {formatEur(empleados.reduce((sum, emp) => {
+                        const bruto = getBrutoTrabajadorAnual(emp);
+                        return sum + (bruto ? bruto.proyeccion12 : 0);
+                      }, 0))}
+                    </td>
+                  )}
                   {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-blue-800">
                       {formatEur(empleados.reduce((sum, emp) => {
