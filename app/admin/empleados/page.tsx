@@ -156,11 +156,7 @@ export default function AdminEmpleadosPage() {
   function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; meses: number; proyeccion12: number } | null {
     if (!emp.nominas || emp.nominas.length === 0) return null;
     const meses = emp.nominas.length;
-    const brutoTotal = emp.nominas.reduce((s, n) => {
-      const neto = n.netoPercibir || 0;
-      const irpf = n.irpf || 0;
-      return s + neto + Math.abs(irpf);
-    }, 0);
+    const brutoTotal = emp.nominas.reduce((s, n) => s + (n.devengadoTotal || 0), 0);
     const mediaMensual = brutoTotal / meses;
     return {
       brutoAnual: brutoTotal,
@@ -358,7 +354,7 @@ export default function AdminEmpleadosPage() {
                 <th className="text-right px-4 py-3 font-medium text-amber-700">Anticipos</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-600">€/hora</th>
                 {periodo === 'anual' && (
-                  <th className="text-right px-4 py-3 font-medium text-green-700">Bruto Trabajador<br/><span className="text-xs font-normal">(neto + IRPF)</span></th>
+                  <th className="text-right px-4 py-3 font-medium text-green-700">Bruto Trabajador<br/><span className="text-xs font-normal">(devengado)</span></th>
                 )}
                 {periodo === 'anual' && (
                   <th className="text-right px-4 py-3 font-medium text-blue-700">Coste Empresa<br/><span className="text-xs font-normal">(sin desplaz.)</span></th>
