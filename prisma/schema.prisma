@@ -2351,3 +2351,96 @@ model OrganigramaDraxton {
   @@index([esColaborador])
   @@map("organigrama_draxton")
 }
+
+
+// =============================================
+// MÓDULO INFORMES KPIs - DRAXTON
+// =============================================
+
+model TicketDraxton {
+  id                String   @id @default(uuid())
+  ticketId          String   @map("ticket_id") // SR541933
+  titulo            String
+  prioridad         String?  // 5, 4, 3, etc.
+  severidad         String?  // Severidad Low, High, Medium, etc.
+  estatus           String   // Submitted, Completed, Resolved, Active, In Progress
+  usuario           String?  // Quien abrió el ticket
+  fechaCreacion     DateTime @map("fecha_creacion")
+  fechaObjetivo     DateTime? @map("fecha_objetivo") // TargetEndDate
+  fechaCierre       DateTime? @map("fecha_cierre")
+  asignadoA         String?  @map("asignado_a") // Jesús Parra, Patricia Parra
+  grupoResolucion   String?  @map("grupo_resolucion")
+  slaStatus         String?  @map("sla_status") // Met, Breached, Active
+  localidad         String?  // DRAXTON LLEIDA, DRAXTON BCN
+  gerencia          String?
+  categoriaTipo     String?  @map("categoria_tipo") // SOLICITUDES, INCIDENCIAS
+  categoriaNivel2   String?  @map("categoria_nivel2") // HARDWARE, COMMUNICATION, etc.
+  categoriaNivel3   String?  @map("categoria_nivel3")
+  descripcion       String?  @db.Text
+  categoriaResolucion String? @map("categoria_resolucion")
+  descripcionResolucion String? @map("descripcion_resolucion") @db.Text
+  metodoContacto    String?  @map("metodo_contacto")
+  creadoPor         String?  @map("creado_por")
+  // Metadata de importación
+  planta            String   @default("LLEIDA") // LLEIDA, BCN
+  mesImportacion    Int      @map("mes_importacion") // 1-12
+  anioImportacion   Int      @map("anio_importacion") // 2026
+  importadoEn       DateTime @default(now()) @map("importado_en")
+
+  @@unique([ticketId, planta])
+  @@index([planta, anioImportacion, mesImportacion])
+  @@index([asignadoA])
+  @@index([estatus])
+  @@index([fechaCreacion])
+  @@index([categoriaNivel2])
+  @@index([slaStatus])
+  @@map("tickets_draxton")
+}
+
+model KpiMensualDraxton {
+  id                  String   @id @default(uuid())
+  planta              String   // LLEIDA, BCN
+  mes                 Int      // 1-12
+  anio                Int      // 2026
+  // Bloque 2: Tareas de alto valor (horas)
+  horasAuditorias     Float    @default(0) @map("horas_auditorias")
+  horasProveedores    Float    @default(0) @map("horas_proveedores")
+  horasImplementaciones Float  @default(0) @map("horas_implementaciones")
+  detalleImplementaciones String? @map("detalle_implementaciones") @db.Text // JSON con lista de implementaciones
+  // Bloque 3: Control de activos
+  activosRegistrados  Int      @default(0) @map("activos_registrados")
+  movimientosSpare    Int      @default(0) @map("movimientos_spare")
+  preventivosEjecutados Int    @default(0) @map("preventivos_ejecutados")
+  preventivosplanificados Int  @default(0) @map("preventivos_planificados")
+  // Bloque 4: Balance de recursos
+  horasContratadas    Float    @default(0) @map("horas_contratadas")
+  horasEjecutadas     Float    @default(0) @map("horas_ejecutadas")
+  // Narrativa del mes
+  resumenEjecutivo    String?  @map("resumen_ejecutivo") @db.Text // 3-4 viñetas de logros
+  recomendaciones     String?  @db.Text // Recomendaciones estratégicas
+  // Metadata
+  creadoPor           String?  @map("creado_por")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([planta, mes, anio])
+  @@index([anio, mes])
+  @@map("kpis_mensuales_draxton")
+}
+
+model ImportacionTicketsDraxton {
+  id              String   @id @default(uuid())
+  planta          String   // LLEIDA, BCN
+  nombreArchivo   String   @map("nombre_archivo")
+  totalTickets    Int      @map("total_tickets")
+  ticketsNuevos   Int      @map("tickets_nuevos")
+  ticketsDuplicados Int    @map("tickets_duplicados")
+  periodoDesde    DateTime? @map("periodo_desde")
+  periodoHasta    DateTime? @map("periodo_hasta")
+  importadoPor    String?  @map("importado_por")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([planta])
+  @@index([createdAt])
+  @@map("importaciones_tickets_draxton")
+}
