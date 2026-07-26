@@ -2444,3 +2444,23 @@ model ImportacionTicketsDraxton {
   @@index([createdAt])
   @@map("importaciones_tickets_draxton")
 }
+
+model InformeMensualDraxton {
+  id                  String   @id @default(uuid())
+  mes                 Int      // 1-12
+  anio                Int
+  planta              String   @default("TODAS") // LLEIDA, BCN, TODAS
+  titulo              String
+  resumenEjecutivo    String?  @map("resumen_ejecutivo") @db.Text
+  recomendaciones     String?  @db.Text
+  estado              String   @default("borrador") // borrador, revisado, entregado
+  entregado           Boolean  @default(false)
+  fechaEntrega        DateTime? @map("fecha_entrega")
+  creadoPor           String?  @map("creado_por")
+  // Timestamps
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@unique([mes, anio, planta])
+  @@map("informes_mensuales_draxton")
+}
