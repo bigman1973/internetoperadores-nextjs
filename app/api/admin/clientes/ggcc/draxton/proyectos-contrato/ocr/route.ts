@@ -9,8 +9,7 @@ const openai = new OpenAI({
 
 /**
  * POST /api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr
- * Recibe un archivo (PDF/imagen) y extrae datos con GPT-4o Vision
- * Para PDFs: convierte a imagen usando pdf-to-img antes de enviar
+ * Recibe un archivo (imagen renderizada del PDF en el cliente) y extrae datos con GPT-4o Vision
  */
 export async function POST(req: NextRequest) {
   try {
@@ -22,68 +21,68 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const contentType = file.type || 'application/pdf';
+    const contentType = file.type || 'image/png';
 
-    const prompt = `Analiza este documento y extrae los siguientes datos en formato JSON.
+    const prompt = `Analiza este documento comercial y extrae TODOS los datos en formato JSON.
 
 INSTRUCCIONES:
-- Este documento puede ser un presupuesto, pedido de compra, albarán, factura o documentación de fin de obra
-- Extrae TODOS los datos visibles relevantes
+- Extrae absolutamente TODOS los datos visibles: datos fiscales, líneas de detalle, totales, condiciones
 - Si un campo no es visible o legible, pon null
-- El importe debe ser el TOTAL (con IVA si aplica)
-- Identifica el tipo de documento según estas categorías: presupuesto_cliente, pedido_cliente, presupuesto_proveedor, albaran, factura, fin_obra, otro
-- La fecha debe estar en formato YYYY-MM-DD
-- Si hay varias fechas, usa la fecha del documento (emisión)
-- Si el documento va dirigido a INTERNET OPERADORES, es un presupuesto_proveedor (nos lo envía un proveedor a nosotros)
-- Si el documento lo emite INTERNET OPERADORES, es un presupuesto_cliente o albaran (lo emitimos nosotros)
+- El importe_total debe ser el TOTAL FINAL (con IVA)
+- Identifica el tipo de documento: presupuesto_cliente, pedido_cliente, presupuesto_proveedor, albaran, factura, fin_obra, otro
+- La fecha en formato YYYY-MM-DD
+- Si el documento va dirigido a INTERNET OPERADORES, es un presupuesto_proveedor
+- Si lo emite INTERNET OPERADORES, es presupuesto_cliente o albaran
+- En las líneas de detalle, extrae CADA línea con su código, descripción completa, unidades, precio unitario, descuento e importe
 
 Responde SOLO con JSON válido, sin markdown ni explicaciones:
 {
   "tipo_documento": "presupuesto_cliente|pedido_cliente|presupuesto_proveedor|albaran|factura|fin_obra|otro",
-  "emisor": "Empresa que emite el documento",
-  "receptor": "Empresa que recibe el documento",
   "numero_documento": "Número de presupuesto/pedido/factura/albarán",
   "fecha": "YYYY-MM-DD",
-  "importe_total": 0.00,
+  "validez": "Fecha de validez si aplica YYYY-MM-DD",
+  "emisor": {
+    "nombre": "Nombre/Razón social del emisor",
+    "cif": "CIF/NIF del emisor",
+    "direccion": "Dirección completa",
+    "telefono": "Teléfono",
+    "email": "Email",
+    "web": "Web"
+  },
+  "receptor": {
+    "nombre": "Nombre/Razón social del receptor",
+    "cif": "CIF/NIF del receptor",
+    "direccion": "Dirección completa",
+    "codigo_cliente": "Código de cliente si visible"
+  },
+  "lineas": [
+    {
+      "codigo": "Código de artículo/referencia",
+      "descripcion": "Descripción COMPLETA del producto/servicio",
+      "unidades": 1,
+      "precio_unitario": 0.00,
+      "descuento_pct": 0,
+      "importe": 0.00
+    }
+  ],
   "base_imponible": 0.00,
   "iva_porcentaje": 21,
   "importe_iva": 0.00,
-  "concepto": "Descripción breve del contenido (máx 150 chars)",
-  "proveedor": "Nombre del proveedor (si es presupuesto/factura de proveedor)",
-  "items_principales": ["item1", "item2"],
+  "importe_total": 0.00,
+  "forma_pago": "Transferencia/Anticipado/30 días/etc",
+  "iban": "IBAN si visible",
+  "observaciones": "Condiciones, notas o comentarios del documento",
+  "concepto": "Resumen breve del contenido (máx 150 chars)",
+  "proveedor": "Nombre del proveedor (emisor si es presupuesto_proveedor)",
   "confianza": 0.95
 }`;
 
-    let imageContents: any[] = [];
-
-    if (contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      // Convertir PDF a imágenes usando pdf-to-img
-      const { pdf } = await import('pdf-to-img');
-      const pages: Buffer[] = [];
-      
-      for await (const image of await pdf(buffer, { scale: 2 })) {
-        pages.push(Buffer.from(image));
-        // Máximo 3 páginas para no exceder límites
-        if (pages.length >= 3) break;
-      }
-
-      if (pages.length === 0) {
-        return NextResponse.json({ error: 'No se pudieron extraer páginas del PDF' }, { status: 400 });
-      }
-
-      // Enviar todas las páginas como imágenes
-      imageContents = pages.map(pageBuffer => ({
-        type: 'image_url' as const,
-        image_url: { url: `data:image/png;base64,${pageBuffer.toString('base64')}`, detail: 'high' as const },
-      }));
-    } else {
-      // Imagen directa
-      const base64 = buffer.toString('base64');
-      const dataUrl = `data:${contentType};base64,${base64}`;
-      imageContents = [
-        { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'high' as const } },
-      ];
-    }
+    // La imagen ya viene renderizada del cliente (PNG)
+    const base64 = buffer.toString('base64');
+    const dataUrl = `data:${contentType};base64,${base64}`;
+    const imageContents = [
+      { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'high' as const } },
+    ];
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -96,7 +95,7 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
           ],
         },
       ],
-      max_tokens: 1500,
+      max_tokens: 4000,
       temperature: 0,
     });
 
@@ -118,7 +117,7 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
       }, { status: 500 });
     }
 
-    // Mapear a los campos del formulario
+    // Mapear a los campos del formulario (campos simples para pre-rellenar)
     const resultado = {
       nombre: datos.numero_documento
         ? `${datos.numero_documento}${datos.concepto ? ' - ' + datos.concepto.substring(0, 50) : ''}`
@@ -126,12 +125,25 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
       tipo: datos.tipo_documento || 'otro',
       fecha: datos.fecha || new Date().toISOString().split('T')[0],
       importe: datos.importe_total || null,
-      proveedor: datos.proveedor || datos.emisor || null,
+      proveedor: datos.proveedor || (datos.emisor?.nombre) || null,
       concepto: datos.concepto || null,
       numero_documento: datos.numero_documento || null,
       emisor: datos.emisor || null,
       receptor: datos.receptor || null,
-      items: datos.items_principales || [],
+      // Datos fiscales completos
+      cif_emisor: datos.emisor?.cif || null,
+      direccion_emisor: datos.emisor?.direccion || null,
+      cif_receptor: datos.receptor?.cif || null,
+      // Desglose económico
+      base_imponible: datos.base_imponible || null,
+      iva_porcentaje: datos.iva_porcentaje || null,
+      importe_iva: datos.importe_iva || null,
+      forma_pago: datos.forma_pago || null,
+      iban: datos.iban || null,
+      validez: datos.validez || null,
+      observaciones: datos.observaciones || null,
+      // Líneas de detalle completas
+      lineas: datos.lineas || [],
       confianza: datos.confianza || 0.8,
       raw: datos,
     };

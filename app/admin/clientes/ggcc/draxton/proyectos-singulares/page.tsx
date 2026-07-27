@@ -31,6 +31,15 @@ interface PersonalAsignado {
   empleado: { id: string; nombreCompleto: string; categoria: string | null; departamento: string | null }
 }
 
+interface LineaDetalle {
+  codigo?: string
+  descripcion: string
+  unidades?: number
+  precio_unitario?: number
+  descuento_pct?: number
+  importe?: number
+}
+
 interface Documento {
   id: string
   nombre: string
@@ -39,6 +48,19 @@ interface Documento {
   fecha: string
   importe?: number
   proveedor?: string
+  // Datos fiscales
+  cif_emisor?: string
+  cif_receptor?: string
+  numero_documento?: string
+  forma_pago?: string
+  iban?: string
+  observaciones?: string
+  // Desglose
+  base_imponible?: number
+  iva_porcentaje?: number
+  importe_iva?: number
+  // Líneas de detalle
+  lineas?: LineaDetalle[]
 }
 
 interface Proyecto {
@@ -177,13 +199,17 @@ export default function DraxtonProyectosSingularesPage() {
     return null
   }
 
+  const [ocrData, setOcrData] = useState<any>(null)
+
   const handleFileSelect = async (file: File | null) => {
     if (!file) return
     setDocForm(prev => ({ ...prev, file, nombre: prev.nombre || file.name.replace(/\.[^/.]+$/, '') }))
     setOcrProcessing(true)
+    setOcrData(null)
     try {
       const datos = await sendToOcr(file)
       if (datos) {
+        setOcrData(datos)
         setDocForm(prev => ({
           ...prev,
           nombre: datos.nombre || prev.nombre,
@@ -380,6 +406,19 @@ export default function DraxtonProyectosSingularesPage() {
         tipo: docForm.tipo, url: uploadData.url, fecha: docForm.fecha,
         importe: docForm.importe ? Number(docForm.importe) : undefined,
         proveedor: docForm.proveedor || undefined,
+        // Datos OCR completos si disponibles
+        ...(ocrData ? {
+          cif_emisor: ocrData.cif_emisor || undefined,
+          cif_receptor: ocrData.cif_receptor || undefined,
+          numero_documento: ocrData.numero_documento || undefined,
+          forma_pago: ocrData.forma_pago || undefined,
+          iban: ocrData.iban || undefined,
+          observaciones: ocrData.observaciones || undefined,
+          base_imponible: ocrData.base_imponible || undefined,
+          iva_porcentaje: ocrData.iva_porcentaje || undefined,
+          importe_iva: ocrData.importe_iva || undefined,
+          lineas: ocrData.lineas || undefined,
+        } : {}),
       }
       const docs = [...(proyecto.documentosJson || []), newDoc]
 
@@ -389,6 +428,7 @@ export default function DraxtonProyectosSingularesPage() {
       })
       setShowDocForm(false)
       setDocForm({ nombre: '', tipo: 'presupuesto_cliente', fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null })
+      setOcrData(null)
       if (fileInputRef.current) fileInputRef.current.value = ''
       fetchData()
     } catch (error: any) { alert('Error: ' + error.message) }
@@ -820,8 +860,50 @@ export default function DraxtonProyectosSingularesPage() {
                       </thead>
                       <tbody className="divide-y">
                         {(p.documentosJson || []).map(doc => (
-                          <tr key={doc.id} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-medium text-gray-900">{doc.nombre}</td>
+                          <tr key={doc.id} className="hover:bg-gray-50 group">
+                            <td className="px-3 py-2 font-medium text-gray-900">
+                              <details>
+                                <summary className="cursor-pointer">{doc.nombre}</summary>
+                                <div className="mt-2 p-3 bg-gray-50 rounded-lg text-xs space-y-2">
+                                  {doc.numero_documento && <p><span className="font-semibold">Nº Doc:</span> {doc.numero_documento}</p>}
+                                  {doc.cif_emisor && <p><span className="font-semibold">CIF Emisor:</span> {doc.cif_emisor}</p>}
+                                  {doc.cif_receptor && <p><span className="font-semibold">CIF Receptor:</span> {doc.cif_receptor}</p>}
+                                  {doc.forma_pago && <p><span className="font-semibold">Forma pago:</span> {doc.forma_pago}</p>}
+                                  {doc.iban && <p><span className="font-semibold">IBAN:</span> {doc.iban}</p>}
+                                  {doc.base_imponible && <p><span className="font-semibold">Base:</span> {formatCurrency(doc.base_imponible)} | <span className="font-semibold">IVA {doc.iva_porcentaje || 21}%:</span> {doc.importe_iva ? formatCurrency(doc.importe_iva) : '—'}</p>}
+                                  {doc.observaciones && <p><span className="font-semibold">Obs:</span> {doc.observaciones}</p>}
+                                  {doc.lineas && doc.lineas.length > 0 && (
+                                    <div className="mt-2">
+                                      <p className="font-semibold mb-1">Detalle de líneas:</p>
+                                      <table className="w-full text-xs border">
+                                        <thead className="bg-gray-100">
+                                          <tr>
+                                            <th className="px-2 py-1 text-left">Cód.</th>
+                                            <th className="px-2 py-1 text-left">Descripción</th>
+                                            <th className="px-2 py-1 text-right">Uds.</th>
+                                            <th className="px-2 py-1 text-right">P.Unit.</th>
+                                            <th className="px-2 py-1 text-right">Dto.</th>
+                                            <th className="px-2 py-1 text-right">Importe</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {doc.lineas.map((l: any, i: number) => (
+                                            <tr key={i} className="border-t">
+                                              <td className="px-2 py-1 text-gray-500">{l.codigo || '—'}</td>
+                                              <td className="px-2 py-1">{l.descripcion}</td>
+                                              <td className="px-2 py-1 text-right">{l.unidades || '—'}</td>
+                                              <td className="px-2 py-1 text-right">{l.precio_unitario ? formatCurrency(l.precio_unitario) : '—'}</td>
+                                              <td className="px-2 py-1 text-right">{l.descuento_pct ? `${l.descuento_pct}%` : '—'}</td>
+                                              <td className="px-2 py-1 text-right font-medium">{l.importe ? formatCurrency(l.importe) : '—'}</td>
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  )}
+                                </div>
+                              </details>
+                            </td>
                             <td className="px-3 py-2">{getTipoDocBadge(doc.tipo)}</td>
                             <td className="px-3 py-2 text-gray-600">{doc.proveedor || '—'}</td>
                             <td className="px-3 py-2 text-right font-medium">{doc.importe ? formatCurrency(doc.importe) : '—'}</td>
