@@ -144,17 +144,46 @@ export default function DraxtonProyectosSingularesPage() {
   const [docForm, setDocForm] = useState({ nombre: '', tipo: 'presupuesto_cliente' as Documento['tipo'], fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null as File | null })
 
   // ===== OCR AUTOMÁTICO =====
+  // Convierte PDF a imagen en el navegador usando canvas
+  const pdfToImage = async (file: File): Promise<File> => {
+    const pdfjsLib = await import('pdfjs-dist')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+    const arrayBuffer = await file.arrayBuffer()
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    const page = await pdf.getPage(1)
+    const scale = 2
+    const viewport = page.getViewport({ scale })
+    const canvas = document.createElement('canvas')
+    canvas.width = viewport.width
+    canvas.height = viewport.height
+    const ctx = canvas.getContext('2d')!
+    await page.render({ canvasContext: ctx, viewport }).promise
+    const blob = await new Promise<Blob>((resolve) => canvas.toBlob(b => resolve(b!), 'image/png'))
+    return new File([blob], file.name.replace('.pdf', '.png'), { type: 'image/png' })
+  }
+
+  const sendToOcr = async (file: File) => {
+    let fileToSend = file
+    if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      fileToSend = await pdfToImage(file)
+    }
+    const formData = new FormData()
+    formData.append('file', fileToSend)
+    const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr', { method: 'POST', body: formData })
+    if (res.ok) {
+      const { datos } = await res.json()
+      return datos
+    }
+    return null
+  }
+
   const handleFileSelect = async (file: File | null) => {
     if (!file) return
     setDocForm(prev => ({ ...prev, file, nombre: prev.nombre || file.name.replace(/\.[^/.]+$/, '') }))
-    // Lanzar OCR automáticamente
     setOcrProcessing(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr', { method: 'POST', body: formData })
-      if (res.ok) {
-        const { datos } = await res.json()
+      const datos = await sendToOcr(file)
+      if (datos) {
         setDocForm(prev => ({
           ...prev,
           nombre: datos.nombre || prev.nombre,
@@ -239,14 +268,11 @@ export default function DraxtonProyectosSingularesPage() {
     setProvForm(prev => ({ ...prev, file }))
     setOcrProvProcessing(true)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr', { method: 'POST', body: formData })
-      if (res.ok) {
-        const { datos } = await res.json()
+      const datos = await sendToOcr(file)
+      if (datos) {
         setProvForm(prev => ({
           ...prev,
-          proveedor: datos.proveedor || datos.emisor || prev.proveedor,
+          proveedor: datos.proveedor || prev.proveedor,
           concepto: datos.concepto || prev.concepto,
           importe: datos.importe ? String(datos.importe) : prev.importe,
         }))
