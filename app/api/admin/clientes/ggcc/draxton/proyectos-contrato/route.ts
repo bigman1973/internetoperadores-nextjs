@@ -50,13 +50,13 @@ export async function POST(req: NextRequest) {
       orden,
     } = body;
 
-    if (!contratoDraxtonId || !titulo) {
-      return NextResponse.json({ error: 'contratoDraxtonId y titulo son obligatorios' }, { status: 400 });
+    if (!titulo) {
+      return NextResponse.json({ error: 'titulo es obligatorio' }, { status: 400 });
     }
 
     const proyecto = await prisma.proyectoContratoDraxton.create({
       data: {
-        contratoDraxtonId,
+        contratoDraxtonId: contratoDraxtonId || null,
         responsableId: responsableId || null,
         titulo,
         descripcion: descripcion || null,
@@ -68,6 +68,7 @@ export async function POST(req: NextRequest) {
         costeProveedores: body.costeProveedores ? parseFloat(body.costeProveedores) : null,
         margenEstimado: body.margenEstimado ? parseFloat(body.margenEstimado) : null,
         documentosJson: body.documentosJson || null,
+        ubicacion: body.ubicacion || null,
         fechaInicio: fechaInicio ? new Date(fechaInicio) : null,
         fechaFinPrevista: fechaFinPrevista ? new Date(fechaFinPrevista) : null,
         fechaFinReal: fechaFinReal ? new Date(fechaFinReal) : null,
@@ -115,6 +116,8 @@ export async function PUT(req: NextRequest) {
     if (data.prioridad !== undefined) updateData.prioridad = data.prioridad;
     if (data.orden !== undefined) updateData.orden = data.orden;
     if (data.responsableId !== undefined) updateData.responsableId = data.responsableId || null;
+    if (data.contratoDraxtonId !== undefined) updateData.contratoDraxtonId = data.contratoDraxtonId || null;
+    if (data.ubicacion !== undefined) updateData.ubicacion = data.ubicacion || null;
     if (data.activo !== undefined) updateData.activo = data.activo;
 
     const proyecto = await prisma.proyectoContratoDraxton.update({

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, Fragment } from 'react'
-import { RocketLaunchIcon, PlusIcon, DocumentIcon, TrashIcon, PencilIcon, XMarkIcon, ArrowUpTrayIcon, EyeIcon, CurrencyEuroIcon } from '@heroicons/react/24/outline'
+import { useState, useEffect } from 'react'
+import { RocketLaunchIcon, PlusIcon, DocumentIcon, TrashIcon, PencilIcon, XMarkIcon, EyeIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
 
 interface Documento {
   id: string
@@ -15,8 +15,8 @@ interface Documento {
 
 interface Proyecto {
   id: string
-  contratoDraxtonId: string
-  contrato?: { id: string; titulo: string }
+  contratoDraxtonId: string | null
+  contratoDraxton?: { id: string; titulo: string } | null
   responsable?: { id: string; nombreCompleto: string; categoria: string | null } | null
   responsableId: string | null
   titulo: string
@@ -29,17 +29,13 @@ interface Proyecto {
   costeProveedores: number | null
   margenEstimado: number | null
   documentosJson: Documento[] | null
+  ubicacion: string | null
   fechaInicio: string | null
   fechaFinPrevista: string | null
   fechaFinReal: string | null
   prioridad: string
   orden: number
   activo: boolean
-}
-
-interface Contrato {
-  id: string
-  titulo: string
 }
 
 const TIPOS_DOCUMENTO: { value: Documento['tipo']; label: string; color: string }[] = [
@@ -65,37 +61,36 @@ function formatCurrency(value: number | null | undefined): string {
 
 function getEstadoBadge(estado: string) {
   const e = ESTADOS.find(s => s.value === estado)
-  return e ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${e.color}`}>{e.label}</span> : estado
+  return e ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${e.color}`}>{e.label}</span> : <span>{estado}</span>
 }
 
 function getTipoDocBadge(tipo: Documento['tipo']) {
   const t = TIPOS_DOCUMENTO.find(td => td.value === tipo)
-  return t ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${t.color}`}>{t.label}</span> : tipo
+  return t ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${t.color}`}>{t.label}</span> : <span>{tipo}</span>
 }
 
 export default function DraxtonProyectosSingularesPage() {
   const [proyectos, setProyectos] = useState<Proyecto[]>([])
-  const [contratos, setContratos] = useState<Contrato[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [showDocForm, setShowDocForm] = useState<string | null>(null) // proyecto id
+  const [showDocForm, setShowDocForm] = useState<string | null>(null)
 
-  // Form state
-  const [form, setForm] = useState({
-    contratoDraxtonId: '',
+  const emptyForm = {
     titulo: '',
     descripcion: '',
     estado: 'en_curso',
     prioridad: 'media',
+    ubicacion: '',
     importeVenta: '',
     costeProveedores: '',
     fechaInicio: '',
     fechaFinPrevista: '',
-  })
+  }
 
-  // Doc form state
+  const [form, setForm] = useState(emptyForm)
+
   const [docForm, setDocForm] = useState<Omit<Documento, 'id'>>({
     nombre: '',
     tipo: 'presupuesto_cliente',
@@ -105,24 +100,14 @@ export default function DraxtonProyectosSingularesPage() {
     proveedor: '',
   })
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   const fetchData = async () => {
     try {
-      const [proyRes, contRes] = await Promise.all([
-        fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato'),
-        fetch('/api/admin/clientes/ggcc/draxton/contratos'),
-      ])
-      if (proyRes.ok) {
-        const data = await proyRes.json()
-        // Filtrar solo categoría "proyecto" (no mejora_ejecutada ni propuesta_futura)
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato')
+      if (res.ok) {
+        const data = await res.json()
         setProyectos(data.filter((p: Proyecto) => p.categoria === 'proyecto'))
-      }
-      if (contRes.ok) {
-        const data = await contRes.json()
-        setContratos((data.contratos || data).map((c: any) => ({ id: c.id, titulo: c.titulo })))
       }
     } catch (error) {
       console.error('Error cargando datos:', error)
@@ -132,8 +117,8 @@ export default function DraxtonProyectosSingularesPage() {
   }
 
   const handleSave = async () => {
-    if (!form.contratoDraxtonId || !form.titulo) {
-      alert('Contrato y título son obligatorios')
+    if (!form.titulo) {
+      alert('El título es obligatorio')
       return
     }
 
@@ -142,7 +127,11 @@ export default function DraxtonProyectosSingularesPage() {
       : null
 
     const payload: any = {
-      ...form,
+      titulo: form.titulo,
+      descripcion: form.descripcion || null,
+      estado: form.estado,
+      prioridad: form.prioridad,
+      ubicacion: form.ubicacion || null,
       categoria: 'proyecto',
       importeVenta: form.importeVenta || null,
       costeProveedores: form.costeProveedores || null,
@@ -162,7 +151,7 @@ export default function DraxtonProyectosSingularesPage() {
     if (res.ok) {
       setShowForm(false)
       setEditingId(null)
-      setForm({ contratoDraxtonId: '', titulo: '', descripcion: '', estado: 'en_curso', prioridad: 'media', importeVenta: '', costeProveedores: '', fechaInicio: '', fechaFinPrevista: '' })
+      setForm(emptyForm)
       fetchData()
     } else {
       const err = await res.json()
@@ -172,11 +161,11 @@ export default function DraxtonProyectosSingularesPage() {
 
   const handleEdit = (p: Proyecto) => {
     setForm({
-      contratoDraxtonId: p.contratoDraxtonId,
       titulo: p.titulo,
       descripcion: p.descripcion || '',
       estado: p.estado,
       prioridad: p.prioridad,
+      ubicacion: p.ubicacion || '',
       importeVenta: p.importeVenta?.toString() || '',
       costeProveedores: p.costeProveedores?.toString() || '',
       fechaInicio: p.fechaInicio?.split('T')[0] || '',
@@ -285,11 +274,11 @@ export default function DraxtonProyectosSingularesPage() {
             <RocketLaunchIcon className="w-6 h-6 text-indigo-600" />
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Proyectos Singulares</h2>
-              <p className="text-sm text-gray-500">Presupuestos y proyectos puntuales fuera de los contratos recurrentes</p>
+              <p className="text-sm text-gray-500">Trabajos puntuales adjudicados por Draxton (independientes de contratos recurrentes)</p>
             </div>
           </div>
           <button
-            onClick={() => { setShowForm(true); setEditingId(null); setForm({ contratoDraxtonId: '', titulo: '', descripcion: '', estado: 'en_curso', prioridad: 'media', importeVenta: '', costeProveedores: '', fechaInicio: '', fechaFinPrevista: '' }) }}
+            onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm) }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
           >
             <PlusIcon className="w-4 h-4" />
@@ -301,7 +290,7 @@ export default function DraxtonProyectosSingularesPage() {
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Proyectos Activos</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Proyectos</div>
           <div className="text-2xl font-bold text-indigo-700 mt-1">{totalProyectos}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -322,7 +311,9 @@ export default function DraxtonProyectosSingularesPage() {
       {/* Lista de proyectos */}
       {proyectos.length === 0 && !showForm && (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <p className="text-gray-400">No hay proyectos singulares registrados. Haz clic en &quot;Nuevo Proyecto&quot; para crear uno.</p>
+          <RocketLaunchIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-400">No hay proyectos singulares registrados.</p>
+          <p className="text-gray-400 text-sm mt-1">Haz clic en &quot;Nuevo Proyecto&quot; para crear uno.</p>
         </div>
       )}
 
@@ -335,9 +326,17 @@ export default function DraxtonProyectosSingularesPage() {
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
+                {expandedId === p.id
+                  ? <ChevronDownIcon className="w-4 h-4 text-gray-400" />
+                  : <ChevronRightIcon className="w-4 h-4 text-gray-400" />
+                }
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">{p.titulo}</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">{p.contrato?.titulo || '—'}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {p.ubicacion && <span className="text-xs text-gray-500">{p.ubicacion}</span>}
+                    {p.ubicacion && p.fechaInicio && <span className="text-xs text-gray-300">·</span>}
+                    {p.fechaInicio && <span className="text-xs text-gray-500">{new Date(p.fechaInicio).toLocaleDateString('es-ES')}</span>}
+                  </div>
                 </div>
                 {getEstadoBadge(p.estado)}
               </div>
@@ -551,27 +550,24 @@ export default function DraxtonProyectosSingularesPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Contrato asociado *</label>
-                <select
-                  value={form.contratoDraxtonId}
-                  onChange={e => setForm({ ...form, contratoDraxtonId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                >
-                  <option value="">Seleccionar contrato...</option>
-                  {contratos.map(c => (
-                    <option key={c.id} value={c.id}>{c.titulo}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Título del proyecto *</label>
                 <input
                   type="text"
                   value={form.titulo}
                   onChange={e => setForm({ ...form, titulo: e.target.value })}
                   className="w-full px-3 py-2 border rounded-lg text-sm"
-                  placeholder="Ej: WiFi Industrial Atxondo - Ruckus"
+                  placeholder="Ej: WiFi Industrial Atxondo - Ruckus R650"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Ubicación / Planta</label>
+                <input
+                  type="text"
+                  value={form.ubicacion}
+                  onChange={e => setForm({ ...form, ubicacion: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  placeholder="Ej: Draxton Lleida, Draxton Atxondo..."
                 />
               </div>
 

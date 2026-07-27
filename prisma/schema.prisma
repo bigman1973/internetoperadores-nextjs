@@ -2084,7 +2084,7 @@ model FacturaContratoDraxton {
 
 model ProyectoContratoDraxton {
   id                    String   @id @default(uuid())
-  contratoDraxtonId     String   @map("contrato_draxton_id")
+  contratoDraxtonId     String?  @map("contrato_draxton_id") // Opcional: puede no estar vinculado a un contrato
   responsableId         String?  @map("responsable_id") // Empleado responsable
   titulo                String
   descripcion           String?  @db.Text
@@ -2099,6 +2099,9 @@ model ProyectoContratoDraxton {
   margenEstimado        Decimal? @map("margen_estimado") @db.Decimal(12, 2)
   documentosJson        Json?    @map("documentos_json") // Array de { id, nombre, tipo, url, fecha, importe }
 
+  // Ubicación / planta
+  ubicacion             String?  // Ej: "Draxton Lleida", "Draxton Atxondo"
+
   fechaInicio           DateTime? @map("fecha_inicio") @db.Date
   fechaFinPrevista      DateTime? @map("fecha_fin_prevista") @db.Date
   fechaFinReal          DateTime? @map("fecha_fin_real") @db.Date
@@ -2106,7 +2109,7 @@ model ProyectoContratoDraxton {
   orden                 Int      @default(0)
   activo                Boolean  @default(true)
   // Relaciones
-  contratoDraxton       ContratoDraxton @relation(fields: [contratoDraxtonId], references: [id], onDelete: Cascade)
+  contratoDraxton       ContratoDraxton? @relation(fields: [contratoDraxtonId], references: [id], onDelete: Cascade)
   responsable           Empleado? @relation("ProyectoResponsable", fields: [responsableId], references: [id])
   // Timestamps
   createdAt             DateTime @default(now()) @map("created_at")
