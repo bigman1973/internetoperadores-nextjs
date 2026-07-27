@@ -482,9 +482,11 @@ export default function DraxtonProyectosSingularesPage() {
 
   // ===== KPIs =====
   const totalProyectos = proyectos.length
-  const totalVenta = proyectos.reduce((sum, p) => sum + (p.importeVenta || 0), 0)
-  const totalCoste = proyectos.reduce((sum, p) => sum + (p.costeProveedores || 0), 0)
-  const totalMargen = totalVenta - totalCoste
+  const totalVentaConIva = proyectos.reduce((sum, p) => sum + (p.importeVenta || 0), 0)
+  const totalVentaBase = totalVentaConIva / 1.21
+  const totalCosteProveedores = proyectos.reduce((sum, p) => sum + (p.costeProveedores || 0), 0)
+  const totalCostePersonal = proyectos.reduce((sum, p) => sum + (p.personalAsignado?.reduce((s: number, pa: any) => s + (pa.costeTotal || 0), 0) || 0), 0)
+  const totalMargen = totalVentaBase - totalCosteProveedores - totalCostePersonal
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
 
@@ -507,23 +509,30 @@ export default function DraxtonProyectosSingularesPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-xs text-gray-500 uppercase tracking-wide">Proyectos</div>
           <div className="text-2xl font-bold text-indigo-700 mt-1">{totalProyectos}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Importe Venta</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalVenta)}</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Venta (con IVA)</div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalVentaConIva)}</div>
+          <div className="text-xs text-gray-400 mt-0.5">Base: {formatCurrency(totalVentaBase)}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-xs text-gray-500 uppercase tracking-wide">Coste Proveedores</div>
-          <div className="text-2xl font-bold text-red-700 mt-1">{formatCurrency(totalCoste)}</div>
+          <div className="text-2xl font-bold text-amber-700 mt-1">{formatCurrency(totalCosteProveedores)}</div>
+          {totalVentaBase > 0 && <div className="text-xs text-gray-400 mt-0.5">{((totalCosteProveedores / totalVentaBase) * 100).toFixed(1)}% s/venta</div>}
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Margen</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Coste Personal</div>
+          <div className="text-2xl font-bold text-purple-700 mt-1">{formatCurrency(totalCostePersonal)}</div>
+          {totalVentaBase > 0 && <div className="text-xs text-gray-400 mt-0.5">{((totalCostePersonal / totalVentaBase) * 100).toFixed(1)}% s/venta</div>}
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Margen Neto</div>
           <div className={`text-2xl font-bold mt-1 ${totalMargen >= 0 ? 'text-green-700' : 'text-red-700'}`}>{formatCurrency(totalMargen)}</div>
-          {totalVenta > 0 && <div className="text-xs text-gray-500 mt-0.5">{((totalMargen / totalVenta) * 100).toFixed(1)}%</div>}
+          {totalVentaBase > 0 && <div className="text-xs text-gray-400 mt-0.5">{((totalMargen / totalVentaBase) * 100).toFixed(1)}% s/venta</div>}
         </div>
       </div>
 
@@ -611,28 +620,34 @@ export default function DraxtonProyectosSingularesPage() {
                 <div className="space-y-4">
                   {(() => {
                     const costePersonal = p.personalAsignado?.reduce((sum: number, pa: any) => sum + (pa.costeTotal || 0), 0) || 0
-                    const venta = Number(p.importeVenta) || 0
-                    const proveedores = Number(p.costeProveedores) || 0
-                    const margenReal = venta - proveedores - costePersonal
+                    const ventaConIva = Number(p.importeVenta) || 0
+                    const ventaBase = ventaConIva / 1.21 // Base imponible (sin IVA)
+                    const proveedores = Number(p.costeProveedores) || 0 // Ya es sin IVA
+                    const margenReal = ventaBase - proveedores - costePersonal
                     return (
-                      <div className="grid grid-cols-4 gap-3">
-                        <div className="bg-blue-50 rounded-lg p-3">
-                          <div className="text-xs text-blue-600 font-medium">Importe Venta</div>
-                          <div className="text-lg font-bold text-blue-800">{formatCurrency(venta)}</div>
-                        </div>
-                        <div className="bg-amber-50 rounded-lg p-3">
-                          <div className="text-xs text-amber-600 font-medium">Coste Proveedores</div>
-                          <div className="text-lg font-bold text-amber-800">{formatCurrency(proveedores)}</div>
-                        </div>
-                        <div className="bg-purple-50 rounded-lg p-3">
-                          <div className="text-xs text-purple-600 font-medium">Coste Personal</div>
-                          <div className="text-lg font-bold text-purple-800">{formatCurrency(costePersonal)}</div>
-                        </div>
-                        <div className={`rounded-lg p-3 ${margenReal >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                          <div className={`text-xs font-medium ${margenReal >= 0 ? 'text-green-600' : 'text-red-600'}`}>Margen Neto</div>
-                          <div className={`text-lg font-bold ${margenReal >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                            {formatCurrency(margenReal)}
-                            {venta > 0 ? ` (${((margenReal / venta) * 100).toFixed(1)}%)` : ''}
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-4 gap-3">
+                          <div className="bg-blue-50 rounded-lg p-3">
+                            <div className="text-xs text-blue-600 font-medium">Venta (con IVA)</div>
+                            <div className="text-lg font-bold text-blue-800">{formatCurrency(ventaConIva)}</div>
+                            <div className="text-xs text-blue-500 mt-0.5">Base: {formatCurrency(ventaBase)}</div>
+                          </div>
+                          <div className="bg-amber-50 rounded-lg p-3">
+                            <div className="text-xs text-amber-600 font-medium">Coste Proveedores</div>
+                            <div className="text-lg font-bold text-amber-800">{formatCurrency(proveedores)}</div>
+                            {ventaBase > 0 && <div className="text-xs text-amber-500 mt-0.5">{((proveedores / ventaBase) * 100).toFixed(1)}% s/venta</div>}
+                          </div>
+                          <div className="bg-purple-50 rounded-lg p-3">
+                            <div className="text-xs text-purple-600 font-medium">Coste Personal</div>
+                            <div className="text-lg font-bold text-purple-800">{formatCurrency(costePersonal)}</div>
+                            {ventaBase > 0 && <div className="text-xs text-purple-500 mt-0.5">{((costePersonal / ventaBase) * 100).toFixed(1)}% s/venta</div>}
+                          </div>
+                          <div className={`rounded-lg p-3 ${margenReal >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                            <div className={`text-xs font-medium ${margenReal >= 0 ? 'text-green-600' : 'text-red-600'}`}>Margen Neto</div>
+                            <div className={`text-lg font-bold ${margenReal >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                              {formatCurrency(margenReal)}
+                            </div>
+                            {ventaBase > 0 && <div className={`text-xs mt-0.5 ${margenReal >= 0 ? 'text-green-500' : 'text-red-500'}`}>{((margenReal / ventaBase) * 100).toFixed(1)}% s/venta</div>}
                           </div>
                         </div>
                       </div>
