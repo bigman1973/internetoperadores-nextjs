@@ -188,7 +188,13 @@ export default function DraxtonProyectosSingularesPage() {
   const sendToOcr = async (file: File) => {
     let fileToSend = file
     if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-      fileToSend = await pdfToImage(file)
+      try {
+        fileToSend = await pdfToImage(file)
+      } catch (e) {
+        console.warn('pdfToImage falló, enviando PDF directamente:', e)
+        // Enviar el PDF directamente - la API lo soporta
+        fileToSend = file
+      }
     }
     const formData = new FormData()
     formData.append('file', fileToSend)

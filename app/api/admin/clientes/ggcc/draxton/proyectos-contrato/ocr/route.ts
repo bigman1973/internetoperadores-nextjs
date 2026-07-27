@@ -77,12 +77,21 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
   "confianza": 0.95
 }`;
 
-    // La imagen ya viene renderizada del cliente (PNG)
+    // Soportar tanto imágenes como PDFs directamente
     const base64 = buffer.toString('base64');
     const dataUrl = `data:${contentType};base64,${base64}`;
-    const imageContents = [
-      { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'high' as const } },
-    ];
+    
+    let imageContents: any[];
+    if (contentType === 'application/pdf') {
+      // GPT-4o soporta PDFs nativamente como file input
+      imageContents = [
+        { type: 'file' as const, file: { filename: file.name, file_data: `data:application/pdf;base64,${base64}` } },
+      ];
+    } else {
+      imageContents = [
+        { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'high' as const } },
+      ];
+    }
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
