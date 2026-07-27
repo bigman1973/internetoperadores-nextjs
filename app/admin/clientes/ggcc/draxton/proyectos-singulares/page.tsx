@@ -47,6 +47,7 @@ interface Documento {
   url: string
   fecha: string
   importe?: number
+  importe_total?: number
   proveedor?: string
   // Datos fiscales
   cif_emisor?: string
@@ -352,6 +353,7 @@ export default function DraxtonProyectosSingularesPage() {
               proveedor: provForm.proveedor,
               // Datos OCR completos
               ...(ocrProvData ? {
+                importe_total: ocrProvData.importe || undefined,
                 cif_emisor: ocrProvData.cif_emisor || undefined,
                 cif_receptor: ocrProvData.cif_receptor || undefined,
                 numero_documento: ocrProvData.numero_documento || undefined,
@@ -426,6 +428,7 @@ export default function DraxtonProyectosSingularesPage() {
         proveedor: docForm.proveedor || undefined,
         // Datos OCR completos si disponibles
         ...(ocrData ? {
+          importe_total: ocrData.importe || undefined,
           cif_emisor: ocrData.cif_emisor || undefined,
           cif_receptor: ocrData.cif_receptor || undefined,
           numero_documento: ocrData.numero_documento || undefined,
@@ -890,7 +893,7 @@ export default function DraxtonProyectosSingularesPage() {
                                       {doc.cif_receptor && <p><span className="font-semibold">CIF Receptor:</span> {doc.cif_receptor}</p>}
                                       {doc.forma_pago && <p><span className="font-semibold">Forma pago:</span> {doc.forma_pago}</p>}
                                       {doc.iban && <p><span className="font-semibold">IBAN:</span> {doc.iban}</p>}
-                                      {doc.base_imponible && <p><span className="font-semibold">Base imponible:</span> {formatCurrency(doc.base_imponible)} | <span className="font-semibold">IVA {doc.iva_porcentaje || 21}%:</span> {doc.importe_iva ? formatCurrency(doc.importe_iva) : '—'} | <span className="font-semibold">Total:</span> {doc.importe ? formatCurrency(doc.importe) : '—'}</p>}
+                                      {doc.base_imponible && <p><span className="font-semibold">Base imponible:</span> {formatCurrency(doc.base_imponible)} | <span className="font-semibold">IVA {doc.iva_porcentaje || 21}%:</span> {doc.importe_iva ? formatCurrency(doc.importe_iva) : '—'} | <span className="font-semibold">Total (con IVA):</span> {doc.importe_total ? formatCurrency(doc.importe_total) : (doc.base_imponible && doc.importe_iva ? formatCurrency(doc.base_imponible + doc.importe_iva) : '—')}</p>}
                                       {doc.observaciones && <p><span className="font-semibold">Obs:</span> {doc.observaciones}</p>}
                                       {doc.lineas && doc.lineas.length > 0 && (
                                         <div className="mt-2">
