@@ -653,6 +653,10 @@ export default function DraxtonProyectosSingularesPage() {
                           <input type="date" value={docForm.fecha} onChange={e => setDocForm({ ...docForm, fecha: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
                         </div>
                         <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Importe (€)</label>
+                          <input type="number" step="0.01" value={docForm.importe} onChange={e => setDocForm({ ...docForm, importe: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="0,00" />
+                        </div>
+                        <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor</label>
                           <input type="text" value={docForm.proveedor} onChange={e => setDocForm({ ...docForm, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Si aplica..." />
                         </div>
@@ -673,6 +677,7 @@ export default function DraxtonProyectosSingularesPage() {
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Documento</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Tipo</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Proveedor</th>
+                          <th className="text-right px-3 py-2 font-medium text-gray-600">Importe</th>
                           <th className="text-left px-3 py-2 font-medium text-gray-600">Fecha</th>
                           <th className="text-center px-3 py-2 font-medium text-gray-600">Acciones</th>
                         </tr>
@@ -683,6 +688,7 @@ export default function DraxtonProyectosSingularesPage() {
                             <td className="px-3 py-2 font-medium text-gray-900">{doc.nombre}</td>
                             <td className="px-3 py-2">{getTipoDocBadge(doc.tipo)}</td>
                             <td className="px-3 py-2 text-gray-600">{doc.proveedor || '—'}</td>
+                            <td className="px-3 py-2 text-right font-medium">{doc.importe ? formatCurrency(doc.importe) : '—'}</td>
                             <td className="px-3 py-2 text-gray-600">{doc.fecha ? new Date(doc.fecha).toLocaleDateString('es-ES') : '—'}</td>
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
