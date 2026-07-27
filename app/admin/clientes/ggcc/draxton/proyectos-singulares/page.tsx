@@ -137,7 +137,9 @@ export default function DraxtonProyectosSingularesPage() {
   }
   const [form, setForm] = useState(emptyForm)
 
-  const [provForm, setProvForm] = useState({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '' })
+  const [provForm, setProvForm] = useState({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '', file: null as File | null })
+  const [ocrProvProcessing, setOcrProvProcessing] = useState(false)
+  const provFileInputRef = useRef<HTMLInputElement>(null)
   const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: '100', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' })
   const [docForm, setDocForm] = useState({ nombre: '', tipo: 'presupuesto_cliente' as Documento['tipo'], fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null as File | null })
 
@@ -232,15 +234,81 @@ export default function DraxtonProyectosSingularesPage() {
   }
 
   // ===== PROVEEDORES =====
+  const handleProvFileSelect = async (file: File | null) => {
+    if (!file) return
+    setProvForm(prev => ({ ...prev, file }))
+    setOcrProvProcessing(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr', { method: 'POST', body: formData })
+      if (res.ok) {
+        const { datos } = await res.json()
+        setProvForm(prev => ({
+          ...prev,
+          proveedor: datos.proveedor || datos.emisor || prev.proveedor,
+          concepto: datos.concepto || prev.concepto,
+          importe: datos.importe ? String(datos.importe) : prev.importe,
+        }))
+      }
+    } catch (e) { console.error('OCR prov error:', e) }
+    finally { setOcrProvProcessing(false) }
+  }
+
   const handleAddProveedor = async (proyectoId: string) => {
     if (!provForm.proveedor) { alert('El nombre del proveedor es obligatorio'); return }
-    const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-proveedores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ proyectoId, ...provForm }),
-    })
-    if (res.ok) { setShowProvForm(false); setProvForm({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '' }); fetchData() }
-    else { const err = await res.json(); alert('Error: ' + (err.error || 'Error')) }
+    setUploading(true)
+    try {
+      let documentoUrl: string | null = null
+      let documentoNombre: string | null = null
+
+      // Si hay archivo, subirlo primero
+      if (provForm.file) {
+        const formData = new FormData()
+        formData.append('file', provForm.file)
+        const uploadRes = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/upload', { method: 'POST', body: formData })
+        if (uploadRes.ok) {
+          const uploadData = await uploadRes.json()
+          documentoUrl = uploadData.url
+          documentoNombre = provForm.file.name
+        }
+      }
+
+      // Crear proveedor con documento vinculado
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-proveedores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proyectoId, proveedor: provForm.proveedor, concepto: provForm.concepto, importe: provForm.importe, estado: provForm.estado, notas: provForm.notas, documentoUrl, documentoNombre }),
+      })
+
+      if (res.ok) {
+        // Si hay documento, añadirlo también a documentosJson del proyecto
+        if (documentoUrl) {
+          const proyecto = proyectos.find(p => p.id === proyectoId)
+          if (proyecto) {
+            const newDoc: Documento = {
+              id: crypto.randomUUID(),
+              nombre: documentoNombre || provForm.file!.name,
+              tipo: 'presupuesto_proveedor',
+              url: documentoUrl,
+              fecha: new Date().toISOString().split('T')[0],
+              importe: provForm.importe ? Number(provForm.importe) : undefined,
+              proveedor: provForm.proveedor,
+            }
+            const docs = [...(proyecto.documentosJson || []), newDoc]
+            await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato', {
+              method: 'PUT', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: proyectoId, documentosJson: docs }),
+            })
+          }
+        }
+        setShowProvForm(false)
+        setProvForm({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '', file: null })
+        if (provFileInputRef.current) provFileInputRef.current.value = ''
+        fetchData()
+      } else { const err = await res.json(); alert('Error: ' + (err.error || 'Error')) }
+    } catch (error: any) { alert('Error: ' + error.message) }
+    finally { setUploading(false) }
   }
 
   const handleDeleteProveedor = async (id: string) => {
@@ -502,12 +570,25 @@ export default function DraxtonProyectosSingularesPage() {
                           </select>
                         </div>
                         <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Documento (presupuesto proveedor)</label>
+                          <label className="cursor-pointer">
+                            <div className={`flex items-center justify-center gap-2 px-3 py-2.5 border-2 border-dashed rounded-lg ${provForm.file ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-indigo-400'}`}>
+                              {ocrProvProcessing ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div> : <ArrowUpTrayIcon className="w-4 h-4 text-gray-400" />}
+                              <span className="text-xs text-gray-600">{ocrProvProcessing ? 'Analizando con IA...' : provForm.file ? provForm.file.name : 'Adjuntar presupuesto (se extraen datos automáticamente)'}</span>
+                            </div>
+                            <input ref={provFileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" className="hidden"
+                              onChange={e => { const file = e.target.files?.[0] || null; handleProvFileSelect(file) }} />
+                          </label>
+                        </div>
+                        <div className="col-span-2">
                           <label className="block text-xs font-medium text-gray-600 mb-1">Notas</label>
                           <input type="text" value={provForm.notas} onChange={e => setProvForm({ ...provForm, notas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Notas adicionales..." />
                         </div>
                         <div className="col-span-2 flex gap-2">
-                          <button onClick={() => handleAddProveedor(p.id)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">Guardar</button>
-                          <button onClick={() => setShowProvForm(false)} className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300">Cancelar</button>
+                          <button onClick={() => handleAddProveedor(p.id)} disabled={uploading || ocrProvProcessing} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                            {uploading ? 'Guardando...' : 'Guardar'}
+                          </button>
+                          <button onClick={() => { setShowProvForm(false); setProvForm({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '', file: null }) }} className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300">Cancelar</button>
                         </div>
                       </div>
                     </div>
