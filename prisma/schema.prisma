@@ -1462,6 +1462,7 @@ model Empleado {
   guardiaTecnicos   GuardiaTecnico[]
   personalContratos PersonalContratoDraxton[] @relation("PersonalContratoDraxton")
   proyectosDraxton   ProyectoContratoDraxton[] @relation("ProyectoResponsable")
+  personalProyectos PersonalProyectoDraxton[] @relation("PersonalProyectoDraxton")
   condicionesSalariales CondicionSalarial[]
   objetivos         ObjetivoEmpleado[]
   evaluaciones      EvaluacionDesempeno[]
@@ -2115,11 +2116,60 @@ model ProyectoContratoDraxton {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
+  // Relaciones hijas
+  proveedores           ProveedorProyectoDraxton[]
+  personalAsignado      PersonalProyectoDraxton[]
+
   @@index([contratoDraxtonId])
   @@index([responsableId])
   @@index([categoria])
   @@index([estado])
   @@map("proyectos_contratos_draxton")
+}
+
+model ProveedorProyectoDraxton {
+  id                    String   @id @default(uuid())
+  proyectoId            String   @map("proyecto_id")
+  proveedor             String   // Nombre del proveedor
+  concepto              String?  // Descripción del servicio/material
+  importe               Decimal? @db.Decimal(12, 2)
+  estado                String   @default("pendiente") // pendiente, aceptado, rechazado, ejecutado
+  documentoUrl          String?  @map("documento_url")
+  documentoNombre       String?  @map("documento_nombre")
+  notas                 String?  @db.Text
+  // Relación
+  proyecto              ProyectoContratoDraxton @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  // Timestamps
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@index([proyectoId])
+  @@map("proveedores_proyectos_draxton")
+}
+
+model PersonalProyectoDraxton {
+  id                    String   @id @default(uuid())
+  proyectoId            String   @map("proyecto_id")
+  empleadoId            String   @map("empleado_id")
+  porcentajeDedicacion  Float    @default(100) @map("porcentaje_dedicacion")
+  nivelTecnico          Int?     @map("nivel_tecnico")
+  rol                   String?  // Responsable, Técnico, Instalador, etc.
+  funciones             String?  // Descripción de funciones
+  fechaInicio           DateTime? @map("fecha_inicio") @db.Date
+  fechaFin              DateTime? @map("fecha_fin") @db.Date
+  activo                Boolean  @default(true)
+  notas                 String?
+  // Relaciones
+  proyecto              ProyectoContratoDraxton @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  empleado              Empleado @relation("PersonalProyectoDraxton", fields: [empleadoId], references: [id])
+  // Timestamps
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@unique([proyectoId, empleadoId])
+  @@index([proyectoId])
+  @@index([empleadoId])
+  @@map("personal_proyectos_draxton")
 }
 
 model EmpresaGrupoDraxton {

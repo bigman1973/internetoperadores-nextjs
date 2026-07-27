@@ -20,6 +20,17 @@ export async function GET(req: NextRequest) {
         contratoDraxton: {
           select: { id: true, titulo: true },
         },
+        proveedores: {
+          orderBy: { createdAt: 'desc' },
+        },
+        personalAsignado: {
+          include: {
+            empleado: {
+              select: { id: true, nombreCompleto: true, categoria: true, departamento: true },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
       },
       orderBy: [{ categoria: 'asc' }, { orden: 'asc' }, { createdAt: 'desc' }],
     });
