@@ -2151,7 +2151,11 @@ model PersonalProyectoDraxton {
   id                    String   @id @default(uuid())
   proyectoId            String   @map("proyecto_id")
   empleadoId            String   @map("empleado_id")
-  porcentajeDedicacion  Float    @default(100) @map("porcentaje_dedicacion")
+  tipoImputacion        String   @default("horas") @map("tipo_imputacion") // 'porcentaje' o 'horas'
+  porcentajeDedicacion  Float?   @map("porcentaje_dedicacion") // Si tipo = porcentaje
+  horasImputadas        Float?   @map("horas_imputadas") // Si tipo = horas
+  costeHora             Float?   @map("coste_hora") // Coste empresa/hora del empleado al asignar
+  costeTotal            Float?   @map("coste_total") // Calculado: horas * costeHora
   nivelTecnico          Int?     @map("nivel_tecnico")
   rol                   String?  // Responsable, Técnico, Instalador, etc.
   funciones             String?  // Descripción de funciones

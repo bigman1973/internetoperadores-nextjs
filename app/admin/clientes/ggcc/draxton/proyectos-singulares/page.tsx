@@ -20,7 +20,11 @@ interface PersonalAsignado {
   id: string
   proyectoId: string
   empleadoId: string
-  porcentajeDedicacion: number
+  tipoImputacion: 'porcentaje' | 'horas'
+  porcentajeDedicacion: number | null
+  horasImputadas: number | null
+  costeHora: number | null
+  costeTotal: number | null
   nivelTecnico: number | null
   rol: string | null
   funciones: string | null
@@ -28,7 +32,7 @@ interface PersonalAsignado {
   fechaFin: string | null
   activo: boolean
   notas: string | null
-  empleado: { id: string; nombreCompleto: string; categoria: string | null; departamento: string | null }
+  empleado: { id: string; nombreCompleto: string; categoria: string | null; departamento: string | null; costeHoraActual: number | null }
 }
 
 interface LineaDetalle {
@@ -163,7 +167,7 @@ export default function DraxtonProyectosSingularesPage() {
   const [provForm, setProvForm] = useState({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '', file: null as File | null })
   const [ocrProvProcessing, setOcrProvProcessing] = useState(false)
   const provFileInputRef = useRef<HTMLInputElement>(null)
-  const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: '100', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' })
+  const [personalForm, setPersonalForm] = useState({ empleadoId: '', tipoImputacion: 'horas' as 'horas' | 'porcentaje', porcentajeDedicacion: '', horasImputadas: '', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' })
   const [docForm, setDocForm] = useState({ nombre: '', tipo: 'presupuesto_cliente' as Documento['tipo'], fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null as File | null })
 
   // ===== OCR AUTOMÁTICO =====
@@ -398,12 +402,14 @@ export default function DraxtonProyectosSingularesPage() {
   // ===== PERSONAL =====
   const handleAddPersonal = async (proyectoId: string) => {
     if (!personalForm.empleadoId) { alert('Selecciona un empleado'); return }
+    if (personalForm.tipoImputacion === 'horas' && !personalForm.horasImputadas) { alert('Indica las horas imputadas'); return }
+    if (personalForm.tipoImputacion === 'porcentaje' && !personalForm.porcentajeDedicacion) { alert('Indica el % de dedicaci\u00f3n'); return }
     const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-personal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proyectoId, ...personalForm }),
     })
-    if (res.ok) { setShowPersonalForm(false); setPersonalForm({ empleadoId: '', porcentajeDedicacion: '100', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' }); fetchData() }
+    if (res.ok) { setShowPersonalForm(false); setPersonalForm({ empleadoId: '', tipoImputacion: 'horas', porcentajeDedicacion: '', horasImputadas: '', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' }); fetchData() }
     else { const err = await res.json(); alert('Error: ' + (err.error || 'Error')) }
   }
 
@@ -603,23 +609,35 @@ export default function DraxtonProyectosSingularesPage() {
               {/* TAB: DATOS GENERALES */}
               {activeTab === 'datos' && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-blue-50 rounded-lg p-3">
-                      <div className="text-xs text-blue-600 font-medium">Importe Venta</div>
-                      <div className="text-lg font-bold text-blue-800">{formatCurrency(p.importeVenta)}</div>
-                    </div>
-                    <div className="bg-amber-50 rounded-lg p-3">
-                      <div className="text-xs text-amber-600 font-medium">Coste Proveedores</div>
-                      <div className="text-lg font-bold text-amber-800">{formatCurrency(p.costeProveedores)}</div>
-                    </div>
-                    <div className={`rounded-lg p-3 ${(p.margenEstimado || 0) >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
-                      <div className={`text-xs font-medium ${(p.margenEstimado || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>Margen</div>
-                      <div className={`text-lg font-bold ${(p.margenEstimado || 0) >= 0 ? 'text-green-800' : 'text-red-800'}`}>
-                        {formatCurrency(p.margenEstimado)}
-                        {p.importeVenta && p.margenEstimado ? ` (${((Number(p.margenEstimado) / Number(p.importeVenta)) * 100).toFixed(1)}%)` : ''}
+                  {(() => {
+                    const costePersonal = p.personalAsignado?.reduce((sum: number, pa: any) => sum + (pa.costeTotal || 0), 0) || 0
+                    const venta = Number(p.importeVenta) || 0
+                    const proveedores = Number(p.costeProveedores) || 0
+                    const margenReal = venta - proveedores - costePersonal
+                    return (
+                      <div className="grid grid-cols-4 gap-3">
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <div className="text-xs text-blue-600 font-medium">Importe Venta</div>
+                          <div className="text-lg font-bold text-blue-800">{formatCurrency(venta)}</div>
+                        </div>
+                        <div className="bg-amber-50 rounded-lg p-3">
+                          <div className="text-xs text-amber-600 font-medium">Coste Proveedores</div>
+                          <div className="text-lg font-bold text-amber-800">{formatCurrency(proveedores)}</div>
+                        </div>
+                        <div className="bg-purple-50 rounded-lg p-3">
+                          <div className="text-xs text-purple-600 font-medium">Coste Personal</div>
+                          <div className="text-lg font-bold text-purple-800">{formatCurrency(costePersonal)}</div>
+                        </div>
+                        <div className={`rounded-lg p-3 ${margenReal >= 0 ? 'bg-green-50' : 'bg-red-50'}`}>
+                          <div className={`text-xs font-medium ${margenReal >= 0 ? 'text-green-600' : 'text-red-600'}`}>Margen Neto</div>
+                          <div className={`text-lg font-bold ${margenReal >= 0 ? 'text-green-800' : 'text-red-800'}`}>
+                            {formatCurrency(margenReal)}
+                            {venta > 0 ? ` (${((margenReal / venta) * 100).toFixed(1)}%)` : ''}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    )
+                  })()}
                   <div className="grid grid-cols-2 gap-4 text-sm">
                     <div><span className="text-gray-500">Ubicación:</span> <span className="font-medium">{p.ubicacion || '—'}</span></div>
                     <div><span className="text-gray-500">Responsable:</span> <span className="font-medium">{p.responsable?.nombreCompleto || '—'}</span></div>
@@ -736,46 +754,74 @@ export default function DraxtonProyectosSingularesPage() {
 
                   {showPersonalForm && (
                     <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Empleado *</label>
                           <select value={personalForm.empleadoId} onChange={e => setPersonalForm({ ...personalForm, empleadoId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
                             <option value="">Seleccionar...</option>
-                            {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}</option>)}
+                            {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}{emp.costeHoraActual ? ` (${emp.costeHoraActual.toFixed(2)} \u20ac/h)` : ''}</option>)}
                           </select>
+                          {personalForm.empleadoId && (() => {
+                            const emp = empleados.find((e: any) => e.id === personalForm.empleadoId)
+                            return emp?.costeHoraActual ? (
+                              <p className="mt-1 text-xs text-indigo-600 font-medium">Coste empresa: {emp.costeHoraActual.toFixed(2)} \u20ac/hora</p>
+                            ) : (
+                              <p className="mt-1 text-xs text-amber-600">Sin coste/hora registrado</p>
+                            )
+                          })()}
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Rol</label>
                           <input type="text" value={personalForm.rol} onChange={e => setPersonalForm({ ...personalForm, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: Instalador, Responsable..." />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Nivel Técnico</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Nivel T\u00e9cnico</label>
                           <select value={personalForm.nivelTecnico} onChange={e => setPersonalForm({ ...personalForm, nivelTecnico: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
                             <option value="">Sin asignar</option>
-                            <option value="1">N1 - Básico</option>
+                            <option value="1">N1 - B\u00e1sico</option>
                             <option value="2">N2 - Intermedio</option>
                             <option value="3">N3 - Avanzado</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Dedicación %</label>
-                          <input type="number" min="1" max="100" value={personalForm.porcentajeDedicacion} onChange={e => setPersonalForm({ ...personalForm, porcentajeDedicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo imputaci\u00f3n *</label>
+                          <select value={personalForm.tipoImputacion} onChange={e => setPersonalForm({ ...personalForm, tipoImputacion: e.target.value as 'horas' | 'porcentaje' })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                            <option value="horas">Por horas</option>
+                            <option value="porcentaje">Por % dedicaci\u00f3n</option>
+                          </select>
                         </div>
+                        {personalForm.tipoImputacion === 'horas' ? (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Horas imputadas *</label>
+                            <input type="number" min="0" step="0.5" value={personalForm.horasImputadas} onChange={e => setPersonalForm({ ...personalForm, horasImputadas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: 24" />
+                            {personalForm.horasImputadas && personalForm.empleadoId && (() => {
+                              const emp = empleados.find((e: any) => e.id === personalForm.empleadoId)
+                              if (emp?.costeHoraActual) {
+                                const coste = parseFloat(personalForm.horasImputadas) * emp.costeHoraActual
+                                return <p className="mt-1 text-xs text-gray-500">Coste estimado: <span className="font-medium text-gray-700">{coste.toFixed(2)} \u20ac</span></p>
+                              }
+                              return null
+                            })()}
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Dedicaci\u00f3n % *</label>
+                            <input type="number" min="1" max="100" value={personalForm.porcentajeDedicacion} onChange={e => setPersonalForm({ ...personalForm, porcentajeDedicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: 50" />
+                          </div>
+                        )}
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Funciones</label>
-                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Descripción de funciones..." />
+                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Descripci\u00f3n de funciones..." />
                         </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Inicio</label>
-                            <input type="date" value={personalForm.fechaInicio} onChange={e => setPersonalForm({ ...personalForm, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Fin</label>
-                            <input type="date" value={personalForm.fechaFin} onChange={e => setPersonalForm({ ...personalForm, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
-                          </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Inicio</label>
+                          <input type="date" value={personalForm.fechaInicio} onChange={e => setPersonalForm({ ...personalForm, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
                         </div>
-                        <div className="col-span-2 flex gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Fin</label>
+                          <input type="date" value={personalForm.fechaFin} onChange={e => setPersonalForm({ ...personalForm, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                        </div>
+                        <div className="col-span-3 flex gap-2">
                           <button onClick={() => handleAddPersonal(p.id)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">Asignar</button>
                           <button onClick={() => setShowPersonalForm(false)} className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300">Cancelar</button>
                         </div>
@@ -784,34 +830,55 @@ export default function DraxtonProyectosSingularesPage() {
                   )}
 
                   {(p.personalAsignado?.length || 0) > 0 ? (
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b">
-                        <tr>
-                          <th className="text-left px-3 py-2 font-medium text-gray-600">Empleado</th>
-                          <th className="text-left px-3 py-2 font-medium text-gray-600">Rol</th>
-                          <th className="text-center px-3 py-2 font-medium text-gray-600">Nivel</th>
-                          <th className="text-center px-3 py-2 font-medium text-gray-600">Dedicación</th>
-                          <th className="text-left px-3 py-2 font-medium text-gray-600">Funciones</th>
-                          <th className="text-center px-3 py-2 font-medium text-gray-600">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {p.personalAsignado.map(pa => (
-                          <tr key={pa.id} className="hover:bg-gray-50">
-                            <td className="px-3 py-2 font-medium text-gray-900">{pa.empleado.nombreCompleto}</td>
-                            <td className="px-3 py-2 text-gray-600">{pa.rol || '—'}</td>
-                            <td className="px-3 py-2 text-center">
-                              {pa.nivelTecnico ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pa.nivelTecnico === 3 ? 'bg-red-100 text-red-700' : pa.nivelTecnico === 2 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>N{pa.nivelTecnico}</span> : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-center font-medium">{pa.porcentajeDedicacion}%</td>
-                            <td className="px-3 py-2 text-gray-600 text-xs">{pa.funciones || '—'}</td>
-                            <td className="px-3 py-2 text-center">
-                              <button onClick={() => handleDeletePersonal(pa.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
-                            </td>
+                    <div>
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 border-b">
+                          <tr>
+                            <th className="text-left px-3 py-2 font-medium text-gray-600">Empleado</th>
+                            <th className="text-left px-3 py-2 font-medium text-gray-600">Rol</th>
+                            <th className="text-center px-3 py-2 font-medium text-gray-600">Nivel</th>
+                            <th className="text-center px-3 py-2 font-medium text-gray-600">Imputaci\u00f3n</th>
+                            <th className="text-right px-3 py-2 font-medium text-gray-600">Coste/h</th>
+                            <th className="text-right px-3 py-2 font-medium text-gray-600">Coste Total</th>
+                            <th className="text-center px-3 py-2 font-medium text-gray-600">Acciones</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y">
+                          {p.personalAsignado.map(pa => (
+                            <tr key={pa.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-gray-900">{pa.empleado.nombreCompleto}</div>
+                                {pa.funciones && <div className="text-xs text-gray-500">{pa.funciones}</div>}
+                              </td>
+                              <td className="px-3 py-2 text-gray-600">{pa.rol || '\u2014'}</td>
+                              <td className="px-3 py-2 text-center">
+                                {pa.nivelTecnico ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pa.nivelTecnico === 3 ? 'bg-red-100 text-red-700' : pa.nivelTecnico === 2 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>N{pa.nivelTecnico}</span> : '\u2014'}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                {pa.tipoImputacion === 'horas' ? (
+                                  <span className="font-medium">{pa.horasImputadas || 0}h</span>
+                                ) : (
+                                  <span className="font-medium">{pa.porcentajeDedicacion || 0}%</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600">
+                                {pa.costeHora ? `${pa.costeHora.toFixed(2)} \u20ac` : <span className="text-amber-500 text-xs">N/D</span>}
+                              </td>
+                              <td className="px-3 py-2 text-right font-medium">
+                                {pa.costeTotal ? `${pa.costeTotal.toFixed(2)} \u20ac` : '\u2014'}
+                              </td>
+                              <td className="px-3 py-2 text-center">
+                                <button onClick={() => handleDeletePersonal(pa.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {/* Total coste personal */}
+                      <div className="flex justify-end px-3 py-2 bg-gray-50 border-t">
+                        <span className="text-sm font-medium text-gray-700">Total coste personal: <span className="text-indigo-700">{p.personalAsignado.reduce((sum, pa) => sum + (pa.costeTotal || 0), 0).toFixed(2)} \u20ac</span></span>
+                      </div>
+                    </div>
                   ) : (
                     <p className="text-sm text-gray-400 text-center py-6">Sin personal asignado.</p>
                   )}
