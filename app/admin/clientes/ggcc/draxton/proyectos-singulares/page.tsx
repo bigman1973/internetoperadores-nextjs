@@ -128,6 +128,7 @@ export default function DraxtonProyectosSingularesPage() {
   const [showPersonalForm, setShowPersonalForm] = useState(false)
   const [showDocForm, setShowDocForm] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [ocrProcessing, setOcrProcessing] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const emptyForm = {
@@ -139,6 +140,34 @@ export default function DraxtonProyectosSingularesPage() {
   const [provForm, setProvForm] = useState({ proveedor: '', concepto: '', importe: '', estado: 'pendiente', notas: '' })
   const [personalForm, setPersonalForm] = useState({ empleadoId: '', porcentajeDedicacion: '100', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' })
   const [docForm, setDocForm] = useState({ nombre: '', tipo: 'presupuesto_cliente' as Documento['tipo'], fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null as File | null })
+
+  // ===== OCR AUTOMÁTICO =====
+  const handleFileSelect = async (file: File | null) => {
+    if (!file) return
+    setDocForm(prev => ({ ...prev, file, nombre: prev.nombre || file.name.replace(/\.[^/.]+$/, '') }))
+    // Lanzar OCR automáticamente
+    setOcrProcessing(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr', { method: 'POST', body: formData })
+      if (res.ok) {
+        const { datos } = await res.json()
+        setDocForm(prev => ({
+          ...prev,
+          nombre: datos.nombre || prev.nombre,
+          tipo: datos.tipo || prev.tipo,
+          fecha: datos.fecha || prev.fecha,
+          importe: datos.importe ? String(datos.importe) : prev.importe,
+          proveedor: datos.proveedor || prev.proveedor,
+        }))
+      }
+    } catch (e) {
+      console.error('OCR error:', e)
+    } finally {
+      setOcrProcessing(false)
+    }
+  }
 
   // ===== DATA FETCHING =====
   useEffect(() => { fetchData(); fetchEmpleados() }, [])
@@ -631,11 +660,11 @@ export default function DraxtonProyectosSingularesPage() {
                           <label className="block text-xs font-medium text-gray-600 mb-1">Archivo *</label>
                           <label className="cursor-pointer">
                             <div className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg ${docForm.file ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-indigo-400'}`}>
-                              <ArrowUpTrayIcon className="w-5 h-5 text-gray-400" />
-                              <span className="text-sm text-gray-600">{docForm.file ? docForm.file.name : 'Seleccionar archivo...'}</span>
+                              {ocrProcessing ? <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-indigo-600"></div> : <ArrowUpTrayIcon className="w-5 h-5 text-gray-400" />}
+                              <span className="text-sm text-gray-600">{ocrProcessing ? 'Analizando documento con IA...' : docForm.file ? docForm.file.name : 'Seleccionar archivo...'}</span>
                             </div>
                             <input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx" className="hidden"
-                              onChange={e => { const file = e.target.files?.[0] || null; setDocForm({ ...docForm, file, nombre: docForm.nombre || (file?.name.replace(/\.[^/.]+$/, '') || '') }) }} />
+                              onChange={e => { const file = e.target.files?.[0] || null; handleFileSelect(file) }} />
                           </label>
                         </div>
                         <div>
