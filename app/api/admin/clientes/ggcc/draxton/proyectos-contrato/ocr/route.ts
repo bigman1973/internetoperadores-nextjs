@@ -10,6 +10,7 @@ const openai = new OpenAI({
 /**
  * POST /api/admin/clientes/ggcc/draxton/proyectos-contrato/ocr
  * Recibe un archivo (PDF/imagen) y extrae datos con GPT-4o Vision
+ * Para PDFs: convierte a imagen usando pdf-to-img antes de enviar
  */
 export async function POST(req: NextRequest) {
   try {
@@ -21,12 +22,7 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const base64 = buffer.toString('base64');
     const contentType = file.type || 'application/pdf';
-
-    // Para PDFs, enviamos directamente como base64 (GPT-4o soporta PDFs)
-    // Para imágenes, enviamos como image_url
-    let content: any[];
 
     const prompt = `Analiza este documento y extrae los siguientes datos en formato JSON.
 
@@ -38,6 +34,8 @@ INSTRUCCIONES:
 - Identifica el tipo de documento según estas categorías: presupuesto_cliente, pedido_cliente, presupuesto_proveedor, albaran, factura, fin_obra, otro
 - La fecha debe estar en formato YYYY-MM-DD
 - Si hay varias fechas, usa la fecha del documento (emisión)
+- Si el documento va dirigido a INTERNET OPERADORES, es un presupuesto_proveedor (nos lo envía un proveedor a nosotros)
+- Si el documento lo emite INTERNET OPERADORES, es un presupuesto_cliente o albaran (lo emitimos nosotros)
 
 Responde SOLO con JSON válido, sin markdown ni explicaciones:
 {
@@ -56,18 +54,34 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
   "confianza": 0.95
 }`;
 
-    if (contentType.startsWith('image/')) {
-      const dataUrl = `data:${contentType};base64,${base64}`;
-      content = [
-        { type: 'text', text: prompt },
-        { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
-      ];
+    let imageContents: any[] = [];
+
+    if (contentType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+      // Convertir PDF a imágenes usando pdf-to-img
+      const { pdf } = await import('pdf-to-img');
+      const pages: Buffer[] = [];
+      
+      for await (const image of await pdf(buffer, { scale: 2 })) {
+        pages.push(Buffer.from(image));
+        // Máximo 3 páginas para no exceder límites
+        if (pages.length >= 3) break;
+      }
+
+      if (pages.length === 0) {
+        return NextResponse.json({ error: 'No se pudieron extraer páginas del PDF' }, { status: 400 });
+      }
+
+      // Enviar todas las páginas como imágenes
+      imageContents = pages.map(pageBuffer => ({
+        type: 'image_url' as const,
+        image_url: { url: `data:image/png;base64,${pageBuffer.toString('base64')}`, detail: 'high' as const },
+      }));
     } else {
-      // PDF - enviar como file (GPT-4o soporta PDFs directamente)
+      // Imagen directa
+      const base64 = buffer.toString('base64');
       const dataUrl = `data:${contentType};base64,${base64}`;
-      content = [
-        { type: 'text', text: prompt },
-        { type: 'file', file: { file_data: dataUrl } },
+      imageContents = [
+        { type: 'image_url' as const, image_url: { url: dataUrl, detail: 'high' as const } },
       ];
     }
 
@@ -76,7 +90,10 @@ Responde SOLO con JSON válido, sin markdown ni explicaciones:
       messages: [
         {
           role: 'user',
-          content,
+          content: [
+            { type: 'text', text: prompt },
+            ...imageContents,
+          ],
         },
       ],
       max_tokens: 1500,
