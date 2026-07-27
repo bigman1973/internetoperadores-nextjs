@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { RocketLaunchIcon, PlusIcon, DocumentIcon, TrashIcon, PencilIcon, XMarkIcon, EyeIcon, ChevronDownIcon, ChevronRightIcon } from '@heroicons/react/24/outline'
+import { useState, useEffect, useRef } from 'react'
+import { RocketLaunchIcon, PlusIcon, DocumentIcon, TrashIcon, PencilIcon, XMarkIcon, EyeIcon, ChevronDownIcon, ChevronRightIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline'
 
 interface Documento {
   id: string
@@ -76,6 +76,8 @@ export default function DraxtonProyectosSingularesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [showDocForm, setShowDocForm] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const emptyForm = {
     titulo: '',
@@ -91,13 +93,13 @@ export default function DraxtonProyectosSingularesPage() {
 
   const [form, setForm] = useState(emptyForm)
 
-  const [docForm, setDocForm] = useState<Omit<Documento, 'id'>>({
+  const [docForm, setDocForm] = useState({
     nombre: '',
-    tipo: 'presupuesto_cliente',
-    url: '',
+    tipo: 'presupuesto_cliente' as Documento['tipo'],
     fecha: new Date().toISOString().split('T')[0],
-    importe: undefined,
+    importe: '' as string,
     proveedor: '',
+    file: null as File | null,
   })
 
   useEffect(() => { fetchData() }, [])
@@ -182,49 +184,82 @@ export default function DraxtonProyectosSingularesPage() {
   }
 
   const handleAddDoc = async (proyectoId: string) => {
-    if (!docForm.nombre || !docForm.url) {
-      alert('Nombre y URL son obligatorios')
+    if (!docForm.file) {
+      alert('Selecciona un archivo para subir')
       return
     }
 
-    const proyecto = proyectos.find(p => p.id === proyectoId)
-    if (!proyecto) return
+    setUploading(true)
 
-    const newDoc: Documento = {
-      id: crypto.randomUUID(),
-      ...docForm,
-      importe: docForm.importe ? Number(docForm.importe) : undefined,
-    }
+    try {
+      // 1. Subir archivo a Vercel Blob
+      const formData = new FormData()
+      formData.append('file', docForm.file)
 
-    const docs = [...(proyecto.documentosJson || []), newDoc]
+      const uploadRes = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato/upload', {
+        method: 'POST',
+        body: formData,
+      })
 
-    // Recalcular coste proveedores sumando importes de presupuestos_proveedor
-    const costeTotal = docs
-      .filter(d => d.tipo === 'presupuesto_proveedor' && d.importe)
-      .reduce((sum, d) => sum + (d.importe || 0), 0)
+      if (!uploadRes.ok) {
+        const err = await uploadRes.json()
+        alert('Error subiendo archivo: ' + (err.error || 'Error desconocido'))
+        setUploading(false)
+        return
+      }
 
-    const importeVenta = proyecto.importeVenta || 0
-    const margen = importeVenta > 0 ? importeVenta - costeTotal : null
+      const uploadData = await uploadRes.json()
 
-    const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: proyectoId,
-        documentosJson: docs,
-        costeProveedores: costeTotal > 0 ? costeTotal.toString() : null,
-        margenEstimado: margen?.toString() || null,
-      }),
-    })
+      // 2. Crear documento con la URL del blob
+      const proyecto = proyectos.find(p => p.id === proyectoId)
+      if (!proyecto) { setUploading(false); return }
 
-    if (res.ok) {
-      setShowDocForm(null)
-      setDocForm({ nombre: '', tipo: 'presupuesto_cliente', url: '', fecha: new Date().toISOString().split('T')[0], importe: undefined, proveedor: '' })
-      fetchData()
+      const newDoc: Documento = {
+        id: crypto.randomUUID(),
+        nombre: docForm.nombre || docForm.file.name,
+        tipo: docForm.tipo,
+        url: uploadData.url,
+        fecha: docForm.fecha,
+        importe: docForm.importe ? Number(docForm.importe) : undefined,
+        proveedor: docForm.proveedor || undefined,
+      }
+
+      const docs = [...(proyecto.documentosJson || []), newDoc]
+
+      // Recalcular coste proveedores sumando importes de presupuestos_proveedor
+      const costeTotal = docs
+        .filter(d => d.tipo === 'presupuesto_proveedor' && d.importe)
+        .reduce((sum, d) => sum + (d.importe || 0), 0)
+
+      const importeVenta = proyecto.importeVenta || 0
+      const margen = importeVenta > 0 ? importeVenta - costeTotal : null
+
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: proyectoId,
+          documentosJson: docs,
+          costeProveedores: costeTotal > 0 ? costeTotal.toString() : null,
+          margenEstimado: margen?.toString() || null,
+        }),
+      })
+
+      if (res.ok) {
+        setShowDocForm(null)
+        setDocForm({ nombre: '', tipo: 'presupuesto_cliente', fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null })
+        if (fileInputRef.current) fileInputRef.current.value = ''
+        fetchData()
+      }
+    } catch (error: any) {
+      alert('Error: ' + error.message)
+    } finally {
+      setUploading(false)
     }
   }
 
   const handleDeleteDoc = async (proyectoId: string, docId: string) => {
+    if (!confirm('¿Eliminar este documento?')) return
     const proyecto = proyectos.find(p => p.id === proyectoId)
     if (!proyecto) return
 
@@ -405,18 +440,48 @@ export default function DraxtonProyectosSingularesPage() {
                   </button>
                 </div>
 
-                {/* Form para añadir documento */}
+                {/* Form para añadir documento con subida de archivo */}
                 {showDocForm === p.id && (
                   <div className="bg-gray-50 rounded-lg p-4 mb-3 border border-gray-200">
                     <div className="grid grid-cols-2 gap-3">
+                      {/* Archivo */}
+                      <div className="col-span-2">
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Archivo (PDF, Word, Excel, imagen) *</label>
+                        <div className="flex items-center gap-3">
+                          <label className="flex-1 cursor-pointer">
+                            <div className={`flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed rounded-lg transition-colors ${docForm.file ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50'}`}>
+                              <ArrowUpTrayIcon className="w-5 h-5 text-gray-400" />
+                              <span className="text-sm text-gray-600">
+                                {docForm.file ? docForm.file.name : 'Haz clic para seleccionar archivo'}
+                              </span>
+                            </div>
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.doc,.docx"
+                              className="hidden"
+                              onChange={e => {
+                                const file = e.target.files?.[0] || null
+                                setDocForm({ ...docForm, file, nombre: docForm.nombre || (file?.name.replace(/\.[^/.]+$/, '') || '') })
+                              }}
+                            />
+                          </label>
+                        </div>
+                        {docForm.file && (
+                          <p className="text-xs text-green-600 mt-1">
+                            {(docForm.file.size / 1024 / 1024).toFixed(2)} MB — {docForm.file.type}
+                          </p>
+                        )}
+                      </div>
+
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del documento *</label>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Nombre del documento</label>
                         <input
                           type="text"
                           value={docForm.nombre}
                           onChange={e => setDocForm({ ...docForm, nombre: e.target.value })}
                           className="w-full px-3 py-2 border rounded-lg text-sm"
-                          placeholder="Ej: Presupuesto Wifidom PR-2026003422"
+                          placeholder="Se usa el nombre del archivo si se deja vacío"
                         />
                       </div>
                       <div>
@@ -430,16 +495,6 @@ export default function DraxtonProyectosSingularesPage() {
                             <option key={t.value} value={t.value}>{t.label}</option>
                           ))}
                         </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">URL del documento *</label>
-                        <input
-                          type="url"
-                          value={docForm.url}
-                          onChange={e => setDocForm({ ...docForm, url: e.target.value })}
-                          className="w-full px-3 py-2 border rounded-lg text-sm"
-                          placeholder="https://sharepoint.com/..."
-                        />
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div>
@@ -456,8 +511,8 @@ export default function DraxtonProyectosSingularesPage() {
                           <input
                             type="number"
                             step="0.01"
-                            value={docForm.importe || ''}
-                            onChange={e => setDocForm({ ...docForm, importe: e.target.value ? parseFloat(e.target.value) : undefined })}
+                            value={docForm.importe}
+                            onChange={e => setDocForm({ ...docForm, importe: e.target.value })}
                             className="w-full px-3 py-2 border rounded-lg text-sm"
                             placeholder="0,00"
                           />
@@ -467,21 +522,36 @@ export default function DraxtonProyectosSingularesPage() {
                         <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor (si aplica)</label>
                         <input
                           type="text"
-                          value={docForm.proveedor || ''}
+                          value={docForm.proveedor}
                           onChange={e => setDocForm({ ...docForm, proveedor: e.target.value })}
                           className="w-full px-3 py-2 border rounded-lg text-sm"
                           placeholder="Ej: Wifidom, Sharktek..."
                         />
                       </div>
-                      <div className="flex items-end gap-2">
+                      <div className="col-span-2 flex items-center gap-2 pt-2">
                         <button
                           onClick={() => handleAddDoc(p.id)}
-                          className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700"
+                          disabled={uploading || !docForm.file}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          Guardar
+                          {uploading ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Subiendo...
+                            </>
+                          ) : (
+                            <>
+                              <ArrowUpTrayIcon className="w-4 h-4" />
+                              Subir y Guardar
+                            </>
+                          )}
                         </button>
                         <button
-                          onClick={() => setShowDocForm(null)}
+                          onClick={() => {
+                            setShowDocForm(null)
+                            setDocForm({ nombre: '', tipo: 'presupuesto_cliente', fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null })
+                            if (fileInputRef.current) fileInputRef.current.value = ''
+                          }}
                           className="px-4 py-2 bg-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-300"
                         >
                           Cancelar
@@ -515,10 +585,10 @@ export default function DraxtonProyectosSingularesPage() {
                             <td className="px-3 py-2 text-right font-medium">{doc.importe ? formatCurrency(doc.importe) : '—'}</td>
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
-                                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="p-1 text-gray-400 hover:text-indigo-600">
+                                <a href={doc.url} target="_blank" rel="noopener noreferrer" className="p-1 text-gray-400 hover:text-indigo-600" title="Ver/Descargar">
                                   <EyeIcon className="w-4 h-4" />
                                 </a>
-                                <button onClick={() => handleDeleteDoc(p.id, doc.id)} className="p-1 text-gray-400 hover:text-red-600">
+                                <button onClick={() => handleDeleteDoc(p.id, doc.id)} className="p-1 text-gray-400 hover:text-red-600" title="Eliminar">
                                   <TrashIcon className="w-4 h-4" />
                                 </button>
                               </div>
@@ -529,7 +599,7 @@ export default function DraxtonProyectosSingularesPage() {
                     </table>
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400 text-center py-4">Sin documentos. Haz clic en &quot;Añadir Documento&quot; para vincular PDFs.</p>
+                  <p className="text-xs text-gray-400 text-center py-4">Sin documentos. Haz clic en &quot;Añadir Documento&quot; para subir archivos.</p>
                 )}
               </div>
             </div>
