@@ -123,11 +123,11 @@ export async function getAvailableMonths(year: number): Promise<{ name: string; 
 
 /**
  * Find COSTES IO PDF files for a specific year
- * Returns files matching "COSTES IO [MES] [AÑO].pdf"
+ * Returns files matching "COSTES IO [MES] [AÑO].pdf" plus individual nómina PDFs
  */
-export async function findCostesFiles(year: number): Promise<{ name: string; id: string; month: string; monthNum: number }[]> {
+export async function findCostesFiles(year: number): Promise<{ name: string; id: string; month: string; monthNum: number; tipo: 'costes_io' | 'nomina_individual' }[]> {
   const months = await getAvailableMonths(year);
-  const costesFiles: { name: string; id: string; month: string; monthNum: number }[] = [];
+  const costesFiles: { name: string; id: string; month: string; monthNum: number; tipo: 'costes_io' | 'nomina_individual' }[] = [];
 
   const monthNames: Record<string, number> = {
     'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
@@ -135,11 +135,28 @@ export async function findCostesFiles(year: number): Promise<{ name: string; id:
     'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12,
   };
 
+  // Determine month number from folder name
+  function getMonthNum(folderName: string): number {
+    const upper = folderName.toUpperCase().trim();
+    // Try direct match (folder named "ENERO", "FEBRERO", etc.)
+    if (monthNames[upper]) return monthNames[upper];
+    // Try "01 - Enero", "01. Enero", "01_Enero" patterns
+    const numMatch = upper.match(/^(\d{1,2})/); 
+    if (numMatch) return parseInt(numMatch[1]);
+    // Try partial match
+    for (const [name, num] of Object.entries(monthNames)) {
+      if (upper.includes(name)) return num;
+    }
+    return 0;
+  }
+
   for (const monthFolder of months) {
     try {
       const path = `${NOMINAS_BASE_PATH}/${year}/${monthFolder.name}`;
       const files = await listFolderByPath(path);
+      const folderMonthNum = getMonthNum(monthFolder.name);
       
+      // Find COSTES IO file
       const costesFile = files.find(f => 
         f.name.toUpperCase().startsWith('COSTES IO') && 
         f.name.toUpperCase().endsWith('.PDF')
@@ -149,13 +166,35 @@ export async function findCostesFiles(year: number): Promise<{ name: string; id:
         // Extract month name from file name (e.g., "COSTES IO ENERO 2026.pdf")
         const match = costesFile.name.toUpperCase().match(/COSTES IO\s+(\w+)\s+\d{4}/);
         const monthName = match ? match[1] : '';
-        const monthNum = monthNames[monthName] || 0;
+        const monthNum = monthNames[monthName] || folderMonthNum;
 
         costesFiles.push({
           name: costesFile.name,
           id: costesFile.id,
           month: monthName,
           monthNum,
+          tipo: 'costes_io',
+        });
+      }
+
+      // Find individual nómina PDFs (only "NÓMINA IO" files, not SOTIC)
+      const individualFiles = files.filter(f => 
+        f.name.toUpperCase().endsWith('.PDF') &&
+        f.name.toUpperCase().startsWith('N') && // NÓMINA...
+        f.name.toUpperCase().includes(' IO ') && // Only IO, not SOTIC
+        !f.name.toUpperCase().startsWith('COSTES') &&
+        f.file // is a file, not a folder
+      );
+
+      for (const indFile of individualFiles) {
+        const monthNum = folderMonthNum;
+        const monthName = Object.entries(monthNames).find(([, v]) => v === monthNum)?.[0] || '';
+        costesFiles.push({
+          name: indFile.name,
+          id: indFile.id,
+          month: monthName,
+          monthNum,
+          tipo: 'nomina_individual',
         });
       }
     } catch (e) {
@@ -164,7 +203,7 @@ export async function findCostesFiles(year: number): Promise<{ name: string; id:
     }
   }
 
-  return costesFiles.sort((a, b) => a.monthNum - b.monthNum);
+  return costesFiles.sort((a, b) => a.monthNum - b.monthNum || a.tipo.localeCompare(b.tipo));
 }
 
 /**
