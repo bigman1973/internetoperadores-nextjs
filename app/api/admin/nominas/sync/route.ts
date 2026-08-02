@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
           where: { mes: summary.mes, anio: summary.anio },
         });
 
-        // Insert new nóminas
+        // Insert new nóminas (upsert to handle finiquitos: same employee, same month)
         let inserted = 0;
         for (const nomina of summary.nominas) {
           // Find employee by NIF
@@ -125,22 +125,52 @@ export async function POST(req: NextRequest) {
             continue;
           }
 
-          await prisma.nomina.create({
-            data: {
-              empleadoId: empleado.id,
-              mes: nomina.mes,
-              anio: nomina.anio,
-              devengadoTotal: nomina.devengadoTotal,
-              netoPercibir: nomina.netoPercibir,
-              irpf: nomina.irpf,
-              ssTrabajador: nomina.ssTrabajador,
-              ssEmpresa: nomina.ssEmpresa,
-              baseIrpf: nomina.baseIrpf,
-              costeTotalEmpresa: nomina.costeTotalEmpresa,
-              complementoEspecie: nomina.complementoEspecie > 0 ? nomina.complementoEspecie : null,
-              archivoNombre: file.name,
+          // Check if already inserted in this batch (e.g. MENSUAL + FINIQUITO)
+          const existing = await prisma.nomina.findUnique({
+            where: {
+              empleadoId_mes_anio: {
+                empleadoId: empleado.id,
+                mes: nomina.mes,
+                anio: nomina.anio,
+              },
             },
           });
+
+          if (existing) {
+            // Sum values (MENSUAL + FINIQUITO)
+            await prisma.nomina.update({
+              where: { id: existing.id },
+              data: {
+                devengadoTotal: existing.devengadoTotal + nomina.devengadoTotal,
+                netoPercibir: existing.netoPercibir + nomina.netoPercibir,
+                irpf: existing.irpf + nomina.irpf,
+                ssTrabajador: existing.ssTrabajador + nomina.ssTrabajador,
+                ssEmpresa: existing.ssEmpresa + nomina.ssEmpresa,
+                baseIrpf: existing.baseIrpf + nomina.baseIrpf,
+                costeTotalEmpresa: existing.costeTotalEmpresa + nomina.costeTotalEmpresa,
+                complementoEspecie: (existing.complementoEspecie || 0) + (nomina.complementoEspecie || 0) > 0
+                  ? (existing.complementoEspecie || 0) + (nomina.complementoEspecie || 0)
+                  : null,
+              },
+            });
+          } else {
+            await prisma.nomina.create({
+              data: {
+                empleadoId: empleado.id,
+                mes: nomina.mes,
+                anio: nomina.anio,
+                devengadoTotal: nomina.devengadoTotal,
+                netoPercibir: nomina.netoPercibir,
+                irpf: nomina.irpf,
+                ssTrabajador: nomina.ssTrabajador,
+                ssEmpresa: nomina.ssEmpresa,
+                baseIrpf: nomina.baseIrpf,
+                costeTotalEmpresa: nomina.costeTotalEmpresa,
+                complementoEspecie: nomina.complementoEspecie > 0 ? nomina.complementoEspecie : null,
+                archivoNombre: file.name,
+              },
+            });
+          }
           inserted++;
         }
 
