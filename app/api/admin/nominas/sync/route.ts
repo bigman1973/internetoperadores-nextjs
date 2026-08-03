@@ -390,7 +390,9 @@ export async function POST(req: NextRequest) {
 
             if (pdfBuffer) {
               try {
+                debugLog.push(`  Downloaded ${pdfBuffer.length} bytes for ${file.name}`);
                 const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
+                debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}`);
                 if (parsed.nominas.length > 0) {
                   const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
                   await prisma.nomina.create({
