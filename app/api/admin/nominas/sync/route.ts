@@ -403,7 +403,7 @@ export async function POST(req: NextRequest) {
       anio,
       resultados: results,
       resumen: {
-        totalArchivos: costesFiles.length + individualByMonth.size,
+        totalArchivos: costesFiles.length + individualFiles.length,
         exitosos: results.filter(r => r.success).length,
         fallidos: results.filter(r => !r.success).length,
         individualesVinculadas: results.reduce((sum, r) => sum + (r.individualesVinculadas || 0), 0),
