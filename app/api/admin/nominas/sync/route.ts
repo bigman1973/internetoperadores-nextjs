@@ -148,11 +148,8 @@ export async function POST(req: NextRequest) {
     // Get all employees for matching
     const empleados = await prisma.empleado.findMany();
     const empleadoByNif = new Map(empleados.map(e => [e.nif, e]));
-    // Build name lookups
-    const empleadoByFullName = new Map(empleados.map(e => [normalizeStr(`${e.nombre} ${e.apellidos}`), e]));
-    const empleadoByFullNameReversed = new Map(empleados.map(e => [normalizeStr(`${e.apellidos} ${e.nombre}`), e]));
-    // Also by apellidos only (for short names like "DAVID PÉREZ" where apellidos = "PÉREZ")
-    const empleadoByApellidos = new Map(empleados.map(e => [normalizeStr(e.apellidos), e]));
+    // Build name lookup using nombreCompleto (the only name field in the model)
+    const empleadoByName = new Map(empleados.map(e => [normalizeStr(e.nombreCompleto), e]));
 
     const results: { mes: number; success: boolean; summary?: Partial<ParseSummary>; error?: string; individualesVinculadas?: number }[] = [];
 
@@ -271,14 +268,13 @@ export async function POST(req: NextRequest) {
           const employeeName = normalizeStr(rawEmployeeName);
 
           // Find employee by name (try multiple strategies)
-          let empleado = empleadoByFullName.get(employeeName)
-            || empleadoByFullNameReversed.get(employeeName);
+          let empleado = empleadoByName.get(employeeName);
 
           // Try partial matching if exact match fails
           if (!empleado) {
             // Split the filename name into parts and try matching
             const nameParts = employeeName.split(/\s+/);
-            for (const [key, emp] of empleadoByFullName) {
+            for (const [key, emp] of empleadoByName) {
               // Check if all parts of the filename name appear in the full name
               if (nameParts.every(part => key.includes(part))) {
                 empleado = emp;
@@ -286,22 +282,12 @@ export async function POST(req: NextRequest) {
               }
             }
           }
-          if (!empleado) {
-            const nameParts = employeeName.split(/\s+/);
-            for (const [key, emp] of empleadoByFullNameReversed) {
-              if (nameParts.every(part => key.includes(part))) {
-                empleado = emp;
-                break;
-              }
-            }
-          }
 
-          // Last resort: try matching by first name + one apellido
+          // Last resort: check if the full name contains the file name or vice versa
           if (!empleado) {
             for (const emp of empleados) {
-              const empNormNombre = normalizeStr(emp.nombre);
-              const empNormApellidos = normalizeStr(emp.apellidos);
-              if (employeeName.includes(empNormNombre) && employeeName.includes(empNormApellidos.split(/\s+/)[0])) {
+              const empNorm = normalizeStr(emp.nombreCompleto);
+              if (empNorm.includes(employeeName) || employeeName.includes(empNorm)) {
                 empleado = emp;
                 break;
               }
