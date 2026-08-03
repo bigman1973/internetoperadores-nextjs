@@ -314,14 +314,52 @@ export async function POST(req: NextRequest) {
           const downloadUrl = `/api/admin/nominas/download/${file.id}`;
 
           if (existingNomina) {
-            // Record exists from COSTES IO: just link the individual PDF
-            await prisma.nomina.update({
-              where: { id: existingNomina.id },
-              data: {
-                archivoUrl: downloadUrl,
-                archivoNombre: file.name,
-              },
-            });
+            // Record exists: link the individual PDF
+            // If existing record has zero values (placeholder), try to fill with parsed data
+            if (existingNomina.devengadoTotal === 0 && existingNomina.netoPercibir === 0) {
+              // Placeholder record - try to parse and fill with real data
+              try {
+                const pdfBuffer = await downloadCostesFile(file.id);
+                const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
+                if (parsed.nominas.length > 0) {
+                  const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
+                  await prisma.nomina.update({
+                    where: { id: existingNomina.id },
+                    data: {
+                      devengadoTotal: nominaData.devengadoTotal,
+                      netoPercibir: nominaData.netoPercibir,
+                      irpf: nominaData.irpf,
+                      ssTrabajador: nominaData.ssTrabajador,
+                      ssEmpresa: nominaData.ssEmpresa,
+                      baseIrpf: nominaData.baseIrpf,
+                      costeTotalEmpresa: nominaData.costeTotalEmpresa,
+                      complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
+                      archivoUrl: downloadUrl,
+                      archivoNombre: file.name,
+                    },
+                  });
+                } else {
+                  await prisma.nomina.update({
+                    where: { id: existingNomina.id },
+                    data: { archivoUrl: downloadUrl, archivoNombre: file.name },
+                  });
+                }
+              } catch {
+                await prisma.nomina.update({
+                  where: { id: existingNomina.id },
+                  data: { archivoUrl: downloadUrl, archivoNombre: file.name },
+                });
+              }
+            } else {
+              // Record has real data from COSTES IO: just link the PDF
+              await prisma.nomina.update({
+                where: { id: existingNomina.id },
+                data: {
+                  archivoUrl: downloadUrl,
+                  archivoNombre: file.name,
+                },
+              });
+            }
             vinculadas++;
           } else {
             // Record does NOT exist (e.g., David Pérez not in COSTES IO)
