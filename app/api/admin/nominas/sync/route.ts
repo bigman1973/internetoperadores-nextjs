@@ -155,6 +155,7 @@ export async function POST(req: NextRequest) {
     const empleadoByName = new Map(empleados.map(e => [normalizeStr(e.nombreCompleto), e]));
 
     const results: { mes: number; success: boolean; summary?: Partial<ParseSummary>; error?: string; individualesVinculadas?: number }[] = [];
+    const debugLog: string[] = [];
 
     // ============================================================
     // STEP 1: Process COSTES IO files (bulk employee data)
@@ -298,9 +299,10 @@ export async function POST(req: NextRequest) {
           }
 
           if (!empleado) {
-            console.warn(`Empleado no encontrado por nombre: "${rawEmployeeName}" (archivo: ${file.name})`);
+            debugLog.push(`SKIP: Empleado no encontrado por nombre: "${rawEmployeeName}" (archivo: ${file.name})`);
             continue;
           }
+          debugLog.push(`MATCH: "${rawEmployeeName}" → ${empleado.nombreCompleto} (id: ${empleado.id})`);
 
           // Check if nómina record already exists for this employee/month
           const existingNomina = await prisma.nomina.findUnique({
@@ -315,6 +317,8 @@ export async function POST(req: NextRequest) {
 
           // Build the download URL (API route that proxies from OneDrive)
           const downloadUrl = `/api/admin/nominas/download/${file.id}`;
+
+          debugLog.push(`  existingNomina for ${empleado.nombreCompleto} mes=${monthNum}: ${existingNomina ? `YES (dev=${existingNomina.devengadoTotal})` : 'NO'}`);
 
           if (existingNomina) {
             // Record exists: link the individual PDF
@@ -397,13 +401,12 @@ export async function POST(req: NextRequest) {
                 console.warn(`No se pudieron extraer datos numéricos de: ${file.name} - skipping`);
               }
             } catch (parseErr: any) {
+              debugLog.push(`  ERROR parsing ${file.name}: ${parseErr.message}`);
               console.error(`Error parsing individual nómina ${file.name}:`, parseErr.message, parseErr.stack);
-              // Do NOT create a placeholder with 0 - skip this file and report the error
-              // The file will be retried on the next sync
-              console.error(`Skipping ${file.name} due to parse error - will retry on next sync`);
             }
           }
         } catch (e: any) {
+          debugLog.push(`  OUTER ERROR ${file.name}: ${e.message}`);
           console.error(`Error procesando nómina individual ${file.name}:`, e.message);
         }
       }
@@ -432,6 +435,7 @@ export async function POST(req: NextRequest) {
         fallidos: results.filter(r => !r.success).length,
         individualesVinculadas: results.reduce((sum, r) => sum + (r.individualesVinculadas || 0), 0),
       },
+      debugLog,
     });
   } catch (error: any) {
     console.error('Error en POST /api/admin/nominas/sync:', error);
