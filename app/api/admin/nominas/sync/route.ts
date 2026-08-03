@@ -323,6 +323,13 @@ export async function POST(req: NextRequest) {
         const pdfBuffer = await downloadCostesFile(file.id);
         debugLog.push(`  Downloaded ${pdfBuffer.length} bytes for ${file.name}`);
         
+        // Extract text first to debug if parsing fails
+        const pdfParse = (await import('pdf-parse')).default;
+        const pdfData = await pdfParse(pdfBuffer);
+        const extractedText = pdfData.text;
+        debugLog.push(`  PDF text length: ${extractedText.length}, has NIF.B: ${extractedText.includes('NIF.')}, has LIQUIDO: ${extractedText.includes('LIQUIDO')}`);
+        debugLog.push(`  First 300 chars: ${extractedText.substring(0, 300).replace(/\n/g, '|')}`);
+        
         const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
         debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}`);
         
