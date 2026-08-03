@@ -15,6 +15,7 @@ import {
   DocumentTextIcon,
   ClockIcon,
 } from '@heroicons/react/24/outline';
+import { useImpersonation } from './ImpersonationContext';
 
 interface EmpleadoSidebarProps {
   user: {
@@ -35,20 +36,25 @@ const EMAILS_APROBADOR = [
 export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { impersonatedEmail, impersonatedEmpleado } = useImpersonation();
 
   const esAprobador = ROLES_APROBADOR.includes(user.role || '') ||
     EMAILS_APROBADOR.includes(user.email?.toLowerCase() || '');
   
   const esSuperAdmin = user.role === 'SUPER_ADMIN';
 
+  // Cuando se impersona, ocultar opciones de admin/aprobador
+  const isImpersonating = !!impersonatedEmail;
+
   const navItems = [
     { href: '/empleado', label: 'Inicio', icon: HomeIcon },
-    { href: '/empleado/nominas', label: 'Mis Nóminas', icon: DocumentTextIcon },
+    { href: '/empleado/nominas', label: isImpersonating ? 'Nóminas' : 'Mis Nóminas', icon: DocumentTextIcon },
     { href: '/empleado/imputaciones', label: 'Imputación de Horas', icon: ClockIcon },
-    { href: '/empleado/gastos', label: 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
+    { href: '/empleado/gastos', label: isImpersonating ? 'Tickets de Gasto' : 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
   ];
 
-  if (esAprobador) {
+  // Solo mostrar "Aprobar Tickets" si NO se está impersonando
+  if (esAprobador && !isImpersonating) {
     navItems.push({
       href: '/empleado/gastos/aprobar',
       label: 'Aprobar Tickets',
@@ -105,8 +111,8 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
               );
             })}
 
-            {/* Link al panel admin si es SUPER_ADMIN */}
-            {esSuperAdmin && (
+            {/* Link al panel admin si es SUPER_ADMIN y no está impersonando */}
+            {esSuperAdmin && !isImpersonating && (
               <div className="pt-4 mt-4 border-t">
                 <Link
                   href="/admin"
