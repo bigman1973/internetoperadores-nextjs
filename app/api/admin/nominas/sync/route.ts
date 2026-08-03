@@ -244,202 +244,156 @@ export async function POST(req: NextRequest) {
     }
 
     // ============================================================
-    // STEP 2: Process individual nóminas (link PDFs + David Pérez)
+    // STEP 2: Process individual nóminas
+    // Strategy: FIRST process employees that need PDF parsing (not in COSTES IO),
+    // THEN link PDFs for employees that already have data from COSTES IO.
+    // This avoids memory/state issues with pdf-parse after processing many PDFs.
     // ============================================================
-    const individualByMonth = new Map<number, typeof individualFiles>();
-    for (const file of individualFiles) {
-      if (!individualByMonth.has(file.monthNum)) {
-        individualByMonth.set(file.monthNum, []);
-      }
-      individualByMonth.get(file.monthNum)!.push(file);
-    }
-
-    for (const [monthNum, files] of individualByMonth) {
-      let vinculadas = 0;
-
-      for (const file of files) {
-        try {
-          // Extract employee name from filename
-          // Pattern: "NÓMINA IO JULIO 2026_DAVID PÉREZ.pdf"
-          const nameMatch = file.name.match(/_([^.]+)\.pdf$/i);
-          const rawEmployeeName = nameMatch ? nameMatch[1].trim() : '';
-
-          if (!rawEmployeeName) {
-            console.warn(`No se pudo extraer nombre del archivo: ${file.name}`);
-            continue;
+    
+    // Helper: find employee by filename
+    function findEmpleadoByFileName(fileName: string) {
+      const nameMatch = fileName.match(/_([^.]+)\.pdf$/i);
+      const rawEmployeeName = nameMatch ? nameMatch[1].trim() : '';
+      if (!rawEmployeeName) return { empleado: null, rawName: '' };
+      
+      const employeeName = normalizeStr(rawEmployeeName);
+      let empleado = empleadoByName.get(employeeName);
+      
+      if (!empleado) {
+        const nameParts = employeeName.split(/\s+/);
+        for (const [key, emp] of empleadoByName) {
+          if (nameParts.every(part => key.includes(part))) {
+            empleado = emp;
+            break;
           }
-
-          const employeeName = normalizeStr(rawEmployeeName);
-
-          // Find employee by name (try multiple strategies)
-          let empleado = empleadoByName.get(employeeName);
-
-          // Try partial matching if exact match fails
-          if (!empleado) {
-            // Split the filename name into parts and try matching
-            const nameParts = employeeName.split(/\s+/);
-            for (const [key, emp] of empleadoByName) {
-              // Check if all parts of the filename name appear in the full name
-              if (nameParts.every(part => key.includes(part))) {
-                empleado = emp;
-                break;
-              }
-            }
-          }
-
-          // Last resort: check if the full name contains the file name or vice versa
-          if (!empleado) {
-            for (const emp of empleados) {
-              const empNorm = normalizeStr(emp.nombreCompleto);
-              if (empNorm.includes(employeeName) || employeeName.includes(empNorm)) {
-                empleado = emp;
-                break;
-              }
-            }
-          }
-
-          if (!empleado) {
-            debugLog.push(`SKIP: Empleado no encontrado por nombre: "${rawEmployeeName}" (archivo: ${file.name})`);
-            continue;
-          }
-          debugLog.push(`MATCH: "${rawEmployeeName}" → ${empleado.nombreCompleto} (id: ${empleado.id})`);
-
-          // Check if nómina record already exists for this employee/month
-          const existingNomina = await prisma.nomina.findUnique({
-            where: {
-              empleadoId_mes_anio: {
-                empleadoId: empleado.id,
-                mes: monthNum,
-                anio,
-              },
-            },
-          });
-
-          // Build the download URL (API route that proxies from OneDrive)
-          const downloadUrl = `/api/admin/nominas/download/${file.id}`;
-
-          debugLog.push(`  existingNomina for ${empleado.nombreCompleto} mes=${monthNum}: ${existingNomina ? `YES (dev=${existingNomina.devengadoTotal})` : 'NO'}`);
-
-          if (existingNomina) {
-            // Record exists: link the individual PDF
-            // If existing record has zero values (placeholder), try to fill with parsed data
-            if (existingNomina.devengadoTotal === 0 && existingNomina.netoPercibir === 0) {
-              // Placeholder record - try to parse and fill with real data
-              try {
-                const pdfBuffer = await downloadCostesFile(file.id);
-                const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
-                if (parsed.nominas.length > 0) {
-                  const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
-                  await prisma.nomina.update({
-                    where: { id: existingNomina.id },
-                    data: {
-                      devengadoTotal: nominaData.devengadoTotal,
-                      netoPercibir: nominaData.netoPercibir,
-                      irpf: nominaData.irpf,
-                      ssTrabajador: nominaData.ssTrabajador,
-                      ssEmpresa: nominaData.ssEmpresa,
-                      baseIrpf: nominaData.baseIrpf,
-                      costeTotalEmpresa: nominaData.costeTotalEmpresa,
-                      complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
-                      archivoUrl: downloadUrl,
-                      archivoNombre: file.name,
-                    },
-                  });
-                } else {
-                  await prisma.nomina.update({
-                    where: { id: existingNomina.id },
-                    data: { archivoUrl: downloadUrl, archivoNombre: file.name },
-                  });
-                }
-              } catch {
-                await prisma.nomina.update({
-                  where: { id: existingNomina.id },
-                  data: { archivoUrl: downloadUrl, archivoNombre: file.name },
-                });
-              }
-            } else {
-              // Record has real data from COSTES IO: just link the PDF
-              await prisma.nomina.update({
-                where: { id: existingNomina.id },
-                data: {
-                  archivoUrl: downloadUrl,
-                  archivoNombre: file.name,
-                },
-              });
-            }
-            vinculadas++;
-          } else {
-            // Record does NOT exist (e.g., David Pérez not in COSTES IO)
-            // Download and parse the individual nómina to get numeric data
-            // Use retry with delay to handle Microsoft Graph rate limits
-            let pdfBuffer: Buffer | null = null;
-            let lastError = '';
-            for (let attempt = 1; attempt <= 3; attempt++) {
-              try {
-                if (attempt > 1) {
-                  debugLog.push(`  Retry ${attempt} for ${file.name} (waiting ${attempt * 2}s)...`);
-                  await new Promise(r => setTimeout(r, attempt * 2000));
-                }
-                pdfBuffer = await downloadCostesFile(file.id);
-                break;
-              } catch (dlErr: any) {
-                lastError = dlErr.message;
-                debugLog.push(`  Download attempt ${attempt} failed for ${file.name}: ${dlErr.message}`);
-              }
-            }
-
-            if (pdfBuffer) {
-              try {
-                debugLog.push(`  Downloaded ${pdfBuffer.length} bytes for ${file.name}`);
-                const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
-                debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}`);
-                if (parsed.nominas.length > 0) {
-                  const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
-                  await prisma.nomina.create({
-                    data: {
-                      empleadoId: empleado.id,
-                      mes: nominaData.mes || monthNum,
-                      anio: nominaData.anio || anio,
-                      devengadoTotal: nominaData.devengadoTotal,
-                      netoPercibir: nominaData.netoPercibir,
-                      irpf: nominaData.irpf,
-                      ssTrabajador: nominaData.ssTrabajador,
-                      ssEmpresa: nominaData.ssEmpresa,
-                      baseIrpf: nominaData.baseIrpf,
-                      costeTotalEmpresa: nominaData.costeTotalEmpresa,
-                      complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
-                      archivoUrl: downloadUrl,
-                      archivoNombre: file.name,
-                    },
-                  });
-                  vinculadas++;
-                  debugLog.push(`  CREATED record for ${empleado.nombreCompleto} mes=${monthNum}`);
-                } else {
-                  debugLog.push(`  WARN: No data extracted from ${file.name} - skipping`);
-                }
-              } catch (parseErr: any) {
-                debugLog.push(`  ERROR parsing ${file.name}: ${parseErr.message}`);
-              }
-            } else {
-              debugLog.push(`  FAILED all 3 download attempts for ${file.name}: ${lastError}`);
-            }
-          }
-        } catch (e: any) {
-          debugLog.push(`  OUTER ERROR ${file.name}: ${e.message}`);
-          console.error(`Error procesando nómina individual ${file.name}:`, e.message);
         }
       }
+      if (!empleado) {
+        for (const emp of empleados) {
+          const empNorm = normalizeStr(emp.nombreCompleto);
+          if (empNorm.includes(employeeName) || employeeName.includes(empNorm)) {
+            empleado = emp;
+            break;
+          }
+        }
+      }
+      return { empleado: empleado || null, rawName: rawEmployeeName };
+    }
 
-      // Update or add result for this month
+    // PHASE A: Identify which files need parsing (employee not in COSTES IO)
+    // Process these FIRST while memory is clean
+    const needsParsing: { file: typeof individualFiles[0]; empleado: typeof empleados[0]; monthNum: number }[] = [];
+    const justLink: { file: typeof individualFiles[0]; empleado: typeof empleados[0]; monthNum: number }[] = [];
+    
+    for (const file of individualFiles) {
+      const { empleado, rawName } = findEmpleadoByFileName(file.name);
+      if (!empleado) {
+        debugLog.push(`SKIP: Empleado no encontrado por nombre: "${rawName}" (archivo: ${file.name})`);
+        continue;
+      }
+      
+      const existingNomina = await prisma.nomina.findUnique({
+        where: {
+          empleadoId_mes_anio: {
+            empleadoId: empleado.id,
+            mes: file.monthNum,
+            anio,
+          },
+        },
+      });
+      
+      if (!existingNomina) {
+        needsParsing.push({ file, empleado, monthNum: file.monthNum });
+      } else {
+        justLink.push({ file, empleado, monthNum: file.monthNum });
+      }
+    }
+
+    debugLog.push(`STEP2 PHASE A: ${needsParsing.length} files need parsing, ${justLink.length} files just need linking`);
+
+    // PHASE A: Parse PDFs for employees not in COSTES IO (e.g., David Pérez)
+    // Done FIRST to avoid memory issues from processing many PDFs
+    const vinculadasByMonth = new Map<number, number>();
+    
+    for (const { file, empleado, monthNum } of needsParsing) {
+      try {
+        debugLog.push(`MATCH: "${file.name.match(/_([^.]+)\.pdf$/i)?.[1] || ''}" → ${empleado.nombreCompleto} (id: ${empleado.id})`);
+        debugLog.push(`  existingNomina for ${empleado.nombreCompleto} mes=${monthNum}: NO`);
+        
+        const pdfBuffer = await downloadCostesFile(file.id);
+        debugLog.push(`  Downloaded ${pdfBuffer.length} bytes for ${file.name}`);
+        
+        const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
+        debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}`);
+        
+        if (parsed.nominas.length > 0) {
+          const nominaData = parsed.nominas.find(n => n.nif === empleado.nif) || parsed.nominas[0];
+          const downloadUrl = `/api/admin/nominas/download/${file.id}`;
+          await prisma.nomina.create({
+            data: {
+              empleadoId: empleado.id,
+              mes: nominaData.mes || monthNum,
+              anio: nominaData.anio || anio,
+              devengadoTotal: nominaData.devengadoTotal,
+              netoPercibir: nominaData.netoPercibir,
+              irpf: nominaData.irpf,
+              ssTrabajador: nominaData.ssTrabajador,
+              ssEmpresa: nominaData.ssEmpresa,
+              baseIrpf: nominaData.baseIrpf,
+              costeTotalEmpresa: nominaData.costeTotalEmpresa,
+              complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
+              archivoUrl: downloadUrl,
+              archivoNombre: file.name,
+            },
+          });
+          vinculadasByMonth.set(monthNum, (vinculadasByMonth.get(monthNum) || 0) + 1);
+          debugLog.push(`  CREATED record for ${empleado.nombreCompleto} mes=${monthNum}`);
+        } else {
+          debugLog.push(`  WARN: No data extracted from ${file.name} - skipping`);
+        }
+      } catch (e: any) {
+        debugLog.push(`  ERROR processing ${file.name}: ${e.message}`);
+      }
+    }
+
+    // PHASE B: Link PDFs for employees that already have data from COSTES IO
+    // No PDF parsing needed here - just update the archivoUrl/archivoNombre
+    for (const { file, empleado, monthNum } of justLink) {
+      try {
+        const downloadUrl = `/api/admin/nominas/download/${file.id}`;
+        const existingNomina = await prisma.nomina.findUnique({
+          where: {
+            empleadoId_mes_anio: {
+              empleadoId: empleado.id,
+              mes: monthNum,
+              anio,
+            },
+          },
+        });
+        
+        if (existingNomina) {
+          await prisma.nomina.update({
+            where: { id: existingNomina.id },
+            data: { archivoUrl: downloadUrl, archivoNombre: file.name },
+          });
+          vinculadasByMonth.set(monthNum, (vinculadasByMonth.get(monthNum) || 0) + 1);
+        }
+      } catch (e: any) {
+        debugLog.push(`  ERROR linking ${file.name}: ${e.message}`);
+      }
+    }
+
+    // Update results with individual linking counts
+    for (const [monthNum, count] of vinculadasByMonth) {
       const existingResult = results.find(r => r.mes === monthNum);
       if (existingResult) {
-        existingResult.individualesVinculadas = vinculadas;
+        existingResult.individualesVinculadas = count;
       } else {
         results.push({
           mes: monthNum,
-          success: vinculadas > 0,
-          summary: { mes: monthNum, anio, empleados: vinculadas, formato: 'nomina_individual' as const },
-          individualesVinculadas: vinculadas,
+          success: count > 0,
+          summary: { mes: monthNum, anio, empleados: count, formato: 'nomina_individual' as const },
+          individualesVinculadas: count,
         });
       }
     }
