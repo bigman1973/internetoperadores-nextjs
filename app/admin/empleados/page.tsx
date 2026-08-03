@@ -103,7 +103,11 @@ export default function AdminEmpleadosPage() {
   const [loading, setLoading] = useState(true);
   const [filtroEstado, setFiltroEstado] = useState('todos');
   const [periodo, setPeriodo] = useState<Periodo>('mes');
-  const [mesSeleccionado, setMesSeleccionado] = useState(new Date().getMonth() + 1);
+  const [mesSeleccionado, setMesSeleccionado] = useState(() => {
+    // Por defecto mostrar el mes anterior (donde siempre habrá datos)
+    const mesActual = new Date().getMonth() + 1; // 1-12
+    return mesActual === 1 ? 12 : mesActual - 1;
+  });
   const [anioSeleccionado] = useState(2026);
   // Condiciones salariales modal
   const [modalEmpleado, setModalEmpleado] = useState<Empleado | null>(null);

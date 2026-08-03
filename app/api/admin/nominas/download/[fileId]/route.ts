@@ -12,7 +12,7 @@ const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH', 'VIS
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { fileId: string } }
+  { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -23,7 +23,7 @@ export async function GET(
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
-    const { fileId } = params;
+    const { fileId } = await params;
 
     if (!fileId) {
       return NextResponse.json({ error: 'fileId es requerido' }, { status: 400 });

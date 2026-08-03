@@ -11,7 +11,7 @@ const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
  */
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -22,8 +22,10 @@ export async function GET(
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
+    const { id } = await params;
+
     const empleado = await prisma.empleado.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         nominas: {
           orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
@@ -79,7 +81,7 @@ export async function GET(
  */
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -90,11 +92,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     }
 
+    const { id } = await params;
     const body = await req.json();
     const { departamento, categoria, estado, costeHoraActual } = body;
 
     const empleado = await prisma.empleado.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(departamento !== undefined && { departamento }),
         ...(categoria !== undefined && { categoria }),
