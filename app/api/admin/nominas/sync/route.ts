@@ -5,6 +5,9 @@ import prisma from '@/lib/prisma';
 import { findCostesFiles, downloadCostesFile } from '@/lib/microsoft-graph';
 import { parseCostesIOPdf, type ParseSummary } from '@/lib/nominas-parser';
 
+// Increase Vercel function timeout to avoid timeouts when downloading multiple PDFs
+export const maxDuration = 120;
+
 const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
 
 /**
@@ -390,36 +393,14 @@ export async function POST(req: NextRequest) {
                 });
                 vinculadas++;
               } else {
-                // Parser couldn't extract data, create minimal record with PDF link
-                console.warn(`No se pudieron extraer datos numéricos de: ${file.name}`);
-                await prisma.nomina.create({
-                  data: {
-                    empleadoId: empleado.id,
-                    mes: monthNum,
-                    anio,
-                    devengadoTotal: 0,
-                    netoPercibir: 0,
-                    archivoUrl: downloadUrl,
-                    archivoNombre: file.name,
-                  },
-                });
-                vinculadas++;
+                // Parser couldn't extract data - do NOT create placeholder
+                console.warn(`No se pudieron extraer datos numéricos de: ${file.name} - skipping`);
               }
             } catch (parseErr: any) {
-              console.error(`Error parsing individual nómina ${file.name}:`, parseErr.message);
-              // Still create a record with the PDF link even if parsing fails
-              await prisma.nomina.create({
-                data: {
-                  empleadoId: empleado.id,
-                  mes: monthNum,
-                  anio,
-                  devengadoTotal: 0,
-                  netoPercibir: 0,
-                  archivoUrl: downloadUrl,
-                  archivoNombre: file.name,
-                },
-              });
-              vinculadas++;
+              console.error(`Error parsing individual nómina ${file.name}:`, parseErr.message, parseErr.stack);
+              // Do NOT create a placeholder with 0 - skip this file and report the error
+              // The file will be retried on the next sync
+              console.error(`Skipping ${file.name} due to parse error - will retry on next sync`);
             }
           }
         } catch (e: any) {
