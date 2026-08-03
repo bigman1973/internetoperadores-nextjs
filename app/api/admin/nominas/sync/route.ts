@@ -371,38 +371,55 @@ export async function POST(req: NextRequest) {
           } else {
             // Record does NOT exist (e.g., David Pérez not in COSTES IO)
             // Download and parse the individual nómina to get numeric data
-            try {
-              const pdfBuffer = await downloadCostesFile(file.id);
-              const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
-
-              if (parsed.nominas.length > 0) {
-                const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
-
-                await prisma.nomina.create({
-                  data: {
-                    empleadoId: empleado.id,
-                    mes: nominaData.mes || monthNum,
-                    anio: nominaData.anio || anio,
-                    devengadoTotal: nominaData.devengadoTotal,
-                    netoPercibir: nominaData.netoPercibir,
-                    irpf: nominaData.irpf,
-                    ssTrabajador: nominaData.ssTrabajador,
-                    ssEmpresa: nominaData.ssEmpresa,
-                    baseIrpf: nominaData.baseIrpf,
-                    costeTotalEmpresa: nominaData.costeTotalEmpresa,
-                    complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
-                    archivoUrl: downloadUrl,
-                    archivoNombre: file.name,
-                  },
-                });
-                vinculadas++;
-              } else {
-                // Parser couldn't extract data - do NOT create placeholder
-                console.warn(`No se pudieron extraer datos numéricos de: ${file.name} - skipping`);
+            // Use retry with delay to handle Microsoft Graph rate limits
+            let pdfBuffer: Buffer | null = null;
+            let lastError = '';
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                if (attempt > 1) {
+                  debugLog.push(`  Retry ${attempt} for ${file.name} (waiting ${attempt * 2}s)...`);
+                  await new Promise(r => setTimeout(r, attempt * 2000));
+                }
+                pdfBuffer = await downloadCostesFile(file.id);
+                break;
+              } catch (dlErr: any) {
+                lastError = dlErr.message;
+                debugLog.push(`  Download attempt ${attempt} failed for ${file.name}: ${dlErr.message}`);
               }
-            } catch (parseErr: any) {
-              debugLog.push(`  ERROR parsing ${file.name}: ${parseErr.message}`);
-              console.error(`Error parsing individual nómina ${file.name}:`, parseErr.message, parseErr.stack);
+            }
+
+            if (pdfBuffer) {
+              try {
+                const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
+                if (parsed.nominas.length > 0) {
+                  const nominaData = parsed.nominas.find(n => n.nif === empleado!.nif) || parsed.nominas[0];
+                  await prisma.nomina.create({
+                    data: {
+                      empleadoId: empleado.id,
+                      mes: nominaData.mes || monthNum,
+                      anio: nominaData.anio || anio,
+                      devengadoTotal: nominaData.devengadoTotal,
+                      netoPercibir: nominaData.netoPercibir,
+                      irpf: nominaData.irpf,
+                      ssTrabajador: nominaData.ssTrabajador,
+                      ssEmpresa: nominaData.ssEmpresa,
+                      baseIrpf: nominaData.baseIrpf,
+                      costeTotalEmpresa: nominaData.costeTotalEmpresa,
+                      complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
+                      archivoUrl: downloadUrl,
+                      archivoNombre: file.name,
+                    },
+                  });
+                  vinculadas++;
+                  debugLog.push(`  CREATED record for ${empleado.nombreCompleto} mes=${monthNum}`);
+                } else {
+                  debugLog.push(`  WARN: No data extracted from ${file.name} - skipping`);
+                }
+              } catch (parseErr: any) {
+                debugLog.push(`  ERROR parsing ${file.name}: ${parseErr.message}`);
+              }
+            } else {
+              debugLog.push(`  FAILED all 3 download attempts for ${file.name}: ${lastError}`);
             }
           }
         } catch (e: any) {
