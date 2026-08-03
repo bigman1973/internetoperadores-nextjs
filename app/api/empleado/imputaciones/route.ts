@@ -2,24 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
+import { resolveEmpleado } from '@/lib/empleado-impersonation';
 
 /**
  * GET /api/empleado/imputaciones
- * Obtener las imputaciones de horas del empleado autenticado
+ * Obtener las imputaciones de horas del empleado autenticado (o impersonado si admin + ?as=email)
  */
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-    }
-
-    const empleado = await prisma.empleado.findFirst({
-      where: { email: session.user.email.toLowerCase() },
-    });
-
+    const { empleado, isImpersonating, error, status } = await resolveEmpleado(req);
     if (!empleado) {
-      return NextResponse.json({ error: 'No se encontró tu perfil de empleado.' }, { status: 404 });
+      return NextResponse.json({ error }, { status });
     }
 
     const { searchParams } = new URL(req.url);
@@ -56,10 +49,11 @@ export async function GET(req: NextRequest) {
     }, {} as Record<string, number>);
 
     return NextResponse.json({
-      empleado: { id: empleado.id, nombreCompleto: empleado.nombreCompleto },
+      empleado: { id: empleado.id, nombreCompleto: empleado.nombreCompleto, email: empleado.email },
       imputaciones,
       proyectosAsignados: asignaciones.map(a => a.proyecto),
       resumen: { totalHoras, horasPorProyecto, mes, anio },
+      isImpersonating,
     });
   } catch (error: any) {
     console.error('Error en GET /api/empleado/imputaciones:', error);
@@ -69,7 +63,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/empleado/imputaciones
- * Crear una nueva imputación de horas
+ * Crear una nueva imputación de horas (solo para el usuario autenticado, no impersonable)
  */
 export async function POST(req: NextRequest) {
   try {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { DocumentTextIcon, ArrowDownTrayIcon } from '@heroicons/react/24/outline';
+import { useImpersonation } from '@/components/empleado/ImpersonationContext';
 
 interface Nomina {
   id: string;
@@ -18,22 +19,29 @@ const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio
 
 export default function MisNominasPage() {
   const [nominas, setNominas] = useState<Nomina[]>([]);
+  const [empleadoNombre, setEmpleadoNombre] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { impersonatedEmail, getQueryParam } = useImpersonation();
 
   useEffect(() => {
     fetchNominas();
-  }, []);
+  }, [impersonatedEmail]);
 
   async function fetchNominas() {
+    setLoading(true);
+    setError(null);
     try {
-      const res = await fetch('/api/empleado/nominas');
+      const qp = getQueryParam();
+      const url = `/api/empleado/nominas${qp ? `?${qp}` : ''}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error);
         return;
       }
       setNominas(data.nominas || []);
+      setEmpleadoNombre(data.empleado?.nombreCompleto || '');
     } catch (e) {
       setError('Error al cargar las nóminas');
     } finally {
@@ -61,7 +69,9 @@ export default function MisNominasPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Mis Nóminas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {impersonatedEmail ? `Nóminas de ${empleadoNombre}` : 'Mis Nóminas'}
+        </h1>
         <p className="text-sm text-gray-500 mt-1">Historial de nóminas y recibos de salario</p>
       </div>
 

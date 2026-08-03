@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { PlusIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { useImpersonation } from '@/components/empleado/ImpersonationContext';
 
 interface Proyecto {
   id: string;
@@ -35,6 +36,7 @@ export default function ImputacionesPage() {
   const [showForm, setShowForm] = useState(false);
   const [mes, setMes] = useState(new Date().getMonth() + 1);
   const [anio, setAnio] = useState(new Date().getFullYear());
+  const { impersonatedEmail, getQueryParam } = useImpersonation();
 
   // Form
   const [formData, setFormData] = useState({
@@ -47,12 +49,13 @@ export default function ImputacionesPage() {
 
   useEffect(() => {
     fetchData();
-  }, [mes, anio]);
+  }, [mes, anio, impersonatedEmail]);
 
   async function fetchData() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/empleado/imputaciones?mes=${mes}&anio=${anio}`);
+      const qp = getQueryParam();
+      const res = await fetch(`/api/empleado/imputaciones?mes=${mes}&anio=${anio}${qp ? `&${qp}` : ''}`);
       const data = await res.json();
       if (!res.ok) {
         setError(data.error);
