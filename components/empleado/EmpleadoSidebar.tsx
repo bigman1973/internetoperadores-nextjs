@@ -33,6 +33,15 @@ const EMAILS_APROBADOR = [
   'david.perez@internetoperadores.com',
 ];
 
+// Categorías de empleado que implican rol de aprobador
+const CATEGORIAS_APROBADOR = ['GERENTE'];
+
+function esEmpleadoAprobador(email?: string | null, categoria?: string | null): boolean {
+  if (email && EMAILS_APROBADOR.includes(email.toLowerCase())) return true;
+  if (categoria && CATEGORIAS_APROBADOR.includes(categoria.toUpperCase())) return true;
+  return false;
+}
+
 export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -43,8 +52,16 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
   
   const esSuperAdmin = user.role === 'SUPER_ADMIN';
 
-  // Cuando se impersona, ocultar opciones de admin/aprobador
+  // Cuando se impersona, verificar si el empleado impersonado tiene permisos de aprobador
   const isImpersonating = !!impersonatedEmail;
+  const impersonadoEsAprobador = isImpersonating && impersonatedEmpleado
+    ? esEmpleadoAprobador(impersonatedEmpleado.email, impersonatedEmpleado.categoria)
+    : false;
+
+  // Mostrar "Aprobar Tickets" si:
+  // - No se está impersonando Y el usuario real es aprobador
+  // - O se está impersonando Y el empleado impersonado es aprobador
+  const mostrarAprobar = isImpersonating ? impersonadoEsAprobador : esAprobador;
 
   const navItems = [
     { href: '/empleado', label: 'Inicio', icon: HomeIcon },
@@ -53,8 +70,7 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
     { href: '/empleado/gastos', label: isImpersonating ? 'Tickets de Gasto' : 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
   ];
 
-  // Solo mostrar "Aprobar Tickets" si NO se está impersonando
-  if (esAprobador && !isImpersonating) {
+  if (mostrarAprobar) {
     navItems.push({
       href: '/empleado/gastos/aprobar',
       label: 'Aprobar Tickets',
@@ -111,8 +127,8 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
               );
             })}
 
-            {/* Link al panel admin si es SUPER_ADMIN y no está impersonando */}
-            {esSuperAdmin && !isImpersonating && (
+            {/* Link al panel admin si es SUPER_ADMIN (siempre visible, independiente de impersonación) */}
+            {esSuperAdmin && (
               <div className="pt-4 mt-4 border-t">
                 <Link
                   href="/admin"
