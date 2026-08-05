@@ -244,49 +244,63 @@ export async function POST(req: NextRequest) {
             // Buscar factura emitida por número de factura
             const numNorm = normalizarNumFactura(linea.numFactura);
             
+            // Buscar factura emitida por número de factura (corregido: AND + OR combinados correctamente)
             const facturaEmitida = await prisma.facturaEmitida.findFirst({
               where: {
-                OR: [
-                  { numFactura: { equals: numNorm, mode: 'insensitive' } },
-                  { numFactura: { equals: linea.numFactura, mode: 'insensitive' } },
-                  // También buscar con variaciones comunes
-                  { numFactura: { contains: numNorm.split('/')[1] || '', mode: 'insensitive' } },
-                ],
-                // Solo facturas de Draxton
-                OR: [
-                  { cliente: { contains: 'Draxton', mode: 'insensitive' } },
-                  { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
-                  { cliente: { contains: 'Altec', mode: 'insensitive' } },
-                  { cliente: { contains: 'Infun', mode: 'insensitive' } },
+                AND: [
+                  // Condición 1: número de factura coincide
+                  {
+                    OR: [
+                      { numFactura: { equals: numNorm, mode: 'insensitive' } },
+                      { numFactura: { equals: linea.numFactura, mode: 'insensitive' } },
+                    ],
+                  },
+                  // Condición 2: es cliente Draxton
+                  {
+                    OR: [
+                      { cliente: { contains: 'Draxton', mode: 'insensitive' } },
+                      { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
+                      { cliente: { contains: 'Altec', mode: 'insensitive' } },
+                      { cliente: { contains: 'Infun', mode: 'insensitive' } },
+                    ],
+                  },
                 ],
               },
               select: { id: true, numFactura: true, total: true },
             });
             
-            // Buscar con query más precisa si la anterior no funciona
+            // Buscar con query más flexible si la anterior no funciona
             let facturaId: string | null = null;
+            let importeReal = linea.importe;
+            
             if (facturaEmitida) {
               facturaId = facturaEmitida.id;
+              // USAR EL TOTAL DE LA FACTURA EMITIDA como importe real (más fiable que el parseado)
+              importeReal = facturaEmitida.total;
             } else {
-              // Intentar búsqueda más flexible
+              // Intentar búsqueda por normalización
               const allDraxton = await prisma.facturaEmitida.findMany({
                 where: {
                   numFactura: { startsWith: 'DRAX', mode: 'insensitive' },
                 },
-                select: { id: true, numFactura: true },
+                select: { id: true, numFactura: true, total: true },
               });
               
               const match = allDraxton.find(f => 
                 normalizarNumFactura(f.numFactura) === numNorm
               );
-              if (match) facturaId = match.id;
+              if (match) {
+                facturaId = match.id;
+                importeReal = match.total;
+              }
             }
             
             await prisma.confirmingLinea.create({
               data: {
                 confirmingId: facturaRecibida.id,
                 numFactura: numNorm,
-                importe: linea.importe,
+                // Usar el total de la factura emitida si se vinculó, sino el parseado
+                importe: importeReal,
                 facturaEmitidaId: facturaId,
                 notas: linea.fechaPago ? `Vto: ${linea.fechaPago}` : undefined,
               },
@@ -359,15 +373,34 @@ async function vincularLineasPendientes() {
     
     const facturaEmitida = await prisma.facturaEmitida.findFirst({
       where: {
-        numFactura: { equals: numNorm, mode: 'insensitive' },
+        AND: [
+          {
+            OR: [
+              { numFactura: { equals: numNorm, mode: 'insensitive' } },
+              { numFactura: { equals: linea.numFactura, mode: 'insensitive' } },
+            ],
+          },
+          {
+            OR: [
+              { cliente: { contains: 'Draxton', mode: 'insensitive' } },
+              { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
+              { cliente: { contains: 'Altec', mode: 'insensitive' } },
+              { cliente: { contains: 'Infun', mode: 'insensitive' } },
+            ],
+          },
+        ],
       },
-      select: { id: true },
+      select: { id: true, total: true },
     });
     
     if (facturaEmitida) {
       await prisma.confirmingLinea.update({
         where: { id: linea.id },
-        data: { facturaEmitidaId: facturaEmitida.id },
+        data: { 
+          facturaEmitidaId: facturaEmitida.id,
+          // Corregir el importe con el total real de la factura emitida
+          importe: facturaEmitida.total,
+        },
       });
       vinculadas++;
     }
@@ -406,17 +439,17 @@ async function actualizarEstadosFacturasEmitidas() {
   });
   
   for (const factura of facturasConConfirming) {
-    const totalConfirming = factura.confirmingLineas.reduce((sum, l) => sum + l.importe, 0);
+    // El importeCobrado es el total de la factura (si tiene confirming vinculado, está cobrada al 100%)
+    // Cada línea de confirming representa una cesión de crédito de ESA factura, no un pago parcial
+    // Así que si hay al menos 1 línea de confirming vinculada, la factura está cobrada
+    const importeCobrado = factura.total; // El confirming cubre el 100% de la factura
     
-    // Solo actualizar si el importe cobrado ha cambiado
-    if (Math.abs(totalConfirming - (factura.importeCobrado || 0)) > 0.01) {
-      const cobradaCompleta = totalConfirming >= factura.total * 0.98; // 2% tolerancia
-      
+    if (factura.estado !== 'COBRADA' || Math.abs((factura.importeCobrado || 0) - importeCobrado) > 0.01) {
       await prisma.facturaEmitida.update({
         where: { id: factura.id },
         data: {
-          importeCobrado: totalConfirming,
-          estado: cobradaCompleta ? 'COBRADA' : factura.estado,
+          importeCobrado,
+          estado: 'COBRADA',
           formaCobro: 'Confirming',
         },
       });

@@ -40,30 +40,40 @@ export interface ConfirmingParseResult {
 export function detectarTipoConfirming(fileName: string): 'bbva_pdf' | 'caixa_xls' | 'caixa_pdf' | 'unknown' {
   const name = fileName.toLowerCase();
   
-  // BBVA: DPC_CesióndeCréditos_*.pdf o DEA_CesióndeCréditos_*.pdf
+  // BBVA: DPC_CesióndeCréditos_*.pdf, DEA_ConfirmingBBVA_*.pdf, DPC_ConfirmingBBVA_*.pdf
+  if (name.includes('confirmingbbva') && name.endsWith('.pdf')) return 'bbva_pdf';
   if (name.includes('cesi') && name.endsWith('.pdf')) return 'bbva_pdf';
-  if ((name.startsWith('dpc_') || name.startsWith('dea_')) && name.endsWith('.pdf')) return 'bbva_pdf';
+  if ((name.startsWith('dpc_') || name.startsWith('dea_') || name.startsWith('dpc ') || name.startsWith('dea ')) && name.endsWith('.pdf')) return 'bbva_pdf';
   
   // CaixaBank XLS
-  if (name.includes('confirming') && (name.endsWith('.xls') || name.endsWith('.xlsx'))) return 'caixa_xls';
+  if (name.includes('confirming') && name.includes('caixa') && (name.endsWith('.xls') || name.endsWith('.xlsx'))) return 'caixa_xls';
+  if (name.includes('caixa') && (name.endsWith('.xls') || name.endsWith('.xlsx'))) return 'caixa_xls';
   
   // CaixaBank PDF
-  if (name.includes('confirming') && name.endsWith('.pdf')) return 'caixa_pdf';
+  if (name.includes('confirming') && name.includes('caixa') && name.endsWith('.pdf')) return 'caixa_pdf';
+  if (name.includes('caixa') && name.endsWith('.pdf')) return 'caixa_pdf';
   
   // Fallback: si tiene "cesion" o "credito" en el nombre es BBVA
-  if ((name.includes('cesion') || name.includes('credito')) && name.endsWith('.pdf')) return 'bbva_pdf';
+  if ((name.includes('cesion') || name.includes('credito') || name.includes('crédito')) && name.endsWith('.pdf')) return 'bbva_pdf';
   
   return 'unknown';
 }
 
 /**
- * Parsea un PDF de Cesión de Créditos de BBVA
+ * Parsea un PDF de Confirming BBVA
  * 
- * Formato del texto extraído:
- * - Contiene "CESIÓN DE CRÉDITOS AMPARADA EN EL CONTRATO: XXXX"
+ * Soporta DOS formatos:
+ * 
+ * FORMATO ANTIGUO (Castellano - "Cesión de Créditos"):
  * - "DETALLE DE LOS CRÉDITOS A CARGO DE: DRAXTON [SOCIEDAD]"
- * - Facturas: "_ DRAX26 /N" seguido de fecha e importe en líneas separadas
+ * - Datos por factura en líneas separadas: DRAX26/N, fecha, importe, fecha_pago, nº_cesión, fin_plazo
  * - "TOTAL REMESA XX.XXX,XX EUR"
+ * 
+ * FORMATO NUEVO (Catalán - "Liquidació de bestretes"):
+ * - Página 1: Datos generales (Import nominal = total remesa, Líquid a favor = neto)
+ * - Página 2: Tabla de facturas con columnas en una sola línea:
+ *   "DRAX26 / 15    15/07/2026    4,67 EUR    9.345,93 EUR    2.148    97,25 EUR"
+ *   Donde el importe real de la factura es el número más grande (columna "Interès" = importe factura)
  */
 export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string): Promise<ConfirmingParseResult> {
   const pdf = await pdfParse(buffer);
@@ -73,8 +83,8 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
   let sociedad: string | undefined;
   if (fileName) {
     const fn = fileName.toUpperCase();
-    if (fn.startsWith('DPC')) sociedad = 'DPC';
-    else if (fn.startsWith('DEA')) sociedad = 'DEA';
+    if (fn.startsWith('DPC') || fn.includes('DPC')) sociedad = 'DPC';
+    else if (fn.startsWith('DEA') || fn.includes('DEA')) sociedad = 'DEA';
   }
   
   // Detectar sociedad por contenido si no se detectó por nombre
@@ -83,119 +93,127 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
     else if (text.includes('EUROPE') || text.includes('ASIA')) sociedad = 'DEA';
   }
   
+  // Detectar formato: nuevo (catalán) vs antiguo (castellano)
+  const esFormatoNuevo = text.includes('Liquidació de bestretes') || text.includes('Import nominal') || text.includes('Líquid a favor');
+  
+  if (esFormatoNuevo) {
+    return parseBBVAFormatoNuevo(text, fileName, sociedad);
+  } else {
+    return parseBBVAFormatoAntiguo(text, fileName, sociedad);
+  }
+}
+
+/**
+ * Formato nuevo BBVA (catalán - "Liquidació de bestretes")
+ * 
+ * Texto extraído con layout:
+ * - Import nominal: 22.236,85 EUR (total remesa)
+ * - Líquid a favor seu: 21.992,02 EUR (neto)
+ * - Tabla facturas: cada línea tiene DRAX26/N + fecha + varios importes EUR
+ *   El importe de la factura es el número más grande en la línea (entre 500 y 50.000)
+ */
+function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: string): ConfirmingParseResult {
   // Extraer cliente
   let cliente: string | undefined;
-  const clienteMatch = text.match(/A CARGO DE:\s*(.+?)(?:\n|QUE SE CEDEN)/s);
+  const clienteMatch = text.match(/Client\s+(.+)/i);
   if (clienteMatch) {
-    cliente = clienteMatch[1].replace(/\n/g, ' ').trim();
-    // Limpiar: quitar "BILBAO VIZCAYA..." que a veces se pega
-    cliente = cliente.replace(/BILBAO VIZCAYA.*$/i, '').trim();
+    cliente = clienteMatch[1].trim();
   }
   
   // Extraer contrato
-  const contratoMatch = text.match(/CONTRATO:\s*([\d\s\-]+)/);
-  const contrato = contratoMatch ? contratoMatch[1].trim() : undefined;
+  let contrato: string | undefined;
+  const contratoMatch = text.match(/contracte\s+([\d\s]+)/i);
+  if (contratoMatch) {
+    contrato = contratoMatch[1].trim();
+  }
   
-  // Extraer fecha del documento del nombre del archivo
+  // Extraer fecha del documento
   let fechaDocumento: string | undefined;
   if (fileName) {
-    // Formato: DPC_CesióndeCréditos_15012026.pdf → 15/01/2026
     const fechaMatch = fileName.match(/(\d{2})(\d{2})(\d{4})/);
     if (fechaMatch) {
       fechaDocumento = `${fechaMatch[1]}/${fechaMatch[2]}/${fechaMatch[3]}`;
     }
   }
+  if (!fechaDocumento) {
+    const fechaLiqMatch = text.match(/Data de liquidació\s+(\d{2}\/\d{2}\/\d{4})/);
+    if (fechaLiqMatch) fechaDocumento = fechaLiqMatch[1];
+  }
   
-  // Extraer líneas de factura
-  // Patrón: "_ DRAX26 /N" o "DRAX26/N" o "DRAX26 /N"
+  // Extraer total remesa (Import nominal)
+  let totalRemesa = 0;
+  const nominalMatch = text.match(/Import nominal\s+([\d.,]+)\s*EUR/i);
+  if (nominalMatch) {
+    totalRemesa = parseFloat(nominalMatch[1].replace(/\./g, '').replace(',', '.'));
+  }
+  
+  // Extraer total neto (Líquid a favor)
+  let totalNeto: number | undefined;
+  const netoMatch = text.match(/Líquid a favor\s+\w+\s+([\d.,]+)\s*EUR/i);
+  if (netoMatch) {
+    totalNeto = parseFloat(netoMatch[1].replace(/\./g, '').replace(',', '.'));
+  }
+  
+  // Extraer líneas de factura del formato tabular
+  // Cada línea de factura contiene: DRAX26/N ... DD/MM/YYYY ... X,XX EUR ... X.XXX,XX EUR ... NNNN ... XX,XX EUR
   const lineas: ConfirmingLineaParsed[] = [];
+  const lines = text.split('\n');
   
-  // Buscar todas las facturas DRAX con regex flexible
-  const facturaRegex = /(?:_\s*)?DRAX\d{2}\s*\/\s*(\d+)/gi;
-  const facturas: string[] = [];
-  let match;
-  
-  while ((match = facturaRegex.exec(text)) !== null) {
-    // Reconstruir el número de factura normalizado
-    const fullMatch = match[0].replace(/^_\s*/, '').replace(/\s+/g, '');
-    // Normalizar: "DRAX26 /1" → "DRAX26/1"
-    const normalized = fullMatch.replace(/\s*\/\s*/, '/');
-    if (!facturas.includes(normalized)) {
-      facturas.push(normalized);
-    }
-  }
-  
-  // Extraer importes - buscar números con formato español (X.XXX,XX)
-  const importeRegex = /(\d{1,3}(?:\.\d{3})*,\d{2})/g;
-  const importes: number[] = [];
-  
-  // Buscar importes que aparecen después de las facturas y antes del TOTAL
-  const detallePart = text.substring(text.indexOf('NUM. FACTURA'));
-  const totalIdx = detallePart.indexOf('TOTAL REMESA');
-  const detalleSection = totalIdx > 0 ? detallePart.substring(0, totalIdx) : detallePart;
-  
-  let importeMatch;
-  while ((importeMatch = importeRegex.exec(detalleSection)) !== null) {
-    const valor = parseFloat(importeMatch[1].replace(/\./g, '').replace(',', '.'));
-    // Solo importes razonables para facturas (> 100€ y < 1.000.000€)
-    if (valor > 100 && valor < 1000000) {
-      importes.push(valor);
-    }
-  }
-  
-  // Extraer fechas de pago
-  const fechaPagoRegex = /(\d{2}-\d{2}-\d{4})/g;
-  const fechasPago: string[] = [];
-  let fechaPagoMatch;
-  while ((fechaPagoMatch = fechaPagoRegex.exec(detalleSection)) !== null) {
-    fechasPago.push(fechaPagoMatch[1]);
-  }
-  
-  // Emparejar facturas con importes
-  // En BBVA, los importes aparecen intercalados con las fechas
-  // Patrón: factura → fecha_factura → importe → fecha_pago → cesion → fin_plazo
-  // Necesitamos filtrar: los importes de factura son los que están entre la fecha de factura y la fecha de pago
-  
-  // Estrategia: buscar cada factura y su importe asociado en el texto
-  for (let i = 0; i < facturas.length; i++) {
-    const numFactura = facturas[i];
+  for (const line of lines) {
+    // Buscar líneas que contienen DRAX
+    // pdf-parse pega las columnas sin espacio: "DRAX26 / 1515/07/2026..."
+    // Necesitamos separar el número de factura de la fecha que viene pegada
+    const facturaMatch = line.match(/DRAX\d{2}\s*\/\s*\d+/i);
+    if (!facturaMatch) continue;
     
-    // Buscar el importe correspondiente
-    // Los importes están en orden, uno por factura
-    const importe = i < importes.length ? importes[i] : 0;
+    // El match puede incluir dígitos de la fecha pegada (ej: "DRAX26 / 1515" en vez de "DRAX26 / 15")
+    // Estrategia: el número de factura Draxton tiene máximo 2-3 dígitos después del /
+    // Si hay más de 3 dígitos, los últimos 2 son del día de la fecha
+    let rawNum = facturaMatch[0].replace(/\s+/g, '').toUpperCase();
+    // Extraer la parte después del /
+    const slashIdx = rawNum.indexOf('/');
+    const afterSlash = rawNum.substring(slashIdx + 1);
+    // Si tiene más de 3 dígitos, los últimos 2 son de la fecha (DD del DD/MM/YYYY)
+    if (afterSlash.length > 3) {
+      // Tomar solo los primeros dígitos que son el número de factura
+      // Heurística: los números de factura Draxton van de 1 a ~99
+      // Si afterSlash tiene 4+ dígitos, los últimos 2 son el día
+      const numPart = afterSlash.substring(0, afterSlash.length - 2);
+      rawNum = rawNum.substring(0, slashIdx + 1) + numPart;
+    }
+    const numFacturaNorm = rawNum;
     
-    // Buscar fecha de pago (normalmente es la misma para todas las facturas del mismo confirming)
-    // Las fechas de pago son las que tienen formato DD-MM-YYYY y son posteriores a las fechas de factura
-    const fechasPagoUnicas = [...new Set(fechasPago)];
-    // La fecha de pago suele ser la más lejana (vencimiento)
+    // Extraer fecha de pago (DD/MM/YYYY)
     let fechaPago: string | undefined;
-    if (fechasPagoUnicas.length > 0) {
-      // Ordenar por fecha y tomar la más lejana como fecha de pago
-      const sorted = fechasPagoUnicas.sort((a, b) => {
-        const [da, ma, ya] = a.split('-').map(Number);
-        const [db, mb, yb] = b.split('-').map(Number);
-        return new Date(ya, ma - 1, da).getTime() - new Date(yb, mb - 1, db).getTime();
-      });
-      // La fecha de pago es la que está más lejos (vencimiento)
-      fechaPago = sorted[sorted.length - 1];
-      // La fecha de factura es la más cercana
+    const fechaMatch = line.match(/(\d{2}\/\d{2}\/\d{4})/);
+    if (fechaMatch) {
+      fechaPago = fechaMatch[1].replace(/\//g, '-');
+    }
+    
+    // Extraer todos los importes de la línea (formato: X.XXX,XX o XXX,XX seguido de EUR o espacio)
+    const importeRegex = /(\d{1,3}(?:\.\d{3})*,\d{2})\s*EUR/g;
+    const importesEnLinea: number[] = [];
+    let m;
+    while ((m = importeRegex.exec(line)) !== null) {
+      const val = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+      importesEnLinea.push(val);
+    }
+    
+    // El importe de la factura es el más grande de la línea
+    // (los otros son comisión e intereses que son mucho menores)
+    let importe = 0;
+    if (importesEnLinea.length > 0) {
+      importe = Math.max(...importesEnLinea);
     }
     
     lineas.push({
-      numFactura,
+      numFactura: numFacturaNorm,
       importe,
       fechaPago,
     });
   }
   
-  // Extraer total remesa
-  let totalRemesa = 0;
-  const totalMatch = text.match(/TOTAL(?:\s+REMESA)?\s+([\d.]+,\d{2})/);
-  if (totalMatch) {
-    totalRemesa = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
-  }
-  
-  // Si no encontramos total, sumar los importes
+  // Si no encontramos total remesa pero tenemos líneas, sumar
   if (totalRemesa === 0 && lineas.length > 0) {
     totalRemesa = lineas.reduce((sum, l) => sum + l.importe, 0);
   }
@@ -207,8 +225,142 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
     contrato,
     fechaDocumento,
     totalRemesa,
+    totalNeto,
     lineas,
-    rawText: text.substring(0, 500), // Solo primeros 500 chars para debug
+    rawText: text.substring(0, 500),
+  };
+}
+
+/**
+ * Formato antiguo BBVA (castellano - "Cesión de Créditos")
+ * Datos por factura en líneas separadas verticalmente.
+ */
+function parseBBVAFormatoAntiguo(text: string, fileName?: string, sociedad?: string): ConfirmingParseResult {
+  // Extraer cliente
+  let cliente: string | undefined;
+  const clienteMatch = text.match(/A CARGO DE:\s*(.+?)(?:\n|QUE SE CEDEN)/s);
+  if (clienteMatch) {
+    cliente = clienteMatch[1].replace(/\n/g, ' ').trim();
+    cliente = cliente.replace(/BILBAO VIZCAYA.*$/i, '').trim();
+  }
+  
+  // Extraer contrato
+  const contratoMatch = text.match(/CONTRATO:\s*([\d\s\-]+)/);
+  const contrato = contratoMatch ? contratoMatch[1].trim() : undefined;
+  
+  // Extraer fecha del documento del nombre del archivo
+  let fechaDocumento: string | undefined;
+  if (fileName) {
+    const fechaMatch = fileName.match(/(\d{2})(\d{2})(\d{4})/);
+    if (fechaMatch) {
+      fechaDocumento = `${fechaMatch[1]}/${fechaMatch[2]}/${fechaMatch[3]}`;
+    }
+  }
+  
+  // Dividir el texto en líneas y buscar patrones de factura + importe
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  const lineas: ConfirmingLineaParsed[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    
+    // Buscar línea con número de factura DRAX
+    const facturaMatch = line.match(/(?:_\s*)?DRAX\d{2}\s*\/\s*(\d+)/i);
+    if (!facturaMatch) continue;
+    
+    // Normalizar: extraer solo la parte DRAXNN/N
+    const rawMatch = line.match(/DRAX\d{2}\s*\/\s*\d+/i);
+    const numFacturaNorm = rawMatch ? rawMatch[0].replace(/\s+/g, '').toUpperCase() : '';
+    if (!numFacturaNorm) continue;
+    
+    // Buscar el importe en las siguientes líneas (máximo 8 líneas adelante)
+    let importe = 0;
+    let fechaFactura: string | undefined;
+    let fechaPago: string | undefined;
+    
+    for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
+      const nextLine = lines[j];
+      
+      // Si encontramos otra factura DRAX, parar
+      if (/(?:_\s*)?DRAX\d{2}\s*\/\s*\d+/i.test(nextLine)) break;
+      
+      // Si encontramos "TOTAL REMESA" o "TOTAL", parar
+      if (/^TOTAL/i.test(nextLine)) break;
+      
+      // Si es una cabecera repetida de página, saltar
+      if (/^(NUM\. FACTURA|REFERENCIA|FECHA|IMPORTE|CESIÓN|FIN PLAZO|BANCO BILBAO|FICF_PROV)/i.test(nextLine)) break;
+      if (/^X$/i.test(nextLine)) continue;
+      
+      // Detectar fecha (DD-MM-YYYY)
+      const fechaMatch2 = nextLine.match(/^(\d{2}-\d{2}-\d{4})$/);
+      if (fechaMatch2) {
+        if (!fechaFactura) {
+          fechaFactura = fechaMatch2[1];
+        } else if (!fechaPago) {
+          fechaPago = fechaMatch2[1];
+        }
+        continue;
+      }
+      
+      // Detectar importe (formato español: X.XXX,XX o XXX,XX)
+      // SOLO si la línea es EXCLUSIVAMENTE un número (no mezclado con texto)
+      const importeMatch = nextLine.match(/^(\d{1,3}(?:\.\d{3})*,\d{2})$/);
+      if (importeMatch && importe === 0) {
+        const valor = parseFloat(importeMatch[1].replace(/\./g, '').replace(',', '.'));
+        // El importe de una factura Draxton está típicamente entre 50€ y 50.000€
+        if (valor >= 50 && valor <= 50000) {
+          importe = valor;
+        }
+        continue;
+      }
+      
+      // Detectar número de cesión (7 dígitos sin separadores) - IGNORAR
+      if (/^\d{6,8}$/.test(nextLine)) continue;
+    }
+    
+    lineas.push({
+      numFactura: numFacturaNorm,
+      importe,
+      fechaFactura,
+      fechaPago,
+    });
+  }
+  
+  // Extraer total remesa
+  let totalRemesa = 0;
+  const totalMatch = text.match(/TOTAL(?:\s+REMESA)?\s+([\d.]+,\d{2})/);
+  if (totalMatch) {
+    totalRemesa = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
+  }
+  
+  // Si no encontramos total, sumar los importes de las líneas
+  if (totalRemesa === 0 && lineas.length > 0) {
+    totalRemesa = lineas.reduce((sum, l) => sum + l.importe, 0);
+  }
+  
+  // Si hay facturas sin importe pero tenemos el total, distribuir equitativamente
+  const sinImporte = lineas.filter(l => l.importe === 0);
+  if (sinImporte.length > 0 && totalRemesa > 0) {
+    const conImporte = lineas.filter(l => l.importe > 0);
+    const sumaConImporte = conImporte.reduce((sum, l) => sum + l.importe, 0);
+    const restante = totalRemesa - sumaConImporte;
+    if (restante > 0 && sinImporte.length > 0) {
+      const importePorFactura = restante / sinImporte.length;
+      for (const l of sinImporte) {
+        l.importe = Math.round(importePorFactura * 100) / 100;
+      }
+    }
+  }
+  
+  return {
+    banco: 'BBVA',
+    sociedad,
+    cliente,
+    contrato,
+    fechaDocumento,
+    totalRemesa,
+    lineas,
+    rawText: text.substring(0, 500),
   };
 }
 
@@ -242,6 +394,8 @@ export function parseCaixaBankXLS(buffer: Buffer, fileName?: string): Confirming
     
     const importeKey = Object.keys(row).find(k => 
       k.toLowerCase().includes('importe') && k.toLowerCase().includes('factura')
+    ) || Object.keys(row).find(k => 
+      k.toLowerCase().includes('importe') && !k.toLowerCase().includes('neto')
     );
     
     const importeNetoKey = Object.keys(row).find(k => 
@@ -305,9 +459,16 @@ export function parseCaixaBankXLS(buffer: Buffer, fileName?: string): Confirming
   let fechaDocumento: string | undefined;
   if (fileName) {
     // Formato: ConfirmingCaixa17.02.2026.xls → 17/02/2026
-    const fechaMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    const fechaMatch = fileName.match(/(\d{1,2})\.(\d{2})\.(\d{4})/);
     if (fechaMatch) {
-      fechaDocumento = `${fechaMatch[1]}/${fechaMatch[2]}/${fechaMatch[3]}`;
+      fechaDocumento = `${fechaMatch[1].padStart(2, '0')}/${fechaMatch[2]}/${fechaMatch[3]}`;
+    }
+    // Formato: Confirming Caixa 2.07.2026.pdf → 02/07/2026
+    if (!fechaDocumento) {
+      const fechaMatch2 = fileName.match(/(\d{1,2})\.(\d{2})\.(\d{4})/);
+      if (fechaMatch2) {
+        fechaDocumento = `${fechaMatch2[1].padStart(2, '0')}/${fechaMatch2[2]}/${fechaMatch2[3]}`;
+      }
     }
     // Formato alternativo: Confirming CaixaBank-Santander Febrero 2026.xls
     if (!fechaDocumento) {
@@ -335,7 +496,8 @@ export function parseCaixaBankXLS(buffer: Buffer, fileName?: string): Confirming
 
 /**
  * Parsea un PDF de CaixaBank (datos generales del anticipo)
- * Menos útil que el XLS pero sirve como respaldo
+ * Contiene datos como: Importe factura, Intereses, Comisiones, Importe neto
+ * NO contiene detalle de facturas individuales (eso está en el XLS)
  */
 export async function parseCaixaBankPDF(buffer: Buffer, fileName?: string): Promise<ConfirmingParseResult> {
   const pdf = await pdfParse(buffer);
@@ -369,19 +531,11 @@ export async function parseCaixaBankPDF(buffer: Buffer, fileName?: string): Prom
     fechaDocumento = fechaMatch[1].trim();
   }
   
-  // Número de facturas
-  const nroFacturasMatch = text.match(/Nro facturas\s*\n?\s*(\d+)/i);
-  const nroFacturas = nroFacturasMatch ? parseInt(nroFacturasMatch[1]) : 0;
-  
-  // El PDF de CaixaBank no tiene detalle de facturas individuales
-  // Solo datos generales del anticipo
-  // Las líneas se extraen del XLS
-  
   // Intentar extraer fecha del nombre del archivo
   if (!fechaDocumento && fileName) {
-    const fMatch = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+    const fMatch = fileName.match(/(\d{1,2})\.(\d{2})\.(\d{4})/);
     if (fMatch) {
-      fechaDocumento = `${fMatch[1]}/${fMatch[2]}/${fMatch[3]}`;
+      fechaDocumento = `${fMatch[1].padStart(2, '0')}/${fMatch[2]}/${fMatch[3]}`;
     }
   }
   
@@ -391,7 +545,7 @@ export async function parseCaixaBankPDF(buffer: Buffer, fileName?: string): Prom
     fechaDocumento,
     totalRemesa,
     totalNeto,
-    lineas: [], // El PDF no tiene detalle de líneas
+    lineas: [], // El PDF no tiene detalle de líneas individuales
     rawText: text.substring(0, 500),
   };
 }
@@ -424,7 +578,7 @@ export async function parseConfirmingFile(
  */
 function parseImporteEspanol(valor: any): number {
   if (typeof valor === 'number') return valor;
-  const str = String(valor).trim().replace('€', '').trim();
+  const str = String(valor).trim().replace('€', '').replace(/\s/g, '').trim();
   // Formato español: 1.234,56
   if (str.includes(',')) {
     return parseFloat(str.replace(/\./g, '').replace(',', '.'));
