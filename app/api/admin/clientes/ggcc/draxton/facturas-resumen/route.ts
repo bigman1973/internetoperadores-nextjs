@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
-// GET: Resumen de facturación vinculada por contrato Draxton
+// GET: Resumen de facturación vinculada por contrato Draxton + datos de cobro por confirming
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
@@ -26,14 +26,24 @@ export async function GET(request: NextRequest) {
   const facturasMap = new Map(facturas.map(f => [f.id, f]))
 
   // Agrupar por contrato separando mensualidad vs adicional
-  const resumenPorContrato: Record<string, { facturado: number; facturas: number; facturadoAdicional: number; facturasAdicional: number }> = {}
+  const resumenPorContrato: Record<string, { 
+    facturado: number; facturas: number; 
+    facturadoAdicional: number; facturasAdicional: number;
+    cobrado: number; facturasCobradas: number;
+    pendienteCobro: number;
+  }> = {}
 
   for (const vinc of vinculaciones) {
     const factura = facturasMap.get(vinc.facturaId)
     if (!factura) continue // factura no es del año seleccionado
 
     if (!resumenPorContrato[vinc.contratoDraxtonId]) {
-      resumenPorContrato[vinc.contratoDraxtonId] = { facturado: 0, facturas: 0, facturadoAdicional: 0, facturasAdicional: 0 }
+      resumenPorContrato[vinc.contratoDraxtonId] = { 
+        facturado: 0, facturas: 0, 
+        facturadoAdicional: 0, facturasAdicional: 0,
+        cobrado: 0, facturasCobradas: 0,
+        pendienteCobro: 0,
+      }
     }
 
     if (vinc.tipoFacturacion === 'adicional') {
@@ -45,11 +55,55 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Calcular totales
+  // Obtener datos de cobro de FacturaEmitida (confirming) para el año
+  // Las facturas emitidas a Draxton tienen numFactura tipo DRAX26/XX
+  const facturasEmitidas = await prisma.facturaEmitida.findMany({
+    where: {
+      fecha: { 
+        gte: new Date(`${anio}-01-01`), 
+        lt: new Date(`${anio + 1}-01-01`) 
+      },
+      OR: [
+        { cliente: { contains: 'Draxton', mode: 'insensitive' } },
+        { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
+        { cliente: { contains: 'Altec', mode: 'insensitive' } },
+        { cliente: { contains: 'Infun', mode: 'insensitive' } },
+      ],
+    },
+    select: {
+      id: true,
+      numFactura: true,
+      total: true,
+      importeCobrado: true,
+      estado: true,
+      formaCobro: true,
+      imputacion: true,
+    },
+  })
+
+  // Calcular totales de cobro global (no por contrato, ya que la vinculación es con facturas legacy)
+  const totalCobrado = facturasEmitidas.reduce((sum, f) => sum + (f.importeCobrado || 0), 0)
+  const totalFacturadoEmitidas = facturasEmitidas.reduce((sum, f) => sum + f.total, 0)
+  const facturasCobradas = facturasEmitidas.filter(f => f.estado === 'COBRADA').length
+  const facturasPendientesCobro = facturasEmitidas.filter(f => f.estado !== 'COBRADA').length
+  const pendienteCobro = totalFacturadoEmitidas - totalCobrado
+
+  // Calcular totales de facturación legacy
   const totalFacturado = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturado, 0)
   const totalFacturas = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturas, 0)
   const totalFacturadoAdicional = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturadoAdicional, 0)
   const totalFacturasAdicional = Object.values(resumenPorContrato).reduce((sum, r) => sum + r.facturasAdicional, 0)
+
+  // Datos de confirming
+  const confirmingLineas = await prisma.confirmingLinea.findMany({
+    where: { facturaEmitidaId: { not: null } },
+    select: { 
+      numFactura: true, 
+      importe: true, 
+      facturaEmitidaId: true,
+      confirming: { select: { confirmingProveedor: true, fecha: true } },
+    },
+  })
 
   return NextResponse.json({
     anio,
@@ -58,5 +112,22 @@ export async function GET(request: NextRequest) {
     totalFacturas,
     totalFacturadoAdicional,
     totalFacturasAdicional,
+    // Datos de cobro (confirming)
+    cobro: {
+      totalCobrado,
+      totalFacturadoEmitidas,
+      facturasCobradas,
+      facturasPendientesCobro,
+      pendienteCobro,
+      totalFacturasEmitidas: facturasEmitidas.length,
+      porcentajeCobrado: totalFacturadoEmitidas > 0 
+        ? Math.round((totalCobrado / totalFacturadoEmitidas) * 100) 
+        : 0,
+    },
+    // Detalle de confirmings vinculados
+    confirmings: {
+      totalLineas: confirmingLineas.length,
+      importeTotal: confirmingLineas.reduce((sum, l) => sum + l.importe, 0),
+    },
   })
 }

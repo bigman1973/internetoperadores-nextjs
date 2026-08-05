@@ -501,28 +501,159 @@ export async function POST(req: NextRequest) {
       }
 
       // 3. CONCILIACIÓN CONFIRMING DRAXTON
+      // Buscar ingresos que sean de confirming/cesión de créditos Draxton
       const ingresosConfirming = await prisma.movimientoBancario.findMany({
         where: {
           conciliado: false,
           importe: { gt: 0 },
+          facturaEmitidaId: null,
           OR: [
             { concepto: { contains: 'Draxton', mode: 'insensitive' } },
             { concepto: { contains: 'ANTICIPS CONFIRMING', mode: 'insensitive' } },
+            { concepto: { contains: 'CESION DE CREDITO', mode: 'insensitive' } },
+            { concepto: { contains: 'Cesion De Creditos', mode: 'insensitive' } },
+            { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
+            { tercero: { contains: 'Draxton', mode: 'insensitive' } },
           ],
         },
-        select: { id: true, importe: true, fechaOperacion: true },
+        select: { id: true, importe: true, fechaOperacion: true, concepto: true, tercero: true },
       });
 
-      for (const mov of ingresosConfirming) {
-        await prisma.movimientoBancario.update({
-          where: { id: mov.id },
-          data: {
-            conciliado: true,
-            categoria: 'Draxton',
-            tipoPago: 'Confirming',
+      // Obtener documentos de confirming con sus líneas vinculadas
+      const confirmingDocs = await prisma.facturaRecibida.findMany({
+        where: {
+          carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
+          totalConfirming: { not: null, gt: 0 },
+        },
+        select: {
+          id: true,
+          totalConfirming: true,
+          fecha: true,
+          confirmingProveedor: true,
+          confirmingLineas: {
+            select: { facturaEmitidaId: true, importe: true, numFactura: true },
+            where: { facturaEmitidaId: { not: null } },
           },
-        });
-        resultados.conciliadosConfirming++;
+        },
+      });
+
+      const confirmingsUsados = new Set<string>();
+
+      for (const mov of ingresosConfirming) {
+        const importeMov = Number(mov.importe);
+        const fechaMov = new Date(mov.fechaOperacion);
+
+        // Intentar vincular con un documento de confirming por importe (tolerancia 7% por intereses/comisiones)
+        let vinculado = false;
+        for (const doc of confirmingDocs) {
+          if (confirmingsUsados.has(doc.id)) continue;
+          if (doc.confirmingLineas.length === 0) continue;
+
+          const totalDoc = doc.totalConfirming || 0;
+          const toleranciaMin = totalDoc * 0.93;
+          const toleranciaMax = totalDoc * 1.01;
+
+          if (importeMov >= toleranciaMin && importeMov <= toleranciaMax) {
+            // Verificar que la fecha del movimiento es posterior al confirming
+            const fechaDoc = new Date(doc.fecha);
+            if (fechaMov < fechaDoc) continue;
+            const diffDias = (fechaMov.getTime() - fechaDoc.getTime()) / (1000 * 60 * 60 * 24);
+            if (diffDias > 150) continue;
+
+            // Vincular con la primera factura emitida del confirming
+            const primeraFactura = doc.confirmingLineas[0];
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: {
+                conciliado: true,
+                categoria: 'Draxton',
+                tipoPago: 'Confirming',
+                facturaEmitidaId: primeraFactura.facturaEmitidaId,
+                tipoDocumento: 'factura',
+                notaConciliacion: `Confirming ${doc.confirmingProveedor || ''} (${doc.confirmingLineas.length} fact: ${doc.confirmingLineas.map(l => l.numFactura).join(', ')})`,
+              },
+            });
+
+            // Actualizar facturas emitidas vinculadas como cobradas
+            for (const linea of doc.confirmingLineas) {
+              if (linea.facturaEmitidaId) {
+                const factura = await prisma.facturaEmitida.findUnique({
+                  where: { id: linea.facturaEmitidaId },
+                  select: { id: true, total: true, importeCobrado: true, estado: true },
+                });
+                if (factura && factura.estado !== 'COBRADA') {
+                  const nuevoImporte = Math.max(factura.importeCobrado || 0, linea.importe);
+                  const cobrada = nuevoImporte >= factura.total * 0.98;
+                  await prisma.facturaEmitida.update({
+                    where: { id: factura.id },
+                    data: {
+                      importeCobrado: nuevoImporte,
+                      fechaCobro: mov.fechaOperacion,
+                      estado: cobrada ? 'COBRADA' : undefined,
+                      formaCobro: 'Confirming',
+                    },
+                  });
+                }
+              }
+            }
+
+            confirmingsUsados.add(doc.id);
+            vinculado = true;
+            resultados.conciliadosConfirming++;
+            break;
+          }
+        }
+
+        // Si no se pudo vincular con un confirming específico, marcar como Draxton igualmente
+        if (!vinculado) {
+          // Intentar vincular por importe exacto con factura emitida Draxton
+          const facturaMatch = await prisma.facturaEmitida.findFirst({
+            where: {
+              total: { gte: importeMov - 0.10, lte: importeMov + 0.10 },
+              estado: { in: ['EMITIDA', 'ENVIADA'] },
+              OR: [
+                { cliente: { contains: 'Draxton', mode: 'insensitive' } },
+                { cliente: { contains: 'Fuchosa', mode: 'insensitive' } },
+                { cliente: { contains: 'Altec', mode: 'insensitive' } },
+                { cliente: { contains: 'Infun', mode: 'insensitive' } },
+              ],
+            },
+          });
+
+          if (facturaMatch) {
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: {
+                conciliado: true,
+                categoria: 'Draxton',
+                tipoPago: 'Confirming',
+                facturaEmitidaId: facturaMatch.id,
+                tipoDocumento: 'factura',
+              },
+            });
+            await prisma.facturaEmitida.update({
+              where: { id: facturaMatch.id },
+              data: {
+                estado: 'COBRADA',
+                importeCobrado: importeMov,
+                fechaCobro: mov.fechaOperacion,
+                formaCobro: 'Confirming',
+              },
+            });
+            resultados.conciliadosConfirming++;
+          } else {
+            // Marcar como Draxton sin vincular factura específica
+            await prisma.movimientoBancario.update({
+              where: { id: mov.id },
+              data: {
+                conciliado: true,
+                categoria: 'Draxton',
+                tipoPago: 'Confirming',
+              },
+            });
+            resultados.conciliadosConfirming++;
+          }
+        }
       }
 
       // 4. TRASPASOS ENTRE CUENTAS PROPIAS

@@ -15,6 +15,8 @@ import {
   PencilIcon,
   ChevronDownIcon,
   ChevronRightIcon,
+  ArrowPathIcon,
+  BoltIcon,
 } from '@heroicons/react/24/outline';
 
 interface FacturaEmitida {
@@ -94,6 +96,10 @@ export default function GGCDraxtonPage() {
   // Modal de vincular
   const [modalVincular, setModalVincular] = useState<{ movimiento: MovimientoCobro } | null>(null);
   const [busquedaFactura, setBusquedaFactura] = useState('');
+
+  // Sincronización
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<any>(null);
 
   // Confirming detalle expandido
   const [expandedConfirming, setExpandedConfirming] = useState<string | null>(null);
@@ -234,7 +240,7 @@ export default function GGCDraxtonPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Conciliación de cobros por confirming</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <select
             value={year}
             onChange={(e) => setYear(parseInt(e.target.value))}
@@ -243,6 +249,57 @@ export default function GGCDraxtonPage() {
             <option value={2026}>2026</option>
             <option value={2025}>2025</option>
           </select>
+          <button
+            onClick={async () => {
+              setSyncing(true);
+              setSyncResult(null);
+              try {
+                const res = await fetch('/api/admin/finanzas/clientes/ggcc-draxton/sync-confirmings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ limite: 30 }),
+                });
+                const data = await res.json();
+                setSyncResult(data);
+                fetchData();
+              } catch (e) {
+                setSyncResult({ error: 'Error de conexión' });
+              }
+              setSyncing(false);
+            }}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50"
+          >
+            {syncing ? (
+              <ArrowPathIcon className="h-4 w-4 animate-spin" />
+            ) : (
+              <BoltIcon className="h-4 w-4" />
+            )}
+            {syncing ? 'Sincronizando...' : 'Sync Confirmings'}
+          </button>
+          <button
+            onClick={async () => {
+              setSyncing(true);
+              try {
+                const res = await fetch('/api/admin/finanzas/clientes/ggcc-draxton/sync-confirmings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ soloVincular: true }),
+                });
+                const data = await res.json();
+                setSyncResult(data);
+                fetchData();
+              } catch (e) {
+                setSyncResult({ error: 'Error de conexión' });
+              }
+              setSyncing(false);
+            }}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
+          >
+            <LinkIcon className="h-4 w-4" />
+            Auto-vincular
+          </button>
         </div>
       </div>
 
@@ -296,6 +353,37 @@ export default function GGCDraxtonPage() {
               {formatMoney(kpis.totalIngresado - kpis.totalFacturado)}
             </p>
             <p className="text-xs text-gray-400">ingresado - facturado</p>
+          </div>
+        </div>
+      )}
+
+      {/* Resultado de sincronización */}
+      {syncResult && (
+        <div className={`mb-4 p-4 rounded-lg border ${syncResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+          <div className="flex items-center justify-between">
+            <div>
+              {syncResult.error ? (
+                <p className="text-sm text-red-700">{syncResult.error}</p>
+              ) : (
+                <div>
+                  <p className="text-sm font-medium text-green-800">{syncResult.mensaje}</p>
+                  {syncResult.lineasCreadas !== undefined && (
+                    <p className="text-xs text-green-600 mt-1">
+                      {syncResult.lineasCreadas} líneas extraídas · {syncResult.lineasVinculadas} vinculadas automáticamente
+                      {syncResult.conciliacion && ` · ${syncResult.conciliacion.conciliados} movimientos conciliados`}
+                    </p>
+                  )}
+                  {syncResult.vinculadas !== undefined && (
+                    <p className="text-xs text-green-600 mt-1">
+                      {syncResult.vinculadas} de {syncResult.totalPendientes} líneas vinculadas
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+            <button onClick={() => setSyncResult(null)} className="text-gray-400 hover:text-gray-600">
+              <XMarkIcon className="h-4 w-4" />
+            </button>
           </div>
         </div>
       )}
