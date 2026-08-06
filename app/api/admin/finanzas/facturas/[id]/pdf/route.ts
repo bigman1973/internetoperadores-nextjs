@@ -107,8 +107,9 @@ export async function GET(
  * Helper: obtiene el archivo por itemId y lo devuelve con el Content-Type correcto
  */
 async function fetchAndReturnFile(token: string, driveId: string, itemId: string, fileName: string | null) {
+  // Intentar obtener metadata con downloadUrl (sin $select para que Graph lo incluya)
   const metaRes = await fetch(
-    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}?$select=@microsoft.graph.downloadUrl,name`,
+    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
@@ -117,15 +118,45 @@ async function fetchAndReturnFile(token: string, driveId: string, itemId: string
   }
 
   const meta = await metaRes.json();
-  const downloadUrl = meta['@microsoft.graph.downloadUrl'];
+  let downloadUrl = meta['@microsoft.graph.downloadUrl'];
+  const name = meta.name || fileName?.split('/').pop() || 'documento';
 
+  // Fallback: si no hay downloadUrl, usar el endpoint /content que devuelve redirect 302
   if (!downloadUrl) {
-    return NextResponse.json({ error: 'No se pudo obtener URL de descarga' }, { status: 502 });
+    const contentRes = await fetch(
+      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`,
+      { headers: { Authorization: `Bearer ${token}` }, redirect: 'manual' }
+    );
+    
+    if (contentRes.status === 302) {
+      downloadUrl = contentRes.headers.get('location');
+    }
+    
+    if (!downloadUrl) {
+      // Último intento: seguir el redirect automáticamente
+      const directRes = await fetch(
+        `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}/content`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (directRes.ok) {
+        const buffer = await directRes.arrayBuffer();
+        const contentType = getContentType(name);
+        return new NextResponse(buffer, {
+          headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': contentType === 'application/pdf'
+              ? `inline; filename="${name}"`
+              : `attachment; filename="${name}"`,
+            'Cache-Control': 'private, max-age=3600',
+          },
+        });
+      }
+      return NextResponse.json({ error: 'No se pudo obtener URL de descarga' }, { status: 502 });
+    }
   }
 
   const fileRes = await fetch(downloadUrl);
   const buffer = await fileRes.arrayBuffer();
-  const name = meta.name || fileName?.split('/').pop() || 'documento';
   const contentType = getContentType(name);
 
   return new NextResponse(buffer, {

@@ -242,6 +242,26 @@ export async function POST(req: NextRequest) {
             ? `Confirming BBVA (${parseResult.sociedad || 'N/A'})`
             : 'Confirming CaixaBank';
           
+          // Verificar si ya existe un documento con el mismo nombre base (evitar duplicados PDF/XLS)
+          const numFacturaDoc = archivo.name.replace(/\.(pdf|xls|xlsx)$/i, '');
+          const existeDuplicado = await prisma.facturaRecibida.findFirst({
+            where: {
+              numFactura: numFacturaDoc,
+              carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
+            },
+          });
+          
+          if (existeDuplicado) {
+            // Ya existe - actualizar el oneDriveItemId para que no se vuelva a intentar
+            resultados.push({
+              archivo: archivo.name,
+              subcarpeta,
+              estado: 'ya_importado',
+            });
+            totalProcesados++;
+            continue;
+          }
+          
           // Crear FacturaRecibida (documento de confirming)
           const facturaRecibida = await prisma.facturaRecibida.create({
             data: {
