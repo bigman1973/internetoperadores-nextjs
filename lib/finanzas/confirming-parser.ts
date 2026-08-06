@@ -106,18 +106,20 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
 /**
  * Formato nuevo BBVA (catalán - "Liquidació de bestretes")
  * 
- * Texto extraído con layout:
+ * Texto extraído por pdf-parse (todo pegado sin espacios entre columnas):
  * - Import nominal: 22.236,85 EUR (total remesa)
  * - Líquid a favor seu: 21.992,02 EUR (neto)
- * - Tabla facturas: cada línea tiene DRAX26/N + fecha + varios importes EUR
- *   El importe de la factura es el número más grande en la línea (entre 500 y 50.000)
+ * - Cada línea de factura: "DRAX26 / 1515/07/20264,67 EUR9.345,93 EUR2.14897,25 EUR"
+ *   Donde el importe real es el mayor de la línea
  */
 function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: string): ConfirmingParseResult {
   // Extraer cliente
   let cliente: string | undefined;
-  const clienteMatch = text.match(/Client\s+(.+)/i);
+  const clienteMatch = text.match(/Client\s*(.+)/i);
   if (clienteMatch) {
-    cliente = clienteMatch[1].trim();
+    cliente = clienteMatch[1].replace(/^\s+/, '').trim();
+    // Limpiar si tiene NIF pegado
+    cliente = cliente.replace(/[A-Z]\d{8}.*$/, '').trim();
   }
   
   // Extraer contrato
@@ -154,53 +156,39 @@ function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: strin
     totalNeto = parseFloat(netoMatch[1].replace(/\./g, '').replace(',', '.'));
   }
   
-  // Extraer líneas de factura del formato tabular
-  // Cada línea de factura contiene: DRAX26/N ... DD/MM/YYYY ... X,XX EUR ... X.XXX,XX EUR ... NNNN ... XX,XX EUR
+  // Extraer líneas de factura
   const lineas: ConfirmingLineaParsed[] = [];
   const lines = text.split('\n');
   
   for (const line of lines) {
-    // Buscar líneas que contienen DRAX
-    // pdf-parse pega las columnas sin espacio: "DRAX26 / 1515/07/2026..."
-    // Necesitamos separar el número de factura de la fecha que viene pegada
-    const facturaMatch = line.match(/DRAX\d{2}\s*\/\s*\d+/i);
+    if (!line.match(/DRAX\d{2}/i)) continue;
+    
+    // PASO 1: Separar fechas insertando espacios (clave para evitar que se peguen al importe)
+    const cleaned = line.replace(/(\d{2}[-\/]\d{2}[-\/]\d{4})/g, ' $1 ');
+    
+    // PASO 2: Extraer número de factura con lookahead a espacio
+    const facturaRegex = /DRAX\d{2}\s*\/\s*\d{1,3}(?=\s)/i;
+    const facturaMatch = cleaned.match(facturaRegex);
     if (!facturaMatch) continue;
+    const numFacturaNorm = facturaMatch[0].replace(/\s+/g, '').toUpperCase();
     
-    // El match puede incluir dígitos de la fecha pegada (ej: "DRAX26 / 1515" en vez de "DRAX26 / 15")
-    // Estrategia: el número de factura Draxton tiene máximo 2-3 dígitos después del /
-    // Si hay más de 3 dígitos, los últimos 2 son del día de la fecha
-    let rawNum = facturaMatch[0].replace(/\s+/g, '').toUpperCase();
-    // Extraer la parte después del /
-    const slashIdx = rawNum.indexOf('/');
-    const afterSlash = rawNum.substring(slashIdx + 1);
-    // Si tiene más de 3 dígitos, los últimos 2 son de la fecha (DD del DD/MM/YYYY)
-    if (afterSlash.length > 3) {
-      // Tomar solo los primeros dígitos que son el número de factura
-      // Heurística: los números de factura Draxton van de 1 a ~99
-      // Si afterSlash tiene 4+ dígitos, los últimos 2 son el día
-      const numPart = afterSlash.substring(0, afterSlash.length - 2);
-      rawNum = rawNum.substring(0, slashIdx + 1) + numPart;
-    }
-    const numFacturaNorm = rawNum;
-    
-    // Extraer fecha de pago (DD/MM/YYYY)
+    // PASO 3: Extraer fecha de pago
     let fechaPago: string | undefined;
-    const fechaMatch = line.match(/(\d{2}\/\d{2}\/\d{4})/);
+    const fechaMatch = cleaned.match(/(\d{2}[-\/]\d{2}[-\/]\d{4})/);
     if (fechaMatch) {
       fechaPago = fechaMatch[1].replace(/\//g, '-');
     }
     
-    // Extraer todos los importes de la línea (formato: X.XXX,XX o XXX,XX seguido de EUR o espacio)
+    // PASO 4: Extraer importes (ahora correctamente separados)
     const importeRegex = /(\d{1,3}(?:\.\d{3})*,\d{2})\s*EUR/g;
     const importesEnLinea: number[] = [];
     let m;
-    while ((m = importeRegex.exec(line)) !== null) {
+    while ((m = importeRegex.exec(cleaned)) !== null) {
       const val = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
       importesEnLinea.push(val);
     }
     
-    // El importe de la factura es el más grande de la línea
-    // (los otros son comisión e intereses que son mucho menores)
+    // El importe de la factura es el más grande (comisiones/intereses son mucho menores)
     let importe = 0;
     if (importesEnLinea.length > 0) {
       importe = Math.max(...importesEnLinea);
@@ -233,7 +221,12 @@ function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: strin
 
 /**
  * Formato antiguo BBVA (castellano - "Cesión de Créditos")
- * Datos por factura en líneas separadas verticalmente.
+ * 
+ * pdf-parse pega todo sin espacios entre columnas:
+ * "_ DRAX26 /115-01-20265.301,9215-05-2026469747130-01-2026"
+ * 
+ * Estrategia: separar fechas (DD-MM-YYYY) insertando espacios,
+ * luego extraer factura e importe del texto limpio.
  */
 function parseBBVAFormatoAntiguo(text: string, fileName?: string, sociedad?: string): ConfirmingParseResult {
   // Extraer cliente
@@ -257,66 +250,49 @@ function parseBBVAFormatoAntiguo(text: string, fileName?: string, sociedad?: str
     }
   }
   
-  // Dividir el texto en líneas y buscar patrones de factura + importe
+  // Dividir el texto en líneas
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
   const lineas: ConfirmingLineaParsed[] = [];
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     
-    // Buscar línea con número de factura DRAX
-    const facturaMatch = line.match(/(?:_\s*)?DRAX\d{2}\s*\/\s*(\d+)/i);
+    // Solo procesar líneas que contienen DRAX
+    if (!line.match(/DRAX\d{2}/i)) continue;
+    
+    // PASO 1: Separar fechas (DD-MM-YYYY y DD/MM/YYYY) insertando espacios
+    const cleaned = line.replace(/(\d{2}[-\/]\d{2}[-\/]\d{4})/g, ' $1 ');
+    
+    // PASO 2: Extraer número de factura
+    // Después de separar fechas, el número queda limpio: "_ DRAX26 /1 15-01-2026 5.301,92..."
+    const facturaRegex = /DRAX\d{2}\s*\/\s*\d{1,3}(?=\s)/i;
+    const facturaMatch = cleaned.match(facturaRegex);
     if (!facturaMatch) continue;
+    const numFacturaNorm = facturaMatch[0].replace(/\s+/g, '').toUpperCase();
     
-    // Normalizar: extraer solo la parte DRAXNN/N
-    const rawMatch = line.match(/DRAX\d{2}\s*\/\s*\d+/i);
-    const numFacturaNorm = rawMatch ? rawMatch[0].replace(/\s+/g, '').toUpperCase() : '';
-    if (!numFacturaNorm) continue;
+    // Ignorar si es un número de factura claramente inválido (> 999)
+    const numAfterSlash = numFacturaNorm.split('/')[1];
+    if (numAfterSlash && parseInt(numAfterSlash) > 999) continue;
     
-    // Buscar el importe en las siguientes líneas (máximo 8 líneas adelante)
-    let importe = 0;
-    let fechaFactura: string | undefined;
-    let fechaPago: string | undefined;
+    // PASO 3: Extraer fechas
+    const fechas = cleaned.match(/(\d{2}-\d{2}-\d{4})/g) || [];
+    const fechaFactura = fechas[0] || undefined;
+    const fechaPago = fechas[1] || undefined;
     
-    for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
-      const nextLine = lines[j];
-      
-      // Si encontramos otra factura DRAX, parar
-      if (/(?:_\s*)?DRAX\d{2}\s*\/\s*\d+/i.test(nextLine)) break;
-      
-      // Si encontramos "TOTAL REMESA" o "TOTAL", parar
-      if (/^TOTAL/i.test(nextLine)) break;
-      
-      // Si es una cabecera repetida de página, saltar
-      if (/^(NUM\. FACTURA|REFERENCIA|FECHA|IMPORTE|CESIÓN|FIN PLAZO|BANCO BILBAO|FICF_PROV)/i.test(nextLine)) break;
-      if (/^X$/i.test(nextLine)) continue;
-      
-      // Detectar fecha (DD-MM-YYYY)
-      const fechaMatch2 = nextLine.match(/^(\d{2}-\d{2}-\d{4})$/);
-      if (fechaMatch2) {
-        if (!fechaFactura) {
-          fechaFactura = fechaMatch2[1];
-        } else if (!fechaPago) {
-          fechaPago = fechaMatch2[1];
-        }
-        continue;
+    // PASO 4: Extraer importes (formato español X.XXX,XX)
+    const importeRegex = /(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+    const importes: number[] = [];
+    let m;
+    while ((m = importeRegex.exec(cleaned)) !== null) {
+      const val = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+      // Solo importes razonables para facturas (50€ - 50.000€)
+      if (val >= 50 && val <= 50000) {
+        importes.push(val);
       }
-      
-      // Detectar importe (formato español: X.XXX,XX o XXX,XX)
-      // SOLO si la línea es EXCLUSIVAMENTE un número (no mezclado con texto)
-      const importeMatch = nextLine.match(/^(\d{1,3}(?:\.\d{3})*,\d{2})$/);
-      if (importeMatch && importe === 0) {
-        const valor = parseFloat(importeMatch[1].replace(/\./g, '').replace(',', '.'));
-        // El importe de una factura Draxton está típicamente entre 50€ y 50.000€
-        if (valor >= 50 && valor <= 50000) {
-          importe = valor;
-        }
-        continue;
-      }
-      
-      // Detectar número de cesión (7 dígitos sin separadores) - IGNORAR
-      if (/^\d{6,8}$/.test(nextLine)) continue;
     }
+    
+    // El importe de la factura es el más grande
+    const importe = importes.length > 0 ? Math.max(...importes) : 0;
     
     lineas.push({
       numFactura: numFacturaNorm,
@@ -328,7 +304,9 @@ function parseBBVAFormatoAntiguo(text: string, fileName?: string, sociedad?: str
   
   // Extraer total remesa
   let totalRemesa = 0;
-  const totalMatch = text.match(/TOTAL(?:\s+REMESA)?\s+([\d.]+,\d{2})/);
+  // Separar fechas también para el total
+  const cleanedText = text.replace(/(\d{2}[-\/]\d{2}[-\/]\d{4})/g, ' $1 ');
+  const totalMatch = cleanedText.match(/TOTAL(?:\s+REMESA)?\s+([\d.]+,\d{2})/);
   if (totalMatch) {
     totalRemesa = parseFloat(totalMatch[1].replace(/\./g, '').replace(',', '.'));
   }
