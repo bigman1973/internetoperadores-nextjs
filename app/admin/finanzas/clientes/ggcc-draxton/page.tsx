@@ -78,6 +78,9 @@ interface KPIs {
   facturasConCobro: number;
   facturasPendientes: number;
   totalMovimientos: number;
+  totalGastosFinancieros: number;
+  totalComisiones: number;
+  totalIntereses: number;
   movimientosSinVincular: number;
   totalIngresado: number;
   totalDocumentosConfirming: number;
@@ -100,6 +103,9 @@ export default function GGCDraxtonPage() {
   // Sincronización
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
+
+  // Filtro por periodo
+  const [periodoFiltro, setPeriodoFiltro] = useState<string>('todos');
 
   // Confirming detalle expandido
   const [expandedConfirming, setExpandedConfirming] = useState<string | null>(null);
@@ -201,24 +207,42 @@ export default function GGCDraxtonPage() {
   const formatMoney = (n: number) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' }) : '-';
 
-  // Filtrar facturas por búsqueda
+  // Función para filtrar por periodo
+  function matchPeriodo(fecha: string | null): boolean {
+    if (periodoFiltro === 'todos' || !fecha) return true;
+    const d = new Date(fecha);
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    if (periodoFiltro.startsWith('T')) {
+      const trimestre = parseInt(periodoFiltro[1]);
+      const mesNum = d.getMonth() + 1;
+      return mesNum >= (trimestre - 1) * 3 + 1 && mesNum <= trimestre * 3;
+    }
+    return mes === periodoFiltro;
+  }
+
   const facturasFiltradas = facturas.filter(f =>
-    !busqueda || f.cliente.toLowerCase().includes(busqueda.toLowerCase()) ||
-    f.numFactura.toLowerCase().includes(busqueda.toLowerCase()) ||
-    f.concepto?.toLowerCase().includes(busqueda.toLowerCase())
+    matchPeriodo(f.fecha) && (
+      !busqueda || f.cliente.toLowerCase().includes(busqueda.toLowerCase()) ||
+      f.numFactura.toLowerCase().includes(busqueda.toLowerCase()) ||
+      f.concepto?.toLowerCase().includes(busqueda.toLowerCase())
+    )
   );
 
-  // Filtrar movimientos por búsqueda
+  // Filtrar movimientos por búsqueda y periodo
   const movimientosFiltrados = movimientos.filter(m =>
-    !busqueda || m.concepto?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    m.tercero?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    m.facturaEmitida?.numFactura.toLowerCase().includes(busqueda.toLowerCase())
+    matchPeriodo(m.fechaOperacion) && (
+      !busqueda || m.concepto?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      m.tercero?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      m.facturaEmitida?.numFactura.toLowerCase().includes(busqueda.toLowerCase())
+    )
   );
 
-  // Filtrar documentos por búsqueda
+  // Filtrar documentos por búsqueda y periodo
   const documentosFiltrados = documentos.filter(d =>
-    !busqueda || d.proveedor?.toLowerCase().includes(busqueda.toLowerCase()) ||
-    d.numFactura?.toLowerCase().includes(busqueda.toLowerCase())
+    matchPeriodo(d.fecha) && (
+      !busqueda || d.proveedor?.toLowerCase().includes(busqueda.toLowerCase()) ||
+      d.numFactura?.toLowerCase().includes(busqueda.toLowerCase())
+    )
   );
 
   // Facturas candidatas para vincular (no cobradas o parcialmente cobradas)
@@ -347,12 +371,12 @@ export default function GGCDraxtonPage() {
             <p className="text-lg font-bold text-purple-700">{kpis.totalDocumentosConfirming}</p>
             <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-purple-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Diferencia</p>
-            <p className={`text-lg font-bold ${kpis.totalIngresado - kpis.totalFacturado >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-              {formatMoney(kpis.totalIngresado - kpis.totalFacturado)}
+          <div className="bg-white rounded-lg border-2 border-red-100 p-3">
+            <p className="text-xs text-gray-500 uppercase">Gastos Financieros</p>
+            <p className="text-lg font-bold text-red-600">{formatMoney(kpis.totalGastosFinancieros)}</p>
+            <p className="text-xs text-gray-400" title={`Comisiones: ${formatMoney(kpis.totalComisiones)} | Intereses: ${formatMoney(kpis.totalIntereses)}`}>
+              com. {formatMoney(kpis.totalComisiones)} + int. {formatMoney(kpis.totalIntereses)}
             </p>
-            <p className="text-xs text-gray-400">ingresado - facturado</p>
           </div>
         </div>
       )}
@@ -410,6 +434,29 @@ export default function GGCDraxtonPage() {
             Docs Confirming ({documentos.length})
           </button>
         </div>
+        <select
+          value={periodoFiltro}
+          onChange={(e) => setPeriodoFiltro(e.target.value)}
+          className="border rounded-lg px-3 py-2 text-sm text-gray-900"
+        >
+          <option value="todos">Todo el año</option>
+          <option value="01">Enero</option>
+          <option value="02">Febrero</option>
+          <option value="03">Marzo</option>
+          <option value="04">Abril</option>
+          <option value="05">Mayo</option>
+          <option value="06">Junio</option>
+          <option value="07">Julio</option>
+          <option value="08">Agosto</option>
+          <option value="09">Septiembre</option>
+          <option value="10">Octubre</option>
+          <option value="11">Noviembre</option>
+          <option value="12">Diciembre</option>
+          <option value="T1">T1 (Ene-Mar)</option>
+          <option value="T2">T2 (Abr-Jun)</option>
+          <option value="T3">T3 (Jul-Sep)</option>
+          <option value="T4">T4 (Oct-Dic)</option>
+        </select>
         <div className="relative flex-1 max-w-sm">
           <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
           <input

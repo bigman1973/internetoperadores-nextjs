@@ -59,11 +59,17 @@ export async function GET(request: NextRequest) {
         archivoOneDrive: true,
         carpetaOrigen: true,
         estado: true,
+        confirmingProveedor: true,
         confirmingLineas: {
           select: {
             id: true,
             numFactura: true,
             importe: true,
+            comision: true,
+            intereses: true,
+            tipoInteres: true,
+            gastosFinancieros: true,
+            fechaPago: true,
             notas: true,
             facturaEmitida: {
               select: { id: true, numFactura: true, cliente: true, total: true },
@@ -127,6 +133,14 @@ export async function GET(request: NextRequest) {
     const movimientosSinVincular = movimientosRelevantes.filter(m => !m.facturaEmitidaId).length;
     const totalIngresado = movimientosRelevantes.reduce((sum, m) => sum + Number(m.importe), 0);
 
+    // 5. Gastos financieros (sumar de todas las líneas de confirming)
+    const gastosAgg = await prisma.confirmingLinea.aggregate({
+      _sum: { gastosFinancieros: true, comision: true, intereses: true },
+    });
+    const totalGastosFinancieros = gastosAgg._sum.gastosFinancieros || 0;
+    const totalComisiones = gastosAgg._sum.comision || 0;
+    const totalIntereses = gastosAgg._sum.intereses || 0;
+
     return NextResponse.json({
       facturasEmitidas,
       documentosConfirming,
@@ -142,6 +156,9 @@ export async function GET(request: NextRequest) {
         movimientosSinVincular,
         totalIngresado,
         totalDocumentosConfirming: documentosConfirming.length,
+        totalGastosFinancieros,
+        totalComisiones,
+        totalIntereses,
       },
     });
   } catch (error: any) {

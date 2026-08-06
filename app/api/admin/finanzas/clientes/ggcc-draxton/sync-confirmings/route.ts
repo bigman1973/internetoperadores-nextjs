@@ -33,18 +33,19 @@ const SUBCARPETAS_CONFIRMING = [
   '2. Confirmings Caixabank Draxton 2026',
 ];
 
+// Carpetas a IGNORAR (no parsear archivos dentro de estas)
+const CARPETAS_IGNORAR = ['cesión de créditos firmados', 'cesion de creditos firmados'];
+
 // Extensiones válidas para confirming
 const EXTENSIONES_CONFIRMING = ['pdf', 'xls', 'xlsx'];
 
 /**
  * GET: Estado de sincronización de confirmings
- * Devuelve cuántos archivos hay nuevos sin procesar
  */
 export async function GET() {
   try {
     const driveId = await getDriveId();
     
-    // Obtener IDs ya importados
     const existentes = await prisma.facturaRecibida.findMany({
       where: { 
         oneDriveItemId: { not: null },
@@ -62,6 +63,7 @@ export async function GET() {
       try {
         const items = await listFolderContents(driveId, fullPath);
         const archivos = items.filter((item: any) => {
+          if (item.folder) return false; // Ignorar subcarpetas
           const ext = item.name.toLowerCase().split('.').pop();
           return EXTENSIONES_CONFIRMING.includes(ext || '');
         });
@@ -78,10 +80,15 @@ export async function GET() {
       }
     }
     
-    // También contar líneas de confirming y vinculaciones
+    // Contar líneas y gastos financieros
     const totalLineas = await prisma.confirmingLinea.count();
     const lineasVinculadas = await prisma.confirmingLinea.count({
       where: { facturaEmitidaId: { not: null } },
+    });
+    
+    // Sumar gastos financieros totales
+    const gastosAgg = await prisma.confirmingLinea.aggregate({
+      _sum: { gastosFinancieros: true, comision: true, intereses: true },
     });
     
     return NextResponse.json({
@@ -91,6 +98,11 @@ export async function GET() {
       totalLineas,
       lineasVinculadas,
       lineasSinVincular: totalLineas - lineasVinculadas,
+      gastosFinancieros: {
+        total: gastosAgg._sum.gastosFinancieros || 0,
+        comisiones: gastosAgg._sum.comision || 0,
+        intereses: gastosAgg._sum.intereses || 0,
+      },
     });
   } catch (error: any) {
     console.error('Error en GET sync-confirmings:', error);
@@ -102,23 +114,21 @@ export async function GET() {
  * POST: Ejecuta la sincronización de confirmings
  * 
  * Proceso:
- * 1. Lista archivos en subcarpetas BBVA y CaixaBank
+ * 1. Lista archivos en subcarpetas BBVA y CaixaBank (ignorando "Cesión de Créditos firmados")
  * 2. Descarga los nuevos (no importados)
- * 3. Parsea cada archivo para extraer líneas de factura
- * 4. Crea FacturaRecibida + ConfirmingLinea
+ * 3. Parsea cada archivo para extraer líneas de factura + gastos financieros
+ * 4. Crea FacturaRecibida + ConfirmingLinea (con comisión, intereses, tipo)
  * 5. Auto-vincula con FacturaEmitida por numFactura
  * 6. Actualiza importeCobrado y estado de FacturaEmitida
- * 7. Intenta conciliar con MovimientoBancario
  * 
  * Body: { limite?: number, soloVincular?: boolean }
  */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
-    const limite = Math.min(body.limite || 20, 50);
+    const limite = Math.min(body.limite || 30, 50);
     const soloVincular = body.soloVincular || false;
     
-    // Si soloVincular, solo intentar vincular líneas existentes sin descargar nuevos
     if (soloVincular) {
       const resultado = await vincularLineasPendientes();
       return NextResponse.json(resultado);
@@ -144,12 +154,14 @@ export async function POST(req: NextRequest) {
       lineas?: number;
       vinculadas?: number;
       totalRemesa?: number;
+      gastosFinancieros?: number;
       error?: string;
     }> = [];
     
     let totalProcesados = 0;
     let totalLineasCreadas = 0;
     let totalVinculadas = 0;
+    let totalGastosFinancieros = 0;
     
     for (const subcarpeta of SUBCARPETAS_CONFIRMING) {
       if (totalProcesados >= limite) break;
@@ -164,9 +176,15 @@ export async function POST(req: NextRequest) {
         continue;
       }
       
-      // Filtrar archivos válidos
+      // Filtrar archivos válidos (ignorar subcarpetas como "Cesión de Créditos firmados")
       const archivos = items.filter((item: any) => {
-        const ext = item.name.toLowerCase().split('.').pop();
+        // Ignorar carpetas
+        if (item.folder) return false;
+        // Ignorar archivos dentro de carpetas a ignorar (por si listFolderContents devuelve recursivo)
+        const nameLower = item.name.toLowerCase();
+        if (CARPETAS_IGNORAR.some(c => nameLower.includes(c))) return false;
+        // Solo extensiones válidas
+        const ext = nameLower.split('.').pop();
         return EXTENSIONES_CONFIRMING.includes(ext || '');
       });
       
@@ -207,13 +225,13 @@ export async function POST(req: NextRequest) {
           
           // Determinar proveedor de confirming
           const confirmingProveedor = parseResult.banco === 'BBVA' 
-            ? `BBVA${parseResult.sociedad ? ` (${parseResult.sociedad})` : ''}`
-            : 'CaixaBank';
+            ? `Confirming BBVA (${parseResult.sociedad || 'N/A'})`
+            : 'Confirming CaixaBank';
           
           // Crear FacturaRecibida (documento de confirming)
           const facturaRecibida = await prisma.facturaRecibida.create({
             data: {
-              proveedor: parseResult.cliente || `Confirming ${confirmingProveedor}`,
+              proveedor: parseResult.cliente || confirmingProveedor,
               numFactura: archivo.name.replace(/\.(pdf|xls|xlsx)$/i, ''),
               fecha: parseResult.fechaDocumento 
                 ? parseFechaString(parseResult.fechaDocumento) 
@@ -223,7 +241,7 @@ export async function POST(req: NextRequest) {
               importeIva: 0,
               total: parseResult.totalRemesa,
               totalConfirming: parseResult.totalRemesa,
-              concepto: `Confirming ${confirmingProveedor} - ${parseResult.lineas.length} facturas`,
+              concepto: `${confirmingProveedor} - ${parseResult.lineas.length} fact. | Gastos: ${(parseResult.totalGastosFinancieros || 0).toFixed(2)}€`,
               estado: 'CONTABILIZADA',
               imputacion: 'Draxton',
               archivoOneDrive: `${fullPath}/${archivo.name}`,
@@ -231,31 +249,32 @@ export async function POST(req: NextRequest) {
               carpetaOrigen: `${CARPETAS.CONFIRMING_DRAXTON}/${subcarpeta}`,
               ocrCompletado: true,
               ocrConfianza: 0.95,
-              datosOcrRaw: JSON.stringify(parseResult),
+              datosOcrRaw: JSON.stringify({
+                ...parseResult,
+                rawText: undefined, // No guardar texto crudo para ahorrar espacio
+              }),
               formaPago: 'confirming',
               confirmingProveedor,
             },
           });
           
-          // Crear ConfirmingLineas y auto-vincular
+          // Crear ConfirmingLineas con gastos financieros y auto-vincular
           let lineasVinculadas = 0;
+          let gastosDoc = 0;
           
           for (const linea of parseResult.lineas) {
-            // Buscar factura emitida por número de factura
             const numNorm = normalizarNumFactura(linea.numFactura);
             
-            // Buscar factura emitida por número de factura (corregido: AND + OR combinados correctamente)
+            // Buscar factura emitida
             const facturaEmitida = await prisma.facturaEmitida.findFirst({
               where: {
                 AND: [
-                  // Condición 1: número de factura coincide
                   {
                     OR: [
                       { numFactura: { equals: numNorm, mode: 'insensitive' } },
                       { numFactura: { equals: linea.numFactura, mode: 'insensitive' } },
                     ],
                   },
-                  // Condición 2: es cliente Draxton
                   {
                     OR: [
                       { cliente: { contains: 'Draxton', mode: 'insensitive' } },
@@ -269,23 +288,18 @@ export async function POST(req: NextRequest) {
               select: { id: true, numFactura: true, total: true },
             });
             
-            // Buscar con query más flexible si la anterior no funciona
             let facturaId: string | null = null;
             let importeReal = linea.importe;
             
             if (facturaEmitida) {
               facturaId = facturaEmitida.id;
-              // USAR EL TOTAL DE LA FACTURA EMITIDA como importe real (más fiable que el parseado)
               importeReal = facturaEmitida.total;
             } else {
-              // Intentar búsqueda por normalización
+              // Búsqueda por normalización
               const allDraxton = await prisma.facturaEmitida.findMany({
-                where: {
-                  numFactura: { startsWith: 'DRAX', mode: 'insensitive' },
-                },
+                where: { numFactura: { startsWith: 'DRAX', mode: 'insensitive' } },
                 select: { id: true, numFactura: true, total: true },
               });
-              
               const match = allDraxton.find(f => 
                 normalizarNumFactura(f.numFactura) === numNorm
               );
@@ -295,23 +309,45 @@ export async function POST(req: NextRequest) {
               }
             }
             
+            // Parsear fecha de pago si existe
+            let fechaPago: Date | undefined;
+            if (linea.fechaPago) {
+              const fp = linea.fechaPago.match(/(\d{2})-(\d{2})-(\d{4})/);
+              if (fp) {
+                fechaPago = new Date(parseInt(fp[3]), parseInt(fp[2]) - 1, parseInt(fp[1]));
+              }
+            }
+            
+            const gastosLinea = linea.gastosFinancieros || 
+              ((linea.comision || 0) + (linea.intereses || 0)) || 
+              (linea.importeNeto ? Math.round((linea.importe - linea.importeNeto) * 100) / 100 : 0);
+            
             await prisma.confirmingLinea.create({
               data: {
                 confirmingId: facturaRecibida.id,
                 numFactura: numNorm,
-                // Usar el total de la factura emitida si se vinculó, sino el parseado
                 importe: importeReal,
+                comision: linea.comision || 0,
+                intereses: linea.intereses || 0,
+                tipoInteres: linea.tipoInteres || null,
+                gastosFinancieros: gastosLinea,
+                fechaPago: fechaPago || null,
                 facturaEmitidaId: facturaId,
-                notas: linea.fechaPago ? `Vto: ${linea.fechaPago}` : undefined,
+                notas: linea.tipoInteres 
+                  ? `Tipo: ${linea.tipoInteres}% | Vto: ${linea.fechaPago || linea.fechaVencimiento || '-'}`
+                  : (linea.fechaPago || linea.fechaVencimiento ? `Vto: ${linea.fechaPago || linea.fechaVencimiento}` : undefined),
               },
             });
             
+            gastosDoc += gastosLinea;
             totalLineasCreadas++;
             if (facturaId) {
               lineasVinculadas++;
               totalVinculadas++;
             }
           }
+          
+          totalGastosFinancieros += parseResult.totalGastosFinancieros || gastosDoc;
           
           resultados.push({
             archivo: archivo.name,
@@ -321,6 +357,7 @@ export async function POST(req: NextRequest) {
             lineas: parseResult.lineas.length,
             vinculadas: lineasVinculadas,
             totalRemesa: parseResult.totalRemesa,
+            gastosFinancieros: parseResult.totalGastosFinancieros || gastosDoc,
           });
           
           totalProcesados++;
@@ -337,18 +374,15 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    // Después de importar, actualizar estados de facturas emitidas
+    // Actualizar estados de facturas emitidas
     await actualizarEstadosFacturasEmitidas();
-    
-    // Intentar conciliación bancaria automática
-    const conciliacion = await conciliarMovimientosBancarios();
     
     return NextResponse.json({
       mensaje: `Sincronización completada: ${resultados.filter(r => r.estado === 'ok').length} documentos procesados`,
       procesados: totalProcesados,
       lineasCreadas: totalLineasCreadas,
       lineasVinculadas: totalVinculadas,
-      conciliacion,
+      gastosFinancieros: totalGastosFinancieros,
       resultados,
     });
   } catch (error: any) {
@@ -398,7 +432,6 @@ async function vincularLineasPendientes() {
         where: { id: linea.id },
         data: { 
           facturaEmitidaId: facturaEmitida.id,
-          // Corregir el importe con el total real de la factura emitida
           importe: facturaEmitida.total,
         },
       });
@@ -406,7 +439,6 @@ async function vincularLineasPendientes() {
     }
   }
   
-  // Actualizar estados
   if (vinculadas > 0) {
     await actualizarEstadosFacturasEmitidas();
   }
@@ -422,33 +454,23 @@ async function vincularLineasPendientes() {
  * Actualiza importeCobrado y estado de facturas emitidas basado en confirmingLineas vinculadas
  */
 async function actualizarEstadosFacturasEmitidas() {
-  // Obtener todas las facturas emitidas que tienen líneas de confirming vinculadas
   const facturasConConfirming = await prisma.facturaEmitida.findMany({
-    where: {
-      confirmingLineas: { some: {} },
-    },
+    where: { confirmingLineas: { some: {} } },
     select: {
       id: true,
       total: true,
       importeCobrado: true,
       estado: true,
-      confirmingLineas: {
-        select: { importe: true },
-      },
     },
   });
   
   for (const factura of facturasConConfirming) {
-    // El importeCobrado es el total de la factura (si tiene confirming vinculado, está cobrada al 100%)
-    // Cada línea de confirming representa una cesión de crédito de ESA factura, no un pago parcial
-    // Así que si hay al menos 1 línea de confirming vinculada, la factura está cobrada
-    const importeCobrado = factura.total; // El confirming cubre el 100% de la factura
-    
-    if (factura.estado !== 'COBRADA' || Math.abs((factura.importeCobrado || 0) - importeCobrado) > 0.01) {
+    // Si tiene confirming vinculado, está cobrada al 100%
+    if (factura.estado !== 'COBRADA' || Math.abs((factura.importeCobrado || 0) - factura.total) > 0.01) {
       await prisma.facturaEmitida.update({
         where: { id: factura.id },
         data: {
-          importeCobrado,
+          importeCobrado: factura.total,
           estado: 'COBRADA',
           formaCobro: 'Confirming',
         },
@@ -457,127 +479,9 @@ async function actualizarEstadosFacturasEmitidas() {
   }
 }
 
-/**
- * Concilia automáticamente movimientos bancarios con facturas emitidas de Draxton
- * 
- * Busca ingresos bancarios que coincidan con los importes de confirming
- * y los vincula con las facturas emitidas correspondientes.
- */
-async function conciliarMovimientosBancarios() {
-  // Obtener documentos de confirming con sus totales
-  const confirmings = await prisma.facturaRecibida.findMany({
-    where: {
-      carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
-      totalConfirming: { not: null, gt: 0 },
-    },
-    select: {
-      id: true,
-      totalConfirming: true,
-      fecha: true,
-      confirmingProveedor: true,
-      confirmingLineas: {
-        select: {
-          facturaEmitidaId: true,
-          importe: true,
-        },
-        where: { facturaEmitidaId: { not: null } },
-      },
-    },
-  });
-  
-  // Obtener movimientos bancarios de ingresos no conciliados que podrían ser de confirming
-  const movimientosSinConciliar = await prisma.movimientoBancario.findMany({
-    where: {
-      importe: { gt: 0 },
-      conciliado: false,
-      facturaEmitidaId: null,
-      OR: [
-        { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
-        { concepto: { contains: 'CESION', mode: 'insensitive' } },
-        { concepto: { contains: 'CREDITO', mode: 'insensitive' } },
-        { concepto: { contains: 'DRAXTON', mode: 'insensitive' } },
-        { tercero: { contains: 'BBVA', mode: 'insensitive' } },
-        { tercero: { contains: 'CAIXA', mode: 'insensitive' } },
-      ],
-    },
-    select: {
-      id: true,
-      importe: true,
-      fechaOperacion: true,
-      concepto: true,
-      tercero: true,
-    },
-    orderBy: { fechaOperacion: 'desc' },
-  });
-  
-  let conciliados = 0;
-  const detalles: Array<{ movimientoId: string; confirmingId: string; importe: number }> = [];
-  
-  for (const confirming of confirmings) {
-    if (!confirming.totalConfirming || confirming.confirmingLineas.length === 0) continue;
-    
-    // Buscar un movimiento bancario que coincida con el total del confirming
-    // Tolerancia: el importe neto puede ser ligeramente menor por intereses/comisiones (hasta 5%)
-    const totalConfirming = confirming.totalConfirming;
-    const toleranciaMin = totalConfirming * 0.93; // Hasta 7% menos por intereses
-    const toleranciaMax = totalConfirming * 1.01; // Hasta 1% más (redondeos)
-    
-    const movimientoMatch = movimientosSinConciliar.find(m => {
-      const importe = Number(m.importe);
-      // El importe del movimiento debe estar en el rango
-      if (importe < toleranciaMin || importe > toleranciaMax) return false;
-      
-      // La fecha del movimiento debe ser posterior o igual a la fecha del confirming
-      const fechaMov = new Date(m.fechaOperacion);
-      const fechaConf = new Date(confirming.fecha);
-      if (fechaMov < fechaConf) return false;
-      
-      // No debe estar demasiado lejos (máximo 120 días después)
-      const diffDias = (fechaMov.getTime() - fechaConf.getTime()) / (1000 * 60 * 60 * 24);
-      if (diffDias > 120) return false;
-      
-      return true;
-    });
-    
-    if (movimientoMatch) {
-      // Vincular el movimiento con la primera factura emitida del confirming
-      const primeraFactura = confirming.confirmingLineas[0];
-      if (primeraFactura?.facturaEmitidaId) {
-        await prisma.movimientoBancario.update({
-          where: { id: movimientoMatch.id },
-          data: {
-            facturaEmitidaId: primeraFactura.facturaEmitidaId,
-            conciliado: true,
-            tipoDocumento: 'factura',
-            notaConciliacion: `Auto-conciliado: Confirming ${confirming.confirmingProveedor || ''} (${confirming.confirmingLineas.length} facturas)`,
-          },
-        });
-        
-        // Quitar de la lista para no reusar
-        const idx = movimientosSinConciliar.indexOf(movimientoMatch);
-        if (idx > -1) movimientosSinConciliar.splice(idx, 1);
-        
-        conciliados++;
-        detalles.push({
-          movimientoId: movimientoMatch.id,
-          confirmingId: confirming.id,
-          importe: Number(movimientoMatch.importe),
-        });
-      }
-    }
-  }
-  
-  return {
-    movimientosAnalizados: movimientosSinConciliar.length + conciliados,
-    conciliados,
-    detalles,
-  };
-}
-
 // --- Utilidades ---
 
 function parseFechaString(fecha: string): Date {
-  // Formato: DD/MM/YYYY o DD-MM-YYYY
   const match = fecha.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (match) {
     return new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));

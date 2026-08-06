@@ -1142,6 +1142,11 @@ model ConfirmingLinea {
   confirmingId     String   @map("confirming_id")
   numFactura       String   @map("num_factura")
   importe          Float    @default(0)
+  comision         Float?   @default(0)
+  intereses        Float?   @default(0)
+  tipoInteres      Float?   @map("tipo_interes")
+  gastosFinancieros Float?  @default(0) @map("gastos_financieros")
+  fechaPago        DateTime? @map("fecha_pago")
   facturaEmitidaId String?  @map("factura_emitida_id")
   notas            String?
   createdAt        DateTime @default(now()) @map("created_at")
