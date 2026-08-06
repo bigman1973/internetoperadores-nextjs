@@ -33,8 +33,8 @@ const SUBCARPETAS_CONFIRMING = [
   '2. Confirmings Caixabank Draxton 2026',
 ];
 
-// Carpetas a IGNORAR (no parsear archivos dentro de estas)
-const CARPETAS_IGNORAR = ['cesión de créditos firmados', 'cesion de creditos firmados'];
+// Archivos a IGNORAR por nombre (formato antiguo que no parsea bien)
+const NOMBRES_IGNORAR = ['cesión de créditos', 'cesion de creditos', 'cesión de crèdits', 'cesion de credits'];
 
 // Extensiones válidas para confirming
 const EXTENSIONES_CONFIRMING = ['pdf', 'xls', 'xlsx'];
@@ -63,8 +63,10 @@ export async function GET() {
       try {
         const items = await listFolderContents(driveId, fullPath);
         const archivos = items.filter((item: any) => {
-          if (item.folder) return false; // Ignorar subcarpetas
-          const ext = item.name.toLowerCase().split('.').pop();
+          if (item.folder) return false;
+          const nameLower = item.name.toLowerCase();
+          if (NOMBRES_IGNORAR.some(n => nameLower.includes(n))) return false;
+          const ext = nameLower.split('.').pop();
           return EXTENSIONES_CONFIRMING.includes(ext || '');
         });
         
@@ -176,16 +178,28 @@ export async function POST(req: NextRequest) {
         continue;
       }
       
-      // Filtrar archivos válidos (ignorar subcarpetas como "Cesión de Créditos firmados")
-      const archivos = items.filter((item: any) => {
-        // Ignorar carpetas
+      // Filtrar archivos válidos
+      const archivosRaw = items.filter((item: any) => {
         if (item.folder) return false;
-        // Ignorar archivos dentro de carpetas a ignorar (por si listFolderContents devuelve recursivo)
         const nameLower = item.name.toLowerCase();
-        if (CARPETAS_IGNORAR.some(c => nameLower.includes(c))) return false;
-        // Solo extensiones válidas
+        // Ignorar archivos de "Cesión de Créditos" (formato antiguo)
+        if (NOMBRES_IGNORAR.some(n => nameLower.includes(n))) return false;
         const ext = nameLower.split('.').pop();
         return EXTENSIONES_CONFIRMING.includes(ext || '');
+      });
+      
+      // Para CaixaBank: si hay PDF y XLS con mismo nombre base, preferir XLS (tiene más detalle)
+      const archivos = archivosRaw.filter((item: any) => {
+        const nameLower = item.name.toLowerCase();
+        const ext = nameLower.split('.').pop();
+        if (ext === 'pdf') {
+          const baseName = item.name.replace(/\.pdf$/i, '');
+          const hasXls = archivosRaw.some((other: any) => 
+            other.name.replace(/\.(xls|xlsx)$/i, '') === baseName && other.id !== item.id
+          );
+          if (hasXls) return false; // Saltar PDF si existe XLS
+        }
+        return true;
       });
       
       for (const archivo of archivos) {
