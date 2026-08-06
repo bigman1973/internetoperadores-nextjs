@@ -110,8 +110,9 @@ export default function GGCDraxtonPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
 
-  // Filtro por periodo
+  // Filtro por periodo y banco
   const [periodoFiltro, setPeriodoFiltro] = useState<string>('todos');
+  const [bancoFiltro, setBancoFiltro] = useState<string>('todos');
 
   // Confirming detalle expandido
   const [expandedConfirming, setExpandedConfirming] = useState<string | null>(null);
@@ -226,6 +227,15 @@ export default function GGCDraxtonPage() {
     return mes === periodoFiltro;
   }
 
+  // Función para filtrar por banco
+  function matchBanco(doc: DocumentoConfirming): boolean {
+    if (bancoFiltro === 'todos') return true;
+    const prov = (doc.confirmingProveedor || doc.proveedor || '').toLowerCase();
+    if (bancoFiltro === 'bbva') return prov.includes('bbva');
+    if (bancoFiltro === 'caixabank') return prov.includes('caixa');
+    return true;
+  }
+
   const facturasFiltradas = facturas.filter(f =>
     matchPeriodo(f.fecha) && (
       !busqueda || f.cliente.toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -243,9 +253,9 @@ export default function GGCDraxtonPage() {
     )
   );
 
-  // Filtrar documentos por búsqueda y periodo
+  // Filtrar documentos por búsqueda, periodo y banco
   const documentosFiltrados = documentos.filter(d =>
-    matchPeriodo(d.fecha) && (
+    matchPeriodo(d.fecha) && matchBanco(d) && (
       !busqueda || d.proveedor?.toLowerCase().includes(busqueda.toLowerCase()) ||
       d.numFactura?.toLowerCase().includes(busqueda.toLowerCase())
     )
@@ -333,12 +343,12 @@ export default function GGCDraxtonPage() {
         </div>
       </div>
 
-      {/* KPIs - calculados dinámicamente según filtro de periodo */}
+      {/* KPIs - calculados dinámicamente según filtro de periodo y banco */}
       {(() => {
         // Facturas filtradas solo por periodo (sin búsqueda de texto)
         const facturasDelPeriodo = facturas.filter(f => matchPeriodo(f.fecha));
         const movsDelPeriodo = movimientos.filter(m => matchPeriodo(m.fechaOperacion));
-        const docsDelPeriodo = documentos.filter(d => matchPeriodo(d.fecha));
+        const docsDelPeriodo = documentos.filter(d => matchPeriodo(d.fecha) && matchBanco(d));
         
         const totalFacturado = facturasDelPeriodo.reduce((s, f) => s + f.total, 0);
         const totalCobrado = facturasDelPeriodo.reduce((s, f) => s + (f.importeCobrado || 0), 0);
@@ -348,7 +358,7 @@ export default function GGCDraxtonPage() {
         const totalIngresado = movsDelPeriodo.reduce((s, m) => s + m.importe, 0);
         const movsSinVincular = movsDelPeriodo.filter(m => !m.facturaEmitidaId).length;
         
-        // Gastos financieros: sumar de las líneas de confirming de los documentos del periodo
+        // Gastos financieros: sumar de las líneas de confirming de los documentos del periodo + banco
         let gastosFinancieros = 0;
         let comisiones = 0;
         let intereses = 0;
@@ -489,6 +499,15 @@ export default function GGCDraxtonPage() {
           <option value="T2">T2 (Abr-Jun)</option>
           <option value="T3">T3 (Jul-Sep)</option>
           <option value="T4">T4 (Oct-Dic)</option>
+        </select>
+        <select
+          value={bancoFiltro}
+          onChange={(e) => setBancoFiltro(e.target.value)}
+          className="border rounded-lg px-3 py-2 text-sm text-gray-900"
+        >
+          <option value="todos">Todos los bancos</option>
+          <option value="bbva">BBVA</option>
+          <option value="caixabank">CaixaBank</option>
         </select>
         <div className="relative flex-1 max-w-sm">
           <MagnifyingGlassIcon className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
