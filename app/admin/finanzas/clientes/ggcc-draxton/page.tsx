@@ -51,6 +51,11 @@ interface ConfirmingLineaData {
   id: string;
   numFactura: string;
   importe: number;
+  comision: number | null;
+  intereses: number | null;
+  tipoInteres: number | null;
+  gastosFinancieros: number | null;
+  fechaPago: string | null;
   notas: string | null;
   facturaEmitida: { id: string; numFactura: string; cliente: string; total: number } | null;
 }
@@ -66,6 +71,7 @@ interface DocumentoConfirming {
   archivoUrl: string | null;
   archivoOneDrive: string | null;
   carpetaOrigen: string | null;
+  confirmingProveedor: string | null;
   estado: string;
   confirmingLineas: ConfirmingLineaData[];
 }
@@ -327,59 +333,86 @@ export default function GGCDraxtonPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      {kpis && (
+      {/* KPIs - calculados dinámicamente según filtro de periodo */}
+      {(() => {
+        // Facturas filtradas solo por periodo (sin búsqueda de texto)
+        const facturasDelPeriodo = facturas.filter(f => matchPeriodo(f.fecha));
+        const movsDelPeriodo = movimientos.filter(m => matchPeriodo(m.fechaOperacion));
+        const docsDelPeriodo = documentos.filter(d => matchPeriodo(d.fecha));
+        
+        const totalFacturado = facturasDelPeriodo.reduce((s, f) => s + f.total, 0);
+        const totalCobrado = facturasDelPeriodo.reduce((s, f) => s + (f.importeCobrado || 0), 0);
+        const pendienteCobro = totalFacturado - totalCobrado;
+        const facturasConCobro = facturasDelPeriodo.filter(f => f.estado === 'COBRADA').length;
+        const facturasPendientes = facturasDelPeriodo.filter(f => f.estado !== 'COBRADA').length;
+        const totalIngresado = movsDelPeriodo.reduce((s, m) => s + m.importe, 0);
+        const movsSinVincular = movsDelPeriodo.filter(m => !m.facturaEmitidaId).length;
+        
+        // Gastos financieros: sumar de las líneas de confirming de los documentos del periodo
+        let gastosFinancieros = 0;
+        let comisiones = 0;
+        let intereses = 0;
+        docsDelPeriodo.forEach(d => {
+          d.confirmingLineas.forEach(l => {
+            gastosFinancieros += l.gastosFinancieros || 0;
+            comisiones += l.comision || 0;
+            intereses += l.intereses || 0;
+          });
+        });
+        
+        return (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
           <div className="bg-white rounded-lg border-2 border-indigo-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Facturado</p>
-            <p className="text-lg font-bold text-gray-900">{formatMoney(kpis.totalFacturado)}</p>
-            <p className="text-xs text-gray-400">{kpis.totalFacturas} facturas</p>
+            <p className="text-lg font-bold text-gray-900">{formatMoney(totalFacturado)}</p>
+            <p className="text-xs text-gray-400">{facturasDelPeriodo.length} facturas</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-green-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Cobrado</p>
-            <p className="text-lg font-bold text-green-700">{formatMoney(kpis.totalCobrado)}</p>
-            <p className="text-xs text-gray-400">{kpis.facturasConCobro} cobradas</p>
+            <p className="text-lg font-bold text-green-700">{formatMoney(totalCobrado)}</p>
+            <p className="text-xs text-gray-400">{facturasConCobro} cobradas</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-orange-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Pendiente</p>
-            <p className="text-lg font-bold text-orange-600">{formatMoney(kpis.pendienteCobro)}</p>
-            <p className="text-xs text-gray-400">{kpis.facturasPendientes} pendientes</p>
+            <p className="text-lg font-bold text-orange-600">{formatMoney(pendienteCobro)}</p>
+            <p className="text-xs text-gray-400">{facturasPendientes} pendientes</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-blue-100 p-3">
             <p className="text-xs text-gray-500 uppercase">% Cobrado</p>
             <p className="text-lg font-bold text-blue-700">
-              {kpis.totalFacturado > 0 ? Math.round((kpis.totalCobrado / kpis.totalFacturado) * 100) : 0}%
+              {totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0}%
             </p>
           </div>
           <div className="bg-white rounded-lg border-2 border-gray-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Ingresado</p>
-            <p className="text-lg font-bold text-gray-900">{formatMoney(kpis.totalIngresado)}</p>
-            <p className="text-xs text-gray-400">{kpis.totalMovimientos} mov.</p>
+            <p className="text-lg font-bold text-gray-900">{formatMoney(totalIngresado)}</p>
+            <p className="text-xs text-gray-400">{movsDelPeriodo.length} mov.</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-green-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Vinculados</p>
-            <p className="text-lg font-bold text-green-700">{kpis.totalMovimientos - kpis.movimientosSinVincular}</p>
+            <p className="text-lg font-bold text-green-700">{movsDelPeriodo.length - movsSinVincular}</p>
             <p className="text-xs text-gray-400">con factura</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-red-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Sin vincular</p>
-            <p className="text-lg font-bold text-red-600">{kpis.movimientosSinVincular}</p>
+            <p className="text-lg font-bold text-red-600">{movsSinVincular}</p>
             <p className="text-xs text-gray-400">sin factura</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-purple-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Docs Confirming</p>
-            <p className="text-lg font-bold text-purple-700">{kpis.totalDocumentosConfirming}</p>
+            <p className="text-lg font-bold text-purple-700">{docsDelPeriodo.length}</p>
             <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
           <div className="bg-white rounded-lg border-2 border-red-100 p-3">
             <p className="text-xs text-gray-500 uppercase">Gastos Financieros</p>
-            <p className="text-lg font-bold text-red-600">{formatMoney(kpis.totalGastosFinancieros)}</p>
-            <p className="text-xs text-gray-400" title={`Comisiones: ${formatMoney(kpis.totalComisiones)} | Intereses: ${formatMoney(kpis.totalIntereses)}`}>
-              com. {formatMoney(kpis.totalComisiones)} + int. {formatMoney(kpis.totalIntereses)}
+            <p className="text-lg font-bold text-red-600">{formatMoney(gastosFinancieros)}</p>
+            <p className="text-xs text-gray-400" title={`Comisiones: ${formatMoney(comisiones)} | Intereses: ${formatMoney(intereses)}`}>
+              com. {formatMoney(comisiones)} + int. {formatMoney(intereses)}
             </p>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Resultado de sincronización */}
       {syncResult && (
