@@ -34,13 +34,12 @@ export async function GET(
       const driveId = process.env.SHAREPOINT_DRIVE_ID;
       
       if (!driveId) {
-        // Fallback: buscar el drive dinámicamente
         const { siteId } = await findSharePointSite();
         const dynamicDriveId = await getSiteDrive(siteId);
-        return await fetchAndReturnPdf(token, dynamicDriveId, factura.oneDriveItemId, factura.archivoOneDrive);
+        return await fetchAndReturnFile(token, dynamicDriveId, factura.oneDriveItemId, factura.archivoOneDrive);
       }
 
-      return await fetchAndReturnPdf(token, driveId, factura.oneDriveItemId, factura.archivoOneDrive);
+      return await fetchAndReturnFile(token, driveId, factura.oneDriveItemId, factura.archivoOneDrive);
     }
 
     // Opción 2: Solo tiene ruta en OneDrive (buscar por path)
@@ -48,7 +47,6 @@ export async function GET(
       const { siteId } = await findSharePointSite();
       const driveId = await getSiteDrive(siteId);
 
-      // Obtener metadata del archivo por ruta
       const encodedPath = factura.archivoOneDrive
         .split('/')
         .map(segment => encodeURIComponent(segment))
@@ -70,25 +68,26 @@ export async function GET(
 
       const meta = await metaRes.json();
       
-      // Guardar el itemId para futuras consultas (evitar buscar por ruta cada vez)
       if (meta.id) {
         await prisma.facturaRecibida.update({
           where: { id },
           data: { oneDriveItemId: meta.id },
-        }).catch(() => {}); // No bloquear si falla el update
+        }).catch(() => {});
       }
 
       const downloadUrl = meta['@microsoft.graph.downloadUrl'];
       if (downloadUrl) {
-        // Descargar y servir el PDF
         const fileRes = await fetch(downloadUrl);
         const buffer = await fileRes.arrayBuffer();
-        const fileName = factura.archivoOneDrive.split('/').pop() || 'documento.pdf';
+        const fileName = factura.archivoOneDrive.split('/').pop() || 'documento';
+        const contentType = getContentType(fileName);
 
         return new NextResponse(buffer, {
           headers: {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': `inline; filename="${fileName}"`,
+            'Content-Type': contentType,
+            'Content-Disposition': contentType === 'application/pdf' 
+              ? `inline; filename="${fileName}"` 
+              : `attachment; filename="${fileName}"`,
             'Cache-Control': 'private, max-age=3600',
           },
         });
@@ -105,11 +104,11 @@ export async function GET(
 }
 
 /**
- * Helper: obtiene el PDF por itemId y lo devuelve como respuesta
+ * Helper: obtiene el archivo por itemId y lo devuelve con el Content-Type correcto
  */
-async function fetchAndReturnPdf(token: string, driveId: string, itemId: string, fileName: string | null) {
+async function fetchAndReturnFile(token: string, driveId: string, itemId: string, fileName: string | null) {
   const metaRes = await fetch(
-    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}?$select=@microsoft.graph.downloadUrl`,
+    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${itemId}?$select=@microsoft.graph.downloadUrl,name`,
     { headers: { Authorization: `Bearer ${token}` } }
   );
 
@@ -126,13 +125,33 @@ async function fetchAndReturnPdf(token: string, driveId: string, itemId: string,
 
   const fileRes = await fetch(downloadUrl);
   const buffer = await fileRes.arrayBuffer();
-  const name = fileName?.split('/').pop() || 'factura.pdf';
+  const name = meta.name || fileName?.split('/').pop() || 'documento';
+  const contentType = getContentType(name);
 
   return new NextResponse(buffer, {
     headers: {
-      'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="${name}"`,
+      'Content-Type': contentType,
+      'Content-Disposition': contentType === 'application/pdf'
+        ? `inline; filename="${name}"`
+        : `attachment; filename="${name}"`,
       'Cache-Control': 'private, max-age=3600',
     },
   });
+}
+
+/**
+ * Determina el Content-Type según la extensión del archivo
+ */
+function getContentType(fileName: string): string {
+  const ext = fileName.toLowerCase().split('.').pop();
+  switch (ext) {
+    case 'pdf': return 'application/pdf';
+    case 'xls': return 'application/vnd.ms-excel';
+    case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'doc': return 'application/msword';
+    case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'png': return 'image/png';
+    case 'jpg': case 'jpeg': return 'image/jpeg';
+    default: return 'application/octet-stream';
+  }
 }
