@@ -411,12 +411,16 @@ export async function POST(req: NextRequest) {
     // Actualizar estados de facturas emitidas
     await actualizarEstadosFacturasEmitidas();
     
+    // Conciliar movimientos bancarios con facturas a través de confirmings
+    const conciliacion = await conciliarMovimientosBancarios();
+    
     return NextResponse.json({
       mensaje: `Sincronización completada: ${resultados.filter(r => r.estado === 'ok').length} documentos procesados`,
       procesados: totalProcesados,
       lineasCreadas: totalLineasCreadas,
       lineasVinculadas: totalVinculadas,
       gastosFinancieros: totalGastosFinancieros,
+      conciliacion,
       resultados,
     });
   } catch (error: any) {
@@ -477,10 +481,14 @@ async function vincularLineasPendientes() {
     await actualizarEstadosFacturasEmitidas();
   }
   
+  // Conciliar movimientos bancarios con facturas a través de confirmings
+  const conciliacion = await conciliarMovimientosBancarios();
+  
   return {
     mensaje: `Vinculación completada: ${vinculadas} de ${lineasSinVincular.length} líneas vinculadas`,
     totalPendientes: lineasSinVincular.length,
     vinculadas,
+    conciliacion,
   };
 }
 
@@ -511,6 +519,156 @@ async function actualizarEstadosFacturasEmitidas() {
       });
     }
   }
+}
+
+/**
+ * Concilia movimientos bancarios con facturas emitidas a través de los confirmings.
+ * 
+ * Lógica:
+ * 1. Busca movimientos bancarios sin vincular que sean de Draxton/Confirming
+ * 2. Para cada movimiento, busca un documento de confirming cuyo total neto
+ *    coincida con el importe del movimiento (tolerancia 10% por intereses)
+ * 3. Si encuentra match, vincula el movimiento con las facturas del confirming
+ * 
+ * Patrones de concepto:
+ * - BBVA: "ANTICIPS CONFIRMING - DRAXTON POWERTRAIN CHASSIS S."
+ * - Santander/CaixaBank: "Cesion De Creditos Del Cliente Draxton"
+ */
+async function conciliarMovimientosBancarios() {
+  // 1. Obtener movimientos sin vincular que sean de Draxton/Confirming
+  const movsSinVincular = await prisma.movimientoBancario.findMany({
+    where: {
+      importe: { gt: 0 },
+      facturaEmitidaId: null,
+      OR: [
+        { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
+        { concepto: { contains: 'CESION DE CREDITO', mode: 'insensitive' } },
+        { concepto: { contains: 'Draxton', mode: 'insensitive' } },
+        { tercero: { contains: 'Draxton', mode: 'insensitive' } },
+      ],
+    },
+    select: {
+      id: true,
+      fechaOperacion: true,
+      concepto: true,
+      tercero: true,
+      importe: true,
+      cuenta: { select: { banco: true } },
+    },
+    orderBy: { fechaOperacion: 'desc' },
+  });
+  
+  if (movsSinVincular.length === 0) {
+    return { movimientos: 0, conciliados: 0 };
+  }
+  
+  // 2. Obtener todos los documentos de confirming con sus líneas vinculadas
+  const docsConfirming = await prisma.facturaRecibida.findMany({
+    where: {
+      carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
+    },
+    select: {
+      id: true,
+      numFactura: true,
+      total: true,
+      fecha: true,
+      confirmingProveedor: true,
+      confirmingLineas: {
+        where: { facturaEmitidaId: { not: null } },
+        select: {
+          facturaEmitidaId: true,
+          importe: true,
+          facturaEmitida: { select: { id: true, numFactura: true, total: true } },
+        },
+      },
+    },
+  });
+  
+  let conciliados = 0;
+  
+  for (const mov of movsSinVincular) {
+    const importeMov = Number(mov.importe);
+    const concepto = (mov.concepto || '').toLowerCase();
+    const banco = (mov.cuenta?.banco || '').toLowerCase();
+    
+    // Determinar qué banco originó el confirming
+    const esBBVA = concepto.includes('anticips confirming') || banco.includes('bbva');
+    const esCaixa = concepto.includes('cesion de credito') || concepto.includes('caixabank') || banco.includes('santander');
+    
+    // Buscar confirming que coincida por importe (tolerancia 10% por intereses/comisiones)
+    let bestMatch: typeof docsConfirming[0] | null = null;
+    let bestDiff = Infinity;
+    
+    for (const doc of docsConfirming) {
+      if (!doc.total || doc.confirmingLineas.length === 0) continue;
+      
+      // Filtrar por banco si es posible
+      const provLower = (doc.confirmingProveedor || '').toLowerCase();
+      if (esBBVA && !provLower.includes('bbva')) continue;
+      if (esCaixa && !provLower.includes('caixa')) continue;
+      
+      // Comparar importe del movimiento con total del confirming
+      // El banco ingresa el total NETO (total - intereses - comisiones)
+      const totalDoc = Number(doc.total);
+      const diff = Math.abs(importeMov - totalDoc);
+      const tolerancia = totalDoc * 0.10; // 10% tolerancia
+      
+      if (diff <= tolerancia && diff < bestDiff) {
+        // Verificar que la fecha del movimiento sea posterior a la del confirming
+        if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
+          bestMatch = doc;
+          bestDiff = diff;
+        }
+      }
+      
+      // También intentar match con la suma de facturas vinculadas
+      const sumaFacturas = doc.confirmingLineas.reduce((s, l) => s + Number(l.importe || 0), 0);
+      const diffSuma = Math.abs(importeMov - sumaFacturas);
+      if (diffSuma <= sumaFacturas * 0.10 && diffSuma < bestDiff) {
+        if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
+          bestMatch = doc;
+          bestDiff = diffSuma;
+        }
+      }
+    }
+    
+    if (bestMatch && bestMatch.confirmingLineas.length > 0) {
+      // Vincular el movimiento con la primera factura del confirming
+      // (o la que más se acerque al importe)
+      let facturaVinculada = bestMatch.confirmingLineas[0].facturaEmitida;
+      
+      // Si el confirming tiene múltiples facturas, buscar la que mejor coincida
+      if (bestMatch.confirmingLineas.length > 1) {
+        // Vincular con la factura más grande (la principal)
+        let maxImporte = 0;
+        for (const linea of bestMatch.confirmingLineas) {
+          if (linea.facturaEmitida && linea.facturaEmitida.total > maxImporte) {
+            maxImporte = linea.facturaEmitida.total;
+            facturaVinculada = linea.facturaEmitida;
+          }
+        }
+      }
+      
+      if (facturaVinculada) {
+        await prisma.movimientoBancario.update({
+          where: { id: mov.id },
+          data: {
+            facturaEmitidaId: facturaVinculada.id,
+            conciliado: true,
+            categoria: 'Draxton',
+            tipoPago: 'Confirming',
+            notaConciliacion: `Auto-conciliado con ${bestMatch.numFactura} (${bestMatch.confirmingLineas.length} fact.)`,
+          },
+        });
+        conciliados++;
+      }
+    }
+  }
+  
+  return {
+    movimientos: movsSinVincular.length,
+    conciliados,
+  };
 }
 
 // --- Utilidades ---
