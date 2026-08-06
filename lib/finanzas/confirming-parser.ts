@@ -180,6 +180,9 @@ function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: strin
     }
     
     // PASO 4: Extraer importes (ahora correctamente separados)
+    // Estructura de la línea: [comisión EUR] [importe_factura EUR] [código+interés EUR]
+    // El 2º importe es SIEMPRE el de la factura
+    // El 3º puede ser falso positivo (ej: "2.4836,14" → regex captura "836,14")
     const importeRegex = /(\d{1,3}(?:\.\d{3})*,\d{2})\s*EUR/g;
     const importesEnLinea: number[] = [];
     let m;
@@ -188,10 +191,13 @@ function parseBBVAFormatoNuevo(text: string, fileName?: string, sociedad?: strin
       importesEnLinea.push(val);
     }
     
-    // El importe de la factura es el más grande (comisiones/intereses son mucho menores)
+    // El importe de la factura es el SEGUNDO (posición [1])
+    // Si solo hay 1, usar ese. Si hay 0, dejar en 0.
     let importe = 0;
-    if (importesEnLinea.length > 0) {
-      importe = Math.max(...importesEnLinea);
+    if (importesEnLinea.length >= 2) {
+      importe = importesEnLinea[1]; // 2º importe = importe factura
+    } else if (importesEnLinea.length === 1) {
+      importe = importesEnLinea[0];
     }
     
     lineas.push({
