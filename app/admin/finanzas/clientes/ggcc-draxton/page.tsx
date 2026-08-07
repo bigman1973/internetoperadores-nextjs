@@ -729,23 +729,27 @@ export default function GGCDraxtonPage() {
                       <div className="text-right flex-shrink-0">
                         {(() => {
                           const sumaFacturas = totalLineas;
+                          // totalConfirming = neto real del PDF ("Líquid a favor seu")
+                          const netoReal = d.totalConfirming && d.totalConfirming !== d.total ? d.totalConfirming : null;
                           const gastosDoc = d.confirmingLineas.reduce((s, l) => s + (l.gastosFinancieros || 0), 0);
-                          const importeNeto = sumaFacturas - gastosDoc;
                           return (
                             <>
                               <p className="text-sm font-bold text-green-700">
                                 {sumaFacturas > 0 ? formatMoney(sumaFacturas) : (displayTotal > 0 ? formatMoney(displayTotal) : '-')}
                               </p>
-                              {gastosDoc > 0 && (
-                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)}`}>
-                                  Neto banco: {formatMoney(importeNeto)}
+                              {netoReal && netoReal > 0 ? (
+                                <p className="text-xs text-blue-600" title={`Gastos: ${formatMoney((d.total || 0) - netoReal)}`}>
+                                  Neto banco: {formatMoney(netoReal)}
                                 </p>
-                              )}
-                              {gastosDoc === 0 && sumaFacturas > 0 && (
+                              ) : gastosDoc > 0 ? (
+                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)}`}>
+                                  Neto banco: {formatMoney(sumaFacturas - gastosDoc)}
+                                </p>
+                              ) : sumaFacturas > 0 ? (
                                 <p className="text-xs text-green-600">
                                   Suma fact: {formatMoney(sumaFacturas)}
                                 </p>
-                              )}
+                              ) : null}
                             </>
                           );
                         })()}

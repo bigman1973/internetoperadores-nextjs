@@ -270,12 +270,12 @@ export async function POST(req: NextRequest) {
               fecha: parseResult.fechaDocumento 
                 ? parseFechaString(parseResult.fechaDocumento) 
                 : new Date(),
-              base: parseResult.totalRemesa,
+              base: parseResult.totalNeto || parseResult.totalRemesa, // Neto = líquid a favor (lo que abona el banco)
               tipoIva: 0,
               importeIva: 0,
-              total: parseResult.totalRemesa,
-              totalConfirming: parseResult.totalRemesa,
-              concepto: `${confirmingProveedor} - ${parseResult.lineas.length} fact. | Gastos: ${(parseResult.totalGastosFinancieros || 0).toFixed(2)}€`,
+              total: parseResult.totalRemesa, // Total nominal (suma facturas)
+              totalConfirming: parseResult.totalNeto || parseResult.totalRemesa, // Neto banco
+              concepto: `${confirmingProveedor} - ${parseResult.lineas.length} fact. | Neto: ${(parseResult.totalNeto || parseResult.totalRemesa).toFixed(2)}€ | Gastos: ${(parseResult.totalGastosFinancieros || 0).toFixed(2)}€`,
               estado: 'CONTABILIZADA',
               imputacion: 'Draxton',
               archivoOneDrive: `${fullPath}/${archivo.name}`,
@@ -574,6 +574,8 @@ async function conciliarMovimientosBancarios() {
       id: true,
       numFactura: true,
       total: true,
+      base: true, // Importe neto real (Líquid a favor seu)
+      totalConfirming: true, // También neto
       fecha: true,
       confirmingProveedor: true,
       confirmingLineas: {
@@ -618,29 +620,46 @@ async function conciliarMovimientosBancarios() {
       if (esBBVA && !provLower.includes('bbva')) continue;
       if (esCaixa && !provLower.includes('caixa')) continue;
       
-      // Calcular importe NETO = suma facturas - gastos financieros
-      const sumaFacturas = doc.confirmingLineas.reduce((s, l) => s + Number(l.importe || 0), 0);
-      const gastosTotal = doc.confirmingLineas.reduce((s, l) => s + Number(l.gastosFinancieros || 0), 0);
-      const importeNeto = sumaFacturas - gastosTotal;
+      // Usar el importe NETO REAL del documento ("Líquid a favor seu" / "base")
+      // Este es el dato exacto que coincide con lo que abona el banco
+      const netoReal = Number(doc.base || doc.totalConfirming || 0);
+      const totalDoc = Number(doc.total || 0);
       
-      // Match principal: importe movimiento vs importe neto (tolerancia 2%)
-      const diff = Math.abs(importeMov - importeNeto);
-      const tolerancia = importeNeto > 0 ? importeNeto * 0.02 : sumaFacturas * 0.02;
-      
-      if (diff <= tolerancia && diff < bestDiff) {
-        if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
-          bestMatch = doc;
-          bestDiff = diff;
+      // Match 1: importe movimiento vs neto real del documento (tolerancia 0.5%)
+      if (netoReal > 0 && netoReal !== totalDoc) {
+        const diff = Math.abs(importeMov - netoReal);
+        const tolerancia = netoReal * 0.005; // 0.5% tolerancia (céntimos)
+        if (diff <= tolerancia && diff < bestDiff) {
+          if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
+            bestMatch = doc;
+            bestDiff = diff;
+          }
         }
       }
       
-      // Fallback: match con total del documento (para CaixaBank donde el total ya es neto)
-      const totalDoc = Number(doc.total);
-      const diffTotal = Math.abs(importeMov - totalDoc);
-      if (diffTotal <= totalDoc * 0.02 && diffTotal < bestDiff) {
-        if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
-          bestMatch = doc;
-          bestDiff = diffTotal;
+      // Match 2: importe movimiento vs total nominal (para docs sin neto separado)
+      if (totalDoc > 0) {
+        const diffTotal = Math.abs(importeMov - totalDoc);
+        const toleranciaTotal = totalDoc * 0.005;
+        if (diffTotal <= toleranciaTotal && diffTotal < bestDiff) {
+          if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
+            bestMatch = doc;
+            bestDiff = diffTotal;
+          }
+        }
+      }
+      
+      // Match 3: fallback con tolerancia más amplia (2%) para cubrir redondeos
+      const sumaFacturas = doc.confirmingLineas.reduce((s, l) => s + Number(l.importe || 0), 0);
+      const gastosTotal = doc.confirmingLineas.reduce((s, l) => s + Number(l.gastosFinancieros || 0), 0);
+      const netoCalculado = sumaFacturas - gastosTotal;
+      if (netoCalculado > 0) {
+        const diffCalc = Math.abs(importeMov - netoCalculado);
+        if (diffCalc <= netoCalculado * 0.02 && diffCalc < bestDiff) {
+          if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
+            bestMatch = doc;
+            bestDiff = diffCalc;
+          }
         }
       }
     }
