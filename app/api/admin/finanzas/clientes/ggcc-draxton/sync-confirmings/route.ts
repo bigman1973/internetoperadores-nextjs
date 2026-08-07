@@ -130,10 +130,29 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const limite = Math.min(body.limite || 30, 50);
     const soloVincular = body.soloVincular || false;
+    const resyncTotal = body.resyncTotal || false;
     
     if (soloVincular) {
       const resultado = await vincularLineasPendientes();
       return NextResponse.json(resultado);
+    }
+    
+    // Re-sincronización total: borrar todo y re-importar desde cero
+    if (resyncTotal) {
+      await prisma.confirmingLinea.deleteMany({});
+      await prisma.facturaRecibida.deleteMany({
+        where: { carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' } },
+      });
+      // Resetear facturas emitidas cobradas por confirming
+      await prisma.facturaEmitida.updateMany({
+        where: { formaCobro: 'Confirming' },
+        data: { importeCobrado: 0, estado: 'EMITIDA', formaCobro: null, fechaCobro: null },
+      });
+      // Desvincular movimientos bancarios conciliados automáticamente
+      await prisma.movimientoBancario.updateMany({
+        where: { notaConciliacion: { contains: 'Auto-conciliado' } },
+        data: { facturaEmitidaId: null, conciliado: false, notaConciliacion: null },
+      });
     }
     
     const driveId = await getDriveId();

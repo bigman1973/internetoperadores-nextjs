@@ -342,6 +342,32 @@ export default function GGCDraxtonPage() {
             <LinkIcon className="h-4 w-4" />
             Auto-vincular
           </button>
+          <button
+            onClick={async () => {
+              if (!confirm('⚠️ RE-SINCRONIZAR TODO\n\nEsto borrará TODOS los documentos de confirming y sus vinculaciones, y los re-importará desde cero desde OneDrive.\n\nLas facturas emitidas se resetearán a estado EMITIDA y los movimientos bancarios se desvincularán.\n\n¿Estás seguro?')) return;
+              if (!confirm('SEGUNDA CONFIRMACIÓN: ¿Realmente quieres borrar todo y re-sincronizar?')) return;
+              setSyncing(true);
+              try {
+                const res = await fetch('/api/admin/finanzas/clientes/ggcc-draxton/sync-confirmings', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ resyncTotal: true }),
+                });
+                const data = await res.json();
+                setSyncResult(data);
+                fetchData();
+              } catch (e) {
+                setSyncResult({ error: 'Error de conexión' });
+              }
+              setSyncing(false);
+            }}
+            disabled={syncing}
+            className="flex items-center gap-2 bg-red-600 text-white px-3 py-2 rounded-lg text-xs font-medium hover:bg-red-700 disabled:opacity-50"
+            title="Borra todo y re-importa desde OneDrive"
+          >
+            <ArrowPathIcon className="h-4 w-4" />
+            Re-sync total
+          </button>
         </div>
       </div>
 
@@ -732,18 +758,24 @@ export default function GGCDraxtonPage() {
                           // totalConfirming = neto real del PDF ("Líquid a favor seu")
                           const netoReal = d.totalConfirming && d.totalConfirming !== d.total ? d.totalConfirming : null;
                           const gastosDoc = d.confirmingLineas.reduce((s, l) => s + (l.gastosFinancieros || 0), 0);
+                          // Calcular % coste financiero
+                          const totalRef = sumaFacturas > 0 ? sumaFacturas : (d.total || 0);
+                          const netoRef = netoReal || (sumaFacturas > 0 ? sumaFacturas - gastosDoc : 0);
+                          const pctCoste = totalRef > 0 && netoRef > 0 && netoRef < totalRef
+                            ? ((totalRef - netoRef) / totalRef * 100).toFixed(2)
+                            : null;
                           return (
                             <>
                               <p className="text-sm font-bold text-green-700">
                                 {sumaFacturas > 0 ? formatMoney(sumaFacturas) : (displayTotal > 0 ? formatMoney(displayTotal) : '-')}
                               </p>
                               {netoReal && netoReal > 0 ? (
-                                <p className="text-xs text-blue-600" title={`Gastos: ${formatMoney((d.total || 0) - netoReal)}`}>
-                                  Neto banco: {formatMoney(netoReal)}
+                                <p className="text-xs text-blue-600" title={`Gastos: ${formatMoney(totalRef - netoReal)} | Coste: ${pctCoste}%`}>
+                                  Neto banco: {formatMoney(netoReal)} {pctCoste && <span className="text-orange-600">({pctCoste}%)</span>}
                                 </p>
                               ) : gastosDoc > 0 ? (
-                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)}`}>
-                                  Neto banco: {formatMoney(sumaFacturas - gastosDoc)}
+                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)} | Coste: ${pctCoste}%`}>
+                                  Neto banco: {formatMoney(sumaFacturas - gastosDoc)} {pctCoste && <span className="text-orange-600">({pctCoste}%)</span>}
                                 </p>
                               ) : sumaFacturas > 0 ? (
                                 <p className="text-xs text-green-600">
