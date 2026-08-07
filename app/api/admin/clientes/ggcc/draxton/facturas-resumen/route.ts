@@ -19,11 +19,21 @@ export async function GET(request: NextRequest) {
   const facturas = facturaIds.length > 0
     ? await prisma.factura.findMany({
         where: { id: { in: facturaIds }, ejercicio: anio },
-        select: { id: true, base: true, total: true },
+        select: { id: true, base: true, total: true, numeroDocumento: true },
       })
     : []
 
   const facturasMap = new Map(facturas.map(f => [f.id, f]))
+
+  // Obtener datos de cobro de facturaEmitida para cruzar por numFactura
+  const facturasEmitidasAll = await prisma.facturaEmitida.findMany({
+    where: {
+      fecha: { gte: new Date(`${anio}-01-01`), lt: new Date(`${anio + 1}-01-01`) },
+      numFactura: { startsWith: 'DRAX' },
+    },
+    select: { numFactura: true, importeCobrado: true, estado: true },
+  })
+  const cobradoMap = new Map(facturasEmitidasAll.map(f => [f.numFactura, f]))
 
   // Agrupar por contrato separando mensualidad vs adicional
   const resumenPorContrato: Record<string, { 
@@ -53,6 +63,24 @@ export async function GET(request: NextRequest) {
       resumenPorContrato[vinc.contratoDraxtonId].facturado += Number(vinc.importeAsignado)
       resumenPorContrato[vinc.contratoDraxtonId].facturas++
     }
+
+    // Cruzar con facturaEmitida para obtener cobrado por contrato
+    const numDoc = factura.numeroDocumento // Ej: DRAX26/24
+    const fe = cobradoMap.get(numDoc)
+    if (fe && fe.importeCobrado > 0) {
+      // Proporción del cobro asignada a este contrato
+      const proporcion = Number(vinc.importeAsignado) / Number(factura.total)
+      resumenPorContrato[vinc.contratoDraxtonId].cobrado += fe.importeCobrado * proporcion
+      if (fe.estado === 'COBRADA') {
+        resumenPorContrato[vinc.contratoDraxtonId].facturasCobradas++
+      }
+    }
+  }
+
+  // Calcular pendiente de cobro por contrato
+  for (const key of Object.keys(resumenPorContrato)) {
+    const r = resumenPorContrato[key]
+    r.pendienteCobro = (r.facturado + r.facturadoAdicional) - r.cobrado
   }
 
   // Obtener datos de cobro de FacturaEmitida (confirming) para el año
