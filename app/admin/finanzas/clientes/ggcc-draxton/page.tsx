@@ -75,6 +75,8 @@ interface DocumentoConfirming {
   carpetaOrigen: string | null;
   confirmingProveedor: string | null;
   estado: string;
+  tae: number | null;
+  totalGastosDoc: number | null;
   confirmingLineas: ConfirmingLineaData[];
 }
 
@@ -755,27 +757,30 @@ export default function GGCDraxtonPage() {
                       <div className="text-right flex-shrink-0">
                         {(() => {
                           const sumaFacturas = totalLineas;
-                          // totalConfirming = neto real del PDF ("Líquid a favor seu")
                           const netoReal = d.totalConfirming && d.totalConfirming !== d.total ? d.totalConfirming : null;
-                          const gastosDoc = d.confirmingLineas.reduce((s, l) => s + (l.gastosFinancieros || 0), 0);
-                          // Calcular % coste financiero
+                          const gastosDoc = d.totalGastosDoc || d.confirmingLineas.reduce((s, l) => s + (l.gastosFinancieros || 0), 0);
                           const totalRef = sumaFacturas > 0 ? sumaFacturas : (d.total || 0);
                           const netoRef = netoReal || (sumaFacturas > 0 ? sumaFacturas - gastosDoc : 0);
-                          const pctCoste = totalRef > 0 && netoRef > 0 && netoRef < totalRef
-                            ? ((totalRef - netoRef) / totalRef * 100).toFixed(2)
+                          const costeEuros = totalRef - (netoRef || totalRef);
+                          const pctCoste = totalRef > 0 && costeEuros > 0
+                            ? (costeEuros / totalRef * 100).toFixed(2)
                             : null;
                           return (
                             <>
                               <p className="text-sm font-bold text-green-700">
                                 {sumaFacturas > 0 ? formatMoney(sumaFacturas) : (displayTotal > 0 ? formatMoney(displayTotal) : '-')}
                               </p>
-                              {netoReal && netoReal > 0 ? (
-                                <p className="text-xs text-blue-600" title={`Gastos: ${formatMoney(totalRef - netoReal)} | Coste: ${pctCoste}%`}>
-                                  Neto banco: {formatMoney(netoReal)} {pctCoste && <span className="text-orange-600">({pctCoste}%)</span>}
-                                </p>
-                              ) : gastosDoc > 0 ? (
-                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)} | Coste: ${pctCoste}%`}>
-                                  Neto banco: {formatMoney(sumaFacturas - gastosDoc)} {pctCoste && <span className="text-orange-600">({pctCoste}%)</span>}
+                              {(netoReal || gastosDoc > 0) ? (
+                                <p className="text-xs text-blue-600">
+                                  Neto: {formatMoney(netoRef)}
+                                  {costeEuros > 0 && (
+                                    <span className="text-orange-600 ml-1">
+                                      -{formatMoney(costeEuros)} ({pctCoste}%)
+                                    </span>
+                                  )}
+                                  {d.tae && (
+                                    <span className="text-red-600 ml-1">TAE {d.tae}%</span>
+                                  )}
                                 </p>
                               ) : sumaFacturas > 0 ? (
                                 <p className="text-xs text-green-600">

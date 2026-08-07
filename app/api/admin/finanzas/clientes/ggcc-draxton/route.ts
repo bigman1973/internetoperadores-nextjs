@@ -60,6 +60,7 @@ export async function GET(request: NextRequest) {
         carpetaOrigen: true,
         estado: true,
         confirmingProveedor: true,
+        datosOcrRaw: true,
         confirmingLineas: {
           select: {
             id: true,
@@ -177,9 +178,24 @@ export async function GET(request: NextRequest) {
     const totalComisiones = gastosAgg._sum.comision || 0;
     const totalIntereses = gastosAgg._sum.intereses || 0;
 
+    // Enriquecer documentos con TAE y gastos del JSON raw
+    const docsEnriquecidos = documentosConfirming.map(d => {
+      let tae: number | null = null;
+      let totalGastosDoc: number | null = null;
+      if (d.datosOcrRaw) {
+        try {
+          const raw = JSON.parse(d.datosOcrRaw as string);
+          if (raw.tae) tae = raw.tae;
+          if (raw.totalGastosFinancieros) totalGastosDoc = raw.totalGastosFinancieros;
+        } catch {}
+      }
+      const { datosOcrRaw, ...rest } = d;
+      return { ...rest, tae, totalGastosDoc };
+    });
+
     return NextResponse.json({
       facturasEmitidas,
-      documentosConfirming,
+      documentosConfirming: docsEnriquecidos,
       movimientosCobro: movimientosEnriquecidos,
       kpis: {
         totalFacturado,
