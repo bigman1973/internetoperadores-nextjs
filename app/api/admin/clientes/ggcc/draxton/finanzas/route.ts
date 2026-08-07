@@ -3,8 +3,26 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 
-// Códigos de cliente Draxton en ISP Gestión
-const DRAXTON_CODIGOS = ['006003', '006004', '006006', '006001']
+// Clientes Draxton (buscar por nombre en facturaEmitida)
+const DRAXTON_CLIENTES = ['DRAXTON', 'INFUN', 'FUCHOSA', 'ALTEC']
+
+// Mapeo de sociedades
+const SOCIEDADES: Record<string, string> = {
+  'DRAXTON EUROPE': 'DRAXTON EUROPE & ASIA',
+  'DRAXTON POWERTRAIN': 'DRAXTON POWERTRAIN & CHASSIS',
+  'DRAXTON BRNO': 'DRAXTON BRNO',
+  'INFUN': 'INFUN FOR',
+  'FUCHOSA': 'FUCHOSA',
+  'ALTEC': 'ALTEC',
+}
+
+function getSociedad(cliente: string): string {
+  const upper = (cliente || '').toUpperCase()
+  for (const [key, value] of Object.entries(SOCIEDADES)) {
+    if (upper.includes(key)) return value
+  }
+  return cliente || 'OTROS'
+}
 
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -16,35 +34,32 @@ export async function GET(request: NextRequest) {
   const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString())
 
   try {
-    // Obtener todas las facturas de Draxton del año
-    const facturas = await prisma.factura.findMany({
+    const startDate = new Date(`${year}-01-01`)
+    const endDate = new Date(`${year + 1}-01-01`)
+
+    // Obtener facturas emitidas de Draxton del año (desde facturaEmitida)
+    const facturas = await prisma.facturaEmitida.findMany({
       where: {
-        codigoCliente: { in: DRAXTON_CODIGOS },
-        ejercicio: year,
+        fecha: { gte: startDate, lt: endDate },
+        OR: DRAXTON_CLIENTES.map(c => ({ cliente: { contains: c, mode: 'insensitive' as const } })),
       },
       select: {
         id: true,
-        serieFactura: true,
-        numeroDocumento: true,
+        numFactura: true,
+        serie: true,
         fecha: true,
-        nombreCompleto: true,
-        codigoCliente: true,
+        cliente: true,
         base: true,
-        totalImpuesto: true,
+        importeIva: true,
         total: true,
-        situacion: true,
-        totalPendiente: true,
+        estado: true,
+        importeCobrado: true,
+        formaCobro: true,
+        fechaCobro: true,
+        concepto: true,
       },
       orderBy: { fecha: 'asc' },
     })
-
-    // Mapeo de códigos a nombres cortos de sociedad
-    const SOCIEDADES: Record<string, string> = {
-      '006003': 'DRAXTON EUROPE & ASIA',
-      '006004': 'DRAXTON POWERTRAIN & CHASSIS',
-      '006006': 'DRAXTON BRNO',
-      '006001': 'INFUN FOR',
-    }
 
     // Agrupar por mes
     const porMes: Record<string, {
@@ -54,7 +69,7 @@ export async function GET(request: NextRequest) {
       total: number,
       cobrado: number,
       pendiente: number,
-      porSociedad: Record<string, { facturas: number, base: number, total: number }>
+      porSociedad: Record<string, { facturas: number, base: number, total: number, cobrado: number }>
     }> = {}
 
     for (let m = 1; m <= 12; m++) {
@@ -67,9 +82,6 @@ export async function GET(request: NextRequest) {
         cobrado: 0,
         pendiente: 0,
         porSociedad: {}
-      }
-      for (const cod of DRAXTON_CODIGOS) {
-        porMes[key].porSociedad[SOCIEDADES[cod]] = { facturas: 0, base: 0, total: 0 }
       }
     }
 
@@ -84,8 +96,8 @@ export async function GET(request: NextRequest) {
 
       const base = Number(f.base)
       const total = Number(f.total)
-      const pendiente = Number(f.totalPendiente)
-      const cobrado = total - pendiente
+      const cobrado = Number(f.importeCobrado) || 0
+      const pendiente = total - cobrado
 
       porMes[mes].facturas++
       porMes[mes].base += base
@@ -93,12 +105,14 @@ export async function GET(request: NextRequest) {
       porMes[mes].cobrado += cobrado
       porMes[mes].pendiente += pendiente
 
-      const sociedad = SOCIEDADES[f.codigoCliente] || f.nombreCompleto
-      if (porMes[mes].porSociedad[sociedad]) {
-        porMes[mes].porSociedad[sociedad].facturas++
-        porMes[mes].porSociedad[sociedad].base += base
-        porMes[mes].porSociedad[sociedad].total += total
+      const sociedad = getSociedad(f.cliente)
+      if (!porMes[mes].porSociedad[sociedad]) {
+        porMes[mes].porSociedad[sociedad] = { facturas: 0, base: 0, total: 0, cobrado: 0 }
       }
+      porMes[mes].porSociedad[sociedad].facturas++
+      porMes[mes].porSociedad[sociedad].base += base
+      porMes[mes].porSociedad[sociedad].total += total
+      porMes[mes].porSociedad[sociedad].cobrado += cobrado
 
       totalBase += base
       totalTotal += total
@@ -109,29 +123,36 @@ export async function GET(request: NextRequest) {
     // Detalle de facturas para la tabla
     const detalle = facturas.map(f => ({
       id: f.id,
-      numero: `${f.serieFactura}/${f.numeroDocumento}`,
+      numero: f.numFactura,
       fecha: f.fecha.toISOString().substring(0, 10),
-      sociedad: SOCIEDADES[f.codigoCliente] || f.nombreCompleto,
+      sociedad: getSociedad(f.cliente),
       base: Number(f.base),
-      iva: Number(f.totalImpuesto),
+      iva: Number(f.importeIva),
       total: Number(f.total),
-      situacion: f.situacion,
-      pendiente: Number(f.totalPendiente),
+      situacion: f.estado,
+      pendiente: Number(f.total) - (Number(f.importeCobrado) || 0),
+      cobrado: Number(f.importeCobrado) || 0,
+      formaCobro: f.formaCobro,
     }))
 
     // Resumen por sociedad
-    const porSociedad = DRAXTON_CODIGOS.map(cod => {
-      const facts = facturas.filter(f => f.codigoCliente === cod)
-      return {
-        codigo: cod,
-        nombre: SOCIEDADES[cod],
-        facturas: facts.length,
-        base: facts.reduce((s, f) => s + Number(f.base), 0),
-        total: facts.reduce((s, f) => s + Number(f.total), 0),
-        cobrado: facts.reduce((s, f) => s + Number(f.total) - Number(f.totalPendiente), 0),
-        pendiente: facts.reduce((s, f) => s + Number(f.totalPendiente), 0),
+    const sociedadesMap: Record<string, { facturas: number, base: number, total: number, cobrado: number, pendiente: number }> = {}
+    for (const f of facturas) {
+      const soc = getSociedad(f.cliente)
+      if (!sociedadesMap[soc]) {
+        sociedadesMap[soc] = { facturas: 0, base: 0, total: 0, cobrado: 0, pendiente: 0 }
       }
-    }).filter(s => s.facturas > 0)
+      sociedadesMap[soc].facturas++
+      sociedadesMap[soc].base += Number(f.base)
+      sociedadesMap[soc].total += Number(f.total)
+      sociedadesMap[soc].cobrado += Number(f.importeCobrado) || 0
+      sociedadesMap[soc].pendiente += Number(f.total) - (Number(f.importeCobrado) || 0)
+    }
+
+    const porSociedad = Object.entries(sociedadesMap)
+      .map(([nombre, data]) => ({ nombre, ...data }))
+      .filter(s => s.facturas > 0)
+      .sort((a, b) => b.total - a.total)
 
     return NextResponse.json({
       year,
