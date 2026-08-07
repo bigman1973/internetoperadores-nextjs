@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
       where: {
         fechaOperacion: { gte: startDate, lt: endDate },
         importe: { gt: 0 },
+        categoria: { not: 'Descartado_Draxton' }, // Excluir descartados
         OR: [
           { concepto: { contains: 'Draxton', mode: 'insensitive' } },
           { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
@@ -103,6 +104,7 @@ export async function GET(request: NextRequest) {
         importe: true,
         conciliado: true,
         facturaEmitidaId: true,
+        notaConciliacion: true,
         cuenta: { select: { banco: true } },
         facturaEmitida: {
           select: { numFactura: true, cliente: true, total: true },
@@ -111,16 +113,50 @@ export async function GET(request: NextRequest) {
     });
 
     // Filtrar movimientos: solo los que realmente son de Draxton/Confirming
-    // (Caixabank puede tener muchos movimientos que no son de Draxton)
+    // Excluir: Clavería Alcalá (no es confirming Draxton)
     const movimientosRelevantes = movimientosCobro.filter(m => {
       if (m.facturaEmitidaId) return true;
       const concepto = (m.concepto || '').toLowerCase();
       const tercero = (m.tercero || '').toLowerCase();
+      // Excluir Clavería
+      if (concepto.includes('claveria') || tercero.includes('claveria')) return false;
       return concepto.includes('draxton') || 
              concepto.includes('confirming') || 
              concepto.includes('cesion de credito') ||
-             tercero.includes('draxton');
+             concepto.includes('anticipo confirming') ||
+             concepto.includes('abono facturas a vto') ||
+             concepto.includes('liquidacion anticipo') ||
+             tercero.includes('draxton') ||
+             tercero.includes('santander factoring');
     });
+    
+    // Enriquecer movimientos vinculados: buscar TODAS las facturas del confirming asociado
+    const movimientosEnriquecidos = await Promise.all(movimientosRelevantes.map(async (m) => {
+      if (!m.notaConciliacion?.includes('Auto-conciliado con')) {
+        return { ...m, facturasConfirming: m.facturaEmitida ? [m.facturaEmitida] : [] };
+      }
+      // Extraer nombre del confirming de la nota
+      const matchDoc = m.notaConciliacion.match(/Auto-conciliado con (.+?) \(/);
+      if (!matchDoc) {
+        return { ...m, facturasConfirming: m.facturaEmitida ? [m.facturaEmitida] : [] };
+      }
+      const docName = matchDoc[1];
+      const doc = await prisma.facturaRecibida.findFirst({
+        where: { numFactura: docName },
+        select: {
+          confirmingLineas: {
+            where: { facturaEmitidaId: { not: null } },
+            select: {
+              facturaEmitida: { select: { numFactura: true, cliente: true, total: true } },
+            },
+          },
+        },
+      });
+      const facturas = doc?.confirmingLineas
+        .map(l => l.facturaEmitida)
+        .filter(Boolean) || (m.facturaEmitida ? [m.facturaEmitida] : []);
+      return { ...m, facturasConfirming: facturas };
+    }));
 
     // 4. KPIs
     const totalFacturado = facturasEmitidas.reduce((sum, f) => sum + f.total, 0);
@@ -130,8 +166,8 @@ export async function GET(request: NextRequest) {
     const facturasPendientes = facturasEmitidas.filter(f => f.estado !== 'COBRADA').length;
 
     // Movimientos sin factura vinculada
-    const movimientosSinVincular = movimientosRelevantes.filter(m => !m.facturaEmitidaId).length;
-    const totalIngresado = movimientosRelevantes.reduce((sum, m) => sum + Number(m.importe), 0);
+    const movimientosSinVincular = movimientosEnriquecidos.filter(m => !m.facturaEmitidaId).length;
+    const totalIngresado = movimientosEnriquecidos.reduce((sum, m) => sum + Number(m.importe), 0);
 
     // 5. Gastos financieros (sumar de todas las líneas de confirming)
     const gastosAgg = await prisma.confirmingLinea.aggregate({
@@ -144,7 +180,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       facturasEmitidas,
       documentosConfirming,
-      movimientosCobro: movimientosRelevantes,
+      movimientosCobro: movimientosEnriquecidos,
       kpis: {
         totalFacturado,
         totalCobrado,
@@ -173,7 +209,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { movimientoId, facturaEmitidaId } = body;
+    const { movimientoId, facturaEmitidaId, accion } = body;
+
+    // Acción: descartar movimiento del listado de confirmings
+    if (accion === 'descartar' && movimientoId) {
+      await prisma.movimientoBancario.update({
+        where: { id: movimientoId },
+        data: {
+          categoria: 'Descartado_Draxton',
+          notaConciliacion: 'Descartado del módulo GGCC-Draxton (no es confirming)',
+        },
+      });
+      return NextResponse.json({ ok: true, descartado: true });
+    }
 
     if (!movimientoId || !facturaEmitidaId) {
       return NextResponse.json({ error: 'Faltan movimientoId o facturaEmitidaId' }, { status: 400 });

@@ -44,7 +44,9 @@ interface MovimientoCobro {
   cuenta: { banco: string } | null;
   conciliado: boolean;
   facturaEmitidaId: string | null;
+  notaConciliacion: string | null;
   facturaEmitida: { numFactura: string; cliente: string; total: number } | null;
+  facturasConfirming: { numFactura: string; cliente: string; total: number }[];
 }
 
 interface ConfirmingLineaData {
@@ -612,10 +614,21 @@ export default function GGCDraxtonPage() {
                   <tr key={m.id} className="border-b hover:bg-gray-50">
                     <td className="px-3 py-2 text-gray-600">{formatDate(m.fechaOperacion)}</td>
                     <td className="px-3 py-2 text-gray-700">{m.cuenta?.banco || '-'}</td>
-                    <td className="px-3 py-2 text-gray-700 max-w-[300px] truncate">{m.concepto}</td>
+                    <td className="px-3 py-2 text-gray-700 max-w-[300px] truncate" title={m.concepto}>{m.concepto}</td>
                     <td className="px-3 py-2 text-right font-medium text-green-700">{formatMoney(Number(m.importe))}</td>
                     <td className="px-3 py-2">
-                      {m.facturaEmitida ? (
+                      {m.facturasConfirming && m.facturasConfirming.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {m.facturasConfirming.map((f, i) => (
+                            <span key={i} className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                              {f.numFactura}
+                            </span>
+                          ))}
+                          <span className="text-xs text-gray-400 ml-1">
+                            ({formatMoney(m.facturasConfirming.reduce((s, f) => s + f.total, 0))})
+                          </span>
+                        </div>
+                      ) : m.facturaEmitida ? (
                         <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
                           {m.facturaEmitida.numFactura} ({formatMoney(m.facturaEmitida.total)})
                         </span>
@@ -623,15 +636,32 @@ export default function GGCDraxtonPage() {
                         <span className="text-xs text-gray-400">Sin vincular</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="px-3 py-2 flex gap-1">
                       {!m.facturaEmitidaId && (
-                        <button
-                          onClick={() => { setModalVincular({ movimiento: m }); setBusquedaFactura(''); }}
-                          className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200"
-                        >
-                          <LinkIcon className="h-3.5 w-3.5 inline mr-1" />
-                          Vincular
-                        </button>
+                        <>
+                          <button
+                            onClick={() => { setModalVincular({ movimiento: m }); setBusquedaFactura(''); }}
+                            className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded hover:bg-indigo-200"
+                          >
+                            <LinkIcon className="h-3.5 w-3.5 inline mr-1" />
+                            Vincular
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (!confirm('¿Descartar este movimiento del listado de confirmings?')) return;
+                              await fetch('/api/admin/finanzas/clientes/ggcc-draxton', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ movimientoId: m.id, accion: 'descartar' }),
+                              });
+                              fetchData();
+                            }}
+                            className="text-xs bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100"
+                            title="Descartar: no es confirming Draxton"
+                          >
+                            ✕
+                          </button>
+                        </>
                       )}
                     </td>
                   </tr>

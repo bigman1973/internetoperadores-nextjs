@@ -592,8 +592,13 @@ async function conciliarMovimientosBancarios() {
     const banco = (mov.cuenta?.banco || '').toLowerCase();
     
     // Determinar qué banco originó el confirming
-    const esBBVA = concepto.includes('anticips confirming') || banco.includes('bbva');
-    const esCaixa = concepto.includes('cesion de credito') || concepto.includes('caixabank') || banco.includes('santander');
+    const esBBVA = concepto.includes('anticips confirming') || 
+                   concepto.includes('liquidacion anticipo confirming') ||
+                   (banco.includes('bbva') && concepto.includes('draxton'));
+    const esCaixa = concepto.includes('cesion de credito') || 
+                    concepto.includes('abono facturas a vto') ||
+                    concepto.includes('santander factoring') ||
+                    (banco.includes('santander') && concepto.includes('draxton'));
     
     // Buscar confirming que coincida por importe (tolerancia 10% por intereses/comisiones)
     let bestMatch: typeof docsConfirming[0] | null = null;
