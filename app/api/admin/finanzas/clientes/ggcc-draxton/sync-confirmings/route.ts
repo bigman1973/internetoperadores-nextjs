@@ -600,13 +600,18 @@ async function conciliarMovimientosBancarios() {
     const banco = (mov.cuenta?.banco || '').toLowerCase();
     
     // Determinar qué banco originó el confirming
+    // Prioridad: si el concepto indica BBVA, es BBVA (aunque la cuenta sea Santander)
     const esBBVA = concepto.includes('anticips confirming') || 
                    concepto.includes('liquidacion anticipo confirming') ||
+                   concepto.includes('bilbao vizcaya') ||
                    (banco.includes('bbva') && concepto.includes('draxton'));
-    const esCaixa = concepto.includes('cesion de credito') || 
+    const esCaixa = !esBBVA && (
+                    concepto.includes('cesion de credito') || 
                     concepto.includes('abono facturas a vto') ||
                     concepto.includes('santander factoring') ||
-                    (banco.includes('santander') && concepto.includes('draxton'));
+                    concepto.includes('caixabank') ||
+                    (banco.includes('santander') && concepto.includes('draxton'))
+                   );
     
     // Buscar confirming cuyo IMPORTE NETO (suma facturas - gastos) coincida con el movimiento
     let bestMatch: typeof docsConfirming[0] | null = null;
