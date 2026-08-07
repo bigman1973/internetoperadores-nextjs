@@ -136,7 +136,7 @@ export default function DraxtonContratosPage() {
   const [busquedaCliente, setBusquedaCliente] = useState('');
   const [resultadosBusqueda, setResultadosBusqueda] = useState<{id: number; nombre: string; cif: string | null; municipio: string | null; provincia: string | null}[]>([]);
   const [buscando, setBuscando] = useState(false);
-  const [facturasResumen, setFacturasResumen] = useState<{resumenPorContrato: Record<string, {facturado: number; facturas: number; facturadoAdicional: number; facturasAdicional: number}>; totalFacturado: number; totalFacturas: number; totalFacturadoAdicional: number; totalFacturasAdicional: number}>({resumenPorContrato: {}, totalFacturado: 0, totalFacturas: 0, totalFacturadoAdicional: 0, totalFacturasAdicional: 0});
+  const [facturasResumen, setFacturasResumen] = useState<{resumenPorContrato: Record<string, {facturado: number; facturas: number; facturadoAdicional: number; facturasAdicional: number; cobrado: number; facturasCobradas: number; pendienteCobro: number}>; totalFacturado: number; totalFacturas: number; totalFacturadoAdicional: number; totalFacturasAdicional: number; totalCobrado: number}>({resumenPorContrato: {}, totalFacturado: 0, totalFacturas: 0, totalFacturadoAdicional: 0, totalFacturasAdicional: 0, totalCobrado: 0});
   const [facturasDetalle, setFacturasDetalle] = useState<any>(null);
   const [vinculando, setVinculando] = useState(false);
   const [showFacturasCandidatas, setShowFacturasCandidatas] = useState(false);
@@ -1110,6 +1110,7 @@ export default function DraxtonContratosPage() {
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Alta</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">Valor Total</th>
                     <th className="text-right px-4 py-2 font-medium text-blue-600">Facturado</th>
+                    <th className="text-right px-4 py-2 font-medium text-green-600">Cobrado</th>
                     <th className="text-right px-4 py-2 font-medium text-purple-600">Fact. extra</th>
                     <th className="text-right px-4 py-2 font-medium text-orange-600">Pendiente</th>
                     <th className="text-right px-4 py-2 font-medium text-gray-600">{currentYear}</th>
@@ -1189,6 +1190,12 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-blue-700 font-medium">
                         {formatCurrency(facturasResumen.resumenPorContrato[d.id]?.facturado || 0)}
                         <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[d.id]?.facturas || 0} fact.</span>
+                      </td>
+                      <td className="px-4 py-2 text-right text-green-700 font-medium">
+                        {formatCurrency(facturasResumen.resumenPorContrato[d.id]?.cobrado || 0)}
+                        {(facturasResumen.resumenPorContrato[d.id]?.facturasCobradas || 0) > 0 && (
+                          <span className="text-[9px] text-gray-400 block">{facturasResumen.resumenPorContrato[d.id]?.facturasCobradas} fact.</span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-right text-purple-600 font-medium">
                         {(() => {
@@ -1318,6 +1325,7 @@ export default function DraxtonContratosPage() {
                       <td className="px-4 py-2 text-right text-gray-900">{totalAltaCliente > 0 ? formatCurrency(totalAltaCliente) : '—'}</td>
                       <td className="px-4 py-2 text-right text-gray-900">{formatCurrency(totalValorContrato)}</td>
                       <td className="px-4 py-2 text-right text-blue-800">{formatCurrency(facturasResumen.totalFacturado)}</td>
+                      <td className="px-4 py-2 text-right text-green-800">{formatCurrency(facturasResumen.totalCobrado || 0)}</td>
                       <td className="px-4 py-2 text-right text-purple-700">{facturasResumen.totalFacturadoAdicional > 0 ? formatCurrency(facturasResumen.totalFacturadoAdicional) : '—'}</td>
                       <td className="px-4 py-2 text-right text-orange-700">{formatCurrency(Math.max(0, totalAnio1 - facturasResumen.totalFacturado))}</td>
                       <td className="px-4 py-2 text-right text-indigo-800">{formatCurrency(totalAnio1)}</td>
