@@ -544,7 +544,10 @@ async function conciliarMovimientosBancarios() {
         { concepto: { contains: 'CONFIRMING', mode: 'insensitive' } },
         { concepto: { contains: 'CESION DE CREDITO', mode: 'insensitive' } },
         { concepto: { contains: 'Draxton', mode: 'insensitive' } },
+        { concepto: { contains: 'ANTICIPO', mode: 'insensitive' } },
+        { concepto: { contains: 'ABONO FACTURAS A VTO', mode: 'insensitive' } },
         { tercero: { contains: 'Draxton', mode: 'insensitive' } },
+        { tercero: { contains: 'Santander Factoring', mode: 'insensitive' } },
       ],
     },
     select: {
