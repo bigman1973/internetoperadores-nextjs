@@ -727,14 +727,28 @@ export default function GGCDraxtonPage() {
                         </p>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="text-sm font-bold text-green-700">
-                          {displayTotal > 0 ? formatMoney(displayTotal) : '-'}
-                        </p>
-                        {d.confirmingLineas.length > 0 && totalLineas > 0 && (
-                          <p className={`text-xs ${Math.abs(totalLineas - displayTotal) < 0.01 ? 'text-green-600' : 'text-orange-600'}`}>
-                            Suma fact: {formatMoney(totalLineas)}
-                          </p>
-                        )}
+                        {(() => {
+                          const sumaFacturas = totalLineas;
+                          const gastosDoc = d.confirmingLineas.reduce((s, l) => s + (l.gastosFinancieros || 0), 0);
+                          const importeNeto = sumaFacturas - gastosDoc;
+                          return (
+                            <>
+                              <p className="text-sm font-bold text-green-700">
+                                {sumaFacturas > 0 ? formatMoney(sumaFacturas) : (displayTotal > 0 ? formatMoney(displayTotal) : '-')}
+                              </p>
+                              {gastosDoc > 0 && (
+                                <p className="text-xs text-red-500" title={`Gastos: ${formatMoney(gastosDoc)}`}>
+                                  Neto banco: {formatMoney(importeNeto)}
+                                </p>
+                              )}
+                              {gastosDoc === 0 && sumaFacturas > 0 && (
+                                <p className="text-xs text-green-600">
+                                  Suma fact: {formatMoney(sumaFacturas)}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -913,8 +927,8 @@ export default function GGCDraxtonPage() {
 
       {/* Modal de vincular movimiento con factura emitida */}
       {modalVincular && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setModalVincular(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="p-4 border-b flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-gray-900">Vincular cobro con factura emitida</h3>
@@ -967,6 +981,14 @@ export default function GGCDraxtonPage() {
                   })}
                 </div>
               )}
+            </div>
+            <div className="p-3 border-t bg-gray-50 flex justify-end">
+              <button
+                onClick={() => setModalVincular(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         </div>

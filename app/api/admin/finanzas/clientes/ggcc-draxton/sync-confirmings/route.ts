@@ -578,6 +578,9 @@ async function conciliarMovimientosBancarios() {
         select: {
           facturaEmitidaId: true,
           importe: true,
+          gastosFinancieros: true,
+          comision: true,
+          intereses: true,
           facturaEmitida: { select: { id: true, numFactura: true, total: true } },
         },
       },
@@ -600,7 +603,7 @@ async function conciliarMovimientosBancarios() {
                     concepto.includes('santander factoring') ||
                     (banco.includes('santander') && concepto.includes('draxton'));
     
-    // Buscar confirming que coincida por importe (tolerancia 10% por intereses/comisiones)
+    // Buscar confirming cuyo IMPORTE NETO (suma facturas - gastos) coincida con el movimiento
     let bestMatch: typeof docsConfirming[0] | null = null;
     let bestDiff = Infinity;
     
@@ -612,27 +615,29 @@ async function conciliarMovimientosBancarios() {
       if (esBBVA && !provLower.includes('bbva')) continue;
       if (esCaixa && !provLower.includes('caixa')) continue;
       
-      // Comparar importe del movimiento con total del confirming
-      // El banco ingresa el total NETO (total - intereses - comisiones)
-      const totalDoc = Number(doc.total);
-      const diff = Math.abs(importeMov - totalDoc);
-      const tolerancia = totalDoc * 0.10; // 10% tolerancia
+      // Calcular importe NETO = suma facturas - gastos financieros
+      const sumaFacturas = doc.confirmingLineas.reduce((s, l) => s + Number(l.importe || 0), 0);
+      const gastosTotal = doc.confirmingLineas.reduce((s, l) => s + Number(l.gastosFinancieros || 0), 0);
+      const importeNeto = sumaFacturas - gastosTotal;
+      
+      // Match principal: importe movimiento vs importe neto (tolerancia 2%)
+      const diff = Math.abs(importeMov - importeNeto);
+      const tolerancia = importeNeto > 0 ? importeNeto * 0.02 : sumaFacturas * 0.02;
       
       if (diff <= tolerancia && diff < bestDiff) {
-        // Verificar que la fecha del movimiento sea posterior a la del confirming
         if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
           bestMatch = doc;
           bestDiff = diff;
         }
       }
       
-      // También intentar match con la suma de facturas vinculadas
-      const sumaFacturas = doc.confirmingLineas.reduce((s, l) => s + Number(l.importe || 0), 0);
-      const diffSuma = Math.abs(importeMov - sumaFacturas);
-      if (diffSuma <= sumaFacturas * 0.10 && diffSuma < bestDiff) {
+      // Fallback: match con total del documento (para CaixaBank donde el total ya es neto)
+      const totalDoc = Number(doc.total);
+      const diffTotal = Math.abs(importeMov - totalDoc);
+      if (diffTotal <= totalDoc * 0.02 && diffTotal < bestDiff) {
         if (doc.fecha && mov.fechaOperacion >= doc.fecha) {
           bestMatch = doc;
-          bestDiff = diffSuma;
+          bestDiff = diffTotal;
         }
       }
     }
