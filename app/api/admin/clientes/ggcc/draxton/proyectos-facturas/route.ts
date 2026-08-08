@@ -31,10 +31,19 @@ export async function GET(req: NextRequest) {
       orderBy: { fecha: 'asc' },
     });
 
-    // Si hay búsqueda, devolver facturas disponibles (Draxton/Fuchosa/Altec/Infun sin proyecto asignado)
+    // Si hay búsqueda, devolver facturas disponibles (sin proyecto singular NI contrato recurrente)
     let disponibles: any[] = [];
     if (busqueda) {
-      disponibles = await prisma.facturaEmitida.findMany({
+      // Obtener numFactura de facturas ya vinculadas a contratos recurrentes
+      const facturasEnContratos = await prisma.facturaContratoDraxton.findMany({
+        select: { factura: { select: { serieFactura: true, numeroDocumento: true } } },
+      });
+      const numsEnContratos = new Set(
+        facturasEnContratos.map(fc => `${fc.factura.serieFactura}/${fc.factura.numeroDocumento}`)
+      );
+
+      // Buscar facturas sin proyecto singular
+      let candidatas = await prisma.facturaEmitida.findMany({
         where: {
           proyectoSingularId: null,
           OR: [
@@ -42,7 +51,6 @@ export async function GET(req: NextRequest) {
             { cliente: { contains: busqueda, mode: 'insensitive' } },
             { concepto: { contains: busqueda, mode: 'insensitive' } },
           ],
-          // Solo facturas de Draxton/grupo
           cliente: { contains: 'DRAXTON', mode: 'insensitive' },
         },
         select: {
@@ -57,12 +65,15 @@ export async function GET(req: NextRequest) {
           concepto: true,
         },
         orderBy: { fecha: 'desc' },
-        take: 20,
+        take: 50,
       });
+
+      // Excluir las que ya están en contratos recurrentes
+      disponibles = candidatas.filter(f => !numsEnContratos.has(f.numFactura)).slice(0, 20);
 
       // Si no hay resultados con Draxton, buscar en todas las facturas sin proyecto
       if (disponibles.length === 0) {
-        disponibles = await prisma.facturaEmitida.findMany({
+        candidatas = await prisma.facturaEmitida.findMany({
           where: {
             proyectoSingularId: null,
             OR: [
@@ -82,8 +93,9 @@ export async function GET(req: NextRequest) {
             concepto: true,
           },
           orderBy: { fecha: 'desc' },
-          take: 20,
+          take: 50,
         });
+        disponibles = candidatas.filter(f => !numsEnContratos.has(f.numFactura)).slice(0, 20);
       }
     }
 
