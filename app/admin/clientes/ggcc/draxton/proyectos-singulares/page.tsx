@@ -668,7 +668,7 @@ export default function DraxtonProyectosSingularesPage() {
 
               {/* TAB: FACTURAS VINCULADAS */}
               {activeTab === 'facturas' && (
-                <FacturasVinculadas proyectoId={p.id} onUpdate={fetchProyectos} />
+                <FacturasVinculadas proyectoId={p.id} onUpdate={fetchData} />
               )}
 
               {/* TAB: PROVEEDORES */}
