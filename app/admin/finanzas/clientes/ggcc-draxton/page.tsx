@@ -448,49 +448,49 @@ export default function GGCDraxtonPage() {
         
         return (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
-          <div className="bg-white rounded-lg border-2 border-indigo-100 p-3" title="Suma de todas las facturas emitidas a Draxton/Fuchosa/Altec/Infun en el periodo seleccionado">
+          <div className="bg-white rounded-lg border-2 border-indigo-100 p-3" title="Total que hemos facturado a las empresas del grupo Draxton en este periodo">
             <p className="text-xs text-gray-500 uppercase">Facturado ⓘ</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalFacturado)}</p>
             <p className="text-xs text-gray-400">{facturasDelPeriodo.length} facturas</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-yellow-100 p-3" title="Facturas incluidas en un documento de confirming pero cuyo abono aún NO se ha recibido en la cuenta bancaria">
+          <div className="bg-white rounded-lg border-2 border-yellow-100 p-3" title="Tenemos el confirming del banco pero aún no nos han ingresado el dinero en cuenta">
             <p className="text-xs text-gray-500 uppercase">En Confirming ⓘ</p>
             <p className="text-lg font-bold text-yellow-600">{formatMoney(totalEnConfirming)}</p>
             <p className="text-xs text-gray-400">{enConfirmingSinBanco.length} fact. pend. abono</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-green-100 p-3" title="Facturas cuyo cobro ya se ha recibido en la cuenta bancaria y está conciliado con el movimiento">
+          <div className="bg-white rounded-lg border-2 border-green-100 p-3" title="Dinero ya ingresado en nuestra cuenta bancaria y conciliado con las facturas">
             <p className="text-xs text-gray-500 uppercase">Cobrado (Banco) ⓘ</p>
             <p className="text-lg font-bold text-green-700">{formatMoney(totalCobradoBanco)}</p>
             <p className="text-xs text-gray-400">{movsVinculados.length} mov. conciliados</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-orange-100 p-3" title="Facturas que NO tienen documento de confirming ni ingreso bancario asociado. Están pendientes de todo el proceso de cobro">
+          <div className="bg-white rounded-lg border-2 border-orange-100 p-3" title="Facturas sin confirming ni cobro — pendientes de reclamar a Draxton">
             <p className="text-xs text-gray-500 uppercase">Pendiente ⓘ</p>
             <p className="text-lg font-bold text-orange-600">{formatMoney(totalPendienteReal)}</p>
             <p className="text-xs text-gray-400">{facturasSinNada.length} sin confirming</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-blue-100 p-3" title="Porcentaje del total facturado que ya tiene documento de confirming vinculado (en proceso o cobrado)">
+          <div className="bg-white rounded-lg border-2 border-blue-100 p-3" title="Porcentaje de lo facturado que ya está gestionado (con confirming o cobrado)">
             <p className="text-xs text-gray-500 uppercase">% Cobrado ⓘ</p>
             <p className="text-lg font-bold text-blue-700">
               {totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0}%
             </p>
             <p className="text-xs text-gray-400">{facturasConCobro} de {facturasDelPeriodo.length}</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-gray-100 p-3" title="Total de ingresos bancarios identificados como cobros de Draxton (confirming, cesión de créditos, anticipos)">
+          <div className="bg-white rounded-lg border-2 border-gray-100 p-3" title="Suma de todos los ingresos del banco relacionados con Draxton">
             <p className="text-xs text-gray-500 uppercase">Ingresado ⓘ</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalIngresado)}</p>
             <p className="text-xs text-gray-400">{movsDelPeriodo.length} mov. bancarios</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Movimientos bancarios de Draxton que aún no se han podido vincular con ninguna factura emitida">
+          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Cobros en el banco que no hemos podido casar con ninguna factura">
             <p className="text-xs text-gray-500 uppercase">Sin vincular ⓘ</p>
             <p className="text-lg font-bold text-red-600">{movsSinVincular}</p>
             <p className="text-xs text-gray-400">mov. sin factura</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-purple-100 p-3" title="Número de documentos de confirming (PDF/XLS) sincronizados desde la carpeta de OneDrive">
+          <div className="bg-white rounded-lg border-2 border-purple-100 p-3" title="Documentos de confirming importados desde OneDrive (BBVA + CaixaBank)">
             <p className="text-xs text-gray-500 uppercase">Docs Confirming ⓘ</p>
             <p className="text-lg font-bold text-purple-700">{docsDelPeriodo.length}</p>
             <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Total de comisiones e intereses cobrados por los bancos por anticipar los confirmings. Coste financiero real del descuento">
+          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Lo que nos cobran los bancos por anticipar los confirmings (comisiones + intereses)">
             <p className="text-xs text-gray-500 uppercase">Gastos Financieros ⓘ</p>
             <p className="text-lg font-bold text-red-600">{formatMoney(gastosFinancieros)}</p>
             <p className="text-xs text-gray-400">
