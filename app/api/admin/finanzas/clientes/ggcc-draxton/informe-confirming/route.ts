@@ -24,6 +24,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
+    const baseUrl = new URL(req.url).origin;
+    const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
     const tipo = searchParams.get('tipo') || 'resumen'; // 'resumen' o 'reclamacion'
     const anio = parseInt(searchParams.get('anio') || '2026');
     const mes = searchParams.get('mes'); // null = todo el año, '1'-'12' = mes específico
@@ -87,7 +89,12 @@ export async function GET(req: NextRequest) {
           { concepto: { contains: 'Abono Facturas A Vto', mode: 'insensitive' } },
           { concepto: { contains: 'Bilbao Vizcaya', mode: 'insensitive' } },
         ],
-        NOT: { concepto: { contains: 'Claveria', mode: 'insensitive' } },
+        NOT: {
+          OR: [
+            { concepto: { contains: 'Claveria', mode: 'insensitive' } },
+            { notaConciliacion: { startsWith: 'Descartado' } },
+          ],
+        },
       },
       include: { cuenta: { select: { banco: true } } },
       orderBy: { fechaOperacion: 'asc' },
@@ -97,9 +104,9 @@ export async function GET(req: NextRequest) {
 
     let html: string;
     if (tipo === 'reclamacion') {
-      html = generarReclamacion(facturasEmitidas, periodoLabel, fecha, anio);
+      html = generarReclamacion(facturasEmitidas, periodoLabel, fecha, anio, logoUrl);
     } else {
-      html = generarResumenInterno(facturasEmitidas, documentos, movimientos, periodoLabel, fecha, anio);
+      html = generarResumenInterno(facturasEmitidas, documentos, movimientos, periodoLabel, fecha, anio, logoUrl);
     }
 
     return new NextResponse(html, {
@@ -117,34 +124,37 @@ function estilosBase(): string {
     body { font-family: 'Inter', -apple-system, sans-serif; font-size: 10px; line-height: 1.6; color: #1f2937; background: white; }
     @page { size: A4 portrait; margin: 0; }
     @media print { body { margin: 0; padding: 0; } .page { page-break-after: always; } .page:last-child { page-break-after: auto; } .no-print { display: none !important; } }
-    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 18mm 16mm 22mm 16mm; position: relative; background: white; }
-    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #4f46e5; padding-bottom: 12px; margin-bottom: 20px; }
-    .header h1 { font-size: 18px; font-weight: 700; color: #1e1b4b; }
-    .header .meta { text-align: right; font-size: 9px; color: #6b7280; }
+    .page { width: 210mm; min-height: 297mm; margin: 0 auto; padding: 20mm 18mm 25mm 18mm; position: relative; background: white; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 14px; border-bottom: 2px solid #E87A2E; margin-bottom: 20px; }
+    .page-header img { height: 36px; object-fit: contain; }
+    .page-header-right { text-align: right; font-size: 9px; color: #6b7280; }
+    .page-footer { position: absolute; bottom: 12mm; left: 18mm; right: 18mm; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 8px; }
     .section { margin-bottom: 16px; }
-    .section h2 { font-size: 13px; font-weight: 700; color: #4f46e5; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+    .section h2 { font-size: 13px; font-weight: 700; color: #E87A2E; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
     .section h3 { font-size: 11px; font-weight: 600; color: #374151; margin: 8px 0 4px; }
+    h1 { font-size: 20px; font-weight: 800; color: #111827; margin-bottom: 4px; }
     table { width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 12px; }
     th { background: #f3f4f6; font-weight: 600; text-align: left; padding: 5px 6px; border-bottom: 1px solid #d1d5db; }
     td { padding: 4px 6px; border-bottom: 1px solid #e5e7eb; }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
     .total-row { font-weight: 700; background: #f9fafb; }
-    .badge { display: inline-block; padding: 1px 6px; border-radius: 4px; font-size: 8px; font-weight: 600; }
-    .badge-green { background: #dcfce7; color: #166534; }
-    .badge-yellow { background: #fef9c3; color: #854d0e; }
-    .badge-red { background: #fee2e2; color: #991b1b; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+    .badge-green { background: #F0FDF4; color: #16a34a; }
+    .badge-yellow { background: #FFF3E8; color: #E87A2E; }
+    .badge-red { background: #FEF2F2; color: #dc2626; }
     .badge-blue { background: #dbeafe; color: #1e40af; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    .badge-orange { background: #FFF3E8; color: #E87A2E; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
     .kpi-box { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px; text-align: center; }
     .kpi-box .label { font-size: 8px; color: #6b7280; text-transform: uppercase; }
     .kpi-box .value { font-size: 16px; font-weight: 700; margin-top: 2px; }
-    .print-btn { position: fixed; top: 10px; right: 10px; background: #4f46e5; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; z-index: 1000; }
-    .print-btn:hover { background: #4338ca; }
+    .print-btn { position: fixed; top: 10px; right: 10px; background: #E87A2E; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; z-index: 1000; }
+    .print-btn:hover { background: #d06a20; }
   `;
 }
 
-function generarResumenInterno(facturas: any[], documentos: any[], movimientos: any[], periodo: string, fecha: string, anio: number): string {
+function generarResumenInterno(facturas: any[], documentos: any[], movimientos: any[], periodo: string, fecha: string, anio: number, logoUrl: string): string {
   // Agrupar documentos por empresa (DEA/DPC/CaixaBank)
   const docsPorEmpresa: Record<string, any[]> = {};
   documentos.forEach(d => {
@@ -269,10 +279,18 @@ function generarResumenInterno(facturas: any[], documentos: any[], movimientos: 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Resumen Confirmings Draxton — ${periodo}</title><style>${estilosBase()}</style></head><body>
     <button class="print-btn no-print" onclick="window.print()">🖨 Imprimir</button>
     <div class="page">
-      <div class="header">
-        <div><h1>Resumen Confirmings Draxton</h1><p style="font-size:10px;color:#6b7280;">Conciliación de cobros por confirming</p></div>
-        <div class="meta"><p><strong>Periodo:</strong> ${periodo}</p><p><strong>Fecha informe:</strong> ${fecha}</p><p><strong>CONFIDENCIAL — Uso interno</strong></p></div>
+      <div class="page-header">
+        <img src="${logoUrl}" alt="Internet Operadores" />
+        <div class="page-header-right">
+          <div style="font-size:10px;font-weight:600;color:#1f2937;">INFORME INTERNO</div>
+          <div>Periodo: ${periodo}</div>
+          <div>${fecha}</div>
+          <div style="color:#dc2626;font-weight:700;margin-top:4px;">⚠ CONFIDENCIAL</div>
+        </div>
       </div>
+
+      <h1>Resumen Confirmings Draxton</h1>
+      <p style="font-size:11px;color:#6b7280;margin-bottom:20px;">Conciliación de cobros por confirming — ${periodo}</p>
 
       <div class="kpi-grid">
         <div class="kpi-box"><div class="label">Facturado</div><div class="value" style="color:#1f2937;">${formatCurrency(totalFacturado)}</div><div class="label">${facturas.length} facturas</div></div>
@@ -291,7 +309,7 @@ function generarResumenInterno(facturas: any[], documentos: any[], movimientos: 
   </body></html>`;
 }
 
-function generarReclamacion(facturas: any[], periodo: string, fecha: string, anio: number): string {
+function generarReclamacion(facturas: any[], periodo: string, fecha: string, anio: number, logoUrl: string): string {
   // Solo facturas pendientes (sin confirming)
   const pendientes = facturas.filter(f => f.estado !== 'COBRADA');
   
@@ -344,10 +362,18 @@ function generarReclamacion(facturas: any[], periodo: string, fecha: string, ani
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Facturas pendientes de confirming — ${periodo}</title><style>${estilosBase()}</style></head><body>
     <button class="print-btn no-print" onclick="window.print()">🖨 Imprimir</button>
     <div class="page">
-      <div class="header">
-        <div><h1>Facturas pendientes de confirming</h1><p style="font-size:10px;color:#6b7280;">Listado para reclamación de cobros</p></div>
-        <div class="meta"><p><strong>Periodo:</strong> ${periodo}</p><p><strong>Fecha:</strong> ${fecha}</p><p><strong>Total pendiente: <span style="color:#dc2626;">${formatCurrency(totalPendiente)}</span></strong></p></div>
+      <div class="page-header">
+        <img src="${logoUrl}" alt="Internet Operadores" />
+        <div class="page-header-right">
+          <div style="font-size:10px;font-weight:600;color:#1f2937;">RECLAMACIÓN DE COBROS</div>
+          <div>Periodo: ${periodo}</div>
+          <div>${fecha}</div>
+          <div style="color:#dc2626;font-weight:700;margin-top:4px;">Total pendiente: ${formatCurrency(totalPendiente)}</div>
+        </div>
       </div>
+
+      <h1>Facturas pendientes de confirming</h1>
+      <p style="font-size:11px;color:#6b7280;margin-bottom:20px;">Listado para reclamación de cobros — ${periodo}</p>
 
       <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
         <div class="kpi-box"><div class="label">Facturas pendientes</div><div class="value" style="color:#dc2626;">${pendientes.length}</div></div>
