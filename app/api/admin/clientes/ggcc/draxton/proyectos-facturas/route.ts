@@ -36,10 +36,10 @@ export async function GET(req: NextRequest) {
     if (busqueda) {
       // Obtener numFactura de facturas ya vinculadas a contratos recurrentes
       const facturasEnContratos = await prisma.facturaContratoDraxton.findMany({
-        select: { factura: { select: { serieFactura: true, numeroDocumento: true } } },
+        select: { factura: { select: { numeroDocumento: true } } },
       });
       const numsEnContratos = new Set(
-        facturasEnContratos.map(fc => `${fc.factura.serieFactura}/${fc.factura.numeroDocumento}`)
+        facturasEnContratos.map(fc => fc.factura.numeroDocumento)
       );
 
       // Buscar facturas sin proyecto singular
