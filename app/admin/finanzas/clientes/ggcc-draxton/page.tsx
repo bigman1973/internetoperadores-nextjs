@@ -373,6 +373,38 @@ export default function GGCDraxtonPage() {
         </div>
       </div>
 
+      {/* Botones de informe */}
+      <div className="flex items-center gap-3 mb-4">
+        <button
+          onClick={() => {
+            const params = new URLSearchParams({ tipo: 'resumen', anio: year.toString() });
+            if (periodoFiltro !== 'todos') {
+              if (periodoFiltro.startsWith('T')) params.set('trimestre', periodoFiltro);
+              else params.set('mes', periodoFiltro);
+            }
+            window.open(`/api/admin/finanzas/clientes/ggcc-draxton/informe-confirming?${params}`, '_blank');
+          }}
+          className="flex items-center gap-2 bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-900"
+        >
+          <DocumentTextIcon className="h-4 w-4" />
+          Informe Interno
+        </button>
+        <button
+          onClick={() => {
+            const params = new URLSearchParams({ tipo: 'reclamacion', anio: year.toString() });
+            if (periodoFiltro !== 'todos') {
+              if (periodoFiltro.startsWith('T')) params.set('trimestre', periodoFiltro);
+              else params.set('mes', periodoFiltro);
+            }
+            window.open(`/api/admin/finanzas/clientes/ggcc-draxton/informe-confirming?${params}`, '_blank');
+          }}
+          className="flex items-center gap-2 bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-800"
+        >
+          <DocumentTextIcon className="h-4 w-4" />
+          Reclamación Cobros
+        </button>
+      </div>
+
       {/* KPIs - calculados dinámicamente según filtro de periodo y banco */}
       {(() => {
         // Facturas filtradas solo por periodo (sin búsqueda de texto)
