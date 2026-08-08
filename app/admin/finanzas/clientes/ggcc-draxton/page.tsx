@@ -386,7 +386,21 @@ export default function GGCDraxtonPage() {
         const facturasConCobro = facturasDelPeriodo.filter(f => f.estado === 'COBRADA').length;
         const facturasPendientes = facturasDelPeriodo.filter(f => f.estado !== 'COBRADA').length;
         const totalIngresado = movsDelPeriodo.reduce((s, m) => s + m.importe, 0);
+        const movsVinculados = movsDelPeriodo.filter(m => m.facturaEmitidaId);
         const movsSinVincular = movsDelPeriodo.filter(m => !m.facturaEmitidaId).length;
+        
+        // Facturas en confirming (tienen doc confirming vinculado) pero NO ingresadas en banco aún
+        const facturasEnConfirming = facturasDelPeriodo.filter(f => f.estado === 'COBRADA' && f.formaCobro === 'Confirming');
+        const facturasConIngresoBanco = facturasDelPeriodo.filter(f => 
+          f.estado === 'COBRADA' && movsVinculados.some(m => m.facturaEmitidaId === f.id || m.facturasConfirming?.some(fc => fc.numFactura === f.numFactura))
+        );
+        const enConfirmingSinBanco = facturasEnConfirming.filter(f => !facturasConIngresoBanco.includes(f));
+        const totalEnConfirming = enConfirmingSinBanco.reduce((s, f) => s + f.total, 0);
+        const totalCobradoBanco = movsVinculados.reduce((s, m) => s + m.importe, 0);
+        
+        // Pendiente real: sin confirming NI ingreso banco
+        const facturasSinNada = facturasDelPeriodo.filter(f => f.estado !== 'COBRADA');
+        const totalPendienteReal = facturasSinNada.reduce((s, f) => s + f.total, 0);
         
         // Gastos financieros: sumar de las líneas de confirming de los documentos del periodo + banco
         let gastosFinancieros = 0;
@@ -402,51 +416,52 @@ export default function GGCDraxtonPage() {
         
         return (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
-          <div className="bg-white rounded-lg border-2 border-indigo-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Facturado</p>
+          <div className="bg-white rounded-lg border-2 border-indigo-100 p-3" title="Suma de todas las facturas emitidas a Draxton/Fuchosa/Altec/Infun en el periodo seleccionado">
+            <p className="text-xs text-gray-500 uppercase">Facturado ⓘ</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalFacturado)}</p>
             <p className="text-xs text-gray-400">{facturasDelPeriodo.length} facturas</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-green-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Cobrado</p>
-            <p className="text-lg font-bold text-green-700">{formatMoney(totalCobrado)}</p>
-            <p className="text-xs text-gray-400">{facturasConCobro} cobradas</p>
+          <div className="bg-white rounded-lg border-2 border-yellow-100 p-3" title="Facturas incluidas en un documento de confirming pero cuyo abono aún NO se ha recibido en la cuenta bancaria">
+            <p className="text-xs text-gray-500 uppercase">En Confirming ⓘ</p>
+            <p className="text-lg font-bold text-yellow-600">{formatMoney(totalEnConfirming)}</p>
+            <p className="text-xs text-gray-400">{enConfirmingSinBanco.length} fact. pend. abono</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-orange-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Pendiente</p>
-            <p className="text-lg font-bold text-orange-600">{formatMoney(pendienteCobro)}</p>
-            <p className="text-xs text-gray-400">{facturasPendientes} pendientes</p>
+          <div className="bg-white rounded-lg border-2 border-green-100 p-3" title="Facturas cuyo cobro ya se ha recibido en la cuenta bancaria y está conciliado con el movimiento">
+            <p className="text-xs text-gray-500 uppercase">Cobrado (Banco) ⓘ</p>
+            <p className="text-lg font-bold text-green-700">{formatMoney(totalCobradoBanco)}</p>
+            <p className="text-xs text-gray-400">{movsVinculados.length} mov. conciliados</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-blue-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">% Cobrado</p>
+          <div className="bg-white rounded-lg border-2 border-orange-100 p-3" title="Facturas que NO tienen documento de confirming ni ingreso bancario asociado. Están pendientes de todo el proceso de cobro">
+            <p className="text-xs text-gray-500 uppercase">Pendiente ⓘ</p>
+            <p className="text-lg font-bold text-orange-600">{formatMoney(totalPendienteReal)}</p>
+            <p className="text-xs text-gray-400">{facturasSinNada.length} sin confirming</p>
+          </div>
+          <div className="bg-white rounded-lg border-2 border-blue-100 p-3" title="Porcentaje del total facturado que ya tiene documento de confirming vinculado (en proceso o cobrado)">
+            <p className="text-xs text-gray-500 uppercase">% Cobrado ⓘ</p>
             <p className="text-lg font-bold text-blue-700">
               {totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0}%
             </p>
+            <p className="text-xs text-gray-400">{facturasConCobro} de {facturasDelPeriodo.length}</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-gray-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Ingresado</p>
+          <div className="bg-white rounded-lg border-2 border-gray-100 p-3" title="Total de ingresos bancarios identificados como cobros de Draxton (confirming, cesión de créditos, anticipos)">
+            <p className="text-xs text-gray-500 uppercase">Ingresado ⓘ</p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalIngresado)}</p>
-            <p className="text-xs text-gray-400">{movsDelPeriodo.length} mov.</p>
+            <p className="text-xs text-gray-400">{movsDelPeriodo.length} mov. bancarios</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-green-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Vinculados</p>
-            <p className="text-lg font-bold text-green-700">{movsDelPeriodo.length - movsSinVincular}</p>
-            <p className="text-xs text-gray-400">con factura</p>
-          </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Sin vincular</p>
+          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Movimientos bancarios de Draxton que aún no se han podido vincular con ninguna factura emitida">
+            <p className="text-xs text-gray-500 uppercase">Sin vincular ⓘ</p>
             <p className="text-lg font-bold text-red-600">{movsSinVincular}</p>
-            <p className="text-xs text-gray-400">sin factura</p>
+            <p className="text-xs text-gray-400">mov. sin factura</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-purple-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Docs Confirming</p>
+          <div className="bg-white rounded-lg border-2 border-purple-100 p-3" title="Número de documentos de confirming (PDF/XLS) sincronizados desde la carpeta de OneDrive">
+            <p className="text-xs text-gray-500 uppercase">Docs Confirming ⓘ</p>
             <p className="text-lg font-bold text-purple-700">{docsDelPeriodo.length}</p>
             <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3">
-            <p className="text-xs text-gray-500 uppercase">Gastos Financieros</p>
+          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Total de comisiones e intereses cobrados por los bancos por anticipar los confirmings. Coste financiero real del descuento">
+            <p className="text-xs text-gray-500 uppercase">Gastos Financieros ⓘ</p>
             <p className="text-lg font-bold text-red-600">{formatMoney(gastosFinancieros)}</p>
-            <p className="text-xs text-gray-400" title={`Comisiones: ${formatMoney(comisiones)} | Intereses: ${formatMoney(intereses)}`}>
+            <p className="text-xs text-gray-400">
               com. {formatMoney(comisiones)} + int. {formatMoney(intereses)}
             </p>
           </div>
