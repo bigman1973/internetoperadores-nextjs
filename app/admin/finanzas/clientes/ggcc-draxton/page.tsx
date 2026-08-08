@@ -118,6 +118,9 @@ export default function GGCDraxtonPage() {
   const [periodoFiltro, setPeriodoFiltro] = useState<string>('todos');
   const [bancoFiltro, setBancoFiltro] = useState<string>('todos');
 
+  // Filtro por KPI (al hacer clic en un KPI)
+  const [kpiFiltro, setKpiFiltro] = useState<string | null>(null);
+
   // Confirming detalle expandido
   const [expandedConfirming, setExpandedConfirming] = useState<string | null>(null);
   const [editingTotal, setEditingTotal] = useState<string | null>(null);
@@ -240,22 +243,29 @@ export default function GGCDraxtonPage() {
     return true;
   }
 
-  const facturasFiltradas = facturas.filter(f =>
-    matchPeriodo(f.fecha) && (
-      !busqueda || f.cliente.toLowerCase().includes(busqueda.toLowerCase()) ||
-      f.numFactura.toLowerCase().includes(busqueda.toLowerCase()) ||
-      f.concepto?.toLowerCase().includes(busqueda.toLowerCase())
-    )
-  );
+  const facturasFiltradas = facturas.filter(f => {
+    if (!matchPeriodo(f.fecha)) return false;
+    if (busqueda && !f.cliente.toLowerCase().includes(busqueda.toLowerCase()) &&
+        !f.numFactura.toLowerCase().includes(busqueda.toLowerCase()) &&
+        !f.concepto?.toLowerCase().includes(busqueda.toLowerCase())) return false;
+    // Filtro por KPI
+    if (kpiFiltro === 'confirming') return f.estado === 'COBRADA' && f.formaCobro === 'Confirming';
+    if (kpiFiltro === 'cobrado') return f.estado === 'COBRADA';
+    if (kpiFiltro === 'pendiente') return f.estado !== 'COBRADA';
+    return true;
+  });
 
   // Filtrar movimientos por búsqueda y periodo
-  const movimientosFiltrados = movimientos.filter(m =>
-    matchPeriodo(m.fechaOperacion) && (
-      !busqueda || m.concepto?.toLowerCase().includes(busqueda.toLowerCase()) ||
-      m.tercero?.toLowerCase().includes(busqueda.toLowerCase()) ||
-      m.facturaEmitida?.numFactura.toLowerCase().includes(busqueda.toLowerCase())
-    )
-  );
+  const movimientosFiltrados = movimientos.filter(m => {
+    if (!matchPeriodo(m.fechaOperacion)) return false;
+    if (busqueda && !m.concepto?.toLowerCase().includes(busqueda.toLowerCase()) &&
+        !m.tercero?.toLowerCase().includes(busqueda.toLowerCase()) &&
+        !m.facturaEmitida?.numFactura.toLowerCase().includes(busqueda.toLowerCase())) return false;
+    // Filtro por KPI
+    if (kpiFiltro === 'sinVincular') return !m.facturaEmitidaId;
+    if (kpiFiltro === 'vinculados') return !!m.facturaEmitidaId;
+    return true;
+  });
 
   // Filtrar documentos por búsqueda, periodo y banco
   const documentosFiltrados = documentos.filter(d =>
@@ -446,52 +456,55 @@ export default function GGCDraxtonPage() {
           });
         });
         
+        const kpiClass = (id: string, borderColor: string) => 
+          `bg-white rounded-lg border-2 p-3 cursor-pointer transition-all hover:shadow-md ${kpiFiltro === id ? `${borderColor} ring-2 ring-offset-1 ring-current shadow-md` : borderColor} group relative`;
+
         return (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-3 mb-6">
-          <div className="bg-white rounded-lg border-2 border-indigo-100 p-3" title="Total que hemos facturado a las empresas del grupo Draxton en este periodo">
-            <p className="text-xs text-gray-500 uppercase">Facturado ⓘ</p>
+          <div className={kpiClass('todos', 'border-indigo-100')} onClick={() => { setKpiFiltro(kpiFiltro === 'todos' ? null : 'todos'); setTab('facturas'); }} title="Total que hemos facturado a las empresas del grupo Draxton en este periodo">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Facturado <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-indigo-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalFacturado)}</p>
             <p className="text-xs text-gray-400">{facturasDelPeriodo.length} facturas</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-yellow-100 p-3" title="Tenemos el confirming del banco pero aún no nos han ingresado el dinero en cuenta">
-            <p className="text-xs text-gray-500 uppercase">En Confirming ⓘ</p>
+          <div className={kpiClass('confirming', 'border-yellow-100')} onClick={() => { setKpiFiltro(kpiFiltro === 'confirming' ? null : 'confirming'); setTab('facturas'); }} title="Tenemos el confirming del banco pero aún no nos han ingresado el dinero en cuenta">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">En Confirming <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-yellow-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-yellow-600">{formatMoney(totalEnConfirming)}</p>
             <p className="text-xs text-gray-400">{enConfirmingSinBanco.length} fact. pend. abono</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-green-100 p-3" title="Dinero ya ingresado en nuestra cuenta bancaria y conciliado con las facturas">
-            <p className="text-xs text-gray-500 uppercase">Cobrado (Banco) ⓘ</p>
+          <div className={kpiClass('cobrado', 'border-green-100')} onClick={() => { setKpiFiltro(kpiFiltro === 'cobrado' ? null : 'cobrado'); setTab('facturas'); }} title="Dinero ya ingresado en nuestra cuenta bancaria y conciliado con las facturas">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Cobrado (Banco) <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-green-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-green-700">{formatMoney(totalCobradoBanco)}</p>
             <p className="text-xs text-gray-400">{movsVinculados.length} mov. conciliados</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-orange-100 p-3" title="Facturas sin confirming ni cobro — pendientes de reclamar a Draxton">
-            <p className="text-xs text-gray-500 uppercase">Pendiente ⓘ</p>
+          <div className={kpiClass('pendiente', 'border-orange-100')} onClick={() => { setKpiFiltro(kpiFiltro === 'pendiente' ? null : 'pendiente'); setTab('facturas'); }} title="Facturas sin confirming ni cobro — pendientes de reclamar a Draxton">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Pendiente <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-orange-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-orange-600">{formatMoney(totalPendienteReal)}</p>
             <p className="text-xs text-gray-400">{facturasSinNada.length} sin confirming</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-blue-100 p-3" title="Porcentaje de lo facturado que ya está gestionado (con confirming o cobrado)">
-            <p className="text-xs text-gray-500 uppercase">% Cobrado ⓘ</p>
+          <div className={`bg-white rounded-lg border-2 border-blue-100 p-3 group relative`} title="Porcentaje de lo facturado que ya está gestionado (con confirming o cobrado)">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">% Cobrado <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-blue-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-blue-700">
               {totalFacturado > 0 ? Math.round((totalCobrado / totalFacturado) * 100) : 0}%
             </p>
             <p className="text-xs text-gray-400">{facturasConCobro} de {facturasDelPeriodo.length}</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-gray-100 p-3" title="Suma de todos los ingresos del banco relacionados con Draxton">
-            <p className="text-xs text-gray-500 uppercase">Ingresado ⓘ</p>
+          <div className={kpiClass('ingresado', 'border-gray-100')} onClick={() => { setKpiFiltro(null); setTab('movimientos'); }} title="Suma de todos los ingresos del banco relacionados con Draxton">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Ingresado <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-gray-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-gray-900">{formatMoney(totalIngresado)}</p>
             <p className="text-xs text-gray-400">{movsDelPeriodo.length} mov. bancarios</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Cobros en el banco que no hemos podido casar con ninguna factura">
-            <p className="text-xs text-gray-500 uppercase">Sin vincular ⓘ</p>
+          <div className={kpiClass('sinVincular', 'border-red-100')} onClick={() => { setKpiFiltro(kpiFiltro === 'sinVincular' ? null : 'sinVincular'); setTab('movimientos'); }} title="Cobros en el banco que no hemos podido casar con ninguna factura">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Sin vincular <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-red-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-red-600">{movsSinVincular}</p>
             <p className="text-xs text-gray-400">mov. sin factura</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-purple-100 p-3" title="Documentos de confirming importados desde OneDrive (BBVA + CaixaBank)">
-            <p className="text-xs text-gray-500 uppercase">Docs Confirming ⓘ</p>
+          <div className={kpiClass('docs', 'border-purple-100')} onClick={() => { setKpiFiltro(null); setTab('documentos'); }} title="Documentos de confirming importados desde OneDrive (BBVA + CaixaBank)">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Docs Confirming <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-purple-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-purple-700">{docsDelPeriodo.length}</p>
             <p className="text-xs text-gray-400">en OneDrive</p>
           </div>
-          <div className="bg-white rounded-lg border-2 border-red-100 p-3" title="Lo que nos cobran los bancos por anticipar los confirmings (comisiones + intereses)">
-            <p className="text-xs text-gray-500 uppercase">Gastos Financieros ⓘ</p>
+          <div className={`bg-white rounded-lg border-2 border-red-100 p-3 group relative`} title="Lo que nos cobran los bancos por anticipar los confirmings (comisiones + intereses)">
+            <p className="text-xs text-gray-500 uppercase flex items-center gap-1">Gastos Fin. <span className="inline-block w-3.5 h-3.5 rounded-full bg-gray-200 text-[8px] text-gray-500 text-center leading-[14px] group-hover:bg-red-500 group-hover:text-white">?</span></p>
             <p className="text-lg font-bold text-red-600">{formatMoney(gastosFinancieros)}</p>
             <p className="text-xs text-gray-400">
               com. {formatMoney(comisiones)} + int. {formatMoney(intereses)}
@@ -500,6 +513,25 @@ export default function GGCDraxtonPage() {
         </div>
         );
       })()}
+
+      {/* Badge de filtro KPI activo */}
+      {kpiFiltro && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-xs text-gray-500">Filtrando por:</span>
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-indigo-100 text-indigo-700 text-xs font-medium">
+            {kpiFiltro === 'todos' && 'Todas las facturas'}
+            {kpiFiltro === 'confirming' && 'En Confirming (pend. abono)'}
+            {kpiFiltro === 'cobrado' && 'Cobradas'}
+            {kpiFiltro === 'pendiente' && 'Pendientes de confirming'}
+            {kpiFiltro === 'sinVincular' && 'Movimientos sin vincular'}
+            {kpiFiltro === 'vinculados' && 'Movimientos vinculados'}
+            {kpiFiltro === 'ingresado' && 'Todos los movimientos'}
+            <button onClick={() => setKpiFiltro(null)} className="ml-1 text-indigo-400 hover:text-indigo-700">
+              <XMarkIcon className="h-3 w-3" />
+            </button>
+          </span>
+        </div>
+      )}
 
       {/* Resultado de sincronización */}
       {syncResult && (
