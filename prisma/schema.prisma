@@ -1347,13 +1347,16 @@ model FacturaEmitida {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   movimientosBancarios MovimientoBancario[]
-  confirmingLineas ConfirmingLinea[]
-
+    confirmingLineas ConfirmingLinea[]
+  // Vinculación con proyecto singular
+  proyectoSingularId String? @map("proyecto_singular_id")
+  proyectoSingular   ProyectoContratoDraxton? @relation(fields: [proyectoSingularId], references: [id])
   @@index([cliente])
   @@index([estado])
   @@index([fecha])
   @@index([imputacion])
   @@index([serie])
+  @@index([proyectoSingularId])
   @@map("facturas_emitidas")
 }
 
@@ -2124,6 +2127,7 @@ model ProyectoContratoDraxton {
   // Relaciones hijas
   proveedores           ProveedorProyectoDraxton[]
   personalAsignado      PersonalProyectoDraxton[]
+  facturasVinculadas    FacturaEmitida[]
 
   @@index([contratoDraxtonId])
   @@index([responsableId])

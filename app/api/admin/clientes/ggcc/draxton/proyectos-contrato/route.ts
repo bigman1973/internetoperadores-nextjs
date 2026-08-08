@@ -31,11 +31,20 @@ export async function GET(req: NextRequest) {
           },
           orderBy: { createdAt: 'desc' },
         },
+        _count: {
+          select: { facturasVinculadas: true },
+        },
       },
       orderBy: [{ categoria: 'asc' }, { orden: 'asc' }, { createdAt: 'desc' }],
     });
 
-    return NextResponse.json(proyectos);
+    // Añadir _facturasCount al resultado
+    const result = proyectos.map(p => ({
+      ...p,
+      _facturasCount: (p as any)._count?.facturasVinculadas || 0,
+    }));
+
+    return NextResponse.json(result);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -602,6 +602,7 @@ export default function DraxtonProyectosSingularesPage() {
               <nav className="flex gap-6 -mb-px">
                 {[
                   { key: 'datos', label: 'Datos Generales', icon: RocketLaunchIcon },
+                  { key: 'facturas', label: `Facturas (${(p as any)._facturasCount || 0})`, icon: CurrencyEuroIcon },
                   { key: 'proveedores', label: `Proveedores (${p.proveedores?.length || 0})`, icon: BuildingOfficeIcon },
                   { key: 'personal', label: `Personal (${p.personalAsignado?.length || 0})`, icon: UserGroupIcon },
                   { key: 'documentacion', label: `Documentación (${(p.documentosJson || []).length})`, icon: DocumentIcon },
@@ -663,6 +664,11 @@ export default function DraxtonProyectosSingularesPage() {
                   </div>
                   {p.descripcion && <p className="text-sm text-gray-600 bg-gray-50 rounded-lg p-3">{p.descripcion}</p>}
                 </div>
+              )}
+
+              {/* TAB: FACTURAS VINCULADAS */}
+              {activeTab === 'facturas' && (
+                <FacturasVinculadas proyectoId={p.id} onUpdate={fetchProyectos} />
               )}
 
               {/* TAB: PROVEEDORES */}
@@ -1109,6 +1115,214 @@ export default function DraxtonProyectosSingularesPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ===== COMPONENTE: FACTURAS VINCULADAS =====
+function FacturasVinculadas({ proyectoId, onUpdate }: { proyectoId: string; onUpdate: () => void }) {
+  const [vinculadas, setVinculadas] = useState<any[]>([])
+  const [disponibles, setDisponibles] = useState<any[]>([])
+  const [kpis, setKpis] = useState<any>(null)
+  const [busqueda, setBusqueda] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [buscando, setBuscando] = useState(false)
+
+  const fetchFacturas = async () => {
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/proyectos-facturas?proyectoId=${proyectoId}`)
+      const data = await res.json()
+      setVinculadas(data.vinculadas || [])
+      setKpis(data.kpis)
+    } catch (e) { console.error(e) }
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchFacturas() }, [proyectoId])
+
+  const buscarFacturas = async () => {
+    if (!busqueda.trim()) return
+    setBuscando(true)
+    try {
+      const res = await fetch(`/api/admin/clientes/ggcc/draxton/proyectos-facturas?proyectoId=${proyectoId}&busqueda=${encodeURIComponent(busqueda)}`)
+      const data = await res.json()
+      setDisponibles(data.disponibles || [])
+    } catch (e) { console.error(e) }
+    setBuscando(false)
+  }
+
+  const vincular = async (facturaId: string) => {
+    try {
+      await fetch('/api/admin/clientes/ggcc/draxton/proyectos-facturas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ proyectoId, facturaId }),
+      })
+      setDisponibles(prev => prev.filter(f => f.id !== facturaId))
+      fetchFacturas()
+      onUpdate()
+    } catch (e) { console.error(e) }
+  }
+
+  const desvincular = async (facturaId: string) => {
+    if (!confirm('¿Desvincular esta factura del proyecto?')) return
+    try {
+      await fetch(`/api/admin/clientes/ggcc/draxton/proyectos-facturas?facturaId=${facturaId}`, { method: 'DELETE' })
+      fetchFacturas()
+      onUpdate()
+    } catch (e) { console.error(e) }
+  }
+
+  const formatCurrency = (n: number) => new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n || 0)
+  const formatDate = (d: string) => new Date(d).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' })
+
+  if (loading) return <div className="text-center py-8 text-gray-400">Cargando facturas...</div>
+
+  return (
+    <div className="space-y-4">
+      {/* KPIs de facturación del proyecto */}
+      {kpis && (
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-blue-50 rounded-lg p-3">
+            <div className="text-xs text-blue-600 font-medium">Facturado</div>
+            <div className="text-lg font-bold text-blue-800">{formatCurrency(kpis.totalFacturado)}</div>
+            <div className="text-xs text-blue-500">{kpis.numFacturas} facturas</div>
+          </div>
+          <div className="bg-green-50 rounded-lg p-3">
+            <div className="text-xs text-green-600 font-medium">Cobrado</div>
+            <div className="text-lg font-bold text-green-800">{formatCurrency(kpis.totalCobrado)}</div>
+            <div className="text-xs text-green-500">{kpis.facturasCobradas} cobradas</div>
+          </div>
+          <div className="bg-orange-50 rounded-lg p-3">
+            <div className="text-xs text-orange-600 font-medium">Pendiente Cobro</div>
+            <div className="text-lg font-bold text-orange-800">{formatCurrency(kpis.pendienteCobro)}</div>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="text-xs text-gray-600 font-medium">% Cobrado</div>
+            <div className="text-lg font-bold text-gray-800">
+              {kpis.totalFacturado > 0 ? Math.round((kpis.totalCobrado / kpis.totalFacturado) * 100) : 0}%
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Buscador para vincular */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && buscarFacturas()}
+          placeholder="Buscar factura (ej: DRAX26/45, Draxton Europe...)"
+          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+        />
+        <button onClick={buscarFacturas} disabled={buscando}
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+          {buscando ? 'Buscando...' : 'Buscar'}
+        </button>
+      </div>
+
+      {/* Resultados de búsqueda */}
+      {disponibles.length > 0 && (
+        <div className="border border-indigo-200 rounded-lg overflow-hidden">
+          <div className="bg-indigo-50 px-4 py-2 text-xs font-medium text-indigo-700">
+            Facturas disponibles para vincular ({disponibles.length})
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Nº Factura</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Cliente</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600">Total</th>
+                <th className="text-center px-4 py-2 font-medium text-gray-600">Estado</th>
+                <th className="text-right px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {disponibles.map(f => (
+                <tr key={f.id} className="border-t border-gray-100 hover:bg-indigo-50/50">
+                  <td className="px-4 py-2 font-medium">{f.numFactura}</td>
+                  <td className="px-4 py-2 text-gray-600 text-xs">{f.cliente}</td>
+                  <td className="px-4 py-2 text-gray-500">{formatDate(f.fecha)}</td>
+                  <td className="px-4 py-2 text-right font-medium">{formatCurrency(f.total)}</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${f.estado === 'COBRADA' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                      {f.estado}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button onClick={() => vincular(f.id)}
+                      className="px-3 py-1 bg-green-600 text-white rounded text-xs font-medium hover:bg-green-700">
+                      + Vincular
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Facturas ya vinculadas */}
+      {vinculadas.length > 0 ? (
+        <div className="border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600">
+            Facturas vinculadas al proyecto ({vinculadas.length})
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Nº Factura</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Cliente</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Fecha</th>
+                <th className="text-left px-4 py-2 font-medium text-gray-600">Concepto</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600">Total</th>
+                <th className="text-right px-4 py-2 font-medium text-gray-600">Cobrado</th>
+                <th className="text-center px-4 py-2 font-medium text-gray-600">Estado</th>
+                <th className="text-right px-4 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {vinculadas.map(f => (
+                <tr key={f.id} className="border-t border-gray-100">
+                  <td className="px-4 py-2 font-medium text-indigo-700">{f.numFactura}</td>
+                  <td className="px-4 py-2 text-gray-600 text-xs">{f.cliente}</td>
+                  <td className="px-4 py-2 text-gray-500">{formatDate(f.fecha)}</td>
+                  <td className="px-4 py-2 text-gray-500 text-xs max-w-[200px] truncate">{f.concepto || '—'}</td>
+                  <td className="px-4 py-2 text-right font-medium">{formatCurrency(f.total)}</td>
+                  <td className="px-4 py-2 text-right text-green-700 font-medium">{f.importeCobrado > 0 ? formatCurrency(f.importeCobrado) : '—'}</td>
+                  <td className="px-4 py-2 text-center">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium ${f.estado === 'COBRADA' ? 'bg-green-100 text-green-700' : f.estado === 'EMITIDA' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {f.estado}
+                    </span>
+                    {f.formaCobro && <span className="block text-[9px] text-gray-400 mt-0.5">{f.formaCobro}</span>}
+                  </td>
+                  <td className="px-4 py-2 text-right">
+                    <button onClick={() => desvincular(f.id)}
+                      className="p-1 text-red-400 hover:text-red-600" title="Desvincular factura">
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-gray-300 bg-gray-50 font-bold">
+                <td colSpan={4} className="px-4 py-2">TOTAL</td>
+                <td className="px-4 py-2 text-right">{formatCurrency(vinculadas.reduce((s, f) => s + f.total, 0))}</td>
+                <td className="px-4 py-2 text-right text-green-700">{formatCurrency(vinculadas.reduce((s, f) => s + f.importeCobrado, 0))}</td>
+                <td colSpan={2}></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="text-center py-8 text-gray-400 border border-dashed border-gray-200 rounded-lg">
+          <CurrencyEuroIcon className="w-8 h-8 mx-auto mb-2 text-gray-300" />
+          <p className="text-sm">No hay facturas vinculadas a este proyecto</p>
+          <p className="text-xs mt-1">Usa el buscador para encontrar y vincular facturas emitidas</p>
         </div>
       )}
     </div>
