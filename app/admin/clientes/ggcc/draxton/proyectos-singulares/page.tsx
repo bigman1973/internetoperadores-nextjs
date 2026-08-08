@@ -147,7 +147,7 @@ export default function DraxtonProyectosSingularesPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'datos' | 'proveedores' | 'personal' | 'documentacion'>('datos')
+  const [activeTab, setActiveTab] = useState<'datos' | 'facturas' | 'proveedores' | 'personal' | 'documentacion'>('datos')
   const [empleados, setEmpleados] = useState<any[]>([])
 
   // Forms
