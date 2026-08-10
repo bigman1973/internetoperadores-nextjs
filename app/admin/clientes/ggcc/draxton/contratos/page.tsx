@@ -2543,25 +2543,29 @@ export default function DraxtonContratosPage() {
                           <div className="mt-4 border-t pt-4">
                             <p className="text-[10px] text-gray-500 uppercase mb-3 font-semibold">💰 Costes y Facturación de Guardias</p>
                             
-                            {/* Panel de Configuración de Tarifas */}
+                            {/* Panel de Configuración de Tarifas con Histórico */}
                             <div className="mb-4 p-4 bg-gray-50 border rounded-lg">
                               <div className="flex justify-between items-center mb-3">
-                                <p className="text-[10px] text-gray-500 uppercase font-semibold">⚙️ Configuración de Tarifas</p>
+                                <p className="text-[10px] text-gray-500 uppercase font-semibold">⚙️ Configuración de Costes y Precios (con histórico)</p>
                                 <button
                                   onClick={async (e) => {
                                     e.stopPropagation();
                                     const form = document.getElementById('guardias-config-form') as HTMLFormElement;
                                     if (!form) return;
                                     const formData = new FormData(form);
-                                    const body = {
-                                      action: 'updateConfig',
-                                      costeHoraTecnico: parseFloat(formData.get('costeHoraTecnico') as string) || null,
-                                      costeKmTecnico: parseFloat(formData.get('costeKmTecnico') as string) || null,
-                                      precioHoraCliente: parseFloat(formData.get('precioHoraCliente') as string) || null,
-                                      precioKmCliente: parseFloat(formData.get('precioKmCliente') as string) || null,
-                                      margenDesplazamiento: parseFloat(formData.get('margenDesplazamiento') as string) || null,
-                                    };
-                                    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                                    const fecha = (document.getElementById('tarifa-gen-fecha') as HTMLInputElement)?.value || new Date().toISOString().slice(0, 10);
+                                    const conceptos = [
+                                      { concepto: 'coste_hora_tecnico', valor: formData.get('costeHoraTecnico') },
+                                      { concepto: 'coste_km_tecnico', valor: formData.get('costeKmTecnico') },
+                                      { concepto: 'precio_hora_cliente', valor: formData.get('precioHoraCliente') },
+                                      { concepto: 'precio_fijo_desplaz_cliente', valor: formData.get('precioFijoDesplazCliente') },
+                                    ].filter(c => c.valor && parseFloat(c.valor as string) > 0);
+                                    for (const c of conceptos) {
+                                      await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+                                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ action: 'addTarifaGeneral', concepto: c.concepto, valor: c.valor, fechaDesde: fecha })
+                                      });
+                                    }
                                     fetchGuardiasData();
                                   }}
                                   className="px-3 py-1 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
@@ -2570,26 +2574,75 @@ export default function DraxtonContratosPage() {
                               <form id="guardias-config-form" className="grid grid-cols-2 md:grid-cols-5 gap-3" onClick={e => e.stopPropagation()}>
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Coste hora técnico (€)</label>
-                                  <input name="costeHoraTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeHoraTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 25.00" />
+                                  <input name="costeHoraTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeHoraTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" placeholder="Ej: 18.00" />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-gray-500 block mb-1">Coste km tecnico (€)</label>
-                                  <input name="costeKmTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeKmTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 0.28" />
+                                  <label className="text-[10px] text-gray-500 block mb-1">Coste km técnico (€)</label>
+                                  <input name="costeKmTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeKmTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" placeholder="Ej: 0.28" />
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Precio hora cliente (€)</label>
-                                  <input name="precioHoraCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioHoraCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 45.00" />
+                                  <input name="precioHoraCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioHoraCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" placeholder="Ej: 45.00" />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-gray-500 block mb-1">Precio km cliente (€)</label>
-                                  <input name="precioKmCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioKmCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 0.40" />
+                                  <label className="text-[10px] text-gray-500 block mb-1">Precio fijo desplaz. cliente (€)</label>
+                                  <input name="precioFijoDesplazCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioFijoDesplazCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" placeholder="Ej: 75.00" />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-gray-500 block mb-1">Margen desplaz. (%)</label>
-                                  <input name="margenDesplazamiento" type="number" step="0.1" defaultValue={guardiasData.config?.margenDesplazamiento || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 30" />
+                                  <label className="text-[10px] text-gray-500 block mb-1">Vigente desde</label>
+                                  <input id="tarifa-gen-fecha" type="date" defaultValue={new Date().toISOString().slice(0, 10)} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" />
                                 </div>
                               </form>
-                              <p className="text-[9px] text-gray-400 mt-2">Estos valores se usan para calcular automáticamente el coste y el importe a facturar cuando se registra un desplazamiento.</p>
+                              <p className="text-[9px] text-gray-400 mt-2">Al guardar se crea un registro histórico. La tarifa anterior se cierra automáticamente con fecha fin.</p>
+
+                              {/* Tarifas generales vigentes */}
+                              {guardiasData.tarifasGenerales && guardiasData.tarifasGenerales.filter((t: any) => t.vigente).length > 0 && (
+                                <div className="mt-3 space-y-1">
+                                  <p className="text-[9px] text-gray-500 font-semibold">Tarifas vigentes:</p>
+                                  {guardiasData.tarifasGenerales.filter((t: any) => t.vigente).map((t: any) => {
+                                    const labels: Record<string, string> = { 'coste_km_tecnico': 'Coste km tecnico', 'coste_hora_tecnico': 'Coste hora tecnico', 'precio_hora_cliente': 'Precio hora cliente', 'precio_fijo_desplaz_cliente': 'Precio fijo desplaz. cliente' };
+                                    return (
+                                      <div key={t.id} className="flex items-center justify-between text-[10px] bg-green-50 border border-green-200 rounded px-2 py-1">
+                                        <span className="text-green-800">{labels[t.concepto] || t.concepto}: {t.valor}€ (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')})</span>
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            if (!confirm('Eliminar esta tarifa?')) return;
+                                            await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteTarifaGeneral', tarifaId: t.id }) });
+                                            fetchGuardiasData();
+                                          }}
+                                          className="text-red-500 hover:text-red-700 text-[9px] ml-2"
+                                        >x</button>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              {/* Histórico de tarifas generales */}
+                              {guardiasData.tarifasGenerales && guardiasData.tarifasGenerales.filter((t: any) => !t.vigente).length > 0 && (
+                                <details className="mt-2">
+                                  <summary className="text-[9px] text-gray-400 cursor-pointer">Histórico de tarifas anteriores ({guardiasData.tarifasGenerales.filter((t: any) => !t.vigente).length})</summary>
+                                  <div className="mt-1 space-y-0.5">
+                                    {guardiasData.tarifasGenerales.filter((t: any) => !t.vigente).map((t: any) => {
+                                      const labels: Record<string, string> = { 'coste_km_tecnico': 'Coste km tecnico', 'coste_hora_tecnico': 'Coste hora tecnico', 'precio_hora_cliente': 'Precio hora cliente', 'precio_fijo_desplaz_cliente': 'Precio fijo desplaz. cliente' };
+                                      return (
+                                        <div key={t.id} className="flex items-center justify-between text-[9px] text-gray-400">
+                                          <span>{labels[t.concepto] || t.concepto}: {t.valor}€ (desde {new Date(t.fechaDesde).toLocaleDateString('es-ES')} hasta {t.fechaHasta ? new Date(t.fechaHasta).toLocaleDateString('es-ES') : '—'})</span>
+                                          <button
+                                            onClick={async (e) => {
+                                              e.stopPropagation();
+                                              if (!confirm('Eliminar registro historico?')) return;
+                                              await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'deleteTarifaGeneral', tarifaId: t.id }) });
+                                              fetchGuardiasData();
+                                            }}
+                                            className="text-red-400 hover:text-red-600 text-[9px] ml-2"
+                                          >x</button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </details>
+                              )}
                             </div>
 
                             {/* Tarifas por nivel de técnico - Editable */}

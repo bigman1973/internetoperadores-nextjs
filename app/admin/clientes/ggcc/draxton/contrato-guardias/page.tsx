@@ -78,7 +78,7 @@ interface Config {
   precioHoraCliente: number | null
   costeHoraTecnico: number | null
   costeKmTecnico: number | null
-  precioKmCliente: number | null
+  precioFijoDesplazCliente: number | null
   observaciones: string | null
 }
 
@@ -976,13 +976,13 @@ export default function DraxtonContratoGuardiasPage() {
                     const horas = parseFloat(formIncidencia.horasDesplazamiento) || 0
                     const costeKm = config?.costeKmTecnico || 0.28
                     const costeHora = config?.costeHoraTecnico || 18
-                    const precioKm = config?.precioKmCliente || 0
-                    const precioHora = config?.precioHoraCliente || 0
                     const coste = (km * costeKm) + (horas * costeHora)
-                    const facturar = (km * precioKm) + (horas * precioHora)
+                    const precioFijo = config?.precioFijoDesplazCliente || 0
+                    const precioHora = config?.precioHoraCliente || 0
+                    const facturar = precioFijo + (horas * precioHora)
                     setFormIncidencia({ ...formIncidencia, kmRecorridos: e.target.value, costeDesplazamiento: coste > 0 ? coste.toFixed(2) : formIncidencia.costeDesplazamiento, importeClienteDesp: facturar > 0 ? facturar.toFixed(2) : formIncidencia.importeClienteDesp })
                   }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 150" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Coste tecnico: {config?.costeKmTecnico || 0.28} EUR/km · Cliente: {config?.precioKmCliente || '-'} EUR/km</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">Se paga al tecnico: {config?.costeKmTecnico || 0.28} EUR/km</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Horas actuacion</label>
@@ -991,23 +991,23 @@ export default function DraxtonContratoGuardiasPage() {
                     const km = parseFloat(formIncidencia.kmRecorridos) || 0
                     const costeKm = config?.costeKmTecnico || 0.28
                     const costeHora = config?.costeHoraTecnico || 18
-                    const precioKm = config?.precioKmCliente || 0
-                    const precioHora = config?.precioHoraCliente || 0
                     const coste = (km * costeKm) + (horas * costeHora)
-                    const facturar = (km * precioKm) + (horas * precioHora)
+                    const precioFijo = config?.precioFijoDesplazCliente || 0
+                    const precioHora = config?.precioHoraCliente || 0
+                    const facturar = precioFijo + (horas * precioHora)
                     setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value, costeDesplazamiento: coste > 0 ? coste.toFixed(2) : formIncidencia.costeDesplazamiento, importeClienteDesp: facturar > 0 ? facturar.toFixed(2) : formIncidencia.importeClienteDesp })
                   }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 2" />
                   <p className="text-[9px] text-gray-400 mt-0.5">Coste tecnico: {config?.costeHoraTecnico || 18} EUR/h · Cliente: {config?.precioHoraCliente || '-'} EUR/h</p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Coste total (EUR)</label>
+                  <label className="text-xs font-medium text-gray-600">Coste nuestro (EUR)</label>
                   <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Auto: km x coste/km + horas x coste/h (editable)</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">km x {config?.costeKmTecnico || 0.28} + horas x {config?.costeHoraTecnico || 18} (editable)</p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Importe a facturar (EUR)</label>
+                  <label className="text-xs font-medium text-gray-600">Facturar a cliente (EUR)</label>
                   <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Auto: km x precio/km + horas x precio/h (editable)</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">Precio fijo desplaz: {config?.precioFijoDesplazCliente || '-'} EUR + horas x {config?.precioHoraCliente || '-'} EUR/h (editable)</p>
                 </div>
               </>)}
               <div className="md:col-span-2 border-t pt-3 mt-2"><h4 className="text-xs font-semibold text-gray-700 mb-2">Escalado</h4></div>

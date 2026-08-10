@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
           orderBy: { fechaAlta: 'asc' }
         },
         tarifas: { orderBy: [{ nivel: 'asc' }, { fechaDesde: 'desc' }] },
+        tarifasGenerales: { orderBy: [{ concepto: 'asc' }, { fechaDesde: 'desc' }] },
       }
     })
 
@@ -39,6 +40,7 @@ export async function GET(req: NextRequest) {
             orderBy: { fechaAlta: 'asc' }
           },
           tarifas: { orderBy: [{ nivel: 'asc' }, { fechaDesde: 'desc' }] },
+          tarifasGenerales: { orderBy: [{ concepto: 'asc' }, { fechaDesde: 'desc' }] },
         }
       })
     }
@@ -92,12 +94,13 @@ export async function GET(req: NextRequest) {
         precioHoraCliente: config.precioHoraCliente,
         costeHoraTecnico: (config as any).costeHoraTecnico,
         costeKmTecnico: (config as any).costeKmTecnico,
-        precioKmCliente: (config as any).precioKmCliente,
+        precioFijoDesplazCliente: (config as any).precioFijoDesplazCliente,
         observaciones: config.observaciones,
       },
       contrato,
       tecnicos: config.tecnicos,
       tarifas: config.tarifas.map(t => ({ ...t, vigente: t.fechaHasta === null })),
+      tarifasGenerales: (config as any).tarifasGenerales?.map((t: any) => ({ ...t, vigente: t.fechaHasta === null })) || [],
       asignaciones,
       incidencias,
     })
@@ -128,7 +131,7 @@ export async function POST(req: NextRequest) {
             precioHoraCliente: body.precioHoraCliente != null ? parseFloat(body.precioHoraCliente) : undefined,
             costeHoraTecnico: body.costeHoraTecnico != null ? parseFloat(body.costeHoraTecnico) : undefined,
             costeKmTecnico: body.costeKmTecnico != null ? parseFloat(body.costeKmTecnico) : undefined,
-            precioKmCliente: body.precioKmCliente != null ? parseFloat(body.precioKmCliente) : undefined,
+            precioFijoDesplazCliente: body.precioFijoDesplazCliente != null ? parseFloat(body.precioFijoDesplazCliente) : undefined,
             observaciones: body.observaciones,
           }
         })
@@ -348,6 +351,50 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, incidencia })
       }
 
+      case 'addTarifaGeneral': {
+        // Cerrar tarifa general anterior del mismo concepto
+        const tarifaGenAnterior = await prisma.guardiaTarifaGeneral.findFirst({
+          where: { configId: config.id, concepto: body.concepto, fechaHasta: null }
+        })
+        if (tarifaGenAnterior) {
+          const fechaDesde = new Date(body.fechaDesde)
+          fechaDesde.setDate(fechaDesde.getDate() - 1)
+          await prisma.guardiaTarifaGeneral.update({
+            where: { id: tarifaGenAnterior.id },
+            data: { fechaHasta: fechaDesde }
+          })
+        }
+        const tarifaGen = await prisma.guardiaTarifaGeneral.create({
+          data: {
+            configId: config.id,
+            concepto: body.concepto,
+            valor: parseFloat(body.valor),
+            fechaDesde: new Date(body.fechaDesde),
+            notas: body.notas || null,
+          }
+        })
+        // Actualizar también el campo directo en config para que el cálculo en tiempo real funcione
+        const fieldMap: Record<string, string> = {
+          'coste_km_tecnico': 'costeKmTecnico',
+          'coste_hora_tecnico': 'costeHoraTecnico',
+          'precio_hora_cliente': 'precioHoraCliente',
+          'precio_fijo_desplaz_cliente': 'precioFijoDesplazCliente',
+        }
+        const fieldName = fieldMap[body.concepto]
+        if (fieldName) {
+          await prisma.guardiaConfig.update({
+            where: { id: config.id },
+            data: { [fieldName]: parseFloat(body.valor) }
+          })
+        }
+        return NextResponse.json({ success: true, tarifa: tarifaGen })
+      }
+
+      case 'deleteTarifaGeneral': {
+        await prisma.guardiaTarifaGeneral.delete({ where: { id: body.tarifaId } })
+        return NextResponse.json({ success: true })
+      }
+
       default:
         return NextResponse.json({ error: `Acción no reconocida: ${action}` }, { status: 400 })
     }
@@ -387,6 +434,9 @@ export async function DELETE(req: NextRequest) {
         break
       case 'tarifa':
         await prisma.guardiaTarifa.delete({ where: { id } })
+        break
+      case 'tarifaGeneral':
+        await prisma.guardiaTarifaGeneral.delete({ where: { id } })
         break
       default:
         return NextResponse.json({ error: `Tipo no reconocido: ${type}` }, { status: 400 })

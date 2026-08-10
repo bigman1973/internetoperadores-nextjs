@@ -2217,7 +2217,7 @@ model GuardiaConfig {
   precioHoraCliente     Float?   @map("precio_hora_cliente") // Precio/hora que se cobra a Draxton
   costeHoraTecnico      Float?   @map("coste_hora_tecnico") // Coste/hora del técnico en desplazamiento
   costeKmTecnico        Float?   @map("coste_km_tecnico") // Coste por km que se paga al tecnico (ej: 0.28 EUR/km)
-  precioKmCliente       Float?   @map("precio_km_cliente") // Precio por km que se cobra a Draxton
+  precioFijoDesplazCliente Float?  @map("precio_km_cliente") // Precio fijo por desplazamiento que se cobra a Draxton
   observaciones         String?  @db.Text
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
@@ -2225,6 +2225,7 @@ model GuardiaConfig {
   // Relaciones
   tecnicos              GuardiaTecnico[]
   tarifas               GuardiaTarifa[]
+  tarifasGenerales      GuardiaTarifaGeneral[]
   asignaciones          GuardiaAsignacion[]
   incidencias           GuardiaIncidencia[]
 
@@ -2283,6 +2284,24 @@ model GuardiaTarifa {
 
   @@index([configId, nivel, fechaDesde])
   @@map("guardia_tarifas")
+}
+
+// Histórico de tarifas/costes generales del contrato de guardias
+model GuardiaTarifaGeneral {
+  id              String         @id @default(uuid())
+  configId        String         @map("config_id")
+  concepto        String         // "coste_km_tecnico", "coste_hora_tecnico", "precio_hora_cliente", "precio_fijo_desplaz_cliente"
+  valor           Float          // Importe del concepto
+  fechaDesde      DateTime       @map("fecha_desde") @db.Date
+  fechaHasta      DateTime?      @map("fecha_hasta") @db.Date // null = vigente
+  notas           String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  // Relaciones
+  config          GuardiaConfig  @relation(fields: [configId], references: [id])
+
+  @@index([configId, concepto, fechaDesde])
+  @@map("guardia_tarifas_generales")
 }
 
 // Asignación semanal de técnico de guardia
