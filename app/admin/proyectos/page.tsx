@@ -237,7 +237,7 @@ export default function AdminProyectosPage() {
                     type="text"
                     value={formData.codigo}
                     onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                     placeholder="PRJ-001"
                   />
                 </div>
@@ -247,7 +247,7 @@ export default function AdminProyectosPage() {
                     type="text"
                     value={formData.nombre}
                     onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                     placeholder="Nombre del proyecto"
                     required
                   />
@@ -259,7 +259,7 @@ export default function AdminProyectosPage() {
                   type="text"
                   value={formData.cliente}
                   onChange={(e) => setFormData({ ...formData, cliente: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                   placeholder="Nombre del cliente"
                 />
               </div>
@@ -270,7 +270,7 @@ export default function AdminProyectosPage() {
                   step="0.01"
                   value={formData.presupuesto}
                   onChange={(e) => setFormData({ ...formData, presupuesto: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
+                  className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                   placeholder="0.00"
                 />
               </div>
@@ -281,7 +281,7 @@ export default function AdminProyectosPage() {
                     type="date"
                     value={formData.fechaInicio}
                     onChange={(e) => setFormData({ ...formData, fechaInicio: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                   />
                 </div>
                 <div>
@@ -290,7 +290,7 @@ export default function AdminProyectosPage() {
                     type="date"
                     value={formData.fechaFin}
                     onChange={(e) => setFormData({ ...formData, fechaFin: e.target.value })}
-                    className="w-full px-3 py-2 border rounded-lg text-sm"
+                    className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                   />
                 </div>
               </div>

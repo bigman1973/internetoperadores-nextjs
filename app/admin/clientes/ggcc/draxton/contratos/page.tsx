@@ -1359,7 +1359,7 @@ export default function DraxtonContratosPage() {
                 type="text"
                 value={busquedaCliente}
                 onChange={e => buscarClientes(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
+                className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900"
                 placeholder="Buscar cliente por nombre o CIF..."
                 autoFocus
               />

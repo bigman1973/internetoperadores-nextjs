@@ -685,19 +685,19 @@ export default function DraxtonProyectosSingularesPage() {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor *</label>
-                          <input type="text" value={provForm.proveedor} onChange={e => setProvForm({ ...provForm, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: Wifidom, Sharktek..." />
+                          <input type="text" value={provForm.proveedor} onChange={e => setProvForm({ ...provForm, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Wifidom, Sharktek..." />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Concepto</label>
-                          <input type="text" value={provForm.concepto} onChange={e => setProvForm({ ...provForm, concepto: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: Equipos Ruckus R650" />
+                          <input type="text" value={provForm.concepto} onChange={e => setProvForm({ ...provForm, concepto: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Equipos Ruckus R650" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Importe (€)</label>
-                          <input type="number" step="0.01" value={provForm.importe} onChange={e => setProvForm({ ...provForm, importe: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="0,00" />
+                          <input type="number" step="0.01" value={provForm.importe} onChange={e => setProvForm({ ...provForm, importe: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="0,00" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Estado</label>
-                          <select value={provForm.estado} onChange={e => setProvForm({ ...provForm, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                          <select value={provForm.estado} onChange={e => setProvForm({ ...provForm, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             {ESTADOS_PROVEEDOR.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
                           </select>
                         </div>
@@ -714,7 +714,7 @@ export default function DraxtonProyectosSingularesPage() {
                         </div>
                         <div className="col-span-2">
                           <label className="block text-xs font-medium text-gray-600 mb-1">Notas</label>
-                          <input type="text" value={provForm.notas} onChange={e => setProvForm({ ...provForm, notas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Notas adicionales..." />
+                          <input type="text" value={provForm.notas} onChange={e => setProvForm({ ...provForm, notas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Notas adicionales..." />
                         </div>
                         <div className="col-span-2 flex gap-2">
                           <button onClick={() => handleAddProveedor(p.id)} disabled={uploading || ocrProvProcessing} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
@@ -778,7 +778,7 @@ export default function DraxtonProyectosSingularesPage() {
                       <div className="grid grid-cols-3 gap-3">
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Empleado *</label>
-                          <select value={personalForm.empleadoId} onChange={e => setPersonalForm({ ...personalForm, empleadoId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                          <select value={personalForm.empleadoId} onChange={e => setPersonalForm({ ...personalForm, empleadoId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="">Seleccionar...</option>
                             {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}{emp.costeHoraActual ? ` (${emp.costeHoraActual.toFixed(2)} \u20ac/h)` : ''}</option>)}
                           </select>
@@ -793,11 +793,11 @@ export default function DraxtonProyectosSingularesPage() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Rol</label>
-                          <input type="text" value={personalForm.rol} onChange={e => setPersonalForm({ ...personalForm, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: Instalador, Responsable..." />
+                          <input type="text" value={personalForm.rol} onChange={e => setPersonalForm({ ...personalForm, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Instalador, Responsable..." />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Nivel T\u00e9cnico</label>
-                          <select value={personalForm.nivelTecnico} onChange={e => setPersonalForm({ ...personalForm, nivelTecnico: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                          <select value={personalForm.nivelTecnico} onChange={e => setPersonalForm({ ...personalForm, nivelTecnico: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="">Sin asignar</option>
                             <option value="1">N1 - B\u00e1sico</option>
                             <option value="2">N2 - Intermedio</option>
@@ -806,7 +806,7 @@ export default function DraxtonProyectosSingularesPage() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Tipo imputaci\u00f3n *</label>
-                          <select value={personalForm.tipoImputacion} onChange={e => setPersonalForm({ ...personalForm, tipoImputacion: e.target.value as 'horas' | 'porcentaje' })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                          <select value={personalForm.tipoImputacion} onChange={e => setPersonalForm({ ...personalForm, tipoImputacion: e.target.value as 'horas' | 'porcentaje' })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="horas">Por horas</option>
                             <option value="porcentaje">Por % dedicaci\u00f3n</option>
                           </select>
@@ -814,7 +814,7 @@ export default function DraxtonProyectosSingularesPage() {
                         {personalForm.tipoImputacion === 'horas' ? (
                           <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">Horas imputadas *</label>
-                            <input type="number" min="0" step="0.5" value={personalForm.horasImputadas} onChange={e => setPersonalForm({ ...personalForm, horasImputadas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: 24" />
+                            <input type="number" min="0" step="0.5" value={personalForm.horasImputadas} onChange={e => setPersonalForm({ ...personalForm, horasImputadas: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: 24" />
                             {personalForm.horasImputadas && personalForm.empleadoId && (() => {
                               const emp = empleados.find((e: any) => e.id === personalForm.empleadoId)
                               if (emp?.costeHoraActual) {
@@ -827,20 +827,20 @@ export default function DraxtonProyectosSingularesPage() {
                         ) : (
                           <div>
                             <label className="block text-xs font-medium text-gray-600 mb-1">Dedicaci\u00f3n % *</label>
-                            <input type="number" min="1" max="100" value={personalForm.porcentajeDedicacion} onChange={e => setPersonalForm({ ...personalForm, porcentajeDedicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: 50" />
+                            <input type="number" min="1" max="100" value={personalForm.porcentajeDedicacion} onChange={e => setPersonalForm({ ...personalForm, porcentajeDedicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: 50" />
                           </div>
                         )}
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Funciones</label>
-                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Descripci\u00f3n de funciones..." />
+                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Descripci\u00f3n de funciones..." />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Inicio</label>
-                          <input type="date" value={personalForm.fechaInicio} onChange={e => setPersonalForm({ ...personalForm, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                          <input type="date" value={personalForm.fechaInicio} onChange={e => setPersonalForm({ ...personalForm, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Fin</label>
-                          <input type="date" value={personalForm.fechaFin} onChange={e => setPersonalForm({ ...personalForm, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                          <input type="date" value={personalForm.fechaFin} onChange={e => setPersonalForm({ ...personalForm, fechaFin: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
                         </div>
                         <div className="col-span-3 flex gap-2">
                           <button onClick={() => handleAddPersonal(p.id)} className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">Asignar</button>
@@ -931,25 +931,25 @@ export default function DraxtonProyectosSingularesPage() {
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
-                          <input type="text" value={docForm.nombre} onChange={e => setDocForm({ ...docForm, nombre: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Nombre del documento" />
+                          <input type="text" value={docForm.nombre} onChange={e => setDocForm({ ...docForm, nombre: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Nombre del documento" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Tipo *</label>
-                          <select value={docForm.tipo} onChange={e => setDocForm({ ...docForm, tipo: e.target.value as Documento['tipo'] })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                          <select value={docForm.tipo} onChange={e => setDocForm({ ...docForm, tipo: e.target.value as Documento['tipo'] })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             {TIPOS_DOCUMENTO.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                           </select>
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-                          <input type="date" value={docForm.fecha} onChange={e => setDocForm({ ...docForm, fecha: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                          <input type="date" value={docForm.fecha} onChange={e => setDocForm({ ...docForm, fecha: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Importe (€)</label>
-                          <input type="number" step="0.01" value={docForm.importe} onChange={e => setDocForm({ ...docForm, importe: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="0,00" />
+                          <input type="number" step="0.01" value={docForm.importe} onChange={e => setDocForm({ ...docForm, importe: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="0,00" />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Proveedor</label>
-                          <input type="text" value={docForm.proveedor} onChange={e => setDocForm({ ...docForm, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Si aplica..." />
+                          <input type="text" value={docForm.proveedor} onChange={e => setDocForm({ ...docForm, proveedor: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Si aplica..." />
                         </div>
                         <div className="col-span-2 flex gap-2">
                           <button onClick={() => handleAddDoc(p.id)} disabled={uploading || !docForm.file} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
