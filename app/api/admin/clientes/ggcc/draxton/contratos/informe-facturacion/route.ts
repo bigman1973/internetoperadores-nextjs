@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     });
 
     // Obtener facturas vinculadas a contratos
-    const vinculaciones = await prisma.facturaDraxtonVinculacion.findMany({
+    const vinculaciones = await prisma.facturaContratoDraxton.findMany({
       where: {
         factura: {
           fecha: { gte: new Date(`${anio}-01-01`), lt: new Date(`${anio + 1}-01-01`) },
@@ -47,19 +47,19 @@ export async function GET(req: NextRequest) {
         factura: {
           select: {
             id: true,
-            numFactura: true,
+            numeroDocumento: true,
+            serieFactura: true,
             fecha: true,
-            importe: true,
-            concepto: true,
-            empresa: true,
-            estado: true,
-            numero_documento: true,
+            base: true,
+            total: true,
+            nombreCompleto: true,
+            situacion: true,
           },
         },
       },
     });
 
-    // Obtener facturas emitidas (para cruzar cobros)
+    // Obtener facturas emitidas (para cruzar cobros via confirming)
     const facturasEmitidas = await prisma.facturaEmitida.findMany({
       where: {
         fecha: { gte: new Date(`${anio}-01-01`), lt: new Date(`${anio + 1}-01-01`) },
@@ -121,20 +121,20 @@ export async function GET(req: NextRequest) {
 
     for (const vinc of vinculaciones) {
       const contrato = resumenMap.get(vinc.contratoDraxtonId);
-      const importe = Number(vinc.importeAsignado || vinc.factura.importe || 0);
-      const numDoc = vinc.factura.numero_documento || vinc.factura.numFactura;
+      const importe = Number(vinc.importeAsignado || 0);
+      const numDoc = vinc.factura.numeroDocumento;
       const fe = numDoc ? cobradoMap.get(numDoc) : null;
       const importeCobrado = fe ? Number(fe.importeCobrado || 0) : 0;
       const proporcion = fe && Number(fe.importeTotal) > 0 ? importe / Number(fe.importeTotal) : 1;
       const cobradoProporcional = importeCobrado * proporcion;
-      const cobrada = fe ? (fe.estadoCobro === 'cobrada' || importeCobrado > 0) : false;
+      const cobrada = fe ? (fe.estadoCobro === 'cobrada' || importeCobrado > 0) : (vinc.factura.situacion === 'COBRADA');
 
       const facturaData = {
-        numFactura: vinc.factura.numFactura,
+        numFactura: vinc.factura.numeroDocumento,
         fecha: vinc.factura.fecha,
         importe,
-        empresa: vinc.factura.empresa,
-        concepto: vinc.factura.concepto,
+        empresa: vinc.factura.nombreCompleto,
+        concepto: null as string | null,
         cobrada,
         importeCobrado: cobradoProporcional,
         fechaCobro: fe?.fechaCobro || null,
