@@ -28,7 +28,8 @@ export default function ActualizacionesPage() {
   const [showImputForm, setShowImputForm] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [formPlan, setFormPlan] = useState({ titulo: '', descripcion: '', prioridad: 'normal', fechaPropuesta: '', servidoresAfectados: '', plantasAfectadas: '', solicitadoPor: '', tecnicoAsignado: '', notas: '' })
-  const [formEjec, setFormEjec] = useState({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: '', tecnicoNombre: '', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
+  const ALEJANDRO_ID = '633e8841-a8d7-429f-a925-1bde822da559'
+  const [formEjec, setFormEjec] = useState({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: ALEJANDRO_ID, tecnicoNombre: 'MARTINEZ CAYUELAS, ALEJANDRO', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
   const [formImput, setFormImput] = useState({ contratoId: '', horas: '', notas: '' })
   const [formTarifa, setFormTarifa] = useState({ concepto: 'n2_remoto', factorConversion: '1', costeHora: '', precioFacturacion: '', fechaDesde: new Date().toISOString().slice(0, 10), notas: '' })
   const [editingPlan, setEditingPlan] = useState<Planificacion | null>(null)
@@ -265,7 +266,7 @@ export default function ActualizacionesPage() {
           <div>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-gray-800">Ejecuciones {anio}</h2>
-              <button onClick={() => { setEditingEjec(null); setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: '', tecnicoNombre: '', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' }); setShowEjecForm(true) }} className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">+ Registrar Ejecucion</button>
+              <button onClick={() => { setEditingEjec(null); setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: ALEJANDRO_ID, tecnicoNombre: 'MARTINEZ CAYUELAS, ALEJANDRO', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' }); setShowEjecForm(true) }} className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">+ Registrar Ejecucion</button>
             </div>
 
             {showEjecForm && (

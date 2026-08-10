@@ -47,14 +47,11 @@ export async function GET(req: NextRequest) {
     })
     const tecnicos = Object.values(tecnicosMap)
 
-    // Solo contratos de horas (tipo Mantenimiento o que tengan horasContratadas > 0)
+    // Solo contratos de horas (tipo Mantenimiento CON horas asignadas)
     const contratos = await prisma.contratoDraxton.findMany({
       where: {
         estado: { in: ['Activo', 'activo', 'renovacion', 'Renovacion'] },
-        OR: [
-          { tipo: 'Mantenimiento' },
-          { horasContratadas: { gt: 0 } }
-        ]
+        horasContratadas: { gt: 0 },
       },
       select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true },
       orderBy: { titulo: 'asc' }
