@@ -210,7 +210,7 @@ export default function ActualizacionesPage() {
         simulaciones: tarifasVigentes.map(t => ({
           concepto: t.concepto,
           costeHoraTecnico: t.costeHora || 0,
-          precioFacturacion: t.precioFacturacion || 0,
+          // precioFacturacion se calcula como precioH * factor en la tabla
           factorConversion: t.factorConversion,
           costeEfectivoContrato: (t.costeHora || 0) / t.factorConversion, // coste real por hora de contrato consumida
           margen: precioHoraContrato > 0 ? ((precioHoraContrato - ((t.costeHora || 0) / t.factorConversion)) / precioHoraContrato * 100) : 0,
@@ -541,12 +541,12 @@ export default function ActualizacionesPage() {
         {tab === 'tarifas' && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-2">Tarifas de Conversion</h2>
-            <p className="text-sm text-gray-500 mb-4">Define el coste/hora del tecnico (lo que nos cuesta), el precio a facturar al cliente, y el factor de conversion (1h actualizacion = Xh de contrato).</p>
+            <p className="text-sm text-gray-500 mb-4">El <strong>factor de conversion</strong> determina cuantas horas de contrato equivale 1h de actualizacion. El <strong>precio de facturacion</strong> se calcula automaticamente: precio/hora del contrato x factor.</p>
 
             {/* Formulario nueva tarifa */}
             <div className="bg-white border rounded-lg p-4 mb-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Anadir/Actualizar Tarifa</h3>
-              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Anadir Tarifa</h3>
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-600">Concepto</label>
                   <select value={formTarifa.concepto} onChange={e => setFormTarifa({ ...formTarifa, concepto: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
@@ -560,16 +560,11 @@ export default function ActualizacionesPage() {
                 <div>
                   <label className="text-xs font-medium text-gray-600">Coste/hora tecnico (EUR)</label>
                   <input type="number" step="0.01" value={formTarifa.costeHora} onChange={e => setFormTarifa({ ...formTarifa, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 25.00" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que nos cuesta</p>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600">Precio facturacion (EUR)</label>
-                  <input type="number" step="0.01" value={formTarifa.precioFacturacion} onChange={e => setFormTarifa({ ...formTarifa, precioFacturacion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 45.00" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que cobramos</p>
+                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que nos cuesta internamente</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Factor conversion</label>
-                  <input type="number" step="0.1" value={formTarifa.factorConversion} onChange={e => setFormTarifa({ ...formTarifa, factorConversion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="1.5" />
+                  <input type="number" step="0.1" value={formTarifa.factorConversion} onChange={e => setFormTarifa({ ...formTarifa, factorConversion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="4" />
                   <p className="text-[9px] text-gray-400 mt-0.5">1h actualiz = Xh contrato</p>
                 </div>
                 <div>
@@ -583,7 +578,7 @@ export default function ActualizacionesPage() {
               <p className="text-[9px] text-gray-400 mt-2">Al guardar se crea un registro historico. La tarifa anterior del mismo concepto se cierra automaticamente.</p>
             </div>
 
-            {/* Tarifas vigentes */}
+            {/* Tarifas vigentes - EDITABLES */}
             {tarifasConversion.filter(t => t.vigente).length > 0 && (
               <div className="mb-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Tarifas vigentes</h3>
@@ -592,23 +587,15 @@ export default function ActualizacionesPage() {
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Concepto</th>
-                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Coste/h tecnico</th>
-                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Precio facturacion</th>
-                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Factor</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Coste/h tecnico (EUR)</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Factor conversion</th>
                         <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Desde</th>
                         <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase"></th>
                       </tr>
                     </thead>
                     <tbody>
                       {tarifasConversion.filter(t => t.vigente).map(t => (
-                        <tr key={t.id} className="border-b bg-green-50">
-                          <td className="px-3 py-2 font-semibold text-green-800">{conceptoLabels[t.concepto] || t.concepto}</td>
-                          <td className="px-3 py-2 text-right">{t.costeHora ? `${t.costeHora} EUR` : '-'}</td>
-                          <td className="px-3 py-2 text-right">{t.precioFacturacion ? `${t.precioFacturacion} EUR` : '-'}</td>
-                          <td className="px-3 py-2 text-right font-medium">x{t.factorConversion}</td>
-                          <td className="px-3 py-2 text-xs text-gray-500">{formatDate(t.fechaDesde)}</td>
-                          <td className="px-3 py-2 text-right"><button onClick={() => handleDeleteTarifa(t.id)} className="text-red-500 hover:text-red-700 text-xs">x</button></td>
-                        </tr>
+                        <TarifaEditableRow key={t.id} tarifa={t} onUpdate={fetchData} onDelete={() => handleDeleteTarifa(t.id)} conceptoLabels={conceptoLabels} formatDate={formatDate} />
                       ))}
                     </tbody>
                   </table>
@@ -616,11 +603,11 @@ export default function ActualizacionesPage() {
               </div>
             )}
 
-            {/* Simulacion de coste por contrato */}
-            {simulacionContratos.length > 0 && tarifasConversion.filter(t => t.vigente).length > 0 && (
+            {/* Simulacion: Precio facturacion = precio/h contrato x factor */}
+            {contratos.length > 0 && tarifasConversion.filter(t => t.vigente).length > 0 && (
               <div className="mb-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Simulacion de Coste por Contrato</h3>
-                <p className="text-xs text-gray-500 mb-2">Como afecta cada tarifa de conversion al coste efectivo por hora de contrato consumida:</p>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Simulacion: Precio Facturacion por Contrato</h3>
+                <p className="text-xs text-gray-500 mb-2">Precio facturacion = Precio/hora contrato x Factor conversion. Muestra cuanto "vale" 1h de actualizacion al imputarla a cada contrato.</p>
                 <div className="bg-white border rounded-lg overflow-hidden">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
@@ -628,27 +615,35 @@ export default function ActualizacionesPage() {
                         <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Contrato</th>
                         <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Precio/h contrato</th>
                         {tarifasConversion.filter(t => t.vigente).map(t => (
-                          <th key={t.id} className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">{conceptoLabels[t.concepto]}</th>
+                          <th key={t.id} className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">{conceptoLabels[t.concepto]} (x{t.factorConversion})</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {simulacionContratos.map(c => (
-                        <tr key={c.id} className="border-b">
-                          <td className="px-3 py-2 text-gray-700 text-xs">{c.titulo}</td>
-                          <td className="px-3 py-2 text-right text-xs font-medium">{c.precioHoraContrato ? `${c.precioHoraContrato} EUR` : '-'}</td>
-                          {c.simulaciones.map((s, i) => (
-                            <td key={i} className="px-3 py-2 text-right text-xs">
-                              <span className="font-medium">{s.costeEfectivoContrato.toFixed(2)} EUR</span>
-                              {c.precioHoraContrato > 0 && <span className={`ml-1 text-[9px] ${s.margen > 0 ? 'text-green-600' : 'text-red-600'}`}>({s.margen.toFixed(0)}%)</span>}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
+                      {contratos.map(c => {
+                        const precioH = Number(c.precioHoraContrato) || 0
+                        return (
+                          <tr key={c.id} className="border-b">
+                            <td className="px-3 py-2 text-gray-700 text-xs">{c.titulo}</td>
+                            <td className="px-3 py-2 text-right text-xs font-medium">{precioH ? `${precioH.toFixed(2)} EUR` : '-'}</td>
+                            {tarifasConversion.filter(t => t.vigente).map(t => {
+                              const precioFacturacion = precioH * t.factorConversion
+                              const coste = t.costeHora || 0
+                              const margen = precioFacturacion > 0 ? ((precioFacturacion - coste) / precioFacturacion * 100) : 0
+                              return (
+                                <td key={t.id} className="px-3 py-2 text-right text-xs">
+                                  <span className="font-semibold">{precioFacturacion.toFixed(2)} EUR</span>
+                                  {coste > 0 && <span className={`ml-1 text-[9px] ${margen > 0 ? 'text-green-600' : 'text-red-600'}`}>(margen {margen.toFixed(0)}%)</span>}
+                                </td>
+                              )
+                            })}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                   <div className="px-3 py-2 bg-gray-50 text-[9px] text-gray-500">
-                    Coste efectivo = Coste/h tecnico / Factor conversion. Margen = (Precio contrato - Coste efectivo) / Precio contrato.
+                    Precio facturacion = Precio/h contrato x Factor. Margen = (Precio facturacion - Coste/h tecnico) / Precio facturacion.
                   </div>
                 </div>
               </div>
@@ -661,7 +656,7 @@ export default function ActualizacionesPage() {
                 <div className="mt-2 space-y-1">
                   {tarifasConversion.filter(t => !t.vigente).map(t => (
                     <div key={t.id} className="flex items-center justify-between text-xs text-gray-400 bg-gray-50 rounded px-3 py-1.5">
-                      <span>{conceptoLabels[t.concepto] || t.concepto}: Coste {t.costeHora || '-'} EUR/h | Factur. {t.precioFacturacion || '-'} EUR/h | x{t.factorConversion} (desde {formatDate(t.fechaDesde)} hasta {formatDate(t.fechaHasta)})</span>
+                      <span>{conceptoLabels[t.concepto] || t.concepto}: Coste {t.costeHora || '-'} EUR/h | x{t.factorConversion} (desde {formatDate(t.fechaDesde)} hasta {formatDate(t.fechaHasta)})</span>
                       <button onClick={() => handleDeleteTarifa(t.id)} className="text-red-400 hover:text-red-600">x</button>
                     </div>
                   ))}
@@ -672,5 +667,49 @@ export default function ActualizacionesPage() {
         )}
       </>)}
     </div>
+  )
+}
+
+// Componente para fila editable de tarifa vigente
+function TarifaEditableRow({ tarifa, onUpdate, onDelete, conceptoLabels, formatDate }: { tarifa: TarifaConversion; onUpdate: () => void; onDelete: () => void; conceptoLabels: Record<string, string>; formatDate: (d: string | null) => string }) {
+  const [editing, setEditing] = useState(false)
+  const [costeHora, setCosteHora] = useState(tarifa.costeHora?.toString() || '')
+  const [factor, setFactor] = useState(tarifa.factorConversion.toString())
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    await fetch('/api/admin/clientes/ggcc/draxton/actualizaciones', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'updateTarifaConversion', tarifaId: tarifa.id, costeHora, factorConversion: factor })
+    })
+    setSaving(false)
+    setEditing(false)
+    onUpdate()
+  }
+
+  if (editing) {
+    return (
+      <tr className="border-b bg-yellow-50">
+        <td className="px-3 py-2 font-semibold text-gray-800">{conceptoLabels[tarifa.concepto] || tarifa.concepto}</td>
+        <td className="px-3 py-1 text-center"><input type="number" step="0.01" value={costeHora} onChange={e => setCosteHora(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm text-center text-gray-900" /></td>
+        <td className="px-3 py-1 text-center"><input type="number" step="0.1" value={factor} onChange={e => setFactor(e.target.value)} className="w-16 border rounded px-2 py-1 text-sm text-center text-gray-900" /></td>
+        <td className="px-3 py-2 text-xs text-gray-500">{formatDate(tarifa.fechaDesde)}</td>
+        <td className="px-3 py-2 text-right space-x-1">
+          <button onClick={handleSave} disabled={saving} className="text-[10px] px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200">Guardar</button>
+          <button onClick={() => setEditing(false)} className="text-[10px] px-2 py-1 bg-gray-100 text-gray-600 rounded">Cancelar</button>
+        </td>
+      </tr>
+    )
+  }
+
+  return (
+    <tr className="border-b bg-green-50 hover:bg-green-100 cursor-pointer" onClick={() => setEditing(true)}>
+      <td className="px-3 py-2 font-semibold text-green-800">{conceptoLabels[tarifa.concepto] || tarifa.concepto}</td>
+      <td className="px-3 py-2 text-center">{tarifa.costeHora ? `${tarifa.costeHora} EUR` : <span className="text-gray-400 italic">sin informar</span>}</td>
+      <td className="px-3 py-2 text-center font-medium">x{tarifa.factorConversion}</td>
+      <td className="px-3 py-2 text-xs text-gray-500">{formatDate(tarifa.fechaDesde)}</td>
+      <td className="px-3 py-2 text-right"><button onClick={(e) => { e.stopPropagation(); onDelete() }} className="text-red-500 hover:text-red-700 text-xs">x</button></td>
+    </tr>
   )
 }

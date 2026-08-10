@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
         estado: { in: ['Activo', 'activo', 'renovacion', 'Renovacion'] },
         horasContratadas: { gt: 0 },
       },
-      select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true },
+      select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true, importeMensual: true },
       orderBy: { titulo: 'asc' }
     })
 
@@ -67,12 +67,17 @@ export async function GET(req: NextRequest) {
     })
 
     // Balance por contrato: horas contratadas - horas imputadas de actualizaciones
-    const balanceContratos = contratos.map(c => ({
-      ...c,
-      horasContratadas: Number(c.horasContratadas) || 0,
-      horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
-      horasDisponibles: (Number(c.horasContratadas) || 0) - (imputacionesPorContrato[c.id] || 0),
-    }))
+    const balanceContratos = contratos.map(c => {
+      const horas = Number(c.horasContratadas) || 0
+      const precioHora = Number(c.precioHoraContrato) || (horas > 0 && c.importeMensual ? Number(c.importeMensual) / horas : 0)
+      return {
+        ...c,
+        horasContratadas: horas,
+        precioHoraContrato: Math.round(precioHora * 100) / 100,
+        horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
+        horasDisponibles: horas - (imputacionesPorContrato[c.id] || 0),
+      }
+    })
 
     // Tarifas de conversión (con histórico)
     const tarifasConversion = await prisma.actualizacionTarifaConversion.findMany({
@@ -347,6 +352,19 @@ export async function POST(req: NextRequest) {
           }
         })
         return NextResponse.json({ success: true, tarifa })
+      }
+
+      case 'updateTarifaConversion': {
+        const updated = await prisma.actualizacionTarifaConversion.update({
+          where: { id: body.tarifaId },
+          data: {
+            ...(body.costeHora !== undefined && { costeHora: body.costeHora ? parseFloat(body.costeHora) : null }),
+            ...(body.precioFacturacion !== undefined && { precioFacturacion: body.precioFacturacion ? parseFloat(body.precioFacturacion) : null }),
+            ...(body.factorConversion !== undefined && { factorConversion: parseFloat(body.factorConversion) || 1.0 }),
+            ...(body.notas !== undefined && { notas: body.notas || null }),
+          }
+        })
+        return NextResponse.json({ success: true, tarifa: updated })
       }
 
       case 'deleteTarifaConversion': {
