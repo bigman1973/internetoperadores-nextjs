@@ -72,9 +72,9 @@ export async function GET(req: NextRequest) {
       },
       select: {
         numFactura: true,
-        importeTotal: true,
+        total: true,
         importeCobrado: true,
-        estadoCobro: true,
+        estado: true,
         fechaCobro: true,
       },
     });
@@ -125,9 +125,9 @@ export async function GET(req: NextRequest) {
       const numDoc = vinc.factura.numeroDocumento;
       const fe = numDoc ? cobradoMap.get(numDoc) : null;
       const importeCobrado = fe ? Number(fe.importeCobrado || 0) : 0;
-      const proporcion = fe && Number(fe.importeTotal) > 0 ? importe / Number(fe.importeTotal) : 1;
+      const proporcion = fe && Number(fe.total) > 0 ? importe / Number(fe.total) : 1;
       const cobradoProporcional = importeCobrado * proporcion;
-      const cobrada = fe ? (fe.estadoCobro === 'cobrada' || importeCobrado > 0) : (vinc.factura.situacion === 'COBRADA');
+      const cobrada = fe ? (fe.estado === 'COBRADA' || importeCobrado > 0) : (vinc.factura.situacion === 'COBRADA');
 
       const facturaData = {
         numFactura: vinc.factura.numeroDocumento,
