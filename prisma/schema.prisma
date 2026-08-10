@@ -2331,6 +2331,17 @@ model GuardiaIncidencia {
   escaladoInterno       Boolean        @default(false) @map("escalado_interno")
   escaladoCliente       Boolean        @default(false) @map("escalado_cliente")
   detalleEscalado       String?        @map("detalle_escalado") @db.Text
+  // Datos EML (importación automática)
+  emailId               String?        @unique @map("email_id") // ID único del EML para evitar duplicados
+  emailSubject          String?        @map("email_subject")
+  emailFrom             String?        @map("email_from")
+  emailDate             DateTime?      @map("email_date")
+  archivoEml            String?        @map("archivo_eml")
+  categoria             String?        // csoc, usuario, red, hardware, software, impresora, general
+  horaInicio            String?        @map("hora_inicio") // HH:MM
+  horaFin               String?        @map("hora_fin") // HH:MM
+  duracionMinutos       Int?           @map("duracion_minutos")
+  planta                String?        // Lleida, Barcelona, Atxondo
   // Timestamps
   createdAt             DateTime       @default(now()) @map("created_at")
   updatedAt             DateTime       @updatedAt @map("updated_at")

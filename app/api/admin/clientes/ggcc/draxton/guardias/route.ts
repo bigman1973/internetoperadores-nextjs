@@ -126,6 +126,9 @@ export async function POST(req: NextRequest) {
           data: {
             margenDesplazamiento: body.margenDesplazamiento != null ? parseFloat(body.margenDesplazamiento) : undefined,
             precioHoraCliente: body.precioHoraCliente != null ? parseFloat(body.precioHoraCliente) : undefined,
+            costeHoraTecnico: body.costeHoraTecnico != null ? parseFloat(body.costeHoraTecnico) : undefined,
+            costeDesplazFijo: body.costeDesplazFijo != null ? parseFloat(body.costeDesplazFijo) : undefined,
+            precioDesplazCliente: body.precioDesplazCliente != null ? parseFloat(body.precioDesplazCliente) : undefined,
             observaciones: body.observaciones,
           }
         })
@@ -250,6 +253,75 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, incidencia })
       }
 
+      case 'importarEML': {
+        // Importar incidencias desde archivos EML
+        const { parseGuardiaEML } = await import('@/lib/guardias/eml-parser')
+        const emlFiles: { filename: string; content: string }[] = body.files || []
+        let importados = 0
+        let duplicados = 0
+        let errores = 0
+        const resultados: any[] = []
+
+        for (const file of emlFiles) {
+          try {
+            const parsed = parseGuardiaEML(file.content, file.filename)
+            
+            // Verificar duplicado por emailId
+            const existente = await prisma.guardiaIncidencia.findUnique({
+              where: { emailId: parsed.emailId }
+            })
+            if (existente) {
+              duplicados++
+              resultados.push({ file: file.filename, status: 'duplicado' })
+              continue
+            }
+
+            // Buscar asignación de la semana correspondiente
+            const lunes = getMonday(parsed.fecha)
+            const asignacion = await prisma.guardiaAsignacion.findFirst({
+              where: {
+                configId: config.id,
+                semanaInicio: lunes
+              }
+            })
+
+            // Crear incidencia
+            await prisma.guardiaIncidencia.create({
+              data: {
+                configId: config.id,
+                asignacionId: asignacion?.id || null,
+                fechaHora: parsed.fecha,
+                resumen: parsed.resumen || parsed.emailSubject,
+                descripcion: parsed.descripcion,
+                avisadoPor: 'Servicio de Guardia',
+                estado: 'resuelta',
+                tipoResolucion: parsed.tipoResolucion,
+                escaladoInterno: parsed.escaladoInterno,
+                emailId: parsed.emailId,
+                emailSubject: parsed.emailSubject,
+                emailFrom: parsed.emailFrom,
+                emailDate: parsed.emailDate,
+                archivoEml: parsed.archivoEml,
+                categoria: parsed.categoria,
+                horaInicio: parsed.horaInicio,
+                horaFin: parsed.horaFin,
+                duracionMinutos: parsed.duracionMinutos,
+                planta: parsed.planta,
+                zonaAfectada: parsed.planta,
+                departamento: parsed.categoria === 'csoc' ? 'CSOC' : null,
+              }
+            })
+            importados++
+            resultados.push({ file: file.filename, status: 'importado', fecha: parsed.fecha, tecnico: parsed.tecnicoNombre })
+          } catch (err: any) {
+            errores++
+            resultados.push({ file: file.filename, status: 'error', error: err.message })
+          }
+        }
+
+        return NextResponse.json({ success: true, importados, duplicados, errores, total: emlFiles.length, resultados })
+      }
+
       case 'actualizarIncidencia': {
         const incidencia = await prisma.guardiaIncidencia.update({
           where: { id: body.incidenciaId },
@@ -275,24 +347,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: true, incidencia })
       }
 
-      case 'updateConfig': {
-        let config = await prisma.guardiaConfig.findUnique({ where: { contratoId: CONTRATO_GUARDIAS_ID } })
-        if (!config) {
-          config = await prisma.guardiaConfig.create({ data: { contratoId: CONTRATO_GUARDIAS_ID } })
-        }
-        const updated = await prisma.guardiaConfig.update({
-          where: { id: config.id },
-          data: {
-            costeHoraTecnico: body.costeHoraTecnico ?? null,
-            costeDesplazFijo: body.costeDesplazFijo ?? null,
-            precioHoraCliente: body.precioHoraCliente ?? null,
-            precioDesplazCliente: body.precioDesplazCliente ?? null,
-            margenDesplazamiento: body.margenDesplazamiento ?? null,
-          }
-        })
-        return NextResponse.json({ success: true, config: updated })
-      }
-
       default:
         return NextResponse.json({ error: `Acción no reconocida: ${action}` }, { status: 400 })
     }
@@ -300,6 +354,16 @@ export async function POST(req: NextRequest) {
     console.error('Error POST guardias:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+}
+
+// Helper: obtener el lunes de la semana de una fecha
+function getMonday(date: Date): Date {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  d.setDate(diff)
+  d.setHours(0, 0, 0, 0)
+  return d
 }
 
 // DELETE: Eliminar asignación o incidencia
