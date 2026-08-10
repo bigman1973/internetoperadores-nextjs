@@ -2216,8 +2216,8 @@ model GuardiaConfig {
   margenDesplazamiento  Float?   @map("margen_desplazamiento") // % margen sobre coste desplazamiento
   precioHoraCliente     Float?   @map("precio_hora_cliente") // Precio/hora que se cobra a Draxton
   costeHoraTecnico      Float?   @map("coste_hora_tecnico") // Coste/hora del técnico en desplazamiento
-  costeDesplazFijo      Float?   @map("coste_desplaz_fijo") // Coste fijo por desplazamiento (km, gasolina, etc.)
-  precioDesplazCliente  Float?   @map("precio_desplaz_cliente") // Precio fijo desplazamiento que se cobra a Draxton
+  costeKmTecnico        Float?   @map("coste_km_tecnico") // Coste por km que se paga al tecnico (ej: 0.28 EUR/km)
+  precioKmCliente       Float?   @map("precio_km_cliente") // Precio por km que se cobra a Draxton
   observaciones         String?  @db.Text
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
@@ -2325,8 +2325,9 @@ model GuardiaIncidencia {
   detalleResolucion     String?        @map("detalle_resolucion") @db.Text
   // Desplazamiento (si aplica)
   horasDesplazamiento   Float?         @map("horas_desplazamiento")
-  costeDesplazamiento   Float?         @map("coste_desplazamiento") // Coste real (km, peajes, etc.)
-  importeClienteDesp    Float?         @map("importe_cliente_desp") // Lo que se cobra a Draxton
+  kmRecorridos          Float?         @map("km_recorridos") // Km del desplazamiento
+  costeDesplazamiento   Float?         @map("coste_desplazamiento") // Coste real calculado (km*costeKm + horas*costeHora)
+  importeClienteDesp    Float?         @map("importe_cliente_desp") // Lo que se cobra a Draxton (km*precioKm + horas*precioHora)
   // Escalado
   escaladoInterno       Boolean        @default(false) @map("escalado_interno")
   escaladoCliente       Boolean        @default(false) @map("escalado_cliente")

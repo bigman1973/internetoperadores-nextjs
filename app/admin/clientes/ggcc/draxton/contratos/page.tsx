@@ -2556,9 +2556,9 @@ export default function DraxtonContratosPage() {
                                     const body = {
                                       action: 'updateConfig',
                                       costeHoraTecnico: parseFloat(formData.get('costeHoraTecnico') as string) || null,
-                                      costeDesplazFijo: parseFloat(formData.get('costeDesplazFijo') as string) || null,
+                                      costeKmTecnico: parseFloat(formData.get('costeKmTecnico') as string) || null,
                                       precioHoraCliente: parseFloat(formData.get('precioHoraCliente') as string) || null,
-                                      precioDesplazCliente: parseFloat(formData.get('precioDesplazCliente') as string) || null,
+                                      precioKmCliente: parseFloat(formData.get('precioKmCliente') as string) || null,
                                       margenDesplazamiento: parseFloat(formData.get('margenDesplazamiento') as string) || null,
                                     };
                                     await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -2573,16 +2573,16 @@ export default function DraxtonContratosPage() {
                                   <input name="costeHoraTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeHoraTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 25.00" />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-gray-500 block mb-1">Coste fijo desplaz. (€)</label>
-                                  <input name="costeDesplazFijo" type="number" step="0.01" defaultValue={guardiasData.config?.costeDesplazFijo || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 50.00" />
+                                  <label className="text-[10px] text-gray-500 block mb-1">Coste km tecnico (€)</label>
+                                  <input name="costeKmTecnico" type="number" step="0.01" defaultValue={guardiasData.config?.costeKmTecnico || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 0.28" />
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Precio hora cliente (€)</label>
                                   <input name="precioHoraCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioHoraCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 45.00" />
                                 </div>
                                 <div>
-                                  <label className="text-[10px] text-gray-500 block mb-1">Precio fijo desplaz. cliente (€)</label>
-                                  <input name="precioDesplazCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioDesplazCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 75.00" />
+                                  <label className="text-[10px] text-gray-500 block mb-1">Precio km cliente (€)</label>
+                                  <input name="precioKmCliente" type="number" step="0.01" defaultValue={guardiasData.config?.precioKmCliente || ''} className="w-full border rounded px-2 py-1.5 text-xs" placeholder="Ej: 0.40" />
                                 </div>
                                 <div>
                                   <label className="text-[10px] text-gray-500 block mb-1">Margen desplaz. (%)</label>

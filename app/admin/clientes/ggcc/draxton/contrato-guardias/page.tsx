@@ -77,8 +77,8 @@ interface Config {
   margenDesplazamiento: number | null
   precioHoraCliente: number | null
   costeHoraTecnico: number | null
-  costeDesplazFijo: number | null
-  precioDesplazCliente: number | null
+  costeKmTecnico: number | null
+  precioKmCliente: number | null
   observaciones: string | null
 }
 
@@ -143,7 +143,7 @@ export default function DraxtonContratoGuardiasPage() {
     fechaHora: new Date().toISOString().slice(0, 16),
     resumen: '', descripcion: '', avisadoPor: '', departamento: '', zonaAfectada: '',
     urgencia: 'inmediata', tipoResolucion: '', horasDesplazamiento: '',
-    costeDesplazamiento: '', importeClienteDesp: '', escaladoInterno: false,
+    kmRecorridos: '', costeDesplazamiento: '', importeClienteDesp: '', escaladoInterno: false,
     escaladoCliente: false, detalleEscalado: '', detalleResolucion: '', estado: 'abierta',
     categoria: '', planta: '', horaInicio: '', horaFin: '',
   }
@@ -326,6 +326,7 @@ export default function DraxtonContratoGuardiasPage() {
         incidenciaId: editingIncidencia?.id, asignacionId: asig?.id || null,
         ...formIncidencia,
         horasDesplazamiento: formIncidencia.horasDesplazamiento ? parseFloat(formIncidencia.horasDesplazamiento) : null,
+        kmRecorridos: formIncidencia.kmRecorridos ? parseFloat(formIncidencia.kmRecorridos) : null,
         costeDesplazamiento: formIncidencia.costeDesplazamiento ? parseFloat(formIncidencia.costeDesplazamiento) : null,
         importeClienteDesp: formIncidencia.importeClienteDesp ? parseFloat(formIncidencia.importeClienteDesp) : null,
       })
@@ -340,6 +341,7 @@ export default function DraxtonContratoGuardiasPage() {
       avisadoPor: inc.avisadoPor || '', departamento: inc.departamento || '', zonaAfectada: inc.zonaAfectada || '',
       urgencia: inc.urgencia, tipoResolucion: inc.tipoResolucion || '',
       horasDesplazamiento: inc.horasDesplazamiento?.toString() || '',
+      kmRecorridos: (inc as any).kmRecorridos?.toString() || '',
       costeDesplazamiento: inc.costeDesplazamiento?.toString() || '',
       importeClienteDesp: inc.importeClienteDesp?.toString() || '',
       escaladoInterno: inc.escaladoInterno, escaladoCliente: inc.escaladoCliente,
@@ -968,17 +970,44 @@ export default function DraxtonContratoGuardiasPage() {
               </div>
               {formIncidencia.tipoResolucion === 'desplazamiento' && (<>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
-                  <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => { const h = parseFloat(e.target.value) || 0; setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value, costeDesplazamiento: (h * 18).toFixed(2) }) }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">18 EUR/h actuacion presencial</p>
+                  <label className="text-xs font-medium text-gray-600">Km recorridos</label>
+                  <input type="number" step="1" value={formIncidencia.kmRecorridos} onChange={e => {
+                    const km = parseFloat(e.target.value) || 0
+                    const horas = parseFloat(formIncidencia.horasDesplazamiento) || 0
+                    const costeKm = config?.costeKmTecnico || 0.28
+                    const costeHora = config?.costeHoraTecnico || 18
+                    const precioKm = config?.precioKmCliente || 0
+                    const precioHora = config?.precioHoraCliente || 0
+                    const coste = (km * costeKm) + (horas * costeHora)
+                    const facturar = (km * precioKm) + (horas * precioHora)
+                    setFormIncidencia({ ...formIncidencia, kmRecorridos: e.target.value, costeDesplazamiento: coste > 0 ? coste.toFixed(2) : formIncidencia.costeDesplazamiento, importeClienteDesp: facturar > 0 ? facturar.toFixed(2) : formIncidencia.importeClienteDesp })
+                  }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 150" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Coste tecnico: {config?.costeKmTecnico || 0.28} EUR/km · Cliente: {config?.precioKmCliente || '-'} EUR/km</p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Coste desplazamiento (EUR)</label>
+                  <label className="text-xs font-medium text-gray-600">Horas actuacion</label>
+                  <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => {
+                    const horas = parseFloat(e.target.value) || 0
+                    const km = parseFloat(formIncidencia.kmRecorridos) || 0
+                    const costeKm = config?.costeKmTecnico || 0.28
+                    const costeHora = config?.costeHoraTecnico || 18
+                    const precioKm = config?.precioKmCliente || 0
+                    const precioHora = config?.precioHoraCliente || 0
+                    const coste = (km * costeKm) + (horas * costeHora)
+                    const facturar = (km * precioKm) + (horas * precioHora)
+                    setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value, costeDesplazamiento: coste > 0 ? coste.toFixed(2) : formIncidencia.costeDesplazamiento, importeClienteDesp: facturar > 0 ? facturar.toFixed(2) : formIncidencia.importeClienteDesp })
+                  }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 2" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Coste tecnico: {config?.costeHoraTecnico || 18} EUR/h · Cliente: {config?.precioHoraCliente || '-'} EUR/h</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Coste total (EUR)</label>
                   <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Auto: km x coste/km + horas x coste/h (editable)</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Importe a facturar (EUR)</label>
                   <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Auto: km x precio/km + horas x precio/h (editable)</p>
                 </div>
               </>)}
               <div className="md:col-span-2 border-t pt-3 mt-2"><h4 className="text-xs font-semibold text-gray-700 mb-2">Escalado</h4></div>
