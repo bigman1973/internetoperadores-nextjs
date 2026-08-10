@@ -149,7 +149,8 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    const logoUrl = 'https://internetoperadores.com/wp-content/uploads/2023/01/logo-io-web.png'
+    const baseUrl = new URL(req.url).origin
+    const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`
     const fechaGeneracion = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
     const horaGeneracion = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
 
@@ -620,22 +621,32 @@ function generarInformeCliente({ anio, ejecuciones, factorConversion, totalHoras
   <div class="highlight-box">
     <div class="highlight-title">Propuesta de Imputacion a Contratos de Servicio</div>
     <p style="font-size: 9px; color: #3730a3; margin: 0 0 10px 0;">
-      Las ${totalHorasReales.toFixed(1)} horas de actualizaciones realizadas equivalen a <strong>${totalHorasContrato.toFixed(0)} horas de contrato</strong> (factor x${factorConversion}).
-      Se propone imputar estas horas a los contratos de servicio vigentes de la siguiente manera:
+      Las <strong>${totalHorasReales.toFixed(1)} horas</strong> de actualizaciones realizadas equivalen a <strong>${totalHorasContrato.toFixed(0)} horas de contrato</strong> (factor x${factorConversion}).
+      Se propone la imputacion de estas horas al contrato de servicio con mayor necesidad de cobertura:
     </p>
     <table>
-      <thead><tr><th>Contrato de servicio</th><th class="text-right">Horas equiv. a imputar</th></tr></thead>
+      <thead><tr><th>Contrato de servicio</th><th class="text-right">Horas equivalentes</th><th class="text-right">Justificacion</th></tr></thead>
       <tbody>
-        ${sugerencias.length > 0 ? sugerencias.map((s: any) => `<tr>
-          <td class="font-bold">${s.contrato}</td>
-          <td class="text-right font-bold text-blue">${s.horasContrato.toFixed(0)}h</td>
-        </tr>`).join('') : `<tr><td colspan="2" class="text-center" style="color: #6b7280;">Todas las horas ya estan imputadas</td></tr>`}
-        ${sugerencias.length > 0 ? `<tr style="border-top: 2px solid #1f2937; font-weight: 700;">
-          <td>TOTAL</td>
-          <td class="text-right text-blue">${horasPendientesContrato.toFixed(0)}h</td>
-        </tr>` : ''}
+        ${(() => {
+          // Agrupar sugerencias por contrato
+          const agrupado: Record<string, number> = {}
+          sugerencias.forEach((s: any) => { agrupado[s.contrato] = (agrupado[s.contrato] || 0) + s.horasContrato })
+          return Object.entries(agrupado).map(([contrato, horas]) => `<tr>
+            <td class="font-bold">${contrato}</td>
+            <td class="text-right font-bold text-blue">${(horas as number).toFixed(0)}h</td>
+            <td class="text-right" style="font-size: 8px; color: #6b7280;">Contrato con mayor deficit de cobertura previsto</td>
+          </tr>`).join('')
+        })()}
+        <tr style="border-top: 2px solid #1f2937; font-weight: 700;">
+          <td>TOTAL HORAS A IMPUTAR</td>
+          <td class="text-right text-blue" style="font-size: 12px;">${horasPendientesContrato.toFixed(0)}h</td>
+          <td></td>
+        </tr>
       </tbody>
     </table>
+    <p style="font-size: 8px; color: #6b7280; margin: 10px 0 0 0; font-style: italic;">
+      La imputacion se propone al contrato que presenta mayor necesidad de horas de cobertura segun el balance de dedicacion del equipo asignado y la prevision hasta fin de periodo contractual.
+    </p>
   </div>
 
   <div class="page-footer">
