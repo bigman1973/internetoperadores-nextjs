@@ -94,6 +94,13 @@ interface Proyecto {
   activo: boolean
   proveedores: Proveedor[]
   personalAsignado: PersonalAsignado[]
+  resumenFacturacion?: {
+    facturado: number
+    cobrado: number
+    pendienteCobro: number
+    numFacturas: number
+    numCobradas: number
+  }
 }
 
 // ===== CONSTANTES =====
@@ -582,6 +589,8 @@ export default function DraxtonProyectosSingularesPage() {
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Base Imp.</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Coste Prov.</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Margen</th>
+                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Facturado</th>
+                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Cobrado</th>
                 <th className="text-center px-4 py-2.5 font-medium text-gray-600">Proveedores</th>
                 <th className="text-center px-4 py-2.5 font-medium text-gray-600">Personal</th>
                 <th className="text-center px-4 py-2.5 font-medium text-gray-600">Docs</th>
@@ -610,6 +619,16 @@ export default function DraxtonProyectosSingularesPage() {
                         </>
                       );
                     })()}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {p.resumenFacturacion && p.resumenFacturacion.facturado > 0 ? (
+                      <span className="font-medium text-blue-700">{formatCurrency(p.resumenFacturacion.facturado)}</span>
+                    ) : <span className="text-gray-400">—</span>}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
+                    {p.resumenFacturacion && p.resumenFacturacion.cobrado > 0 ? (
+                      <span className="font-medium text-green-700">{formatCurrency(p.resumenFacturacion.cobrado)}</span>
+                    ) : <span className="text-gray-400">—</span>}
                   </td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{p.proveedores?.length || 0}</td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{p.personalAsignado?.length || 0}</td>

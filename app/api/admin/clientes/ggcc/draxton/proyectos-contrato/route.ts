@@ -34,15 +34,30 @@ export async function GET(req: NextRequest) {
         _count: {
           select: { facturasVinculadas: true },
         },
+        facturasVinculadas: {
+          select: { id: true, numFactura: true, total: true, importeCobrado: true, estado: true },
+        },
       },
       orderBy: [{ categoria: 'asc' }, { orden: 'asc' }, { createdAt: 'desc' }],
     });
 
-    // Añadir _facturasCount al resultado
-    const result = proyectos.map(p => ({
-      ...p,
-      _facturasCount: (p as any)._count?.facturasVinculadas || 0,
-    }));
+    // Añadir _facturasCount y resumen de facturación
+    const result = proyectos.map(p => {
+      const facturas = (p as any).facturasVinculadas || [];
+      const totalFacturado = facturas.reduce((s: number, f: any) => s + (f.total || 0), 0);
+      const totalCobrado = facturas.reduce((s: number, f: any) => s + (f.importeCobrado || 0), 0);
+      return {
+        ...p,
+        _facturasCount: (p as any)._count?.facturasVinculadas || 0,
+        resumenFacturacion: {
+          facturado: totalFacturado,
+          cobrado: totalCobrado,
+          pendienteCobro: totalFacturado - totalCobrado,
+          numFacturas: facturas.length,
+          numCobradas: facturas.filter((f: any) => f.estado === 'COBRADA').length,
+        },
+      };
+    });
 
     return NextResponse.json(result);
   } catch (error: any) {
