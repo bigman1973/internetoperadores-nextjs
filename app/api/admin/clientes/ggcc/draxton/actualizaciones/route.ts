@@ -108,10 +108,12 @@ export async function GET(req: NextRequest) {
 
     const mesActual = new Date().getMonth() + 1
     const saldosPorContrato: Record<string, number> = {}
+    const previsionesPorContrato: Record<string, number> = {}
     for (const cp of contratosConPersonal) {
       const hContratadas = Number(cp.horasContratadas) || 0
       const nivelContratado = cp.nivelContratado || 1
       let saldoAcum = 0
+      // Calcular saldo hasta mes actual
       for (let m = 1; m <= mesActual; m++) {
         const diasLab = diasLaborablesMes(anio, m)
         let horasEquivMes = 0
@@ -127,23 +129,35 @@ export async function GET(req: NextRequest) {
         saldoAcum += horasEquivMes - hContratadas
       }
       saldosPorContrato[cp.id] = Math.round(saldoAcum * 10) / 10
+      // Previsión fin año: proyectar meses futuros con personal actual asignado (misma lógica que seguimiento)
+      let saldoPrevisto = saldoAcum
+      const fechaFinContrato = cp.fechaFin ? new Date(cp.fechaFin) : null
+      for (let m = mesActual + 1; m <= 12; m++) {
+        // Si el contrato termina antes de este mes, no proyectar
+        if (fechaFinContrato && fechaFinContrato < new Date(anio, m - 1, 1)) break
+        const diasLab = diasLaborablesMes(anio, m)
+        let horasEquivMes = 0
+        for (const p of cp.personalAsignado) {
+          const fi = p.fechaInicio ? new Date(p.fechaInicio) : null
+          const ff = p.fechaFin ? new Date(p.fechaFin) : null
+          const diasAct = diasLaborablesActivos(anio, m, fi, ff)
+          const proporcion = diasLab > 0 ? diasAct / diasLab : 0
+          const horasBase = HORAS_NETAS_MES * (p.porcentajeDedicacion / 100) * proporcion
+          const mult = (p.nivelTecnico || 1) / nivelContratado
+          horasEquivMes += horasBase * mult
+        }
+        saldoPrevisto += horasEquivMes - hContratadas
+      }
+      previsionesPorContrato[cp.id] = Math.round(saldoPrevisto * 10) / 10
     }
 
     // Balance por contrato: saldo real del seguimiento
-    // saldoContrato positivo = hemos dado más horas de las contratadas (a nuestro favor)
-    // saldoContrato negativo = debemos horas al cliente (hemos dado menos de las contratadas)
-    // Previsión fin año: extrapolar saldo actual hasta diciembre
-    const mesesRestantes = 12 - mesActual
     const balanceContratos = contratos.map(c => {
       const horasMes = Number(c.horasContratadas) || 0
       const precioHora = Number(c.precioHoraContrato) || (horasMes > 0 && c.importeMensual ? Number(c.importeMensual) / horasMes : 0)
       const saldoContrato = saldosPorContrato[c.id] || 0
       const horasImputadasConFactor = (imputacionesPorContrato[c.id] || 0) * factorVigente
-      // Previsión: saldo actual + (saldo mensual medio * meses restantes)
-      const saldoMedioMensual = mesActual > 0 ? saldoContrato / mesActual : 0
-      const previsionFinAnio = Math.round((saldoContrato + saldoMedioMensual * mesesRestantes) * 10) / 10
-      // Disponible para imputar = saldo actual (si es positivo, tenemos margen; si negativo, debemos)
-      // El técnico siempre puede imputar, el saldo indica cuánto margen hay
+      const previsionFinAnio = previsionesPorContrato[c.id] || 0
       return {
         ...c,
         horasMes,
@@ -152,7 +166,7 @@ export async function GET(req: NextRequest) {
         previsionFinAnio,
         horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
         horasImputadasConFactor: Math.round(horasImputadasConFactor * 10) / 10,
-        horasDisponibles: Math.round(saldoContrato - horasImputadasConFactor), // saldo neto después de actualizaciones
+        horasDisponibles: Math.round(saldoContrato - horasImputadasConFactor),
       }
     })
 
