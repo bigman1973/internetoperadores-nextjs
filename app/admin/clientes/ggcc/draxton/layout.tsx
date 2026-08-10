@@ -15,6 +15,7 @@ import {
   BuildingOffice2Icon,
   WrenchScrewdriverIcon,
   UsersIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline'
 
 const tabs = [
@@ -24,6 +25,7 @@ const tabs = [
   { name: 'Proyectos Internos', href: '/admin/clientes/ggcc/draxton/proyectos', icon: WrenchScrewdriverIcon, area: 'admin.clientes.ggcc.draxton.proyectos' },
   { name: 'Personal', href: '/admin/clientes/ggcc/draxton/personal', icon: UserGroupIcon, area: 'admin.clientes.ggcc.draxton.personal' },
   { name: 'Contrato Guardias', href: '/admin/clientes/ggcc/draxton/contrato-guardias', icon: ShieldCheckIcon, area: 'admin.clientes.ggcc.draxton.contrato_guardias' },
+  { name: 'Actualizaciones', href: '/admin/clientes/ggcc/draxton/actualizaciones', icon: ArrowPathIcon, area: 'admin.clientes.ggcc.draxton.actualizaciones' },
   { name: 'Seguimiento', href: '/admin/clientes/ggcc/draxton/seguimiento', icon: ClockIcon, area: 'admin.clientes.ggcc.draxton.seguimiento' },
   { name: 'KPIs', href: '/admin/clientes/ggcc/draxton/kpis', icon: ChartBarSquareIcon, area: 'admin.clientes.ggcc.draxton.kpis' },
   { name: 'Informes', href: '/admin/clientes/ggcc/draxton/informes', icon: DocumentChartBarIcon, area: 'admin.clientes.ggcc.draxton.informes' },

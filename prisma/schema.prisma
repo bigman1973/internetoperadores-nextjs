@@ -2568,3 +2568,78 @@ model InformeMensualDraxton {
   @@unique([mes, anio, planta])
   @@map("informes_mensuales_draxton")
 }
+
+// ==========================================
+// ACTUALIZACIONES PROGRAMADAS DRAXTON
+// ==========================================
+
+// Planificación de actualizaciones (lo que hay que hacer)
+model ActualizacionPlanificada {
+  id                String   @id @default(uuid())
+  titulo            String   // Ej: "Parcheos GhostLock CVE-2026-43499"
+  descripcion       String?  @db.Text // Detalle técnico
+  prioridad         String   @default("normal") // "urgente" | "alta" | "normal" | "baja"
+  estado            String   @default("pendiente") // "pendiente" | "programada" | "ejecutada" | "cancelada"
+  fechaPropuesta    DateTime? @map("fecha_propuesta") @db.Date // Fecha sugerida para ejecutar
+  servidoresAfectados String? @map("servidores_afectados") @db.Text // Lista de servidores
+  plantasAfectadas  String?  @map("plantas_afectadas") // Lleida, Teruel, Barcelona, etc.
+  solicitadoPor     String?  @map("solicitado_por") // Quién lo pide (ej: Javier Sánchez)
+  tecnicoAsignado   String?  @map("tecnico_asignado") // FK Empleado
+  notas             String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  ejecuciones       ActualizacionEjecucion[]
+
+  @@index([estado])
+  @@index([fechaPropuesta])
+  @@map("actualizaciones_planificadas")
+}
+
+// Ejecución real de actualizaciones (lo que se hizo)
+model ActualizacionEjecucion {
+  id                String   @id @default(uuid())
+  planificacionId   String?  @map("planificacion_id") // Puede ser null si es histórico sin planificación
+  fecha             DateTime @db.Date // Fecha de la actuación
+  tecnicoId         String?  @map("tecnico_id") // FK Empleado
+  tecnicoNombre     String?  @map("tecnico_nombre") // Para histórico sin FK
+  nivelTecnico      Int      @default(2) @map("nivel_tecnico") // N1, N2, N3
+  horasDedicadas    Float    @map("horas_dedicadas") // Tiempo en horas (ej: 7.5)
+  tipo              String   @default("remoto") // "remoto" | "presencial"
+  plantasAfectadas  String?  @map("plantas_afectadas") // Lleida, Teruel, Barcelona, etc.
+  descripcion       String?  @db.Text
+  costeHora         Float?   @map("coste_hora") // Coste/hora aplicado (puede ser distinto al normal por ser fin de semana)
+  costeTotal        Float?   @map("coste_total") // horasDedicadas * costeHora
+  // Imputación
+  totalImputado     Float    @default(0) @map("total_imputado") // Horas ya imputadas a contratos
+  pendienteImputar  Float?   @map("pendiente_imputar") // horasDedicadas - totalImputado
+  // Timestamps
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  planificacion     ActualizacionPlanificada? @relation(fields: [planificacionId], references: [id])
+  imputaciones      ActualizacionImputacion[]
+
+  @@index([fecha])
+  @@index([tecnicoId])
+  @@map("actualizaciones_ejecuciones")
+}
+
+// Imputación de horas a contratos
+model ActualizacionImputacion {
+  id                String   @id @default(uuid())
+  ejecucionId       String   @map("ejecucion_id")
+  contratoId        String   @map("contrato_id") // FK ContratoDraxton
+  horas             Float    // Horas imputadas a este contrato
+  notas             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  ejecucion         ActualizacionEjecucion @relation(fields: [ejecucionId], references: [id], onDelete: Cascade)
+
+  @@index([ejecucionId])
+  @@index([contratoId])
+  @@map("actualizaciones_imputaciones")
+}
