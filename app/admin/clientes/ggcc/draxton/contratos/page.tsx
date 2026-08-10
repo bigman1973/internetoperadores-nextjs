@@ -2000,13 +2000,13 @@ export default function DraxtonContratosPage() {
                                   )}
                                   {isSuperavit && (
                                     <div className="mt-2 p-2 bg-amber-100 rounded text-[10px] text-amber-700">
-                                      <strong>\ud83d\udca1 Superavit de {balance.toFixed(1)}h/mes.</strong> Puedes subir la dedicacion del personal asignado o asignar mas recursos.
+                                      <strong>Superavit de {balance.toFixed(1)}h/mes.</strong> Puedes subir la dedicacion del personal asignado o asignar mas recursos.
                                     </div>
                                   )}
                                   {/* Horas imputadas de actualizaciones */}
                                   <div className="mt-2 p-2 bg-indigo-50 border border-indigo-200 rounded">
                                     <div className="flex items-center justify-between">
-                                      <span className="text-[10px] font-semibold text-indigo-700">\ud83d\udd04 Horas imputadas de Actualizaciones Programadas</span>
+                                      <span className="text-[10px] font-semibold text-indigo-700">Horas imputadas de Actualizaciones Programadas</span>
                                       <span className="text-xs font-bold text-indigo-800">{(actualizacionesImputadas[c.id] || 0).toFixed(0)}h</span>
                                     </div>
                                     <p className="text-[9px] text-indigo-500 mt-0.5">
