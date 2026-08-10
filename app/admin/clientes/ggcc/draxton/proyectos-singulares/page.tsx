@@ -66,6 +66,8 @@ interface Documento {
   importe_iva?: number
   // Líneas de detalle
   lineas?: LineaDetalle[]
+  // Empresa Draxton (para pedidos)
+  empresaDraxton?: string
 }
 
 interface Proyecto {
@@ -169,6 +171,37 @@ export default function DraxtonProyectosSingularesPage() {
   const provFileInputRef = useRef<HTMLInputElement>(null)
   const [personalForm, setPersonalForm] = useState({ empleadoId: '', tipoImputacion: 'horas' as 'horas' | 'porcentaje', porcentajeDedicacion: '', horasImputadas: '', nivelTecnico: '', rol: '', funciones: '', fechaInicio: '', fechaFin: '' })
   const [docForm, setDocForm] = useState({ nombre: '', tipo: 'presupuesto_cliente' as Documento['tipo'], fecha: new Date().toISOString().split('T')[0], importe: '', proveedor: '', file: null as File | null })
+
+  // Estado para edición de documentos
+  const [editingDocId, setEditingDocId] = useState<string | null>(null)
+  const [editDocForm, setEditDocForm] = useState<Partial<Documento>>({})
+
+  const EMPRESAS_DRAXTON = [
+    'DRAXTON EUROPE & ASIA S.L.U.',
+    'DRAXTON POWERTRAIN & CHASSIS, S.L.',
+    'DRAXTON BRNO S.R.O.',
+    'INFUN FOR S.R.L.',
+    'EUROPEAN BRAKES AND CHASSIS COMPONENTS SP. Z.O.O.',
+  ]
+
+  const handleEditDoc = (proyectoId: string, doc: Documento) => {
+    setEditingDocId(doc.id)
+    setEditDocForm({ ...doc })
+  }
+
+  const handleSaveDocEdit = async (proyectoId: string) => {
+    const proyecto = proyectos.find(p => p.id === proyectoId)
+    if (!proyecto) return
+    const docs = (proyecto.documentosJson || []).map(d => d.id === editingDocId ? { ...d, ...editDocForm } as Documento : d)
+    await fetch('/api/admin/clientes/ggcc/draxton/proyectos-contrato', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: proyectoId, documentosJson: docs }),
+    })
+    setEditingDocId(null)
+    setEditDocForm({})
+    fetchData()
+  }
 
   // ===== OCR AUTOMÁTICO =====
   // Convierte PDF a imagen en el navegador usando canvas
@@ -515,9 +548,9 @@ export default function DraxtonProyectosSingularesPage() {
           <div className="text-2xl font-bold text-indigo-700 mt-1">{totalProyectos}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="text-xs text-gray-500 uppercase tracking-wide">Venta (con IVA)</div>
-          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalVentaConIva)}</div>
-          <div className="text-xs text-gray-400 mt-0.5">Base: {formatCurrency(totalVentaBase)}</div>
+          <div className="text-xs text-gray-500 uppercase tracking-wide">Venta (Base Imp.)</div>
+          <div className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalVentaBase)}</div>
+          <div className="text-xs text-gray-400 mt-0.5">Con IVA: {formatCurrency(totalVentaConIva)}</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="text-xs text-gray-500 uppercase tracking-wide">Coste Proveedores</div>
@@ -545,7 +578,8 @@ export default function DraxtonProyectosSingularesPage() {
                 <th className="text-left px-4 py-2.5 font-medium text-gray-600">Proyecto</th>
                 <th className="text-left px-4 py-2.5 font-medium text-gray-600">Ubicación</th>
                 <th className="text-center px-4 py-2.5 font-medium text-gray-600">Estado</th>
-                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Venta</th>
+                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Venta (IVA)</th>
+                <th className="text-right px-4 py-2.5 font-medium text-gray-600">Base Imp.</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Coste Prov.</th>
                 <th className="text-right px-4 py-2.5 font-medium text-gray-600">Margen</th>
                 <th className="text-center px-4 py-2.5 font-medium text-gray-600">Proveedores</th>
@@ -561,12 +595,21 @@ export default function DraxtonProyectosSingularesPage() {
                   <td className="px-4 py-2.5 text-gray-600">{p.ubicacion || '—'}</td>
                   <td className="px-4 py-2.5 text-center">{getEstadoBadge(p.estado)}</td>
                   <td className="px-4 py-2.5 text-right font-medium text-gray-900">{formatCurrency(p.importeVenta)}</td>
+                  <td className="px-4 py-2.5 text-right font-medium text-indigo-700">{formatCurrency(p.importeVenta ? Number(p.importeVenta) / 1.21 : null)}</td>
                   <td className="px-4 py-2.5 text-right text-red-600">{formatCurrency(p.costeProveedores)}</td>
                   <td className="px-4 py-2.5 text-right">
-                    <span className={`font-medium ${(p.margenEstimado || 0) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatCurrency(p.margenEstimado)}
-                    </span>
-                    {p.importeVenta && p.margenEstimado ? <span className="text-[9px] text-gray-400 block">{((Number(p.margenEstimado) / Number(p.importeVenta)) * 100).toFixed(1)}%</span> : null}
+                    {(() => {
+                      const ventaBase = p.importeVenta ? Number(p.importeVenta) / 1.21 : 0;
+                      const margen = ventaBase - (Number(p.costeProveedores) || 0) - (p.personalAsignado?.reduce((s: number, pa: any) => s + (pa.costeTotal || 0), 0) || 0);
+                      return (
+                        <>
+                          <span className={`font-medium ${margen >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {formatCurrency(margen)}
+                          </span>
+                          {ventaBase > 0 && <span className="text-[9px] text-gray-400 block">{((margen / ventaBase) * 100).toFixed(1)}%</span>}
+                        </>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{p.proveedores?.length || 0}</td>
                   <td className="px-4 py-2.5 text-center text-gray-600">{p.personalAsignado?.length || 0}</td>
@@ -1032,6 +1075,7 @@ export default function DraxtonProyectosSingularesPage() {
                             <td className="px-3 py-2 text-center">
                               <div className="flex items-center justify-center gap-1">
                                 <a href={doc.url} target="_blank" rel="noopener noreferrer" className="p-1 text-gray-400 hover:text-indigo-600"><EyeIcon className="w-4 h-4" /></a>
+                                <button onClick={() => handleEditDoc(p.id, doc)} className="p-1 text-gray-400 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
                                 <button onClick={() => handleDeleteDoc(p.id, doc.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
                               </div>
                             </td>
@@ -1048,6 +1092,103 @@ export default function DraxtonProyectosSingularesPage() {
           </div>
         )
       })()}
+
+      {/* ===== MODAL EDITAR DOCUMENTO ===== */}
+      {editingDocId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingDocId(null)}>
+          <div className="bg-white rounded-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Documento</h3>
+              <button onClick={() => setEditingDocId(null)} className="p-1 text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Nombre</label>
+                <input type="text" value={editDocForm.nombre || ''} onChange={e => setEditDocForm({...editDocForm, nombre: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tipo</label>
+                  <select value={editDocForm.tipo || ''} onChange={e => setEditDocForm({...editDocForm, tipo: e.target.value as Documento['tipo']})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                    <option value="presupuesto_cliente">Presupuesto Cliente</option>
+                    <option value="pedido_cliente">Pedido Cliente</option>
+                    <option value="presupuesto_proveedor">Presupuesto Proveedor</option>
+                    <option value="albaran">Albarán</option>
+                    <option value="factura">Factura</option>
+                    <option value="fin_obra">Fin de Obra</option>
+                    <option value="otro">Otro</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha</label>
+                  <input type="date" value={editDocForm.fecha || ''} onChange={e => setEditDocForm({...editDocForm, fecha: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              {(editDocForm.tipo === 'pedido_cliente') && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Empresa Draxton</label>
+                  <select value={editDocForm.empresaDraxton || ''} onChange={e => setEditDocForm({...editDocForm, empresaDraxton: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                    <option value="">Seleccionar empresa...</option>
+                    {EMPRESAS_DRAXTON.map(emp => <option key={emp} value={emp}>{emp}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Proveedor</label>
+                  <input type="text" value={editDocForm.proveedor || ''} onChange={e => setEditDocForm({...editDocForm, proveedor: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Nº Documento</label>
+                  <input type="text" value={editDocForm.numero_documento || ''} onChange={e => setEditDocForm({...editDocForm, numero_documento: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Base Imponible (€)</label>
+                  <input type="number" step="0.01" value={editDocForm.base_imponible || ''} onChange={e => setEditDocForm({...editDocForm, base_imponible: e.target.value ? parseFloat(e.target.value) : undefined})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">IVA %</label>
+                  <input type="number" step="1" value={editDocForm.iva_porcentaje || 21} onChange={e => setEditDocForm({...editDocForm, iva_porcentaje: parseFloat(e.target.value)})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Total (con IVA)</label>
+                  <input type="number" step="0.01" value={editDocForm.importe_total || ''} onChange={e => setEditDocForm({...editDocForm, importe_total: e.target.value ? parseFloat(e.target.value) : undefined})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">CIF Emisor</label>
+                  <input type="text" value={editDocForm.cif_emisor || ''} onChange={e => setEditDocForm({...editDocForm, cif_emisor: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">CIF Receptor</label>
+                  <input type="text" value={editDocForm.cif_receptor || ''} onChange={e => setEditDocForm({...editDocForm, cif_receptor: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Forma de Pago</label>
+                  <input type="text" value={editDocForm.forma_pago || ''} onChange={e => setEditDocForm({...editDocForm, forma_pago: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">IBAN</label>
+                  <input type="text" value={editDocForm.iban || ''} onChange={e => setEditDocForm({...editDocForm, iban: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Observaciones</label>
+                <textarea value={editDocForm.observaciones || ''} onChange={e => setEditDocForm({...editDocForm, observaciones: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={2} />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setEditingDocId(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Cancelar</button>
+                <button onClick={() => { const proj = proyectos.find(pr => pr.documentosJson?.some(d => d.id === editingDocId)); if (proj) handleSaveDocEdit(proj.id); }} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">Guardar Cambios</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== MODAL CREAR/EDITAR PROYECTO ===== */}
       {showForm && (
