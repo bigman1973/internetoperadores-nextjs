@@ -132,25 +132,27 @@ export async function GET(req: NextRequest) {
     // Balance por contrato: saldo real del seguimiento
     // saldoContrato positivo = hemos dado más horas de las contratadas (a nuestro favor)
     // saldoContrato negativo = debemos horas al cliente (hemos dado menos de las contratadas)
+    // Previsión fin año: extrapolar saldo actual hasta diciembre
+    const mesesRestantes = 12 - mesActual
     const balanceContratos = contratos.map(c => {
       const horasMes = Number(c.horasContratadas) || 0
       const precioHora = Number(c.precioHoraContrato) || (horasMes > 0 && c.importeMensual ? Number(c.importeMensual) / horasMes : 0)
       const saldoContrato = saldosPorContrato[c.id] || 0
       const horasImputadasConFactor = (imputacionesPorContrato[c.id] || 0) * factorVigente
-      // horasDebidas = lo que debemos al cliente (saldo negativo invertido a positivo)
-      // Si saldo es -100, debemos 100h. Si saldo es +50, no debemos nada (0)
-      const horasDebidas = saldoContrato < 0 ? Math.abs(saldoContrato) : 0
-      // horasPendientesAbsorber = horas que aún podemos imputar de actualizaciones a este contrato
-      const horasPendientesAbsorber = Math.max(0, horasDebidas - horasImputadasConFactor)
+      // Previsión: saldo actual + (saldo mensual medio * meses restantes)
+      const saldoMedioMensual = mesActual > 0 ? saldoContrato / mesActual : 0
+      const previsionFinAnio = Math.round((saldoContrato + saldoMedioMensual * mesesRestantes) * 10) / 10
+      // Disponible para imputar = saldo actual (si es positivo, tenemos margen; si negativo, debemos)
+      // El técnico siempre puede imputar, el saldo indica cuánto margen hay
       return {
         ...c,
         horasMes,
         precioHoraContrato: Math.round(precioHora * 100) / 100,
         saldoContrato: Math.round(saldoContrato * 10) / 10,
-        horasDebidas: Math.round(horasDebidas * 10) / 10,
+        previsionFinAnio,
         horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
         horasImputadasConFactor: Math.round(horasImputadasConFactor * 10) / 10,
-        horasDisponibles: Math.round(horasPendientesAbsorber), // horas que aún podemos imputar
+        horasDisponibles: Math.round(saldoContrato - horasImputadasConFactor), // saldo neto después de actualizaciones
       }
     })
 

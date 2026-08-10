@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 interface Planificacion { id: string; titulo: string; descripcion: string | null; prioridad: string; estado: string; fechaPropuesta: string | null; servidoresAfectados: string | null; plantasAfectadas: string | null; solicitadoPor: string | null; tecnicoAsignado: string | null; notas: string | null; ejecuciones: { id: string; fecha: string; horasDedicadas: number }[] }
 interface Imputacion { id: string; contratoId: string; horas: number; notas: string | null }
 interface Ejecucion { id: string; planificacionId: string | null; fecha: string; tecnicoId: string | null; tecnicoNombre: string | null; nivelTecnico: number; horasDedicadas: number; tipo: string; plantasAfectadas: string | null; descripcion: string | null; costeHora: number | null; costeTotal: number | null; totalImputado: number; pendienteImputar: number | null; imputaciones: Imputacion[]; planificacion: { titulo: string } | null }
-interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasMes: number; saldoContrato: number; horasDebidas: number; horasImputadasActualizaciones: number; horasImputadasConFactor: number; horasDisponibles: number; precioHoraContrato: number | null }
+interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasMes: number; saldoContrato: number; previsionFinAnio: number; horasImputadasActualizaciones: number; horasImputadasConFactor: number; horasDisponibles: number; precioHoraContrato: number | null }
 interface TarifaConversion { id: string; concepto: string; factorConversion: number; costeHora: number | null; precioFacturacion: number | null; fechaDesde: string; fechaHasta: string | null; notas: string | null; vigente: boolean }
 interface Tecnico { id: string; nombre: string; nivel: number | null }
 interface Preview { contrato: string; horasContratadas: number; horasYaImputadas: number; horasAImputar: number; balanceActual: number; balanceDespues: number }
@@ -386,7 +386,7 @@ export default function ActualizacionesPage() {
                       </td>
                       <td className="px-3 py-2 text-right space-x-1">
                         <button onClick={() => handleEditEjec(e)} className="text-[10px] px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">Editar</button>
-                        <button onClick={() => { setShowImputForm(showImputForm === e.id ? null : e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: ((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
+                        <button onClick={() => { const factor = kpis?.factorVigente || 1; setShowImputForm(showImputForm === e.id ? null : e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: (((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)) * factor).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
                         <button onClick={() => handleDeleteEjec(e.id)} className="text-[10px] px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">x</button>
                       </td>
                     </tr>
@@ -402,7 +402,7 @@ export default function ActualizacionesPage() {
                               </select>
                             </div>
                             <div>
-                              <label className="text-[10px] text-gray-500 block">Horas</label>
+                              <label className="text-[10px] text-gray-500 block">Horas contrato (x{kpis?.factorVigente || 1})</label>
                               <input type="number" step="0.5" value={formImput.horas} onChange={ev => { setFormImput({ ...formImput, horas: ev.target.value }); handlePreviewImputacion(formImput.contratoId, ev.target.value, e.id) }} className="border rounded px-2 py-1.5 text-xs text-gray-900 w-20" />
                             </div>
                             <div>
@@ -507,22 +507,22 @@ export default function ActualizacionesPage() {
             <div className="bg-white border rounded-lg p-4 mb-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Balance de Contratos de Horas ({anio})</h3>
               <table className="w-full text-sm">
-                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Saldo seguimiento</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Debemos al cliente</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Ya absorbido (x{kpis?.factorVigente || 1})</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Pendiente absorber</th></tr></thead>
+                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Saldo actual</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Actualiz. imputadas</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Saldo neto</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Prevision fin {anio}</th></tr></thead>
                 <tbody>
                   {contratos.map(c => (
                     <tr key={c.id} className="border-b">
                       <td className="py-2 text-gray-700">{c.titulo}</td>
                       <td className="py-2 text-right">{c.horasMes}h</td>
-                      <td className={`py-2 text-right text-xs ${c.saldoContrato >= 0 ? 'text-green-600' : 'text-red-600'}`}>{c.saldoContrato > 0 ? '+' : ''}{c.saldoContrato}h</td>
-                      <td className={`py-2 text-right font-medium ${c.horasDebidas > 0 ? 'text-red-600' : 'text-green-600'}`}>{c.horasDebidas > 0 ? `${c.horasDebidas}h` : '0h (no debemos)'}</td>
-                      <td className="py-2 text-right text-orange-600">{c.horasImputadasConFactor > 0 ? `${c.horasImputadasConFactor}h` : '-'}</td>
-                      <td className={`py-2 text-right font-semibold ${c.horasDisponibles > 0 ? 'text-indigo-600' : 'text-gray-400'}`}>{c.horasDisponibles > 0 ? `${c.horasDisponibles}h` : 'Cubierto'}</td>
+                      <td className={`py-2 text-right ${c.saldoContrato >= 0 ? 'text-green-600' : 'text-red-600'}`}>{c.saldoContrato > 0 ? '+' : ''}{c.saldoContrato}h</td>
+                      <td className="py-2 text-right text-indigo-600">{c.horasImputadasConFactor > 0 ? `-${c.horasImputadasConFactor}h` : '-'}</td>
+                      <td className={`py-2 text-right font-semibold ${c.horasDisponibles >= 0 ? 'text-green-600' : 'text-red-600'}`}>{c.horasDisponibles > 0 ? '+' : ''}{c.horasDisponibles}h</td>
+                      <td className={`py-2 text-right font-medium ${c.previsionFinAnio >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{c.previsionFinAnio > 0 ? '+' : ''}{c.previsionFinAnio}h</td>
                     </tr>
                   ))}
                   {contratos.length === 0 && <tr><td colSpan={6} className="py-4 text-center text-gray-400">No hay contratos de horas activos</td></tr>}
                 </tbody>
               </table>
-              <p className="text-[9px] text-gray-400 mt-2">Saldo seguimiento: positivo = hemos dado mas horas de las contratadas, negativo = debemos horas al cliente. Debemos al cliente = saldo negativo (horas que no hemos cubierto). Pendiente absorber = lo que podemos imputar de actualizaciones para compensar.</p>
+              <p className="text-[9px] text-gray-400 mt-2">Saldo actual = horas cubiertas - comprometidas (del seguimiento). Saldo neto = saldo actual - actualizaciones imputadas (x{kpis?.factorVigente || 1}). Prevision = extrapolacion del ritmo actual hasta dic {anio}.</p>
             </div>
 
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Ejecuciones pendientes de imputar</h3>
@@ -535,7 +535,7 @@ export default function ActualizacionesPage() {
                       <span className="text-xs text-gray-500 ml-2">{e.tecnicoNombre} - {e.descripcion || e.planificacion?.titulo}</span>
                       <span className="text-xs font-semibold text-red-600 ml-2">{(e.horasDedicadas - e.totalImputado).toFixed(1)}h pendientes de {e.horasDedicadas}h</span>
                     </div>
-                    <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: (e.horasDedicadas - e.totalImputado).toString(), notas: '' }); setPreview(null) }} className="text-xs px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">Imputar</button>
+                    <button onClick={() => { const factor = kpis?.factorVigente || 1; setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: ((e.horasDedicadas - e.totalImputado) * factor).toString(), notas: '' }); setPreview(null) }} className="text-xs px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">Imputar</button>
                   </div>
                   {e.imputaciones.length > 0 && (
                     <div className="mt-2 space-y-1">
@@ -557,7 +557,7 @@ export default function ActualizacionesPage() {
                           </select>
                         </div>
                         <div>
-                          <label className="text-[10px] text-gray-500">Horas a imputar</label>
+                          <label className="text-[10px] text-gray-500">Horas contrato a imputar (x{kpis?.factorVigente || 1})</label>
                           <input type="number" step="0.5" value={formImput.horas} onChange={ev => { setFormImput({ ...formImput, horas: ev.target.value }); handlePreviewImputacion(formImput.contratoId, ev.target.value, e.id) }} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" />
                         </div>
                         <div>
