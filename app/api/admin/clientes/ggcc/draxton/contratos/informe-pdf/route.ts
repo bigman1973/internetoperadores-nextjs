@@ -642,12 +642,25 @@ function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string, pr
       </table>
     ` : '';
 
+    const actualizClienteHtml = c.balanceHoras?.actualizaciones && c.balanceHoras.actualizaciones.totalHoras > 0 ? `
+      <div style="margin-top:6px;padding:8px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;">
+        <strong style="color:#4338ca;">Actualizaciones programadas imputadas:</strong> ${c.balanceHoras.actualizaciones.totalHoras}h reales x${c.balanceHoras.actualizaciones.factor} = <strong>${c.balanceHoras.actualizaciones.totalHorasEquiv}h equivalentes</strong>
+        <br><span style="font-size:9px;color:#6366f1;">Tecnico N2 (x2) + Fuera de horario laboral (x2) = Factor x${c.balanceHoras.actualizaciones.factor}</span>
+      </div>
+    ` : `
+      <div style="margin-top:6px;padding:8px 12px;background:#f5f3ff;border:1px solid #e9d5ff;border-radius:6px;font-size:10px;color:#7c3aed;">
+        Horas de actualizaciones programadas imputadas: 0h
+      </div>
+    `;
+
     const horasHtml = c.balanceHoras ? `
       <div class="balance-box ${c.balanceHoras.balance >= 0 ? 'balance-positive' : 'balance-negative'}">
-        <strong>Balance de horas:</strong> ${c.balanceHoras.contratadas}h contratadas — ${c.balanceHoras.consumidas.toFixed(1)}h consumidas = 
+        <strong>Balance de horas:</strong> ${c.balanceHoras.contratadas}h contratadas \u2014 ${c.balanceHoras.consumidas.toFixed(1)}h consumidas = 
         <span style="font-weight:800;color:${c.balanceHoras.balance >= 0 ? '#0d9488' : '#dc2626'};">${c.balanceHoras.balance >= 0 ? '+' : ''}${c.balanceHoras.balance.toFixed(1)}h disponibles</span>
-        — Nivel técnico base: N${c.nivelContratado || 1}
+        \u2014 Nivel tecnico base: N${c.nivelContratado || 1}
+        ${c.balanceHoras.actualizaciones ? `<br><span style="font-size:10px;color:#4338ca;">+ ${c.balanceHoras.actualizaciones.totalHorasEquiv}h de actualizaciones imputadas (${c.balanceHoras.actualizaciones.totalHoras}h reales x${c.balanceHoras.actualizaciones.factor})</span>` : ''}
       </div>
+      ${actualizClienteHtml}
     ` : '';
 
     return `
