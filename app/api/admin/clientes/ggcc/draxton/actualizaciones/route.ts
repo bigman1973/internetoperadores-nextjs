@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
     // Solo contratos de horas (tipo Mantenimiento o que tengan horasContratadas > 0)
     const contratos = await prisma.contratoDraxton.findMany({
       where: {
-        estado: { in: ['activo', 'renovacion'] },
+        estado: { in: ['Activo', 'activo', 'renovacion', 'Renovacion'] },
         OR: [
           { tipo: 'Mantenimiento' },
           { horasContratadas: { gt: 0 } }
