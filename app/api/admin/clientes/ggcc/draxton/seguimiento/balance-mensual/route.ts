@@ -292,6 +292,40 @@ export async function GET(req: NextRequest) {
         prevMes++;
       }
 
+      // Obtener horas de actualizaciones imputadas a este contrato (diferenciadas)
+      const imputacionesActualizaciones = await prisma.actualizacionImputacion.findMany({
+        where: { contratoId: contrato.id },
+        include: { ejecucion: { select: { fecha: true, horasDedicadas: true, tecnicoNombre: true, nivelTecnico: true, tipo: true, descripcion: true } } }
+      })
+
+      // Factor de conversión vigente
+      const tarifaVigente = await prisma.actualizacionTarifaConversion.findFirst({
+        where: { fechaHasta: null },
+        orderBy: { fechaDesde: 'desc' }
+      })
+      const factorConversion = tarifaVigente?.factorConversion || 1
+
+      // Agrupar imputaciones por mes para sumar al balance
+      const imputPorMes: Record<number, { horas: number; horasEquiv: number; detalle: { fecha: string; tecnico: string; horas: number; horasEquiv: number }[] }> = {}
+      for (const imp of imputacionesActualizaciones) {
+        const fechaEjec = imp.ejecucion?.fecha ? new Date(imp.ejecucion.fecha) : null
+        if (!fechaEjec || fechaEjec.getFullYear() !== anio) continue
+        const mes = fechaEjec.getMonth() + 1
+        if (!imputPorMes[mes]) imputPorMes[mes] = { horas: 0, horasEquiv: 0, detalle: [] }
+        imputPorMes[mes].horas += imp.horas
+        imputPorMes[mes].horasEquiv += imp.horas * factorConversion
+        imputPorMes[mes].detalle.push({
+          fecha: fechaEjec.toISOString().slice(0, 10),
+          tecnico: imp.ejecucion?.tecnicoNombre || 'Actualizaciones',
+          horas: imp.horas,
+          horasEquiv: imp.horas * factorConversion
+        })
+      }
+
+      // Total horas actualizaciones imputadas
+      const totalHorasActualizaciones = imputacionesActualizaciones.reduce((s, i) => s + i.horas, 0)
+      const totalHorasActualizacionesEquiv = totalHorasActualizaciones * factorConversion
+
       resultado.push({
         contrato: {
           id: contrato.id,
@@ -308,6 +342,20 @@ export async function GET(req: NextRequest) {
         totalEquivalentes: Math.round(totalEquivalentes * 10) / 10,
         saldoFinal: Math.round(saldoAcumulado * 10) / 10,
         saldoPrevistoFinContrato: Math.round(saldoPrevisto * 10) / 10,
+        // Actualizaciones imputadas (diferenciadas)
+        actualizacionesImputadas: {
+          totalHoras: Math.round(totalHorasActualizaciones * 10) / 10,
+          totalHorasEquiv: Math.round(totalHorasActualizacionesEquiv * 10) / 10,
+          factorConversion,
+          porMes: imputPorMes,
+          detalle: imputacionesActualizaciones.map(i => ({
+            fecha: i.ejecucion?.fecha ? new Date(i.ejecucion.fecha).toISOString().slice(0, 10) : null,
+            tecnico: i.ejecucion?.tecnicoNombre || null,
+            horas: i.horas,
+            horasEquiv: Math.round(i.horas * factorConversion * 10) / 10,
+            descripcion: i.ejecucion?.descripcion || null,
+          }))
+        }
       });
     }
 

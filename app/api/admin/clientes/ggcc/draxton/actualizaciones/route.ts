@@ -130,19 +130,27 @@ export async function GET(req: NextRequest) {
     }
 
     // Balance por contrato: saldo real del seguimiento
+    // saldoContrato positivo = hemos dado más horas de las contratadas (a nuestro favor)
+    // saldoContrato negativo = debemos horas al cliente (hemos dado menos de las contratadas)
     const balanceContratos = contratos.map(c => {
       const horasMes = Number(c.horasContratadas) || 0
       const precioHora = Number(c.precioHoraContrato) || (horasMes > 0 && c.importeMensual ? Number(c.importeMensual) / horasMes : 0)
-      const saldoContrato = saldosPorContrato[c.id] || 0 // saldo real del seguimiento (positivo = horas de más, negativo = horas pendientes)
+      const saldoContrato = saldosPorContrato[c.id] || 0
       const horasImputadasConFactor = (imputacionesPorContrato[c.id] || 0) * factorVigente
+      // horasDebidas = lo que debemos al cliente (saldo negativo invertido a positivo)
+      // Si saldo es -100, debemos 100h. Si saldo es +50, no debemos nada (0)
+      const horasDebidas = saldoContrato < 0 ? Math.abs(saldoContrato) : 0
+      // horasPendientesAbsorber = horas que aún podemos imputar de actualizaciones a este contrato
+      const horasPendientesAbsorber = Math.max(0, horasDebidas - horasImputadasConFactor)
       return {
         ...c,
         horasMes,
         precioHoraContrato: Math.round(precioHora * 100) / 100,
-        saldoContrato, // saldo real del seguimiento
+        saldoContrato: Math.round(saldoContrato * 10) / 10,
+        horasDebidas: Math.round(horasDebidas * 10) / 10,
         horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
         horasImputadasConFactor: Math.round(horasImputadasConFactor * 10) / 10,
-        horasDisponibles: Math.round(saldoContrato - horasImputadasConFactor), // saldo - ya imputadas de actualizaciones
+        horasDisponibles: Math.round(horasPendientesAbsorber), // horas que aún podemos imputar
       }
     })
 
@@ -155,7 +163,7 @@ export async function GET(req: NextRequest) {
     const horasPendientes = totalHoras - horasImputadas
     const horasPendientesContrato = horasPendientes * factorVigente
 
-    // Sugerencia de imputación: contrato con más horas disponibles
+    // Sugerencia de imputación: contrato donde MÁS debemos al cliente (más horas pendientes de absorber)
     const contratoSugerido = balanceContratos.sort((a, b) => b.horasDisponibles - a.horasDisponibles)[0] || null
 
     return NextResponse.json({

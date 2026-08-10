@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
     let totalCostes = 0;
     let totalMargen = 0;
 
-    const contratosData = contratos.map(c => {
+    const contratosData = await Promise.all(contratos.map(async (c) => {
       const mensual = Number(c.importeMensual) || 0;
       const costeProveedores = c.contratosProveedor.reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
       const personalDelContrato = personalAsignado.filter(p => p.contratoDraxtonId === c.id);
@@ -99,6 +99,7 @@ export async function GET(req: NextRequest) {
       const margenPct = mensual > 0 ? ((margen / mensual) * 100).toFixed(1) : '0';
 
       let balanceHoras = null;
+      let actualizacionesInfo = null;
       if (c.modalidadContrato === 'horas' && c.horasContratadas) {
         const nivelContratado = c.nivelContratado || 1;
         let horasConsumidas = 0;
@@ -107,10 +108,23 @@ export async function GET(req: NextRequest) {
           const horasBase = 128.67 * ((p.porcentajeDedicacion || 0) / 100);
           horasConsumidas += horasBase * (nivel / nivelContratado);
         });
+        // Obtener actualizaciones imputadas a este contrato
+        const imputActualiz = await prisma.actualizacionImputacion.findMany({
+          where: { contratoId: c.id },
+          include: { ejecucion: { select: { fecha: true, horasDedicadas: true, tecnicoNombre: true } } }
+        });
+        const tarifaVig = await prisma.actualizacionTarifaConversion.findFirst({ where: { fechaHasta: null }, orderBy: { fechaDesde: 'desc' } });
+        const factor = tarifaVig?.factorConversion || 1;
+        const totalHorasActualiz = imputActualiz.reduce((s, i) => s + i.horas, 0);
+        const totalHorasEquiv = totalHorasActualiz * factor;
+        if (totalHorasActualiz > 0) {
+          actualizacionesInfo = { totalHoras: totalHorasActualiz, totalHorasEquiv: Math.round(totalHorasEquiv * 10) / 10, factor };
+        }
         balanceHoras = {
           contratadas: c.horasContratadas,
           consumidas: horasConsumidas,
           balance: c.horasContratadas - horasConsumidas,
+          actualizaciones: actualizacionesInfo,
         };
       }
 
@@ -119,7 +133,7 @@ export async function GET(req: NextRequest) {
       totalMargen += margen;
 
       return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato, balanceHoras };
-    });
+    }));
 
     // Calcular personas sobreasignadas (>100% dedicación total)
     const dedicacionPorEmpleado: Record<string, { nombre: string; totalDedicacion: number; contratos: string[] }> = {};
@@ -373,11 +387,18 @@ function generarHTMLInterno(contratos: any[], totalMensual: number, totalCostes:
       </table>
     ` : '';
 
+    const actualizHtml = c.balanceHoras?.actualizaciones ? `
+      <div style="margin-top:6px;padding:8px 12px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;font-size:11px;">
+        <strong style="color:#4338ca;">Actualizaciones programadas imputadas:</strong> ${c.balanceHoras.actualizaciones.totalHoras}h reales x${c.balanceHoras.actualizaciones.factor} = <strong>${c.balanceHoras.actualizaciones.totalHorasEquiv}h equivalentes</strong>
+      </div>
+    ` : '';
     const balanceHtml = c.balanceHoras ? `
       <div class="balance-box ${c.balanceHoras.balance >= 0 ? 'balance-positive' : 'balance-negative'}">
         <strong>Balance de horas:</strong> ${c.balanceHoras.contratadas}h contratadas − ${c.balanceHoras.consumidas.toFixed(1)}h consumidas = 
         <span style="font-weight:800;color:${c.balanceHoras.balance >= 0 ? '#0d9488' : '#dc2626'};">${c.balanceHoras.balance >= 0 ? '+' : ''}${c.balanceHoras.balance.toFixed(1)}h</span>
+        ${c.balanceHoras.actualizaciones ? `<br><span style="font-size:10px;color:#4338ca;">+ ${c.balanceHoras.actualizaciones.totalHorasEquiv}h de actualizaciones imputadas (${c.balanceHoras.actualizaciones.totalHoras}h reales x${c.balanceHoras.actualizaciones.factor})</span>` : ''}
       </div>
+      ${actualizHtml}
     ` : '';
 
     return `
