@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function formatCurrency(n: number | null | undefined): string {
   if (!n && n !== 0) return '0,00 EUR';
   return n.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' EUR';
@@ -193,7 +197,7 @@ export async function GET(req: NextRequest) {
     @media print { .no-print { display: none !important; } .page { break-after: page; } }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; color: #1f2937; line-height: 1.4; background: #f9fafb; }
-    .page { background: white; max-width: 210mm; margin: 0 auto; padding: 25px 30px; min-height: 297mm; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .page { background: white; max-width: 210mm; margin: 0 auto; padding: 25px 30px; position: relative; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; }
     .page-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 15px; border-bottom: 2px solid #1f2937; margin-bottom: 20px; }
     .page-header img { height: 40px; }
     .page-header-right { text-align: right; font-size: 9px; color: #6b7280; }
@@ -295,7 +299,7 @@ export async function GET(req: NextRequest) {
         ${resumen.filter(r => r.numFacturas > 0).map(r => {
           const pct = r.facturado > 0 ? (r.cobrado / r.facturado * 100) : 0;
           return `<tr>
-            <td class="font-bold">${r.titulo}</td>
+            <td class="font-bold">${escapeHtml(r.titulo)}</td>
             <td class="text-center"><span class="badge badge-orange">${r.tipo || '—'}</span></td>
             <td class="text-right">${formatCurrency(r.facturado)}</td>
             <td class="text-right text-green">${formatCurrency(r.cobrado)}</td>
@@ -364,7 +368,7 @@ export async function GET(req: NextRequest) {
       const actualizH = actualizPorContrato[r.id] || 0;
       return `
       <div class="contract-section">
-        <div class="contract-title">${r.titulo}</div>
+        <div class="contract-title">${escapeHtml(r.titulo)}</div>
         <div class="contract-amounts">
           <span>Facturado: <strong class="text-blue">${formatCurrency(r.facturado)}</strong></span>
           <span>Cobrado: <strong class="text-green">${formatCurrency(r.cobrado)}</strong></span>
@@ -380,7 +384,7 @@ export async function GET(req: NextRequest) {
             ${r.facturas.sort((a, b) => new Date(a.fecha).getTime() - new Date(b.fecha).getTime()).map(f => `<tr>
               <td class="font-bold">${f.numFactura}</td>
               <td>${formatDate(f.fecha)}</td>
-              <td style="font-size:9px;">${f.empresa || '—'}</td>
+              <td style="font-size:9px;">${f.empresa ? escapeHtml(f.empresa) : '\u2014'}</td>
               <td class="text-right">${formatCurrency(f.importe)}</td>
               <td class="text-center"><span class="badge ${f.cobrada ? 'badge-green' : 'badge-red'}">${f.cobrada ? 'Cobrada' : 'Pendiente'}</span></td>
               <td class="text-right ${f.cobrada ? 'text-green' : ''}">${f.cobrada ? formatCurrency(f.importeCobrado) : '—'}</td>
@@ -403,7 +407,7 @@ export async function GET(req: NextRequest) {
           ${facturasSinContrato.map((f: any) => `<tr>
             <td class="font-bold">${f.numFactura}</td>
             <td>${formatDate(f.fecha)}</td>
-            <td style="font-size:9px;">${f.empresa || '—'}</td>
+            <td style="font-size:9px;">${f.empresa ? escapeHtml(f.empresa) : '\u2014'}</td>
             <td class="text-right">${formatCurrency(f.importe)}</td>
             <td class="text-center"><span class="badge ${f.cobrada ? 'badge-green' : 'badge-red'}">${f.cobrada ? 'Cobrada' : 'Pendiente'}</span></td>
             <td class="text-right ${f.cobrada ? 'text-green' : ''}">${f.cobrada ? formatCurrency(f.importeCobrado) : '—'}</td>
