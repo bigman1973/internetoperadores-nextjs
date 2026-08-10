@@ -143,6 +143,7 @@ export default function DraxtonContratosPage() {
   const [facturaExpandidaId, setFacturaExpandidaId] = useState<string | null>(null);
   const [showMatriz, setShowMatriz] = useState(false);
   const [guardiasData, setGuardiasData] = useState<any>(null);
+  const [actualizacionesImputadas, setActualizacionesImputadas] = useState<Record<string, number>>({});
   const [personalContrato, setPersonalContrato] = useState<any[]>([]);
   const [proyectosContrato, setProyectosContrato] = useState<any[]>([]);
   const [showProyectoForm, setShowProyectoForm] = useState(false);
@@ -188,6 +189,7 @@ export default function DraxtonContratosPage() {
     fetchPersonalContrato();
     fetchProyectosContrato();
     fetchEmpleadosDisponibles();
+    fetchActualizacionesImputadas();
   }, []);
 
   async function fetchFacturasResumen() {
@@ -209,6 +211,23 @@ export default function DraxtonContratosPage() {
       }
     } catch (err) {
       console.error('Error al cargar datos de guardias:', err);
+    }
+  }
+
+  async function fetchActualizacionesImputadas() {
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/actualizaciones?anio=' + new Date().getFullYear());
+      if (res.ok) {
+        const data = await res.json();
+        // Construir mapa contratoId -> horas imputadas con factor
+        const mapa: Record<string, number> = {};
+        if (data.contratos) {
+          data.contratos.forEach((c: any) => { mapa[c.id] = c.horasImputadasConFactor || 0; });
+        }
+        setActualizacionesImputadas(mapa);
+      }
+    } catch (err) {
+      console.error('Error al cargar actualizaciones imputadas:', err);
     }
   }
 
@@ -1981,9 +2000,21 @@ export default function DraxtonContratosPage() {
                                   )}
                                   {isSuperavit && (
                                     <div className="mt-2 p-2 bg-amber-100 rounded text-[10px] text-amber-700">
-                                      <strong>💡 Superávit de {balance.toFixed(1)}h/mes.</strong> Puedes subir la dedicación del personal asignado o asignar más recursos.
+                                      <strong>\ud83d\udca1 Superavit de {balance.toFixed(1)}h/mes.</strong> Puedes subir la dedicacion del personal asignado o asignar mas recursos.
                                     </div>
                                   )}
+                                  {/* Horas imputadas de actualizaciones */}
+                                  <div className="mt-2 p-2 bg-indigo-50 border border-indigo-200 rounded">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[10px] font-semibold text-indigo-700">\ud83d\udd04 Horas imputadas de Actualizaciones Programadas</span>
+                                      <span className="text-xs font-bold text-indigo-800">{(actualizacionesImputadas[c.id] || 0).toFixed(0)}h</span>
+                                    </div>
+                                    <p className="text-[9px] text-indigo-500 mt-0.5">
+                                      {(actualizacionesImputadas[c.id] || 0) > 0
+                                        ? `${(actualizacionesImputadas[c.id] || 0).toFixed(0)}h equivalentes de contrato imputadas desde Actualizaciones (factor x4)`
+                                        : 'Sin horas de actualizaciones imputadas a este contrato'}
+                                    </p>
+                                  </div>
                                 </div>
                               );
                             })()
