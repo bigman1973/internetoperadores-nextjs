@@ -1060,26 +1060,26 @@ export default function DraxtonProyectosSingularesPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Título *</label>
-                <input type="text" value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: WiFi Industrial Atxondo" />
+                <input type="text" value={form.titulo} onChange={e => setForm({ ...form, titulo: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: WiFi Industrial Atxondo" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Ubicación</label>
-                <input type="text" value={form.ubicacion} onChange={e => setForm({ ...form, ubicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Ej: Draxton Lleida" />
+                <input type="text" value={form.ubicacion} onChange={e => setForm({ ...form, ubicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Draxton Lleida" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
-                <textarea value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" rows={3} />
+                <textarea value={form.descripcion} onChange={e => setForm({ ...form, descripcion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" rows={3} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-                  <select value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                  <select value={form.estado} onChange={e => setForm({ ...form, estado: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                     {ESTADOS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Prioridad</label>
-                  <select value={form.prioridad} onChange={e => setForm({ ...form, prioridad: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                  <select value={form.prioridad} onChange={e => setForm({ ...form, prioridad: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                     <option value="alta">Alta</option>
                     <option value="media">Media</option>
                     <option value="baja">Baja</option>
@@ -1089,11 +1089,11 @@ export default function DraxtonProyectosSingularesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Importe Venta (€)</label>
-                  <input type="number" step="0.01" value={form.importeVenta} onChange={e => setForm({ ...form, importeVenta: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" placeholder="Del pedido de cliente" />
+                  <input type="number" step="0.01" value={form.importeVenta} onChange={e => setForm({ ...form, importeVenta: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Del pedido de cliente" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
-                  <select value={form.responsableId} onChange={e => setForm({ ...form, responsableId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm">
+                  <select value={form.responsableId} onChange={e => setForm({ ...form, responsableId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                     <option value="">Sin asignar</option>
                     {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}</option>)}
                   </select>
@@ -1102,11 +1102,11 @@ export default function DraxtonProyectosSingularesPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-                  <input type="date" value={form.fechaInicio} onChange={e => setForm({ ...form, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                  <input type="date" value={form.fechaInicio} onChange={e => setForm({ ...form, fechaInicio: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Fecha fin prevista</label>
-                  <input type="date" value={form.fechaFinPrevista} onChange={e => setForm({ ...form, fechaFinPrevista: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm" />
+                  <input type="date" value={form.fechaFinPrevista} onChange={e => setForm({ ...form, fechaFinPrevista: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-2">
