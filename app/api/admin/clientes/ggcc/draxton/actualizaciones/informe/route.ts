@@ -269,7 +269,8 @@ export async function GET(req: NextRequest) {
     <div class="factor-value">x${factorConversion}</div>
     <div class="factor-text">
       <strong>Factor de conversion vigente</strong><br/>
-      1 hora de actualizacion (fin de semana, N${tarifaVigente?.concepto?.replace('n', '').replace('_', ' ') || '2 remoto'}) = ${factorConversion} horas de contrato<br/>
+      1 hora de actualizacion = ${factorConversion} horas de contrato<br/>
+      <span style="font-size: 8px;">Tecnico Nivel 2 (x2) — tareas que un tecnico N1 no puede realizar — + Fuera de horario laboral (x2) = Factor x${factorConversion}</span>
       ${costeHoraTarifa > 0 ? `Coste neto tecnico: ${costeHoraTarifa.toFixed(2)} EUR/h | Coste bruto empresa: ${(costeHoraTarifa * 1.35).toFixed(2)} EUR/h` : ''}
     </div>
   </div>
@@ -553,7 +554,8 @@ function generarInformeCliente({ anio, ejecuciones, factorConversion, totalHoras
     <div class="factor-value">x${factorConversion}</div>
     <div class="factor-text">
       <strong>Factor de conversion aplicado</strong><br/>
-      1 hora de actualizacion programada (fin de semana) equivale a ${factorConversion} horas de contrato
+      1 hora de actualizacion programada equivale a ${factorConversion} horas de contrato<br/>
+      <span style="font-size: 8px;">Tecnico Nivel 2 (x2) — tareas que un tecnico N1 no puede realizar — + Fuera de horario laboral (x2) = Factor x${factorConversion}</span>
     </div>
   </div>
 
