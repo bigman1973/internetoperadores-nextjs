@@ -132,20 +132,20 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    // Sugerencia de imputación: imputar al contrato con MENOR previsión fin año (más ajustado)
-    // Así absorbemos horas donde más las necesitamos para equilibrar balances
+    // Sugerencia de imputación: imputar al contrato con MENOR previsión fin año (mayor déficit)
+    // Al imputar horas, el déficit se reduce (la previsión mejora)
     const pendientes = ejecuciones.filter(e => e.totalImputado < e.horasDedicadas)
     const sugerencias: { fecha: string; horas: number; horasContrato: number; contrato: string; razon: string }[] = []
     const balanceCopy = balanceContratos.map(c => ({ ...c, prevision: c.previsionFinAnio }))
     pendientes.forEach(e => {
       const horasPend = e.horasDedicadas - e.totalImputado
       const horasContr = horasPend * factorConversion
-      // Ordenar por previsión ASCENDENTE: primero el que tiene menor previsión (más ajustado/negativo)
+      // Ordenar por previsión ASCENDENTE: primero el que tiene menor previsión (mayor déficit)
       const mejor = balanceCopy.sort((a, b) => a.prevision - b.prevision)[0]
       if (mejor) {
-        const razon = mejor.prevision < 0 ? `Prevision negativa: ${mejor.prevision}h` : `Prevision mas ajustada: +${mejor.prevision}h`
+        const razon = mejor.prevision < 0 ? `Deficit previsto: ${mejor.prevision.toFixed(1)}h → tras imputar: ${(mejor.prevision + horasContr).toFixed(1)}h` : `Prevision: +${mejor.prevision.toFixed(1)}h`
         sugerencias.push({ fecha: new Date(e.fecha).toLocaleDateString('es-ES'), horas: horasPend, horasContrato: horasContr, contrato: mejor.titulo, razon })
-        mejor.prevision -= horasContr
+        mejor.prevision += horasContr // Imputar MEJORA el déficit (suma)
       }
     })
 
@@ -392,7 +392,7 @@ export async function GET(req: NextRequest) {
     <div class="highlight-title">Propuesta de Imputacion a Contratos</div>
     <p style="font-size: 9px; color: #78350f; margin: 0 0 10px 0;">
       Quedan <strong>${horasPendientesReales.toFixed(1)}h reales</strong> (= <strong>${horasPendientesContrato.toFixed(0)}h de contrato</strong>) pendientes de imputar.
-      Se sugiere imputar al contrato con mayor saldo a favor para equilibrar los balances:
+      Se sugiere imputar al contrato con mayor deficit previsto a fin de a\u00f1o para compensar el balance:
     </p>
     <table>
       <thead><tr><th>Fecha</th><th class="text-right">Horas reales</th><th class="text-right">Horas contrato (x${factorConversion})</th><th>Contrato sugerido</th><th>Razon</th></tr></thead>
