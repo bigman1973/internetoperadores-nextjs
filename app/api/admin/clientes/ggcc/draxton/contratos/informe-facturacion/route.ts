@@ -224,7 +224,8 @@ export async function GET(req: NextRequest) {
     .progress-bar { width: 100%; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden; }
     .progress-fill { height: 100%; border-radius: 3px; }
     .contract-section { margin-bottom: 20px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; }
-    .contract-title { font-size: 12px; font-weight: 700; color: #1f2937; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+    .contract-title { font-size: 12px; font-weight: 700; color: #1f2937; margin-bottom: 4px; }
+    .contract-amounts { display: flex; gap: 12px; font-size: 10px; margin-bottom: 8px; align-items: center; }
     .actualiz-box { margin-top: 8px; padding: 6px 10px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 9px; color: #4338ca; }
     .page-footer { position: absolute; bottom: 15px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 8px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 8px; }
     .confidencial { position: absolute; top: 60px; right: 30px; font-size: 8px; color: #dc2626; font-weight: 700; letter-spacing: 1px; opacity: 0.7; }
@@ -362,13 +363,12 @@ export async function GET(req: NextRequest) {
       const actualizH = actualizPorContrato[r.id] || 0;
       return `
       <div class="contract-section">
-        <div class="contract-title">
-          <span>${r.titulo}</span>
-          <span style="font-size:10px;">
-            <span class="text-blue">${formatCurrency(r.facturado)}</span> |
-            <span class="text-green">${formatCurrency(r.cobrado)}</span> |
-            <span class="${r.pendiente > 0 ? 'text-red' : 'text-green'}">${r.pendiente > 0 ? 'Pdte: ' : ''}${formatCurrency(r.pendiente)}</span>
-          </span>
+        <div class="contract-title">${r.titulo}</div>
+        <div class="contract-amounts">
+          <span>Facturado: <strong class="text-blue">${formatCurrency(r.facturado)}</strong></span>
+          <span>Cobrado: <strong class="text-green">${formatCurrency(r.cobrado)}</strong></span>
+          <span>Pendiente: <strong class="${r.pendiente > 0 ? 'text-red' : 'text-green'}">${formatCurrency(r.pendiente)}</strong></span>
+          <span style="color:#6b7280;">(${r.numCobradas}/${r.numFacturas} facturas)</span>
         </div>
         <div class="progress-bar" style="margin-bottom:8px;">
           <div class="progress-fill" style="width:${Math.min(pct, 100)}%;background:${pct >= 80 ? '#059669' : pct >= 50 ? '#d97706' : '#dc2626'};"></div>
