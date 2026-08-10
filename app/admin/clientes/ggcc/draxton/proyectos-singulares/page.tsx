@@ -552,10 +552,10 @@ export default function DraxtonProyectosSingularesPage() {
 
   // ===== KPIs =====
   const totalProyectos = proyectos.length
-  const totalVentaConIva = proyectos.reduce((sum, p) => sum + (p.importeVenta || 0), 0)
+  const totalVentaConIva = proyectos.reduce((sum, p) => sum + (Number(p.importeVenta) || 0), 0)
   const totalVentaBase = totalVentaConIva / 1.21
-  const totalCosteProveedores = proyectos.reduce((sum, p) => sum + (p.costeProveedores || 0), 0)
-  const totalCostePersonal = proyectos.reduce((sum, p) => sum + (p.personalAsignado?.reduce((s: number, pa: any) => s + (pa.costeTotal || 0), 0) || 0), 0)
+  const totalCosteProveedores = proyectos.reduce((sum, p) => sum + (Number(p.costeProveedores) || 0), 0)
+  const totalCostePersonal = proyectos.reduce((sum, p) => sum + (p.personalAsignado?.reduce((s: number, pa: any) => s + (Number(pa.costeTotal) || 0), 0) || 0), 0)
   const totalMargen = totalVentaBase - totalCosteProveedores - totalCostePersonal
 
   if (loading) return <div className="flex items-center justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div></div>
@@ -639,7 +639,7 @@ export default function DraxtonProyectosSingularesPage() {
                   <td className="px-4 py-2.5 text-right">
                     {(() => {
                       const ventaBase = p.importeVenta ? Number(p.importeVenta) / 1.21 : 0;
-                      const margen = ventaBase - (Number(p.costeProveedores) || 0) - (p.personalAsignado?.reduce((s: number, pa: any) => s + (pa.costeTotal || 0), 0) || 0);
+                      const margen = ventaBase - (Number(p.costeProveedores) || 0) - (p.personalAsignado?.reduce((s: number, pa: any) => s + (Number(pa.costeTotal) || 0), 0) || 0);
                       return (
                         <>
                           <span className={`font-medium ${margen >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -712,7 +712,7 @@ export default function DraxtonProyectosSingularesPage() {
               {activeTab === 'datos' && (
                 <div className="space-y-4">
                   {(() => {
-                    const costePersonal = p.personalAsignado?.reduce((sum: number, pa: any) => sum + (pa.costeTotal || 0), 0) || 0
+                    const costePersonal = p.personalAsignado?.reduce((sum: number, pa: any) => sum + (Number(pa.costeTotal) || 0), 0) || 0
                     const ventaConIva = Number(p.importeVenta) || 0
                     const ventaBase = ventaConIva / 1.21 // Base imponible (sin IVA)
                     const proveedores = Number(p.costeProveedores) || 0 // Ya es sin IVA
@@ -992,7 +992,7 @@ export default function DraxtonProyectosSingularesPage() {
                       </table>
                       {/* Total coste personal */}
                       <div className="flex justify-end px-3 py-2 bg-gray-50 border-t">
-                        <span className="text-sm font-medium text-gray-700">Total coste personal: <span className="text-indigo-700">{p.personalAsignado.reduce((sum, pa) => sum + (pa.costeTotal || 0), 0).toFixed(2)} €</span></span>
+                        <span className="text-sm font-medium text-gray-700">Total coste personal: <span className="text-indigo-700">{p.personalAsignado.reduce((sum, pa) => sum + (Number(pa.costeTotal) || 0), 0).toFixed(2)} €</span></span>
                       </div>
                     </div>
                   ) : (
