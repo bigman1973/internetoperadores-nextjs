@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
         estado: { in: ['Activo', 'activo', 'renovacion', 'Renovacion'] },
         horasContratadas: { gt: 0 },
       },
-      select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true, importeMensual: true },
+      select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true, importeMensual: true, fechaInicio: true, fechaFin: true },
       orderBy: { titulo: 'asc' }
     })
 
@@ -66,29 +66,46 @@ export async function GET(req: NextRequest) {
       imputacionesPorContrato[i.contratoId] = (imputacionesPorContrato[i.contratoId] || 0) + i.horas
     })
 
-    // Balance por contrato: horas contratadas - horas imputadas de actualizaciones
-    const balanceContratos = contratos.map(c => {
-      const horas = Number(c.horasContratadas) || 0
-      const precioHora = Number(c.precioHoraContrato) || (horas > 0 && c.importeMensual ? Number(c.importeMensual) / horas : 0)
-      return {
-        ...c,
-        horasContratadas: horas,
-        precioHoraContrato: Math.round(precioHora * 100) / 100,
-        horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
-        horasDisponibles: horas - (imputacionesPorContrato[c.id] || 0),
-      }
-    })
-
     // Tarifas de conversión (con histórico)
     const tarifasConversion = await prisma.actualizacionTarifaConversion.findMany({
       orderBy: [{ concepto: 'asc' }, { fechaDesde: 'desc' }]
     })
 
-    // KPIs
+    // Factor de conversión vigente (el principal, normalmente n2_remoto)
+    const factorVigente = tarifasConversion.find(t => t.fechaHasta === null)?.factorConversion || 1
+
+    // Balance por contrato: horas ANUALES totales - horas imputadas (con factor)
+    const balanceContratos = contratos.map(c => {
+      const horasMes = Number(c.horasContratadas) || 0
+      const precioHora = Number(c.precioHoraContrato) || (horasMes > 0 && c.importeMensual ? Number(c.importeMensual) / horasMes : 0)
+      // Calcular meses de vigencia en el año consultado
+      const inicio = c.fechaInicio ? new Date(c.fechaInicio) : new Date(anio, 0, 1)
+      const fin = c.fechaFin ? new Date(c.fechaFin) : new Date(anio, 11, 31)
+      const inicioAnioContrato = new Date(Math.max(inicio.getTime(), new Date(anio, 0, 1).getTime()))
+      const finAnioContrato = new Date(Math.min(fin.getTime(), new Date(anio, 11, 31).getTime()))
+      const mesesVigencia = Math.max(0, Math.ceil((finAnioContrato.getTime() - inicioAnioContrato.getTime()) / (30.44 * 24 * 60 * 60 * 1000)))
+      const horasTotalesAnio = horasMes * mesesVigencia
+      const horasImputadasConFactor = (imputacionesPorContrato[c.id] || 0) * factorVigente
+      return {
+        ...c,
+        horasMes,
+        horasTotalesAnio: Math.round(horasTotalesAnio),
+        precioHoraContrato: Math.round(precioHora * 100) / 100,
+        horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
+        horasImputadasConFactor: Math.round(horasImputadasConFactor * 10) / 10,
+        horasDisponibles: Math.round(horasTotalesAnio - horasImputadasConFactor),
+        mesesVigencia,
+      }
+    })
+
+    // KPIs con factor de conversión
     const totalHoras = ejecuciones.reduce((s, e) => s + e.horasDedicadas, 0)
+    const totalHorasContrato = totalHoras * factorVigente // horas equivalentes de contrato
     const totalCoste = ejecuciones.reduce((s, e) => s + (e.costeTotal || 0), 0)
     const horasImputadas = ejecuciones.reduce((s, e) => s + e.totalImputado, 0)
+    const horasImputadasContrato = horasImputadas * factorVigente
     const horasPendientes = totalHoras - horasImputadas
+    const horasPendientesContrato = horasPendientes * factorVigente
 
     // Sugerencia de imputación: contrato con más horas disponibles
     const contratoSugerido = balanceContratos.sort((a, b) => b.horasDisponibles - a.horasDisponibles)[0] || null
@@ -99,15 +116,20 @@ export async function GET(req: NextRequest) {
       ejecuciones,
       contratos: balanceContratos,
       tecnicos,
+      factorVigente,
       tarifasConversion: tarifasConversion.map(t => ({ ...t, vigente: t.fechaHasta === null })),
       contratoSugerido,
       kpis: {
         totalHoras: Math.round(totalHoras * 10) / 10,
+        totalHorasContrato: Math.round(totalHorasContrato * 10) / 10,
         totalCoste: Math.round(totalCoste * 100) / 100,
         horasImputadas: Math.round(horasImputadas * 10) / 10,
+        horasImputadasContrato: Math.round(horasImputadasContrato * 10) / 10,
         horasPendientes: Math.round(horasPendientes * 10) / 10,
+        horasPendientesContrato: Math.round(horasPendientesContrato * 10) / 10,
         totalEjecuciones: ejecuciones.length,
         planificacionesPendientes: planificaciones.filter(p => p.estado === 'pendiente').length,
+        factorVigente,
       }
     })
   } catch (error: any) {

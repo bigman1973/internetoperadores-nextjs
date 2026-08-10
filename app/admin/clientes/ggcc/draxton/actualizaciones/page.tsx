@@ -4,11 +4,11 @@ import React, { useState, useEffect, useMemo } from 'react'
 interface Planificacion { id: string; titulo: string; descripcion: string | null; prioridad: string; estado: string; fechaPropuesta: string | null; servidoresAfectados: string | null; plantasAfectadas: string | null; solicitadoPor: string | null; tecnicoAsignado: string | null; notas: string | null; ejecuciones: { id: string; fecha: string; horasDedicadas: number }[] }
 interface Imputacion { id: string; contratoId: string; horas: number; notas: string | null }
 interface Ejecucion { id: string; planificacionId: string | null; fecha: string; tecnicoId: string | null; tecnicoNombre: string | null; nivelTecnico: number; horasDedicadas: number; tipo: string; plantasAfectadas: string | null; descripcion: string | null; costeHora: number | null; costeTotal: number | null; totalImputado: number; pendienteImputar: number | null; imputaciones: Imputacion[]; planificacion: { titulo: string } | null }
-interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasImputadasActualizaciones: number; horasDisponibles: number; precioHoraContrato: number | null }
+interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasMes: number; horasTotalesAnio: number; horasImputadasActualizaciones: number; horasImputadasConFactor: number; horasDisponibles: number; precioHoraContrato: number | null; mesesVigencia: number }
 interface TarifaConversion { id: string; concepto: string; factorConversion: number; costeHora: number | null; precioFacturacion: number | null; fechaDesde: string; fechaHasta: string | null; notas: string | null; vigente: boolean }
 interface Tecnico { id: string; nombre: string; nivel: number | null }
 interface Preview { contrato: string; horasContratadas: number; horasYaImputadas: number; horasAImputar: number; balanceActual: number; balanceDespues: number }
-interface KPIs { totalHoras: number; totalCoste: number; horasImputadas: number; horasPendientes: number; totalEjecuciones: number; planificacionesPendientes: number }
+interface KPIs { totalHoras: number; totalHorasContrato: number; totalCoste: number; horasImputadas: number; horasImputadasContrato: number; horasPendientes: number; horasPendientesContrato: number; totalEjecuciones: number; planificacionesPendientes: number; factorVigente: number }
 
 export default function ActualizacionesPage() {
   const [tab, setTab] = useState<'planificacion' | 'ejecuciones' | 'imputacion' | 'tarifas'>('ejecuciones')
@@ -237,13 +237,27 @@ export default function ActualizacionesPage() {
 
       {/* KPIs */}
       {kpis && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Total Horas</p><p className="text-xl font-bold text-gray-900">{kpis.totalHoras}h</p></div>
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Coste Total</p><p className="text-xl font-bold text-gray-900">{kpis.totalCoste.toFixed(0)} EUR</p></div>
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Imputadas</p><p className="text-xl font-bold text-green-600">{kpis.horasImputadas}h</p></div>
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Pendiente Imputar</p><p className={`text-xl font-bold ${kpis.horasPendientes > 0 ? 'text-red-600' : 'text-green-600'}`}>{kpis.horasPendientes}h</p></div>
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Ejecuciones</p><p className="text-xl font-bold text-gray-900">{kpis.totalEjecuciones}</p></div>
-          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Planif. Pendientes</p><p className="text-xl font-bold text-orange-600">{kpis.planificacionesPendientes}</p></div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          <div className="bg-white border rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Horas Ejecutadas</p>
+            <p className="text-xl font-bold text-gray-900">{kpis.totalHoras}h</p>
+            <p className="text-[10px] text-indigo-600 font-medium">= {kpis.totalHorasContrato}h contrato (x{kpis.factorVigente})</p>
+          </div>
+          <div className="bg-white border rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Imputadas a Contratos</p>
+            <p className="text-xl font-bold text-green-600">{kpis.horasImputadas}h</p>
+            <p className="text-[10px] text-green-600 font-medium">= {kpis.horasImputadasContrato}h contrato</p>
+          </div>
+          <div className="bg-white border rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Pendiente Imputar</p>
+            <p className={`text-xl font-bold ${kpis.horasPendientes > 0 ? 'text-red-600' : 'text-green-600'}`}>{kpis.horasPendientes}h</p>
+            <p className={`text-[10px] font-medium ${kpis.horasPendientes > 0 ? 'text-red-600' : 'text-green-600'}`}>= {kpis.horasPendientesContrato}h contrato</p>
+          </div>
+          <div className="bg-white border rounded-lg p-3 text-center">
+            <p className="text-[10px] text-gray-500 uppercase">Coste Total</p>
+            <p className="text-xl font-bold text-gray-900">{kpis.totalCoste.toFixed(0)} EUR</p>
+            <p className="text-[10px] text-gray-400">{kpis.totalEjecuciones} ejecuciones | {kpis.planificacionesPendientes} planif.</p>
+          </div>
         </div>
       )}
 
@@ -344,6 +358,7 @@ export default function ActualizacionesPage() {
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Fecha</th>
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Tecnico</th>
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Horas</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">H. Contrato</th>
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Tipo</th>
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Plantas</th>
                     <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Descripcion</th>
@@ -359,6 +374,7 @@ export default function ActualizacionesPage() {
                       <td className="px-3 py-2 text-xs">{formatDate(e.fecha)}</td>
                       <td className="px-3 py-2 text-xs">{e.tecnicoNombre || '-'} <span className="text-gray-400">N{e.nivelTecnico}</span></td>
                       <td className="px-3 py-2 text-xs font-semibold">{e.horasDedicadas}h</td>
+                      <td className="px-3 py-2 text-xs text-indigo-600 font-medium">{(e.horasDedicadas * (kpis?.factorVigente || 1)).toFixed(0)}h</td>
                       <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded ${e.tipo === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{e.tipo}</span></td>
                       <td className="px-3 py-2 text-xs text-gray-600">{e.plantasAfectadas || '-'}</td>
                       <td className="px-3 py-2 text-xs text-gray-600 max-w-[200px] truncate">{e.descripcion || e.planificacion?.titulo || '-'}</td>
@@ -376,7 +392,7 @@ export default function ActualizacionesPage() {
                     </tr>
                     {showImputForm === e.id && (
                       <tr className="bg-indigo-50">
-                        <td colSpan={9} className="px-3 py-3">
+                        <td colSpan={10} className="px-3 py-3">
                           <div className="flex flex-wrap items-end gap-3">
                             <div>
                               <label className="text-[10px] text-gray-500 block">Contrato</label>
@@ -410,7 +426,7 @@ export default function ActualizacionesPage() {
                     )}
                     </React.Fragment>
                   ))}
-                  {ejecuciones.length === 0 && <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400 text-sm">No hay ejecuciones en {anio}</td></tr>}
+                  {ejecuciones.length === 0 && <tr><td colSpan={10} className="px-3 py-4 text-center text-gray-400 text-sm">No hay ejecuciones en {anio}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -489,21 +505,23 @@ export default function ActualizacionesPage() {
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Imputacion de Horas a Contratos</h2>
 
             <div className="bg-white border rounded-lg p-4 mb-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Balance de Contratos de Horas</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Balance de Contratos de Horas ({anio})</h3>
               <table className="w-full text-sm">
-                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Imputadas Actualiz.</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Disponibles</th></tr></thead>
+                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Total anual</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Imputadas (x{kpis?.factorVigente || 1})</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Disponibles</th></tr></thead>
                 <tbody>
                   {contratos.map(c => (
                     <tr key={c.id} className="border-b">
-                      <td className="py-2 text-gray-700">{c.titulo}</td>
-                      <td className="py-2 text-right">{c.horasContratadas}h</td>
-                      <td className="py-2 text-right text-orange-600">{c.horasImputadasActualizaciones}h</td>
+                      <td className="py-2 text-gray-700">{c.titulo} <span className="text-[9px] text-gray-400">({c.mesesVigencia} meses)</span></td>
+                      <td className="py-2 text-right">{c.horasMes}h</td>
+                      <td className="py-2 text-right font-medium">{c.horasTotalesAnio}h</td>
+                      <td className="py-2 text-right text-orange-600">{c.horasImputadasConFactor}h <span className="text-[9px] text-gray-400">({c.horasImputadasActualizaciones}h real)</span></td>
                       <td className={`py-2 text-right font-semibold ${c.horasDisponibles > 0 ? 'text-green-600' : 'text-red-600'}`}>{c.horasDisponibles}h</td>
                     </tr>
                   ))}
-                  {contratos.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-gray-400">No hay contratos de horas activos</td></tr>}
+                  {contratos.length === 0 && <tr><td colSpan={5} className="py-4 text-center text-gray-400">No hay contratos de horas activos</td></tr>}
                 </tbody>
               </table>
+              <p className="text-[9px] text-gray-400 mt-2">Total anual = horas/mes x meses vigencia en {anio}. Imputadas = horas actualizacion x factor conversion. Disponibles = total anual - imputadas.</p>
             </div>
 
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Ejecuciones pendientes de imputar</h3>
