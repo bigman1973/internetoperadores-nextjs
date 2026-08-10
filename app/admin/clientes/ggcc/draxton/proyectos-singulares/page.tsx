@@ -572,9 +572,17 @@ export default function DraxtonProyectosSingularesPage() {
               <p className="text-sm text-gray-500">Trabajos puntuales adjudicados por Draxton</p>
             </div>
           </div>
-          <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm) }} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
-            <PlusIcon className="w-4 h-4" /> Nuevo Proyecto
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => window.open('/api/admin/clientes/ggcc/draxton/proyectos-contrato/informe-pdf?tipo=interno', '_blank')} className="inline-flex items-center gap-1.5 px-3 py-2 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800">
+              <DocumentIcon className="w-4 h-4" /> Informe Interno
+            </button>
+            <button onClick={() => window.open('/api/admin/clientes/ggcc/draxton/proyectos-contrato/informe-pdf?tipo=cliente', '_blank')} className="inline-flex items-center gap-1.5 px-3 py-2 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600">
+              <DocumentIcon className="w-4 h-4" /> Informe Cliente
+            </button>
+            <button onClick={() => { setShowForm(true); setEditingId(null); setForm(emptyForm) }} className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700">
+              <PlusIcon className="w-4 h-4" /> Nuevo Proyecto
+            </button>
+          </div>
         </div>
       </div>
 
