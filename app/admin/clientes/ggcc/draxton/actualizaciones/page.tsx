@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 
 interface Planificacion { id: string; titulo: string; descripcion: string | null; prioridad: string; estado: string; fechaPropuesta: string | null; servidoresAfectados: string | null; plantasAfectadas: string | null; solicitadoPor: string | null; tecnicoAsignado: string | null; notas: string | null; ejecuciones: { id: string; fecha: string; horasDedicadas: number }[] }
 interface Imputacion { id: string; contratoId: string; horas: number; notas: string | null }
@@ -354,7 +354,8 @@ export default function ActualizacionesPage() {
                 </thead>
                 <tbody>
                   {ejecuciones.map(e => (
-                    <tr key={e.id} className="border-b hover:bg-gray-50">
+                    <React.Fragment key={e.id}>
+                    <tr className="border-b hover:bg-gray-50">
                       <td className="px-3 py-2 text-xs">{formatDate(e.fecha)}</td>
                       <td className="px-3 py-2 text-xs">{e.tecnicoNombre || '-'} <span className="text-gray-400">N{e.nivelTecnico}</span></td>
                       <td className="px-3 py-2 text-xs font-semibold">{e.horasDedicadas}h</td>
@@ -369,10 +370,45 @@ export default function ActualizacionesPage() {
                       </td>
                       <td className="px-3 py-2 text-right space-x-1">
                         <button onClick={() => handleEditEjec(e)} className="text-[10px] px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">Editar</button>
-                        <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: ((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
+                        <button onClick={() => { setShowImputForm(showImputForm === e.id ? null : e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: ((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
                         <button onClick={() => handleDeleteEjec(e.id)} className="text-[10px] px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">x</button>
                       </td>
                     </tr>
+                    {showImputForm === e.id && (
+                      <tr className="bg-indigo-50">
+                        <td colSpan={9} className="px-3 py-3">
+                          <div className="flex flex-wrap items-end gap-3">
+                            <div>
+                              <label className="text-[10px] text-gray-500 block">Contrato</label>
+                              <select value={formImput.contratoId} onChange={ev => { setFormImput({ ...formImput, contratoId: ev.target.value }); handlePreviewImputacion(ev.target.value, formImput.horas, e.id) }} className="border rounded px-2 py-1.5 text-xs text-gray-900 min-w-[250px]">
+                                <option value="">Seleccionar contrato...</option>
+                                {contratos.map(c => <option key={c.id} value={c.id}>{c.titulo} ({c.horasDisponibles}h disp.)</option>)}
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-500 block">Horas</label>
+                              <input type="number" step="0.5" value={formImput.horas} onChange={ev => { setFormImput({ ...formImput, horas: ev.target.value }); handlePreviewImputacion(formImput.contratoId, ev.target.value, e.id) }} className="border rounded px-2 py-1.5 text-xs text-gray-900 w-20" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-500 block">Notas</label>
+                              <input value={formImput.notas} onChange={ev => setFormImput({ ...formImput, notas: ev.target.value })} className="border rounded px-2 py-1.5 text-xs text-gray-900 w-32" placeholder="Opcional" />
+                            </div>
+                            <button onClick={handleImputar} disabled={!formImput.contratoId || !formImput.horas} className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded hover:bg-indigo-700 disabled:opacity-50">Confirmar</button>
+                            <button onClick={() => { setShowImputForm(null); setPreview(null) }} className="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs rounded">Cancelar</button>
+                          </div>
+                          {preview && (
+                            <div className="mt-2 flex gap-4 text-[10px]">
+                              <span className="text-gray-500">Contratadas: <strong>{preview.horasContratadas}h</strong></span>
+                              <span className="text-orange-600">Ya imputadas: <strong>{preview.horasYaImputadas}h</strong></span>
+                              <span className="text-indigo-600">A imputar: <strong>{preview.horasAImputar}h</strong></span>
+                              <span className={preview.balanceDespues >= 0 ? 'text-green-600' : 'text-red-600'}>Balance despues: <strong>{preview.balanceDespues}h</strong></span>
+                              {preview.balanceDespues < 0 && <span className="text-red-600 font-semibold">El contrato quedaria en negativo</span>}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   ))}
                   {ejecuciones.length === 0 && <tr><td colSpan={9} className="px-3 py-4 text-center text-gray-400 text-sm">No hay ejecuciones en {anio}</td></tr>}
                 </tbody>
