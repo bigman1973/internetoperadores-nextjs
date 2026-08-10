@@ -228,7 +228,7 @@ export async function GET(req: NextRequest) {
     .contract-amounts { display: flex; gap: 12px; font-size: 10px; margin-bottom: 8px; align-items: center; }
     .actualiz-box { margin-top: 8px; padding: 6px 10px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 6px; font-size: 9px; color: #4338ca; }
     .page-footer { position: absolute; bottom: 15px; left: 30px; right: 30px; display: flex; justify-content: space-between; font-size: 8px; color: #9ca3af; border-top: 1px solid #e5e7eb; padding-top: 8px; }
-    .confidencial { position: absolute; top: 60px; right: 30px; font-size: 8px; color: #dc2626; font-weight: 700; letter-spacing: 1px; opacity: 0.7; }
+    .confidencial { text-align: right; font-size: 8px; color: #dc2626; font-weight: 700; letter-spacing: 1px; opacity: 0.7; margin-bottom: 10px; }
   </style>
 </head>
 <body>
@@ -246,6 +246,7 @@ export async function GET(req: NextRequest) {
       </div>
     </div>
     <div class="confidencial">CONFIDENCIAL - USO INTERNO</div>
+
 
     <h1>Situacion de Facturacion ${anio}</h1>
     <p style="font-size:10px;color:#6b7280;margin-bottom:15px;">Resumen de facturacion emitida, cobros recibidos y pendientes de cobro por contrato de servicio</p>
