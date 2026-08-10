@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 export const dynamic = 'force-dynamic'
 
-// GET: Obtener planificaciones, ejecuciones e imputaciones
+// GET: Obtener planificaciones, ejecuciones, imputaciones, tarifas y balance
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const anio = parseInt(searchParams.get('anio') || new Date().getFullYear().toString())
+    const section = searchParams.get('section') || 'all'
 
     // Planificaciones activas (pendientes + programadas)
     const planificaciones = await prisma.actualizacionPlanificada.findMany({
@@ -23,7 +24,7 @@ export async function GET(req: NextRequest) {
       take: 20
     })
 
-    // Ejecuciones del año
+    // Ejecuciones del año (o todas si se pide)
     const inicioAnio = new Date(anio, 0, 1)
     const finAnio = new Date(anio, 11, 31)
     const ejecuciones = await prisma.actualizacionEjecucion.findMany({
@@ -35,11 +36,39 @@ export async function GET(req: NextRequest) {
       orderBy: { fecha: 'desc' }
     })
 
-    // Contratos Draxton para imputar
+    // Solo contratos de horas (tipo Mantenimiento o que tengan horasContratadas > 0)
     const contratos = await prisma.contratoDraxton.findMany({
-      where: { estado: { in: ['activo', 'renovacion'] } },
-      select: { id: true, titulo: true, codigoContrato: true, tipo: true },
+      where: {
+        estado: { in: ['activo', 'renovacion'] },
+        OR: [
+          { tipo: 'Mantenimiento' },
+          { horasContratadas: { gt: 0 } }
+        ]
+      },
+      select: { id: true, titulo: true, codigoContrato: true, tipo: true, horasContratadas: true, precioHoraContrato: true },
       orderBy: { titulo: 'asc' }
+    })
+
+    // Calcular horas ya imputadas a cada contrato (de todas las ejecuciones, no solo del año)
+    const imputacionesPorContrato: Record<string, number> = {}
+    const todasImputaciones = await prisma.actualizacionImputacion.findMany({
+      select: { contratoId: true, horas: true }
+    })
+    todasImputaciones.forEach(i => {
+      imputacionesPorContrato[i.contratoId] = (imputacionesPorContrato[i.contratoId] || 0) + i.horas
+    })
+
+    // Balance por contrato: horas contratadas - horas imputadas de actualizaciones
+    const balanceContratos = contratos.map(c => ({
+      ...c,
+      horasContratadas: Number(c.horasContratadas) || 0,
+      horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
+      horasDisponibles: (Number(c.horasContratadas) || 0) - (imputacionesPorContrato[c.id] || 0),
+    }))
+
+    // Tarifas de conversión (con histórico)
+    const tarifasConversion = await prisma.actualizacionTarifaConversion.findMany({
+      orderBy: [{ concepto: 'asc' }, { fechaDesde: 'desc' }]
     })
 
     // KPIs
@@ -48,11 +77,16 @@ export async function GET(req: NextRequest) {
     const horasImputadas = ejecuciones.reduce((s, e) => s + e.totalImputado, 0)
     const horasPendientes = totalHoras - horasImputadas
 
+    // Sugerencia de imputación: contrato con más horas disponibles
+    const contratoSugerido = balanceContratos.sort((a, b) => b.horasDisponibles - a.horasDisponibles)[0] || null
+
     return NextResponse.json({
       planificaciones,
       planificacionesHistorico,
       ejecuciones,
-      contratos,
+      contratos: balanceContratos,
+      tarifasConversion: tarifasConversion.map(t => ({ ...t, vigente: t.fechaHasta === null })),
+      contratoSugerido,
       kpis: {
         totalHoras: Math.round(totalHoras * 10) / 10,
         totalCoste: Math.round(totalCoste * 100) / 100,
@@ -68,7 +102,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST: CRUD de planificaciones, ejecuciones e imputaciones
+// POST: CRUD de planificaciones, ejecuciones, imputaciones y tarifas
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -125,7 +159,7 @@ export async function POST(req: NextRequest) {
             fecha: new Date(body.fecha),
             tecnicoId: body.tecnicoId || null,
             tecnicoNombre: body.tecnicoNombre || null,
-            nivelTecnico: body.nivelTecnico || 2,
+            nivelTecnico: parseInt(body.nivelTecnico) || 2,
             horasDedicadas: horas,
             tipo: body.tipo || 'remoto',
             plantasAfectadas: body.plantasAfectadas || null,
@@ -137,7 +171,6 @@ export async function POST(req: NextRequest) {
           }
         })
 
-        // Si viene de una planificación, marcarla como ejecutada si no hay más pendientes
         if (body.planificacionId && body.marcarEjecutada) {
           await prisma.actualizacionPlanificada.update({
             where: { id: body.planificacionId },
@@ -149,23 +182,33 @@ export async function POST(req: NextRequest) {
       }
 
       case 'actualizarEjecucion': {
-        const costeHora = body.costeHora ? parseFloat(body.costeHora) : undefined
+        const costeHora = body.costeHora !== undefined ? (body.costeHora ? parseFloat(body.costeHora) : null) : undefined
         const horas = body.horasDedicadas ? parseFloat(body.horasDedicadas) : undefined
-        const costeTotal = costeHora && horas ? horas * costeHora : undefined
+        const costeTotal = costeHora !== undefined && horas ? horas * (costeHora || 0) : undefined
+
+        // Recalcular pendienteImputar si cambian las horas
+        let pendienteImputar = undefined
+        if (horas !== undefined) {
+          const ejActual = await prisma.actualizacionEjecucion.findUnique({ where: { id: body.ejecucionId } })
+          if (ejActual) {
+            pendienteImputar = horas - ejActual.totalImputado
+          }
+        }
 
         const ejec = await prisma.actualizacionEjecucion.update({
           where: { id: body.ejecucionId },
           data: {
             fecha: body.fecha ? new Date(body.fecha) : undefined,
-            tecnicoId: body.tecnicoId,
-            tecnicoNombre: body.tecnicoNombre,
-            nivelTecnico: body.nivelTecnico,
+            tecnicoId: body.tecnicoId !== undefined ? body.tecnicoId : undefined,
+            tecnicoNombre: body.tecnicoNombre !== undefined ? body.tecnicoNombre : undefined,
+            nivelTecnico: body.nivelTecnico !== undefined ? parseInt(body.nivelTecnico) : undefined,
             horasDedicadas: horas,
-            tipo: body.tipo,
-            plantasAfectadas: body.plantasAfectadas,
-            descripcion: body.descripcion,
+            tipo: body.tipo !== undefined ? body.tipo : undefined,
+            plantasAfectadas: body.plantasAfectadas !== undefined ? body.plantasAfectadas : undefined,
+            descripcion: body.descripcion !== undefined ? body.descripcion : undefined,
             costeHora,
-            costeTotal,
+            costeTotal: costeTotal !== undefined ? costeTotal : undefined,
+            pendienteImputar,
           }
         })
         return NextResponse.json({ success: true, ejecucion: ejec })
@@ -173,7 +216,6 @@ export async function POST(req: NextRequest) {
 
       // === IMPUTACIONES ===
       case 'imputarHoras': {
-        // body.imputaciones = [{ contratoId, horas, notas }]
         const ejecucion = await prisma.actualizacionEjecucion.findUnique({
           where: { id: body.ejecucionId },
           include: { imputaciones: true }
@@ -188,7 +230,6 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: `No puedes imputar mas de ${ejecucion.horasDedicadas}h (ya imputadas: ${totalExistente}h)` }, { status: 400 })
         }
 
-        // Crear imputaciones
         for (const imp of imputaciones) {
           await prisma.actualizacionImputacion.create({
             data: {
@@ -200,7 +241,6 @@ export async function POST(req: NextRequest) {
           })
         }
 
-        // Actualizar totales en ejecución
         const nuevoTotal = totalExistente + totalNuevo
         await prisma.actualizacionEjecucion.update({
           where: { id: body.ejecucionId },
@@ -219,7 +259,6 @@ export async function POST(req: NextRequest) {
 
         await prisma.actualizacionImputacion.delete({ where: { id: body.imputacionId } })
 
-        // Recalcular totales
         const ejec = await prisma.actualizacionEjecucion.findUnique({
           where: { id: imp.ejecucionId },
           include: { imputaciones: true }
@@ -232,6 +271,76 @@ export async function POST(req: NextRequest) {
           })
         }
 
+        return NextResponse.json({ success: true })
+      }
+
+      // === PREVIEW BALANCE (no guarda, solo calcula) ===
+      case 'previewImputacion': {
+        const ejecucion = await prisma.actualizacionEjecucion.findUnique({
+          where: { id: body.ejecucionId },
+          include: { imputaciones: true }
+        })
+        if (!ejecucion) return NextResponse.json({ error: 'Ejecucion no encontrada' }, { status: 404 })
+
+        const contratoId = body.contratoId
+        const horasAImputar = parseFloat(body.horas)
+
+        // Obtener contrato
+        const contrato = await prisma.contratoDraxton.findUnique({
+          where: { id: contratoId },
+          select: { id: true, titulo: true, horasContratadas: true }
+        })
+        if (!contrato) return NextResponse.json({ error: 'Contrato no encontrado' }, { status: 404 })
+
+        // Horas ya imputadas a este contrato (de todas las ejecuciones)
+        const imputacionesContrato = await prisma.actualizacionImputacion.findMany({
+          where: { contratoId },
+          select: { horas: true }
+        })
+        const horasYaImputadas = imputacionesContrato.reduce((s, i) => s + i.horas, 0)
+        const horasContratadasNum = Number(contrato.horasContratadas) || 0
+
+        return NextResponse.json({
+          success: true,
+          preview: {
+            contrato: contrato.titulo,
+            horasContratadas: horasContratadasNum,
+            horasYaImputadas: Math.round(horasYaImputadas * 10) / 10,
+            horasAImputar: horasAImputar,
+            balanceActual: Math.round((horasContratadasNum - horasYaImputadas) * 10) / 10,
+            balanceDespues: Math.round((horasContratadasNum - horasYaImputadas - horasAImputar) * 10) / 10,
+          }
+        })
+      }
+
+      // === TARIFAS DE CONVERSIÓN ===
+      case 'addTarifaConversion': {
+        // Cerrar tarifa anterior del mismo concepto
+        const anterior = await prisma.actualizacionTarifaConversion.findFirst({
+          where: { concepto: body.concepto, fechaHasta: null }
+        })
+        if (anterior) {
+          const fechaDesde = new Date(body.fechaDesde)
+          fechaDesde.setDate(fechaDesde.getDate() - 1)
+          await prisma.actualizacionTarifaConversion.update({
+            where: { id: anterior.id },
+            data: { fechaHasta: fechaDesde }
+          })
+        }
+        const tarifa = await prisma.actualizacionTarifaConversion.create({
+          data: {
+            concepto: body.concepto,
+            factorConversion: parseFloat(body.factorConversion) || 1.0,
+            costeHora: body.costeHora ? parseFloat(body.costeHora) : null,
+            fechaDesde: new Date(body.fechaDesde),
+            notas: body.notas || null,
+          }
+        })
+        return NextResponse.json({ success: true, tarifa })
+      }
+
+      case 'deleteTarifaConversion': {
+        await prisma.actualizacionTarifaConversion.delete({ where: { id: body.tarifaId } })
         return NextResponse.json({ success: true })
       }
 
