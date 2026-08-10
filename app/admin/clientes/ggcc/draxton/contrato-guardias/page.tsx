@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { ShieldCheckIcon, PlusIcon, PencilIcon, TrashIcon, UserIcon, ArrowUpTrayIcon, DocumentTextIcon, InformationCircleIcon } from '@heroicons/react/24/outline'
+import { ShieldCheckIcon, PlusIcon, PencilIcon, TrashIcon, UserIcon, ArrowUpTrayIcon, DocumentTextIcon, InformationCircleIcon, PrinterIcon, FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline'
 
 interface HistoricoNivel {
   id: string
@@ -60,7 +60,6 @@ interface Incidencia {
   escaladoCliente: boolean
   detalleEscalado: string | null
   asignacion: { tecnico: { empleado: { nombreCompleto: string } } } | null
-  // Campos EML
   emailId: string | null
   emailSubject: string | null
   emailFrom: string | null
@@ -92,6 +91,17 @@ interface Contrato {
   estado: string
 }
 
+// Filtros activos
+interface Filtros {
+  tipo: string | null // 'remoto' | 'desplazamiento' | null
+  estado: string | null
+  categoria: string | null
+  planta: string | null
+  tecnico: string | null
+  mesDesde: string
+  mesHasta: string
+}
+
 export default function DraxtonContratoGuardiasPage() {
   const [loading, setLoading] = useState(true)
   const [config, setConfig] = useState<Config | null>(null)
@@ -101,7 +111,13 @@ export default function DraxtonContratoGuardiasPage() {
   const [asignaciones, setAsignaciones] = useState<Asignacion[]>([])
   const [incidencias, setIncidencias] = useState<Incidencia[]>([])
   const [anio, setAnio] = useState(new Date().getFullYear())
-  const [tab, setTab] = useState<'calendario' | 'incidencias' | 'informes'>('incidencias')
+  const [tab, setTab] = useState<'incidencias' | 'calendario' | 'informes'>('incidencias')
+
+  // Filtros
+  const [filtros, setFiltros] = useState<Filtros>({
+    tipo: null, estado: null, categoria: null, planta: null, tecnico: null,
+    mesDesde: '', mesHasta: ''
+  })
 
   // Modales
   const [showAddTecnico, setShowAddTecnico] = useState(false)
@@ -160,13 +176,79 @@ export default function DraxtonContratoGuardiasPage() {
 
   const formatCurrency = (n: number | string | null | undefined) => {
     const num = typeof n === 'string' ? parseFloat(n) : n
-    if (num == null || isNaN(num)) return '\u2014'
+    if (num == null || isNaN(num)) return '-'
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(num)
   }
 
-  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '\u2014'
+  const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '-'
 
-  // Generar semanas del a\u00f1o
+  // Filtrar incidencias
+  const incidenciasFiltradas = incidencias.filter(inc => {
+    if (filtros.tipo && inc.tipoResolucion !== filtros.tipo) return false
+    if (filtros.estado && inc.estado !== filtros.estado) return false
+    if (filtros.categoria && inc.categoria !== filtros.categoria) return false
+    if (filtros.planta && inc.planta !== filtros.planta) return false
+    if (filtros.tecnico) {
+      const tecnicoNombre = inc.asignacion?.tecnico?.empleado?.nombreCompleto || ''
+      if (!tecnicoNombre.toLowerCase().includes(filtros.tecnico.toLowerCase())) return false
+    }
+    if (filtros.mesDesde) {
+      const fecha = new Date(inc.fechaHora)
+      const desde = new Date(filtros.mesDesde + '-01')
+      if (fecha < desde) return false
+    }
+    if (filtros.mesHasta) {
+      const fecha = new Date(inc.fechaHora)
+      const hasta = new Date(filtros.mesHasta + '-01')
+      hasta.setMonth(hasta.getMonth() + 1)
+      if (fecha >= hasta) return false
+    }
+    return true
+  })
+
+  // KPIs (sobre datos filtrados)
+  const totalIncidencias = incidenciasFiltradas.length
+  const incResueltas = incidenciasFiltradas.filter(i => i.estado === 'resuelta').length
+  const incDesplazamiento = incidenciasFiltradas.filter(i => i.tipoResolucion === 'desplazamiento').length
+  const incRemotas = incidenciasFiltradas.filter(i => i.tipoResolucion === 'remoto').length
+  const conDuracion = incidenciasFiltradas.filter(i => i.duracionMinutos)
+  const duracionMedia = conDuracion.length > 0
+    ? Math.round(conDuracion.reduce((s, i) => s + (i.duracionMinutos || 0), 0) / conDuracion.length)
+    : 0
+
+  // Categorias
+  const categorias = incidenciasFiltradas.reduce((acc, i) => {
+    const cat = i.categoria || 'general'
+    acc[cat] = (acc[cat] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  // Plantas
+  const plantas = incidenciasFiltradas.reduce((acc, i) => {
+    const p = i.planta || 'Sin especificar'
+    acc[p] = (acc[p] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  // Por mes
+  const porMes = incidenciasFiltradas.reduce((acc, i) => {
+    const d = new Date(i.fechaHora)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {} as Record<string, number>)
+
+  // Hay filtros activos?
+  const hayFiltros = filtros.tipo || filtros.estado || filtros.categoria || filtros.planta || filtros.tecnico || filtros.mesDesde || filtros.mesHasta
+
+  const limpiarFiltros = () => setFiltros({ tipo: null, estado: null, categoria: null, planta: null, tecnico: null, mesDesde: '', mesHasta: '' })
+
+  // KPI click handlers (toggle filter)
+  const toggleFiltroTipo = (tipo: string) => {
+    setFiltros(f => ({ ...f, tipo: f.tipo === tipo ? null : tipo }))
+  }
+
+  // Generar semanas
   const getSemanasAnio = (year: number) => {
     const semanas: { inicio: Date; fin: Date; num: number }[] = []
     const primerDia = new Date(year, 0, 1)
@@ -186,91 +268,47 @@ export default function DraxtonContratoGuardiasPage() {
   }
 
   const semanas = getSemanasAnio(anio)
-
-  const toLocalDateStr = (d: Date) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
+  const toLocalDateStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
   const handleAsignar = async (semanaInicio: Date, semanaFin: Date, tecnicoId: string) => {
     if (!tecnicoId) return
     const tecnico = tecnicos.find(t => t.id === tecnicoId)
     const tarifa = tarifas.find(t => t.nivel === tecnico?.nivel && !t.fechaHasta)
-    try {
-      await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'asignarSemana',
-          tecnicoId,
-          semanaInicio: toLocalDateStr(semanaInicio),
-          semanaFin: toLocalDateStr(semanaFin),
-          importeSemana: tarifa?.importeSemana || null,
-        })
-      })
-    } catch (e) { console.error(e) }
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'asignarSemana', tecnicoId, semanaInicio: toLocalDateStr(semanaInicio), semanaFin: toLocalDateStr(semanaFin), importeSemana: tarifa?.importeSemana || null })
+    })
     fetchData()
   }
 
   const handleEliminarAsignacion = async (asignacionId: string) => {
-    if (!confirm('\u00bfQuitar la asignaci\u00f3n de esta semana?')) return
-    try {
-      await fetch(`/api/admin/clientes/ggcc/draxton/guardias?type=asignacion&id=${asignacionId}`, { method: 'DELETE' })
-    } catch (e) { console.error(e) }
+    if (!confirm('Quitar la asignacion de esta semana?')) return
+    await fetch(`/api/admin/clientes/ggcc/draxton/guardias?type=asignacion&id=${asignacionId}`, { method: 'DELETE' })
     fetchData()
   }
 
   const handleAddTecnico = async () => {
     if (!formTecnico.empleadoId) return
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'addTecnico', ...formTecnico })
-    })
-    setShowAddTecnico(false)
-    setFormTecnico({ empleadoId: '', nivel: 1, fechaAlta: '' })
-    fetchData()
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'addTecnico', ...formTecnico }) })
+    setShowAddTecnico(false); setFormTecnico({ empleadoId: '', nivel: 1, fechaAlta: '' }); fetchData()
   }
 
   const handleEditTecnico = async () => {
     if (!editingTecnico) return
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'updateTecnico',
-        tecnicoId: editingTecnico.id,
-        nivel: formTecnico.nivel,
-        fechaCambio: new Date().toISOString().split('T')[0],
-      })
-    })
-    setEditingTecnico(null)
-    setShowAddTecnico(false)
-    fetchData()
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'updateTecnico', tecnicoId: editingTecnico.id, nivel: formTecnico.nivel, fechaCambio: new Date().toISOString().split('T')[0] }) })
+    setEditingTecnico(null); setShowAddTecnico(false); fetchData()
   }
 
   const handleDarBajaTecnico = async (tecnicoId: string) => {
-    if (!confirm('\u00bfDar de baja a este t\u00e9cnico del contrato de guardias?')) return
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'removeTecnico', tecnicoId })
-    })
+    if (!confirm('Dar de baja a este tecnico del contrato de guardias?')) return
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'removeTecnico', tecnicoId }) })
     fetchData()
   }
 
   const handleAddTarifa = async () => {
     if (!formTarifa.importeSemana || !formTarifa.fechaDesde) return
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'addTarifa', ...formTarifa })
-    })
-    setShowAddTarifa(false)
-    setFormTarifa({ nivel: 1, importeSemana: '', fechaDesde: '' })
-    fetchData()
+    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'addTarifa', ...formTarifa }) })
+    setShowAddTarifa(false); setFormTarifa({ nivel: 1, importeSemana: '', fechaDesde: '' }); fetchData()
   }
 
   const handleCrearIncidencia = async () => {
@@ -282,104 +320,75 @@ export default function DraxtonContratoGuardiasPage() {
       return fecha >= ini && fecha <= fin
     })
     await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: editingIncidencia ? 'actualizarIncidencia' : 'crearIncidencia',
-        incidenciaId: editingIncidencia?.id,
-        asignacionId: asig?.id || null,
+        incidenciaId: editingIncidencia?.id, asignacionId: asig?.id || null,
         ...formIncidencia,
         horasDesplazamiento: formIncidencia.horasDesplazamiento ? parseFloat(formIncidencia.horasDesplazamiento) : null,
         costeDesplazamiento: formIncidencia.costeDesplazamiento ? parseFloat(formIncidencia.costeDesplazamiento) : null,
         importeClienteDesp: formIncidencia.importeClienteDesp ? parseFloat(formIncidencia.importeClienteDesp) : null,
       })
     })
-    setShowIncidenciaForm(false)
-    setEditingIncidencia(null)
-    setFormIncidencia(emptyFormIncidencia)
-    fetchData()
+    setShowIncidenciaForm(false); setEditingIncidencia(null); setFormIncidencia(emptyFormIncidencia); fetchData()
   }
 
   const handleEditIncidencia = (inc: Incidencia) => {
     setEditingIncidencia(inc)
     setFormIncidencia({
-      fechaHora: inc.fechaHora.slice(0, 16),
-      resumen: inc.resumen,
-      descripcion: inc.descripcion || '',
-      avisadoPor: inc.avisadoPor || '',
-      departamento: inc.departamento || '',
-      zonaAfectada: inc.zonaAfectada || '',
-      urgencia: inc.urgencia,
-      tipoResolucion: inc.tipoResolucion || '',
+      fechaHora: inc.fechaHora.slice(0, 16), resumen: inc.resumen, descripcion: inc.descripcion || '',
+      avisadoPor: inc.avisadoPor || '', departamento: inc.departamento || '', zonaAfectada: inc.zonaAfectada || '',
+      urgencia: inc.urgencia, tipoResolucion: inc.tipoResolucion || '',
       horasDesplazamiento: inc.horasDesplazamiento?.toString() || '',
       costeDesplazamiento: inc.costeDesplazamiento?.toString() || '',
       importeClienteDesp: inc.importeClienteDesp?.toString() || '',
-      escaladoInterno: inc.escaladoInterno,
-      escaladoCliente: inc.escaladoCliente,
-      detalleEscalado: inc.detalleEscalado || '',
-      detalleResolucion: inc.detalleResolucion || '',
-      estado: inc.estado,
-      categoria: inc.categoria || '',
-      planta: inc.planta || '',
-      horaInicio: inc.horaInicio || '',
-      horaFin: inc.horaFin || '',
+      escaladoInterno: inc.escaladoInterno, escaladoCliente: inc.escaladoCliente,
+      detalleEscalado: inc.detalleEscalado || '', detalleResolucion: inc.detalleResolucion || '',
+      estado: inc.estado, categoria: inc.categoria || '', planta: inc.planta || '',
+      horaInicio: inc.horaInicio || '', horaFin: inc.horaFin || '',
     })
     setShowIncidenciaForm(true)
   }
 
   const handleDeleteIncidencia = async (id: string) => {
-    if (!confirm('\u00bfEliminar esta incidencia?')) return
+    if (!confirm('Eliminar esta incidencia?')) return
     await fetch(`/api/admin/clientes/ggcc/draxton/guardias?type=incidencia&id=${id}`, { method: 'DELETE' })
     fetchData()
   }
 
   // IMPORTAR EML
   const handleImportEML = async (files: FileList) => {
-    setImportando(true)
-    setImportResult(null)
+    setImportando(true); setImportResult(null)
     const emlFiles: { filename: string; content: string }[] = []
-
     for (let i = 0; i < files.length; i++) {
-      const file = files[i]
-      const content = await file.text()
-      emlFiles.push({ filename: file.name, content })
+      const content = await files[i].text()
+      emlFiles.push({ filename: files[i].name, content })
     }
-
     try {
       const res = await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'importarEML', files: emlFiles })
       })
       const data = await res.json()
-      setImportResult(data)
-      fetchData()
-    } catch (e: any) {
-      setImportResult({ error: e.message })
-    }
+      setImportResult(data); fetchData()
+    } catch (e: any) { setImportResult({ error: e.message }) }
     setImportando(false)
   }
 
-  // KPIs
-  const totalIncidencias = incidencias.length
-  const incResueltas = incidencias.filter(i => i.estado === 'resuelta').length
-  const incDesplazamiento = incidencias.filter(i => i.tipoResolucion === 'desplazamiento').length
-  const incRemotas = incidencias.filter(i => i.tipoResolucion === 'remoto').length
-  const duracionMedia = incidencias.filter(i => i.duracionMinutos).length > 0
-    ? Math.round(incidencias.filter(i => i.duracionMinutos).reduce((s, i) => s + (i.duracionMinutos || 0), 0) / incidencias.filter(i => i.duracionMinutos).length)
-    : 0
-
-  // Categor\u00edas
-  const categorias = incidencias.reduce((acc, i) => {
-    const cat = i.categoria || 'general'
-    acc[cat] = (acc[cat] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  // Informe imprimible
+  const handleGenerarInforme = () => {
+    const params = new URLSearchParams()
+    params.set('anio', anio.toString())
+    if (filtros.mesDesde) params.set('desde', filtros.mesDesde)
+    if (filtros.mesHasta) params.set('hasta', filtros.mesHasta)
+    if (filtros.tecnico) params.set('tecnico', filtros.tecnico)
+    window.open(`/api/admin/clientes/ggcc/draxton/guardias/informe?${params.toString()}`, '_blank')
+  }
 
   const hoy = new Date()
   const semanaActual = semanas.find(s => hoy >= s.inicio && hoy <= s.fin)
 
-  // Tooltip component
+  // Tooltip
   const Tooltip = ({ id, text }: { id: string; text: string }) => (
     <span className="relative inline-block ml-1">
       <InformationCircleIcon
@@ -388,7 +397,7 @@ export default function DraxtonContratoGuardiasPage() {
         onMouseLeave={() => setActiveTooltip(null)}
       />
       {activeTooltip === id && (
-        <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-gray-900 text-white text-[10px] rounded-lg shadow-lg">
+        <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-52 p-2 bg-gray-900 text-white text-[10px] rounded-lg shadow-lg leading-relaxed">
           {text}
           <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
         </span>
@@ -408,7 +417,7 @@ export default function DraxtonContratoGuardiasPage() {
             <div>
               <h2 className="text-lg font-semibold text-gray-900">Contrato de Guardias</h2>
               <p className="text-sm text-gray-500">
-                {contrato?.titulo || 'Sin configurar'} &middot; {formatDate(contrato?.fechaInicio || null)} &mdash; {formatDate(contrato?.fechaFin || null)}
+                {contrato?.titulo || 'Sin configurar'} · {formatDate(contrato?.fechaInicio || null)} - {formatDate(contrato?.fechaFin || null)}
                 {contrato?.importeMensual && <span className="ml-2 font-medium text-indigo-600">{formatCurrency(contrato.importeMensual)}/mes</span>}
               </p>
             </div>
@@ -423,69 +432,85 @@ export default function DraxtonContratoGuardiasPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs ACCIONABLES */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white rounded-xl border p-4">
+        <button onClick={() => limpiarFiltros()} className={`bg-white rounded-xl border p-4 text-left transition-all ${!hayFiltros ? 'ring-2 ring-indigo-500 border-indigo-300' : 'hover:border-indigo-300'}`}>
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
-            Incidencias {anio}
-            <Tooltip id="kpi-total" text="Total de incidencias registradas en el a\u00f1o, tanto importadas desde EML como creadas manualmente." />
+            Total {anio}
+            <Tooltip id="kpi-total" text="Todas las incidencias del periodo. Pulsa para quitar filtros y ver el total." />
           </div>
           <div className="text-lg font-bold text-gray-900">{totalIncidencias}</div>
           <p className="text-[10px] text-gray-400">{incResueltas} resueltas</p>
-        </div>
-        <div className="bg-white rounded-xl border p-4">
+        </button>
+        <button onClick={() => toggleFiltroTipo('remoto')} className={`bg-white rounded-xl border p-4 text-left transition-all ${filtros.tipo === 'remoto' ? 'ring-2 ring-green-500 border-green-300' : 'hover:border-green-300'}`}>
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
             Remotas
-            <Tooltip id="kpi-remotas" text="Incidencias resueltas sin necesidad de desplazamiento f\u00edsico. Cuantas m\u00e1s, mejor para nuestros m\u00e1rgenes." />
+            <Tooltip id="kpi-remotas" text="Incidencias resueltas sin desplazamiento. Pulsa para filtrar solo las remotas." />
           </div>
           <div className="text-lg font-bold text-green-600">{incRemotas}</div>
           <p className="text-[10px] text-gray-400">{totalIncidencias > 0 ? ((incRemotas / totalIncidencias) * 100).toFixed(0) : 0}%</p>
-        </div>
-        <div className="bg-white rounded-xl border p-4">
+        </button>
+        <button onClick={() => toggleFiltroTipo('desplazamiento')} className={`bg-white rounded-xl border p-4 text-left transition-all ${filtros.tipo === 'desplazamiento' ? 'ring-2 ring-orange-500 border-orange-300' : 'hover:border-orange-300'}`}>
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
             Desplazamientos
-            <Tooltip id="kpi-desp" text="Incidencias que requirieron presencia f\u00edsica. Coste: 0,28\u20ac/km + 18\u20ac/h actuaci\u00f3n." />
+            <Tooltip id="kpi-desp" text="Incidencias con presencia fisica. Coste: 0,28 EUR/km + 18 EUR/h. Pulsa para filtrar." />
           </div>
           <div className="text-lg font-bold text-orange-600">{incDesplazamiento}</div>
           <p className="text-[10px] text-gray-400">{totalIncidencias > 0 ? ((incDesplazamiento / totalIncidencias) * 100).toFixed(0) : 0}%</p>
-        </div>
+        </button>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
-            Duraci\u00f3n Media
-            <Tooltip id="kpi-duracion" text="Tiempo medio de resoluci\u00f3n de las incidencias donde se ha registrado hora de inicio y fin." />
+            Duracion Media
+            <Tooltip id="kpi-duracion" text="Tiempo medio de resolucion calculado desde hora de llamada hasta hora de finalizacion." />
           </div>
           <div className="text-lg font-bold text-blue-600">{duracionMedia} min</div>
-          <p className="text-[10px] text-gray-400">{incidencias.filter(i => i.duracionMinutos).length} con datos</p>
+          <p className="text-[10px] text-gray-400">{conDuracion.length} con datos</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
             Semanas
-            <Tooltip id="kpi-semanas" text="Semanas del a\u00f1o con t\u00e9cnico de guardia asignado. Lo ideal es tener cobertura completa." />
+            <Tooltip id="kpi-semanas" text="Semanas con tecnico asignado. Lo ideal es cobertura completa del anio." />
           </div>
           <div className="text-lg font-bold text-indigo-700">{asignaciones.length}</div>
           <p className="text-[10px] text-gray-400">de {semanas.length} semanas</p>
         </div>
         <div className="bg-white rounded-xl border p-4">
           <div className="text-[10px] text-gray-500 uppercase flex items-center">
-            T\u00e9cnicos
-            <Tooltip id="kpi-tecnicos" text="T\u00e9cnicos activos en la rotaci\u00f3n de guardias. Se asignan semanalmente." />
+            Tecnicos
+            <Tooltip id="kpi-tecnicos" text="Tecnicos activos en la rotacion semanal de guardias." />
           </div>
           <div className="text-lg font-bold text-gray-900">{tecnicos.filter(t => t.activo).length}</div>
-          <p className="text-[10px] text-gray-400">activos en rotaci\u00f3n</p>
+          <p className="text-[10px] text-gray-400">activos en rotacion</p>
         </div>
       </div>
+
+      {/* Filtros activos */}
+      {hayFiltros && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <FunnelIcon className="w-4 h-4 text-indigo-500" />
+          <span className="text-xs text-gray-500">Filtros:</span>
+          {filtros.tipo && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">{filtros.tipo} <button onClick={() => setFiltros(f => ({...f, tipo: null}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.estado && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">{filtros.estado} <button onClick={() => setFiltros(f => ({...f, estado: null}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.categoria && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">{filtros.categoria} <button onClick={() => setFiltros(f => ({...f, categoria: null}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.planta && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">{filtros.planta} <button onClick={() => setFiltros(f => ({...f, planta: null}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.tecnico && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">{filtros.tecnico} <button onClick={() => setFiltros(f => ({...f, tecnico: null}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.mesDesde && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">Desde: {filtros.mesDesde} <button onClick={() => setFiltros(f => ({...f, mesDesde: ''}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          {filtros.mesHasta && <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[10px] font-medium flex items-center gap-1">Hasta: {filtros.mesHasta} <button onClick={() => setFiltros(f => ({...f, mesHasta: ''}))}><XMarkIcon className="w-3 h-3" /></button></span>}
+          <button onClick={limpiarFiltros} className="text-[10px] text-red-600 underline ml-2">Limpiar todos</button>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="flex border-b">
           <button onClick={() => setTab('incidencias')} className={`px-6 py-3 text-sm font-medium ${tab === 'incidencias' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-            Incidencias ({totalIncidencias})
+            Incidencias ({incidenciasFiltradas.length})
           </button>
           <button onClick={() => setTab('calendario')} className={`px-6 py-3 text-sm font-medium ${tab === 'calendario' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
             Calendario de Guardias
           </button>
           <button onClick={() => setTab('informes')} className={`px-6 py-3 text-sm font-medium ${tab === 'informes' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'}`}>
-            Informes
+            Dashboard e Informes
           </button>
         </div>
 
@@ -493,98 +518,78 @@ export default function DraxtonContratoGuardiasPage() {
         {tab === 'incidencias' && (
           <div className="p-6 space-y-4">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <h3 className="text-sm font-semibold text-gray-700">Registro de Incidencias</h3>
+              <div className="flex items-center gap-3 flex-wrap">
+                <h3 className="text-sm font-semibold text-gray-700">Registro de Incidencias</h3>
+                {/* Filtros rapidos */}
+                <div className="flex items-center gap-1">
+                  <select value={filtros.categoria || ''} onChange={e => setFiltros(f => ({...f, categoria: e.target.value || null}))} className="border rounded px-2 py-1 text-[11px] text-gray-700">
+                    <option value="">Categoria</option>
+                    <option value="csoc">CSOC</option>
+                    <option value="usuario">Usuario</option>
+                    <option value="red">Red</option>
+                    <option value="hardware">Hardware</option>
+                    <option value="software">Software</option>
+                    <option value="impresora">Impresora</option>
+                    <option value="general">General</option>
+                  </select>
+                  <select value={filtros.planta || ''} onChange={e => setFiltros(f => ({...f, planta: e.target.value || null}))} className="border rounded px-2 py-1 text-[11px] text-gray-700">
+                    <option value="">Planta</option>
+                    <option value="Barcelona">Barcelona</option>
+                    <option value="Lleida">Lleida</option>
+                    <option value="Atxondo">Atxondo</option>
+                    <option value="Binefar">Binefar</option>
+                  </select>
+                  <input type="month" value={filtros.mesDesde} onChange={e => setFiltros(f => ({...f, mesDesde: e.target.value}))} className="border rounded px-2 py-1 text-[11px] text-gray-700" title="Desde mes" />
+                  <input type="month" value={filtros.mesHasta} onChange={e => setFiltros(f => ({...f, mesHasta: e.target.value}))} className="border rounded px-2 py-1 text-[11px] text-gray-700" title="Hasta mes" />
+                </div>
+              </div>
               <div className="flex items-center gap-2">
-                {/* Bot\u00f3n Importar EML */}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".eml"
-                  multiple
-                  className="hidden"
-                  onChange={e => e.target.files && handleImportEML(e.target.files)}
-                />
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={importando}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                >
+                <input ref={fileInputRef} type="file" accept=".eml" multiple className="hidden" onChange={e => e.target.files && handleImportEML(e.target.files)} />
+                <button onClick={() => fileInputRef.current?.click()} disabled={importando} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50">
                   <ArrowUpTrayIcon className="w-3.5 h-3.5" />
                   {importando ? 'Importando...' : 'Importar EML'}
                 </button>
-                {/* Bot\u00f3n Nueva Incidencia Manual */}
-                <button
-                  onClick={() => { setEditingIncidencia(null); setFormIncidencia(emptyFormIncidencia); setShowIncidenciaForm(true) }}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700"
-                >
+                <button onClick={() => { setEditingIncidencia(null); setFormIncidencia(emptyFormIncidencia); setShowIncidenciaForm(true) }} className="inline-flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white text-xs font-medium rounded-lg hover:bg-red-700">
                   <PlusIcon className="w-3 h-3" /> Nueva Incidencia
                 </button>
               </div>
             </div>
 
-            {/* Resultado de importaci\u00f3n */}
+            {/* Resultado importacion */}
             {importResult && (
               <div className={`p-3 rounded-lg border text-sm ${importResult.error ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}`}>
-                {importResult.error ? (
-                  <p>Error: {importResult.error}</p>
-                ) : (
+                {importResult.error ? <p>Error: {importResult.error}</p> : (
                   <div className="flex items-center justify-between">
-                    <p>
-                      <span className="font-medium">{importResult.importados}</span> importados,{' '}
-                      <span className="font-medium">{importResult.duplicados}</span> duplicados,{' '}
-                      <span className="font-medium">{importResult.errores}</span> errores
-                      {' '}&mdash; Total: {importResult.total} archivos
-                    </p>
+                    <p><span className="font-medium">{importResult.importados}</span> importados, <span className="font-medium">{importResult.duplicados}</span> duplicados, <span className="font-medium">{importResult.errores}</span> errores - Total: {importResult.total}</p>
                     <button onClick={() => setImportResult(null)} className="text-xs underline">Cerrar</button>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Categor\u00edas resumen */}
-            {Object.keys(categorias).length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(categorias).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
-                  <span key={cat} className="px-2 py-1 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700">
-                    {cat.charAt(0).toUpperCase() + cat.slice(1)}: {count}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {incidencias.length === 0 ? (
+            {incidenciasFiltradas.length === 0 ? (
               <div className="text-center py-12">
                 <DocumentTextIcon className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-400">No hay incidencias registradas en {anio}</p>
+                <p className="text-sm text-gray-400">{hayFiltros ? 'No hay incidencias con los filtros seleccionados' : `No hay incidencias registradas en ${anio}`}</p>
                 <p className="text-xs text-gray-400 mt-1">Importa archivos EML o crea una incidencia manualmente</p>
               </div>
             ) : (
               <div className="space-y-2">
-                {incidencias.map(inc => (
+                {incidenciasFiltradas.map(inc => (
                   <div key={inc.id} className="border rounded-lg p-3 hover:bg-gray-50 cursor-pointer" onClick={() => setShowDetalleIncidencia(inc)}>
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${
-                            inc.estado === 'resuelta' ? 'bg-green-100 text-green-700' :
-                            inc.estado === 'en_curso' ? 'bg-amber-100 text-amber-700' :
-                            'bg-red-100 text-red-700'
-                          }`}>{inc.estado === 'resuelta' ? 'Resuelta' : inc.estado === 'en_curso' ? 'En curso' : 'Abierta'}</span>
+                          <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${inc.estado === 'resuelta' ? 'bg-green-100 text-green-700' : inc.estado === 'en_curso' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>
+                            {inc.estado === 'resuelta' ? 'Resuelta' : inc.estado === 'en_curso' ? 'En curso' : 'Abierta'}
+                          </span>
                           {inc.tipoResolucion && (
-                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${
-                              inc.tipoResolucion === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
-                            }`}>{inc.tipoResolucion === 'remoto' ? 'Remoto' : 'Desplaz.'}</span>
-                          )}
-                          {inc.categoria && (
-                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-gray-100 text-gray-600">
-                              {inc.categoria}
+                            <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-medium ${inc.tipoResolucion === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                              {inc.tipoResolucion === 'remoto' ? 'Remoto' : 'Desplaz.'}
                             </span>
                           )}
-                          {inc.planta && (
-                            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-indigo-50 text-indigo-600">
-                              {inc.planta}
-                            </span>
-                          )}
+                          {inc.categoria && <button onClick={e => { e.stopPropagation(); setFiltros(f => ({...f, categoria: inc.categoria})) }} className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">{inc.categoria}</button>}
+                          {inc.planta && <button onClick={e => { e.stopPropagation(); setFiltros(f => ({...f, planta: inc.planta})) }} className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-indigo-50 text-indigo-600 hover:bg-indigo-100">{inc.planta}</button>}
                           {inc.escaladoInterno && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-purple-50 text-purple-600">Escalado</span>}
                           {inc.emailId && <span className="px-1.5 py-0.5 rounded-full text-[9px] font-medium bg-sky-50 text-sky-600">EML</span>}
                         </div>
@@ -611,143 +616,75 @@ export default function DraxtonContratoGuardiasPage() {
         {/* TAB: CALENDARIO */}
         {tab === 'calendario' && (
           <div className="p-6 space-y-6">
-            {/* T\u00e9cnicos y Tarifas */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">T\u00e9cnicos Asignados</h3>
-                  <button onClick={() => { fetchEmpleados(); setShowAddTecnico(true) }} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                    <PlusIcon className="w-3 h-3" /> A\u00f1adir
-                  </button>
+                  <h3 className="text-sm font-semibold text-gray-700">Tecnicos Asignados</h3>
+                  <button onClick={() => { fetchEmpleados(); setShowAddTecnico(true) }} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><PlusIcon className="w-3 h-3" /> Anadir</button>
                 </div>
                 <div className="space-y-2">
-                  {tecnicos.length === 0 ? (
-                    <p className="text-sm text-gray-400">No hay t\u00e9cnicos asignados</p>
-                  ) : tecnicos.map(t => (
+                  {tecnicos.length === 0 ? <p className="text-sm text-gray-400">No hay tecnicos asignados</p> : tecnicos.map(t => (
                     <div key={t.id} className={`p-2 rounded border ${t.activo ? 'bg-white' : 'bg-gray-50 opacity-60'}`}>
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <UserIcon className="w-4 h-4 text-gray-400" />
                           <span className="text-sm font-medium text-gray-900">{t.empleado.nombreCompleto}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>
-                            N{t.nivel}
-                          </span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${t.nivel === 1 ? 'bg-blue-100 text-blue-700' : t.nivel === 2 ? 'bg-purple-100 text-purple-700' : 'bg-red-100 text-red-700'}`}>N{t.nivel}</span>
                           {!t.activo && <span className="text-[10px] text-red-500">(Baja {formatDate(t.fechaBaja)})</span>}
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[10px] text-gray-400">Alta: {formatDate(t.fechaAlta)}</span>
-                          {t.activo && (
-                            <>
-                              <button onClick={() => { setEditingTecnico(t); setFormTecnico({ empleadoId: t.empleadoId, nivel: t.nivel, fechaAlta: t.fechaAlta.split('T')[0] }); setShowAddTecnico(true) }} className="p-1 text-gray-400 hover:text-indigo-600" title="Editar nivel">
-                                <PencilIcon className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => handleDarBajaTecnico(t.id)} className="p-1 text-gray-400 hover:text-red-600" title="Dar de baja">
-                                <TrashIcon className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
+                          {t.activo && (<>
+                            <button onClick={() => { setEditingTecnico(t); setFormTecnico({ empleadoId: t.empleadoId, nivel: t.nivel, fechaAlta: t.fechaAlta.split('T')[0] }); setShowAddTecnico(true) }} className="p-1 text-gray-400 hover:text-indigo-600"><PencilIcon className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleDarBajaTecnico(t.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-3.5 h-3.5" /></button>
+                          </>)}
                         </div>
                       </div>
-                      {t.historicoNiveles && t.historicoNiveles.length > 0 && (
-                        <div className="mt-1.5 ml-6 border-l-2 border-gray-200 pl-2 space-y-0.5">
-                          {t.historicoNiveles.map(h => (
-                            <div key={h.id} className="text-[10px] text-gray-500">
-                              <span className="text-gray-400">{formatDate(h.fechaCambio)}</span>
-                              {' '}N{h.nivelAnterior} &rarr; N{h.nivelNuevo}
-                              {h.motivo && <span className="ml-1 italic">({h.motivo})</span>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
                     </div>
                   ))}
                 </div>
               </div>
-
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Niveles y Escalado</h3>
-                </div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Niveles y Escalado</h3>
                 <div className="space-y-2 text-xs">
-                  <div className="p-3 rounded border bg-blue-50">
-                    <span className="font-semibold text-blue-700">Nivel 1</span>
-                    <span className="text-gray-600 ml-2">T\u00e9cnico de guardia &mdash; Primera l\u00ednea</span>
-                  </div>
-                  <div className="p-3 rounded border bg-purple-50">
-                    <span className="font-semibold text-purple-700">Nivel 2</span>
-                    <span className="text-gray-600 ml-2">Escalado interno &mdash; Alejandro Mart\u00ednez</span>
-                  </div>
-                  <div className="p-3 rounded border bg-red-50">
-                    <span className="font-semibold text-red-700">Nivel 3</span>
-                    <span className="text-gray-600 ml-2">Escalado superior &mdash; Joel Benet</span>
-                  </div>
-                  <div className="p-3 rounded border bg-gray-50 mt-3">
-                    <p className="font-semibold text-gray-700 mb-1">Escalado Draxton:</p>
-                    <p className="text-gray-600">N1/N2: Alexis Rold\u00e1n &middot; N3: Sergi Tall\u00f3n</p>
-                  </div>
-                  <div className="p-3 rounded border bg-gray-50">
-                    <p className="font-semibold text-gray-700 mb-1">Costes desplazamiento:</p>
-                    <p className="text-gray-600">0,28 \u20ac/km + 18 \u20ac/h actuaci\u00f3n presencial</p>
-                  </div>
+                  <div className="p-3 rounded border bg-blue-50"><span className="font-semibold text-blue-700">Nivel 1</span><span className="text-gray-600 ml-2">Tecnico de guardia - Primera linea</span></div>
+                  <div className="p-3 rounded border bg-purple-50"><span className="font-semibold text-purple-700">Nivel 2</span><span className="text-gray-600 ml-2">Escalado interno - Alejandro Martinez</span></div>
+                  <div className="p-3 rounded border bg-red-50"><span className="font-semibold text-red-700">Nivel 3</span><span className="text-gray-600 ml-2">Escalado superior - Joel Benet</span></div>
+                  <div className="p-3 rounded border bg-gray-50 mt-3"><p className="font-semibold text-gray-700 mb-1">Escalado Draxton:</p><p className="text-gray-600">N1/N2: Alexis Roldan · N3: Sergi Tallon</p></div>
+                  <div className="p-3 rounded border bg-gray-50"><p className="font-semibold text-gray-700 mb-1">Costes desplazamiento:</p><p className="text-gray-600">0,28 EUR/km + 18 EUR/h actuacion presencial</p></div>
                 </div>
               </div>
             </div>
-
-            {/* Calendario semanal */}
             <div>
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Asignaci\u00f3n Semanal {anio}</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Asignacion Semanal {anio}</h3>
               <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                 <table className="w-full text-xs">
                   <thead className="sticky top-0 bg-gray-50">
                     <tr>
                       <th className="px-2 py-2 text-left font-medium text-gray-600 w-16">Sem.</th>
-                      <th className="px-2 py-2 text-left font-medium text-gray-600">Per\u00edodo</th>
-                      <th className="px-2 py-2 text-left font-medium text-gray-600">T\u00e9cnico de Guardia</th>
+                      <th className="px-2 py-2 text-left font-medium text-gray-600">Periodo</th>
+                      <th className="px-2 py-2 text-left font-medium text-gray-600">Tecnico de Guardia</th>
                       <th className="px-2 py-2 text-center font-medium text-gray-600">Incid.</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
                     {semanas.map(sem => {
-                      const asig = asignaciones.find(a => {
-                        const ai = a.semanaInicio.split('T')[0]
-                        return ai === toLocalDateStr(sem.inicio)
-                      })
-                      const incSemana = incidencias.filter(i => {
-                        const f = new Date(i.fechaHora)
-                        return f >= sem.inicio && f <= sem.fin
-                      })
+                      const asig = asignaciones.find(a => a.semanaInicio.split('T')[0] === toLocalDateStr(sem.inicio))
+                      const incSemana = incidencias.filter(i => { const f = new Date(i.fechaHora); return f >= sem.inicio && f <= sem.fin })
                       const esActual = semanaActual && sem.num === semanaActual.num
                       return (
                         <tr key={sem.num} className={`${esActual ? 'bg-indigo-50 font-medium' : 'hover:bg-gray-50'}`}>
                           <td className="px-2 py-1.5 text-gray-500">{sem.num}</td>
-                          <td className="px-2 py-1.5 text-gray-700">
-                            {sem.inicio.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} &mdash; {sem.fin.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                          </td>
+                          <td className="px-2 py-1.5 text-gray-700">{sem.inicio.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })} - {sem.fin.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</td>
                           <td className="px-2 py-1.5">
-                            <select
-                              className={`border rounded px-1 py-0.5 text-xs w-full max-w-[200px] text-gray-900 ${asig ? 'border-transparent bg-transparent font-medium hover:border-gray-300 hover:bg-white cursor-pointer' : ''}`}
-                              value={asig?.tecnicoId || ''}
-                              onChange={e => {
-                                if (e.target.value === '__eliminar__') {
-                                  handleEliminarAsignacion(asig!.id)
-                                } else if (e.target.value) {
-                                  handleAsignar(sem.inicio, sem.fin, e.target.value)
-                                }
-                              }}
-                            >
-                              <option value="">&mdash; Asignar &mdash;</option>
-                              {tecnicos.filter(t => t.activo).map(t => (
-                                <option key={t.id} value={t.id}>{t.empleado.nombreCompleto} (N{t.nivel})</option>
-                              ))}
-                              {asig && <option value="__eliminar__">&times; Quitar asignaci\u00f3n</option>}
+                            <select className={`border rounded px-1 py-0.5 text-xs w-full max-w-[200px] text-gray-900 ${asig ? 'border-transparent bg-transparent font-medium hover:border-gray-300 hover:bg-white cursor-pointer' : ''}`} value={asig?.tecnicoId || ''} onChange={e => { if (e.target.value === '__eliminar__') handleEliminarAsignacion(asig!.id); else if (e.target.value) handleAsignar(sem.inicio, sem.fin, e.target.value) }}>
+                              <option value="">- Asignar -</option>
+                              {tecnicos.filter(t => t.activo).map(t => <option key={t.id} value={t.id}>{t.empleado.nombreCompleto} (N{t.nivel})</option>)}
+                              {asig && <option value="__eliminar__">X Quitar asignacion</option>}
                             </select>
                           </td>
                           <td className="px-2 py-1.5 text-center">
-                            {incSemana.length > 0 ? (
-                              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{incSemana.length}</span>
-                            ) : (
-                              <span className="text-gray-300">&mdash;</span>
-                            )}
+                            {incSemana.length > 0 ? <span className="px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-red-100 text-red-700">{incSemana.length}</span> : <span className="text-gray-300">-</span>}
                           </td>
                         </tr>
                       )
@@ -759,58 +696,98 @@ export default function DraxtonContratoGuardiasPage() {
           </div>
         )}
 
-        {/* TAB: INFORMES */}
+        {/* TAB: DASHBOARD E INFORMES */}
         {tab === 'informes' && (
           <div className="p-6 space-y-6">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-gray-700">Informes de Guardias &mdash; {anio}</h3>
-              <button onClick={() => window.print()} className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-800 text-white text-xs font-medium rounded-lg hover:bg-gray-900 print:hidden">
-                Imprimir
+              <h3 className="text-sm font-semibold text-gray-700">Dashboard de Guardias - {anio}</h3>
+              <button onClick={handleGenerarInforme} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-800 text-white text-xs font-medium rounded-lg hover:bg-gray-900">
+                <PrinterIcon className="w-3.5 h-3.5" /> Informe Corporativo
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="border rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Resumen por Tipo de Resoluci\u00f3n</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Resoluci\u00f3n remota</span><span className="font-bold text-green-600">{incRemotas}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Con desplazamiento</span><span className="font-bold text-orange-600">{incDesplazamiento}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Pendientes/Sin resolver</span><span className="font-bold text-red-600">{totalIncidencias - incResueltas}</span></div>
-                  <div className="flex justify-between text-sm border-t pt-2"><span className="text-gray-900 font-medium">Total</span><span className="font-bold text-gray-900">{totalIncidencias}</span></div>
+
+            {/* Dashboard Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Evolucion mensual */}
+              <div className="border rounded-lg p-4 lg:col-span-2">
+                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Evolucion Mensual</h4>
+                <div className="flex items-end gap-1 h-32">
+                  {Object.entries(porMes).sort().map(([mes, count]) => {
+                    const maxCount = Math.max(...Object.values(porMes))
+                    const height = maxCount > 0 ? (count / maxCount) * 100 : 0
+                    const mesLabel = new Date(mes + '-01').toLocaleDateString('es-ES', { month: 'short' })
+                    return (
+                      <div key={mes} className="flex-1 flex flex-col items-center gap-1">
+                        <span className="text-[9px] font-bold text-gray-700">{count}</span>
+                        <div className="w-full bg-indigo-500 rounded-t" style={{ height: `${height}%`, minHeight: count > 0 ? '4px' : '0' }} />
+                        <span className="text-[9px] text-gray-500">{mesLabel}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
+
+              {/* Por categoria */}
               <div className="border rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Por Categor\u00eda</h4>
+                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Por Categoria</h4>
                 <div className="space-y-2">
-                  {Object.entries(categorias).sort((a, b) => b[1] - a[1]).map(([cat, count]) => (
-                    <div key={cat} className="flex justify-between text-sm">
-                      <span className="text-gray-600 capitalize">{cat}</span>
-                      <span className="font-bold text-gray-900">{count}</span>
-                    </div>
-                  ))}
+                  {Object.entries(categorias).sort((a, b) => b[1] - a[1]).map(([cat, count]) => {
+                    const pct = totalIncidencias > 0 ? (count / totalIncidencias) * 100 : 0
+                    return (
+                      <div key={cat}>
+                        <div className="flex justify-between text-[11px] mb-0.5">
+                          <button onClick={() => setFiltros(f => ({...f, categoria: cat}))} className="text-gray-700 capitalize hover:text-indigo-600">{cat}</button>
+                          <span className="font-bold text-gray-900">{count} ({pct.toFixed(0)}%)</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                          <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
-              <div className="border rounded-lg p-4">
-                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Actividad Operativa</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Semanas cubiertas</span><span className="font-bold text-indigo-700">{asignaciones.length} de {semanas.length}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Duraci\u00f3n media</span><span className="font-bold text-blue-600">{duracionMedia} min</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">T\u00e9cnicos activos</span><span className="font-bold text-gray-900">{tecnicos.filter(t => t.activo).length}</span></div>
-                  <div className="flex justify-between text-sm"><span className="text-gray-600">Incidencias con escalado</span><span className="font-bold text-purple-600">{incidencias.filter(i => i.escaladoInterno).length}</span></div>
-                </div>
-              </div>
+
+              {/* Por planta */}
               <div className="border rounded-lg p-4">
                 <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Por Planta</h4>
                 <div className="space-y-2">
-                  {Object.entries(incidencias.reduce((acc, i) => {
-                    const p = i.planta || 'Sin especificar'
-                    acc[p] = (acc[p] || 0) + 1
-                    return acc
-                  }, {} as Record<string, number>)).sort((a, b) => b[1] - a[1]).map(([planta, count]) => (
-                    <div key={planta} className="flex justify-between text-sm">
-                      <span className="text-gray-600">{planta}</span>
-                      <span className="font-bold text-gray-900">{count}</span>
-                    </div>
-                  ))}
+                  {Object.entries(plantas).sort((a, b) => b[1] - a[1]).map(([planta, count]) => {
+                    const pct = totalIncidencias > 0 ? (count / totalIncidencias) * 100 : 0
+                    return (
+                      <div key={planta}>
+                        <div className="flex justify-between text-[11px] mb-0.5">
+                          <button onClick={() => planta !== 'Sin especificar' && setFiltros(f => ({...f, planta}))} className="text-gray-700 hover:text-indigo-600">{planta}</button>
+                          <span className="font-bold text-gray-900">{count} ({pct.toFixed(0)}%)</span>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                          <div className="bg-orange-500 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Resolucion */}
+              <div className="border rounded-lg p-4">
+                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Tipo de Resolucion</h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Remota</span><span className="font-bold text-green-600">{incRemotas} ({totalIncidencias > 0 ? ((incRemotas/totalIncidencias)*100).toFixed(0) : 0}%)</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Desplazamiento</span><span className="font-bold text-orange-600">{incDesplazamiento} ({totalIncidencias > 0 ? ((incDesplazamiento/totalIncidencias)*100).toFixed(0) : 0}%)</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Sin clasificar</span><span className="font-bold text-gray-500">{totalIncidencias - incRemotas - incDesplazamiento}</span></div>
+                  <div className="flex justify-between text-sm border-t pt-2"><span className="font-medium text-gray-900">Total</span><span className="font-bold text-gray-900">{totalIncidencias}</span></div>
+                </div>
+              </div>
+
+              {/* Escalados */}
+              <div className="border rounded-lg p-4">
+                <h4 className="text-xs font-semibold text-gray-600 mb-3 uppercase">Escalados y Urgencia</h4>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Escalado interno (IO)</span><span className="font-bold text-purple-600">{incidenciasFiltradas.filter(i => i.escaladoInterno).length}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Escalado a Draxton</span><span className="font-bold text-indigo-600">{incidenciasFiltradas.filter(i => i.escaladoCliente).length}</span></div>
+                  <div className="flex justify-between text-sm border-t pt-2"><span className="text-gray-600">Urgencia inmediata</span><span className="font-bold text-red-600">{incidenciasFiltradas.filter(i => i.urgencia === 'inmediata').length}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-gray-600">Puede esperar</span><span className="font-bold text-gray-600">{incidenciasFiltradas.filter(i => i.urgencia === 'puede_esperar').length}</span></div>
                 </div>
               </div>
             </div>
@@ -824,73 +801,31 @@ export default function DraxtonContratoGuardiasPage() {
           <div className="bg-white rounded-xl p-6 w-full max-w-2xl my-8 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Detalle de Incidencia</h3>
-              <button onClick={() => setShowDetalleIncidencia(null)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+              <button onClick={() => setShowDetalleIncidencia(null)} className="text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
             </div>
             <div className="space-y-4">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  showDetalleIncidencia.estado === 'resuelta' ? 'bg-green-100 text-green-700' :
-                  showDetalleIncidencia.estado === 'en_curso' ? 'bg-amber-100 text-amber-700' :
-                  'bg-red-100 text-red-700'
-                }`}>{showDetalleIncidencia.estado}</span>
-                {showDetalleIncidencia.tipoResolucion && (
-                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                    showDetalleIncidencia.tipoResolucion === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
-                  }`}>{showDetalleIncidencia.tipoResolucion}</span>
-                )}
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${showDetalleIncidencia.estado === 'resuelta' ? 'bg-green-100 text-green-700' : showDetalleIncidencia.estado === 'en_curso' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'}`}>{showDetalleIncidencia.estado}</span>
+                {showDetalleIncidencia.tipoResolucion && <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${showDetalleIncidencia.tipoResolucion === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{showDetalleIncidencia.tipoResolucion}</span>}
                 {showDetalleIncidencia.categoria && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">{showDetalleIncidencia.categoria}</span>}
                 {showDetalleIncidencia.planta && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600">{showDetalleIncidencia.planta}</span>}
                 {showDetalleIncidencia.emailId && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-sky-50 text-sky-600">Importado desde EML</span>}
               </div>
-
               <h4 className="text-base font-medium text-gray-900">{showDetalleIncidencia.resumen}</h4>
-
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span className="text-gray-500">Fecha:</span>
-                  <span className="ml-2 text-gray-900">{new Date(showDetalleIncidencia.fechaHora).toLocaleString('es-ES')}</span>
-                </div>
-                {showDetalleIncidencia.horaInicio && (
-                  <div>
-                    <span className="text-gray-500">Hora inicio:</span>
-                    <span className="ml-2 text-gray-900">{showDetalleIncidencia.horaInicio}</span>
-                  </div>
-                )}
-                {showDetalleIncidencia.horaFin && (
-                  <div>
-                    <span className="text-gray-500">Hora fin:</span>
-                    <span className="ml-2 text-gray-900">{showDetalleIncidencia.horaFin}</span>
-                  </div>
-                )}
-                {showDetalleIncidencia.duracionMinutos && (
-                  <div>
-                    <span className="text-gray-500">Duraci\u00f3n:</span>
-                    <span className="ml-2 font-medium text-gray-900">{showDetalleIncidencia.duracionMinutos} min</span>
-                  </div>
-                )}
-                {showDetalleIncidencia.asignacion && (
-                  <div>
-                    <span className="text-gray-500">T\u00e9cnico guardia:</span>
-                    <span className="ml-2 text-gray-900">{showDetalleIncidencia.asignacion.tecnico.empleado.nombreCompleto}</span>
-                  </div>
-                )}
-                {showDetalleIncidencia.avisadoPor && (
-                  <div>
-                    <span className="text-gray-500">Avisado por:</span>
-                    <span className="ml-2 text-gray-900">{showDetalleIncidencia.avisadoPor}</span>
-                  </div>
-                )}
+                <div><span className="text-gray-500">Fecha:</span><span className="ml-2 text-gray-900">{new Date(showDetalleIncidencia.fechaHora).toLocaleString('es-ES')}</span></div>
+                {showDetalleIncidencia.horaInicio && <div><span className="text-gray-500">Hora inicio:</span><span className="ml-2 text-gray-900">{showDetalleIncidencia.horaInicio}</span></div>}
+                {showDetalleIncidencia.horaFin && <div><span className="text-gray-500">Hora fin:</span><span className="ml-2 text-gray-900">{showDetalleIncidencia.horaFin}</span></div>}
+                {showDetalleIncidencia.duracionMinutos && <div><span className="text-gray-500">Duracion:</span><span className="ml-2 font-medium text-gray-900">{showDetalleIncidencia.duracionMinutos} min</span></div>}
+                {showDetalleIncidencia.asignacion && <div><span className="text-gray-500">Tecnico guardia:</span><span className="ml-2 text-gray-900">{showDetalleIncidencia.asignacion.tecnico.empleado.nombreCompleto}</span></div>}
+                {showDetalleIncidencia.avisadoPor && <div><span className="text-gray-500">Avisado por:</span><span className="ml-2 text-gray-900">{showDetalleIncidencia.avisadoPor}</span></div>}
               </div>
-
               {showDetalleIncidencia.descripcion && (
                 <div>
-                  <p className="text-xs font-medium text-gray-500 mb-1">Descripci\u00f3n:</p>
-                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-60 overflow-y-auto">
-                    {showDetalleIncidencia.descripcion}
-                  </div>
+                  <p className="text-xs font-medium text-gray-500 mb-1">Descripcion:</p>
+                  <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-60 overflow-y-auto">{showDetalleIncidencia.descripcion}</div>
                 </div>
               )}
-
               {showDetalleIncidencia.emailFrom && (
                 <div className="text-xs text-gray-500 border-t pt-3">
                   <p>De: {showDetalleIncidencia.emailFrom}</p>
@@ -906,35 +841,33 @@ export default function DraxtonContratoGuardiasPage() {
         </div>
       )}
 
-      {/* MODAL: A\u00f1adir/Editar T\u00e9cnico */}
+      {/* MODAL: Anadir/Editar Tecnico */}
       {showAddTecnico && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }}>
           <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">{editingTecnico ? 'Editar T\u00e9cnico' : 'A\u00f1adir T\u00e9cnico a Guardias'}</h3>
+            <h3 className="text-lg font-semibold mb-4">{editingTecnico ? 'Editar Tecnico' : 'Anadir Tecnico a Guardias'}</h3>
             <div className="space-y-3">
               {!editingTecnico && (
                 <div>
                   <label className="text-xs font-medium text-gray-600">Empleado</label>
                   <select value={formTecnico.empleadoId} onChange={e => setFormTecnico({ ...formTecnico, empleadoId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
-                    <option value="">&mdash; Seleccionar &mdash;</option>
-                    {empleadosDisponibles.filter((e: any) => !tecnicos.find(t => t.empleadoId === e.id)).map((e: any) => (
-                      <option key={e.id} value={e.id}>{e.nombreCompleto} &mdash; {e.categoria || 'Sin categor\u00eda'}</option>
-                    ))}
+                    <option value="">- Seleccionar -</option>
+                    {empleadosDisponibles.filter((e: any) => !tecnicos.find(t => t.empleadoId === e.id)).map((e: any) => <option key={e.id} value={e.id}>{e.nombreCompleto} - {e.categoria || 'Sin categoria'}</option>)}
                   </select>
                 </div>
               )}
               {editingTecnico && (
                 <div className="p-3 bg-gray-50 rounded border">
                   <p className="text-sm font-medium text-gray-900">{editingTecnico.empleado.nombreCompleto}</p>
-                  <p className="text-xs text-gray-500">Alta: {formatDate(editingTecnico.fechaAlta)} &mdash; Nivel actual: N{editingTecnico.nivel}</p>
+                  <p className="text-xs text-gray-500">Alta: {formatDate(editingTecnico.fechaAlta)} - Nivel actual: N{editingTecnico.nivel}</p>
                 </div>
               )}
               <div>
                 <label className="text-xs font-medium text-gray-600">Nivel</label>
                 <select value={formTecnico.nivel} onChange={e => setFormTecnico({ ...formTecnico, nivel: parseInt(e.target.value) })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
-                  <option value={1}>Nivel 1 &mdash; Primera l\u00ednea</option>
-                  <option value={2}>Nivel 2 &mdash; Escalado interno</option>
-                  <option value={3}>Nivel 3 &mdash; Escalado superior</option>
+                  <option value={1}>Nivel 1 - Primera linea</option>
+                  <option value={2}>Nivel 2 - Escalado interno</option>
+                  <option value={3}>Nivel 3 - Escalado superior</option>
                 </select>
               </div>
               {!editingTecnico && (
@@ -946,38 +879,7 @@ export default function DraxtonContratoGuardiasPage() {
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-              <button onClick={editingTecnico ? handleEditTecnico : handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{editingTecnico ? 'Guardar cambios' : 'A\u00f1adir'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: A\u00f1adir Tarifa */}
-      {showAddTarifa && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowAddTarifa(false)}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold mb-4">Nueva Tarifa</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600">Nivel</label>
-                <select value={formTarifa.nivel} onChange={e => setFormTarifa({ ...formTarifa, nivel: parseInt(e.target.value) })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
-                  <option value={1}>Nivel 1</option>
-                  <option value={2}>Nivel 2</option>
-                  <option value={3}>Nivel 3</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Importe por Semana (\u20ac)</label>
-                <input type="number" step="0.01" value={formTarifa.importeSemana} onChange={e => setFormTarifa({ ...formTarifa, importeSemana: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="100.00" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600">Vigente desde</label>
-                <input type="date" value={formTarifa.fechaDesde} onChange={e => setFormTarifa({ ...formTarifa, fechaDesde: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => setShowAddTarifa(false)} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-              <button onClick={handleAddTarifa} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Guardar</button>
+              <button onClick={editingTecnico ? handleEditTecnico : handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{editingTecnico ? 'Guardar cambios' : 'Anadir'}</button>
             </div>
           </div>
         </div>
@@ -991,10 +893,10 @@ export default function DraxtonContratoGuardiasPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
                 <label className="text-xs font-medium text-gray-600">Resumen *</label>
-                <input type="text" value={formIncidencia.resumen} onChange={e => setFormIncidencia({ ...formIncidencia, resumen: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Breve descripci\u00f3n de la incidencia" />
+                <input type="text" value={formIncidencia.resumen} onChange={e => setFormIncidencia({ ...formIncidencia, resumen: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Breve descripcion de la incidencia" />
               </div>
               <div className="md:col-span-2">
-                <label className="text-xs font-medium text-gray-600">Descripci\u00f3n detallada</label>
+                <label className="text-xs font-medium text-gray-600">Descripcion detallada</label>
                 <textarea value={formIncidencia.descripcion} onChange={e => setFormIncidencia({ ...formIncidencia, descripcion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" rows={3} />
               </div>
               <div>
@@ -1014,11 +916,11 @@ export default function DraxtonContratoGuardiasPage() {
                 <input type="time" value={formIncidencia.horaFin} onChange={e => setFormIncidencia({ ...formIncidencia, horaFin: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Categor\u00eda</label>
+                <label className="text-xs font-medium text-gray-600">Categoria</label>
                 <select value={formIncidencia.categoria} onChange={e => setFormIncidencia({ ...formIncidencia, categoria: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
                   <option value="">Sin especificar</option>
                   <option value="csoc">CSOC (Seguridad)</option>
-                  <option value="usuario">Usuario (Contrase\u00f1as/Accesos)</option>
+                  <option value="usuario">Usuario (Accesos)</option>
                   <option value="red">Red (Conectividad)</option>
                   <option value="impresora">Impresora</option>
                   <option value="hardware">Hardware/Servidor</option>
@@ -1039,7 +941,7 @@ export default function DraxtonContratoGuardiasPage() {
               <div>
                 <label className="text-xs font-medium text-gray-600">Urgencia</label>
                 <select value={formIncidencia.urgencia} onChange={e => setFormIncidencia({ ...formIncidencia, urgencia: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
-                  <option value="inmediata">Intervenci\u00f3n inmediata</option>
+                  <option value="inmediata">Intervencion inmediata</option>
                   <option value="puede_esperar">Puede esperar</option>
                 </select>
               </div>
@@ -1051,69 +953,43 @@ export default function DraxtonContratoGuardiasPage() {
                   <option value="resuelta">Resuelta</option>
                 </select>
               </div>
-
-              {/* Resoluci\u00f3n */}
-              <div className="md:col-span-2 border-t pt-3 mt-2">
-                <h4 className="text-xs font-semibold text-gray-700 mb-2">Resoluci\u00f3n</h4>
-              </div>
+              <div className="md:col-span-2 border-t pt-3 mt-2"><h4 className="text-xs font-semibold text-gray-700 mb-2">Resolucion</h4></div>
               <div>
-                <label className="text-xs font-medium text-gray-600">Tipo de Resoluci\u00f3n</label>
+                <label className="text-xs font-medium text-gray-600">Tipo de Resolucion</label>
                 <select value={formIncidencia.tipoResolucion} onChange={e => setFormIncidencia({ ...formIncidencia, tipoResolucion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
-                  <option value="">&mdash; Pendiente &mdash;</option>
+                  <option value="">- Pendiente -</option>
                   <option value="remoto">Remoto</option>
                   <option value="desplazamiento">Desplazamiento</option>
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="text-xs font-medium text-gray-600">Detalle de resoluci\u00f3n</label>
+                <label className="text-xs font-medium text-gray-600">Detalle de resolucion</label>
                 <textarea value={formIncidencia.detalleResolucion} onChange={e => setFormIncidencia({ ...formIncidencia, detalleResolucion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" rows={2} />
               </div>
-
-              {/* Desplazamiento */}
-              {formIncidencia.tipoResolucion === 'desplazamiento' && (
-                <>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
-                    <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => {
-                      const horas = parseFloat(e.target.value) || 0
-                      const costeCalc = horas * 18
-                      setFormIncidencia({
-                        ...formIncidencia,
-                        horasDesplazamiento: e.target.value,
-                        costeDesplazamiento: costeCalc > 0 ? costeCalc.toFixed(2) : formIncidencia.costeDesplazamiento,
-                      })
-                    }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                    <p className="text-[9px] text-gray-400 mt-0.5">18\u20ac/h actuaci\u00f3n presencial</p>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">Coste desplazamiento (\u20ac)</label>
-                    <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-600">Importe a facturar (\u20ac)</label>
-                    <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
-                  </div>
-                </>
-              )}
-
-              {/* Escalado */}
-              <div className="md:col-span-2 border-t pt-3 mt-2">
-                <h4 className="text-xs font-semibold text-gray-700 mb-2">Escalado</h4>
-              </div>
+              {formIncidencia.tipoResolucion === 'desplazamiento' && (<>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Horas empleadas</label>
+                  <input type="number" step="0.5" value={formIncidencia.horasDesplazamiento} onChange={e => { const h = parseFloat(e.target.value) || 0; setFormIncidencia({ ...formIncidencia, horasDesplazamiento: e.target.value, costeDesplazamiento: (h * 18).toFixed(2) }) }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">18 EUR/h actuacion presencial</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Coste desplazamiento (EUR)</label>
+                  <input type="number" step="0.01" value={formIncidencia.costeDesplazamiento} onChange={e => setFormIncidencia({ ...formIncidencia, costeDesplazamiento: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Importe a facturar (EUR)</label>
+                  <input type="number" step="0.01" value={formIncidencia.importeClienteDesp} onChange={e => setFormIncidencia({ ...formIncidencia, importeClienteDesp: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                </div>
+              </>)}
+              <div className="md:col-span-2 border-t pt-3 mt-2"><h4 className="text-xs font-semibold text-gray-700 mb-2">Escalado</h4></div>
               <div className="flex items-center gap-4 md:col-span-2">
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input type="checkbox" checked={formIncidencia.escaladoInterno} onChange={e => setFormIncidencia({ ...formIncidencia, escaladoInterno: e.target.checked })} className="rounded" />
-                  Escalado interno (IO)
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input type="checkbox" checked={formIncidencia.escaladoCliente} onChange={e => setFormIncidencia({ ...formIncidencia, escaladoCliente: e.target.checked })} className="rounded" />
-                  Escalado a Draxton
-                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={formIncidencia.escaladoInterno} onChange={e => setFormIncidencia({ ...formIncidencia, escaladoInterno: e.target.checked })} className="rounded" /> Escalado interno (IO)</label>
+                <label className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={formIncidencia.escaladoCliente} onChange={e => setFormIncidencia({ ...formIncidencia, escaladoCliente: e.target.checked })} className="rounded" /> Escalado a Draxton</label>
               </div>
               {(formIncidencia.escaladoInterno || formIncidencia.escaladoCliente) && (
                 <div className="md:col-span-2">
                   <label className="text-xs font-medium text-gray-600">Detalle del escalado</label>
-                  <textarea value={formIncidencia.detalleEscalado} onChange={e => setFormIncidencia({ ...formIncidencia, detalleEscalado: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" rows={2} placeholder="A qui\u00e9n se escal\u00f3 y por qu\u00e9" />
+                  <textarea value={formIncidencia.detalleEscalado} onChange={e => setFormIncidencia({ ...formIncidencia, detalleEscalado: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" rows={2} placeholder="A quien se escalo y por que" />
                 </div>
               )}
             </div>
