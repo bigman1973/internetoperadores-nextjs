@@ -443,7 +443,7 @@ export default function DraxtonProyectosSingularesPage() {
   const handleAddPersonal = async (proyectoId: string) => {
     if (!personalForm.empleadoId) { alert('Selecciona un empleado'); return }
     if (personalForm.tipoImputacion === 'horas' && !personalForm.horasImputadas) { alert('Indica las horas imputadas'); return }
-    if (personalForm.tipoImputacion === 'porcentaje' && !personalForm.porcentajeDedicacion) { alert('Indica el % de dedicaci\u00f3n'); return }
+    if (personalForm.tipoImputacion === 'porcentaje' && !personalForm.porcentajeDedicacion) { alert('Indica el % de dedicación'); return }
     const res = await fetch('/api/admin/clientes/ggcc/draxton/proyectos-personal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -842,12 +842,12 @@ export default function DraxtonProyectosSingularesPage() {
                           <label className="block text-xs font-medium text-gray-600 mb-1">Empleado *</label>
                           <select value={personalForm.empleadoId} onChange={e => setPersonalForm({ ...personalForm, empleadoId: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="">Seleccionar...</option>
-                            {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}{emp.costeHoraActual ? ` (${emp.costeHoraActual.toFixed(2)} \u20ac/h)` : ''}</option>)}
+                            {empleados.map((emp: any) => <option key={emp.id} value={emp.id}>{emp.nombreCompleto}{emp.costeHoraActual ? ` (${emp.costeHoraActual.toFixed(2)} €/h)` : ''}</option>)}
                           </select>
                           {personalForm.empleadoId && (() => {
                             const emp = empleados.find((e: any) => e.id === personalForm.empleadoId)
                             return emp?.costeHoraActual ? (
-                              <p className="mt-1 text-xs text-indigo-600 font-medium">Coste empresa: {emp.costeHoraActual.toFixed(2)} \u20ac/hora</p>
+                              <p className="mt-1 text-xs text-indigo-600 font-medium">Coste empresa: {emp.costeHoraActual.toFixed(2)} €/hora</p>
                             ) : (
                               <p className="mt-1 text-xs text-amber-600">Sin coste/hora registrado</p>
                             )
@@ -858,19 +858,19 @@ export default function DraxtonProyectosSingularesPage() {
                           <input type="text" value={personalForm.rol} onChange={e => setPersonalForm({ ...personalForm, rol: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Instalador, Responsable..." />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Nivel T\u00e9cnico</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Nivel Técnico</label>
                           <select value={personalForm.nivelTecnico} onChange={e => setPersonalForm({ ...personalForm, nivelTecnico: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="">Sin asignar</option>
-                            <option value="1">N1 - B\u00e1sico</option>
+                            <option value="1">N1 - Básico</option>
                             <option value="2">N2 - Intermedio</option>
                             <option value="3">N3 - Avanzado</option>
                           </select>
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo imputaci\u00f3n *</label>
+                          <label className="block text-xs font-medium text-gray-600 mb-1">Tipo imputación *</label>
                           <select value={personalForm.tipoImputacion} onChange={e => setPersonalForm({ ...personalForm, tipoImputacion: e.target.value as 'horas' | 'porcentaje' })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
                             <option value="horas">Por horas</option>
-                            <option value="porcentaje">Por % dedicaci\u00f3n</option>
+                            <option value="porcentaje">Por % dedicación</option>
                           </select>
                         </div>
                         {personalForm.tipoImputacion === 'horas' ? (
@@ -881,20 +881,20 @@ export default function DraxtonProyectosSingularesPage() {
                               const emp = empleados.find((e: any) => e.id === personalForm.empleadoId)
                               if (emp?.costeHoraActual) {
                                 const coste = parseFloat(personalForm.horasImputadas) * emp.costeHoraActual
-                                return <p className="mt-1 text-xs text-gray-500">Coste estimado: <span className="font-medium text-gray-700">{coste.toFixed(2)} \u20ac</span></p>
+                                return <p className="mt-1 text-xs text-gray-500">Coste estimado: <span className="font-medium text-gray-700">{coste.toFixed(2)} €</span></p>
                               }
                               return null
                             })()}
                           </div>
                         ) : (
                           <div>
-                            <label className="block text-xs font-medium text-gray-600 mb-1">Dedicaci\u00f3n % *</label>
+                            <label className="block text-xs font-medium text-gray-600 mb-1">Dedicación % *</label>
                             <input type="number" min="1" max="100" value={personalForm.porcentajeDedicacion} onChange={e => setPersonalForm({ ...personalForm, porcentajeDedicacion: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: 50" />
                           </div>
                         )}
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Funciones</label>
-                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Descripci\u00f3n de funciones..." />
+                          <input type="text" value={personalForm.funciones} onChange={e => setPersonalForm({ ...personalForm, funciones: e.target.value })} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Descripción de funciones..." />
                         </div>
                         <div>
                           <label className="block text-xs font-medium text-gray-600 mb-1">Inicio</label>
@@ -920,7 +920,7 @@ export default function DraxtonProyectosSingularesPage() {
                             <th className="text-left px-3 py-2 font-medium text-gray-600">Empleado</th>
                             <th className="text-left px-3 py-2 font-medium text-gray-600">Rol</th>
                             <th className="text-center px-3 py-2 font-medium text-gray-600">Nivel</th>
-                            <th className="text-center px-3 py-2 font-medium text-gray-600">Imputaci\u00f3n</th>
+                            <th className="text-center px-3 py-2 font-medium text-gray-600">Imputación</th>
                             <th className="text-right px-3 py-2 font-medium text-gray-600">Coste/h</th>
                             <th className="text-right px-3 py-2 font-medium text-gray-600">Coste Total</th>
                             <th className="text-center px-3 py-2 font-medium text-gray-600">Acciones</th>
@@ -933,9 +933,9 @@ export default function DraxtonProyectosSingularesPage() {
                                 <div className="font-medium text-gray-900">{pa.empleado.nombreCompleto}</div>
                                 {pa.funciones && <div className="text-xs text-gray-500">{pa.funciones}</div>}
                               </td>
-                              <td className="px-3 py-2 text-gray-600">{pa.rol || '\u2014'}</td>
+                              <td className="px-3 py-2 text-gray-600">{pa.rol || '—'}</td>
                               <td className="px-3 py-2 text-center">
-                                {pa.nivelTecnico ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pa.nivelTecnico === 3 ? 'bg-red-100 text-red-700' : pa.nivelTecnico === 2 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>N{pa.nivelTecnico}</span> : '\u2014'}
+                                {pa.nivelTecnico ? <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${pa.nivelTecnico === 3 ? 'bg-red-100 text-red-700' : pa.nivelTecnico === 2 ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>N{pa.nivelTecnico}</span> : '—'}
                               </td>
                               <td className="px-3 py-2 text-center">
                                 {pa.tipoImputacion === 'horas' ? (
@@ -945,10 +945,10 @@ export default function DraxtonProyectosSingularesPage() {
                                 )}
                               </td>
                               <td className="px-3 py-2 text-right text-gray-600">
-                                {pa.costeHora ? `${pa.costeHora.toFixed(2)} \u20ac` : <span className="text-amber-500 text-xs">N/D</span>}
+                                {pa.costeHora ? `${pa.costeHora.toFixed(2)} €` : <span className="text-amber-500 text-xs">N/D</span>}
                               </td>
                               <td className="px-3 py-2 text-right font-medium">
-                                {pa.costeTotal ? `${pa.costeTotal.toFixed(2)} \u20ac` : '\u2014'}
+                                {pa.costeTotal ? `${pa.costeTotal.toFixed(2)} €` : '—'}
                               </td>
                               <td className="px-3 py-2 text-center">
                                 <button onClick={() => handleDeletePersonal(pa.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
@@ -959,7 +959,7 @@ export default function DraxtonProyectosSingularesPage() {
                       </table>
                       {/* Total coste personal */}
                       <div className="flex justify-end px-3 py-2 bg-gray-50 border-t">
-                        <span className="text-sm font-medium text-gray-700">Total coste personal: <span className="text-indigo-700">{p.personalAsignado.reduce((sum, pa) => sum + (pa.costeTotal || 0), 0).toFixed(2)} \u20ac</span></span>
+                        <span className="text-sm font-medium text-gray-700">Total coste personal: <span className="text-indigo-700">{p.personalAsignado.reduce((sum, pa) => sum + (pa.costeTotal || 0), 0).toFixed(2)} €</span></span>
                       </div>
                     </div>
                   ) : (
