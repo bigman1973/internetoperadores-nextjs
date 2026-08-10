@@ -453,6 +453,36 @@ export default function DraxtonProyectosSingularesPage() {
     else { const err = await res.json(); alert('Error: ' + (err.error || 'Error')) }
   }
 
+  // Estado para edición de personal
+  const [editingPersonalId, setEditingPersonalId] = useState<string | null>(null)
+  const [editPersonalForm, setEditPersonalForm] = useState<any>({})
+
+  const handleEditPersonal = (pa: PersonalAsignado) => {
+    setEditingPersonalId(pa.id)
+    setEditPersonalForm({
+      tipoImputacion: pa.tipoImputacion,
+      horasImputadas: pa.horasImputadas || '',
+      porcentajeDedicacion: pa.porcentajeDedicacion || '',
+      nivelTecnico: pa.nivelTecnico || '',
+      rol: pa.rol || '',
+      funciones: pa.funciones || '',
+      fechaInicio: pa.fechaInicio ? pa.fechaInicio.split('T')[0] : '',
+      fechaFin: pa.fechaFin ? pa.fechaFin.split('T')[0] : '',
+    })
+  }
+
+  const handleSavePersonalEdit = async () => {
+    if (!editingPersonalId) return
+    await fetch('/api/admin/clientes/ggcc/draxton/proyectos-personal', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editingPersonalId, ...editPersonalForm }),
+    })
+    setEditingPersonalId(null)
+    setEditPersonalForm({})
+    fetchData()
+  }
+
   const handleDeletePersonal = async (id: string) => {
     if (!confirm('¿Desasignar esta persona?')) return
     await fetch(`/api/admin/clientes/ggcc/draxton/proyectos-personal?id=${id}`, { method: 'DELETE' })
@@ -951,7 +981,10 @@ export default function DraxtonProyectosSingularesPage() {
                                 {pa.costeTotal ? `${pa.costeTotal.toFixed(2)} €` : '—'}
                               </td>
                               <td className="px-3 py-2 text-center">
-                                <button onClick={() => handleDeletePersonal(pa.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button onClick={() => handleEditPersonal(pa)} className="p-1 text-gray-400 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDeletePersonal(pa.id)} className="p-1 text-gray-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                                </div>
                               </td>
                             </tr>
                           ))}
@@ -1203,6 +1236,75 @@ export default function DraxtonProyectosSingularesPage() {
               <div className="flex justify-end gap-3 pt-2">
                 <button onClick={() => setEditingDocId(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Cancelar</button>
                 <button onClick={() => { const proj = proyectos.find(pr => pr.documentosJson?.some(d => d.id === editingDocId)); if (proj) handleSaveDocEdit(proj.id); }} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">Guardar Cambios</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== MODAL EDITAR PERSONAL ===== */}
+      {editingPersonalId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setEditingPersonalId(null)}>
+          <div className="bg-white rounded-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Editar Asignación</h3>
+              <button onClick={() => setEditingPersonalId(null)} className="p-1 text-gray-400 hover:text-gray-600"><XMarkIcon className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Rol</label>
+                  <input type="text" value={editPersonalForm.rol || ''} onChange={e => setEditPersonalForm({...editPersonalForm, rol: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Ej: Instalador" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Nivel Técnico</label>
+                  <select value={editPersonalForm.nivelTecnico || ''} onChange={e => setEditPersonalForm({...editPersonalForm, nivelTecnico: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                    <option value="">Sin asignar</option>
+                    <option value="1">N1 - Básico</option>
+                    <option value="2">N2 - Intermedio</option>
+                    <option value="3">N3 - Avanzado</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Tipo imputación</label>
+                  <select value={editPersonalForm.tipoImputacion || 'horas'} onChange={e => setEditPersonalForm({...editPersonalForm, tipoImputacion: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900">
+                    <option value="horas">Por horas</option>
+                    <option value="porcentaje">Por % dedicación</option>
+                  </select>
+                </div>
+                <div>
+                  {editPersonalForm.tipoImputacion === 'horas' ? (
+                    <>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Horas imputadas</label>
+                      <input type="number" step="0.5" value={editPersonalForm.horasImputadas || ''} onChange={e => setEditPersonalForm({...editPersonalForm, horasImputadas: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                    </>
+                  ) : (
+                    <>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Dedicación %</label>
+                      <input type="number" step="5" value={editPersonalForm.porcentajeDedicacion || ''} onChange={e => setEditPersonalForm({...editPersonalForm, porcentajeDedicacion: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                    </>
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1">Funciones</label>
+                <input type="text" value={editPersonalForm.funciones || ''} onChange={e => setEditPersonalForm({...editPersonalForm, funciones: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" placeholder="Descripción de funciones..." />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha inicio</label>
+                  <input type="date" value={editPersonalForm.fechaInicio || ''} onChange={e => setEditPersonalForm({...editPersonalForm, fechaInicio: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Fecha fin</label>
+                  <input type="date" value={editPersonalForm.fechaFin || ''} onChange={e => setEditPersonalForm({...editPersonalForm, fechaFin: e.target.value})} className="w-full px-3 py-2 border rounded-lg text-sm text-gray-900" />
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setEditingPersonalId(null)} className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">Cancelar</button>
+                <button onClick={handleSavePersonalEdit} className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700">Guardar Cambios</button>
               </div>
             </div>
           </div>
