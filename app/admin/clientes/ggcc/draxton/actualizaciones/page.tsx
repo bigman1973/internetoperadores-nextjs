@@ -117,6 +117,7 @@ export default function ActualizacionesPage() {
       costeHora: e.costeHora?.toString() || '',
     })
     setShowEjecForm(true)
+    setTimeout(() => document.getElementById('ejec-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
   }
 
   const handlePreviewImputacion = async (contratoId: string, horas: string, ejecucionId: string) => {
@@ -270,7 +271,7 @@ export default function ActualizacionesPage() {
             </div>
 
             {showEjecForm && (
-              <div className="bg-white border rounded-lg p-4 mb-4">
+              <div id="ejec-form" className="bg-white border-2 border-indigo-200 rounded-lg p-4 mb-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">{editingEjec ? 'Editar' : 'Nueva'} Ejecucion</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   <div>
@@ -558,9 +559,9 @@ export default function ActualizacionesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Coste/hora tecnico (EUR)</label>
-                  <input type="number" step="0.01" value={formTarifa.costeHora} onChange={e => setFormTarifa({ ...formTarifa, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 25.00" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que nos cuesta internamente</p>
+                  <label className="text-xs font-medium text-gray-600">Neto tecnico (EUR/h)</label>
+                  <input type="number" step="0.01" value={formTarifa.costeHora} onChange={e => setFormTarifa({ ...formTarifa, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 18.00" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que cobra el tecnico (neto). Bruto empresa: x1.35</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Factor conversion</label>
@@ -587,7 +588,8 @@ export default function ActualizacionesPage() {
                     <thead className="bg-gray-50 border-b">
                       <tr>
                         <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Concepto</th>
-                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Coste/h tecnico (EUR)</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Neto tecnico (EUR/h)</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Coste bruto empresa (EUR/h)</th>
                         <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Factor conversion</th>
                         <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Desde</th>
                         <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase"></th>
@@ -599,6 +601,9 @@ export default function ActualizacionesPage() {
                       ))}
                     </tbody>
                   </table>
+                  <div className="px-3 py-2 bg-gray-50 text-[9px] text-gray-500">
+                    Neto = lo que cobra el tecnico. Coste bruto empresa = neto x 1.35 (aprox +30% SS empresa + 5% otros). Haz clic en la fila para editar.
+                  </div>
                 </div>
               </div>
             )}
@@ -677,6 +682,9 @@ function TarifaEditableRow({ tarifa, onUpdate, onDelete, conceptoLabels, formatD
   const [factor, setFactor] = useState(tarifa.factorConversion.toString())
   const [saving, setSaving] = useState(false)
 
+  const costeBruto = tarifa.costeHora ? (tarifa.costeHora * 1.35).toFixed(2) : null
+  const costeBrutoEdit = costeHora ? (parseFloat(costeHora) * 1.35).toFixed(2) : '-'
+
   const handleSave = async () => {
     setSaving(true)
     await fetch('/api/admin/clientes/ggcc/draxton/actualizaciones', {
@@ -692,7 +700,8 @@ function TarifaEditableRow({ tarifa, onUpdate, onDelete, conceptoLabels, formatD
     return (
       <tr className="border-b bg-yellow-50">
         <td className="px-3 py-2 font-semibold text-gray-800">{conceptoLabels[tarifa.concepto] || tarifa.concepto}</td>
-        <td className="px-3 py-1 text-center"><input type="number" step="0.01" value={costeHora} onChange={e => setCosteHora(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm text-center text-gray-900" /></td>
+        <td className="px-3 py-1 text-center"><input type="number" step="0.01" value={costeHora} onChange={e => setCosteHora(e.target.value)} className="w-24 border rounded px-2 py-1 text-sm text-center text-gray-900" placeholder="Neto" /></td>
+        <td className="px-3 py-2 text-center text-xs text-gray-500">{costeBrutoEdit} EUR</td>
         <td className="px-3 py-1 text-center"><input type="number" step="0.1" value={factor} onChange={e => setFactor(e.target.value)} className="w-16 border rounded px-2 py-1 text-sm text-center text-gray-900" /></td>
         <td className="px-3 py-2 text-xs text-gray-500">{formatDate(tarifa.fechaDesde)}</td>
         <td className="px-3 py-2 text-right space-x-1">
@@ -707,6 +716,7 @@ function TarifaEditableRow({ tarifa, onUpdate, onDelete, conceptoLabels, formatD
     <tr className="border-b bg-green-50 hover:bg-green-100 cursor-pointer" onClick={() => setEditing(true)}>
       <td className="px-3 py-2 font-semibold text-green-800">{conceptoLabels[tarifa.concepto] || tarifa.concepto}</td>
       <td className="px-3 py-2 text-center">{tarifa.costeHora ? `${tarifa.costeHora} EUR` : <span className="text-gray-400 italic">sin informar</span>}</td>
+      <td className="px-3 py-2 text-center text-xs text-gray-500">{costeBruto ? `${costeBruto} EUR` : '-'}</td>
       <td className="px-3 py-2 text-center font-medium">x{tarifa.factorConversion}</td>
       <td className="px-3 py-2 text-xs text-gray-500">{formatDate(tarifa.fechaDesde)}</td>
       <td className="px-3 py-2 text-right"><button onClick={(e) => { e.stopPropagation(); onDelete() }} className="text-red-500 hover:text-red-700 text-xs">x</button></td>
