@@ -74,27 +74,75 @@ export async function GET(req: NextRequest) {
     // Factor de conversión vigente (el principal, normalmente n2_remoto)
     const factorVigente = tarifasConversion.find(t => t.fechaHasta === null)?.factorConversion || 1
 
-    // Balance por contrato: horas ANUALES totales - horas imputadas (con factor)
+    // Obtener saldo real de cada contrato desde balance-mensual (misma lógica que seguimiento)
+    const contratosConPersonal = await prisma.contratoDraxton.findMany({
+      where: { id: { in: contratos.map(c => c.id) } },
+      select: {
+        id: true,
+        horasContratadas: true,
+        nivelContratado: true,
+        fechaInicio: true,
+        fechaFin: true,
+        personalAsignado: {
+          select: { porcentajeDedicacion: true, nivelTecnico: true, fechaInicio: true, fechaFin: true }
+        }
+      }
+    })
+
+    // Calcular saldo acumulado por contrato (horas equivalentes cubiertas - comprometidas)
+    const HORAS_NETAS_MES = 128.67
+    function diasLaborablesMes(a: number, m: number): number {
+      let count = 0;
+      const dias = new Date(a, m, 0).getDate();
+      for (let d = 1; d <= dias; d++) { const day = new Date(a, m - 1, d).getDay(); if (day !== 0 && day !== 6) count++; }
+      return count;
+    }
+    function diasLaborablesActivos(a: number, m: number, fi: Date | null, ff: Date | null): number {
+      const p1 = new Date(a, m - 1, 1); const p2 = new Date(a, m, 0);
+      let inicio = fi && fi > p1 ? fi : p1; let fin = ff && ff < p2 ? ff : p2;
+      if (fin < inicio) return 0;
+      let count = 0; const cur = new Date(inicio);
+      while (cur <= fin) { const day = cur.getDay(); if (day !== 0 && day !== 6) count++; cur.setDate(cur.getDate() + 1); }
+      return count;
+    }
+
+    const mesActual = new Date().getMonth() + 1
+    const saldosPorContrato: Record<string, number> = {}
+    for (const cp of contratosConPersonal) {
+      const hContratadas = Number(cp.horasContratadas) || 0
+      const nivelContratado = cp.nivelContratado || 1
+      let saldoAcum = 0
+      for (let m = 1; m <= mesActual; m++) {
+        const diasLab = diasLaborablesMes(anio, m)
+        let horasEquivMes = 0
+        for (const p of cp.personalAsignado) {
+          const fi = p.fechaInicio ? new Date(p.fechaInicio) : null
+          const ff = p.fechaFin ? new Date(p.fechaFin) : null
+          const diasAct = diasLaborablesActivos(anio, m, fi, ff)
+          const proporcion = diasLab > 0 ? diasAct / diasLab : 0
+          const horasBase = HORAS_NETAS_MES * (p.porcentajeDedicacion / 100) * proporcion
+          const mult = (p.nivelTecnico || 1) / nivelContratado
+          horasEquivMes += horasBase * mult
+        }
+        saldoAcum += horasEquivMes - hContratadas
+      }
+      saldosPorContrato[cp.id] = Math.round(saldoAcum * 10) / 10
+    }
+
+    // Balance por contrato: saldo real del seguimiento
     const balanceContratos = contratos.map(c => {
       const horasMes = Number(c.horasContratadas) || 0
       const precioHora = Number(c.precioHoraContrato) || (horasMes > 0 && c.importeMensual ? Number(c.importeMensual) / horasMes : 0)
-      // Calcular meses de vigencia en el año consultado
-      const inicio = c.fechaInicio ? new Date(c.fechaInicio) : new Date(anio, 0, 1)
-      const fin = c.fechaFin ? new Date(c.fechaFin) : new Date(anio, 11, 31)
-      const inicioAnioContrato = new Date(Math.max(inicio.getTime(), new Date(anio, 0, 1).getTime()))
-      const finAnioContrato = new Date(Math.min(fin.getTime(), new Date(anio, 11, 31).getTime()))
-      const mesesVigencia = Math.max(0, Math.ceil((finAnioContrato.getTime() - inicioAnioContrato.getTime()) / (30.44 * 24 * 60 * 60 * 1000)))
-      const horasTotalesAnio = horasMes * mesesVigencia
+      const saldoContrato = saldosPorContrato[c.id] || 0 // saldo real del seguimiento (positivo = horas de más, negativo = horas pendientes)
       const horasImputadasConFactor = (imputacionesPorContrato[c.id] || 0) * factorVigente
       return {
         ...c,
         horasMes,
-        horasTotalesAnio: Math.round(horasTotalesAnio),
         precioHoraContrato: Math.round(precioHora * 100) / 100,
+        saldoContrato, // saldo real del seguimiento
         horasImputadasActualizaciones: imputacionesPorContrato[c.id] || 0,
         horasImputadasConFactor: Math.round(horasImputadasConFactor * 10) / 10,
-        horasDisponibles: Math.round(horasTotalesAnio - horasImputadasConFactor),
-        mesesVigencia,
+        horasDisponibles: Math.round(saldoContrato - horasImputadasConFactor), // saldo - ya imputadas de actualizaciones
       }
     })
 
