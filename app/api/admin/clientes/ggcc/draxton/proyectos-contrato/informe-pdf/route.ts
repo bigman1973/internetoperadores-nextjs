@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const logoUrl = `${baseUrl}/images/logo-internetoperadores.png`;
 
     const proyectos = await prisma.proyectoContratoDraxton.findMany({
-      where: { activo: true, categoria: 'singular' },
+      where: { activo: true, categoria: 'proyecto' },
       orderBy: { createdAt: 'desc' },
       include: {
         responsable: { select: { nombreCompleto: true } },
@@ -73,8 +73,9 @@ export async function GET(req: NextRequest) {
 }
 
 const estilosBase = `
+  @page { size: A4 portrait; margin: 15mm; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; color: #1f2937; line-height: 1.4; padding: 20px; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 11px; color: #1f2937; line-height: 1.4; padding: 20px; max-width: 210mm; margin: 0 auto; }
   .page-header { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; border-bottom: 3px solid #E87A2E; margin-bottom: 20px; }
   .page-header img { height: 40px; }
   .page-header-right { text-align: right; font-size: 10px; color: #6b7280; }
