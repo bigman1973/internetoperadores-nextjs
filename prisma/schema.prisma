@@ -2649,7 +2649,8 @@ model ActualizacionTarifaConversion {
   id                String   @id @default(uuid())
   concepto          String   // 'n1_remoto', 'n2_remoto', 'n2_presencial', 'n3_remoto', etc.
   factorConversion  Float    @default(1.0) @map("factor_conversion") // 1h actualización = X horas contrato
-  costeHora         Float?   @map("coste_hora") // coste/hora para este concepto
+  costeHora         Float?   @map("coste_hora") // coste/hora tecnico (lo que nos cuesta)
+  precioFacturacion Float?   @map("precio_facturacion") // precio/hora a facturar segun conversion
   fechaDesde        DateTime @map("fecha_desde") @db.Date
   fechaHasta        DateTime? @map("fecha_hasta") @db.Date
   notas             String?

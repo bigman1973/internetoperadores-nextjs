@@ -36,6 +36,17 @@ export async function GET(req: NextRequest) {
       orderBy: { fecha: 'desc' }
     })
 
+    // Técnicos asignados a Draxton (para selector)
+    const personalDraxton = await prisma.personalContratoDraxton.findMany({
+      where: { activo: true },
+      select: { empleado: { select: { id: true, nombreCompleto: true } }, nivelTecnico: true, rol: true }
+    })
+    const tecnicosMap: Record<string, { id: string; nombre: string; nivel: number | null }> = {}
+    personalDraxton.forEach(p => {
+      tecnicosMap[p.empleado.id] = { id: p.empleado.id, nombre: p.empleado.nombreCompleto || '', nivel: p.nivelTecnico }
+    })
+    const tecnicos = Object.values(tecnicosMap)
+
     // Solo contratos de horas (tipo Mantenimiento o que tengan horasContratadas > 0)
     const contratos = await prisma.contratoDraxton.findMany({
       where: {
@@ -85,6 +96,7 @@ export async function GET(req: NextRequest) {
       planificacionesHistorico,
       ejecuciones,
       contratos: balanceContratos,
+      tecnicos,
       tarifasConversion: tarifasConversion.map(t => ({ ...t, vigente: t.fechaHasta === null })),
       contratoSugerido,
       kpis: {
@@ -332,6 +344,7 @@ export async function POST(req: NextRequest) {
             concepto: body.concepto,
             factorConversion: parseFloat(body.factorConversion) || 1.0,
             costeHora: body.costeHora ? parseFloat(body.costeHora) : null,
+            precioFacturacion: body.precioFacturacion ? parseFloat(body.precioFacturacion) : null,
             fechaDesde: new Date(body.fechaDesde),
             notas: body.notas || null,
           }

@@ -1,11 +1,12 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 interface Planificacion { id: string; titulo: string; descripcion: string | null; prioridad: string; estado: string; fechaPropuesta: string | null; servidoresAfectados: string | null; plantasAfectadas: string | null; solicitadoPor: string | null; tecnicoAsignado: string | null; notas: string | null; ejecuciones: { id: string; fecha: string; horasDedicadas: number }[] }
 interface Imputacion { id: string; contratoId: string; horas: number; notas: string | null }
 interface Ejecucion { id: string; planificacionId: string | null; fecha: string; tecnicoId: string | null; tecnicoNombre: string | null; nivelTecnico: number; horasDedicadas: number; tipo: string; plantasAfectadas: string | null; descripcion: string | null; costeHora: number | null; costeTotal: number | null; totalImputado: number; pendienteImputar: number | null; imputaciones: Imputacion[]; planificacion: { titulo: string } | null }
-interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasImputadasActualizaciones: number; horasDisponibles: number }
-interface TarifaConversion { id: string; concepto: string; factorConversion: number; costeHora: number | null; fechaDesde: string; fechaHasta: string | null; notas: string | null; vigente: boolean }
+interface Contrato { id: string; titulo: string; codigoContrato: string | null; tipo: string; horasContratadas: number; horasImputadasActualizaciones: number; horasDisponibles: number; precioHoraContrato: number | null }
+interface TarifaConversion { id: string; concepto: string; factorConversion: number; costeHora: number | null; precioFacturacion: number | null; fechaDesde: string; fechaHasta: string | null; notas: string | null; vigente: boolean }
+interface Tecnico { id: string; nombre: string; nivel: number | null }
 interface Preview { contrato: string; horasContratadas: number; horasYaImputadas: number; horasAImputar: number; balanceActual: number; balanceDespues: number }
 interface KPIs { totalHoras: number; totalCoste: number; horasImputadas: number; horasPendientes: number; totalEjecuciones: number; planificacionesPendientes: number }
 
@@ -15,21 +16,21 @@ export default function ActualizacionesPage() {
   const [planHistorico, setPlanHistorico] = useState<Planificacion[]>([])
   const [ejecuciones, setEjecuciones] = useState<Ejecucion[]>([])
   const [contratos, setContratos] = useState<Contrato[]>([])
+  const [tecnicos, setTecnicos] = useState<Tecnico[]>([])
   const [tarifasConversion, setTarifasConversion] = useState<TarifaConversion[]>([])
   const [contratoSugerido, setContratoSugerido] = useState<Contrato | null>(null)
   const [kpis, setKpis] = useState<KPIs | null>(null)
   const [loading, setLoading] = useState(true)
   const [anio, setAnio] = useState(new Date().getFullYear())
-  // Forms
   const [showPlanForm, setShowPlanForm] = useState(false)
   const [showEjecForm, setShowEjecForm] = useState(false)
   const [editingEjec, setEditingEjec] = useState<Ejecucion | null>(null)
   const [showImputForm, setShowImputForm] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [formPlan, setFormPlan] = useState({ titulo: '', descripcion: '', prioridad: 'normal', fechaPropuesta: '', servidoresAfectados: '', plantasAfectadas: '', solicitadoPor: '', tecnicoAsignado: '', notas: '' })
-  const [formEjec, setFormEjec] = useState({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoNombre: 'Alejandro Martinez Cayuelas', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
+  const [formEjec, setFormEjec] = useState({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: '', tecnicoNombre: '', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
   const [formImput, setFormImput] = useState({ contratoId: '', horas: '', notas: '' })
-  const [formTarifa, setFormTarifa] = useState({ concepto: 'n2_remoto', factorConversion: '1', costeHora: '', fechaDesde: new Date().toISOString().slice(0, 10), notas: '' })
+  const [formTarifa, setFormTarifa] = useState({ concepto: 'n2_remoto', factorConversion: '1', costeHora: '', precioFacturacion: '', fechaDesde: new Date().toISOString().slice(0, 10), notas: '' })
   const [editingPlan, setEditingPlan] = useState<Planificacion | null>(null)
 
   const fetchData = async () => {
@@ -40,6 +41,7 @@ export default function ActualizacionesPage() {
     setPlanHistorico(data.planificacionesHistorico || [])
     setEjecuciones(data.ejecuciones || [])
     setContratos(data.contratos || [])
+    setTecnicos(data.tecnicos || [])
     setTarifasConversion(data.tarifasConversion || [])
     setContratoSugerido(data.contratoSugerido || null)
     setKpis(data.kpis || null)
@@ -47,6 +49,33 @@ export default function ActualizacionesPage() {
   }
 
   useEffect(() => { fetchData() }, [anio])
+
+  // Obtener tarifa vigente para un concepto dado (nivel + tipo)
+  const getTarifaVigente = (nivel: string, tipo: string): TarifaConversion | undefined => {
+    const concepto = `n${nivel}_${tipo}`
+    return tarifasConversion.find(t => t.vigente && t.concepto === concepto)
+  }
+
+  // Auto-calcular coste cuando cambia tecnico/nivel/tipo/horas
+  const calcularCosteAuto = (nivel: string, tipo: string, horas: string) => {
+    const tarifa = getTarifaVigente(nivel, tipo)
+    if (tarifa?.costeHora && horas) {
+      return (tarifa.costeHora * parseFloat(horas)).toFixed(2)
+    }
+    return ''
+  }
+
+  // Cuando cambia el técnico en el selector, actualizar nivel automáticamente
+  const handleTecnicoChange = (tecnicoId: string) => {
+    const tec = tecnicos.find(t => t.id === tecnicoId)
+    if (tec) {
+      const nivel = tec.nivel?.toString() || '2'
+      const costeHora = getTarifaVigente(nivel, formEjec.tipo)?.costeHora?.toString() || formEjec.costeHora
+      setFormEjec({ ...formEjec, tecnicoId, tecnicoNombre: tec.nombre, nivelTecnico: nivel, costeHora })
+    } else {
+      setFormEjec({ ...formEjec, tecnicoId, tecnicoNombre: '' })
+    }
+  }
 
   const handleSavePlan = async () => {
     const action = editingPlan ? 'actualizarPlanificacion' : 'crearPlanificacion'
@@ -68,7 +97,7 @@ export default function ActualizacionesPage() {
       body: JSON.stringify(payload)
     })
     setShowEjecForm(false); setEditingEjec(null)
-    setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoNombre: 'Alejandro Martinez Cayuelas', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
+    setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: '', tecnicoNombre: '', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' })
     fetchData()
   }
 
@@ -77,6 +106,7 @@ export default function ActualizacionesPage() {
     setFormEjec({
       planificacionId: e.planificacionId || '',
       fecha: e.fecha?.slice(0, 10) || '',
+      tecnicoId: e.tecnicoId || '',
       tecnicoNombre: e.tecnicoNombre || '',
       nivelTecnico: e.nivelTecnico?.toString() || '2',
       horasDedicadas: e.horasDedicadas?.toString() || '',
@@ -122,7 +152,7 @@ export default function ActualizacionesPage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'addTarifaConversion', ...formTarifa })
     })
-    setFormTarifa({ concepto: 'n2_remoto', factorConversion: '1', costeHora: '', fechaDesde: new Date().toISOString().slice(0, 10), notas: '' })
+    setFormTarifa({ concepto: 'n2_remoto', factorConversion: '1', costeHora: '', precioFacturacion: '', fechaDesde: new Date().toISOString().slice(0, 10), notas: '' })
     fetchData()
   }
 
@@ -161,14 +191,32 @@ export default function ActualizacionesPage() {
     fetchData()
   }
 
-  const handleInforme = () => {
-    window.open(`/api/admin/clientes/ggcc/draxton/actualizaciones/informe?anio=${anio}`, '_blank')
-  }
+  const handleInforme = () => { window.open(`/api/admin/clientes/ggcc/draxton/actualizaciones/informe?anio=${anio}`, '_blank') }
 
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '-'
   const prioridadColor: Record<string, string> = { urgente: 'bg-red-100 text-red-700', alta: 'bg-orange-100 text-orange-700', normal: 'bg-blue-100 text-blue-700', baja: 'bg-gray-100 text-gray-600' }
   const estadoColor: Record<string, string> = { pendiente: 'bg-yellow-100 text-yellow-700', programada: 'bg-blue-100 text-blue-700', ejecutada: 'bg-green-100 text-green-700', cancelada: 'bg-gray-100 text-gray-500' }
   const conceptoLabels: Record<string, string> = { n1_remoto: 'N1 Remoto', n2_remoto: 'N2 Remoto', n2_presencial: 'N2 Presencial', n3_remoto: 'N3 Remoto', n3_presencial: 'N3 Presencial' }
+
+  // Simulacion de coste para cada contrato
+  const simulacionContratos = useMemo(() => {
+    const tarifasVigentes = tarifasConversion.filter(t => t.vigente)
+    return contratos.map(c => {
+      const precioHoraContrato = Number(c.precioHoraContrato) || 0
+      return {
+        ...c,
+        precioHoraContrato,
+        simulaciones: tarifasVigentes.map(t => ({
+          concepto: t.concepto,
+          costeHoraTecnico: t.costeHora || 0,
+          precioFacturacion: t.precioFacturacion || 0,
+          factorConversion: t.factorConversion,
+          costeEfectivoContrato: (t.costeHora || 0) / t.factorConversion, // coste real por hora de contrato consumida
+          margen: precioHoraContrato > 0 ? ((precioHoraContrato - ((t.costeHora || 0) / t.factorConversion)) / precioHoraContrato * 100) : 0,
+        }))
+      }
+    })
+  }, [contratos, tarifasConversion])
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -188,50 +236,25 @@ export default function ActualizacionesPage() {
       {/* KPIs */}
       {kpis && (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Total Horas</p>
-            <p className="text-xl font-bold text-gray-900">{kpis.totalHoras}h</p>
-          </div>
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Coste Total</p>
-            <p className="text-xl font-bold text-gray-900">{kpis.totalCoste.toFixed(0)}EUR</p>
-          </div>
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Imputadas</p>
-            <p className="text-xl font-bold text-green-600">{kpis.horasImputadas}h</p>
-          </div>
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Pendiente Imputar</p>
-            <p className={`text-xl font-bold ${kpis.horasPendientes > 0 ? 'text-red-600' : 'text-green-600'}`}>{kpis.horasPendientes}h</p>
-          </div>
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Ejecuciones</p>
-            <p className="text-xl font-bold text-gray-900">{kpis.totalEjecuciones}</p>
-          </div>
-          <div className="bg-white border rounded-lg p-3 text-center">
-            <p className="text-[10px] text-gray-500 uppercase">Planif. Pendientes</p>
-            <p className="text-xl font-bold text-orange-600">{kpis.planificacionesPendientes}</p>
-          </div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Total Horas</p><p className="text-xl font-bold text-gray-900">{kpis.totalHoras}h</p></div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Coste Total</p><p className="text-xl font-bold text-gray-900">{kpis.totalCoste.toFixed(0)} EUR</p></div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Imputadas</p><p className="text-xl font-bold text-green-600">{kpis.horasImputadas}h</p></div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Pendiente Imputar</p><p className={`text-xl font-bold ${kpis.horasPendientes > 0 ? 'text-red-600' : 'text-green-600'}`}>{kpis.horasPendientes}h</p></div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Ejecuciones</p><p className="text-xl font-bold text-gray-900">{kpis.totalEjecuciones}</p></div>
+          <div className="bg-white border rounded-lg p-3 text-center"><p className="text-[10px] text-gray-500 uppercase">Planif. Pendientes</p><p className="text-xl font-bold text-orange-600">{kpis.planificacionesPendientes}</p></div>
         </div>
       )}
 
       {/* Sugerencia */}
       {contratoSugerido && kpis && kpis.horasPendientes > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 flex items-center justify-between">
-          <div className="text-sm text-amber-800">
-            <span className="font-semibold">Sugerencia:</span> Imputar las {kpis.horasPendientes}h pendientes a <span className="font-semibold">{contratoSugerido.titulo}</span> (dispone de {contratoSugerido.horasDisponibles}h libres)
-          </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+          <span className="font-semibold">Sugerencia:</span> Imputar las {kpis.horasPendientes}h pendientes a <span className="font-semibold">{contratoSugerido.titulo}</span> (dispone de {contratoSugerido.horasDisponibles}h libres)
         </div>
       )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b">
-        {[
-          { key: 'ejecuciones', label: 'Ejecuciones' },
-          { key: 'planificacion', label: 'Planificacion' },
-          { key: 'imputacion', label: 'Imputacion a Contratos' },
-          { key: 'tarifas', label: 'Tarifas Conversion' },
-        ].map(t => (
+        {[{ key: 'ejecuciones', label: 'Ejecuciones' }, { key: 'planificacion', label: 'Planificacion' }, { key: 'imputacion', label: 'Imputacion a Contratos' }, { key: 'tarifas', label: 'Tarifas Conversion' }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.key ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{t.label}</button>
         ))}
       </div>
@@ -242,7 +265,7 @@ export default function ActualizacionesPage() {
           <div>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-gray-800">Ejecuciones {anio}</h2>
-              <button onClick={() => { setEditingEjec(null); setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoNombre: 'Alejandro Martinez Cayuelas', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' }); setShowEjecForm(true) }} className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">+ Registrar Ejecucion</button>
+              <button onClick={() => { setEditingEjec(null); setFormEjec({ planificacionId: '', fecha: new Date().toISOString().slice(0, 10), tecnicoId: '', tecnicoNombre: '', nivelTecnico: '2', horasDedicadas: '', tipo: 'remoto', plantasAfectadas: '', descripcion: '', costeHora: '' }); setShowEjecForm(true) }} className="px-3 py-1.5 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700">+ Registrar Ejecucion</button>
             </div>
 
             {showEjecForm && (
@@ -255,11 +278,17 @@ export default function ActualizacionesPage() {
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Tecnico</label>
-                    <input value={formEjec.tecnicoNombre} onChange={e => setFormEjec({ ...formEjec, tecnicoNombre: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
+                    <select value={formEjec.tecnicoId} onChange={e => handleTecnicoChange(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
+                      <option value="">Seleccionar tecnico...</option>
+                      {tecnicos.map(t => <option key={t.id} value={t.id}>{t.nombre} (N{t.nivel || '-'})</option>)}
+                    </select>
+                    {!formEjec.tecnicoId && formEjec.tecnicoNombre && (
+                      <p className="text-[9px] text-gray-400 mt-0.5">Manual: {formEjec.tecnicoNombre}</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Nivel</label>
-                    <select value={formEjec.nivelTecnico} onChange={e => setFormEjec({ ...formEjec, nivelTecnico: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
+                    <select value={formEjec.nivelTecnico} onChange={e => { const nivel = e.target.value; const coste = getTarifaVigente(nivel, formEjec.tipo)?.costeHora?.toString() || formEjec.costeHora; setFormEjec({ ...formEjec, nivelTecnico: nivel, costeHora: coste }) }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
                       <option value="1">N1</option><option value="2">N2</option><option value="3">N3</option>
                     </select>
                   </div>
@@ -269,14 +298,19 @@ export default function ActualizacionesPage() {
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Tipo</label>
-                    <select value={formEjec.tipo} onChange={e => setFormEjec({ ...formEjec, tipo: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
+                    <select value={formEjec.tipo} onChange={e => { const tipo = e.target.value; const coste = getTarifaVigente(formEjec.nivelTecnico, tipo)?.costeHora?.toString() || formEjec.costeHora; setFormEjec({ ...formEjec, tipo, costeHora: coste }) }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
                       <option value="remoto">Remoto</option><option value="presencial">Presencial</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600">Coste/hora (fin de semana)</label>
-                    <input type="number" step="0.01" value={formEjec.costeHora} onChange={e => setFormEjec({ ...formEjec, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 25.00" />
-                    <p className="text-[9px] text-gray-400 mt-0.5">Coste especial fin de semana</p>
+                    <label className="text-xs font-medium text-gray-600">Coste/hora (EUR)</label>
+                    <input type="number" step="0.01" value={formEjec.costeHora} onChange={e => setFormEjec({ ...formEjec, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Auto segun tarifa" />
+                    {formEjec.costeHora && formEjec.horasDedicadas && (
+                      <p className="text-[9px] text-indigo-600 mt-0.5 font-medium">Coste total: {(parseFloat(formEjec.costeHora) * parseFloat(formEjec.horasDedicadas)).toFixed(2)} EUR</p>
+                    )}
+                    {getTarifaVigente(formEjec.nivelTecnico, formEjec.tipo) && (
+                      <p className="text-[9px] text-gray-400 mt-0.5">Tarifa vigente N{formEjec.nivelTecnico} {formEjec.tipo}: {getTarifaVigente(formEjec.nivelTecnico, formEjec.tipo)?.costeHora} EUR/h</p>
+                    )}
                   </div>
                   <div>
                     <label className="text-xs font-medium text-gray-600">Plantas</label>
@@ -301,7 +335,6 @@ export default function ActualizacionesPage() {
               </div>
             )}
 
-            {/* Tabla de ejecuciones */}
             <div className="bg-white border rounded-lg overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
@@ -326,19 +359,15 @@ export default function ActualizacionesPage() {
                       <td className="px-3 py-2"><span className={`text-[10px] px-1.5 py-0.5 rounded ${e.tipo === 'remoto' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>{e.tipo}</span></td>
                       <td className="px-3 py-2 text-xs text-gray-600">{e.plantasAfectadas || '-'}</td>
                       <td className="px-3 py-2 text-xs text-gray-600 max-w-[200px] truncate">{e.descripcion || e.planificacion?.titulo || '-'}</td>
-                      <td className="px-3 py-2 text-xs">{e.costeTotal ? `${e.costeTotal.toFixed(0)}EUR` : '-'}</td>
+                      <td className="px-3 py-2 text-xs">{e.costeTotal ? `${e.costeTotal.toFixed(0)} EUR` : e.costeHora ? `${e.costeHora} EUR/h` : '-'}</td>
                       <td className="px-3 py-2">
-                        {e.totalImputado >= e.horasDedicadas ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600">100%</span>
-                        ) : e.totalImputado > 0 ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-600">{((e.totalImputado / e.horasDedicadas) * 100).toFixed(0)}%</span>
-                        ) : (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">0%</span>
-                        )}
+                        {e.totalImputado >= e.horasDedicadas ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-50 text-green-600">100%</span>
+                          : e.totalImputado > 0 ? <span className="text-[10px] px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-600">{((e.totalImputado / e.horasDedicadas) * 100).toFixed(0)}%</span>
+                          : <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-50 text-red-600">0%</span>}
                       </td>
                       <td className="px-3 py-2 text-right space-x-1">
                         <button onClick={() => handleEditEjec(e)} className="text-[10px] px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100">Editar</button>
-                        <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || '', horas: ((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
+                        <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: ((e.pendienteImputar ?? e.horasDedicadas - e.totalImputado)).toString(), notas: '' }); setPreview(null) }} className="text-[10px] px-2 py-1 bg-indigo-50 text-indigo-600 rounded hover:bg-indigo-100">Imputar</button>
                         <button onClick={() => handleDeleteEjec(e.id)} className="text-[10px] px-2 py-1 bg-red-50 text-red-600 rounded hover:bg-red-100">x</button>
                       </td>
                     </tr>
@@ -409,15 +438,8 @@ export default function ActualizacionesPage() {
             </div>
 
             {planHistorico.length > 0 && (
-              <details className="mt-6">
-                <summary className="text-sm text-gray-500 cursor-pointer font-medium">Historico ({planHistorico.length})</summary>
-                <div className="mt-2 space-y-2">
-                  {planHistorico.map(p => (
-                    <div key={p.id} className="bg-gray-50 border rounded p-3 flex justify-between items-center">
-                      <span className="text-sm text-gray-700">{p.titulo} <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full ${estadoColor[p.estado]}`}>{p.estado}</span></span>
-                    </div>
-                  ))}
-                </div>
+              <details className="mt-6"><summary className="text-sm text-gray-500 cursor-pointer font-medium">Historico ({planHistorico.length})</summary>
+                <div className="mt-2 space-y-2">{planHistorico.map(p => (<div key={p.id} className="bg-gray-50 border rounded p-3 flex justify-between items-center"><span className="text-sm text-gray-700">{p.titulo} <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full ${estadoColor[p.estado]}`}>{p.estado}</span></span></div>))}</div>
               </details>
             )}
           </div>
@@ -428,18 +450,10 @@ export default function ActualizacionesPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Imputacion de Horas a Contratos</h2>
 
-            {/* Balance por contrato */}
             <div className="bg-white border rounded-lg p-4 mb-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Balance de Contratos de Horas</h3>
               <table className="w-full text-sm">
-                <thead className="border-b">
-                  <tr>
-                    <th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th>
-                    <th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th>
-                    <th className="text-right py-1 text-[10px] text-gray-500 uppercase">Imputadas Actualiz.</th>
-                    <th className="text-right py-1 text-[10px] text-gray-500 uppercase">Disponibles</th>
-                  </tr>
-                </thead>
+                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Imputadas Actualiz.</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Disponibles</th></tr></thead>
                 <tbody>
                   {contratos.map(c => (
                     <tr key={c.id} className="border-b">
@@ -449,11 +463,11 @@ export default function ActualizacionesPage() {
                       <td className={`py-2 text-right font-semibold ${c.horasDisponibles > 0 ? 'text-green-600' : 'text-red-600'}`}>{c.horasDisponibles}h</td>
                     </tr>
                   ))}
+                  {contratos.length === 0 && <tr><td colSpan={4} className="py-4 text-center text-gray-400">No hay contratos de horas activos</td></tr>}
                 </tbody>
               </table>
             </div>
 
-            {/* Ejecuciones pendientes de imputar */}
             <h3 className="text-sm font-semibold text-gray-700 mb-2">Ejecuciones pendientes de imputar</h3>
             <div className="space-y-2">
               {ejecuciones.filter(e => e.totalImputado < e.horasDedicadas).map(e => (
@@ -464,24 +478,17 @@ export default function ActualizacionesPage() {
                       <span className="text-xs text-gray-500 ml-2">{e.tecnicoNombre} - {e.descripcion || e.planificacion?.titulo}</span>
                       <span className="text-xs font-semibold text-red-600 ml-2">{(e.horasDedicadas - e.totalImputado).toFixed(1)}h pendientes de {e.horasDedicadas}h</span>
                     </div>
-                    <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || '', horas: (e.horasDedicadas - e.totalImputado).toString(), notas: '' }); setPreview(null) }} className="text-xs px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">Imputar</button>
+                    <button onClick={() => { setShowImputForm(e.id); setFormImput({ contratoId: contratoSugerido?.id || (contratos.length > 0 ? contratos[0].id : ''), horas: (e.horasDedicadas - e.totalImputado).toString(), notas: '' }); setPreview(null) }} className="text-xs px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">Imputar</button>
                   </div>
-                  {/* Imputaciones existentes */}
                   {e.imputaciones.length > 0 && (
                     <div className="mt-2 space-y-1">
                       {e.imputaciones.map(i => {
                         const c = contratos.find(c => c.id === i.contratoId)
-                        return (
-                          <div key={i.id} className="flex justify-between items-center text-[10px] bg-green-50 rounded px-2 py-1">
-                            <span className="text-green-700">{c?.titulo || 'Contrato'}: {i.horas}h {i.notas && `(${i.notas})`}</span>
-                            <button onClick={() => handleDeleteImputacion(i.id)} className="text-red-400 hover:text-red-600">x</button>
-                          </div>
-                        )
+                        return (<div key={i.id} className="flex justify-between items-center text-[10px] bg-green-50 rounded px-2 py-1"><span className="text-green-700">{c?.titulo || 'Contrato'}: {i.horas}h {i.notas && `(${i.notas})`}</span><button onClick={() => handleDeleteImputacion(i.id)} className="text-red-400 hover:text-red-600">x</button></div>)
                       })}
                     </div>
                   )}
 
-                  {/* Form imputar con preview */}
                   {showImputForm === e.id && (
                     <div className="mt-3 p-3 bg-gray-50 rounded border">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -501,7 +508,6 @@ export default function ActualizacionesPage() {
                           <input value={formImput.notas} onChange={ev => setFormImput({ ...formImput, notas: ev.target.value })} className="w-full border rounded px-2 py-1.5 text-xs text-gray-900" placeholder="Opcional" />
                         </div>
                       </div>
-                      {/* Preview del balance */}
                       {preview && (
                         <div className="mt-2 p-2 bg-white border rounded text-xs">
                           <p className="font-semibold text-gray-700 mb-1">Preview del balance:</p>
@@ -534,12 +540,12 @@ export default function ActualizacionesPage() {
         {tab === 'tarifas' && (
           <div>
             <h2 className="text-lg font-semibold text-gray-800 mb-2">Tarifas de Conversion</h2>
-            <p className="text-sm text-gray-500 mb-4">Define cuanto equivale 1 hora de actualizacion respecto al contrato. Tiene en cuenta nivel y tipo (remoto/presencial/fin de semana).</p>
+            <p className="text-sm text-gray-500 mb-4">Define el coste/hora del tecnico (lo que nos cuesta), el precio a facturar al cliente, y el factor de conversion (1h actualizacion = Xh de contrato).</p>
 
             {/* Formulario nueva tarifa */}
             <div className="bg-white border rounded-lg p-4 mb-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Añadir/Actualizar Tarifa</h3>
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Anadir/Actualizar Tarifa</h3>
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-600">Concepto</label>
                   <select value={formTarifa.concepto} onChange={e => setFormTarifa({ ...formTarifa, concepto: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
@@ -551,13 +557,19 @@ export default function ActualizacionesPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Factor conversion</label>
-                  <input type="number" step="0.1" value={formTarifa.factorConversion} onChange={e => setFormTarifa({ ...formTarifa, factorConversion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="1.5" />
-                  <p className="text-[9px] text-gray-400 mt-0.5">1h actualiz. = Xh contrato</p>
+                  <label className="text-xs font-medium text-gray-600">Coste/hora tecnico (EUR)</label>
+                  <input type="number" step="0.01" value={formTarifa.costeHora} onChange={e => setFormTarifa({ ...formTarifa, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 25.00" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que nos cuesta</p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">Coste/hora (EUR)</label>
-                  <input type="number" step="0.01" value={formTarifa.costeHora} onChange={e => setFormTarifa({ ...formTarifa, costeHora: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="25.00" />
+                  <label className="text-xs font-medium text-gray-600">Precio facturacion (EUR)</label>
+                  <input type="number" step="0.01" value={formTarifa.precioFacturacion} onChange={e => setFormTarifa({ ...formTarifa, precioFacturacion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="Ej: 45.00" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">Lo que cobramos</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600">Factor conversion</label>
+                  <input type="number" step="0.1" value={formTarifa.factorConversion} onChange={e => setFormTarifa({ ...formTarifa, factorConversion: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" placeholder="1.5" />
+                  <p className="text-[9px] text-gray-400 mt-0.5">1h actualiz = Xh contrato</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600">Vigente desde</label>
@@ -574,15 +586,69 @@ export default function ActualizacionesPage() {
             {tarifasConversion.filter(t => t.vigente).length > 0 && (
               <div className="mb-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-2">Tarifas vigentes</h3>
-                <div className="space-y-1">
-                  {tarifasConversion.filter(t => t.vigente).map(t => (
-                    <div key={t.id} className="flex items-center justify-between bg-green-50 border border-green-200 rounded px-3 py-2">
-                      <div className="text-sm text-green-800">
-                        <span className="font-semibold">{conceptoLabels[t.concepto] || t.concepto}</span>: 1h = {t.factorConversion}h contrato {t.costeHora && `| Coste: ${t.costeHora}EUR/h`} <span className="text-[10px] text-green-600">(desde {formatDate(t.fechaDesde)})</span>
-                      </div>
-                      <button onClick={() => handleDeleteTarifa(t.id)} className="text-red-500 hover:text-red-700 text-xs">x</button>
-                    </div>
-                  ))}
+                <div className="bg-white border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Concepto</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Coste/h tecnico</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Precio facturacion</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Factor</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Desde</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tarifasConversion.filter(t => t.vigente).map(t => (
+                        <tr key={t.id} className="border-b bg-green-50">
+                          <td className="px-3 py-2 font-semibold text-green-800">{conceptoLabels[t.concepto] || t.concepto}</td>
+                          <td className="px-3 py-2 text-right">{t.costeHora ? `${t.costeHora} EUR` : '-'}</td>
+                          <td className="px-3 py-2 text-right">{t.precioFacturacion ? `${t.precioFacturacion} EUR` : '-'}</td>
+                          <td className="px-3 py-2 text-right font-medium">x{t.factorConversion}</td>
+                          <td className="px-3 py-2 text-xs text-gray-500">{formatDate(t.fechaDesde)}</td>
+                          <td className="px-3 py-2 text-right"><button onClick={() => handleDeleteTarifa(t.id)} className="text-red-500 hover:text-red-700 text-xs">x</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Simulacion de coste por contrato */}
+            {simulacionContratos.length > 0 && tarifasConversion.filter(t => t.vigente).length > 0 && (
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Simulacion de Coste por Contrato</h3>
+                <p className="text-xs text-gray-500 mb-2">Como afecta cada tarifa de conversion al coste efectivo por hora de contrato consumida:</p>
+                <div className="bg-white border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Contrato</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Precio/h contrato</th>
+                        {tarifasConversion.filter(t => t.vigente).map(t => (
+                          <th key={t.id} className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">{conceptoLabels[t.concepto]}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {simulacionContratos.map(c => (
+                        <tr key={c.id} className="border-b">
+                          <td className="px-3 py-2 text-gray-700 text-xs">{c.titulo}</td>
+                          <td className="px-3 py-2 text-right text-xs font-medium">{c.precioHoraContrato ? `${c.precioHoraContrato} EUR` : '-'}</td>
+                          {c.simulaciones.map((s, i) => (
+                            <td key={i} className="px-3 py-2 text-right text-xs">
+                              <span className="font-medium">{s.costeEfectivoContrato.toFixed(2)} EUR</span>
+                              {c.precioHoraContrato > 0 && <span className={`ml-1 text-[9px] ${s.margen > 0 ? 'text-green-600' : 'text-red-600'}`}>({s.margen.toFixed(0)}%)</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="px-3 py-2 bg-gray-50 text-[9px] text-gray-500">
+                    Coste efectivo = Coste/h tecnico / Factor conversion. Margen = (Precio contrato - Coste efectivo) / Precio contrato.
+                  </div>
                 </div>
               </div>
             )}
@@ -594,7 +660,7 @@ export default function ActualizacionesPage() {
                 <div className="mt-2 space-y-1">
                   {tarifasConversion.filter(t => !t.vigente).map(t => (
                     <div key={t.id} className="flex items-center justify-between text-xs text-gray-400 bg-gray-50 rounded px-3 py-1.5">
-                      <span>{conceptoLabels[t.concepto] || t.concepto}: 1h = {t.factorConversion}h | {t.costeHora || '-'}EUR/h (desde {formatDate(t.fechaDesde)} hasta {formatDate(t.fechaHasta)})</span>
+                      <span>{conceptoLabels[t.concepto] || t.concepto}: Coste {t.costeHora || '-'} EUR/h | Factur. {t.precioFacturacion || '-'} EUR/h | x{t.factorConversion} (desde {formatDate(t.fechaDesde)} hasta {formatDate(t.fechaHasta)})</span>
                       <button onClick={() => handleDeleteTarifa(t.id)} className="text-red-400 hover:text-red-600">x</button>
                     </div>
                   ))}
