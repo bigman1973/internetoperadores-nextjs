@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const anio = parseInt(searchParams.get('anio') || new Date().getFullYear().toString())
+    const tipoInforme = searchParams.get('tipo') || 'interno' // 'interno' o 'cliente'
 
     const inicioAnio = new Date(anio, 0, 1)
     const finAnio = new Date(anio, 11, 31)
@@ -131,24 +132,32 @@ export async function GET(req: NextRequest) {
       }
     })
 
-    // Sugerencia de imputación
+    // Sugerencia de imputación: imputar al contrato con MENOR previsión fin año (más ajustado)
+    // Así absorbemos horas donde más las necesitamos para equilibrar balances
     const pendientes = ejecuciones.filter(e => e.totalImputado < e.horasDedicadas)
     const sugerencias: { fecha: string; horas: number; horasContrato: number; contrato: string; razon: string }[] = []
-    const balanceCopy = balanceContratos.map(c => ({ ...c, disponible: c.saldoActual }))
+    const balanceCopy = balanceContratos.map(c => ({ ...c, prevision: c.previsionFinAnio }))
     pendientes.forEach(e => {
       const horasPend = e.horasDedicadas - e.totalImputado
       const horasContr = horasPend * factorConversion
-      const mejor = balanceCopy.sort((a, b) => b.disponible - a.disponible)[0]
+      // Ordenar por previsión ASCENDENTE: primero el que tiene menor previsión (más ajustado/negativo)
+      const mejor = balanceCopy.sort((a, b) => a.prevision - b.prevision)[0]
       if (mejor) {
-        const razon = mejor.disponible > 0 ? `Saldo a favor: +${mejor.disponible}h` : `Menor deficit: ${mejor.disponible}h`
+        const razon = mejor.prevision < 0 ? `Prevision negativa: ${mejor.prevision}h` : `Prevision mas ajustada: +${mejor.prevision}h`
         sugerencias.push({ fecha: new Date(e.fecha).toLocaleDateString('es-ES'), horas: horasPend, horasContrato: horasContr, contrato: mejor.titulo, razon })
-        mejor.disponible -= horasContr
+        mejor.prevision -= horasContr
       }
     })
 
     const logoUrl = 'https://internetoperadores.com/wp-content/uploads/2023/01/logo-io-web.png'
     const fechaGeneracion = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' })
     const horaGeneracion = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+
+    // Si es informe para cliente, generar versión sin costes internos
+    if (tipoInforme === 'cliente') {
+      const htmlCliente = generarInformeCliente({ anio, ejecuciones, factorConversion, totalHorasReales, totalHorasContrato, horasPendientesReales, horasPendientesContrato, balanceContratos, sugerencias, logoUrl, fechaGeneracion, horaGeneracion, porMes })
+      return new NextResponse(htmlCliente, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
+    }
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -441,4 +450,198 @@ export async function GET(req: NextRequest) {
     console.error('Error informe actualizaciones:', error)
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+}
+
+function generarInformeCliente({ anio, ejecuciones, factorConversion, totalHorasReales, totalHorasContrato, horasPendientesReales, horasPendientesContrato, balanceContratos, sugerencias, logoUrl, fechaGeneracion, horaGeneracion, porMes }: any): string {
+  return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Informe Actualizaciones Programadas - Draxton ${anio}</title>
+<style>
+  * { box-sizing: border-box; }
+  @page { size: A4 portrait; margin: 0; }
+  @media print {
+    body { margin: 0; padding: 0; }
+    .page { page-break-after: always; page-break-inside: avoid; }
+    .page:last-child { page-break-after: auto; }
+    .no-print { display: none !important; }
+  }
+  body { font-family: 'Segoe UI', -apple-system, Arial, sans-serif; font-size: 10px; color: #1f2937; line-height: 1.5; margin: 0; padding: 0; background: #f3f4f6; }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 18mm 18mm 25mm 18mm;
+    position: relative;
+    background: white;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 2px solid #E87A2E;
+    margin-bottom: 20px;
+  }
+  .page-header img { height: 36px; object-fit: contain; }
+  .page-header-right { text-align: right; font-size: 9px; color: #6b7280; }
+  .page-footer {
+    position: absolute;
+    bottom: 12mm;
+    left: 18mm;
+    right: 18mm;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 8px;
+    color: #9ca3af;
+    border-top: 1px solid #e5e7eb;
+    padding-top: 8px;
+  }
+  h1 { font-size: 18px; font-weight: 800; color: #111827; margin: 0 0 4px 0; }
+  h2 { font-size: 12px; font-weight: 700; color: #374151; margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #f3f4f6; }
+  .subtitle { font-size: 11px; color: #6b7280; margin: 0; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
+  .kpi-box { padding: 12px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; text-align: center; }
+  .kpi-label { font-size: 7px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280; margin-bottom: 3px; }
+  .kpi-value { font-size: 18px; font-weight: 800; color: #1f2937; }
+  .kpi-sub { font-size: 8px; color: #9ca3af; margin-top: 2px; }
+  .kpi-orange .kpi-value { color: #E87A2E; }
+  .kpi-blue .kpi-value { color: #2563eb; }
+  table { width: 100%; border-collapse: collapse; font-size: 9px; margin-bottom: 14px; }
+  thead th { background: #1f2937; color: white; padding: 7px 8px; text-align: left; font-weight: 600; font-size: 8px; text-transform: uppercase; letter-spacing: 0.3px; }
+  thead th:first-child { border-radius: 4px 0 0 0; }
+  thead th:last-child { border-radius: 0 4px 0 0; }
+  tbody td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+  tbody tr:nth-child(even) { background: #fafafa; }
+  .text-right { text-align: right; }
+  .text-center { text-align: center; }
+  .font-bold { font-weight: 700; }
+  .text-blue { color: #2563eb; }
+  .text-orange { color: #E87A2E; }
+  .badge { display: inline-block; font-size: 7px; font-weight: 600; padding: 2px 6px; border-radius: 3px; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .factor-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 16px; }
+  .factor-value { font-size: 24px; font-weight: 800; color: #4338ca; }
+  .factor-text { font-size: 9px; color: #4338ca; line-height: 1.4; }
+  .highlight-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; padding: 14px; margin: 16px 0; }
+  .highlight-title { font-weight: 700; font-size: 10px; color: #3730a3; margin-bottom: 8px; }
+  .print-btn { position: fixed; top: 10px; right: 10px; background: #E87A2E; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; z-index: 100; }
+  .print-btn:hover { background: #d16a20; }
+</style>
+</head>
+<body>
+<button class="print-btn no-print" onclick="window.print()">Imprimir / Guardar PDF</button>
+
+<div class="page">
+  <div class="page-header">
+    <img src="${logoUrl}" alt="Internet Operadores" />
+    <div class="page-header-right">
+      <strong>INTERNET OPERADORES S.L.</strong><br/>
+      Informe de Actualizaciones Programadas<br/>
+      ${fechaGeneracion}
+    </div>
+  </div>
+
+  <h1>Actualizaciones Programadas Draxton</h1>
+  <p class="subtitle">Resumen de intervenciones de mantenimiento preventivo y actualizaciones de seguridad - ${anio}</p>
+
+  <!-- Factor de conversión -->
+  <div class="factor-box">
+    <div class="factor-value">x${factorConversion}</div>
+    <div class="factor-text">
+      <strong>Factor de conversion aplicado</strong><br/>
+      1 hora de actualizacion programada (fin de semana) equivale a ${factorConversion} horas de contrato
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid">
+    <div class="kpi-box kpi-orange">
+      <div class="kpi-label">Horas realizadas</div>
+      <div class="kpi-value">${totalHorasReales.toFixed(1)}h</div>
+      <div class="kpi-sub">Intervenciones fin de semana</div>
+    </div>
+    <div class="kpi-box kpi-blue">
+      <div class="kpi-label">Horas equivalentes contrato</div>
+      <div class="kpi-value">${totalHorasContrato.toFixed(0)}h</div>
+      <div class="kpi-sub">Aplicando factor x${factorConversion}</div>
+    </div>
+    <div class="kpi-box">
+      <div class="kpi-label">Intervenciones</div>
+      <div class="kpi-value">${ejecuciones.length}</div>
+      <div class="kpi-sub">Periodo ${anio}</div>
+    </div>
+  </div>
+
+  <!-- Resumen mensual -->
+  <h2>Resumen Mensual de Intervenciones</h2>
+  <table>
+    <thead><tr><th>Mes</th><th class="text-center">Intervenciones</th><th class="text-right">Horas realizadas</th><th class="text-right">Horas equivalentes contrato</th></tr></thead>
+    <tbody>
+      ${Object.entries(porMes).map(([mes, d]: [string, any]) => `<tr>
+        <td class="font-bold">${mes.charAt(0).toUpperCase() + mes.slice(1)}</td>
+        <td class="text-center">${d.count}</td>
+        <td class="text-right">${d.horas.toFixed(1)}h</td>
+        <td class="text-right font-bold text-blue">${d.horasContrato.toFixed(0)}h</td>
+      </tr>`).join('')}
+      <tr style="border-top: 2px solid #1f2937; font-weight: 700;">
+        <td>TOTAL</td>
+        <td class="text-center">${ejecuciones.length}</td>
+        <td class="text-right">${totalHorasReales.toFixed(1)}h</td>
+        <td class="text-right text-blue">${totalHorasContrato.toFixed(0)}h</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- Detalle de intervenciones -->
+  <h2>Detalle de Intervenciones Realizadas</h2>
+  <table>
+    <thead><tr><th>Fecha</th><th class="text-right">Horas</th><th class="text-right">H. equiv. contrato</th><th>Tipo</th><th>Descripcion</th></tr></thead>
+    <tbody>
+      ${ejecuciones.map((e: any) => {
+        const horasContr = e.horasDedicadas * factorConversion
+        return `<tr>
+          <td>${new Date(e.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+          <td class="text-right font-bold">${e.horasDedicadas}h</td>
+          <td class="text-right font-bold text-blue">${horasContr}h</td>
+          <td><span class="badge badge-blue">${e.tipo}</span></td>
+          <td style="max-width: 220px;">${e.descripcion || e.planificacion?.titulo || 'Actualizaciones programadas'}</td>
+        </tr>`
+      }).join('')}
+    </tbody>
+  </table>
+
+  <!-- Propuesta de imputación -->
+  <div class="highlight-box">
+    <div class="highlight-title">Propuesta de Imputacion a Contratos de Servicio</div>
+    <p style="font-size: 9px; color: #3730a3; margin: 0 0 10px 0;">
+      Las ${totalHorasReales.toFixed(1)} horas de actualizaciones realizadas equivalen a <strong>${totalHorasContrato.toFixed(0)} horas de contrato</strong> (factor x${factorConversion}).
+      Se propone imputar estas horas a los contratos de servicio vigentes de la siguiente manera:
+    </p>
+    <table>
+      <thead><tr><th>Contrato de servicio</th><th class="text-right">Horas equiv. a imputar</th></tr></thead>
+      <tbody>
+        ${sugerencias.length > 0 ? sugerencias.map((s: any) => `<tr>
+          <td class="font-bold">${s.contrato}</td>
+          <td class="text-right font-bold text-blue">${s.horasContrato.toFixed(0)}h</td>
+        </tr>`).join('') : `<tr><td colspan="2" class="text-center" style="color: #6b7280;">Todas las horas ya estan imputadas</td></tr>`}
+        ${sugerencias.length > 0 ? `<tr style="border-top: 2px solid #1f2937; font-weight: 700;">
+          <td>TOTAL</td>
+          <td class="text-right text-blue">${horasPendientesContrato.toFixed(0)}h</td>
+        </tr>` : ''}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="page-footer">
+    <span>Internet Operadores S.L. - ${fechaGeneracion} ${horaGeneracion}</span>
+    <span>Informe de Actualizaciones Programadas ${anio}</span>
+  </div>
+</div>
+
+</body>
+</html>`
 }

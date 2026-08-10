@@ -194,6 +194,7 @@ export default function ActualizacionesPage() {
   }
 
   const handleInforme = () => { window.open(`/api/admin/clientes/ggcc/draxton/actualizaciones/informe?anio=${anio}`, '_blank') }
+  const handleInformeCliente = () => { window.open(`/api/admin/clientes/ggcc/draxton/actualizaciones/informe?anio=${anio}&tipo=cliente`, '_blank') }
 
   const formatDate = (d: string | null) => d ? new Date(d).toLocaleDateString('es-ES') : '-'
   const prioridadColor: Record<string, string> = { urgente: 'bg-red-100 text-red-700', alta: 'bg-orange-100 text-orange-700', normal: 'bg-blue-100 text-blue-700', baja: 'bg-gray-100 text-gray-600' }
@@ -228,7 +229,8 @@ export default function ActualizacionesPage() {
           <p className="text-sm text-gray-500">Planificacion, ejecucion e imputacion de horas a contratos</p>
         </div>
         <div className="flex gap-2 items-center">
-          <button onClick={handleInforme} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Informe</button>
+          <button onClick={handleInforme} className="px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700">Informe Interno</button>
+          <button onClick={handleInformeCliente} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700">Informe Cliente</button>
           <select value={anio} onChange={e => setAnio(parseInt(e.target.value))} className="border rounded px-3 py-1.5 text-sm text-gray-900">
             {[2023, 2024, 2025, 2026].map(a => <option key={a} value={a}>{a}</option>)}
           </select>
