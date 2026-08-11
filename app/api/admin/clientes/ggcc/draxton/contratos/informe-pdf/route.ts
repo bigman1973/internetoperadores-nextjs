@@ -177,7 +177,7 @@ export async function GET(req: NextRequest) {
       totalCostes += costeTotal;
       totalMargen += margen;
 
-      return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato: personalActivo, balanceHoras };
+      return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato, personalActivo, balanceHoras };
     }));
 
     // Calcular personas sobreasignadas (>100% dedicación total)
@@ -678,11 +678,15 @@ function generarHTMLCliente(contratos: any[], fecha: string, logoUrl: string, pr
 
     const personalHtml = c.personalDelContrato.length > 0 ? `
       <table class="sub-table">
-        <thead><tr><th>Recurso asignado</th><th style="text-align:center;">Nivel técnico</th><th style="text-align:center;">Dedicación</th><th>Rol / Función</th></tr></thead>
+        <thead><tr><th>Recurso asignado</th><th style="text-align:center;">Nivel técnico</th><th style="text-align:center;">Dedicación</th><th>Rol / Función</th><th style="text-align:center;">Período</th></tr></thead>
         <tbody>
-          ${c.personalDelContrato.map((p: any) => `
-            <tr><td>${p.empleado?.nombreCompleto || '—'}</td><td style="text-align:center;">Nivel ${p.nivelTecnico || 1}</td><td style="text-align:center;">${p.porcentajeDedicacion}%</td><td>${p.rol || '—'}</td></tr>
-          `).join('')}
+          ${c.personalDelContrato.map((p: any) => {
+            const hoy = new Date();
+            const estaActivo = p.activo && (!p.fechaFin || new Date(p.fechaFin) >= hoy);
+            const periodo = estaActivo ? '<span style="color:#059669;font-weight:600;">Activo</span>' : `${formatDate(p.fechaInicio)} - ${formatDate(p.fechaFin)}`;
+            const estilo = estaActivo ? '' : 'opacity:0.7;';
+            return `<tr style="${estilo}"><td>${p.empleado?.nombreCompleto || '\u2014'}</td><td style="text-align:center;">Nivel ${p.nivelTecnico || 1}</td><td style="text-align:center;">${p.porcentajeDedicacion}%</td><td>${p.rol || '\u2014'}</td><td style="text-align:center;font-size:9px;">${periodo}</td></tr>`;
+          }).join('')}
         </tbody>
       </table>
     ` : '';
