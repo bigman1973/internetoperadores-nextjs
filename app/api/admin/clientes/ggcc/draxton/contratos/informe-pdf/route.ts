@@ -27,8 +27,8 @@ export async function GET(req: NextRequest) {
       },
     });
 
+    // Obtener TODO el personal (activo e inactivo) para calcular balance histórico del año
     const personalAsignadoRaw = await prisma.personalContratoDraxton.findMany({
-      where: { activo: true },
       include: {
         empleado: {
           select: {
@@ -93,7 +93,8 @@ export async function GET(req: NextRequest) {
       const mensual = Number(c.importeMensual) || 0;
       const costeProveedores = c.contratosProveedor.reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
       const personalDelContrato = personalAsignado.filter(p => p.contratoDraxtonId === c.id);
-      const costePersonal = personalDelContrato.reduce((s, p) => s + (Number(p.costeMensualImputado) || 0), 0);
+      const personalActivo = personalDelContrato.filter(p => p.activo);
+      const costePersonal = personalActivo.reduce((s, p) => s + (Number(p.costeMensualImputado) || 0), 0);
       const costeTotal = costeProveedores + costePersonal;
       const margen = mensual - costeTotal;
       const margenPct = mensual > 0 ? ((margen / mensual) * 100).toFixed(1) : '0';
@@ -102,12 +103,55 @@ export async function GET(req: NextRequest) {
       let actualizacionesInfo = null;
       if (c.modalidadContrato === 'horas' && c.horasContratadas) {
         const nivelContratado = c.nivelContratado || 1;
-        let horasConsumidas = 0;
-        personalDelContrato.forEach(p => {
-          const nivel = p.nivelTecnico || 1;
-          const horasBase = 128.67 * ((p.porcentajeDedicacion || 0) / 100);
-          horasConsumidas += horasBase * (nivel / nivelContratado);
-        });
+        const HORAS_NETAS_MES = 128.67;
+        const mesActual = new Date().getMonth() + 1;
+        const anioActual = new Date().getFullYear();
+        let saldoAcumulado = 0;
+        
+        // Calcular mes a mes desde enero hasta mes actual
+        for (let m = 1; m <= mesActual; m++) {
+          let horasEquivMes = 0;
+          // Contar días laborables del mes
+          let diasLab = 0;
+          const diasEnMes = new Date(anioActual, m, 0).getDate();
+          for (let d = 1; d <= diasEnMes; d++) {
+            const day = new Date(anioActual, m - 1, d).getDay();
+            if (day !== 0 && day !== 6) diasLab++;
+          }
+          
+          for (const p of personalDelContrato) {
+            const fechaInicioAsig = p.fechaInicio ? new Date(p.fechaInicio) : null;
+            const fechaFinAsig = p.fechaFin ? new Date(p.fechaFin) : null;
+            
+            // Calcular días activos en este mes
+            const primerDiaMes = new Date(anioActual, m - 1, 1);
+            const ultimoDiaMes = new Date(anioActual, m, 0);
+            let inicio = primerDiaMes;
+            let fin = ultimoDiaMes;
+            if (fechaInicioAsig && fechaInicioAsig > primerDiaMes) inicio = fechaInicioAsig;
+            if (fechaFinAsig && fechaFinAsig < ultimoDiaMes) fin = fechaFinAsig;
+            
+            let diasActivos = 0;
+            if (fin >= inicio) {
+              const current = new Date(inicio);
+              while (current <= fin) {
+                const day = current.getDay();
+                if (day !== 0 && day !== 6) diasActivos++;
+                current.setDate(current.getDate() + 1);
+              }
+            }
+            
+            const proporcion = diasLab > 0 ? diasActivos / diasLab : 0;
+            const horasBase = HORAS_NETAS_MES * ((p.porcentajeDedicacion || 0) / 100) * proporcion;
+            const multiplicador = (p.nivelTecnico || 1) / nivelContratado;
+            horasEquivMes += horasBase * multiplicador;
+          }
+          
+          saldoAcumulado += (horasEquivMes - c.horasContratadas);
+        }
+        
+        const horasConsumidas = c.horasContratadas * mesActual - saldoAcumulado; // horas que faltan por cubrir
+        // saldoAcumulado ya es el balance real (positivo = a favor, negativo = debemos)
         // Obtener actualizaciones imputadas a este contrato
         const imputActualiz = await prisma.actualizacionImputacion.findMany({
           where: { contratoId: c.id },
@@ -121,9 +165,9 @@ export async function GET(req: NextRequest) {
           actualizacionesInfo = { totalHoras: totalHorasActualiz, totalHorasEquiv: Math.round(totalHorasEquiv * 10) / 10, factor };
         }
         balanceHoras = {
-          contratadas: c.horasContratadas,
-          consumidas: horasConsumidas,
-          balance: c.horasContratadas - horasConsumidas,
+          contratadas: c.horasContratadas * mesActual, // total comprometidas hasta hoy
+          consumidas: Math.round((c.horasContratadas * mesActual + saldoAcumulado) * 10) / 10, // horas equiv cubiertas
+          balance: Math.round(saldoAcumulado * 10) / 10, // saldo real (+ = a favor, - = debemos)
           actualizaciones: actualizacionesInfo,
         };
       }
@@ -132,7 +176,7 @@ export async function GET(req: NextRequest) {
       totalCostes += costeTotal;
       totalMargen += margen;
 
-      return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato, balanceHoras };
+      return { ...c, mensual, costeProveedores, costePersonal, costeTotal, margen, margenPct, personalDelContrato: personalActivo, balanceHoras };
     }));
 
     // Calcular personas sobreasignadas (>100% dedicación total)
