@@ -93,7 +93,8 @@ export async function GET(req: NextRequest) {
       const mensual = Number(c.importeMensual) || 0;
       const costeProveedores = c.contratosProveedor.reduce((s, p) => s + (Number(p.importeMensual) || 0), 0);
       const personalDelContrato = personalAsignado.filter(p => p.contratoDraxtonId === c.id);
-      const personalActivo = personalDelContrato.filter(p => p.activo);
+      const hoy = new Date();
+      const personalActivo = personalDelContrato.filter(p => p.activo && (!p.fechaFin || new Date(p.fechaFin) >= hoy));
       const costePersonal = personalActivo.reduce((s, p) => s + (Number(p.costeMensualImputado) || 0), 0);
       const costeTotal = costeProveedores + costePersonal;
       const margen = mensual - costeTotal;
