@@ -103,6 +103,20 @@ export default function LeadsPageClient() {
     fetchLeads();
   }, [fetchLeads]);
 
+  const handleDeleteLead = async (id: string, nombre: string) => {
+    if (!confirm(`¿Eliminar el lead "${nombre}"? Esta accion no se puede deshacer.`)) return;
+    try {
+      const res = await fetch(`/api/admin/leads/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        fetchLeads();
+      } else {
+        alert('Error al eliminar el lead');
+      }
+    } catch {
+      alert('Error de conexion');
+    }
+  };
+
   const totalLeads = stats.reduce((sum, s) => sum + s._count.id, 0);
   const nuevos = stats.find(s => s.estado === 'NUEVO')?._count.id || 0;
   const enProceso = stats.filter(s => !['NUEVO', 'CERRADO_GANADO', 'CERRADO_PERDIDO'].includes(s.estado))
@@ -250,12 +264,21 @@ export default function LeadsPageClient() {
                       {new Date(lead.createdAt).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}
                     </td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/leads/${lead.id}`}
-                        className="text-orange-600 hover:text-orange-700 text-sm font-medium"
-                      >
-                        Ver detalle →
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          href={`/admin/leads/${lead.id}`}
+                          className="text-orange-600 hover:text-orange-700 text-sm font-medium"
+                        >
+                          Ver detalle →
+                        </Link>
+                        <button
+                          onClick={() => handleDeleteLead(lead.id, lead.empresa || lead.nombre)}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                          title="Eliminar lead"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
