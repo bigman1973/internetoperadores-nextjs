@@ -102,6 +102,7 @@ const navigation: NavEntry[] = [
       { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon, section: 'clientes.todos' },
       { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon, section: 'clientes.migracion_adamo' },
       { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon, section: 'clientes.ggcc.draxton' },
+      { name: 'GGCC - Exagrid', href: '/admin/clientes/ggcc/exagrid', icon: BuildingOffice2Icon, section: 'clientes.ggcc.exagrid' },
     ],
   },
   {

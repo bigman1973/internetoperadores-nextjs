@@ -1351,6 +1351,8 @@ model FacturaEmitida {
   // Vinculación con proyecto singular
   proyectoSingularId String? @map("proyecto_singular_id")
   proyectoSingular   ProyectoContratoDraxton? @relation(fields: [proyectoSingularId], references: [id])
+  // Vinculación con Exagrid
+  exagridProyecto    ExagridProyecto?
   @@index([cliente])
   @@index([estado])
   @@index([fecha])
@@ -2657,4 +2659,29 @@ model ActualizacionTarifaConversion {
   createdAt         DateTime @default(now()) @map("created_at")
   @@index([concepto, fechaDesde])
   @@map("actualizaciones_tarifas_conversion")
+}
+
+
+// ===== GGCC EXAGRID =====
+
+model ExagridProyecto {
+  id              String   @id @default(uuid())
+  facturaId       String   @unique @map("factura_id")
+  factura         FacturaEmitida @relation(fields: [facturaId], references: [id])
+  nombreProyecto  String   @map("nombre_proyecto")
+  descripcion     String?
+  costeProveedor  Float?   @map("coste_proveedor") // coste de compra/proveedor (base imponible)
+  otrosCostes     Float?   @default(0) @map("otros_costes") // otros costes asociados
+  notasCostes     String?  @map("notas_costes")
+  estadoCobro     String   @default("pendiente") @map("estado_cobro") // pendiente, parcial, cobrado
+  importeCobrado  Float?   @default(0) @map("importe_cobrado")
+  fechaCobro      DateTime? @map("fecha_cobro") @db.Date
+  estadoPago      String   @default("pendiente") @map("estado_pago") // pendiente, pagado
+  importePagado   Float?   @default(0) @map("importe_pagado") // lo que hemos pagado al proveedor
+  fechaPago       DateTime? @map("fecha_pago") @db.Date
+  notas           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  @@index([facturaId])
+  @@map("exagrid_proyectos")
 }
