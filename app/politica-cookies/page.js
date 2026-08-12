@@ -103,7 +103,7 @@ export default function PoliticaCookies() {
             </p>
             <ul className="list-none text-gray-700 space-y-2 mb-4">
               <li>📧 Email: <a href="mailto:david.perez@internetoperadores.com" className="text-orange-500 hover:text-orange-600">david.perez@internetoperadores.com</a></li>
-              <li>📞 Teléfono: <a href="tel:+34655100400" className="text-orange-500 hover:text-orange-600">+34 655 100 400</a></li>
+              <li>📞 Teléfono: <a href="tel:+34900730034" className="text-orange-500 hover:text-orange-600">+34 900 730 034</a></li>
             </ul>
           </section>
         </div>

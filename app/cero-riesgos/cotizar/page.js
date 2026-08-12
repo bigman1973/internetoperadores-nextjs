@@ -179,7 +179,7 @@ export default function CotizarCeroRiesgos() {
             ← Volver al inicio
           </Link>
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20necesito%20ayuda%20con%20la%20cotización" 
+            href="https://wa.me/34900730034?text=Hola,%20necesito%20ayuda%20con%20la%20cotización" 
             className="bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold"
             target="_blank"
             rel="noopener noreferrer"

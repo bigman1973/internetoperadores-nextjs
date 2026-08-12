@@ -22,7 +22,7 @@ export default function Home() {
               <span className="hidden lg:inline text-sm">Paseo De La Habana 26 1-1. 28036, Madrid. España</span>
             </div>
             <a 
-              href="https://wa.me/34655100400?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
+              href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
               className="bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold text-center"
               target="_blank"
               rel="noopener noreferrer"
@@ -280,7 +280,7 @@ export default function Home() {
             Auditamos, monitorizamos y reforzamos tu entorno digital antes de que ocurra un incidente. Así conviertes la seguridad en una ventaja competitiva, no en una reacción de emergencia.
           </p>
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20quiero%20proteger%20mi%20empresa"
+            href="https://wa.me/34900730034?text=Hola,%20quiero%20proteger%20mi%20empresa"
             className="inline-block bg-white text-orange-500 px-6 md:px-8 py-3 md:py-4 rounded text-base md:text-lg font-bold hover:bg-gray-100"
             target="_blank"
             rel="noopener noreferrer"
@@ -316,7 +316,7 @@ export default function Home() {
                 </p>
                 <div className="text-3xl md:text-4xl font-bold text-orange-500 mb-4">€790 <span className="text-base md:text-lg">anual</span></div>
                 <a 
-                  href="https://wa.me/34655100400?text=Hola,%20quiero%20contratar%20el%20Informe%20Cero%20Riesgos%20por%20790€"
+                  href="https://wa.me/34900730034?text=Hola,%20quiero%20contratar%20el%20Informe%20Cero%20Riesgos%20por%20790€"
                   className="inline-block bg-orange-500 text-white px-6 py-3 rounded font-semibold hover:bg-orange-600 w-full md:w-auto text-center"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -429,7 +429,7 @@ export default function Home() {
                 Cuando te conocemos, sabemos cómo ayudarte de verdad. Empieza contándonos algo de ti
               </p>
               <a 
-                href="https://wa.me/34655100400?text=Hola,%20quiero%20conocer%20más%20sobre%20Internet%20Operadores"
+                href="https://wa.me/34900730034?text=Hola,%20quiero%20conocer%20más%20sobre%20Internet%20Operadores"
                 className="inline-block bg-orange-500 text-white px-6 md:px-8 py-3 md:py-4 rounded text-base md:text-lg font-bold hover:bg-orange-600"
                 target="_blank"
                 rel="noopener noreferrer"

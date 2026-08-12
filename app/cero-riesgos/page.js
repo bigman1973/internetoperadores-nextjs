@@ -105,7 +105,7 @@ export default function Home() {
                 En menos de 12 horas nos pondremos en contacto contigo para agendar la reunión. Durante esa llamada te explicaremos todo el proceso y resolveremos tus dudas. Y en un máximo de 48 horas recibirás un informe claro con el análisis completo y las recomendaciones para tu despacho.
               </p>
               <a 
-                href="https://wa.me/34655100400?text=Hola,%20quiero%20proteger%20mi%20empresa%20con%20el%20servicio%20Cero%20Riesgos" 
+                href="https://wa.me/34900730034?text=Hola,%20quiero%20proteger%20mi%20empresa%20con%20el%20servicio%20Cero%20Riesgos" 
                 className="inline-block bg-orange-500 text-white px-8 py-4 rounded text-lg font-bold hover:bg-orange-600"
                 target="_blank"
                 rel="noopener noreferrer"
@@ -309,7 +309,7 @@ export default function Home() {
             Solicita tu informe técnico por 790 €. En 48 horas sabrás dónde estás y qué debes mejorar.
           </p>
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20quiero%20reservar%20el%20servicio%20Cero%20Riesgos%20por%20790€.%20¿Cuándo%20podemos%20hablar?" 
+            href="https://wa.me/34900730034?text=Hola,%20quiero%20reservar%20el%20servicio%20Cero%20Riesgos%20por%20790€.%20¿Cuándo%20podemos%20hablar?" 
             className="inline-block bg-white text-orange-500 px-10 py-4 rounded text-xl font-bold hover:bg-gray-100"
             target="_blank"
             rel="noopener noreferrer"

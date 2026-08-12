@@ -127,7 +127,7 @@ export default function Fansaticos() {
             Deja de vivir con la incertidumbre. Descubre exactamente qué riesgos tienes y cómo eliminarlos.
           </p>
           <a 
-            href="https://wa.me/34655100400?text=Hola,%20quiero%20destruir%20mis%20miedos%20IT%20con%20el%20servicio%20Cero%20Riesgos" 
+            href="https://wa.me/34900730034?text=Hola,%20quiero%20destruir%20mis%20miedos%20IT%20con%20el%20servicio%20Cero%20Riesgos" 
             className="inline-block bg-orange-500 text-white px-10 py-4 rounded text-xl font-bold hover:bg-orange-600"
             target="_blank"
             rel="noopener noreferrer"
