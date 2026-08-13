@@ -337,13 +337,27 @@ export default function ExagridFinanzasPage() {
                 );
               })}
             </tbody>
-            <tfoot className="bg-gray-50 border-t">
-              <tr className="font-semibold">
-                <td className="px-3 py-2" colSpan={3}>TOTAL</td>
-                <td className="px-3 py-2 text-right">{kpis ? fmt(kpis.totalFacturado) : '-'}</td>
-                <td className="px-3 py-2 text-right text-red-600">{kpis ? fmt(kpis.totalCoste) : '-'}</td>
-                <td className="px-3 py-2 text-right text-green-600">{kpis ? `${kpis.margenTotal}%` : '-'}</td>
-                <td className="px-3 py-2" colSpan={3}></td>
+            <tfoot className="bg-gray-100 border-t-2 border-gray-300">
+              <tr className="font-bold text-sm">
+                <td className="px-3 py-3">TOTAL</td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3"></td>
+                <td className="px-3 py-3 text-right text-gray-900">{kpis ? fmt(kpis.totalFacturado) : '-'} EUR</td>
+                <td className="px-3 py-3 text-right text-red-600">{kpis ? fmt(kpis.totalCoste) : '-'} EUR</td>
+                <td className="px-3 py-3 text-right text-emerald-700">{kpis ? `${kpis.margenTotal}%` : '-'}</td>
+                <td className="px-3 py-3 text-right text-green-700">{kpis ? fmt(kpis.margenAbsoluto) : '-'} EUR</td>
+                <td className="px-3 py-3 text-center text-xs">
+                  {kpis && kpis.totalPendienteCobro > 0 ? (
+                    <span className="text-red-600">Pdte: {fmt(kpis.totalPendienteCobro)}</span>
+                  ) : <span className="text-green-600">Todo cobrado</span>}
+                </td>
+                <td className="px-3 py-3 text-center text-xs">
+                  {kpis && kpis.totalPendientePago > 0 ? (
+                    <span className="text-orange-600">Pdte: {fmt(kpis.totalPendientePago)}</span>
+                  ) : <span className="text-green-600">Todo pagado</span>}
+                </td>
+                <td className="px-3 py-3"></td>
               </tr>
             </tfoot>
           </table>
