@@ -872,7 +872,7 @@ export default function UsuariosAdminClient() {
                       value={perfilForm.nombre}
                       onChange={e => setPerfilForm({ ...perfilForm, nombre: e.target.value })}
                       placeholder="Ej: Técnico Draxton"
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
                     />
                   </div>
                   <div>
@@ -882,7 +882,7 @@ export default function UsuariosAdminClient() {
                       value={perfilForm.descripcion}
                       onChange={e => setPerfilForm({ ...perfilForm, descripcion: e.target.value })}
                       placeholder="Ej: Acceso a GGCC Draxton y personal"
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
                     />
                   </div>
                   <div>
