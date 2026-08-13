@@ -2670,6 +2670,7 @@ model ExagridProyecto {
   factura         FacturaEmitida @relation(fields: [facturaId], references: [id])
   nombreProyecto  String   @map("nombre_proyecto")
   proveedor       String?
+  archivoFactura  String?  @map("archivo_factura")
   descripcion     String?
   costeProveedor  Float?   @map("coste_proveedor") // coste de compra/proveedor (base imponible)
   otrosCostes     Float?   @default(0) @map("otros_costes") // otros costes asociados

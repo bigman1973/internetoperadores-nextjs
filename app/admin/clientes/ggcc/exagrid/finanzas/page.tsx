@@ -5,6 +5,7 @@ interface Proyecto {
   id: string;
   nombreProyecto: string;
   proveedor: string | null;
+  archivoFactura: string | null;
   descripcion: string | null;
   costeProveedor: number;
   otrosCostes: number;
@@ -152,6 +153,27 @@ export default function ExagridFinanzasPage() {
     }
   };
 
+  const handleUploadFactura = async (f: Factura, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !f.proyecto) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('proyectoId', f.proyecto.id);
+      const res = await fetch('/api/admin/clientes/ggcc/exagrid/finanzas', {
+        method: 'PUT',
+        body: formData,
+      });
+      if (res.ok) {
+        fetchData();
+      } else {
+        alert('Error al subir el archivo');
+      }
+    } catch {
+      alert('Error al subir el archivo');
+    }
+  };
+
   const getMargen = (f: Factura) => {
     if (!f.proyecto || !f.proyecto.costeProveedor) return null;
     const costeTotal = f.proyecto.costeProveedor + f.proyecto.otrosCostes;
@@ -208,11 +230,13 @@ export default function ExagridFinanzasPage() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Factura</th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Proyecto</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Cliente</th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600">Fecha</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Base Imp.</th>
                 <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Coste</th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Margen</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Margen %</th>
+                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600">Margen EUR</th>
                 <th className="px-3 py-2 text-center text-xs font-semibold text-gray-600">Cobro</th>
                 <th className="px-3 py-2 text-center text-xs font-semibold text-gray-600">Pago prov.</th>
                 <th className="px-3 py-2 text-center text-xs font-semibold text-gray-600">Acciones</th>
@@ -225,6 +249,9 @@ export default function ExagridFinanzasPage() {
                 return (
                   <tr key={f.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 font-medium text-gray-900">{f.numFactura}</td>
+                    <td className="px-3 py-2 text-gray-700 text-xs max-w-[200px] truncate" title={f.proyecto?.nombreProyecto || '-'}>
+                      {f.proyecto?.nombreProyecto || <span className="text-gray-300">-</span>}
+                    </td>
                     <td className="px-3 py-2 text-gray-600 text-xs">
                       {f.cliente.includes('VALLEY') ? 'V-Valley' : 'Arrow'}
                     </td>
@@ -239,6 +266,13 @@ export default function ExagridFinanzasPage() {
                       {margen !== null ? (
                         <span className={`font-medium ${margen >= 20 ? 'text-green-600' : margen >= 10 ? 'text-yellow-600' : 'text-red-600'}`}>
                           {margen.toFixed(1)}%
+                        </span>
+                      ) : <span className="text-gray-300">-</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {f.proyecto ? (
+                        <span className="font-semibold text-green-700">
+                          {fmt(f.base - costeTotal)}
                         </span>
                       ) : <span className="text-gray-300">-</span>}
                     </td>
@@ -270,16 +304,26 @@ export default function ExagridFinanzasPage() {
                     </td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-2">
-                        {f.idExterno && (
+                        {f.proyecto?.archivoFactura ? (
                           <a
-                            href={`/api/admin/finanzas/facturas/${f.id}/pdf`}
+                            href={f.proyecto.archivoFactura}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                            title="Ver factura PDF"
+                            className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            title="Ver factura subida"
                           >
-                            PDF
+                            Ver PDF
                           </a>
+                        ) : (
+                          <label className="text-xs text-blue-600 hover:text-blue-800 cursor-pointer" title="Subir factura PDF">
+                            Subir
+                            <input
+                              type="file"
+                              accept=".pdf"
+                              className="hidden"
+                              onChange={(e) => handleUploadFactura(f, e)}
+                            />
+                          </label>
                         )}
                         <button
                           onClick={() => handleEditProyecto(f)}

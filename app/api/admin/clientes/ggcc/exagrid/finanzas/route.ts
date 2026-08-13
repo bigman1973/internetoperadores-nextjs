@@ -52,6 +52,7 @@ export async function GET() {
           id: f.exagridProyecto.id,
           nombreProyecto: f.exagridProyecto.nombreProyecto,
           proveedor: f.exagridProyecto.proveedor,
+          archivoFactura: f.exagridProyecto.archivoFactura,
           descripcion: f.exagridProyecto.descripcion,
           costeProveedor: Number(f.exagridProyecto.costeProveedor || 0),
           otrosCostes: Number(f.exagridProyecto.otrosCostes || 0),
@@ -141,6 +142,34 @@ export async function POST(request: NextRequest) {
     }
   } catch (error: unknown) {
     console.error('Error en Exagrid finanzas POST:', error);
+    return NextResponse.json({ error: 'Error interno' }, { status: 500 });
+  }
+}
+
+export async function PUT(request: NextRequest) {
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file') as File;
+    const proyectoId = formData.get('proyectoId') as string;
+
+    if (!file || !proyectoId) {
+      return NextResponse.json({ error: 'Faltan datos' }, { status: 400 });
+    }
+
+    // Convertir a base64 data URL para almacenar (archivos pequeños)
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
+    const base64 = buffer.toString('base64');
+    const dataUrl = `data:${file.type};base64,${base64}`;
+
+    await prisma.exagridProyecto.update({
+      where: { id: proyectoId },
+      data: { archivoFactura: dataUrl },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    console.error('Error subiendo factura Exagrid:', error);
     return NextResponse.json({ error: 'Error interno' }, { status: 500 });
   }
 }
