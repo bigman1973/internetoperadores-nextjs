@@ -140,6 +140,22 @@ export default function DaxtonFinanzasPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => window.open(`/api/admin/clientes/ggcc/draxton/finanzas/informe?anio=${year}&tipo=interno`, '_blank')}
+            className="px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-1"
+            title="Informe financiero interno con KPIs, facturacion mensual, desglose por sociedad y control de cobros"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            Informe Interno
+          </button>
+          <button
+            onClick={() => window.open(`/api/admin/clientes/ggcc/draxton/finanzas/informe?anio=${year}&tipo=cliente`, '_blank')}
+            className="px-3 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 flex items-center gap-1"
+            title="Informe financiero para el cliente con facturacion mensual y desglose por sociedad"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+            Informe Cliente
+          </button>
+          <button
             onClick={() => setYear(y => y - 1)}
             className="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
           >
