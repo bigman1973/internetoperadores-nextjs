@@ -306,7 +306,7 @@ export default function ExagridFinanzasPage() {
                       <div className="flex items-center justify-center gap-2">
                         {f.proyecto?.archivoFactura ? (
                           <a
-                            href={f.proyecto.archivoFactura}
+                            href={`/api/admin/clientes/ggcc/exagrid/finanzas/pdf?id=${f.proyecto.id}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-blue-600 hover:text-blue-800 font-medium"
