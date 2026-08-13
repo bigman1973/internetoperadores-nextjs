@@ -65,6 +65,7 @@ export default function UsuariosAdminClient() {
   // Perfiles editor state
   const [showPerfilModal, setShowPerfilModal] = useState(false);
   const [editingPerfil, setEditingPerfil] = useState<Perfil | null>(null);
+  const [expandedPerfilAreas, setExpandedPerfilAreas] = useState<Set<string>>(new Set());
   const [perfilForm, setPerfilForm] = useState({
     nombre: '',
     descripcion: '',
@@ -932,10 +933,25 @@ export default function UsuariosAdminClient() {
                             {area.nombre.charAt(0)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <span className="text-sm font-semibold text-gray-900">{area.nombre}</span>
-                            {hijos.length > 0 && (
-                              <span className="ml-2 text-[10px] text-gray-400">({hijos.length} sub)</span>
-                            )}
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-gray-900">{area.nombre}</span>
+                              {hijos.length > 0 && (
+                                <button
+                                  onClick={() => setExpandedPerfilAreas(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(area.codigo)) next.delete(area.codigo);
+                                    else next.add(area.codigo);
+                                    return next;
+                                  })}
+                                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                                >
+                                  <svg className={`w-3 h-3 transition-transform ${expandedPerfilAreas.has(area.codigo) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                  </svg>
+                                  {hijos.length} sub
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="flex items-center gap-3">
                             {/* Toggle Ver */}
@@ -993,7 +1009,7 @@ export default function UsuariosAdminClient() {
                           </div>
                         </div>
                         {/* Hijos */}
-                        {hijos.length > 0 && hasAccess && (
+                        {hijos.length > 0 && expandedPerfilAreas.has(area.codigo) && (
                           <div className="px-4 pb-3 pt-0">
                             <div className="ml-11 space-y-1">
                               {hijos.map(hijo => {
