@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 interface Proyecto {
   id: string;
   nombreProyecto: string;
+  proveedor: string | null;
   descripcion: string | null;
   costeProveedor: number;
   otrosCostes: number;
@@ -27,6 +28,8 @@ interface Factura {
   importeCobrado: number;
   estado: string;
   concepto: string | null;
+  idExterno: string | null;
+  serie: string | null;
   proyecto: Proyecto | null;
 }
 
@@ -52,6 +55,7 @@ export default function ExagridFinanzasPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombreProyecto: '',
+    proveedor: 'Consultoria Exagrid',
     descripcion: '',
     costeProveedor: '',
     otrosCostes: '',
@@ -87,6 +91,7 @@ export default function ExagridFinanzasPage() {
     if (f.proyecto) {
       setForm({
         nombreProyecto: f.proyecto.nombreProyecto,
+        proveedor: f.proyecto.proveedor || 'Consultoria Exagrid',
         descripcion: f.proyecto.descripcion || '',
         costeProveedor: f.proyecto.costeProveedor ? String(f.proyecto.costeProveedor) : '',
         otrosCostes: f.proyecto.otrosCostes ? String(f.proyecto.otrosCostes) : '',
@@ -102,8 +107,9 @@ export default function ExagridFinanzasPage() {
     } else {
       setForm({
         nombreProyecto: f.concepto || f.numFactura,
+        proveedor: 'Consultoria Exagrid',
         descripcion: '',
-        costeProveedor: '',
+        costeProveedor: String(Math.round(f.base * 0.92 * 100) / 100),
         otrosCostes: '',
         notasCostes: '',
         estadoCobro: f.importeCobrado >= f.base ? 'cobrado' : 'pendiente',
@@ -263,12 +269,25 @@ export default function ExagridFinanzasPage() {
                       ) : <span className="text-gray-300">-</span>}
                     </td>
                     <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => handleEditProyecto(f)}
-                        className="text-xs text-emerald-600 hover:text-emerald-800 font-medium"
-                      >
-                        {f.proyecto ? 'Editar' : '+ Proyecto'}
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        {f.idExterno && (
+                          <a
+                            href={`/api/admin/finanzas/facturas/${f.id}/pdf`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                            title="Ver factura PDF"
+                          >
+                            PDF
+                          </a>
+                        )}
+                        <button
+                          onClick={() => handleEditProyecto(f)}
+                          className="text-xs text-emerald-600 hover:text-emerald-800 font-medium"
+                        >
+                          {f.proyecto ? 'Editar' : '+ Proyecto'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -311,6 +330,13 @@ export default function ExagridFinanzasPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nombre del proyecto</label>
                 <input type="text" value={form.nombreProyecto} onChange={e => setForm({...form, nombreProyecto: e.target.value})}
+                  className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
+              </div>
+
+              {/* Proveedor */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
+                <input type="text" value={form.proveedor} onChange={e => setForm({...form, proveedor: e.target.value})}
                   className="w-full border rounded-lg px-3 py-2 text-sm text-gray-900" />
               </div>
 

@@ -46,9 +46,12 @@ export async function GET() {
         importeCobrado: Number(f.importeCobrado || 0),
         estado: f.estado,
         concepto: f.concepto,
+        idExterno: f.idExterno,
+        serie: f.serie,
         proyecto: f.exagridProyecto ? {
           id: f.exagridProyecto.id,
           nombreProyecto: f.exagridProyecto.nombreProyecto,
+          proveedor: f.exagridProyecto.proveedor,
           descripcion: f.exagridProyecto.descripcion,
           costeProveedor: Number(f.exagridProyecto.costeProveedor || 0),
           otrosCostes: Number(f.exagridProyecto.otrosCostes || 0),
@@ -89,11 +92,12 @@ export async function POST(request: NextRequest) {
 
     switch (action) {
       case 'crearProyecto': {
-        const { facturaId, nombreProyecto, descripcion, costeProveedor, otrosCostes, notasCostes } = body;
+        const { facturaId, nombreProyecto, descripcion, costeProveedor, otrosCostes, notasCostes, proveedor } = body;
         const proyecto = await prisma.exagridProyecto.create({
           data: {
             facturaId,
             nombreProyecto,
+            proveedor: proveedor || 'Consultoria Exagrid',
             descripcion: descripcion || null,
             costeProveedor: costeProveedor ? parseFloat(costeProveedor) : null,
             otrosCostes: otrosCostes ? parseFloat(otrosCostes) : 0,
@@ -104,11 +108,12 @@ export async function POST(request: NextRequest) {
       }
 
       case 'actualizarProyecto': {
-        const { id, nombreProyecto, descripcion, costeProveedor, otrosCostes, notasCostes, estadoCobro, importeCobrado, fechaCobro, estadoPago, importePagado, fechaPago, notas } = body;
+        const { id, nombreProyecto, descripcion, costeProveedor, otrosCostes, notasCostes, estadoCobro, importeCobrado, fechaCobro, estadoPago, importePagado, fechaPago, notas, proveedor } = body;
         const proyecto = await prisma.exagridProyecto.update({
           where: { id },
           data: {
             ...(nombreProyecto !== undefined && { nombreProyecto }),
+            ...(proveedor !== undefined && { proveedor }),
             ...(descripcion !== undefined && { descripcion }),
             ...(costeProveedor !== undefined && { costeProveedor: costeProveedor ? parseFloat(costeProveedor) : null }),
             ...(otrosCostes !== undefined && { otrosCostes: otrosCostes ? parseFloat(otrosCostes) : 0 }),
