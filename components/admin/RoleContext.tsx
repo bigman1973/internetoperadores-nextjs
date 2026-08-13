@@ -10,6 +10,7 @@ export const ROLES_DISPONIBLES = [
   { id: 'VENTAS', label: 'Ventas', color: 'bg-blue-100 text-blue-800' },
   { id: 'CONTABILIDAD', label: 'Contabilidad', color: 'bg-green-100 text-green-800' },
   { id: 'RRHH', label: 'RRHH', color: 'bg-yellow-100 text-yellow-800' },
+  { id: 'VISOR', label: 'Visor', color: 'bg-gray-100 text-gray-800' },
 ] as const
 
 export type RolId = typeof ROLES_DISPONIBLES[number]['id']
@@ -35,6 +36,7 @@ export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
   RRHH: [
     'dashboard', 'personal'
   ],
+  VISOR: [] as string[],
 }
 
 // Secciones que requieren acceso exclusivo SUPER_ADMIN
