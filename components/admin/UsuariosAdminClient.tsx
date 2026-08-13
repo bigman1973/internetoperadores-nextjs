@@ -846,16 +846,16 @@ export default function UsuariosAdminClient() {
         <div className="fixed inset-0 z-50 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">
             <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setShowPerfilModal(false)}></div>
-            <div className="relative w-full max-w-3xl max-h-[85vh] flex flex-col transform overflow-hidden rounded-lg bg-white shadow-xl">
+            <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col transform overflow-hidden rounded-2xl bg-white shadow-2xl">
               {/* Header */}
-              <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div className="px-6 py-5 border-b bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-bold text-gray-900">
+                  <h3 className="text-xl font-bold text-gray-900">
                     {editingPerfil ? 'Editar Perfil' : 'Nuevo Perfil de Permisos'}
                   </h3>
-                  <p className="text-sm text-gray-500">Define qué áreas del panel puede ver y editar este perfil</p>
+                  <p className="text-sm text-gray-600 mt-0.5">Configura a qué secciones tendrá acceso este perfil</p>
                 </div>
-                <button onClick={() => setShowPerfilModal(false)} className="text-gray-400 hover:text-gray-700">
+                <button onClick={() => setShowPerfilModal(false)} className="p-2 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors">
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -863,138 +863,213 @@ export default function UsuariosAdminClient() {
               </div>
 
               {/* Form fields */}
-              <div className="px-6 py-4 border-b bg-gray-50">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Nombre del perfil</label>
+              <div className="px-6 py-4 border-b">
+                <div className="grid grid-cols-12 gap-4">
+                  <div className="col-span-4">
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Nombre</label>
                     <input
                       type="text"
                       value={perfilForm.nombre}
                       onChange={e => setPerfilForm({ ...perfilForm, nombre: e.target.value })}
                       placeholder="Ej: Técnico Draxton"
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 font-medium focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Descripción</label>
+                  <div className="col-span-6">
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Descripción</label>
                     <input
                       type="text"
                       value={perfilForm.descripcion}
                       onChange={e => setPerfilForm({ ...perfilForm, descripcion: e.target.value })}
                       placeholder="Ej: Acceso a GGCC Draxton y personal"
-                      className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Color</label>
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Color</label>
                     <input
                       type="color"
                       value={perfilForm.color}
                       onChange={e => setPerfilForm({ ...perfilForm, color: e.target.value })}
-                      className="w-full h-9 rounded-md border border-gray-300 cursor-pointer"
+                      className="w-full h-[42px] rounded-lg border border-gray-300 cursor-pointer"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Leyenda */}
-              <div className="px-6 py-2 bg-gray-50 border-b flex items-center gap-4 text-[10px] text-gray-500">
-                <span><strong>Herencia:</strong> Si das acceso a un padre, los hijos heredan automáticamente.</span>
-                <span className="text-blue-600">Leer = ver la sección</span>
-                <span className="text-green-600">Escribir = crear/editar/eliminar</span>
+              {/* Leyenda compacta */}
+              <div className="px-6 py-2.5 bg-indigo-50/50 border-b flex items-center justify-between">
+                <div className="flex items-center gap-4 text-xs text-gray-600">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    Ver = acceso de lectura
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                    Editar = crear, modificar y eliminar
+                  </span>
+                </div>
+                <span className="text-[10px] text-gray-400">Los subapartados heredan del padre</span>
               </div>
 
-              {/* Áreas */}
-              <div className="flex-1 overflow-y-auto">
-                {areas.filter(a => !a.padre).map(area => {
-                  const hijos = areas.filter(a => a.padre === area.codigo);
-                  const permisoArea = perfilForm.permisos.find(p => p.areaCodigo === area.codigo);
-                  return (
-                    <div key={area.id}>
-                      <div className="flex items-center gap-3 py-2.5 px-4 bg-gray-50 border-b border-gray-100 font-semibold">
-                        <span className="flex-1 text-xs text-gray-900">{area.nombre}</span>
-                        <span className="text-[9px] text-gray-400 font-mono w-40 truncate">{area.codigo}</span>
-                        <div className="flex items-center gap-4">
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={permisoArea?.lectura || false}
-                              onChange={() => togglePerfilPermiso(area.codigo, 'lectura')}
-                              className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span className="text-[10px] text-gray-500">Leer</span>
-                          </label>
-                          <label className="flex items-center gap-1 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={permisoArea?.escritura || false}
-                              onChange={() => togglePerfilPermiso(area.codigo, 'escritura')}
-                              className="w-3.5 h-3.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                            />
-                            <span className="text-[10px] text-gray-500">Escribir</span>
-                          </label>
+              {/* Áreas - Diseño amigable */}
+              <div className="flex-1 overflow-y-auto px-4 py-3">
+                <div className="space-y-2">
+                  {areas.filter(a => !a.padre).map(area => {
+                    const hijos = areas.filter(a => a.padre === area.codigo);
+                    const permisoArea = perfilForm.permisos.find(p => p.areaCodigo === area.codigo);
+                    const hasAccess = permisoArea?.lectura || false;
+                    const hasWrite = permisoArea?.escritura || false;
+                    return (
+                      <div key={area.id} className={`rounded-xl border transition-all ${
+                        hasAccess ? 'border-indigo-200 bg-indigo-50/30 shadow-sm' : 'border-gray-200 bg-white'
+                      }`}>
+                        {/* Área padre */}
+                        <div className="flex items-center gap-3 px-4 py-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
+                            hasAccess ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400'
+                          }`}>
+                            {area.nombre.charAt(0)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="text-sm font-semibold text-gray-900">{area.nombre}</span>
+                            {hijos.length > 0 && (
+                              <span className="ml-2 text-[10px] text-gray-400">({hijos.length} sub)</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            {/* Toggle Ver */}
+                            <button
+                              onClick={() => togglePerfilPermiso(area.codigo, 'lectura')}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                                hasAccess
+                                  ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
+                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              }`}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              Ver
+                            </button>
+                            {/* Toggle Editar */}
+                            <button
+                              onClick={() => togglePerfilPermiso(area.codigo, 'escritura')}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                                hasWrite
+                                  ? 'bg-green-100 text-green-700 ring-1 ring-green-200'
+                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              }`}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
+                              </svg>
+                              Editar
+                            </button>
+                            {/* Botón dar todo al grupo */}
+                            {hijos.length > 0 && (
+                              <div className="flex items-center gap-1 ml-1">
+                                <button
+                                  onClick={() => togglePerfilGrupo(area.codigo, 'escritura', true)}
+                                  className="p-1.5 rounded-md bg-indigo-50 text-indigo-500 hover:bg-indigo-100 transition-colors"
+                                  title="Dar acceso completo a todo el grupo"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => togglePerfilGrupo(area.codigo, 'lectura', false)}
+                                  className="p-1.5 rounded-md bg-red-50 text-red-400 hover:bg-red-100 transition-colors"
+                                  title="Quitar todo acceso al grupo"
+                                >
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                  </svg>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        {hijos.length > 0 && (
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => togglePerfilGrupo(area.codigo, 'lectura', true)} className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100">+L</button>
-                            <button onClick={() => togglePerfilGrupo(area.codigo, 'escritura', true)} className="text-[9px] px-1.5 py-0.5 bg-green-50 text-green-600 rounded hover:bg-green-100">+E</button>
-                            <button onClick={() => togglePerfilGrupo(area.codigo, 'lectura', false)} className="text-[9px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded hover:bg-red-100">✕</button>
+                        {/* Hijos */}
+                        {hijos.length > 0 && hasAccess && (
+                          <div className="px-4 pb-3 pt-0">
+                            <div className="ml-11 space-y-1">
+                              {hijos.map(hijo => {
+                                const permisoHijo = perfilForm.permisos.find(p => p.areaCodigo === hijo.codigo);
+                                const hijoAccess = permisoHijo?.lectura || false;
+                                const hijoWrite = permisoHijo?.escritura || false;
+                                // Mostrar solo la parte específica del nombre
+                                const displayName = hijo.nombre.includes(' > ') ? hijo.nombre.split(' > ').pop() : hijo.nombre;
+                                return (
+                                  <div key={hijo.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                                    hijoAccess ? 'bg-white border border-gray-100' : 'hover:bg-gray-50'
+                                  }`}>
+                                    <span className={`flex-1 text-xs ${
+                                      hijoAccess ? 'text-gray-800 font-medium' : 'text-gray-500'
+                                    }`}>{displayName}</span>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => togglePerfilPermiso(hijo.codigo, 'lectura')}
+                                        className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                                          hijoAccess
+                                            ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-100'
+                                            : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
+                                        }`}
+                                      >
+                                        Ver
+                                      </button>
+                                      <button
+                                        onClick={() => togglePerfilPermiso(hijo.codigo, 'escritura')}
+                                        className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                                          hijoWrite
+                                            ? 'bg-green-50 text-green-600 ring-1 ring-green-100'
+                                            : 'text-gray-400 hover:text-green-500 hover:bg-green-50'
+                                        }`}
+                                      >
+                                        Editar
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
-                      {hijos.map(hijo => {
-                        const permisoHijo = perfilForm.permisos.find(p => p.areaCodigo === hijo.codigo);
-                        return (
-                          <div key={hijo.id} className="flex items-center gap-3 py-2 px-4 border-b border-gray-50 hover:bg-gray-50" style={{ paddingLeft: '32px' }}>
-                            <span className="flex-1 text-xs text-gray-700">{hijo.nombre}</span>
-                            <span className="text-[9px] text-gray-400 font-mono w-40 truncate">{hijo.codigo}</span>
-                            <div className="flex items-center gap-4">
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={permisoHijo?.lectura || false}
-                                  onChange={() => togglePerfilPermiso(hijo.codigo, 'lectura')}
-                                  className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span className="text-[10px] text-gray-500">Leer</span>
-                              </label>
-                              <label className="flex items-center gap-1 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={permisoHijo?.escritura || false}
-                                  onChange={() => togglePerfilPermiso(hijo.codigo, 'escritura')}
-                                  className="w-3.5 h-3.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                                />
-                                <span className="text-[10px] text-gray-500">Escribir</span>
-                              </label>
-                            </div>
-                            <span className="w-[72px]"></span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Footer */}
               <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
-                <div className="text-xs text-gray-500">
-                  {perfilForm.permisos.filter(p => p.lectura).length} áreas con lectura · {perfilForm.permisos.filter(p => p.escritura).length} con escritura
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      {perfilForm.permisos.filter(p => p.lectura).length} secciones
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" /></svg>
+                      {perfilForm.permisos.filter(p => p.escritura).length} editables
+                    </span>
+                  </div>
                 </div>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowPerfilModal(false)}
-                    className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100"
+                    className="px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     onClick={handleSavePerfil}
                     disabled={saving || !perfilForm.nombre.trim()}
-                    className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                    className="px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
                   >
-                    {saving ? 'Guardando...' : (editingPerfil ? 'Actualizar Perfil' : 'Crear Perfil')}
+                    {saving ? 'Guardando...' : (editingPerfil ? 'Guardar Cambios' : 'Crear Perfil')}
                   </button>
                 </div>
               </div>
