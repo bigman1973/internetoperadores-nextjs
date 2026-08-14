@@ -7,6 +7,7 @@ import AdminHeader from '../../components/admin/AdminHeader'
 import SessionProvider from '../../components/SessionProvider'
 import { RoleProvider } from '../../components/admin/RoleContext'
 import ProtectedRoute from '../../components/admin/ProtectedRoute'
+import prisma from '../../lib/prisma'
 
 export default async function AdminLayout({
   children,
@@ -15,10 +16,22 @@ export default async function AdminLayout({
 }) {
   const session = await requireAuth('admin')
   
-  // Usuarios sin roles asignados (empleados rasos) → redirigir al portal empleado
+  // Usuarios sin roles asignados → verificar si tienen permisos granulares antes de redirigir
   const userRoles = session.user.roles || []
-  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN') {
-    redirect('/empleado')
+  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN' && session.user.role !== 'GERENTE') {
+    // Verificar si tiene permisos granulares (perfil asignado)
+    const userId = session.user.id ? parseInt(session.user.id as string) : null
+    if (userId) {
+      const tienePermisos = await prisma.permisoUsuario.count({
+        where: { usuarioId: userId, lectura: true }
+      })
+      // Si no tiene permisos granulares, redirigir al portal empleado
+      if (tienePermisos === 0) {
+        redirect('/empleado')
+      }
+    } else {
+      redirect('/empleado')
+    }
   }
   
   return (
