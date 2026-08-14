@@ -110,7 +110,6 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
       })
       setShowSavePerfil(false)
       setNewPerfilNombre('')
-      // Recargar perfiles
       const res = await fetch('/api/admin/permisos?action=perfiles')
       const data = await res.json()
       setPerfiles(data.perfiles || [])
@@ -129,28 +128,24 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
       const existing = prev.find(p => p.areaId === area.id)
       if (existing) {
         const newVal = !existing[tipo]
-        // Si se activa escritura, activar también lectura
         if (tipo === 'escritura' && newVal) {
           return prev.map(p => p.areaId === area.id ? { ...p, escritura: true, lectura: true } : p)
         }
-        // Si se desactiva lectura, desactivar también escritura
         if (tipo === 'lectura' && !newVal) {
           return prev.map(p => p.areaId === area.id ? { ...p, lectura: false, escritura: false } : p)
         }
         return prev.map(p => p.areaId === area.id ? { ...p, [tipo]: newVal } : p)
       } else {
-        const newPermiso: PermisoUsuario = {
+        return [...prev, {
           areaId: area.id,
           codigo: area.codigo,
-          lectura: tipo === 'lectura' ? true : true,
-          escritura: tipo === 'escritura' ? true : false,
-        }
-        return [...prev, newPermiso]
+          lectura: true,
+          escritura: tipo === 'escritura',
+        }]
       }
     })
   }
 
-  // Activar/desactivar todo un grupo (padre + hijos)
   function toggleGrupo(parentCodigo: string, tipo: 'lectura' | 'escritura', value: boolean) {
     const areasGrupo = areas.filter(a => a.codigo === parentCodigo || a.codigo.startsWith(parentCodigo + '.'))
     setPermisos(prev => {
@@ -164,12 +159,7 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
             updated = updated.map(p => p.areaId === area.id ? { ...p, lectura: value, escritura: value ? p.escritura : false } : p)
           }
         } else if (value) {
-          updated.push({
-            areaId: area.id,
-            codigo: area.codigo,
-            lectura: true,
-            escritura: tipo === 'escritura' ? true : false,
-          })
+          updated.push({ areaId: area.id, codigo: area.codigo, lectura: true, escritura: tipo === 'escritura' })
         }
       }
       return updated
@@ -179,26 +169,15 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
   async function guardar() {
     setSaving(true)
     try {
-      // Enviar todos los permisos (incluidos los que están en false para revocar)
       const allPermisos = areas.map(area => {
         const p = permisos.find(pe => pe.areaId === area.id)
-        return {
-          areaId: area.id,
-          lectura: p?.lectura || false,
-          escritura: p?.escritura || false,
-        }
+        return { areaId: area.id, lectura: p?.lectura || false, escritura: p?.escritura || false }
       })
-
       await fetch('/api/admin/permisos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'asignar_masivo',
-          usuarioId,
-          permisos: allPermisos,
-        }),
+        body: JSON.stringify({ action: 'asignar_masivo', usuarioId, permisos: allPermisos }),
       })
-
       onClose()
     } catch (err) {
       console.error('Error guardando permisos:', err)
@@ -207,105 +186,110 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
     }
   }
 
-  function toggleExpand(codigo: string) {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(codigo)) next.delete(codigo)
-      else next.add(codigo)
-      return next
-    })
-  }
-
-  // Organizar áreas en árbol
   function getHijos(parentCodigo: string | null): Area[] {
-    if (parentCodigo === null) return areas.filter(a => !a.padre)
-    return areas.filter(a => a.padre === parentCodigo)
+    if (parentCodigo === null) return areas.filter(a => !a.padre).sort((a, b) => a.orden - b.orden)
+    return areas.filter(a => a.padre === parentCodigo).sort((a, b) => a.orden - b.orden)
   }
 
-  function renderArea(area: Area, depth: number = 0) {
+  function renderArea(area: Area, depth: number = 0): React.ReactNode {
     const hijos = getHijos(area.codigo)
     const tieneHijos = hijos.length > 0
     const isExpanded = expandedGroups.has(area.codigo)
     const permiso = getPermiso(area.id)
-    const indent = depth * 20
+    const isRoot = depth === 0
+    const displayName = area.nombre.includes(' > ') ? area.nombre.split(' > ').pop() : area.nombre
 
     return (
       <div key={area.id}>
-        <div 
-          className={`flex items-center gap-3 py-2 px-3 hover:bg-gray-50 border-b border-gray-50 ${depth === 0 ? 'bg-gray-50 font-semibold' : ''}`}
-          style={{ paddingLeft: `${12 + indent}px` }}
+        <div
+          className={`flex items-center gap-2 rounded-lg transition-all ${
+            isRoot
+              ? `px-4 py-3 ${permiso.lectura ? 'bg-indigo-50/60 border border-indigo-200' : 'bg-white border border-gray-200'}`
+              : `px-3 py-2 ${permiso.lectura ? 'bg-white/80' : 'hover:bg-gray-50/50'}`
+          }`}
+          style={{ marginLeft: isRoot ? 0 : `${depth * 20}px` }}
         >
           {/* Expand/collapse */}
           {tieneHijos ? (
-            <button onClick={() => toggleExpand(area.codigo)} className="w-4 text-gray-400 hover:text-gray-700 text-xs">
-              {isExpanded ? '▼' : '▶'}
+            <button
+              onClick={() => setExpandedGroups(prev => {
+                const next = new Set(prev)
+                if (next.has(area.codigo)) next.delete(area.codigo)
+                else next.add(area.codigo)
+                return next
+              })}
+              className={`p-1 rounded-md transition-colors ${
+                isRoot ? 'text-indigo-500 hover:bg-indigo-100' : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'
+              }`}
+            >
+              <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
             </button>
           ) : (
-            <span className="w-4" />
+            <span className="w-[26px] flex justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+            </span>
           )}
 
-          {/* Nombre del área */}
-          <span className={`flex-1 text-xs ${depth === 0 ? 'text-gray-900 font-semibold' : 'text-gray-700'}`}>
-            {area.nombre}
-          </span>
-
-          {/* Código */}
-          <span className="text-[9px] text-gray-400 font-mono hidden md:block w-48 truncate">
-            {area.codigo}
-          </span>
-
-          {/* Checkboxes lectura/escritura */}
-          <div className="flex items-center gap-4">
-            <label className="flex items-center gap-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={permiso.lectura}
-                onChange={() => togglePermiso(area, 'lectura')}
-                className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-[10px] text-gray-500">Leer</span>
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={permiso.escritura}
-                onChange={() => togglePermiso(area, 'escritura')}
-                className="w-3.5 h-3.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
-              />
-              <span className="text-[10px] text-gray-500">Escribir</span>
-            </label>
+          {/* Nombre */}
+          <div className="flex-1 min-w-0 flex items-center gap-2">
+            <span className={`${
+              isRoot ? 'text-sm font-bold text-gray-900' : `text-xs ${permiso.lectura ? 'text-gray-800 font-medium' : 'text-gray-500'}`
+            }`}>
+              {displayName}
+            </span>
+            {tieneHijos && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                isRoot ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
+              }`}>
+                {hijos.length}
+              </span>
+            )}
           </div>
 
-          {/* Botón todo grupo */}
-          {tieneHijos && (
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => toggleGrupo(area.codigo, 'lectura', true)}
-                className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
-                title="Dar lectura a todo el grupo"
-              >
-                +L
-              </button>
+          {/* Botones de permiso */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => togglePermiso(area, 'lectura')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                permiso.lectura
+                  ? 'bg-blue-100 text-blue-700 shadow-sm'
+                  : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
+              }`}
+            >
+              Ver
+            </button>
+            <button
+              onClick={() => togglePermiso(area, 'escritura')}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                permiso.escritura
+                  ? 'bg-green-100 text-green-700 shadow-sm'
+                  : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'
+              }`}
+            >
+              Editar
+            </button>
+            {tieneHijos && (
               <button
                 onClick={() => toggleGrupo(area.codigo, 'escritura', true)}
-                className="text-[9px] px-1.5 py-0.5 bg-green-50 text-green-600 rounded hover:bg-green-100"
-                title="Dar escritura a todo el grupo"
+                className="p-1 rounded-md bg-indigo-50 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
+                title="Dar acceso completo a este grupo y subapartados"
               >
-                +E
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
               </button>
-              <button
-                onClick={() => toggleGrupo(area.codigo, 'lectura', false)}
-                className="text-[9px] px-1.5 py-0.5 bg-red-50 text-red-600 rounded hover:bg-red-100"
-                title="Quitar todo acceso al grupo"
-              >
-                ✕
-              </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Hijos */}
-        {tieneHijos && isExpanded && hijos.map(h => renderArea(h, depth + 1))}
+        {/* Hijos recursivos */}
+        {tieneHijos && isExpanded && (
+          <div className={`${isRoot ? 'mt-1 ml-4 pl-3 border-l-2 border-indigo-100' : 'mt-0.5 ml-3 pl-2 border-l border-gray-200'} space-y-0.5`}>
+            {hijos.map(child => renderArea(child, depth + 1))}
+          </div>
+        )}
       </div>
     )
   }
@@ -325,29 +309,30 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b">
+        <div className="px-6 py-5 border-b bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Permisos Granulares</h2>
-            <p className="text-sm text-gray-500">{usuarioNombre}</p>
+            <h2 className="text-xl font-bold text-gray-900">Permisos de Acceso</h2>
+            <p className="text-sm text-gray-600 mt-0.5">{usuarioNombre}</p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors">
             <XMarkIcon className="w-5 h-5" />
           </button>
         </div>
 
         {/* Perfiles rápidos */}
         {perfiles.length > 0 && (
-          <div className="px-6 py-3 border-b bg-indigo-50">
+          <div className="px-6 py-3 border-b">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-semibold text-indigo-700">Aplicar perfil:</span>
+              <span className="text-xs font-semibold text-gray-700">Aplicar perfil:</span>
               {perfiles.map(perfil => (
                 <button
                   key={perfil.id}
                   onClick={() => aplicarPerfil(perfil)}
                   disabled={saving}
-                  className="px-3 py-1 text-xs font-medium rounded-full border border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-100 disabled:opacity-50 transition-colors"
+                  className="px-3 py-1.5 text-xs font-medium rounded-full border transition-colors hover:shadow-sm disabled:opacity-50"
+                  style={{ borderColor: perfil.color + '40', color: perfil.color, backgroundColor: perfil.color + '10' }}
                   title={perfil.descripcion || ''}
                 >
                   {perfil.nombre}
@@ -358,28 +343,40 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
         )}
 
         {/* Leyenda */}
-        <div className="px-6 py-2 bg-gray-50 border-b flex items-center gap-4 text-[10px] text-gray-500">
-          <span><strong>Herencia:</strong> Si das acceso a un padre, los hijos heredan automáticamente.</span>
-          <span className="text-blue-600">Leer = ver la sección</span>
-          <span className="text-green-600">Escribir = crear/editar/eliminar</span>
+        <div className="px-6 py-2.5 bg-indigo-50/50 border-b flex items-center justify-between">
+          <div className="flex items-center gap-4 text-xs text-gray-600">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+              Ver = acceso de lectura
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              Editar = crear, modificar y eliminar
+            </span>
+          </div>
+          <span className="text-[10px] text-gray-400">Los subapartados heredan del padre</span>
         </div>
 
-        {/* Tabla de permisos */}
-        <div className="flex-1 overflow-y-auto">
-          {areasRaiz.map(area => renderArea(area, 0))}
+        {/* Árbol de permisos */}
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="space-y-1.5">
+            {areasRaiz.map(area => renderArea(area, 0))}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 border-t bg-gray-50">
+        <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="text-[10px] text-gray-400">
-              {permisos.filter(p => p.lectura).length} áreas con lectura · {permisos.filter(p => p.escritura).length} con escritura
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
+                {permisos.filter(p => p.lectura).length} secciones
+              </span>
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium">
+                {permisos.filter(p => p.escritura).length} editables
+              </span>
             </div>
             {!showSavePerfil ? (
-              <button
-                onClick={() => setShowSavePerfil(true)}
-                className="text-[10px] text-indigo-600 hover:text-indigo-800 underline"
-              >
+              <button onClick={() => setShowSavePerfil(true)} className="text-xs text-indigo-600 hover:text-indigo-800 underline">
                 Guardar como perfil
               </button>
             ) : (
@@ -389,22 +386,22 @@ export default function PermisosUsuarioModal({ usuarioId, usuarioNombre, onClose
                   value={newPerfilNombre}
                   onChange={e => setNewPerfilNombre(e.target.value)}
                   placeholder="Nombre del perfil..."
-                  className="text-xs border border-gray-300 rounded px-2 py-1 w-40"
+                  className="text-xs border border-gray-300 rounded-lg px-2 py-1.5 w-40 text-gray-900"
                   onKeyDown={e => e.key === 'Enter' && guardarComoPerfil()}
                 />
-                <button onClick={guardarComoPerfil} className="text-[10px] text-green-600 font-semibold">Crear</button>
-                <button onClick={() => setShowSavePerfil(false)} className="text-[10px] text-gray-400">✕</button>
+                <button onClick={guardarComoPerfil} className="text-xs text-green-600 font-semibold">Crear</button>
+                <button onClick={() => setShowSavePerfil(false)} className="text-xs text-gray-400">✕</button>
               </div>
             )}
           </div>
           <div className="flex gap-3">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100">
+            <button onClick={onClose} className="px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors">
               Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={saving}
-              className="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+              className="px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
             >
               {saving ? 'Guardando...' : 'Guardar Permisos'}
             </button>
