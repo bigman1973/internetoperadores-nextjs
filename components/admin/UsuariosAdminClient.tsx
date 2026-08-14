@@ -1008,7 +1008,7 @@ export default function UsuariosAdminClient() {
                             )}
                           </div>
                         </div>
-                        {/* Hijos */}
+                        {/* Hijos - multinivel */}
                         {hijos.length > 0 && expandedPerfilAreas.has(area.codigo) && (
                           <div className="px-4 pb-3 pt-0">
                             <div className="ml-11 space-y-1">
@@ -1016,37 +1016,113 @@ export default function UsuariosAdminClient() {
                                 const permisoHijo = perfilForm.permisos.find(p => p.areaCodigo === hijo.codigo);
                                 const hijoAccess = permisoHijo?.lectura || false;
                                 const hijoWrite = permisoHijo?.escritura || false;
-                                // Mostrar solo la parte específica del nombre
                                 const displayName = hijo.nombre.includes(' > ') ? hijo.nombre.split(' > ').pop() : hijo.nombre;
+                                const nietos = areas.filter(a => a.padre === hijo.codigo);
                                 return (
-                                  <div key={hijo.id} className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                                    hijoAccess ? 'bg-white border border-gray-100' : 'hover:bg-gray-50'
-                                  }`}>
-                                    <span className={`flex-1 text-xs ${
-                                      hijoAccess ? 'text-gray-800 font-medium' : 'text-gray-500'
-                                    }`}>{displayName}</span>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        onClick={() => togglePerfilPermiso(hijo.codigo, 'lectura')}
-                                        className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
-                                          hijoAccess
-                                            ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-100'
-                                            : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
-                                        }`}
-                                      >
-                                        Ver
-                                      </button>
-                                      <button
-                                        onClick={() => togglePerfilPermiso(hijo.codigo, 'escritura')}
-                                        className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
-                                          hijoWrite
-                                            ? 'bg-green-50 text-green-600 ring-1 ring-green-100'
-                                            : 'text-gray-400 hover:text-green-500 hover:bg-green-50'
-                                        }`}
-                                      >
-                                        Editar
-                                      </button>
+                                  <div key={hijo.id}>
+                                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
+                                      hijoAccess ? 'bg-white border border-gray-100' : 'hover:bg-gray-50'
+                                    }`}>
+                                      <div className="flex items-center gap-1.5 flex-1">
+                                        {nietos.length > 0 && (
+                                          <button
+                                            onClick={() => setExpandedPerfilAreas(prev => {
+                                              const next = new Set(prev);
+                                              if (next.has(hijo.codigo)) next.delete(hijo.codigo);
+                                              else next.add(hijo.codigo);
+                                              return next;
+                                            })}
+                                            className="p-0.5 rounded text-gray-400 hover:text-indigo-600"
+                                          >
+                                            <svg className={`w-3 h-3 transition-transform ${expandedPerfilAreas.has(hijo.codigo) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                            </svg>
+                                          </button>
+                                        )}
+                                        <span className={`text-xs ${
+                                          hijoAccess ? 'text-gray-800 font-medium' : 'text-gray-500'
+                                        }`}>{displayName}</span>
+                                        {nietos.length > 0 && (
+                                          <span className="text-[9px] text-gray-400">({nietos.length})</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => togglePerfilPermiso(hijo.codigo, 'lectura')}
+                                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                                            hijoAccess
+                                              ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-100'
+                                              : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
+                                          }`}
+                                        >
+                                          Ver
+                                        </button>
+                                        <button
+                                          onClick={() => togglePerfilPermiso(hijo.codigo, 'escritura')}
+                                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
+                                            hijoWrite
+                                              ? 'bg-green-50 text-green-600 ring-1 ring-green-100'
+                                              : 'text-gray-400 hover:text-green-500 hover:bg-green-50'
+                                          }`}
+                                        >
+                                          Editar
+                                        </button>
+                                        {nietos.length > 0 && (
+                                          <button
+                                            onClick={() => togglePerfilGrupo(hijo.codigo, 'escritura', true)}
+                                            className="p-1 rounded bg-indigo-50 text-indigo-500 hover:bg-indigo-100"
+                                            title="Dar acceso completo a subapartados"
+                                          >
+                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                            </svg>
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
+                                    {/* Nietos (nivel 3) */}
+                                    {nietos.length > 0 && expandedPerfilAreas.has(hijo.codigo) && (
+                                      <div className="ml-6 mt-1 mb-1 space-y-0.5">
+                                        {nietos.map(nieto => {
+                                          const permisoNieto = perfilForm.permisos.find(p => p.areaCodigo === nieto.codigo);
+                                          const nietoAccess = permisoNieto?.lectura || false;
+                                          const nietoWrite = permisoNieto?.escritura || false;
+                                          const nietoName = nieto.nombre.includes(' > ') ? nieto.nombre.split(' > ').pop() : nieto.nombre;
+                                          return (
+                                            <div key={nieto.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-all ${
+                                              nietoAccess ? 'bg-blue-50/50' : 'hover:bg-gray-50'
+                                            }`}>
+                                              <span className="w-3 h-px bg-gray-300"></span>
+                                              <span className={`flex-1 text-[11px] ${
+                                                nietoAccess ? 'text-gray-700 font-medium' : 'text-gray-400'
+                                              }`}>{nietoName}</span>
+                                              <div className="flex items-center gap-1.5">
+                                                <button
+                                                  onClick={() => togglePerfilPermiso(nieto.codigo, 'lectura')}
+                                                  className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-all ${
+                                                    nietoAccess
+                                                      ? 'bg-blue-100 text-blue-600'
+                                                      : 'text-gray-400 hover:text-blue-500'
+                                                  }`}
+                                                >
+                                                  Ver
+                                                </button>
+                                                <button
+                                                  onClick={() => togglePerfilPermiso(nieto.codigo, 'escritura')}
+                                                  className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-all ${
+                                                    nietoWrite
+                                                      ? 'bg-green-100 text-green-600'
+                                                      : 'text-gray-400 hover:text-green-500'
+                                                  }`}
+                                                >
+                                                  Editar
+                                                </button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
