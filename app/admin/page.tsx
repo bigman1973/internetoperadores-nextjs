@@ -1,6 +1,5 @@
 export const dynamic = "force-dynamic";
 import { requireAuth } from '../../lib/middleware/auth'
-import { redirect } from 'next/navigation'
 import prisma from '../../lib/prisma'
 import { 
   CreditCardIcon, 
@@ -8,14 +7,19 @@ import {
   DocumentTextIcon,
   BanknotesIcon,
   BuildingOfficeIcon,
-  UserIcon
+  UserIcon,
+  AcademicCapIcon,
+  ShieldCheckIcon,
+  ComputerDesktopIcon,
+  PhoneIcon,
+  CloudIcon,
+  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 
 async function getDashboardStats() {
   try {
     const tarifasActivas = await prisma.tarifa.count({ where: { activa: true } })
 
-    // Clientes activos con facturación (tienen contratos activos)
     const clientesResult: any[] = await prisma.$queryRawUnsafe(`
       SELECT 
         COUNT(DISTINCT c.id)::int as total,
@@ -26,12 +30,10 @@ async function getDashboardStats() {
       WHERE c.activo = true AND cs.activo = true
     `)
 
-    // Contratos activos
     const contratosResult: any[] = await prisma.$queryRawUnsafe(`
       SELECT COUNT(*)::int as total FROM contratos_servicio WHERE activo = true
     `)
 
-    // Facturación mes actual
     const facturacionResult: any[] = await prisma.$queryRawUnsafe(`
       SELECT 
         COALESCE(SUM(total), 0)::float as total, 
@@ -71,17 +73,165 @@ function formatEur(value: number) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
 }
 
+function VisorDashboard({ userName }: { userName: string }) {
+  return (
+    <div className="space-y-8">
+      {/* Welcome hero */}
+      <div className="bg-gradient-to-br from-orange-50 via-white to-indigo-50 rounded-2xl border border-gray-200 p-8 md:p-12">
+        <div className="max-w-3xl">
+          <h1 className="text-3xl font-bold text-gray-900">
+            Bienvenido al Panel de Administración
+          </h1>
+          <p className="mt-3 text-lg text-gray-600">
+            Hola, <span className="font-semibold text-orange-600">{userName}</span>
+          </p>
+          <p className="mt-4 text-gray-500 leading-relaxed">
+            Este es el panel interno de <strong>Internet Operadores S.L.</strong>, donde gestionamos 
+            todos los aspectos operativos de la empresa: clientes, facturación, contratos, 
+            grandes cuentas, personal y mucho más.
+          </p>
+          <p className="mt-3 text-gray-500 leading-relaxed">
+            Tu acceso actual es de <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Visor</span>. 
+            Un administrador puede asignarte permisos adicionales según tu rol en la empresa.
+          </p>
+        </div>
+      </div>
+
+      {/* Qué es Internet Operadores */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 md:p-8">
+        <h2 className="text-xl font-bold text-gray-900 mb-6">Sobre Internet Operadores</h2>
+        <p className="text-gray-600 leading-relaxed mb-6">
+          Somos un operador de telecomunicaciones y servicios IT especializado en soluciones 
+          empresariales. Ofrecemos conectividad, telefonía, cloud, seguridad y servicios gestionados 
+          a empresas de todos los tamaños, con un enfoque especial en grandes cuentas industriales.
+        </p>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-blue-50/50 border border-blue-100">
+            <ComputerDesktopIcon className="w-6 h-6 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Internet y Conectividad</h3>
+              <p className="text-xs text-gray-500 mt-1">Fibra, MPLS, SD-WAN para empresas</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-green-50/50 border border-green-100">
+            <PhoneIcon className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Telefonía</h3>
+              <p className="text-xs text-gray-500 mt-1">Fija, móvil y comunicaciones unificadas</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-purple-50/50 border border-purple-100">
+            <CloudIcon className="w-6 h-6 text-purple-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Cloud y Backup</h3>
+              <p className="text-xs text-gray-500 mt-1">Hosting, backup, infraestructura cloud</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-orange-50/50 border border-orange-100">
+            <ShieldCheckIcon className="w-6 h-6 text-orange-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Seguridad</h3>
+              <p className="text-xs text-gray-500 mt-1">CSOC, firewalls, protección avanzada</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-indigo-50/50 border border-indigo-100">
+            <WrenchScrewdriverIcon className="w-6 h-6 text-indigo-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Servicios Gestionados</h3>
+              <p className="text-xs text-gray-500 mt-1">Soporte técnico, guardias, mantenimiento</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-4 rounded-lg bg-gray-50/50 border border-gray-200">
+            <CreditCardIcon className="w-6 h-6 text-gray-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Hardware</h3>
+              <p className="text-xs text-gray-500 mt-1">Equipos de red, servidores, dispositivos</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Secciones del panel */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 md:p-8">
+        <h2 className="text-xl font-bold text-gray-900 mb-2">Secciones del Panel</h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Estas son las áreas principales que gestiona el equipo. Tu acceso dependerá del perfil que te asigne un administrador.
+        </p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {[
+            { name: 'Tarifas', desc: 'Catálogo de productos y precios', color: 'orange' },
+            { name: 'Clientes', desc: 'Base de datos de clientes y grandes cuentas', color: 'blue' },
+            { name: 'Leads', desc: 'Oportunidades comerciales y seguimiento', color: 'green' },
+            { name: 'Contratos', desc: 'Contratos de servicio activos', color: 'purple' },
+            { name: 'Facturación', desc: 'Emisión y gestión de facturas', color: 'indigo' },
+            { name: 'Finanzas', desc: 'Movimientos bancarios, conciliación y cobros', color: 'emerald' },
+            { name: 'Personal', desc: 'Nóminas, vacaciones y costes de personal', color: 'pink' },
+            { name: 'Estadísticas', desc: 'Métricas y análisis del negocio', color: 'amber' },
+          ].map(section => (
+            <div key={section.name} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50/50">
+              <div className={`w-2 h-2 rounded-full bg-${section.color}-500`}></div>
+              <div>
+                <span className="text-sm font-medium text-gray-900">{section.name}</span>
+                <span className="text-xs text-gray-400 ml-2">{section.desc}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Formaciones (placeholder para futuro) */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 md:p-8">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 rounded-lg bg-amber-100">
+            <AcademicCapIcon className="w-6 h-6 text-amber-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">Formación</h2>
+            <p className="text-sm text-gray-500">Material formativo personalizado para tu rol</p>
+          </div>
+        </div>
+        <div className="rounded-lg bg-amber-50/50 border border-amber-100 p-6 text-center">
+          <p className="text-sm text-amber-700">
+            Próximamente tendrás disponible aquí material de formación adaptado a tu perfil y responsabilidades.
+          </p>
+        </div>
+      </div>
+
+      {/* Acceso rápido */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Acceso rápido</h3>
+        <div className="flex flex-wrap gap-3">
+          <a href="/empleado" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 transition-colors shadow-sm">
+            Portal del Empleado
+          </a>
+          <a href="/empleado/nominas" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white text-gray-700 text-sm font-medium border border-gray-300 hover:bg-gray-50 transition-colors">
+            Mis Nóminas
+          </a>
+          <a href="/empleado/vacaciones" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white text-gray-700 text-sm font-medium border border-gray-300 hover:bg-gray-50 transition-colors">
+            Vacaciones
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default async function AdminDashboard() {
   const session = await requireAuth('admin')
   
-  // Usuarios sin roles asignados (VISOR/empleados) → redirigir al portal empleado
+  // Determinar si es usuario VISOR (sin permisos de admin)
   const userRoles = session.user.roles || []
-  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN') {
-    redirect('/empleado')
+  const isVisor = session.user.role === 'VISOR' || 
+    (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN' && session.user.role !== 'GERENTE')
+  
+  // Si es VISOR, mostrar pantalla de bienvenida genérica
+  if (isVisor) {
+    return <VisorDashboard userName={session.user.name || 'Usuario'} />
   }
   
   const stats = await getDashboardStats()
-
   const mesActual = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
 
   return (
