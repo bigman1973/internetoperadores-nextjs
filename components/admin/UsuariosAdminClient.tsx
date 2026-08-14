@@ -913,224 +913,117 @@ export default function UsuariosAdminClient() {
                 <span className="text-[10px] text-gray-400">Los subapartados heredan del padre</span>
               </div>
 
-              {/* Áreas - Diseño amigable */}
+              {/* Áreas - Árbol recursivo */}
               <div className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {areas.filter(a => !a.padre).map(area => {
-                    const hijos = areas.filter(a => a.padre === area.codigo);
-                    const permisoArea = perfilForm.permisos.find(p => p.areaCodigo === area.codigo);
-                    const hasAccess = permisoArea?.lectura || false;
-                    const hasWrite = permisoArea?.escritura || false;
-                    return (
-                      <div key={area.id} className={`rounded-xl border transition-all ${
-                        hasAccess ? 'border-indigo-200 bg-indigo-50/30 shadow-sm' : 'border-gray-200 bg-white'
-                      }`}>
-                        {/* Área padre */}
-                        <div className="flex items-center gap-3 px-4 py-3">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm ${
-                            hasAccess ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400'
-                          }`}>
-                            {area.nombre.charAt(0)}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-gray-900">{area.nombre}</span>
-                              {hijos.length > 0 && (
-                                <button
-                                  onClick={() => setExpandedPerfilAreas(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(area.codigo)) next.delete(area.codigo);
-                                    else next.add(area.codigo);
-                                    return next;
-                                  })}
-                                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
-                                >
-                                  <svg className={`w-3 h-3 transition-transform ${expandedPerfilAreas.has(area.codigo) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                  </svg>
-                                  {hijos.length} sub
-                                </button>
+                    const renderAreaRecursive = (areaItem: Area, depth: number): React.ReactNode => {
+                      const children = areas.filter(a => a.padre === areaItem.codigo);
+                      const permiso = perfilForm.permisos.find(p => p.areaCodigo === areaItem.codigo);
+                      const hasRead = permiso?.lectura || false;
+                      const hasWrite = permiso?.escritura || false;
+                      const isExpanded = expandedPerfilAreas.has(areaItem.codigo);
+                      const displayName = areaItem.nombre.includes(' > ') ? areaItem.nombre.split(' > ').pop() : areaItem.nombre;
+                      const isRoot = depth === 0;
+                      const indent = depth * 20;
+
+                      return (
+                        <div key={areaItem.id}>
+                          <div
+                            className={`flex items-center gap-2 rounded-lg transition-all ${
+                              isRoot
+                                ? `px-4 py-3 ${hasRead ? 'bg-indigo-50/60 border border-indigo-200' : 'bg-white border border-gray-200'}`
+                                : `px-3 py-2 ${hasRead ? 'bg-white/80' : 'hover:bg-gray-50/50'}`
+                            }`}
+                            style={{ marginLeft: isRoot ? 0 : `${indent}px` }}
+                          >
+                            {/* Expand/collapse */}
+                            {children.length > 0 ? (
+                              <button
+                                onClick={() => setExpandedPerfilAreas(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(areaItem.codigo)) next.delete(areaItem.codigo);
+                                  else next.add(areaItem.codigo);
+                                  return next;
+                                })}
+                                className={`p-1 rounded-md transition-colors ${
+                                  isRoot
+                                    ? 'text-indigo-500 hover:bg-indigo-100'
+                                    : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'
+                                }`}
+                              >
+                                <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <span className="w-[26px] flex justify-center">
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                              </span>
+                            )}
+
+                            {/* Nombre */}
+                            <div className="flex-1 min-w-0 flex items-center gap-2">
+                              <span className={`${
+                                isRoot ? 'text-sm font-bold text-gray-900' : `text-xs ${hasRead ? 'text-gray-800 font-medium' : 'text-gray-500'}`
+                              }`}>
+                                {displayName}
+                              </span>
+                              {children.length > 0 && (
+                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                                  isRoot ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
+                                }`}>
+                                  {children.length}
+                                </span>
                               )}
                             </div>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            {/* Toggle Ver */}
-                            <button
-                              onClick={() => togglePerfilPermiso(area.codigo, 'lectura')}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                                hasAccess
-                                  ? 'bg-blue-100 text-blue-700 ring-1 ring-blue-200'
-                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                              }`}
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              </svg>
-                              Ver
-                            </button>
-                            {/* Toggle Editar */}
-                            <button
-                              onClick={() => togglePerfilPermiso(area.codigo, 'escritura')}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-                                hasWrite
-                                  ? 'bg-green-100 text-green-700 ring-1 ring-green-200'
-                                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                              }`}
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" />
-                              </svg>
-                              Editar
-                            </button>
-                            {/* Botón dar todo al grupo */}
-                            {hijos.length > 0 && (
-                              <div className="flex items-center gap-1 ml-1">
+
+                            {/* Botones de permiso */}
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => togglePerfilPermiso(areaItem.codigo, 'lectura')}
+                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                                  hasRead
+                                    ? 'bg-blue-100 text-blue-700 shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
+                                }`}
+                              >
+                                Ver
+                              </button>
+                              <button
+                                onClick={() => togglePerfilPermiso(areaItem.codigo, 'escritura')}
+                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                                  hasWrite
+                                    ? 'bg-green-100 text-green-700 shadow-sm'
+                                    : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'
+                                }`}
+                              >
+                                Editar
+                              </button>
+                              {children.length > 0 && (
                                 <button
-                                  onClick={() => togglePerfilGrupo(area.codigo, 'escritura', true)}
-                                  className="p-1.5 rounded-md bg-indigo-50 text-indigo-500 hover:bg-indigo-100 transition-colors"
-                                  title="Dar acceso completo a todo el grupo"
+                                  onClick={() => togglePerfilGrupo(areaItem.codigo, 'escritura', true)}
+                                  className="p-1 rounded-md bg-indigo-50 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
+                                  title="Dar acceso completo a este grupo y todos sus subapartados"
                                 >
                                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                   </svg>
                                 </button>
-                                <button
-                                  onClick={() => togglePerfilGrupo(area.codigo, 'lectura', false)}
-                                  className="p-1.5 rounded-md bg-red-50 text-red-400 hover:bg-red-100 transition-colors"
-                                  title="Quitar todo acceso al grupo"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                  </svg>
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        {/* Hijos - multinivel */}
-                        {hijos.length > 0 && expandedPerfilAreas.has(area.codigo) && (
-                          <div className="px-4 pb-3 pt-0">
-                            <div className="ml-11 space-y-1">
-                              {hijos.map(hijo => {
-                                const permisoHijo = perfilForm.permisos.find(p => p.areaCodigo === hijo.codigo);
-                                const hijoAccess = permisoHijo?.lectura || false;
-                                const hijoWrite = permisoHijo?.escritura || false;
-                                const displayName = hijo.nombre.includes(' > ') ? hijo.nombre.split(' > ').pop() : hijo.nombre;
-                                const nietos = areas.filter(a => a.padre === hijo.codigo);
-                                return (
-                                  <div key={hijo.id}>
-                                    <div className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-all ${
-                                      hijoAccess ? 'bg-white border border-gray-100' : 'hover:bg-gray-50'
-                                    }`}>
-                                      <div className="flex items-center gap-1.5 flex-1">
-                                        {nietos.length > 0 && (
-                                          <button
-                                            onClick={() => setExpandedPerfilAreas(prev => {
-                                              const next = new Set(prev);
-                                              if (next.has(hijo.codigo)) next.delete(hijo.codigo);
-                                              else next.add(hijo.codigo);
-                                              return next;
-                                            })}
-                                            className="p-0.5 rounded text-gray-400 hover:text-indigo-600"
-                                          >
-                                            <svg className={`w-3 h-3 transition-transform ${expandedPerfilAreas.has(hijo.codigo) ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                            </svg>
-                                          </button>
-                                        )}
-                                        <span className={`text-xs ${
-                                          hijoAccess ? 'text-gray-800 font-medium' : 'text-gray-500'
-                                        }`}>{displayName}</span>
-                                        {nietos.length > 0 && (
-                                          <span className="text-[9px] text-gray-400">({nietos.length})</span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                        <button
-                                          onClick={() => togglePerfilPermiso(hijo.codigo, 'lectura')}
-                                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
-                                            hijoAccess
-                                              ? 'bg-blue-50 text-blue-600 ring-1 ring-blue-100'
-                                              : 'text-gray-400 hover:text-blue-500 hover:bg-blue-50'
-                                          }`}
-                                        >
-                                          Ver
-                                        </button>
-                                        <button
-                                          onClick={() => togglePerfilPermiso(hijo.codigo, 'escritura')}
-                                          className={`px-2 py-1 rounded text-[10px] font-medium transition-all ${
-                                            hijoWrite
-                                              ? 'bg-green-50 text-green-600 ring-1 ring-green-100'
-                                              : 'text-gray-400 hover:text-green-500 hover:bg-green-50'
-                                          }`}
-                                        >
-                                          Editar
-                                        </button>
-                                        {nietos.length > 0 && (
-                                          <button
-                                            onClick={() => togglePerfilGrupo(hijo.codigo, 'escritura', true)}
-                                            className="p-1 rounded bg-indigo-50 text-indigo-500 hover:bg-indigo-100"
-                                            title="Dar acceso completo a subapartados"
-                                          >
-                                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                            </svg>
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                    {/* Nietos (nivel 3) */}
-                                    {nietos.length > 0 && expandedPerfilAreas.has(hijo.codigo) && (
-                                      <div className="ml-6 mt-1 mb-1 space-y-0.5">
-                                        {nietos.map(nieto => {
-                                          const permisoNieto = perfilForm.permisos.find(p => p.areaCodigo === nieto.codigo);
-                                          const nietoAccess = permisoNieto?.lectura || false;
-                                          const nietoWrite = permisoNieto?.escritura || false;
-                                          const nietoName = nieto.nombre.includes(' > ') ? nieto.nombre.split(' > ').pop() : nieto.nombre;
-                                          return (
-                                            <div key={nieto.id} className={`flex items-center gap-2 px-3 py-1.5 rounded-md transition-all ${
-                                              nietoAccess ? 'bg-blue-50/50' : 'hover:bg-gray-50'
-                                            }`}>
-                                              <span className="w-3 h-px bg-gray-300"></span>
-                                              <span className={`flex-1 text-[11px] ${
-                                                nietoAccess ? 'text-gray-700 font-medium' : 'text-gray-400'
-                                              }`}>{nietoName}</span>
-                                              <div className="flex items-center gap-1.5">
-                                                <button
-                                                  onClick={() => togglePerfilPermiso(nieto.codigo, 'lectura')}
-                                                  className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-all ${
-                                                    nietoAccess
-                                                      ? 'bg-blue-100 text-blue-600'
-                                                      : 'text-gray-400 hover:text-blue-500'
-                                                  }`}
-                                                >
-                                                  Ver
-                                                </button>
-                                                <button
-                                                  onClick={() => togglePerfilPermiso(nieto.codigo, 'escritura')}
-                                                  className={`px-1.5 py-0.5 rounded text-[9px] font-medium transition-all ${
-                                                    nietoWrite
-                                                      ? 'bg-green-100 text-green-600'
-                                                      : 'text-gray-400 hover:text-green-500'
-                                                  }`}
-                                                >
-                                                  Editar
-                                                </button>
-                                              </div>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                              )}
                             </div>
                           </div>
-                        )}
-                      </div>
-                    );
+
+                          {/* Hijos recursivos */}
+                          {children.length > 0 && isExpanded && (
+                            <div className={`${isRoot ? 'mt-1 ml-4 pl-3 border-l-2 border-indigo-100' : 'mt-0.5 ml-3 pl-2 border-l border-gray-200'} space-y-0.5`}>
+                              {children.map(child => renderAreaRecursive(child, depth + 1))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    };
+                    return renderAreaRecursive(area, 0);
                   })}
                 </div>
               </div>
