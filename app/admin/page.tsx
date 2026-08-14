@@ -91,8 +91,8 @@ function VisorDashboard({ userName }: { userName: string }) {
             grandes cuentas, personal y mucho más.
           </p>
           <p className="mt-3 text-gray-500 leading-relaxed">
-            Tu acceso actual es de <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Visor</span>. 
-            Un administrador puede asignarte permisos adicionales según tu rol en la empresa.
+            Tienes acceso a las secciones que tu administrador te ha asignado. 
+            Utiliza el menú lateral para navegar a tus áreas de trabajo.
           </p>
         </div>
       </div>
@@ -221,13 +221,11 @@ function VisorDashboard({ userName }: { userName: string }) {
 export default async function AdminDashboard() {
   const session = await requireAuth('admin')
   
-  // Determinar si es usuario VISOR (sin permisos de admin)
-  const userRoles = session.user.roles || []
-  const isVisor = session.user.role === 'VISOR' || 
-    (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN' && session.user.role !== 'GERENTE')
+  // Solo SUPER_ADMIN y GERENTE ven los KPIs de negocio
+  const isDirectivo = session.user.role === 'SUPER_ADMIN' || session.user.role === 'GERENTE'
   
-  // Si es VISOR, mostrar pantalla de bienvenida genérica
-  if (isVisor) {
+  // Si NO es directivo, mostrar pantalla de bienvenida (sin datos financieros)
+  if (!isDirectivo) {
     return <VisorDashboard userName={session.user.name || 'Usuario'} />
   }
   
