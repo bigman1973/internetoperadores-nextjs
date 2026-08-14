@@ -40,7 +40,10 @@ export default function DashboardClient({
   stats: DashboardStats
   mesActual: string 
 }) {
-  const { effectiveRole, isViewingAs, isSuperAdmin } = useRole()
+  const { effectiveRole, isViewingAs, isViewingAsUser, viewingUser, isSuperAdmin } = useRole()
+  
+  // Nombre a mostrar: si estamos simulando un usuario, usar su nombre
+  const displayName = (isViewingAsUser && viewingUser) ? viewingUser.nombre : userName
   
   // Solo mostrar KPIs si es directivo real (no simulando otro rol)
   const showKPIs = (isSuperAdmin && !isViewingAs) || 
@@ -48,10 +51,10 @@ export default function DashboardClient({
     (effectiveRole === 'SUPER_ADMIN')
 
   if (!showKPIs) {
-    return <VisorDashboard userName={userName} />
+    return <VisorDashboard userName={displayName} />
   }
 
-  return <DirectivoDashboard userName={userName} stats={stats} mesActual={mesActual} />
+  return <DirectivoDashboard userName={displayName} stats={stats} mesActual={mesActual} />
 }
 
 function VisorDashboard({ userName }: { userName: string }) {
@@ -190,8 +193,8 @@ function VisorDashboard({ userName }: { userName: string }) {
           <a href="/empleado/nominas" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white text-gray-700 text-sm font-medium border border-gray-300 hover:bg-gray-50 transition-colors">
             Mis Nóminas
           </a>
-          <a href="/empleado/vacaciones" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white text-gray-700 text-sm font-medium border border-gray-300 hover:bg-gray-50 transition-colors">
-            Vacaciones
+          <a href="/empleado/imputaciones" className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-white text-gray-700 text-sm font-medium border border-gray-300 hover:bg-gray-50 transition-colors">
+            Imputaciones
           </a>
         </div>
       </div>
