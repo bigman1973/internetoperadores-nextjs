@@ -252,6 +252,12 @@ export async function POST(request: Request) {
       await prisma.permisoUsuario.createMany({ data: creates })
     }
 
+    // Guardar el nombre del perfil asignado en el usuario
+    await prisma.usuarioAdmin.update({
+      where: { id: parseInt(usuarioId) },
+      data: { perfilAsignado: perfil.nombre },
+    })
+
     return NextResponse.json({ ok: true, count: creates.length })
   }
 

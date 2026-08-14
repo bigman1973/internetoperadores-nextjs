@@ -12,6 +12,7 @@ interface Usuario {
   activo: boolean;
   ultimoAcceso: string | null;
   createdAt: string;
+  perfilAsignado?: string | null;
 }
 
 interface Perfil {
@@ -534,6 +535,11 @@ export default function UsuariosAdminClient() {
                             </span>
                           );
                         })}
+                        {user.perfilAsignado && (
+                          <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold bg-indigo-100 text-indigo-800 ring-1 ring-indigo-200">
+                            {user.perfilAsignado}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">

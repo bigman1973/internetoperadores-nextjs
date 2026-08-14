@@ -24,6 +24,7 @@ export async function GET() {
         activo: true,
         ultimoAcceso: true,
         createdAt: true,
+        perfilAsignado: true,
       },
       orderBy: { createdAt: 'asc' },
     })

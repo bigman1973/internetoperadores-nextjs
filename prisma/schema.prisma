@@ -23,6 +23,7 @@ model UsuarioAdmin {
   tarifasCreadas   Tarifa[]          @relation("TarifaCreador")
   tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
   permisos         PermisoUsuario[]
+  perfilAsignado   String?           @map("perfil_asignado") // Nombre del perfil de permisos asignado
 
   @@map("usuarios_admin")
 }
