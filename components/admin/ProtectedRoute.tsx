@@ -5,8 +5,25 @@ import { useRole } from './RoleContext'
 import { useEffect } from 'react'
 
 /**
+ * Mapeo de rutas planas a su padre lógico en el árbol de permisos.
+ * Cuando una ruta del panel no está anidada bajo su padre en la URL,
+ * este mapeo indica bajo qué código de área debe registrarse.
+ */
+const ROUTE_PARENT_MAP: Record<string, string> = {
+  // Leads: las rutas /admin/leads-* son hijas de admin.leads
+  'admin.leads_soluciones': 'admin.leads.soluciones',
+  'admin.leads_mantenimiento': 'admin.leads.mantenimiento',
+  'admin.leads_generales': 'admin.leads.generales',
+  // Altas pendientes es hijo de admin
+  'admin.altas_pendientes': 'admin.altas_pendientes',
+  // Subida de precios
+  'admin.subida_precios': 'admin.subida_precios',
+}
+
+/**
  * Mapea una ruta del panel admin a un código de área de permisos.
  * La conversión es automática: /admin/clientes/ggcc/draxton/contratos → admin.clientes.ggcc.draxton.contratos
+ * Con corrección de rutas planas que deberían estar anidadas.
  */
 function pathToAreaCode(pathname: string): string {
   const withoutAdmin = pathname.replace(/^\/admin\/?/, '')
@@ -19,11 +36,17 @@ function pathToAreaCode(pathname: string): string {
     .map(segment => segment.replace(/-/g, '_'))
     .join('.')
   
+  // Aplicar mapeo de corrección si existe
+  if (ROUTE_PARENT_MAP[code]) {
+    return ROUTE_PARENT_MAP[code]
+  }
+  
   return code
 }
 
 /**
  * Auto-registra el área en la base de datos si no existe.
+ * No registra áreas que están en la lista de ignorados (ya mapeadas manualmente).
  */
 function useAutoRegisterArea(areaCode: string, pathname: string) {
   useEffect(() => {
@@ -67,19 +90,6 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   
   // Auto-registrar el área (solo para SUPER_ADMIN, en background)
   useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '', pathname)
-  
-  // DEBUG - remover después
-  console.log('[ProtectedRoute]', {
-    pathname,
-    areaCode,
-    isSuperAdmin,
-    isViewingAs,
-    isViewingAsUser,
-    effectiveRole,
-    permisosLoaded,
-    tienePermisosGranulares,
-    hasAccess: tienePermisosGranulares ? hasAreaAccess(areaCode, 'lectura') : 'N/A (no granulares)',
-  })
 
   // SUPER_ADMIN real sin simulación: acceso total
   if (isSuperAdmin && !isViewingAs) {
