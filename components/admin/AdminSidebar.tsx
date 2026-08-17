@@ -104,6 +104,7 @@ const navigation: NavEntry[] = [
       { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon, section: 'clientes.migracion_adamo' },
       { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon, section: 'clientes.ggcc.draxton' },
       { name: 'GGCC - Exagrid', href: '/admin/clientes/ggcc/exagrid', icon: BuildingOffice2Icon, section: 'clientes.ggcc.exagrid' },
+      { name: 'Proyectos Cliente', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
     ],
   },
   {
@@ -155,7 +156,7 @@ const navigation: NavEntry[] = [
     ],
   },
   { name: 'Imputaciones', href: '/admin/imputaciones', icon: ClockIcon, section: 'imputaciones' },
-  { name: 'Proyectos', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
+  { name: 'Proyectos Internos', href: '/admin/proyectos-internos', icon: RocketLaunchIcon, section: 'proyectos_internos' },
   { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'portal-empleado' },
   { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon, section: 'historial' },
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
