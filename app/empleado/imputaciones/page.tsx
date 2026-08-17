@@ -99,6 +99,40 @@ export default function ImputacionesPage() {
     }
   };
 
+  // Buscador de proyectos
+  const [proyectoSearch, setProyectoSearch] = useState('');
+  const [proyectoResults, setProyectoResults] = useState<any[]>([]);
+  const [searchingProyecto, setSearchingProyecto] = useState(false);
+  const [showProyectoDropdown, setShowProyectoDropdown] = useState(false);
+  const [selectedProyecto, setSelectedProyecto] = useState<any>(null);
+
+  const buscarProyectos = async (query: string) => {
+    setProyectoSearch(query);
+    if (query.length < 2) {
+      setProyectoResults([]);
+      setShowProyectoDropdown(false);
+      return;
+    }
+    setSearchingProyecto(true);
+    try {
+      const res = await fetch(`/api/empleado/buscar-proyectos?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setProyectoResults(data);
+      setShowProyectoDropdown(true);
+    } catch (err) {
+      setProyectoResults([]);
+    } finally {
+      setSearchingProyecto(false);
+    }
+  };
+
+  const seleccionarProyecto = (proy: any) => {
+    setSelectedProyecto(proy);
+    setFormData({ ...formData, descripcion: proy.nombre });
+    setProyectoSearch(proy.nombre);
+    setShowProyectoDropdown(false);
+  };
+
   const seleccionarCliente = (cliente: any) => {
     setFormData({ ...formData, clienteNombre: cliente.nombre, clienteId: String(cliente.id) });
     setClienteSearch(cliente.nombre);
@@ -202,6 +236,9 @@ export default function ImputacionesPage() {
     ) ||
     (formData.categoria === 'Comercial' && formData.subcategoria !== '')
   );
+
+  // Mostrar buscador de proyectos cuando la categoría es "Proyectos"
+  const needsProyectoSearch = formData.categoria === 'Proyectos';
 
   if (error === 'No se encontró tu perfil de empleado. Contacta con administración.') {
     return (
@@ -551,12 +588,58 @@ export default function ImputacionesPage() {
                 </div>
               )}
 
+              {/* Buscador de proyectos */}
+              {needsProyectoSearch && (
+                <div className="relative">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Proyecto</label>
+                  {selectedProyecto ? (
+                    <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${selectedProyecto.tipo === 'cliente' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                        {selectedProyecto.tipo === 'cliente' ? 'Cliente' : 'Interno'}
+                      </span>
+                      <span className="text-sm font-medium text-violet-700 flex-1">{selectedProyecto.nombre}</span>
+                      <button type="button" onClick={() => { setSelectedProyecto(null); setProyectoSearch(''); setFormData({ ...formData, descripcion: '' }); }} className="text-violet-400 hover:text-violet-600 text-xs">Cambiar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Buscar proyecto por nombre..."
+                        value={proyectoSearch}
+                        onChange={e => buscarProyectos(e.target.value)}
+                        onFocus={() => proyectoResults.length > 0 && setShowProyectoDropdown(true)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-violet-500 focus:border-violet-500"
+                      />
+                      {searchingProyecto && <p className="text-xs text-gray-400 mt-1">Buscando...</p>}
+                      {showProyectoDropdown && proyectoResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {proyectoResults.map((p: any) => (
+                            <button key={p.id} type="button" onClick={() => seleccionarProyecto(p)} className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${p.tipo === 'cliente' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                                  {p.tipo === 'cliente' ? 'Cliente' : 'Interno'}
+                                </span>
+                                <p className="text-sm font-medium text-gray-900">{p.nombre}</p>
+                              </div>
+                              {p.detalle && <p className="text-xs text-gray-500 mt-0.5 ml-12">{p.detalle}</p>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {showProyectoDropdown && proyectoResults.length === 0 && proyectoSearch.length >= 2 && !searchingProyecto && (
+                        <p className="text-xs text-gray-400 mt-1">No se encontraron proyectos</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* Nota */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
                 <input
                   type="text"
-                  placeholder="Ej: Revisión propuesta, llamada seguimiento..."
+                  placeholder="Ej: Revision propuesta, llamada seguimiento..."
                   value={formData.descripcion}
                   onChange={e => setFormData({ ...formData, descripcion: e.target.value })}
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
