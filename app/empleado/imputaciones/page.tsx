@@ -477,9 +477,9 @@ export default function ImputacionesPage() {
                 <div className="bg-gray-50 rounded-lg px-3 py-2">
                   <p className="text-xs text-gray-500">
                     <span className="font-medium text-gray-700">{formData.categoria}</span>
-                    {formData.subcategoria && <span> → {formData.subcategoria}</span>}
-                    {formData.subcategoria2 && <span> → {formData.subcategoria2}</span>}
-                    {formData.subcategoria3 && <span> → {formData.subcategoria3}</span>}
+                    {formData.subcategoria && <span>{' > '}{formData.subcategoria}</span>}
+                    {formData.subcategoria2 && <span>{' > '}{formData.subcategoria2}</span>}
+                    {formData.subcategoria3 && <span>{' > '}{formData.subcategoria3}</span>}
                   </p>
                 </div>
               )}

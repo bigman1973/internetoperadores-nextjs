@@ -578,9 +578,9 @@ export default function ImputacionesAdminPage() {
                 <div className="bg-gray-50 rounded-lg px-3 py-2">
                   <p className="text-xs text-gray-500">
                     <span className="font-medium text-gray-700">{imputarForm.categoria}</span>
-                    {imputarForm.subcategoria && <span> \u2192 {imputarForm.subcategoria}</span>}
-                    {imputarForm.subcategoria2 && <span> \u2192 {imputarForm.subcategoria2}</span>}
-                    {imputarForm.subcategoria3 && <span> \u2192 {imputarForm.subcategoria3}</span>}
+                    {imputarForm.subcategoria && <span>{' > '}{imputarForm.subcategoria}</span>}
+                    {imputarForm.subcategoria2 && <span>{' > '}{imputarForm.subcategoria2}</span>}
+                    {imputarForm.subcategoria3 && <span>{' > '}{imputarForm.subcategoria3}</span>}
                   </p>
                 </div>
               )}
