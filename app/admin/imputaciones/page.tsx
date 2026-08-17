@@ -60,6 +60,31 @@ export default function ImputacionesAdminPage() {
     descripcion: '',
   });
 
+  // Buscador de clientes
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [clienteResults, setClienteResults] = useState<any[]>([]);
+  const [searchingCliente, setSearchingCliente] = useState(false);
+  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+
+  const buscarClientes = async (query: string) => {
+    setClienteSearch(query);
+    if (query.length < 2) { setClienteResults([]); setShowClienteDropdown(false); return; }
+    setSearchingCliente(true);
+    try {
+      const res = await fetch(`/api/empleado/buscar-clientes?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setClienteResults(data);
+      setShowClienteDropdown(true);
+    } catch { setClienteResults([]); }
+    finally { setSearchingCliente(false); }
+  };
+
+  const seleccionarCliente = (cliente: any) => {
+    setImputarForm({ ...imputarForm, clienteNombre: cliente.nombre });
+    setClienteSearch(cliente.nombre);
+    setShowClienteDropdown(false);
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -155,6 +180,15 @@ export default function ImputacionesAdminPage() {
   const imputarN2Options: any[] = imputarSelectedN1?.hijos || [];
   const imputarSelectedN2 = imputarN2Options.find((n: any) => n.nombre === imputarForm.subcategoria2);
   const imputarN3Options: any[] = imputarSelectedN2?.hijos || [];
+
+  // Buscador de clientes: mostrar cuando es Comercial (cualquier sub) o Soporte Técnico (no Alta nueva, no Infraestructura)
+  const adminNeedsClienteSearch = (
+    (imputarForm.categoria === 'Soporte T\u00e9cnico' && 
+     (imputarForm.subcategoria === 'Particular' || imputarForm.subcategoria === 'Empresa') &&
+     imputarForm.subcategoria2 !== '' && imputarForm.subcategoria2 !== 'Alta nueva'
+    ) ||
+    (imputarForm.categoria === 'Comercial' && imputarForm.subcategoria !== '')
+  );
 
   return (
     <div className="space-y-6">
@@ -677,17 +711,54 @@ export default function ImputacionesAdminPage() {
                   </p>
                 </div>
               )}
-              {/* Cliente */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Draxton, Hospital Granollers..."
-                  value={imputarForm.clienteNombre}
-                  onChange={e => setImputarForm({ ...imputarForm, clienteNombre: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
-                />
-              </div>
+              {/* Cliente - buscador inteligente o campo libre */}
+              {adminNeedsClienteSearch ? (
+                <div className="relative">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
+                  {imputarForm.clienteNombre ? (
+                    <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                      <span className="text-sm font-medium text-indigo-700 flex-1">{imputarForm.clienteNombre}</span>
+                      <button type="button" onClick={() => { setImputarForm({ ...imputarForm, clienteNombre: '' }); setClienteSearch(''); }} className="text-indigo-400 hover:text-indigo-600 text-xs">\u2715 Cambiar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Buscar cliente por nombre, CIF o c\u00f3digo..."
+                        value={clienteSearch}
+                        onChange={e => buscarClientes(e.target.value)}
+                        onFocus={() => clienteResults.length > 0 && setShowClienteDropdown(true)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-indigo-500"
+                      />
+                      {searchingCliente && <p className="text-xs text-gray-400 mt-1">Buscando...</p>}
+                      {showClienteDropdown && clienteResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {clienteResults.map((c: any) => (
+                            <button key={c.id} type="button" onClick={() => seleccionarCliente(c)} className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0">
+                              <p className="text-sm font-medium text-gray-900">{c.nombre}</p>
+                              <p className="text-xs text-gray-500">{c.cif || c.nif || ''}{c.municipio ? ` \u2022 ${c.municipio}` : ''}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {showClienteDropdown && clienteResults.length === 0 && clienteSearch.length >= 2 && !searchingCliente && (
+                        <p className="text-xs text-gray-400 mt-1">No se encontraron clientes</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Draxton, Hospital Granollers..."
+                    value={imputarForm.clienteNombre}
+                    onChange={e => setImputarForm({ ...imputarForm, clienteNombre: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                  />
+                </div>
+              )}
               {/* Nota */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
