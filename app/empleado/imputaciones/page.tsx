@@ -69,8 +69,41 @@ export default function ImputacionesPage() {
     subcategoria2: '',
     subcategoria3: '',
     clienteNombre: '',
+    clienteId: '',
     descripcion: '',
   });
+
+  // Buscador de clientes
+  const [clienteSearch, setClienteSearch] = useState('');
+  const [clienteResults, setClienteResults] = useState<any[]>([]);
+  const [searchingCliente, setSearchingCliente] = useState(false);
+  const [showClienteDropdown, setShowClienteDropdown] = useState(false);
+
+  const buscarClientes = async (query: string) => {
+    setClienteSearch(query);
+    if (query.length < 2) {
+      setClienteResults([]);
+      setShowClienteDropdown(false);
+      return;
+    }
+    setSearchingCliente(true);
+    try {
+      const res = await fetch(`/api/empleado/buscar-clientes?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setClienteResults(data);
+      setShowClienteDropdown(true);
+    } catch (err) {
+      setClienteResults([]);
+    } finally {
+      setSearchingCliente(false);
+    }
+  };
+
+  const seleccionarCliente = (cliente: any) => {
+    setFormData({ ...formData, clienteNombre: cliente.nombre, clienteId: String(cliente.id) });
+    setClienteSearch(cliente.nombre);
+    setShowClienteDropdown(false);
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -112,7 +145,8 @@ export default function ImputacionesPage() {
       if (!res.ok) throw new Error(data.error);
       
       setShowForm(false);
-      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
+      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', clienteId: '', descripcion: '' });
+      setClienteSearch('');
       fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -156,6 +190,16 @@ export default function ImputacionesPage() {
   const nivel2Options: SubcatNode[] = selectedN1?.hijos || [];
   const selectedN2 = nivel2Options.find(n => n.nombre === formData.subcategoria2);
   const nivel3Options: SubcatNode[] = selectedN2?.hijos || [];
+
+  // Mostrar buscador de clientes cuando es Soporte Técnico (Particular/Empresa) y NO es Alta nueva
+  // O cuando es Comercial > Fidelización
+  const needsClienteSearch = (
+    (formData.categoria === 'Soporte Técnico' && 
+     (formData.subcategoria === 'Particular' || formData.subcategoria === 'Empresa') &&
+     formData.subcategoria !== '' && formData.subcategoria2 !== '' && formData.subcategoria2 !== 'Alta nueva'
+    ) ||
+    (formData.categoria === 'Comercial' && formData.subcategoria === 'Fidelización')
+  );
 
   if (error === 'No se encontró tu perfil de empleado. Contacta con administración.') {
     return (
@@ -440,17 +484,70 @@ export default function ImputacionesPage() {
                 </div>
               )}
 
-              {/* Cliente */}
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Draxton, Hospital Granollers..."
-                  value={formData.clienteNombre}
-                  onChange={e => setFormData({ ...formData, clienteNombre: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                />
-              </div>
+              {/* Cliente - buscador inteligente cuando es Soporte Técnico y no es Alta nueva */}
+              {needsClienteSearch ? (
+                <div className="relative">
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
+                  {formData.clienteNombre ? (
+                    <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
+                      <span className="text-sm font-medium text-indigo-700 flex-1">{formData.clienteNombre}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setFormData({ ...formData, clienteNombre: '', clienteId: '' }); setClienteSearch(''); }}
+                        className="text-indigo-400 hover:text-indigo-600 text-xs"
+                      >
+                        ✕ Cambiar
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Buscar cliente por nombre, CIF o código..."
+                        value={clienteSearch}
+                        onChange={e => buscarClientes(e.target.value)}
+                        onFocus={() => clienteResults.length > 0 && setShowClienteDropdown(true)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                      />
+                      {searchingCliente && (
+                        <p className="text-xs text-gray-400 mt-1">Buscando...</p>
+                      )}
+                      {showClienteDropdown && clienteResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                          {clienteResults.map(c => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => seleccionarCliente(c)}
+                              className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                            >
+                              <p className="text-sm font-medium text-gray-900">{c.nombre}</p>
+                              <p className="text-xs text-gray-500">
+                                {c.cif || c.nif || ''}{c.municipio ? ` • ${c.municipio}` : ''}
+                                {c.personaFisica === false ? ' 🏢' : ' 👤'}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {showClienteDropdown && clienteResults.length === 0 && clienteSearch.length >= 2 && !searchingCliente && (
+                        <p className="text-xs text-gray-400 mt-1">No se encontraron clientes</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: Draxton, Hospital Granollers..."
+                    value={formData.clienteNombre}
+                    onChange={e => setFormData({ ...formData, clienteNombre: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  />
+                </div>
+              )}
 
               {/* Nota */}
               <div>
