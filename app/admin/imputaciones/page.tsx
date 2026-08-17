@@ -1,0 +1,394 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { ClockIcon, UserGroupIcon, CurrencyEuroIcon, ChartBarIcon, PlusIcon, PencilIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+
+interface KPIs {
+  totalHoras: number;
+  totalCoste: number;
+  registros: number;
+  empleadosActivos: number;
+}
+
+interface ResumenEmpleado { id: string; nombre: string; horas: number; coste: number; }
+interface ResumenCategoria { nombre: string; horas: number; coste: number; }
+interface ResumenCliente { nombre: string; horas: number; coste: number; }
+interface Empleado { id: string; nombreCompleto: string; departamento: string | null; }
+interface Categoria { id: string; nombre: string; color: string; subcategorias: string[]; activa: boolean; orden: number; }
+
+const PERIODOS = [
+  { value: 'semana', label: 'Semana' },
+  { value: 'mes', label: 'Mes' },
+  { value: 'anio', label: 'Año' },
+];
+
+function formatEur(v: number) { return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0 }).format(v); }
+
+export default function ImputacionesAdminPage() {
+  const [kpis, setKpis] = useState<KPIs>({ totalHoras: 0, totalCoste: 0, registros: 0, empleadosActivos: 0 });
+  const [porEmpleado, setPorEmpleado] = useState<ResumenEmpleado[]>([]);
+  const [porCategoria, setPorCategoria] = useState<ResumenCategoria[]>([]);
+  const [porCliente, setPorCliente] = useState<ResumenCliente[]>([]);
+  const [empleados, setEmpleados] = useState<Empleado[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [periodo, setPeriodo] = useState('mes');
+  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [filtroEmpleado, setFiltroEmpleado] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [tab, setTab] = useState<'dashboard' | 'categorias'>('dashboard');
+
+  // Categoría form
+  const [showCatForm, setShowCatForm] = useState(false);
+  const [editingCat, setEditingCat] = useState<Categoria | null>(null);
+  const [catForm, setCatForm] = useState({ nombre: '', color: '#6366f1', subcategorias: '' });
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ periodo, fecha });
+      if (filtroEmpleado) params.append('empleadoId', filtroEmpleado);
+      if (filtroCategoria) params.append('categoria', filtroCategoria);
+
+      const res = await fetch(`/api/admin/imputaciones?${params}`);
+      const data = await res.json();
+      setKpis(data.kpis);
+      setPorEmpleado(data.porEmpleado);
+      setPorCategoria(data.porCategoria);
+      setPorCliente(data.porCliente);
+      setEmpleados(data.empleados);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, [periodo, fecha, filtroEmpleado, filtroCategoria]);
+
+  const fetchCategorias = async () => {
+    const res = await fetch('/api/admin/imputaciones?action=categorias');
+    const data = await res.json();
+    setCategorias(data.categorias || []);
+  };
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchCategorias(); }, []);
+
+  const handleSaveCat = async () => {
+    const subcats = catForm.subcategorias.split(',').map(s => s.trim()).filter(Boolean);
+    const body: any = {
+      action: editingCat ? 'editar_categoria' : 'crear_categoria',
+      nombre: catForm.nombre,
+      color: catForm.color,
+      subcategorias: subcats,
+    };
+    if (editingCat) body.id = editingCat.id;
+
+    await fetch('/api/admin/imputaciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    setShowCatForm(false);
+    setEditingCat(null);
+    setCatForm({ nombre: '', color: '#6366f1', subcategorias: '' });
+    fetchCategorias();
+  };
+
+  const handleDeleteCat = async (id: string) => {
+    if (!confirm('¿Eliminar esta categoría?')) return;
+    await fetch('/api/admin/imputaciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'eliminar_categoria', id }),
+    });
+    fetchCategorias();
+  };
+
+  const maxHoras = Math.max(...porEmpleado.map(e => e.horas), 1);
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Imputación de Tiempos</h1>
+          <p className="text-sm text-gray-500 mt-1">Análisis de dedicación del equipo</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setTab('dashboard')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'dashboard' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Dashboard
+          </button>
+          <button
+            onClick={() => setTab('categorias')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'categorias' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Categorías
+          </button>
+        </div>
+      </div>
+
+      {tab === 'dashboard' && (
+        <>
+          {/* Filtros */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {PERIODOS.map(p => (
+                <button
+                  key={p.value}
+                  onClick={() => setPeriodo(p.value)}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodo === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <input
+              type="date"
+              value={fecha}
+              onChange={e => setFecha(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+            />
+            <select
+              value={filtroEmpleado}
+              onChange={e => setFiltroEmpleado(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+            >
+              <option value="">Todos los empleados</option>
+              {empleados.map(e => (
+                <option key={e.id} value={e.id}>{e.nombreCompleto}</option>
+              ))}
+            </select>
+            <select
+              value={filtroCategoria}
+              onChange={e => setFiltroCategoria(e.target.value)}
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+            >
+              <option value="">Todas las categorías</option>
+              {categorias.filter(c => c.activa).map(c => (
+                <option key={c.id} value={c.nombre}>{c.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* KPIs */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-orange-100"><ClockIcon className="w-5 h-5 text-orange-600" /></div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{kpis.totalHoras.toFixed(1)}h</p>
+                  <p className="text-xs text-gray-500">Horas totales</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-green-100"><CurrencyEuroIcon className="w-5 h-5 text-green-600" /></div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{formatEur(kpis.totalCoste)}</p>
+                  <p className="text-xs text-gray-500">Coste total</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-100"><ChartBarIcon className="w-5 h-5 text-blue-600" /></div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{kpis.registros}</p>
+                  <p className="text-xs text-gray-500">Registros</p>
+                </div>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-purple-100"><UserGroupIcon className="w-5 h-5 text-purple-600" /></div>
+                <div>
+                  <p className="text-2xl font-bold text-gray-900">{kpis.empleadosActivos}</p>
+                  <p className="text-xs text-gray-500">Empleados imputando</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tablas */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Por empleado */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Por empleado</h3>
+              {porEmpleado.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Sin datos en este período</p>
+              ) : (
+                <div className="space-y-3">
+                  {porEmpleado.map(emp => (
+                    <div key={emp.id}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="font-medium text-gray-700 truncate">{emp.nombre}</span>
+                        <span className="text-gray-900 font-semibold">{emp.horas.toFixed(1)}h</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-2">
+                        <div className="bg-orange-500 h-2 rounded-full transition-all" style={{ width: `${(emp.horas / maxHoras) * 100}%` }}></div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{formatEur(emp.coste)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Por categoría */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Por categoría</h3>
+              {porCategoria.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Sin datos en este período</p>
+              ) : (
+                <div className="space-y-3">
+                  {porCategoria.map(cat => {
+                    const pct = kpis.totalHoras > 0 ? (cat.horas / kpis.totalHoras) * 100 : 0;
+                    return (
+                      <div key={cat.nombre} className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between text-sm mb-1">
+                            <span className="font-medium text-gray-700">{cat.nombre}</span>
+                            <span className="text-gray-500">{pct.toFixed(0)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2">
+                            <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }}></div>
+                          </div>
+                        </div>
+                        <span className="text-sm font-semibold text-gray-900 w-14 text-right">{cat.horas.toFixed(1)}h</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Por cliente */}
+            <div className="bg-white rounded-xl border border-gray-200 p-5 lg:col-span-2">
+              <h3 className="text-sm font-semibold text-gray-900 mb-4">Por cliente</h3>
+              {porCliente.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Sin datos en este período</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {porCliente.map(cli => (
+                    <div key={cli.nombre} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{cli.nombre}</p>
+                        <p className="text-xs text-gray-500">{formatEur(cli.coste)}</p>
+                      </div>
+                      <span className="text-sm font-bold text-indigo-600">{cli.horas.toFixed(1)}h</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {tab === 'categorias' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Categorías de Imputación</h2>
+              <p className="text-sm text-gray-500">Define las categorías que verán los empleados al imputar</p>
+            </div>
+            <button
+              onClick={() => { setShowCatForm(true); setEditingCat(null); setCatForm({ nombre: '', color: '#6366f1', subcategorias: '' }); }}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700"
+            >
+              <PlusIcon className="w-4 h-4" /> Nueva categoría
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {categorias.map(cat => (
+              <div key={cat.id} className="flex items-center justify-between p-4 rounded-lg border border-gray-200 hover:border-gray-300">
+                <div className="flex items-center gap-3">
+                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: cat.color }}></div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{cat.nombre}</p>
+                    {cat.subcategorias.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {cat.subcategorias.join(', ')}
+                      </p>
+                    )}
+                  </div>
+                  {!cat.activa && <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs">Inactiva</span>}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setEditingCat(cat); setCatForm({ nombre: cat.nombre, color: cat.color, subcategorias: cat.subcategorias.join(', ') }); setShowCatForm(true); }}
+                    className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                  >
+                    <PencilIcon className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => handleDeleteCat(cat.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+            {categorias.length === 0 && (
+              <p className="text-center text-gray-400 py-8">No hay categorías creadas. Crea la primera para que los empleados puedan imputar.</p>
+            )}
+          </div>
+
+          {/* Modal categoría */}
+          {showCatForm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  {editingCat ? 'Editar categoría' : 'Nueva categoría'}
+                </h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Nombre</label>
+                    <input
+                      type="text"
+                      value={catForm.nombre}
+                      onChange={e => setCatForm({ ...catForm, nombre: e.target.value })}
+                      placeholder="Ej: Comercial, Soporte Técnico..."
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Color</label>
+                    <input
+                      type="color"
+                      value={catForm.color}
+                      onChange={e => setCatForm({ ...catForm, color: e.target.value })}
+                      className="w-12 h-8 rounded border border-gray-300 cursor-pointer"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Subcategorías (separadas por coma)</label>
+                    <input
+                      type="text"
+                      value={catForm.subcategorias}
+                      onChange={e => setCatForm({ ...catForm, subcategorias: e.target.value })}
+                      placeholder="Ej: Visita cliente, Propuesta, Seguimiento"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    />
+                    <p className="text-xs text-gray-400 mt-1">Opciones que verá el empleado como detalle adicional</p>
+                  </div>
+                  <div className="flex gap-3 pt-2">
+                    <button onClick={() => setShowCatForm(false)} className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                      Cancelar
+                    </button>
+                    <button onClick={handleSaveCat} disabled={!catForm.nombre} className="flex-1 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
+                      {editingCat ? 'Guardar' : 'Crear'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

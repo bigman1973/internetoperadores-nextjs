@@ -1663,14 +1663,19 @@ model AsignacionProyecto {
 model ImputacionHoras {
   id              String   @id @default(uuid())
   empleadoId      String   @map("empleado_id")
-  proyectoId      String   @map("proyecto_id")
+  proyectoId      String?  @map("proyecto_id") // Opcional: si se imputa a un proyecto específico
   fecha           DateTime @db.Date
   horas           Float
   descripcion     String?
   costeImputado   Float?   @map("coste_imputado") // horas × costeHora del empleado
+  // Categorización
+  categoria       String   @default("general") // Comercial, Soporte Técnico, Administración, Proyectos, Dirección, Formación
+  subcategoria    String?  // Visita cliente, Incidencia, Facturación, etc.
+  clienteNombre   String?  @map("cliente_nombre") // Cliente al que se dedica el tiempo (opcional)
+  clienteId       Int?     @map("cliente_id_imp") // Relación opcional con ClienteWeb
   // Relaciones
   empleado        Empleado @relation(fields: [empleadoId], references: [id])
-  proyecto        Proyecto @relation(fields: [proyectoId], references: [id])
+  proyecto        Proyecto? @relation(fields: [proyectoId], references: [id])
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1678,7 +1683,21 @@ model ImputacionHoras {
   @@index([empleadoId, fecha])
   @@index([proyectoId, fecha])
   @@index([fecha])
+  @@index([categoria])
   @@map("imputaciones_horas")
+}
+
+// Categorías de imputación de tiempos (configurables por admin)
+model CategoriaTimesheet {
+  id              String   @id @default(uuid())
+  nombre          String   @unique
+  color           String   @default("#6366f1") // Color para gráficos
+  icono           String?  // Nombre del icono heroicons
+  orden           Int      @default(0)
+  activa          Boolean  @default(true)
+  subcategorias   String[] // Array de subcategorías posibles
+  createdAt       DateTime @default(now()) @map("created_at")
+  @@map("categorias_timesheet")
 }
 
 // ==========================================

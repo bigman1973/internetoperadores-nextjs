@@ -1,77 +1,95 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { PlusIcon, ClockIcon, TrashIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect, useCallback } from 'react';
+import { PlusIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon } from '@heroicons/react/24/outline';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
 
-interface Proyecto {
+interface Categoria {
   id: string;
   nombre: string;
-  codigo: string | null;
+  color: string;
+  subcategorias: string[];
 }
 
 interface Imputacion {
   id: string;
   fecha: string;
   horas: number;
+  categoria: string;
+  subcategoria: string | null;
+  clienteNombre: string | null;
   descripcion: string | null;
-  proyecto: Proyecto;
+  proyecto: { id: string; nombre: string; codigo: string | null } | null;
 }
 
-interface Resumen {
-  totalHoras: number;
-  horasPorProyecto: Record<string, number>;
-  mes: number;
-  anio: number;
+const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+function getMonday(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
 }
 
-const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+function formatDate(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function formatDateShort(d: Date): string {
+  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+}
 
 export default function ImputacionesPage() {
   const [imputaciones, setImputaciones] = useState<Imputacion[]>([]);
-  const [proyectos, setProyectos] = useState<Proyecto[]>([]);
-  const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [weekStart, setWeekStart] = useState<Date>(getMonday(new Date()));
   const [showForm, setShowForm] = useState(false);
-  const [mes, setMes] = useState(new Date().getMonth() + 1);
-  const [anio, setAnio] = useState(new Date().getFullYear());
+  const [submitting, setSubmitting] = useState(false);
+  const [empleadoNombre, setEmpleadoNombre] = useState('');
   const { impersonatedEmail, getQueryParam } = useImpersonation();
 
-  // Form
+  // Form state
   const [formData, setFormData] = useState({
-    proyectoId: '',
-    fecha: new Date().toISOString().split('T')[0],
-    horas: '',
+    fecha: formatDate(new Date()),
+    horas: '1',
+    categoria: '',
+    subcategoria: '',
+    clienteNombre: '',
     descripcion: '',
   });
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [mes, anio, impersonatedEmail]);
-
-  async function fetchData() {
+  const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
+      const params = new URLSearchParams({
+        vista: 'semanal',
+        fecha: formatDate(weekStart),
+      });
       const qp = getQueryParam();
-      const res = await fetch(`/api/empleado/imputaciones?mes=${mes}&anio=${anio}${qp ? `&${qp}` : ''}`);
+      if (qp) params.append('as', impersonatedEmail || '');
+
+      const res = await fetch(`/api/empleado/imputaciones?${params}`);
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error);
-        return;
-      }
+      if (!res.ok) throw new Error(data.error || 'Error cargando datos');
+      
       setImputaciones(data.imputaciones || []);
-      setProyectos(data.proyectosAsignados || []);
-      setResumen(data.resumen || null);
-    } catch (e) {
-      setError('Error al cargar las imputaciones');
+      setCategorias(data.categorias || []);
+      setEmpleadoNombre(data.empleado?.nombreCompleto || '');
+    } catch (err: any) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
-  }
+  }, [weekStart, impersonatedEmail, getQueryParam]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     try {
@@ -80,208 +98,328 @@ export default function ImputacionesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
       });
-      if (res.ok) {
-        setShowForm(false);
-        setFormData({ ...formData, horas: '', descripcion: '' });
-        fetchData();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Error al guardar');
-      }
-    } catch (e) {
-      alert('Error de conexión');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      
+      setShowForm(false);
+      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', clienteNombre: '', descripcion: '' });
+      fetchData();
+    } catch (err: any) {
+      alert(err.message);
     } finally {
       setSubmitting(false);
     }
-  }
+  };
 
-  if (error) {
+  const handleDelete = async (id: string) => {
+    if (!confirm('¿Eliminar esta imputación?')) return;
+    try {
+      await fetch(`/api/empleado/imputaciones?id=${id}`, { method: 'DELETE' });
+      fetchData();
+    } catch (err) {
+      alert('Error al eliminar');
+    }
+  };
+
+  const prevWeek = () => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() - 7);
+    setWeekStart(d);
+  };
+
+  const nextWeek = () => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + 7);
+    setWeekStart(d);
+  };
+
+  const thisWeek = () => setWeekStart(getMonday(new Date()));
+
+  // Calcular días de la semana
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    return d;
+  });
+
+  // Agrupar imputaciones por día
+  const impByDay = weekDays.map(day => {
+    const dayStr = formatDate(day);
+    return imputaciones.filter(imp => imp.fecha.split('T')[0] === dayStr);
+  });
+
+  // Total por día y semana
+  const totalsByDay = impByDay.map(dayImps => dayImps.reduce((sum, imp) => sum + imp.horas, 0));
+  const totalWeek = totalsByDay.reduce((sum, h) => sum + h, 0);
+
+  // Categoría seleccionada para subcategorías
+  const selectedCat = categorias.find(c => c.nombre === formData.categoria);
+
+  if (error === 'No se encontró tu perfil de empleado. Contacta con administración.') {
     return (
-      <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6 text-center">
-        <p className="text-yellow-800">{error}</p>
+      <div className="p-6">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800">
+          No se encontró tu perfil de empleado. Contacta con administración.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Imputación de Horas</h1>
-          <p className="text-sm text-gray-500 mt-1">Registra las horas dedicadas a cada proyecto</p>
+          <h1 className="text-2xl font-bold text-gray-900">Imputación de Tiempos</h1>
+          {empleadoNombre && <p className="text-sm text-gray-500 mt-1">{empleadoNombre}</p>}
         </div>
         <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700"
+          onClick={() => setShowForm(true)}
+          className="inline-flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 transition-colors shadow-sm"
         >
-          <PlusIcon className="h-4 w-4" />
-          Imputar Horas
+          <PlusIcon className="w-4 h-4" />
+          Imputar tiempo
         </button>
       </div>
 
-      {/* Filtro mes */}
-      <div className="flex items-center gap-3">
-        <select
-          value={mes}
-          onChange={(e) => setMes(parseInt(e.target.value))}
-          className="px-3 py-2 border rounded-lg text-sm"
-        >
-          {MESES.slice(1).map((m, i) => (
-            <option key={i + 1} value={i + 1}>{m}</option>
-          ))}
-        </select>
-        <select
-          value={anio}
-          onChange={(e) => setAnio(parseInt(e.target.value))}
-          className="px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value={2026}>2026</option>
-          <option value={2025}>2025</option>
-        </select>
+      {/* Navegación semanal */}
+      <div className="flex items-center justify-between mb-4 bg-white rounded-xl border border-gray-200 p-3">
+        <button onClick={prevWeek} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ChevronLeftIcon className="w-5 h-5 text-gray-600" />
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-gray-900">
+            {formatDateShort(weekDays[0])} — {formatDateShort(weekDays[6])}
+          </p>
+          <button onClick={thisWeek} className="text-xs text-orange-600 hover:underline mt-0.5">
+            Ir a esta semana
+          </button>
+        </div>
+        <button onClick={nextWeek} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+          <ChevronRightIcon className="w-5 h-5 text-gray-600" />
+        </button>
       </div>
 
-      {/* Resumen del mes */}
-      {resumen && (
-        <div className="bg-white rounded-xl border p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <ClockIcon className="h-5 w-5 text-orange-600" />
-            <h2 className="font-semibold text-gray-900">Resumen {MESES[mes]} {anio}</h2>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div>
-              <p className="text-xs text-gray-500">Total horas</p>
-              <p className="text-2xl font-bold text-gray-900">{resumen.totalHoras.toFixed(1)}h</p>
-            </div>
-            {Object.entries(resumen.horasPorProyecto).map(([proyecto, horas]) => (
-              <div key={proyecto}>
-                <p className="text-xs text-gray-500">{proyecto}</p>
-                <p className="text-lg font-semibold text-gray-700">{horas.toFixed(1)}h</p>
-              </div>
-            ))}
-          </div>
+      {/* KPI semanal */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+          <p className="text-2xl font-bold text-orange-600">{totalWeek.toFixed(1)}h</p>
+          <p className="text-xs text-gray-500 mt-1">Total semana</p>
         </div>
-      )}
-
-      {/* Formulario nueva imputación */}
-      {showForm && (
-        <div className="bg-white rounded-xl border p-5">
-          <h3 className="font-semibold text-gray-900 mb-4">Nueva imputación</h3>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Proyecto *</label>
-                <select
-                  value={formData.proyectoId}
-                  onChange={(e) => setFormData({ ...formData, proyectoId: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                  required
-                >
-                  <option value="">Seleccionar proyecto...</option>
-                  {proyectos.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.codigo ? `[${p.codigo}] ` : ''}{p.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
-                <input
-                  type="date"
-                  value={formData.fecha}
-                  onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Horas *</label>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0.5"
-                  max="24"
-                  value={formData.horas}
-                  onChange={(e) => setFormData({ ...formData, horas: e.target.value })}
-                  className="w-full px-3 py-2 border rounded-lg text-sm"
-                  placeholder="8"
-                  required
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Descripción</label>
-              <input
-                type="text"
-                value={formData.descripcion}
-                onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
-                className="w-full px-3 py-2 border rounded-lg text-sm"
-                placeholder="Qué tarea realizaste..."
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => setShowForm(false)}
-                className="px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm hover:bg-orange-700 disabled:opacity-50"
-              >
-                {submitting ? 'Guardando...' : 'Guardar'}
-              </button>
-            </div>
-          </form>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+          <p className="text-2xl font-bold text-gray-900">{(totalWeek / 5).toFixed(1)}h</p>
+          <p className="text-xs text-gray-500 mt-1">Media/día</p>
         </div>
-      )}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+          <p className="text-2xl font-bold text-green-600">{imputaciones.length}</p>
+          <p className="text-xs text-gray-500 mt-1">Registros</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
+          <p className="text-2xl font-bold" style={{ color: totalWeek >= 40 ? '#16a34a' : totalWeek >= 30 ? '#f59e0b' : '#ef4444' }}>
+            {Math.round((totalWeek / 40) * 100)}%
+          </p>
+          <p className="text-xs text-gray-500 mt-1">Objetivo (40h)</p>
+        </div>
+      </div>
 
-      {/* Lista de imputaciones */}
-      <div className="bg-white rounded-xl border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
-            <tr>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Fecha</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Proyecto</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Horas</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Descripción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {loading ? (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-400">Cargando...</td>
-              </tr>
-            ) : imputaciones.length === 0 ? (
-              <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-gray-400">
-                  No hay imputaciones este mes. Usa el botón &quot;Imputar Horas&quot; para registrar tu dedicación.
-                </td>
-              </tr>
-            ) : (
-              imputaciones.map((imp) => (
-                <tr key={imp.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-900">
-                    {new Date(imp.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="font-medium text-gray-900">{imp.proyecto.nombre}</span>
-                    {imp.proyecto.codigo && (
-                      <span className="ml-1 text-xs text-gray-500">({imp.proyecto.codigo})</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right font-semibold text-gray-900">{imp.horas}h</td>
-                  <td className="px-4 py-3 text-gray-600">{imp.descripcion || '—'}</td>
-                </tr>
-              ))
+      {/* Vista semanal */}
+      {loading ? (
+        <div className="text-center py-12 text-gray-500">Cargando...</div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="grid grid-cols-7 border-b border-gray-200">
+            {weekDays.map((day, i) => {
+              const isToday = formatDate(day) === formatDate(new Date());
+              return (
+                <div key={i} className={`p-3 text-center border-r last:border-r-0 ${isToday ? 'bg-orange-50' : ''}`}>
+                  <p className={`text-xs font-medium ${isToday ? 'text-orange-600' : 'text-gray-500'}`}>{DIAS_SEMANA[i]}</p>
+                  <p className={`text-sm font-semibold ${isToday ? 'text-orange-700' : 'text-gray-900'}`}>{day.getDate()}</p>
+                  <p className={`text-xs mt-1 font-medium ${totalsByDay[i] >= 8 ? 'text-green-600' : totalsByDay[i] > 0 ? 'text-amber-600' : 'text-gray-300'}`}>
+                    {totalsByDay[i] > 0 ? `${totalsByDay[i]}h` : '—'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Detalle por día */}
+          <div className="divide-y divide-gray-100">
+            {weekDays.map((day, i) => {
+              const dayImps = impByDay[i];
+              if (dayImps.length === 0) return null;
+              return (
+                <div key={i} className="p-3">
+                  <p className="text-xs font-medium text-gray-400 mb-2">
+                    {DIAS_SEMANA[i]} {day.getDate()}
+                  </p>
+                  <div className="space-y-2">
+                    {dayImps.map(imp => (
+                      <div key={imp.id} className="flex items-center justify-between group">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="inline-flex items-center justify-center w-10 h-7 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex-shrink-0">
+                            {imp.horas}h
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {imp.categoria}
+                              {imp.subcategoria && <span className="text-gray-400 font-normal"> · {imp.subcategoria}</span>}
+                            </p>
+                            {(imp.clienteNombre || imp.descripcion) && (
+                              <p className="text-xs text-gray-500 truncate">
+                                {imp.clienteNombre && <span className="text-indigo-600">{imp.clienteNombre}</span>}
+                                {imp.clienteNombre && imp.descripcion && ' — '}
+                                {imp.descripcion}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDelete(imp.id)}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                        >
+                          <TrashIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {imputaciones.length === 0 && (
+              <div className="p-8 text-center">
+                <ClockIcon className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                <p className="text-sm text-gray-500">No hay imputaciones esta semana</p>
+                <button onClick={() => setShowForm(true)} className="mt-3 text-sm text-orange-600 hover:underline font-medium">
+                  Registrar tu primera imputación
+                </button>
+              </div>
             )}
-          </tbody>
-        </table>
-      </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de nueva imputación */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Imputar tiempo</h2>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Fecha y horas en una fila */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+                  <input
+                    type="date"
+                    value={formData.fecha}
+                    onChange={e => setFormData({ ...formData, fecha: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Horas</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    max="24"
+                    value={formData.horas}
+                    onChange={e => setFormData({ ...formData, horas: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">¿Qué tipo de trabajo?</label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {categorias.map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, categoria: cat.nombre, subcategoria: '' })}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        formData.categoria === cat.nombre
+                          ? 'border-orange-500 bg-orange-50 text-orange-700 ring-2 ring-orange-200'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {cat.nombre}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Subcategoría */}
+              {selectedCat && selectedCat.subcategorias.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Detalle (opcional)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedCat.subcategorias.map(sub => (
+                      <button
+                        key={sub}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, subcategoria: formData.subcategoria === sub ? '' : sub })}
+                        className={`px-2.5 py-1 rounded-full text-xs transition-all ${
+                          formData.subcategoria === sub
+                            ? 'bg-indigo-100 text-indigo-700 font-medium'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {sub}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Cliente (opcional) */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Draxton, Hospital Granollers..."
+                  value={formData.clienteNombre}
+                  onChange={e => setFormData({ ...formData, clienteNombre: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              {/* Nota */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Revisión propuesta, llamada seguimiento..."
+                  value={formData.descripcion}
+                  onChange={e => setFormData({ ...formData, descripcion: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                />
+              </div>
+
+              {/* Botones */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowForm(false)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !formData.categoria}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-orange-600 text-white text-sm font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {submitting ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

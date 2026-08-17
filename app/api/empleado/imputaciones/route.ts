@@ -6,7 +6,8 @@ import { resolveEmpleado } from '@/lib/empleado-impersonation';
 
 /**
  * GET /api/empleado/imputaciones
- * Obtener las imputaciones de horas del empleado autenticado (o impersonado si admin + ?as=email)
+ * Obtener las imputaciones de la semana o mes del empleado
+ * ?vista=semanal|mensual&fecha=2026-08-14
  */
 export async function GET(req: NextRequest) {
   try {
@@ -16,12 +17,27 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
-    const mes = parseInt(searchParams.get('mes') || String(new Date().getMonth() + 1));
-    const anio = parseInt(searchParams.get('anio') || String(new Date().getFullYear()));
+    const vista = searchParams.get('vista') || 'semanal';
+    const fechaRef = searchParams.get('fecha') ? new Date(searchParams.get('fecha')!) : new Date();
 
-    // Obtener imputaciones del mes
-    const startDate = new Date(anio, mes - 1, 1);
-    const endDate = new Date(anio, mes, 0);
+    let startDate: Date, endDate: Date;
+
+    if (vista === 'semanal') {
+      // Lunes de la semana
+      const day = fechaRef.getDay();
+      const diff = day === 0 ? -6 : 1 - day;
+      startDate = new Date(fechaRef);
+      startDate.setDate(fechaRef.getDate() + diff);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      const mes = parseInt(searchParams.get('mes') || String(fechaRef.getMonth() + 1));
+      const anio = parseInt(searchParams.get('anio') || String(fechaRef.getFullYear()));
+      startDate = new Date(anio, mes - 1, 1);
+      endDate = new Date(anio, mes, 0, 23, 59, 59);
+    }
 
     const imputaciones = await prisma.imputacionHoras.findMany({
       where: {
@@ -31,28 +47,34 @@ export async function GET(req: NextRequest) {
       include: {
         proyecto: { select: { id: true, nombre: true, codigo: true } },
       },
-      orderBy: { fecha: 'desc' },
+      orderBy: { fecha: 'asc' },
     });
 
-    // Obtener proyectos asignados al empleado
+    // Categorías activas
+    const categorias = await prisma.categoriaTimesheet.findMany({
+      where: { activa: true },
+      orderBy: { orden: 'asc' },
+    });
+
+    // Resumen
+    const totalHoras = imputaciones.reduce((sum, imp) => sum + imp.horas, 0);
+    const horasPorCategoria = imputaciones.reduce((acc, imp) => {
+      acc[imp.categoria] = (acc[imp.categoria] || 0) + imp.horas;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Proyectos asignados al empleado (para el selector)
     const asignaciones = await prisma.asignacionProyecto.findMany({
       where: { empleadoId: empleado.id, activa: true },
       include: { proyecto: { select: { id: true, nombre: true, codigo: true } } },
     });
 
-    // Resumen del mes
-    const totalHoras = imputaciones.reduce((sum, imp) => sum + imp.horas, 0);
-    const horasPorProyecto = imputaciones.reduce((acc, imp) => {
-      const key = imp.proyecto.nombre;
-      acc[key] = (acc[key] || 0) + imp.horas;
-      return acc;
-    }, {} as Record<string, number>);
-
     return NextResponse.json({
       empleado: { id: empleado.id, nombreCompleto: empleado.nombreCompleto, email: empleado.email },
       imputaciones,
+      categorias,
       proyectosAsignados: asignaciones.map(a => a.proyecto),
-      resumen: { totalHoras, horasPorProyecto, mes, anio },
+      resumen: { totalHoras, horasPorCategoria, startDate, endDate },
       isImpersonating,
     });
   } catch (error: any) {
@@ -63,41 +85,41 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/empleado/imputaciones
- * Crear una nueva imputación de horas (solo para el usuario autenticado, no impersonable)
+ * Crear una nueva imputación de horas
  */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-    }
-
-    const empleado = await prisma.empleado.findFirst({
-      where: { email: session.user.email.toLowerCase() },
-    });
-
+    const { empleado, error, status } = await resolveEmpleado(req);
     if (!empleado) {
-      return NextResponse.json({ error: 'No se encontró tu perfil de empleado.' }, { status: 404 });
+      return NextResponse.json({ error }, { status });
     }
 
     const body = await req.json();
-    const { proyectoId, fecha, horas, descripcion } = body;
+    const { fecha, horas, categoria, subcategoria, clienteNombre, clienteId, proyectoId, descripcion } = body;
 
-    if (!proyectoId || !fecha || !horas) {
-      return NextResponse.json({ error: 'Proyecto, fecha y horas son obligatorios' }, { status: 400 });
+    if (!fecha || !horas || !categoria) {
+      return NextResponse.json({ error: 'Fecha, horas y categoría son obligatorios' }, { status: 400 });
     }
 
     if (horas <= 0 || horas > 24) {
       return NextResponse.json({ error: 'Las horas deben estar entre 0 y 24' }, { status: 400 });
     }
 
+    // Calcular coste imputado si el empleado tiene costeHora
+    const costeImputado = empleado.costeHoraActual ? empleado.costeHoraActual * parseFloat(horas) : null;
+
     const imputacion = await prisma.imputacionHoras.create({
       data: {
         empleadoId: empleado.id,
-        proyectoId,
         fecha: new Date(fecha),
         horas: parseFloat(horas),
+        categoria,
+        subcategoria: subcategoria || null,
+        clienteNombre: clienteNombre || null,
+        clienteId: clienteId ? parseInt(clienteId) : null,
+        proyectoId: proyectoId || null,
         descripcion: descripcion || null,
+        costeImputado,
       },
       include: {
         proyecto: { select: { id: true, nombre: true, codigo: true } },
@@ -107,6 +129,39 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ imputacion }, { status: 201 });
   } catch (error: any) {
     console.error('Error en POST /api/empleado/imputaciones:', error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+/**
+ * DELETE /api/empleado/imputaciones?id=xxx
+ * Eliminar una imputación
+ */
+export async function DELETE(req: NextRequest) {
+  try {
+    const { empleado, error, status } = await resolveEmpleado(req);
+    if (!empleado) {
+      return NextResponse.json({ error }, { status });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get('id');
+    if (!id) {
+      return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
+    }
+
+    // Verificar que la imputación pertenece al empleado
+    const imp = await prisma.imputacionHoras.findFirst({
+      where: { id, empleadoId: empleado.id },
+    });
+    if (!imp) {
+      return NextResponse.json({ error: 'Imputación no encontrada' }, { status: 404 });
+    }
+
+    await prisma.imputacionHoras.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (error: any) {
+    console.error('Error en DELETE /api/empleado/imputaciones:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
