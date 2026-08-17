@@ -36,7 +36,9 @@ export default function ImputacionesAdminPage() {
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
-  const [tab, setTab] = useState<'dashboard' | 'categorias'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'registros' | 'categorias'>('dashboard');
+  const [imputaciones, setImputaciones] = useState<any[]>([]);
+  const [editingImp, setEditingImp] = useState<any | null>(null);
 
   // Categoría form
   const [showCatForm, setShowCatForm] = useState(false);
@@ -72,6 +74,7 @@ export default function ImputacionesAdminPage() {
       setPorCategoria(data.porCategoria);
       setPorCliente(data.porCliente);
       setEmpleados(data.empleados);
+      setImputaciones(data.imputaciones || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -125,14 +128,18 @@ export default function ImputacionesAdminPage() {
     e.preventDefault();
     setImputarSubmitting(true);
     try {
+      const action = editingImp ? 'editar_imputacion' : 'imputar';
+      const payload: any = { action, ...imputarForm };
+      if (editingImp) payload.id = editingImp.id;
       const res = await fetch('/api/admin/imputaciones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'imputar', ...imputarForm }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setShowImputarForm(false);
+      setEditingImp(null);
       setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
       fetchData();
     } catch (err: any) {
@@ -169,6 +176,12 @@ export default function ImputacionesAdminPage() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'dashboard' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Dashboard
+          </button>
+          <button
+            onClick={() => setTab('registros')}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'registros' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Registros
           </button>
           <button
             onClick={() => setTab('categorias')}
@@ -338,6 +351,86 @@ export default function ImputacionesAdminPage() {
         </>
       )}
 
+      {tab === 'registros' && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-gray-900">Registros de Imputaciones</h2>
+            <p className="text-sm text-gray-500">{imputaciones.length} registros en el período</p>
+          </div>
+          {imputaciones.length === 0 ? (
+            <p className="text-center text-gray-400 py-8">No hay imputaciones en este período</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left">
+                    <th className="pb-2 font-medium text-gray-600">Fecha</th>
+                    <th className="pb-2 font-medium text-gray-600">Empleado</th>
+                    <th className="pb-2 font-medium text-gray-600">Horas</th>
+                    <th className="pb-2 font-medium text-gray-600">Categoría</th>
+                    <th className="pb-2 font-medium text-gray-600">Detalle</th>
+                    <th className="pb-2 font-medium text-gray-600">Cliente</th>
+                    <th className="pb-2 font-medium text-gray-600">Nota</th>
+                    <th className="pb-2 font-medium text-gray-600 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {imputaciones.map((imp: any) => (
+                    <tr key={imp.id} className="border-b border-gray-100 hover:bg-gray-50">
+                      <td className="py-2 text-gray-900">{new Date(imp.fecha).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</td>
+                      <td className="py-2 text-gray-700">{imp.empleado?.nombreCompleto || '-'}</td>
+                      <td className="py-2 font-medium text-gray-900">{imp.horas}h</td>
+                      <td className="py-2"><span className="px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-700">{imp.categoria}</span></td>
+                      <td className="py-2 text-gray-600 text-xs">{imp.rutaCompleta || imp.subcategoria || '-'}</td>
+                      <td className="py-2 text-gray-600">{imp.clienteNombre || '-'}</td>
+                      <td className="py-2 text-gray-500 text-xs max-w-[150px] truncate">{imp.descripcion || '-'}</td>
+                      <td className="py-2 text-right">
+                        <button
+                          onClick={() => {
+                            setEditingImp(imp);
+                            setImputarForm({
+                              empleadoId: imp.empleadoId,
+                              fecha: imp.fecha.split('T')[0],
+                              horas: String(imp.horas),
+                              categoria: imp.categoria,
+                              subcategoria: imp.subcategoria || '',
+                              subcategoria2: imp.subcategoria2 || '',
+                              subcategoria3: imp.subcategoria3 || '',
+                              clienteNombre: imp.clienteNombre || '',
+                              descripcion: imp.descripcion || '',
+                            });
+                            setShowImputarForm(true);
+                          }}
+                          className="text-indigo-600 hover:text-indigo-800 mr-2"
+                          title="Editar"
+                        >
+                          <PencilIcon className="w-4 h-4 inline" />
+                        </button>
+                        <button
+                          onClick={async () => {
+                            if (!confirm('¿Eliminar esta imputación?')) return;
+                            await fetch('/api/admin/imputaciones', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'eliminar_imputacion', id: imp.id }),
+                            });
+                            fetchData();
+                          }}
+                          className="text-red-500 hover:text-red-700"
+                          title="Eliminar"
+                        >
+                          <TrashIcon className="w-4 h-4 inline" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'categorias' && (
         <div className="bg-white rounded-xl border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-6">
@@ -443,7 +536,7 @@ export default function ImputacionesAdminPage() {
       {showImputarForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-1">Imputar horas</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">{editingImp ? 'Editar imputaci\u00f3n' : 'Imputar horas'}</h2>
             <p className="text-sm text-gray-500 mb-4">Registra horas en nombre de cualquier empleado</p>
             <form onSubmit={handleImputar} className="space-y-4">
               {/* Empleado */}
@@ -610,7 +703,7 @@ export default function ImputacionesAdminPage() {
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowImputarForm(false)}
+                  onClick={() => { setShowImputarForm(false); setEditingImp(null); }}
                   className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancelar

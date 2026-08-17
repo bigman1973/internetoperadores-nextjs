@@ -191,14 +191,16 @@ export default function ImputacionesPage() {
   const selectedN2 = nivel2Options.find(n => n.nombre === formData.subcategoria2);
   const nivel3Options: SubcatNode[] = selectedN2?.hijos || [];
 
-  // Mostrar buscador de clientes cuando es Soporte Técnico (Particular/Empresa) y NO es Alta nueva
-  // O cuando es Comercial > Fidelización
+  // Mostrar buscador de clientes en estos casos:
+  // - Soporte Técnico: Particular o Empresa (excepto Alta nueva)
+  // - Comercial: siempre (Nuevos clientes, Fidelización, Envío de producto)
+  // - NO en Infraestructura (es interno)
   const needsClienteSearch = (
     (formData.categoria === 'Soporte Técnico' && 
      (formData.subcategoria === 'Particular' || formData.subcategoria === 'Empresa') &&
-     formData.subcategoria !== '' && formData.subcategoria2 !== '' && formData.subcategoria2 !== 'Alta nueva'
+     formData.subcategoria2 !== '' && formData.subcategoria2 !== 'Alta nueva'
     ) ||
-    (formData.categoria === 'Comercial' && formData.subcategoria === 'Fidelización')
+    (formData.categoria === 'Comercial' && formData.subcategoria !== '')
   );
 
   if (error === 'No se encontró tu perfil de empleado. Contacta con administración.') {

@@ -142,6 +142,46 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === 'editar_imputacion') {
+      const { id, empleadoId, fecha, horas, categoria, subcategoria, subcategoria2, subcategoria3, clienteNombre, clienteId, proyectoId, descripcion } = body;
+      if (!id) return NextResponse.json({ error: 'ID de imputación requerido' }, { status: 400 });
+      const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
+      const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
+      const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId }, select: { costeHoraActual: true } });
+      const costeImputado = empleado?.costeHoraActual ? empleado.costeHoraActual * parseFloat(horas) : null;
+
+      const imputacion = await prisma.imputacionHoras.update({
+        where: { id },
+        data: {
+          empleadoId,
+          fecha: new Date(fecha),
+          horas: parseFloat(horas),
+          categoria,
+          subcategoria: subcategoria || null,
+          subcategoria2: subcategoria2 || null,
+          subcategoria3: subcategoria3 || null,
+          rutaCompleta,
+          clienteNombre: clienteNombre || null,
+          clienteId: clienteId ? parseInt(clienteId) : null,
+          proyectoId: proyectoId || null,
+          descripcion: descripcion || null,
+          costeImputado,
+        },
+        include: {
+          empleado: { select: { id: true, nombreCompleto: true } },
+          proyecto: { select: { id: true, nombre: true } },
+        },
+      });
+      return NextResponse.json({ imputacion });
+    }
+
+    if (action === 'eliminar_imputacion') {
+      const { id } = body;
+      if (!id) return NextResponse.json({ error: 'ID de imputación requerido' }, { status: 400 });
+      await prisma.imputacionHoras.delete({ where: { id } });
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === 'imputar') {
       const { empleadoId, fecha, horas, categoria, subcategoria, subcategoria2, subcategoria3, clienteNombre, clienteId, proyectoId, descripcion } = body;
       if (!empleadoId || !fecha || !horas || !categoria) {
