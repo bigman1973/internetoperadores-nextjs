@@ -143,10 +143,13 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === 'imputar') {
-      const { empleadoId, fecha, horas, categoria, subcategoria, clienteNombre, clienteId, proyectoId, descripcion } = body;
+      const { empleadoId, fecha, horas, categoria, subcategoria, subcategoria2, subcategoria3, clienteNombre, clienteId, proyectoId, descripcion } = body;
       if (!empleadoId || !fecha || !horas || !categoria) {
         return NextResponse.json({ error: 'Empleado, fecha, horas y categoría son obligatorios' }, { status: 400 });
       }
+      // Construir ruta completa
+      const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
+      const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
       // Obtener coste/hora del empleado
       const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId }, select: { costeHoraActual: true } });
       const costeImputado = empleado?.costeHoraActual ? empleado.costeHoraActual * parseFloat(horas) : null;
@@ -158,6 +161,9 @@ export async function POST(req: NextRequest) {
           horas: parseFloat(horas),
           categoria,
           subcategoria: subcategoria || null,
+          subcategoria2: subcategoria2 || null,
+          subcategoria3: subcategoria3 || null,
+          rutaCompleta,
           clienteNombre: clienteNombre || null,
           clienteId: clienteId ? parseInt(clienteId) : null,
           proyectoId: proyectoId || null,

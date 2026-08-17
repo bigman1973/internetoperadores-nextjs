@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { fecha, horas, categoria, subcategoria, clienteNombre, clienteId, proyectoId, descripcion } = body;
+    const { fecha, horas, categoria, subcategoria, subcategoria2, subcategoria3, clienteNombre, clienteId, proyectoId, descripcion } = body;
 
     if (!fecha || !horas || !categoria) {
       return NextResponse.json({ error: 'Fecha, horas y categoría son obligatorios' }, { status: 400 });
@@ -104,6 +104,10 @@ export async function POST(req: NextRequest) {
     if (horas <= 0 || horas > 24) {
       return NextResponse.json({ error: 'Las horas deben estar entre 0 y 24' }, { status: 400 });
     }
+
+    // Construir ruta completa
+    const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
+    const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
 
     // Calcular coste imputado si el empleado tiene costeHora
     const costeImputado = empleado.costeHoraActual ? empleado.costeHoraActual * parseFloat(horas) : null;
@@ -115,6 +119,9 @@ export async function POST(req: NextRequest) {
         horas: parseFloat(horas),
         categoria,
         subcategoria: subcategoria || null,
+        subcategoria2: subcategoria2 || null,
+        subcategoria3: subcategoria3 || null,
+        rutaCompleta,
         clienteNombre: clienteNombre || null,
         clienteId: clienteId ? parseInt(clienteId) : null,
         proyectoId: proyectoId || null,

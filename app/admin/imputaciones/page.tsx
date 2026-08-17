@@ -52,6 +52,8 @@ export default function ImputacionesAdminPage() {
     horas: '1',
     categoria: '',
     subcategoria: '',
+    subcategoria2: '',
+    subcategoria3: '',
     clienteNombre: '',
     descripcion: '',
   });
@@ -131,7 +133,7 @@ export default function ImputacionesAdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setShowImputarForm(false);
-      setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', clienteNombre: '', descripcion: '' });
+      setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
       fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -141,6 +143,11 @@ export default function ImputacionesAdminPage() {
   };
 
   const selectedImputarCat = categorias.find(c => c.nombre === imputarForm.categoria);
+  const imputarN1Options: any[] = (selectedImputarCat?.subcategorias as any[]) || [];
+  const imputarSelectedN1 = imputarN1Options.find((n: any) => n.nombre === imputarForm.subcategoria);
+  const imputarN2Options: any[] = imputarSelectedN1?.hijos || [];
+  const imputarSelectedN2 = imputarN2Options.find((n: any) => n.nombre === imputarForm.subcategoria2);
+  const imputarN3Options: any[] = imputarSelectedN2?.hijos || [];
 
   return (
     <div className="space-y-6">
@@ -488,7 +495,7 @@ export default function ImputacionesAdminPage() {
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setImputarForm({ ...imputarForm, categoria: cat.nombre, subcategoria: '' })}
+                      onClick={() => setImputarForm({ ...imputarForm, categoria: cat.nombre, subcategoria: '', subcategoria2: '', subcategoria3: '' })}
                       className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
                         imputarForm.categoria === cat.nombre
                           ? 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-200'
@@ -500,26 +507,81 @@ export default function ImputacionesAdminPage() {
                   ))}
                 </div>
               </div>
-              {/* Subcategoría */}
-              {selectedImputarCat && selectedImputarCat.subcategorias.length > 0 && (
+              {/* Nivel 1 */}
+              {imputarN1Options.length > 0 && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Detalle (opcional)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Detalle</label>
                   <div className="flex flex-wrap gap-1.5">
-                    {selectedImputarCat.subcategorias.map(sub => (
+                    {imputarN1Options.map((opt: any) => (
                       <button
-                        key={sub}
+                        key={opt.nombre}
                         type="button"
-                        onClick={() => setImputarForm({ ...imputarForm, subcategoria: imputarForm.subcategoria === sub ? '' : sub })}
-                        className={`px-2.5 py-1 rounded-full text-xs transition-all ${
-                          imputarForm.subcategoria === sub
-                            ? 'bg-indigo-100 text-indigo-700 font-medium'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        onClick={() => setImputarForm({ ...imputarForm, subcategoria: imputarForm.subcategoria === opt.nombre ? '' : opt.nombre, subcategoria2: '', subcategoria3: '' })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          imputarForm.subcategoria === opt.nombre
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
                         }`}
                       >
-                        {sub}
+                        {opt.nombre}
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+              {/* Nivel 2 */}
+              {imputarN2Options.length > 0 && imputarForm.subcategoria && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {imputarN2Options.map((opt: any) => (
+                      <button
+                        key={opt.nombre}
+                        type="button"
+                        onClick={() => setImputarForm({ ...imputarForm, subcategoria2: imputarForm.subcategoria2 === opt.nombre ? '' : opt.nombre, subcategoria3: '' })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          imputarForm.subcategoria2 === opt.nombre
+                            ? 'border-green-500 bg-green-50 text-green-700 ring-1 ring-green-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {opt.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Nivel 3 */}
+              {imputarN3Options.length > 0 && imputarForm.subcategoria2 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Servicio</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {imputarN3Options.map((opt: any) => (
+                      <button
+                        key={opt.nombre}
+                        type="button"
+                        onClick={() => setImputarForm({ ...imputarForm, subcategoria3: imputarForm.subcategoria3 === opt.nombre ? '' : opt.nombre })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          imputarForm.subcategoria3 === opt.nombre
+                            ? 'border-purple-500 bg-purple-50 text-purple-700 ring-1 ring-purple-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {opt.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Ruta preview */}
+              {imputarForm.subcategoria && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-500">
+                    <span className="font-medium text-gray-700">{imputarForm.categoria}</span>
+                    {imputarForm.subcategoria && <span> \u2192 {imputarForm.subcategoria}</span>}
+                    {imputarForm.subcategoria2 && <span> \u2192 {imputarForm.subcategoria2}</span>}
+                    {imputarForm.subcategoria3 && <span> \u2192 {imputarForm.subcategoria3}</span>}
+                  </p>
                 </div>
               )}
               {/* Cliente */}

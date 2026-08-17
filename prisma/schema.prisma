@@ -1670,7 +1670,10 @@ model ImputacionHoras {
   costeImputado   Float?   @map("coste_imputado") // horas × costeHora del empleado
   // Categorización
   categoria       String   @default("general") // Comercial, Soporte Técnico, Administración, Proyectos, Dirección, Formación
-  subcategoria    String?  // Visita cliente, Incidencia, Facturación, etc.
+  subcategoria    String?  // Nivel 1 de subcategoría
+  subcategoria2   String?  @map("subcategoria2") // Nivel 2
+  subcategoria3   String?  @map("subcategoria3") // Nivel 3
+  rutaCompleta    String?  @map("ruta_completa") // Ruta completa: "Fidelización > Empresa > Fibra"
   clienteNombre   String?  @map("cliente_nombre") // Cliente al que se dedica el tiempo (opcional)
   clienteId       Int?     @map("cliente_id_imp") // Relación opcional con ClienteWeb
   // Relaciones
@@ -1695,7 +1698,7 @@ model CategoriaTimesheet {
   icono           String?  // Nombre del icono heroicons
   orden           Int      @default(0)
   activa          Boolean  @default(true)
-  subcategorias   String[] // Array de subcategorías posibles
+  subcategorias   Json     @default("[]") // Árbol jerárquico de subcategorías [{nombre, hijos: [{nombre, hijos: [...]}]}]
   createdAt       DateTime @default(now()) @map("created_at")
   @@map("categorias_timesheet")
 }

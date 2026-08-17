@@ -1,14 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { PlusIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ChevronRightIcon as ChevronSmall } from '@heroicons/react/24/outline';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
+
+interface SubcatNode {
+  nombre: string;
+  hijos?: SubcatNode[];
+}
 
 interface Categoria {
   id: string;
   nombre: string;
   color: string;
-  subcategorias: string[];
+  subcategorias: SubcatNode[];
 }
 
 interface Imputacion {
@@ -17,6 +22,9 @@ interface Imputacion {
   horas: number;
   categoria: string;
   subcategoria: string | null;
+  subcategoria2: string | null;
+  subcategoria3: string | null;
+  rutaCompleta: string | null;
   clienteNombre: string | null;
   descripcion: string | null;
   proyecto: { id: string; nombre: string; codigo: string | null } | null;
@@ -58,6 +66,8 @@ export default function ImputacionesPage() {
     horas: '1',
     categoria: '',
     subcategoria: '',
+    subcategoria2: '',
+    subcategoria3: '',
     clienteNombre: '',
     descripcion: '',
   });
@@ -102,7 +112,7 @@ export default function ImputacionesPage() {
       if (!res.ok) throw new Error(data.error);
       
       setShowForm(false);
-      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', clienteNombre: '', descripcion: '' });
+      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
       fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -121,39 +131,31 @@ export default function ImputacionesPage() {
     }
   };
 
-  const prevWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() - 7);
-    setWeekStart(d);
-  };
-
-  const nextWeek = () => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + 7);
-    setWeekStart(d);
-  };
-
+  const prevWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() - 7); setWeekStart(d); };
+  const nextWeek = () => { const d = new Date(weekStart); d.setDate(d.getDate() + 7); setWeekStart(d); };
   const thisWeek = () => setWeekStart(getMonday(new Date()));
 
-  // Calcular días de la semana
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
     return d;
   });
 
-  // Agrupar imputaciones por día
   const impByDay = weekDays.map(day => {
     const dayStr = formatDate(day);
     return imputaciones.filter(imp => imp.fecha.split('T')[0] === dayStr);
   });
 
-  // Total por día y semana
   const totalsByDay = impByDay.map(dayImps => dayImps.reduce((sum, imp) => sum + imp.horas, 0));
   const totalWeek = totalsByDay.reduce((sum, h) => sum + h, 0);
 
-  // Categoría seleccionada para subcategorías
+  // Subcategorías jerárquicas
   const selectedCat = categorias.find(c => c.nombre === formData.categoria);
+  const nivel1Options: SubcatNode[] = selectedCat?.subcategorias || [];
+  const selectedN1 = nivel1Options.find(n => n.nombre === formData.subcategoria);
+  const nivel2Options: SubcatNode[] = selectedN1?.hijos || [];
+  const selectedN2 = nivel2Options.find(n => n.nombre === formData.subcategoria2);
+  const nivel3Options: SubcatNode[] = selectedN2?.hijos || [];
 
   if (error === 'No se encontró tu perfil de empleado. Contacta con administración.') {
     return (
@@ -262,7 +264,8 @@ export default function ImputacionesPage() {
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">
                               {imp.categoria}
-                              {imp.subcategoria && <span className="text-gray-400 font-normal"> · {imp.subcategoria}</span>}
+                              {imp.rutaCompleta && <span className="text-gray-400 font-normal"> · {imp.rutaCompleta}</span>}
+                              {!imp.rutaCompleta && imp.subcategoria && <span className="text-gray-400 font-normal"> · {imp.subcategoria}</span>}
                             </p>
                             {(imp.clienteNombre || imp.descripcion) && (
                               <p className="text-xs text-gray-500 truncate">
@@ -301,10 +304,10 @@ export default function ImputacionesPage() {
       {/* Modal de nueva imputación */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-900 mb-4">Imputar tiempo</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Fecha y horas en una fila */}
+              {/* Fecha y horas */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
@@ -339,7 +342,7 @@ export default function ImputacionesPage() {
                     <button
                       key={cat.id}
                       type="button"
-                      onClick={() => setFormData({ ...formData, categoria: cat.nombre, subcategoria: '' })}
+                      onClick={() => setFormData({ ...formData, categoria: cat.nombre, subcategoria: '', subcategoria2: '', subcategoria3: '' })}
                       className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
                         formData.categoria === cat.nombre
                           ? 'border-orange-500 bg-orange-50 text-orange-700 ring-2 ring-orange-200'
@@ -352,30 +355,92 @@ export default function ImputacionesPage() {
                 </div>
               </div>
 
-              {/* Subcategoría */}
-              {selectedCat && selectedCat.subcategorias.length > 0 && (
+              {/* Nivel 1 */}
+              {nivel1Options.length > 0 && (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Detalle (opcional)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    {formData.categoria === 'Comercial' ? '¿Qué tipo de acción?' : formData.categoria === 'Soporte Técnico' ? '¿Tipo de cliente?' : 'Detalle'}
+                  </label>
                   <div className="flex flex-wrap gap-1.5">
-                    {selectedCat.subcategorias.map(sub => (
+                    {nivel1Options.map(opt => (
                       <button
-                        key={sub}
+                        key={opt.nombre}
                         type="button"
-                        onClick={() => setFormData({ ...formData, subcategoria: formData.subcategoria === sub ? '' : sub })}
-                        className={`px-2.5 py-1 rounded-full text-xs transition-all ${
-                          formData.subcategoria === sub
-                            ? 'bg-indigo-100 text-indigo-700 font-medium'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        onClick={() => setFormData({ ...formData, subcategoria: formData.subcategoria === opt.nombre ? '' : opt.nombre, subcategoria2: '', subcategoria3: '' })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          formData.subcategoria === opt.nombre
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
                         }`}
                       >
-                        {sub}
+                        {opt.nombre}
                       </button>
                     ))}
                   </div>
                 </div>
               )}
 
-              {/* Cliente (opcional) */}
+              {/* Nivel 2 */}
+              {nivel2Options.length > 0 && formData.subcategoria && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    {formData.subcategoria === 'Fidelización' ? 'Tipo de cliente' : 'Tipo de servicio'}
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {nivel2Options.map(opt => (
+                      <button
+                        key={opt.nombre}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, subcategoria2: formData.subcategoria2 === opt.nombre ? '' : opt.nombre, subcategoria3: '' })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          formData.subcategoria2 === opt.nombre
+                            ? 'border-green-500 bg-green-50 text-green-700 ring-1 ring-green-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {opt.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Nivel 3 */}
+              {nivel3Options.length > 0 && formData.subcategoria2 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Servicio específico</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {nivel3Options.map(opt => (
+                      <button
+                        key={opt.nombre}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, subcategoria3: formData.subcategoria3 === opt.nombre ? '' : opt.nombre })}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                          formData.subcategoria3 === opt.nombre
+                            ? 'border-purple-500 bg-purple-50 text-purple-700 ring-1 ring-purple-200'
+                            : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                        }`}
+                      >
+                        {opt.nombre}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Ruta seleccionada (preview) */}
+              {formData.subcategoria && (
+                <div className="bg-gray-50 rounded-lg px-3 py-2">
+                  <p className="text-xs text-gray-500">
+                    <span className="font-medium text-gray-700">{formData.categoria}</span>
+                    {formData.subcategoria && <span> → {formData.subcategoria}</span>}
+                    {formData.subcategoria2 && <span> → {formData.subcategoria2}</span>}
+                    {formData.subcategoria3 && <span> → {formData.subcategoria3}</span>}
+                  </p>
+                </div>
+              )}
+
+              {/* Cliente */}
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
                 <input
