@@ -183,7 +183,7 @@ export default function ImputacionesAdminPage() {
 
   // Buscador de clientes: mostrar cuando es Comercial (cualquier sub) o Soporte Técnico (no Alta nueva, no Infraestructura)
   const adminNeedsClienteSearch = (
-    (imputarForm.categoria === 'Soporte T\u00e9cnico' && 
+    (imputarForm.categoria === 'Soporte Técnico' && 
      (imputarForm.subcategoria === 'Particular' || imputarForm.subcategoria === 'Empresa') &&
      imputarForm.subcategoria2 !== '' && imputarForm.subcategoria2 !== 'Alta nueva'
     ) ||
@@ -570,7 +570,7 @@ export default function ImputacionesAdminPage() {
       {showImputarForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-1">{editingImp ? 'Editar imputaci\u00f3n' : 'Imputar horas'}</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">{editingImp ? 'Editar imputacion' : 'Imputar horas'}</h2>
             <p className="text-sm text-gray-500 mb-4">Registra horas en nombre de cualquier empleado</p>
             <form onSubmit={handleImputar} className="space-y-4">
               {/* Empleado */}
@@ -724,7 +724,7 @@ export default function ImputacionesAdminPage() {
                     <>
                       <input
                         type="text"
-                        placeholder="Buscar cliente por nombre, CIF o c\u00f3digo..."
+                        placeholder="Buscar cliente por nombre, CIF o codigo..."
                         value={clienteSearch}
                         onChange={e => buscarClientes(e.target.value)}
                         onFocus={() => clienteResults.length > 0 && setShowClienteDropdown(true)}
