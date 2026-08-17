@@ -142,6 +142,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === 'imputar') {
+      const { empleadoId, fecha, horas, categoria, subcategoria, clienteNombre, clienteId, proyectoId, descripcion } = body;
+      if (!empleadoId || !fecha || !horas || !categoria) {
+        return NextResponse.json({ error: 'Empleado, fecha, horas y categoría son obligatorios' }, { status: 400 });
+      }
+      // Obtener coste/hora del empleado
+      const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId }, select: { costeHoraActual: true } });
+      const costeImputado = empleado?.costeHoraActual ? empleado.costeHoraActual * parseFloat(horas) : null;
+
+      const imputacion = await prisma.imputacionHoras.create({
+        data: {
+          empleadoId,
+          fecha: new Date(fecha),
+          horas: parseFloat(horas),
+          categoria,
+          subcategoria: subcategoria || null,
+          clienteNombre: clienteNombre || null,
+          clienteId: clienteId ? parseInt(clienteId) : null,
+          proyectoId: proyectoId || null,
+          descripcion: descripcion || null,
+          costeImputado,
+        },
+        include: {
+          empleado: { select: { id: true, nombreCompleto: true } },
+          proyecto: { select: { id: true, nombre: true } },
+        },
+      });
+      return NextResponse.json({ imputacion }, { status: 201 });
+    }
+
     return NextResponse.json({ error: 'Acción no reconocida' }, { status: 400 });
   } catch (error: any) {
     console.error('Error en POST /api/admin/imputaciones:', error);

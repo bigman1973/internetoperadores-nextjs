@@ -43,6 +43,19 @@ export default function ImputacionesAdminPage() {
   const [editingCat, setEditingCat] = useState<Categoria | null>(null);
   const [catForm, setCatForm] = useState({ nombre: '', color: '#6366f1', subcategorias: '' });
 
+  // Imputar como admin
+  const [showImputarForm, setShowImputarForm] = useState(false);
+  const [imputarSubmitting, setImputarSubmitting] = useState(false);
+  const [imputarForm, setImputarForm] = useState({
+    empleadoId: '',
+    fecha: new Date().toISOString().split('T')[0],
+    horas: '1',
+    categoria: '',
+    subcategoria: '',
+    clienteNombre: '',
+    descripcion: '',
+  });
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -106,6 +119,29 @@ export default function ImputacionesAdminPage() {
 
   const maxHoras = Math.max(...porEmpleado.map(e => e.horas), 1);
 
+  const handleImputar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setImputarSubmitting(true);
+    try {
+      const res = await fetch('/api/admin/imputaciones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'imputar', ...imputarForm }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setShowImputarForm(false);
+      setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', clienteNombre: '', descripcion: '' });
+      fetchData();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setImputarSubmitting(false);
+    }
+  };
+
+  const selectedImputarCat = categorias.find(c => c.nombre === imputarForm.categoria);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -115,6 +151,12 @@ export default function ImputacionesAdminPage() {
           <p className="text-sm text-gray-500 mt-1">Análisis de dedicación del equipo</p>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowImputarForm(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+          >
+            <PlusIcon className="w-4 h-4" /> Imputar horas
+          </button>
           <button
             onClick={() => setTab('dashboard')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'dashboard' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
@@ -387,6 +429,140 @@ export default function ImputacionesAdminPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal imputar como admin */}
+      {showImputarForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-1">Imputar horas</h2>
+            <p className="text-sm text-gray-500 mb-4">Registra horas en nombre de cualquier empleado</p>
+            <form onSubmit={handleImputar} className="space-y-4">
+              {/* Empleado */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
+                <select
+                  value={imputarForm.empleadoId}
+                  onChange={e => setImputarForm({ ...imputarForm, empleadoId: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                  required
+                >
+                  <option value="">Seleccionar empleado...</option>
+                  {empleados.map(emp => (
+                    <option key={emp.id} value={emp.id}>{emp.nombreCompleto} {emp.departamento ? `(${emp.departamento})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              {/* Fecha y horas */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+                  <input
+                    type="date"
+                    value={imputarForm.fecha}
+                    onChange={e => setImputarForm({ ...imputarForm, fecha: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Horas</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="0.5"
+                    max="24"
+                    value={imputarForm.horas}
+                    onChange={e => setImputarForm({ ...imputarForm, horas: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    required
+                  />
+                </div>
+              </div>
+              {/* Categoría */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {categorias.filter(c => c.activa).map(cat => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setImputarForm({ ...imputarForm, categoria: cat.nombre, subcategoria: '' })}
+                      className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
+                        imputarForm.categoria === cat.nombre
+                          ? 'border-green-500 bg-green-50 text-green-700 ring-2 ring-green-200'
+                          : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {cat.nombre}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Subcategoría */}
+              {selectedImputarCat && selectedImputarCat.subcategorias.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Detalle (opcional)</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedImputarCat.subcategorias.map(sub => (
+                      <button
+                        key={sub}
+                        type="button"
+                        onClick={() => setImputarForm({ ...imputarForm, subcategoria: imputarForm.subcategoria === sub ? '' : sub })}
+                        className={`px-2.5 py-1 rounded-full text-xs transition-all ${
+                          imputarForm.subcategoria === sub
+                            ? 'bg-indigo-100 text-indigo-700 font-medium'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {sub}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/* Cliente */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Draxton, Hospital Granollers..."
+                  value={imputarForm.clienteNombre}
+                  onChange={e => setImputarForm({ ...imputarForm, clienteNombre: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                />
+              </div>
+              {/* Nota */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej: Revisión propuesta, llamada seguimiento..."
+                  value={imputarForm.descripcion}
+                  onChange={e => setImputarForm({ ...imputarForm, descripcion: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                />
+              </div>
+              {/* Botones */}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowImputarForm(false)}
+                  className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={imputarSubmitting || !imputarForm.empleadoId || !imputarForm.categoria}
+                  className="flex-1 px-4 py-2.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {imputarSubmitting ? 'Guardando...' : 'Imputar'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>
