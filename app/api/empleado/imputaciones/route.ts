@@ -63,17 +63,36 @@ export async function GET(req: NextRequest) {
       return acc;
     }, {} as Record<string, number>);
 
-    // Proyectos asignados al empleado (para el selector)
+    // Proyectos asignados al empleado (para el selector) con horas pendientes
     const asignaciones = await prisma.asignacionProyecto.findMany({
       where: { empleadoId: empleado.id, activa: true },
-      include: { proyecto: { select: { id: true, nombre: true, codigo: true } } },
+      include: { proyecto: { select: { id: true, nombre: true, codigo: true, tipo: true } } },
     });
+
+    // Calcular horas ya imputadas por proyecto para este empleado
+    const imputacionesPorProyecto = await prisma.imputacionHoras.groupBy({
+      by: ['proyectoId'],
+      where: { empleadoId: empleado.id, proyectoId: { not: null } },
+      _sum: { horas: true },
+    });
+    const horasImputadasMap: Record<string, number> = {};
+    imputacionesPorProyecto.forEach(g => {
+      if (g.proyectoId) horasImputadasMap[g.proyectoId] = g._sum.horas || 0;
+    });
+
+    const proyectosConPendientes = asignaciones.map(a => ({
+      ...a.proyecto,
+      horasEstimadas: a.horasEstimadas || 0,
+      horasImputadas: horasImputadasMap[a.proyectoId] || 0,
+      horasPendientes: Math.max(0, (a.horasEstimadas || 0) - (horasImputadasMap[a.proyectoId] || 0)),
+      rol: a.rol,
+    }));
 
     return NextResponse.json({
       empleado: { id: empleado.id, nombreCompleto: empleado.nombreCompleto, email: empleado.email },
       imputaciones,
       categorias,
-      proyectosAsignados: asignaciones.map(a => a.proyecto),
+      proyectosAsignados: proyectosConPendientes,
       resumen: { totalHoras, horasPorCategoria, startDate, endDate },
       isImpersonating,
     });

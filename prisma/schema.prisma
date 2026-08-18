@@ -1622,13 +1622,23 @@ model Proyecto {
   id              String           @id @default(uuid())
   nombre          String
   codigo          String?          @unique // Código corto del proyecto (ej: PRJ-001)
+  tipo            String           @default("interno") // "cliente" o "interno"
   clienteNombre   String?          @map("cliente_nombre")
   clienteId       Int?             @map("cliente_id") // Relación opcional con ClienteWeb
-  descripcion     String?
+  descripcion     String?          @db.Text
+  responsableId   String?          @map("responsable_id")
+  // Financiero
+  importeVenta    Decimal?         @map("importe_venta") @db.Decimal(12, 2) // Solo proyectos cliente (base imponible)
+  costeProveedores Decimal?        @map("coste_proveedores") @db.Decimal(12, 2)
+  otrosCostes     Decimal?         @map("otros_costes") @db.Decimal(12, 2)
   presupuesto     Float?           // Presupuesto total del proyecto
+  // Estado y fechas
   estado          EstadoProyecto   @default(ACTIVO)
+  prioridad       String           @default("media") // alta, media, baja
   fechaInicio     DateTime?        @map("fecha_inicio") @db.Date
   fechaFin        DateTime?        @map("fecha_fin") @db.Date
+  // Documentación (JSON array: [{id, nombre, tipo, url, fecha, importe, datos}])
+  documentosJson  Json?            @map("documentos_json")
   // Relaciones
   imputaciones    ImputacionHoras[]
   asignaciones    AsignacionProyecto[]
@@ -1637,23 +1647,26 @@ model Proyecto {
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
   @@index([estado])
+  @@index([tipo])
   @@map("proyectos")
 }
 
 model AsignacionProyecto {
-  id          String   @id @default(uuid())
-  empleadoId  String   @map("empleado_id")
-  proyectoId  String   @map("proyecto_id")
-  rol         String?  // Rol del empleado en el proyecto
-  porcentaje  Float?   @default(100) // % de dedicación estimada
-  fechaInicio DateTime? @map("fecha_inicio") @db.Date
-  fechaFin    DateTime? @map("fecha_fin") @db.Date
-  activa      Boolean  @default(true)
+  id              String   @id @default(uuid())
+  empleadoId      String   @map("empleado_id")
+  proyectoId      String   @map("proyecto_id")
+  rol             String?  // Rol del empleado en el proyecto
+  horasEstimadas  Float?   @map("horas_estimadas") // Horas totales asignadas al proyecto
+  porcentaje      Float?   @default(100) // % de dedicación estimada
+  costeHora       Float?   @map("coste_hora") // Coste/hora del empleado al momento de asignar
+  fechaInicio     DateTime? @map("fecha_inicio") @db.Date
+  fechaFin        DateTime? @map("fecha_fin") @db.Date
+  activa          Boolean  @default(true)
   // Relaciones
-  empleado    Empleado @relation(fields: [empleadoId], references: [id])
-  proyecto    Proyecto @relation(fields: [proyectoId], references: [id])
+  empleado        Empleado @relation(fields: [empleadoId], references: [id])
+  proyecto        Proyecto @relation(fields: [proyectoId], references: [id])
   // Timestamps
-  createdAt   DateTime @default(now()) @map("created_at")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   @@unique([empleadoId, proyectoId])
   @@index([proyectoId])
