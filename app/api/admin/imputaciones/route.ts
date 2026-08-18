@@ -18,6 +18,42 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ categorias });
     }
 
+    if (action === 'pendientes') {
+      // Obtener todas las asignaciones activas con horas estimadas
+      const asignaciones = await prisma.asignacionProyecto.findMany({
+        where: { activa: true, horasEstimadas: { not: null, gt: 0 } },
+        include: {
+          empleado: { select: { id: true, nombreCompleto: true, departamento: true } },
+          proyecto: { select: { id: true, nombre: true, tipo: true, estado: true } },
+        },
+      });
+      // Obtener horas ya imputadas por empleado+proyecto
+      const imputaciones = await prisma.imputacionHoras.groupBy({
+        by: ['empleadoId', 'proyectoId'],
+        where: { proyectoId: { not: null } },
+        _sum: { horas: true },
+      });
+      const imputMap: Record<string, number> = {};
+      imputaciones.forEach(g => {
+        if (g.empleadoId && g.proyectoId) imputMap[`${g.empleadoId}_${g.proyectoId}`] = g._sum.horas || 0;
+      });
+      const pendientes = asignaciones.map(a => {
+        const key = `${a.empleadoId}_${a.proyectoId}`;
+        const horasImputadas = imputMap[key] || 0;
+        const horasPendientes = Math.max(0, (a.horasEstimadas || 0) - horasImputadas);
+        return {
+          asignacionId: a.id,
+          empleado: a.empleado,
+          proyecto: a.proyecto,
+          rol: a.rol,
+          horasEstimadas: a.horasEstimadas,
+          horasImputadas,
+          horasPendientes,
+        };
+      }).filter(p => p.horasPendientes > 0);
+      return NextResponse.json({ pendientes });
+    }
+
     // Dashboard
     const periodo = searchParams.get('periodo') || 'mes';
     const fechaRef = searchParams.get('fecha') ? new Date(searchParams.get('fecha')!) : new Date();

@@ -36,7 +36,8 @@ export default function ImputacionesAdminPage() {
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
-  const [tab, setTab] = useState<'dashboard' | 'registros' | 'categorias'>('dashboard');
+  const [tab, setTab] = useState<'dashboard' | 'registros' | 'pendientes' | 'categorias'>('dashboard');
+  const [pendientes, setPendientes] = useState<any[]>([]);
   const [imputaciones, setImputaciones] = useState<any[]>([]);
   const [editingImp, setEditingImp] = useState<any | null>(null);
 
@@ -113,8 +114,16 @@ export default function ImputacionesAdminPage() {
     setCategorias(data.categorias || []);
   };
 
+  const fetchPendientes = async () => {
+    try {
+      const res = await fetch('/api/admin/imputaciones?action=pendientes');
+      const data = await res.json();
+      setPendientes(data.pendientes || []);
+    } catch (e) { setPendientes([]); }
+  };
+
   useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { fetchCategorias(); }, []);
+  useEffect(() => { fetchCategorias(); fetchPendientes(); }, []);
 
   const handleSaveCat = async () => {
     const subcats = catForm.subcategorias.split(',').map(s => s.trim()).filter(Boolean);
@@ -247,6 +256,12 @@ export default function ImputacionesAdminPage() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'registros' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Registros
+          </button>
+          <button
+            onClick={() => { setTab('pendientes'); fetchPendientes(); }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'pendientes' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+          >
+            Pendientes {pendientes.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">{pendientes.length}</span>}
           </button>
           <button
             onClick={() => setTab('categorias')}
@@ -493,6 +508,47 @@ export default function ImputacionesAdminPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {tab === 'pendientes' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border p-4">
+            <h3 className="font-semibold text-gray-900 mb-1">Horas pendientes de imputar</h3>
+            <p className="text-sm text-gray-500">Empleados con horas asignadas a proyectos que aun no han imputado</p>
+          </div>
+          {pendientes.length === 0 && <p className="text-sm text-gray-400 text-center py-8">No hay horas pendientes de imputar. Todos los recursos estan al dia.</p>}
+          {pendientes.map((p: any) => (
+            <div key={p.asignacionId} className="bg-white rounded-xl border p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <p className="font-medium text-gray-900">{p.empleado.nombreCompleto}</p>
+                  <p className="text-xs text-gray-500">{p.empleado.departamento || 'Sin departamento'} {p.rol ? `- ${p.rol}` : ''}</p>
+                </div>
+                <div className="text-right mr-4">
+                  <span className={`text-xs px-2 py-0.5 rounded ${p.proyecto.tipo === 'cliente' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{p.proyecto.tipo === 'cliente' ? 'Cliente' : 'Interno'}</span>
+                  <p className="text-sm font-medium mt-1">{p.proyecto.nombre}</p>
+                </div>
+                <div className="text-right mr-4">
+                  <p className="text-sm"><span className="text-green-600 font-medium">{p.horasImputadas}h</span> / {p.horasEstimadas}h</p>
+                  <p className="text-xs text-amber-600 font-medium">{p.horasPendientes}h pendientes</p>
+                </div>
+                <button
+                  onClick={() => {
+                    setImputarForm({ ...imputarForm, empleadoId: p.empleado.id, categoria: 'Proyectos', subcategoria: 'Ejecucion' });
+                    setSelectedProyecto(p.proyecto);
+                    setShowImputarForm(true);
+                  }}
+                  className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+                >
+                  Imputar
+                </button>
+              </div>
+              <div className="mt-2 h-2 bg-gray-100 rounded-full">
+                <div className="h-2 bg-blue-500 rounded-full" style={{ width: `${Math.min(100, (p.horasImputadas / p.horasEstimadas) * 100)}%` }} />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
