@@ -14,6 +14,7 @@ import {
   ShieldCheckIcon,
   DocumentTextIcon,
   ClockIcon,
+  ChatBubbleLeftEllipsisIcon,
 } from '@heroicons/react/24/outline';
 import { useImpersonation } from './ImpersonationContext';
 
@@ -68,6 +69,7 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
     { href: '/empleado/nominas', label: isImpersonating ? 'Nóminas' : 'Mis Nóminas', icon: DocumentTextIcon },
     { href: '/empleado/imputaciones', label: 'Imputación de Horas', icon: ClockIcon },
     { href: '/empleado/gastos', label: isImpersonating ? 'Tickets de Gasto' : 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
+    { href: '/peticiones', label: 'Peticiones y Mejoras', icon: ChatBubbleLeftEllipsisIcon },
   ];
 
   if (mostrarAprobar) {

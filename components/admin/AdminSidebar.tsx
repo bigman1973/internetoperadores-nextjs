@@ -37,7 +37,8 @@ import {
   BuildingOffice2Icon,
   StarIcon,
   ArrowsRightLeftIcon,
-  AcademicCapIcon
+  AcademicCapIcon,
+  ChatBubbleLeftEllipsisIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
 
@@ -158,6 +159,7 @@ const navigation: NavEntry[] = [
   },
   { name: 'Imputaciones', href: '/admin/imputaciones', icon: ClockIcon, section: 'imputaciones' },
   { name: 'Proyectos Internos', href: '/admin/proyectos-internos', icon: RocketLaunchIcon, section: 'proyectos_internos' },
+  { name: 'Peticiones', href: '/admin/peticiones', icon: ChatBubbleLeftEllipsisIcon, section: 'peticiones' },
   { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'portal-empleado' },
   { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon, section: 'historial' },
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },

@@ -2772,3 +2772,26 @@ model HoraExtraEmpleado {
   @@index([inicio])
   @@map("horas_extra_empleado")
 }
+
+
+model PeticionInterna {
+  id              Int       @id @default(autoincrement())
+  tipo            String    @default("mejora") // error, mejora, sugerencia
+  seccion         String    @default("panel_admin") // panel_admin, web_publica, portal_empleado
+  titulo          String
+  descripcion     String
+  prioridad       String    @default("media") // baja, media, alta, critica
+  estado          String    @default("pendiente") // pendiente, aprobada, en_desarrollo, resuelta, descartada
+  captura         String?   // base64 de captura de pantalla
+  usuarioEmail    String    @map("usuario_email")
+  usuarioNombre   String    @map("usuario_nombre")
+  notasAdmin      String?   @map("notas_admin")
+  resueltaPor     String?   @map("resuelta_por")
+  fechaResolucion DateTime? @map("fecha_resolucion")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  @@index([usuarioEmail])
+  @@index([estado])
+  @@index([tipo])
+  @@map("peticiones_internas")
+}
