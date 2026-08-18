@@ -153,6 +153,7 @@ const navigation: NavEntry[] = [
       { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon, section: 'personal' },
       { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon, section: 'personal' },
       { name: 'Plan de Carrera', href: '/admin/empleados/plan-carrera', icon: AcademicCapIcon, section: 'personal' },
+      { name: 'Gastos y Extras', href: '/admin/gastos-extras', icon: ReceiptPercentIcon, section: 'personal' },
     ],
   },
   { name: 'Imputaciones', href: '/admin/imputaciones', icon: ClockIcon, section: 'imputaciones' },

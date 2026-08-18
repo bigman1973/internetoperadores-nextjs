@@ -1479,6 +1479,8 @@ model Empleado {
   objetivos         ObjetivoEmpleado[]
   evaluaciones      EvaluacionDesempeno[]
   formaciones       FormacionEmpleado[]
+  gastos            GastoEmpleado[]
+  horasExtra        HoraExtraEmpleado[]
   // Timestamps
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
@@ -2723,4 +2725,50 @@ model ExagridProyecto {
   updatedAt       DateTime @updatedAt @map("updated_at")
   @@index([facturaId])
   @@map("exagrid_proyectos")
+}
+
+
+model GastoEmpleado {
+  id              Int       @id @default(autoincrement())
+  empleadoId      String    @map("empleado_id")
+  empleado        Empleado  @relation(fields: [empleadoId], references: [id])
+  hrlogId         String?   @unique @map("hrlog_id")
+  nombre          String
+  fecha           DateTime  @db.Date
+  motivo          String
+  tipo            String
+  importe         Float
+  estado          String    @default("en_tramite")
+  compensada      String?   @default("Sin compensar")
+  mesCompensacion String?   @map("mes_compensacion")
+  gestionadoPor   String?   @map("gestionado_por")
+  fechaSolicitud  DateTime? @map("fecha_solicitud")
+  justificante    String?
+  notas           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  @@index([empleadoId])
+  @@index([fecha])
+  @@map("gastos_empleado")
+}
+
+model HoraExtraEmpleado {
+  id              Int       @id @default(autoincrement())
+  empleadoId      String    @map("empleado_id")
+  empleado        Empleado  @relation(fields: [empleadoId], references: [id])
+  hrlogId         String?   @unique @map("hrlog_id")
+  nombre          String
+  inicio          DateTime
+  fin             DateTime
+  totalMinutos    Int       @map("total_minutos")
+  estado          String    @default("en_tramite")
+  compensada      String?
+  gestionadoPor   String?   @map("gestionado_por")
+  fechaSolicitud  DateTime? @map("fecha_solicitud")
+  notas           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  @@index([empleadoId])
+  @@index([inicio])
+  @@map("horas_extra_empleado")
 }
