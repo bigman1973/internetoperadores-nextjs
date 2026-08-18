@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { PlusIcon, PencilIcon, TrashIcon, ArrowLeftIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 
 interface Proyecto {
@@ -17,10 +18,12 @@ interface Empleado { id: string; nombre: string; apellidos: string; departamento
 const ESTADOS = ['ACTIVO', 'COMPLETADO', 'PAUSADO', 'CANCELADO']
 
 export default function ProyectosPage() {
+  const searchParams = useSearchParams()
+  const tipoInicial = searchParams.get('tipo') || ''
   const [proyectos, setProyectos] = useState<Proyecto[]>([])
   const [empleados, setEmpleados] = useState<Empleado[]>([])
   const [loading, setLoading] = useState(true)
-  const [filtroTipo, setFiltroTipo] = useState<string>('')
+  const [filtroTipo, setFiltroTipo] = useState<string>(tipoInicial)
   const [filtroEstado, setFiltroEstado] = useState<string>('')
   const [showForm, setShowForm] = useState(false)
   const [editando, setEditando] = useState<Proyecto | null>(null)
@@ -33,15 +36,20 @@ export default function ProyectosPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams()
-    if (filtroTipo) params.set('tipo', filtroTipo)
-    if (filtroEstado) params.set('estado', filtroEstado)
-    const res = await fetch(`/api/admin/proyectos?${params}`)
-    const data = await res.json()
-    setProyectos(data.proyectos || [])
-    const empRes = await fetch('/api/admin/empleados?activos=true')
-    const empData = await empRes.json()
-    setEmpleados(empData.empleados || empData || [])
+    try {
+      const params = new URLSearchParams()
+      if (filtroTipo) params.set('tipo', filtroTipo)
+      if (filtroEstado) params.set('estado', filtroEstado)
+      const res = await fetch(`/api/admin/proyectos?${params}`)
+      const data = await res.json()
+      setProyectos(data.proyectos || [])
+    } catch (e) { console.error(e) }
+    try {
+      const empRes = await fetch('/api/admin/empleados')
+      const empData = await empRes.json()
+      const emps = empData.empleados || empData || []
+      setEmpleados(Array.isArray(emps) ? emps : [])
+    } catch (e) { setEmpleados([]) }
     setLoading(false)
   }, [filtroTipo, filtroEstado])
 

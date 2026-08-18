@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
           tipo: tipo || 'interno',
           codigo: codigo || null,
           clienteNombre: clienteNombre || null,
-          clienteId: clienteId ? parseInt(clienteId) : null,
+          clienteId: clienteId && !isNaN(parseInt(clienteId)) ? parseInt(clienteId) : null,
           descripcion: descripcion || null,
           responsableId: responsableId || null,
           importeVenta: importeVenta ? parseFloat(importeVenta) : null,
@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
       if (datos.tipo !== undefined) updateData.tipo = datos.tipo
       if (datos.codigo !== undefined) updateData.codigo = datos.codigo || null
       if (datos.clienteNombre !== undefined) updateData.clienteNombre = datos.clienteNombre || null
-      if (datos.clienteId !== undefined) updateData.clienteId = datos.clienteId ? parseInt(datos.clienteId) : null
+      if (datos.clienteId !== undefined) updateData.clienteId = datos.clienteId && !isNaN(parseInt(datos.clienteId)) ? parseInt(datos.clienteId) : null
       if (datos.descripcion !== undefined) updateData.descripcion = datos.descripcion || null
       if (datos.responsableId !== undefined) updateData.responsableId = datos.responsableId || null
       if (datos.importeVenta !== undefined) updateData.importeVenta = datos.importeVenta ? parseFloat(datos.importeVenta) : null
