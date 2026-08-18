@@ -2795,3 +2795,45 @@ model PeticionInterna {
   @@index([tipo])
   @@map("peticiones_internas")
 }
+
+model DocumentoAAPP {
+  id              Int       @id @default(autoincrement())
+  organismo       String    @default("cnmc") // cnmc, hacienda, seguridad_social
+  categoria       String    @default("general") // tasa_tgo, declaracion_ibe, requerimiento, resolucion, subasignacion, cambio_datos, pago, recargo, comunicacion, otro
+  titulo          String
+  descripcion     String?
+  expediente      String?
+  fechaDocumento  DateTime  @map("fecha_documento")
+  fechaNotificacion DateTime? @map("fecha_notificacion")
+  fechaLimite     DateTime? @map("fecha_limite")
+  importe         Decimal?  @db.Decimal(12, 2)
+  estado          String    @default("pendiente") // pendiente, presentado, pagado, alegado, resuelto, vencido
+  ejercicio       Int?
+  archivoPdf      String?   @map("archivo_pdf") // base64 del PDF
+  nombreArchivo   String?   @map("nombre_archivo")
+  notas           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  @@index([organismo])
+  @@index([estado])
+  @@index([ejercicio])
+  @@map("documentos_aapp")
+}
+
+model ObligacionAAPP {
+  id              Int       @id @default(autoincrement())
+  organismo       String    @default("cnmc")
+  nombre          String
+  descripcion     String?
+  periodicidad    String    @default("anual") // anual, trimestral, mensual, puntual
+  mesVencimiento  Int?      @map("mes_vencimiento") // 1-12
+  diaVencimiento  Int?      @map("dia_vencimiento") // 1-31
+  ejercicioActual Int?      @map("ejercicio_actual")
+  estadoActual    String    @default("pendiente") // pendiente, presentado, pagado
+  importeEstimado Decimal?  @map("importe_estimado") @db.Decimal(12, 2)
+  notas           String?
+  activa          Boolean   @default(true)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  @@map("obligaciones_aapp")
+}
