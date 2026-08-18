@@ -135,6 +135,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    // Sincronizacion con HRLog via cloud PC
+    if (action === 'sync_gastos' || action === 'sync_extras') {
+      const cloudPcUrl = process.env.HRLOG_CLOUD_PC_URL;
+      const triggerSecret = process.env.HRLOG_SYNC_TRIGGER_SECRET;
+      if (!cloudPcUrl || !triggerSecret) {
+        return NextResponse.json({ error: 'Configuracion de sincronizacion no disponible' }, { status: 500 });
+      }
+      try {
+        const tipo = action === 'sync_gastos' ? 'gastos' : 'extras';
+        const res = await fetch(`${cloudPcUrl}/sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Trigger-Secret': triggerSecret },
+          body: JSON.stringify({ year: body.anio || new Date().getFullYear(), tipo }),
+        });
+        const data = await res.json();
+        if (data.status === 'completed' || data.status === 'success') {
+          return NextResponse.json({ success: true, importados: data.importados || 0 });
+        } else {
+          return NextResponse.json({ success: false, error: data.error || 'Error en sincronizacion' });
+        }
+      } catch (e: any) {
+        return NextResponse.json({ success: false, error: `No se pudo conectar con el servidor de sincronizacion: ${e.message}` });
+      }
+    }
+
     return NextResponse.json({ error: 'Accion no reconocida' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
