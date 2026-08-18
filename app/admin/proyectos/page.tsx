@@ -13,7 +13,7 @@ interface Proyecto {
   margenBruto: number; margenPct: number; createdAt: string;
 }
 
-interface Empleado { id: string; nombre: string; apellidos: string; departamento: string | null; costeHora: number | null }
+interface Empleado { id: string; nombreCompleto: string; departamento: string | null; costeHoraActual: number | null }
 
 const ESTADOS = ['ACTIVO', 'COMPLETADO', 'PAUSADO', 'CANCELADO']
 
@@ -162,7 +162,7 @@ export default function ProyectosPage() {
               return (
                 <div key={a.id} className="bg-white rounded-xl border p-4">
                   <div className="flex items-center justify-between">
-                    <div><p className="font-medium text-gray-900">{a.empleado?.nombre} {a.empleado?.apellidos}</p><p className="text-xs text-gray-500">{a.rol || a.empleado?.departamento || 'Sin rol'}</p></div>
+                    <div><p className="font-medium text-gray-900">{a.empleado?.nombreCompleto}</p><p className="text-xs text-gray-500">{a.rol || a.empleado?.departamento || 'Sin rol'}</p></div>
                     <div className="text-right"><p className="text-sm font-medium">{horasImp}h / {a.horasEstimadas || '?'}h</p>{a.costeHora && <p className="text-xs text-gray-400">{a.costeHora} EUR/h</p>}</div>
                     <button onClick={() => handleEliminarRecurso(a.id)} className="ml-3 text-red-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
                   </div>
@@ -173,7 +173,7 @@ export default function ProyectosPage() {
             })}
             {showRecursoForm && (
               <div className="bg-gray-50 rounded-xl border p-4 space-y-3">
-                <select value={recursoForm.empleadoId} onChange={e => { const emp = empleados.find(em => em.id === e.target.value); setRecursoForm({ ...recursoForm, empleadoId: e.target.value, costeHora: emp?.costeHora?.toString() || '' }) }} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900"><option value="">Seleccionar empleado...</option>{empleados.map(e => <option key={e.id} value={e.id}>{e.nombre} {e.apellidos} {e.departamento ? `(${e.departamento})` : ''}</option>)}</select>
+                <select value={recursoForm.empleadoId} onChange={e => { const emp = empleados.find(em => em.id === e.target.value); setRecursoForm({ ...recursoForm, empleadoId: e.target.value, costeHora: emp?.costeHoraActual?.toString() || '' }) }} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900"><option value="">Seleccionar empleado...</option>{empleados.map(e => <option key={e.id} value={e.id}>{e.nombreCompleto} {e.departamento ? `(${e.departamento})` : ''}</option>)}</select>
                 <div className="grid grid-cols-3 gap-2">
                   <input placeholder="Rol" value={recursoForm.rol} onChange={e => setRecursoForm({ ...recursoForm, rol: e.target.value })} className="rounded-lg border px-3 py-2 text-sm text-gray-900" />
                   <input placeholder="Horas estimadas" type="number" value={recursoForm.horasEstimadas} onChange={e => setRecursoForm({ ...recursoForm, horasEstimadas: e.target.value })} className="rounded-lg border px-3 py-2 text-sm text-gray-900" />
@@ -260,7 +260,7 @@ export default function ProyectosPage() {
               <div><label className="text-xs font-medium text-gray-600">Codigo</label><input value={form.codigo} onChange={e => setForm({ ...form, codigo: e.target.value })} placeholder="PRJ-001" className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1" /></div>
               {form.tipo === 'cliente' && <div className="col-span-2"><label className="text-xs font-medium text-gray-600">Cliente</label><input value={form.clienteNombre} onChange={e => setForm({ ...form, clienteNombre: e.target.value })} placeholder="Nombre del cliente" className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1" /></div>}
               <div><label className="text-xs font-medium text-gray-600">Prioridad</label><select value={form.prioridad} onChange={e => setForm({ ...form, prioridad: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1"><option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option></select></div>
-              <div><label className="text-xs font-medium text-gray-600">Responsable</label><select value={form.responsableId} onChange={e => setForm({ ...form, responsableId: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1"><option value="">Sin asignar</option>{empleados.map(e => <option key={e.id} value={e.id}>{e.nombre} {e.apellidos}</option>)}</select></div>
+              <div><label className="text-xs font-medium text-gray-600">Responsable</label><select value={form.responsableId} onChange={e => setForm({ ...form, responsableId: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1"><option value="">Sin asignar</option>{empleados.map(e => <option key={e.id} value={e.id}>{e.nombreCompleto}</option>)}</select></div>
               <div><label className="text-xs font-medium text-gray-600">Fecha inicio</label><input type="date" value={form.fechaInicio} onChange={e => setForm({ ...form, fechaInicio: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1" /></div>
               <div><label className="text-xs font-medium text-gray-600">Fecha fin</label><input type="date" value={form.fechaFin} onChange={e => setForm({ ...form, fechaFin: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1" /></div>
               {form.tipo === 'cliente' && <div><label className="text-xs font-medium text-gray-600">Importe venta (base)</label><input type="number" step="0.01" value={form.importeVenta} onChange={e => setForm({ ...form, importeVenta: e.target.value })} className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 mt-1" /></div>}

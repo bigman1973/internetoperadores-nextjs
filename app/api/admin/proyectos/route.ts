@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     include: {
       asignaciones: {
         where: { activa: true },
-        include: { empleado: { select: { id: true, nombre: true, apellidos: true, departamento: true } } }
+        include: { empleado: { select: { id: true, nombreCompleto: true, departamento: true, costeHoraActual: true } } }
       },
       imputaciones: {
         select: { horas: true, costeImputado: true }
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
           fechaInicio: fechaInicio ? new Date(fechaInicio) : null,
           fechaFin: fechaFin ? new Date(fechaFin) : null,
         },
-        include: { empleado: { select: { id: true, nombre: true, apellidos: true } } }
+        include: { empleado: { select: { id: true, nombreCompleto: true, departamento: true } } }
       })
       return NextResponse.json({ asignacion })
     }
@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
       const asignacion = await prisma.asignacionProyecto.update({
         where: { id: asignacionId },
         data: updateData,
-        include: { empleado: { select: { id: true, nombre: true, apellidos: true } } }
+        include: { empleado: { select: { id: true, nombreCompleto: true, departamento: true } } }
       })
       return NextResponse.json({ asignacion })
     }
@@ -183,10 +183,10 @@ export async function POST(req: NextRequest) {
         where: { id },
         include: {
           asignaciones: {
-            include: { empleado: { select: { id: true, nombre: true, apellidos: true, departamento: true, costeHora: true } } }
+            include: { empleado: { select: { id: true, nombreCompleto: true, departamento: true, costeHoraActual: true } } }
           },
           imputaciones: {
-            include: { empleado: { select: { id: true, nombre: true, apellidos: true } } },
+            include: { empleado: { select: { id: true, nombreCompleto: true } } },
             orderBy: { fecha: 'desc' },
             take: 100
           }
