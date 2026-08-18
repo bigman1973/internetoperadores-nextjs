@@ -170,15 +170,18 @@ export default function ImputacionesPage() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      const payload: any = { ...formData };
+      if (selectedProyecto) payload.proyectoId = selectedProyecto.id;
       const res = await fetch('/api/empleado/imputaciones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       
       setShowForm(false);
+      setSelectedProyecto(null);
       setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', clienteId: '', descripcion: '' });
       setClienteSearch('');
       fetchData();

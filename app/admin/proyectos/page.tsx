@@ -32,6 +32,7 @@ export default function ProyectosPage() {
 
   const [form, setForm] = useState({ nombre: '', tipo: 'interno', codigo: '', clienteNombre: '', clienteId: '', descripcion: '', responsableId: '', importeVenta: '', costeProveedores: '', otrosCostes: '', prioridad: 'media', fechaInicio: '', fechaFin: '', presupuesto: '' })
   const [showRecursoForm, setShowRecursoForm] = useState(false)
+  const [editingRecurso, setEditingRecurso] = useState<any>(null)
   const [recursoForm, setRecursoForm] = useState({ empleadoId: '', rol: '', horasEstimadas: '', costeHora: '' })
 
   const fetchData = useCallback(async () => {
@@ -77,9 +78,14 @@ export default function ProyectosPage() {
   }
 
   const handleAsignarRecurso = async () => {
-    if (!detalle || !recursoForm.empleadoId) return
-    await fetch('/api/admin/proyectos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'asignar_recurso', proyectoId: detalle.id, ...recursoForm }) })
-    setShowRecursoForm(false); setRecursoForm({ empleadoId: '', rol: '', horasEstimadas: '', costeHora: '' })
+    if (!detalle) return
+    if (editingRecurso) {
+      await fetch('/api/admin/proyectos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'editar_recurso', asignacionId: editingRecurso.id, ...recursoForm }) })
+    } else {
+      if (!recursoForm.empleadoId) return
+      await fetch('/api/admin/proyectos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'asignar_recurso', proyectoId: detalle.id, ...recursoForm }) })
+    }
+    setShowRecursoForm(false); setEditingRecurso(null); setRecursoForm({ empleadoId: '', rol: '', horasEstimadas: '', costeHora: '' })
     abrirDetalle(detalle.id)
   }
 
@@ -164,7 +170,10 @@ export default function ProyectosPage() {
                   <div className="flex items-center justify-between">
                     <div><p className="font-medium text-gray-900">{a.empleado?.nombreCompleto}</p><p className="text-xs text-gray-500">{a.rol || a.empleado?.departamento || 'Sin rol'}</p></div>
                     <div className="text-right"><p className="text-sm font-medium">{horasImp}h / {a.horasEstimadas || '?'}h</p>{a.costeHora && <p className="text-xs text-gray-400">{a.costeHora} EUR/h</p>}</div>
-                    <button onClick={() => handleEliminarRecurso(a.id)} className="ml-3 text-red-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                    <div className="flex gap-1 ml-3">
+                      <button onClick={() => { setEditingRecurso(a); setRecursoForm({ empleadoId: a.empleadoId, rol: a.rol || '', horasEstimadas: a.horasEstimadas?.toString() || '', costeHora: a.costeHora?.toString() || '' }); setShowRecursoForm(true) }} className="text-blue-400 hover:text-blue-600"><PencilIcon className="w-4 h-4" /></button>
+                      <button onClick={() => handleEliminarRecurso(a.id)} className="text-red-400 hover:text-red-600"><TrashIcon className="w-4 h-4" /></button>
+                    </div>
                   </div>
                   {a.horasEstimadas && <div className="mt-2 h-2 bg-gray-100 rounded-full"><div className={`h-2 rounded-full ${pctAvance > 100 ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(100, pctAvance)}%` }} /></div>}
                   {a.horasEstimadas && horasImp < a.horasEstimadas && <p className="text-xs text-amber-600 mt-1">Pendiente: {(a.horasEstimadas - horasImp).toFixed(1)}h por imputar</p>}
@@ -179,7 +188,7 @@ export default function ProyectosPage() {
                   <input placeholder="Horas estimadas" type="number" value={recursoForm.horasEstimadas} onChange={e => setRecursoForm({ ...recursoForm, horasEstimadas: e.target.value })} className="rounded-lg border px-3 py-2 text-sm text-gray-900" />
                   <input placeholder="Coste/hora" type="number" step="0.01" value={recursoForm.costeHora} onChange={e => setRecursoForm({ ...recursoForm, costeHora: e.target.value })} className="rounded-lg border px-3 py-2 text-sm text-gray-900" />
                 </div>
-                <div className="flex gap-2"><button onClick={handleAsignarRecurso} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Asignar</button><button onClick={() => setShowRecursoForm(false)} className="px-4 py-2 border rounded-lg text-sm text-gray-600">Cancelar</button></div>
+                <div className="flex gap-2"><button onClick={handleAsignarRecurso} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">{editingRecurso ? 'Guardar' : 'Asignar'}</button><button onClick={() => { setShowRecursoForm(false); setEditingRecurso(null); setRecursoForm({ empleadoId: '', rol: '', horasEstimadas: '', costeHora: '' }) }} className="px-4 py-2 border rounded-lg text-sm text-gray-600">Cancelar</button></div>
               </div>
             )}
           </div>

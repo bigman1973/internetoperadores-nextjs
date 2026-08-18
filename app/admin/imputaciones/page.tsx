@@ -156,6 +156,7 @@ export default function ImputacionesAdminPage() {
       const action = editingImp ? 'editar_imputacion' : 'imputar';
       const payload: any = { action, ...imputarForm };
       if (editingImp) payload.id = editingImp.id;
+      if (selectedProyecto) payload.proyectoId = selectedProyecto.id;
       const res = await fetch('/api/admin/imputaciones', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -165,6 +166,7 @@ export default function ImputacionesAdminPage() {
       if (!res.ok) throw new Error(data.error);
       setShowImputarForm(false);
       setEditingImp(null);
+      setSelectedProyecto(null);
       setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
       fetchData();
     } catch (err: any) {
