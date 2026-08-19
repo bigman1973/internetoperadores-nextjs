@@ -17,18 +17,20 @@ interface Obligacion {
 }
 
 const CATEGORIAS = [
-  { value: 'iva', label: 'IVA (Modelo 303)' },
+  { value: 'declaracion', label: 'Declaraciones (IVA/IRPF/IS)' },
+  { value: 'iva', label: 'IVA (Modelo 303/390)' },
   { value: 'irpf', label: 'IRPF (Modelo 111/190)' },
   { value: 'sociedades', label: 'Impuesto Sociedades (Modelo 200)' },
-  { value: 'requerimiento', label: 'Requerimiento' },
-  { value: 'apremio', label: 'Apremio / Ejecutiva' },
-  { value: 'aplazamiento', label: 'Aplazamiento / Fraccionamiento' },
-  { value: 'embargo', label: 'Embargo' },
-  { value: 'resolucion', label: 'Resolucion' },
-  { value: 'censal', label: 'Censal / Modelo 036' },
-  { value: 'devolucion', label: 'Devolucion' },
-  { value: 'comunicacion', label: 'Comunicacion / Campana' },
-  { value: 'otro', label: 'Otro' }
+  { value: 'notificacion', label: 'Notificaciones' },
+  { value: 'requerimiento', label: 'Requerimientos' },
+  { value: 'apremio', label: 'Apremios / Ejecutivas' },
+  { value: 'aplazamiento', label: 'Aplazamientos / Fraccionamientos' },
+  { value: 'embargo', label: 'Embargos' },
+  { value: 'pago', label: 'Pagos realizados' },
+  { value: 'devolucion', label: 'Devoluciones' },
+  { value: 'censal', label: 'Documentos censales (036/NIF/CIF)' },
+  { value: 'comunicacion', label: 'Comunicaciones / Campanas' },
+  { value: 'otro', label: 'Otros' }
 ];
 const ESTADOS = [
   { value: 'pendiente', label: 'Pendiente', color: 'bg-amber-100 text-amber-800' },
@@ -81,8 +83,8 @@ export default function HaciendaPage() {
       if (filtroCategoria) params.set('categoria', filtroCategoria);
       const [docsRes, oblsRes, resRes] = await Promise.all([
         fetch(`/api/admin/aapp?action=documentos&${params}`),
-        fetch('/api/admin/aapp?action=obligaciones&organismo=cnmc'),
-        fetch('/api/admin/aapp?action=resumen&organismo=cnmc')
+        fetch('/api/admin/aapp?action=obligaciones&organismo=hacienda'),
+        fetch('/api/admin/aapp?action=resumen&organismo=hacienda')
       ]);
       const docsData = await docsRes.json();
       const oblsData = await oblsRes.json();
