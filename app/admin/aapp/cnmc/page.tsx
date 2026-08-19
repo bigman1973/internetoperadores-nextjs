@@ -241,7 +241,7 @@ export default function CNMCPage() {
                       <td className="px-4 py-3 text-gray-600 text-xs">{d.expediente || '-'}</td>
                       <td className="px-4 py-3 text-right text-gray-900">{fmtMoney(d.importe)}</td>
                       <td className="px-4 py-3 text-center">
-                        <select value={d.estado} onClick={e => e.stopPropagation()} onChange={e => handleChangeEstado(d.id, e.target.value)} className="text-xs border rounded px-1 py-0.5">
+                        <select value={d.estado} onClick={e => e.stopPropagation()} onChange={e => handleChangeEstado(d.id, e.target.value)} className="text-xs border rounded px-1 py-0.5 text-gray-900 font-medium">
                           {ESTADOS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
                         </select>
                       </td>
