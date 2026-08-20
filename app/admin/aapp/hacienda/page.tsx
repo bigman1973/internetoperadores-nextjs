@@ -441,7 +441,7 @@ export default function HaciendaPage() {
                     const key = `${MESES[d.getMonth()+1]} ${d.getFullYear()}`;
                     if (!mesesMap[key]) mesesMap[key] = { total: 0, detalle: {} };
                     mesesMap[key].total += Number(p.importe);
-                    const concepto = p.notas?.includes('Sociedades') ? 'IS Ej.2025 (Anual)' : p.notas?.includes('IVA') ? 'IVA 1T 2025' : 'Otro';
+                    const concepto = p.notas?.includes('Sociedades') ? 'IS Ej.2025 (Anual)' : p.notas?.includes('IVA') ? 'IVA 4T 2025' : 'Otro';
                     mesesMap[key].detalle[concepto] = (mesesMap[key].detalle[concepto] || 0) + Number(p.importe);
                   });
                   return Object.entries(mesesMap).map(([mes, data]) => (
