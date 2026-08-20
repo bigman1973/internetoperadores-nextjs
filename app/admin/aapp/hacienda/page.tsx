@@ -75,6 +75,7 @@ export default function HaciendaPage() {
   const [docsEnAire, setDocsEnAire] = useState<any[]>([]);
   const [importeEnAire, setImporteEnAire] = useState(0);
   const [filtroPagoImpuesto, setFiltroPagoImpuesto] = useState('');
+  const [calYear, setCalYear] = useState(2026);
   const [resumen, setResumen] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filtroEjercicio, setFiltroEjercicio] = useState('');
@@ -409,10 +410,8 @@ export default function HaciendaPage() {
                     })
                     .sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
                     const vencido = p.estado === 'pendiente' && new Date(p.fechaVencimiento) < new Date();
-                    // Determinar trimestre de la cuota segun fecha de vencimiento
-                    const fv = new Date(p.fechaVencimiento);
-                    const trimCuota = Math.ceil((fv.getMonth() + 1) / 3);
-                    const concepto = p.notas?.includes('Sociedades') ? `Imp. Sociedades 2025 (Aplaz.)` : p.notas?.includes('IVA') ? `IVA Autoliquidacion (Aplaz.) - ${trimCuota}T ${fv.getFullYear()}` : p.documento.grupoExpediente || p.documento.titulo.substring(0, 40);
+                    // Mostrar el concepto del impuesto de origen (grupo de expediente indica el periodo de la deuda)
+                    const concepto = p.documento.grupoExpediente || (p.notas?.includes('Sociedades') ? 'Imp. Sociedades 2025 (Aplaz.)' : p.notas?.includes('IVA') ? 'IVA 2025 (Aplaz.)' : p.documento.titulo.substring(0, 40));
                     return (
                       <tr key={p.id} className={`hover:bg-gray-50 ${vencido ? 'bg-red-50' : ''}`}>
                         <td className="px-4 py-3 text-gray-900 font-medium">{concepto}</td>
@@ -497,7 +496,6 @@ export default function HaciendaPage() {
 
       {/* CALENDARIO */}
       {tab === 'calendario' && (() => {
-        const [calYear, setCalYear] = useState(2026);
         // Filtrar docs por ejercicio seleccionado
         const docsYear = docs.filter(d => d.ejercicio === calYear);
         // Funcion helper para buscar documento
