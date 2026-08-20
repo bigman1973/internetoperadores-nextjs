@@ -495,41 +495,136 @@ export default function HaciendaPage() {
       {/* CALENDARIO */}
       {tab === 'calendario' && (
         <div className="bg-white border rounded-lg p-6">
-          <h3 className="font-semibold text-gray-900 mb-4">Calendario de obligaciones fiscales</h3>
-          <div className="space-y-3">
-            {[1,2,3,4,5,6,7,8,9,10,11,12].map(mes => {
-              const oblsMes = obls.filter(o => o.mesVencimiento === mes);
-              const docsMes = docs.filter(d => {
-                const fl = d.fechaLimite ? new Date(d.fechaLimite).getMonth() + 1 : null;
-                return fl === mes;
-              });
-              if (oblsMes.length === 0 && docsMes.length === 0) return null;
-              return (
-                <div key={mes} className="border rounded-lg p-4">
-                  <h4 className="font-medium text-indigo-700 mb-2">{MESES[mes]}</h4>
-                  {oblsMes.map(o => (
-                    <div key={o.id} className="flex items-center gap-3 text-sm py-1">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                      <span className="text-gray-700">{o.nombre}</span>
-                      <span className="text-gray-400">- Dia {o.diaVencimiento || 30}</span>
-                      {estadoBadge(o.estadoActual)}
-                    </div>
-                  ))}
-                  {docsMes.map(d => (
-                    <div key={d.id} className="flex items-center gap-3 text-sm py-1">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="font-semibold text-gray-900">Calendario fiscal — Estado de presentaciones</h3>
+            <select className="border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium" defaultValue="2026">
+              <option value="2026">Ejercicio 2026</option>
+              <option value="2025">Ejercicio 2025</option>
+            </select>
+          </div>
+
+          {/* Tabla resumen de presentaciones */}
+          <div className="overflow-x-auto mb-8">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium text-gray-600">Obligacion</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">1T</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">2T</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">3T</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">4T</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">Anual</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {/* IVA 303 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">IVA Trimestral (Mod. 303)</td>
+                  {[1,2,3,4].map(t => {
+                    const docIVA = docs.find(d => d.categoria === 'iva' && d.titulo.includes('303') && d.titulo.toLowerCase().includes(t+'t'));
+                    return <td key={t} className="px-4 py-3 text-center">{docIVA ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIVA.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIVA.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                </tr>
+                {/* IRPF 111 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">Retenciones IRPF (Mod. 111)</td>
+                  {[1,2,3,4].map(t => {
+                    const docIRPF = docs.find(d => d.categoria === 'irpf' && d.titulo.includes('111') && d.titulo.toLowerCase().includes(t+'t'));
+                    return <td key={t} className="px-4 py-3 text-center">{docIRPF ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIRPF.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIRPF.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })}
+                  <td className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                </tr>
+                {/* IS 200 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">Imp. Sociedades (Mod. 200)</td>
+                  <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                  {(() => {
+                    const docIS = docs.find(d => d.categoria === 'sociedades' && d.titulo.includes('200'));
+                    return <td className="px-4 py-3 text-center">{docIS ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIS.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIS.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })()}
+                </tr>
+                {/* Resumen IVA 390 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">Resumen anual IVA (Mod. 390)</td>
+                  <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                  {(() => {
+                    const doc390 = docs.find(d => d.titulo.includes('390'));
+                    return <td className="px-4 py-3 text-center">{doc390 ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc390.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc390.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })()}
+                </tr>
+                {/* Resumen retenciones 190 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">Resumen retenciones (Mod. 190)</td>
+                  <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                  {(() => {
+                    const doc190 = docs.find(d => d.titulo.includes('190'));
+                    return <td className="px-4 py-3 text-center">{doc190 ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc190.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc190.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })()}
+                </tr>
+                {/* Modelo 347 */}
+                <tr>
+                  <td className="px-4 py-3 font-medium text-gray-900">Operaciones terceros (Mod. 347)</td>
+                  <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
+                  {(() => {
+                    const doc347 = docs.find(d => d.titulo.includes('347'));
+                    return <td className="px-4 py-3 text-center">{doc347 ? (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc347.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc347.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+                    )}</td>;
+                  })()}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* Leyenda */}
+          <div className="flex gap-6 text-xs text-gray-500 mb-6">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Presentado (documento en el sistema)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Pendiente (sin documento)</span>
+          </div>
+
+          {/* Alertas y requerimientos con fecha limite */}
+          {docs.filter(d => d.fechaLimite && d.estado === 'pendiente').length > 0 && (
+            <div className="border-t pt-4">
+              <h4 className="font-medium text-gray-900 mb-3">Plazos activos con fecha limite</h4>
+              <div className="space-y-2">
+                {docs.filter(d => d.fechaLimite && d.estado === 'pendiente').map(d => (
+                  <div key={d.id} className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <div className="flex items-center gap-3">
                       <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                      <span className="text-gray-700">{d.titulo}</span>
-                      <span className="text-gray-400">- {fmtDate(d.fechaLimite)}</span>
+                      <span className="text-sm font-medium text-gray-900">{d.titulo}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-sm font-medium ${new Date(d.fechaLimite!) < new Date() ? 'text-red-600' : 'text-amber-700'}`}>Limite: {fmtDate(d.fechaLimite)}</span>
                       {estadoBadge(d.estado)}
                     </div>
-                  ))}
-                </div>
-              );
-            })}
-            {obls.length === 0 && docs.filter(d => d.fechaLimite).length === 0 && (
-              <p className="text-center text-gray-400 py-8">No hay obligaciones con fecha de vencimiento</p>
-            )}
-          </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
