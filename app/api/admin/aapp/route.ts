@@ -66,7 +66,13 @@ export async function GET(req: NextRequest) {
       const totalPendiente = pagos.filter(p => p.estado === 'pendiente').reduce((s, p) => s + Number(p.importe), 0);
       const totalPagado = pagos.filter(p => p.estado === 'pagado').reduce((s, p) => s + Number(p.importe), 0);
       const proximoPago = pagos.find(p => p.estado === 'pendiente');
-      return NextResponse.json({ pagos, totalPendiente, totalPagado, proximoPago });
+      // Importes pendientes de resolución (denegados, pendientes con importe que no tienen pagos fraccionados)
+      const docsEnAire = await prisma.documentoAAPP.findMany({
+        where: { organismo, importe: { not: null }, estado: { notIn: ['pagado', 'resuelto'] } },
+        select: { id: true, titulo: true, importe: true, estado: true, categoria: true }
+      });
+      const importeEnAire = docsEnAire.reduce((s, d) => s + Number(d.importe), 0);
+      return NextResponse.json({ pagos, totalPendiente, totalPagado, proximoPago, docsEnAire, importeEnAire });
     }
 
     if (action === 'obligaciones') {

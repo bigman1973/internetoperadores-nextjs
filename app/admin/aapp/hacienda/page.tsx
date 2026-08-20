@@ -38,6 +38,7 @@ const ESTADOS = [
   { value: 'pagado', label: 'Pagado', color: 'bg-green-100 text-green-800' },
   { value: 'alegado', label: 'Alegado', color: 'bg-purple-100 text-purple-800' },
   { value: 'resuelto', label: 'Resuelto', color: 'bg-gray-100 text-gray-800' },
+  { value: 'denegado', label: 'Denegado', color: 'bg-red-200 text-red-900' },
   { value: 'vencido', label: 'Vencido', color: 'bg-red-100 text-red-800' }
 ];
 const MESES = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -71,6 +72,9 @@ export default function HaciendaPage() {
   const [obls, setObls] = useState<Obligacion[]>([]);
   const [pagos, setPagos] = useState<Pago[]>([]);
   const [grupos, setGrupos] = useState<Record<string, any[]>>({});
+  const [docsEnAire, setDocsEnAire] = useState<any[]>([]);
+  const [importeEnAire, setImporteEnAire] = useState(0);
+  const [filtroPagoImpuesto, setFiltroPagoImpuesto] = useState('');
   const [resumen, setResumen] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filtroEjercicio, setFiltroEjercicio] = useState('');
@@ -106,6 +110,8 @@ export default function HaciendaPage() {
       setObls(oblsData.obligaciones || []);
       setResumen(resData);
       setPagos(pagosData.pagos || []);
+      setDocsEnAire(pagosData.docsEnAire || []);
+      setImporteEnAire(pagosData.importeEnAire || 0);
       setGrupos(gruposData.grupos || {});
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -334,10 +340,11 @@ export default function HaciendaPage() {
       {tab === 'pagos' && (
         <div>
           {/* KPIs de pagos */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-amber-600">{fmtMoney(pagos.filter(p=>p.estado==='pendiente').reduce((s,p)=>s+Number(p.importe),0))}</p><p className="text-sm text-gray-500">Total pendiente</p></div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-amber-600">{fmtMoney(pagos.filter(p=>p.estado==='pendiente').reduce((s,p)=>s+Number(p.importe),0))}</p><p className="text-sm text-gray-500">Cuotas pendientes de pago</p></div>
             <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-green-600">{fmtMoney(pagos.filter(p=>p.estado==='pagado').reduce((s,p)=>s+Number(p.importe),0))}</p><p className="text-sm text-gray-500">Total pagado</p></div>
-            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-gray-900">{pagos.filter(p=>p.estado==='pendiente').length}</p><p className="text-sm text-gray-500">Cuotas pendientes</p></div>
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-red-600">{fmtMoney(importeEnAire)}</p><p className="text-sm text-gray-500">Pendiente de resolucion</p>{docsEnAire.length > 0 && <p className="text-xs text-red-500 mt-1">{docsEnAire.length} expediente{docsEnAire.length > 1 ? 's' : ''} sin resolver</p>}</div>
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-gray-900">{pagos.filter(p=>p.estado==='pendiente').length}</p><p className="text-sm text-gray-500">Cuotas restantes</p></div>
             <div className="border rounded-xl p-4">
               {pagos.filter(p=>p.estado==='pendiente').length > 0 ? (
                 <><p className="text-2xl font-bold text-indigo-600">{fmtDate(pagos.filter(p=>p.estado==='pendiente').sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime())[0]?.fechaVencimiento)}</p><p className="text-sm text-gray-500">Proximo vencimiento</p></>
@@ -345,6 +352,33 @@ export default function HaciendaPage() {
                 <><p className="text-2xl font-bold text-green-600">-</p><p className="text-sm text-gray-500">Sin pagos pendientes</p></>
               )}
             </div>
+          </div>
+
+          {/* Detalle importes en el aire */}
+          {docsEnAire.length > 0 && (
+            <div className="mb-6 border border-red-200 rounded-xl p-4 bg-red-50">
+              <h4 className="text-sm font-bold text-red-800 mb-2">Importes pendientes de resolucion (sin aplazamiento concedido)</h4>
+              <div className="space-y-1">
+                {docsEnAire.map((d: any) => (
+                  <div key={d.id} className="flex justify-between items-center text-sm">
+                    <span className="text-red-900">{d.titulo}</span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-medium text-red-900">{fmtMoney(Number(d.importe))}</span>
+                      {estadoBadge(d.estado)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Filtro por impuesto */}
+          <div className="flex gap-3 mb-4">
+            <select value={filtroPagoImpuesto} onChange={e => setFiltroPagoImpuesto(e.target.value)} className="border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium">
+              <option value="">Todos los impuestos</option>
+              <option value="is">Imp. Sociedades</option>
+              <option value="iva">IVA Autoliquidacion</option>
+            </select>
           </div>
 
           {pagos.length === 0 ? (
@@ -366,9 +400,15 @@ export default function HaciendaPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {pagos.sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
+                  {pagos
+                    .filter(p => {
+                      if (!filtroPagoImpuesto) return true;
+                      if (filtroPagoImpuesto === 'is') return p.notas?.includes('Sociedades');
+                      if (filtroPagoImpuesto === 'iva') return p.notas?.includes('IVA');
+                      return true;
+                    })
+                    .sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
                     const vencido = p.estado === 'pendiente' && new Date(p.fechaVencimiento) < new Date();
-                    // Extraer nombre legible del impuesto desde las notas o el titulo del documento
                     const concepto = p.notas?.includes('Sociedades') ? 'Imp. Sociedades 2025' : p.notas?.includes('IVA') ? 'IVA Autoliquidacion' : p.documento.grupoExpediente || p.documento.titulo.substring(0, 40);
                     return (
                       <tr key={p.id} className={`hover:bg-gray-50 ${vencido ? 'bg-red-50' : ''}`}>
