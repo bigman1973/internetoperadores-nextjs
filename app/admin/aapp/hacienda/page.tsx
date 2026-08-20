@@ -409,7 +409,10 @@ export default function HaciendaPage() {
                     })
                     .sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
                     const vencido = p.estado === 'pendiente' && new Date(p.fechaVencimiento) < new Date();
-                    const concepto = p.notas?.includes('Sociedades') ? 'Imp. Sociedades 2025' : p.notas?.includes('IVA') ? 'IVA Autoliquidacion' : p.documento.grupoExpediente || p.documento.titulo.substring(0, 40);
+                    // Determinar trimestre de la cuota segun fecha de vencimiento
+                    const fv = new Date(p.fechaVencimiento);
+                    const trimCuota = Math.ceil((fv.getMonth() + 1) / 3);
+                    const concepto = p.notas?.includes('Sociedades') ? `Imp. Sociedades 2025 (Aplaz.)` : p.notas?.includes('IVA') ? `IVA Autoliquidacion (Aplaz.) - ${trimCuota}T ${fv.getFullYear()}` : p.documento.grupoExpediente || p.documento.titulo.substring(0, 40);
                     return (
                       <tr key={p.id} className={`hover:bg-gray-50 ${vencido ? 'bg-red-50' : ''}`}>
                         <td className="px-4 py-3 text-gray-900 font-medium">{concepto}</td>
@@ -493,13 +496,33 @@ export default function HaciendaPage() {
       )}
 
       {/* CALENDARIO */}
-      {tab === 'calendario' && (
+      {tab === 'calendario' && (() => {
+        const [calYear, setCalYear] = useState(2026);
+        // Filtrar docs por ejercicio seleccionado
+        const docsYear = docs.filter(d => d.ejercicio === calYear);
+        // Funcion helper para buscar documento
+        const findDoc = (cat: string, modelo: string, trimestre?: number) => {
+          return docsYear.find(d => {
+            if (cat && d.categoria !== cat) return false;
+            if (!d.titulo.includes(modelo)) return false;
+            if (trimestre) return d.titulo.toLowerCase().includes(trimestre + 't');
+            return true;
+          });
+        };
+        const cellContent = (doc: any) => doc ? (
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+        ) : (
+          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
+        );
+
+        return (
         <div className="bg-white border rounded-lg p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-semibold text-gray-900">Calendario fiscal — Estado de presentaciones</h3>
-            <select className="border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium" defaultValue="2026">
-              <option value="2026">Ejercicio 2026</option>
-              <option value="2025">Ejercicio 2025</option>
+            <select value={calYear} onChange={e => setCalYear(parseInt(e.target.value))} className="border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium">
+              <option value={2026}>Ejercicio 2026</option>
+              <option value={2025}>Ejercicio 2025</option>
+              <option value={2024}>Ejercicio 2024</option>
             </select>
           </div>
 
@@ -509,10 +532,10 @@ export default function HaciendaPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left font-medium text-gray-600">Obligacion</th>
-                  <th className="px-4 py-3 text-center font-medium text-gray-600">1T</th>
-                  <th className="px-4 py-3 text-center font-medium text-gray-600">2T</th>
-                  <th className="px-4 py-3 text-center font-medium text-gray-600">3T</th>
-                  <th className="px-4 py-3 text-center font-medium text-gray-600">4T</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">1T (Ene-Mar)</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">2T (Abr-Jun)</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">3T (Jul-Sep)</th>
+                  <th className="px-4 py-3 text-center font-medium text-gray-600">4T (Oct-Dic)</th>
                   <th className="px-4 py-3 text-center font-medium text-gray-600">Anual</th>
                 </tr>
               </thead>
@@ -520,80 +543,38 @@ export default function HaciendaPage() {
                 {/* IVA 303 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">IVA Trimestral (Mod. 303)</td>
-                  {[1,2,3,4].map(t => {
-                    const docIVA = docs.find(d => d.categoria === 'iva' && d.titulo.includes('303') && d.titulo.toLowerCase().includes(t+'t'));
-                    return <td key={t} className="px-4 py-3 text-center">{docIVA ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIVA.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIVA.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })}
+                  {[1,2,3,4].map(t => <td key={t} className="px-4 py-3 text-center">{cellContent(findDoc('iva', '303', t))}</td>)}
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
                 </tr>
                 {/* IRPF 111 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">Retenciones IRPF (Mod. 111)</td>
-                  {[1,2,3,4].map(t => {
-                    const docIRPF = docs.find(d => d.categoria === 'irpf' && d.titulo.includes('111') && d.titulo.toLowerCase().includes(t+'t'));
-                    return <td key={t} className="px-4 py-3 text-center">{docIRPF ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIRPF.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIRPF.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })}
+                  {[1,2,3,4].map(t => <td key={t} className="px-4 py-3 text-center">{cellContent(findDoc('irpf', '111', t))}</td>)}
                   <td className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
                 </tr>
                 {/* IS 200 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">Imp. Sociedades (Mod. 200)</td>
                   <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
-                  {(() => {
-                    const docIS = docs.find(d => d.categoria === 'sociedades' && d.titulo.includes('200'));
-                    return <td className="px-4 py-3 text-center">{docIS ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{docIS.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${docIS.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })()}
+                  <td className="px-4 py-3 text-center">{cellContent(findDoc('sociedades', '200'))}</td>
                 </tr>
                 {/* Resumen IVA 390 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">Resumen anual IVA (Mod. 390)</td>
                   <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
-                  {(() => {
-                    const doc390 = docs.find(d => d.titulo.includes('390'));
-                    return <td className="px-4 py-3 text-center">{doc390 ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc390.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc390.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })()}
+                  <td className="px-4 py-3 text-center">{cellContent(findDoc('iva', '390'))}</td>
                 </tr>
                 {/* Resumen retenciones 190 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">Resumen retenciones (Mod. 190)</td>
                   <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
-                  {(() => {
-                    const doc190 = docs.find(d => d.titulo.includes('190'));
-                    return <td className="px-4 py-3 text-center">{doc190 ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc190.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc190.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })()}
+                  <td className="px-4 py-3 text-center">{cellContent(findDoc('irpf', '190'))}</td>
                 </tr>
                 {/* Modelo 347 */}
                 <tr>
                   <td className="px-4 py-3 font-medium text-gray-900">Operaciones terceros (Mod. 347)</td>
                   <td colSpan={4} className="px-4 py-3 text-center text-gray-400 text-xs">-</td>
-                  {(() => {
-                    const doc347 = docs.find(d => d.titulo.includes('347'));
-                    return <td className="px-4 py-3 text-center">{doc347 ? (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc347.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc347.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-                    )}</td>;
-                  })()}
+                  <td className="px-4 py-3 text-center">{cellContent(findDoc('declaracion', '347'))}</td>
                 </tr>
               </tbody>
             </table>
@@ -626,7 +607,8 @@ export default function HaciendaPage() {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* MODAL DETALLE DOCUMENTO */}
       {selectedDoc && (
