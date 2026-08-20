@@ -58,10 +58,19 @@ function catLabel(cat: string) {
   return CATEGORIAS.find(c => c.value === cat)?.label || cat;
 }
 
+interface Pago {
+  id: number; numeroCuota: number; totalCuotas: number; importe: number;
+  fechaVencimiento: string; estado: string; fechaPago: string | null;
+  referencia: string | null; notas: string | null;
+  documento: { id: number; titulo: string; grupoExpediente: string | null };
+}
+
 export default function HaciendaPage() {
-  const [tab, setTab] = useState<'documentos'|'obligaciones'|'calendario'>('documentos');
+  const [tab, setTab] = useState<'documentos'|'tramites'|'pagos'|'obligaciones'|'calendario'>('documentos');
   const [docs, setDocs] = useState<Documento[]>([]);
   const [obls, setObls] = useState<Obligacion[]>([]);
+  const [pagos, setPagos] = useState<Pago[]>([]);
+  const [grupos, setGrupos] = useState<Record<string, any[]>>({});
   const [resumen, setResumen] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filtroEjercicio, setFiltroEjercicio] = useState('');
@@ -81,17 +90,23 @@ export default function HaciendaPage() {
       if (filtroEjercicio) params.set('ejercicio', filtroEjercicio);
       if (filtroEstado) params.set('estado', filtroEstado);
       if (filtroCategoria) params.set('categoria', filtroCategoria);
-      const [docsRes, oblsRes, resRes] = await Promise.all([
+      const [docsRes, oblsRes, resRes, pagosRes, gruposRes] = await Promise.all([
         fetch(`/api/admin/aapp?action=documentos&${params}`),
         fetch('/api/admin/aapp?action=obligaciones&organismo=hacienda'),
-        fetch('/api/admin/aapp?action=resumen&organismo=hacienda')
+        fetch('/api/admin/aapp?action=resumen&organismo=hacienda'),
+        fetch('/api/admin/aapp?action=pagos&organismo=hacienda'),
+        fetch('/api/admin/aapp?action=grupos&organismo=hacienda')
       ]);
       const docsData = await docsRes.json();
       const oblsData = await oblsRes.json();
       const resData = await resRes.json();
+      const pagosData = await pagosRes.json();
+      const gruposData = await gruposRes.json();
       setDocs(docsData.documentos || []);
       setObls(oblsData.obligaciones || []);
       setResumen(resData);
+      setPagos(pagosData.pagos || []);
+      setGrupos(gruposData.grupos || {});
     } catch (e) { console.error(e); }
     setLoading(false);
   }, [filtroEjercicio, filtroEstado, filtroCategoria]);
@@ -189,10 +204,10 @@ export default function HaciendaPage() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        {(['documentos','obligaciones','calendario'] as const).map(t => (
+      <div className="flex gap-2 mb-6 flex-wrap">
+        {(['documentos','tramites','pagos','obligaciones','calendario'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
-            {t === 'documentos' ? 'Documentos' : t === 'obligaciones' ? 'Obligaciones' : 'Calendario'}
+            {t === 'documentos' ? 'Documentos' : t === 'tramites' ? 'Tramites vinculados' : t === 'pagos' ? `Pagos y Prevision${pagos.filter(p=>p.estado==='pendiente').length ? ` (${pagos.filter(p=>p.estado==='pendiente').length})` : ''}` : t === 'obligaciones' ? 'Obligaciones' : 'Calendario'}
           </button>
         ))}
       </div>
@@ -265,6 +280,131 @@ export default function HaciendaPage() {
                   {docs.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">No hay documentos</td></tr>}
                 </tbody>
               </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* TRAMITES VINCULADOS */}
+      {tab === 'tramites' && (
+        <div>
+          {Object.keys(grupos).length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg font-medium">No hay tramites vinculados todavia</p>
+              <p className="text-sm mt-2">Asigna un grupo de expediente a los documentos relacionados para vincularlos aqui.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {Object.entries(grupos).map(([nombre, docsGrupo]) => (
+                <div key={nombre} className="border rounded-xl p-5 bg-white shadow-sm">
+                  <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                    <span className="w-3 h-3 bg-indigo-500 rounded-full"></span>
+                    {nombre}
+                    <span className="text-sm font-normal text-gray-500">({docsGrupo.length} documentos)</span>
+                  </h3>
+                  <div className="relative pl-6 border-l-2 border-indigo-200 space-y-3">
+                    {docsGrupo.map((d: any, i: number) => (
+                      <div key={d.id} className="relative">
+                        <div className="absolute -left-[25px] top-2 w-3 h-3 rounded-full bg-indigo-400 border-2 border-white"></div>
+                        <div className="bg-gray-50 rounded-lg p-3 hover:bg-indigo-50 transition-colors">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs text-gray-500 mr-2">Paso {i + 1}</span>
+                              <span className="font-medium text-gray-900">{d.titulo}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-gray-500">{fmtDate(d.fechaDocumento)}</span>
+                              {d.importe && <span className="text-sm font-medium text-gray-900">{fmtMoney(d.importe)}</span>}
+                              {estadoBadge(d.estado)}
+                              {d.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${d.id}`} target="_blank" rel="noopener" className="text-indigo-600 text-xs hover:underline">PDF</a>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* PAGOS Y PREVISION */}
+      {tab === 'pagos' && (
+        <div>
+          {/* KPIs de pagos */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-amber-600">{fmtMoney(pagos.filter(p=>p.estado==='pendiente').reduce((s,p)=>s+Number(p.importe),0))}</p><p className="text-sm text-gray-500">Total pendiente</p></div>
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-green-600">{fmtMoney(pagos.filter(p=>p.estado==='pagado').reduce((s,p)=>s+Number(p.importe),0))}</p><p className="text-sm text-gray-500">Total pagado</p></div>
+            <div className="border rounded-xl p-4"><p className="text-2xl font-bold text-gray-900">{pagos.filter(p=>p.estado==='pendiente').length}</p><p className="text-sm text-gray-500">Cuotas pendientes</p></div>
+            <div className="border rounded-xl p-4">
+              {pagos.filter(p=>p.estado==='pendiente').length > 0 ? (
+                <><p className="text-2xl font-bold text-indigo-600">{fmtDate(pagos.filter(p=>p.estado==='pendiente').sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime())[0]?.fechaVencimiento)}</p><p className="text-sm text-gray-500">Proximo vencimiento</p></>
+              ) : (
+                <><p className="text-2xl font-bold text-green-600">-</p><p className="text-sm text-gray-500">Sin pagos pendientes</p></>
+              )}
+            </div>
+          </div>
+
+          {pagos.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg font-medium">No hay pagos fraccionados registrados</p>
+              <p className="text-sm mt-2">Los pagos se crean desde los documentos de aplazamiento/resolucion.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Expediente</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Cuota</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-600">Importe</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Vencimiento</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Estado</th>
+                    <th className="px-4 py-3 text-center font-medium text-gray-600">Fecha pago</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {pagos.sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
+                    const vencido = p.estado === 'pendiente' && new Date(p.fechaVencimiento) < new Date();
+                    return (
+                      <tr key={p.id} className={`hover:bg-gray-50 ${vencido ? 'bg-red-50' : ''}`}>
+                        <td className="px-4 py-3 text-gray-900 font-medium">{p.documento.titulo.substring(0, 50)}</td>
+                        <td className="px-4 py-3 text-gray-600">{p.numeroCuota}/{p.totalCuotas}</td>
+                        <td className="px-4 py-3 text-right font-medium text-gray-900">{fmtMoney(Number(p.importe))}</td>
+                        <td className={`px-4 py-3 text-center ${vencido ? 'text-red-600 font-bold' : 'text-gray-600'}`}>{fmtDate(p.fechaVencimiento)}</td>
+                        <td className="px-4 py-3 text-center">{estadoBadge(p.estado)}</td>
+                        <td className="px-4 py-3 text-center text-gray-500">{p.fechaPago ? fmtDate(p.fechaPago) : '-'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Prevision mensual */}
+          {pagos.filter(p=>p.estado==='pendiente').length > 0 && (
+            <div className="mt-8">
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Prevision de pagos</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {(() => {
+                  const pendientes = pagos.filter(p=>p.estado==='pendiente').sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime());
+                  const mesesMap: Record<string, number> = {};
+                  pendientes.forEach(p => {
+                    const d = new Date(p.fechaVencimiento);
+                    const key = `${MESES[d.getMonth()+1]} ${d.getFullYear()}`;
+                    mesesMap[key] = (mesesMap[key] || 0) + Number(p.importe);
+                  });
+                  return Object.entries(mesesMap).map(([mes, total]) => (
+                    <div key={mes} className="border rounded-lg p-4 bg-amber-50">
+                      <p className="text-sm font-medium text-amber-800">{mes}</p>
+                      <p className="text-xl font-bold text-amber-900">{fmtMoney(total)}</p>
+                    </div>
+                  ));
+                })()}
+              </div>
             </div>
           )}
         </div>

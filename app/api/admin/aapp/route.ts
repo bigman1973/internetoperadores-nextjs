@@ -29,10 +29,44 @@ export async function GET(req: NextRequest) {
           descripcion: true, expediente: true, fechaDocumento: true,
           fechaNotificacion: true, fechaLimite: true, importe: true,
           estado: true, ejercicio: true, nombreArchivo: true, notas: true,
-          createdAt: true
+          grupoExpediente: true, ordenEnGrupo: true, createdAt: true
         }
       });
       return NextResponse.json({ documentos });
+    }
+
+    if (action === 'grupos') {
+      // Devuelve documentos agrupados por grupoExpediente
+      const docs = await prisma.documentoAAPP.findMany({
+        where: { organismo, grupoExpediente: { not: null } },
+        orderBy: [{ grupoExpediente: 'asc' }, { ordenEnGrupo: 'asc' }],
+        select: {
+          id: true, titulo: true, categoria: true, estado: true,
+          fechaDocumento: true, importe: true, grupoExpediente: true,
+          ordenEnGrupo: true, nombreArchivo: true
+        }
+      });
+      // Agrupar por grupoExpediente
+      const grupos: Record<string, any[]> = {};
+      docs.forEach(d => {
+        const g = d.grupoExpediente!;
+        if (!grupos[g]) grupos[g] = [];
+        grupos[g].push(d);
+      });
+      return NextResponse.json({ grupos });
+    }
+
+    if (action === 'pagos') {
+      const pagos = await prisma.pagoFraccionado.findMany({
+        where: { documento: { organismo } },
+        include: { documento: { select: { id: true, titulo: true, grupoExpediente: true } } },
+        orderBy: { fechaVencimiento: 'asc' }
+      });
+      // KPIs
+      const totalPendiente = pagos.filter(p => p.estado === 'pendiente').reduce((s, p) => s + Number(p.importe), 0);
+      const totalPagado = pagos.filter(p => p.estado === 'pagado').reduce((s, p) => s + Number(p.importe), 0);
+      const proximoPago = pagos.find(p => p.estado === 'pendiente');
+      return NextResponse.json({ pagos, totalPendiente, totalPagado, proximoPago });
     }
 
     if (action === 'obligaciones') {
@@ -44,21 +78,27 @@ export async function GET(req: NextRequest) {
     }
 
     if (action === 'resumen') {
-      const [totalDocs, pendientes, pagados, vencidos, obligaciones] = await Promise.all([
+      const [totalDocs, pendientes, pagados, vencidos] = await Promise.all([
         prisma.documentoAAPP.count({ where: { organismo } }),
         prisma.documentoAAPP.count({ where: { organismo, estado: 'pendiente' } }),
         prisma.documentoAAPP.count({ where: { organismo, estado: 'pagado' } }),
         prisma.documentoAAPP.count({ where: { organismo, estado: 'vencido' } }),
-        prisma.obligacionAAPP.findMany({ where: { organismo, activa: true } })
       ]);
       const importePendiente = await prisma.documentoAAPP.aggregate({
         where: { organismo, estado: 'pendiente', importe: { not: null } },
         _sum: { importe: true }
       });
+      // Pagos fraccionados pendientes
+      const pagosPendientes = await prisma.pagoFraccionado.aggregate({
+        where: { estado: 'pendiente', documento: { organismo } },
+        _sum: { importe: true },
+        _count: true
+      });
       return NextResponse.json({
         totalDocs, pendientes, pagados, vencidos,
         importePendiente: Number(importePendiente._sum.importe || 0),
-        obligaciones
+        pagosPendientesImporte: Number(pagosPendientes._sum.importe || 0),
+        pagosPendientesCount: pagosPendientes._count || 0
       });
     }
 
@@ -111,7 +151,9 @@ export async function POST(req: NextRequest) {
           ejercicio: body.ejercicio ? parseInt(body.ejercicio) : null,
           archivoPdf: body.archivoPdf || null,
           nombreArchivo: body.nombreArchivo || null,
-          notas: body.notas || null
+          notas: body.notas || null,
+          grupoExpediente: body.grupoExpediente || null,
+          ordenEnGrupo: body.ordenEnGrupo ? parseInt(body.ordenEnGrupo) : null
         }
       });
       return NextResponse.json({ ok: true, doc });
@@ -132,6 +174,8 @@ export async function POST(req: NextRequest) {
       if (body.archivoPdf !== undefined) data.archivoPdf = body.archivoPdf;
       if (body.nombreArchivo !== undefined) data.nombreArchivo = body.nombreArchivo;
       if (body.notas !== undefined) data.notas = body.notas;
+      if (body.grupoExpediente !== undefined) data.grupoExpediente = body.grupoExpediente || null;
+      if (body.ordenEnGrupo !== undefined) data.ordenEnGrupo = body.ordenEnGrupo ? parseInt(body.ordenEnGrupo) : null;
 
       const doc = await prisma.documentoAAPP.update({
         where: { id: body.id },
@@ -142,6 +186,44 @@ export async function POST(req: NextRequest) {
 
     if (action === 'eliminar_documento') {
       await prisma.documentoAAPP.delete({ where: { id: body.id } });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'crear_pago') {
+      const pago = await prisma.pagoFraccionado.create({
+        data: {
+          documentoId: parseInt(body.documentoId),
+          numeroCuota: parseInt(body.numeroCuota),
+          totalCuotas: parseInt(body.totalCuotas),
+          importe: parseFloat(body.importe),
+          fechaVencimiento: new Date(body.fechaVencimiento),
+          estado: body.estado || 'pendiente',
+          fechaPago: body.fechaPago ? new Date(body.fechaPago) : null,
+          referencia: body.referencia || null,
+          notas: body.notas || null
+        }
+      });
+      return NextResponse.json({ ok: true, pago });
+    }
+
+    if (action === 'actualizar_pago') {
+      const data: any = {};
+      if (body.estado !== undefined) data.estado = body.estado;
+      if (body.fechaPago !== undefined) data.fechaPago = body.fechaPago ? new Date(body.fechaPago) : null;
+      if (body.referencia !== undefined) data.referencia = body.referencia;
+      if (body.notas !== undefined) data.notas = body.notas;
+      if (body.importe !== undefined) data.importe = parseFloat(body.importe);
+      if (body.fechaVencimiento !== undefined) data.fechaVencimiento = new Date(body.fechaVencimiento);
+
+      const pago = await prisma.pagoFraccionado.update({
+        where: { id: body.id },
+        data
+      });
+      return NextResponse.json({ ok: true, pago });
+    }
+
+    if (action === 'eliminar_pago') {
+      await prisma.pagoFraccionado.delete({ where: { id: body.id } });
       return NextResponse.json({ ok: true });
     }
 

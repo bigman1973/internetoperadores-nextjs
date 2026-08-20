@@ -2812,11 +2812,15 @@ model DocumentoAAPP {
   archivoPdf      String?   @map("archivo_pdf") // base64 del PDF
   nombreArchivo   String?   @map("nombre_archivo")
   notas           String?
+  grupoExpediente String?   @map("grupo_expediente") // Agrupa documentos relacionados del mismo tramite
+  ordenEnGrupo    Int?      @map("orden_en_grupo") // Orden dentro del grupo (1=primero)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  pagos           PagoFraccionado[]
   @@index([organismo])
   @@index([estado])
   @@index([ejercicio])
+  @@index([grupoExpediente])
   @@map("documentos_aapp")
 }
 
@@ -2836,4 +2840,23 @@ model ObligacionAAPP {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   @@map("obligaciones_aapp")
+}
+
+model PagoFraccionado {
+  id              Int       @id @default(autoincrement())
+  documentoId     Int       @map("documento_id") // Documento de aplazamiento/resolución al que pertenece
+  documento       DocumentoAAPP @relation(fields: [documentoId], references: [id], onDelete: Cascade)
+  numeroCuota     Int       @map("numero_cuota") // 1, 2, 3...
+  totalCuotas     Int       @map("total_cuotas")
+  importe         Decimal   @db.Decimal(12, 2)
+  fechaVencimiento DateTime @map("fecha_vencimiento")
+  estado          String    @default("pendiente") // pendiente, pagado, vencido
+  fechaPago       DateTime? @map("fecha_pago")
+  referencia      String?   // Referencia del pago
+  notas           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  @@index([documentoId])
+  @@index([fechaVencimiento])
+  @@index([estado])
+  @@map("pagos_fraccionados")
 }
