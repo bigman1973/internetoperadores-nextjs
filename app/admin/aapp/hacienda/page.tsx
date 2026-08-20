@@ -357,7 +357,7 @@ export default function HaciendaPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left font-medium text-gray-600">Expediente</th>
+                    <th className="px-4 py-3 text-left font-medium text-gray-600">Impuesto</th>
                     <th className="px-4 py-3 text-left font-medium text-gray-600">Cuota</th>
                     <th className="px-4 py-3 text-right font-medium text-gray-600">Importe</th>
                     <th className="px-4 py-3 text-center font-medium text-gray-600">Vencimiento</th>
@@ -368,9 +368,11 @@ export default function HaciendaPage() {
                 <tbody className="divide-y">
                   {pagos.sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime()).map(p => {
                     const vencido = p.estado === 'pendiente' && new Date(p.fechaVencimiento) < new Date();
+                    // Extraer nombre legible del impuesto desde las notas o el titulo del documento
+                    const concepto = p.notas?.includes('Sociedades') ? 'Imp. Sociedades 2025' : p.notas?.includes('IVA') ? 'IVA Autoliquidacion' : p.documento.grupoExpediente || p.documento.titulo.substring(0, 40);
                     return (
                       <tr key={p.id} className={`hover:bg-gray-50 ${vencido ? 'bg-red-50' : ''}`}>
-                        <td className="px-4 py-3 text-gray-900 font-medium">{p.documento.titulo.substring(0, 50)}</td>
+                        <td className="px-4 py-3 text-gray-900 font-medium">{concepto}</td>
                         <td className="px-4 py-3 text-gray-600">{p.numeroCuota}/{p.totalCuotas}</td>
                         <td className="px-4 py-3 text-right font-medium text-gray-900">{fmtMoney(Number(p.importe))}</td>
                         <td className={`px-4 py-3 text-center ${vencido ? 'text-red-600 font-bold' : 'text-gray-600'}`}>{fmtDate(p.fechaVencimiento)}</td>
@@ -387,20 +389,28 @@ export default function HaciendaPage() {
           {/* Prevision mensual */}
           {pagos.filter(p=>p.estado==='pendiente').length > 0 && (
             <div className="mt-8">
-              <h3 className="text-lg font-bold text-gray-900 mb-4">Prevision de pagos</h3>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Prevision de pagos por mes</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {(() => {
                   const pendientes = pagos.filter(p=>p.estado==='pendiente').sort((a,b)=>new Date(a.fechaVencimiento).getTime()-new Date(b.fechaVencimiento).getTime());
-                  const mesesMap: Record<string, number> = {};
+                  const mesesMap: Record<string, { total: number; detalle: Record<string, number> }> = {};
                   pendientes.forEach(p => {
                     const d = new Date(p.fechaVencimiento);
                     const key = `${MESES[d.getMonth()+1]} ${d.getFullYear()}`;
-                    mesesMap[key] = (mesesMap[key] || 0) + Number(p.importe);
+                    if (!mesesMap[key]) mesesMap[key] = { total: 0, detalle: {} };
+                    mesesMap[key].total += Number(p.importe);
+                    const concepto = p.notas?.includes('Sociedades') ? 'IS' : p.notas?.includes('IVA') ? 'IVA' : 'Otro';
+                    mesesMap[key].detalle[concepto] = (mesesMap[key].detalle[concepto] || 0) + Number(p.importe);
                   });
-                  return Object.entries(mesesMap).map(([mes, total]) => (
+                  return Object.entries(mesesMap).map(([mes, data]) => (
                     <div key={mes} className="border rounded-lg p-4 bg-amber-50">
                       <p className="text-sm font-medium text-amber-800">{mes}</p>
-                      <p className="text-xl font-bold text-amber-900">{fmtMoney(total)}</p>
+                      <p className="text-xl font-bold text-amber-900">{fmtMoney(data.total)}</p>
+                      <div className="mt-1 space-y-0.5">
+                        {Object.entries(data.detalle).map(([imp, val]) => (
+                          <p key={imp} className="text-xs text-amber-700">{imp}: {fmtMoney(val)}</p>
+                        ))}
+                      </div>
                     </div>
                   ));
                 })()}
