@@ -150,14 +150,26 @@ export async function GET(req: NextRequest) {
     }
 
     // 5. Tickets de la planta (buscar por título del contrato)
-    const plantaKeywords = ['Lleida', 'Fonolleres', 'Teruel', 'Barcelona'];
+    // Mapeo de palabras clave del título a nombres de planta en tickets_draxton
+    const plantaMap: Record<string, string> = {
+      'fonolleres': 'LLEIDA',
+      'lleida': 'LLEIDA',
+      'teruel': 'TERUEL',
+      'barcelona': 'BARCELONA',
+      'gonzalo': 'TODAS', // Gonzalo trabaja en todas las plantas
+      'pol': 'TODAS', // Pol trabaja en todas las plantas
+    };
     let plantaFilter = '';
+    let plantaDisplay = '';
     const tituloLower = contrato.titulo.toLowerCase();
-    for (const kw of plantaKeywords) {
-      if (tituloLower.includes(kw.toLowerCase())) { plantaFilter = kw; break; }
+    for (const [keyword, planta] of Object.entries(plantaMap)) {
+      if (tituloLower.includes(keyword)) {
+        plantaFilter = planta;
+        plantaDisplay = planta.charAt(0) + planta.slice(1).toLowerCase();
+        break;
+      }
     }
-    // Si no se detecta planta por título, intentar por personal
-    if (!plantaFilter) plantaFilter = 'Lleida'; // fallback
+    if (!plantaFilter) { plantaFilter = 'LLEIDA'; plantaDisplay = 'Lleida'; }
 
     const ticketsTotal = await prisma.$queryRawUnsafe<any[]>(
       `SELECT COUNT(*) as total FROM tickets_draxton WHERE planta ILIKE $1`, `%${plantaFilter}%`
@@ -179,6 +191,14 @@ export async function GET(req: NextRequest) {
     );
     const ticketsByMes = await prisma.$queryRawUnsafe<any[]>(
       `SELECT mes_importacion, COUNT(*) as total FROM tickets_draxton WHERE planta ILIKE $1 AND anio_importacion = $2 GROUP BY mes_importacion ORDER BY mes_importacion`, `%${plantaFilter}%`, new Date().getFullYear()
+    );
+    // Tickets por técnico y mes (para tabla cruzada)
+    const ticketsByTecnicoMes = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT asignado_a, mes_importacion, COUNT(*) as total FROM tickets_draxton WHERE planta ILIKE $1 AND anio_importacion = $2 GROUP BY asignado_a, mes_importacion ORDER BY asignado_a, mes_importacion`, `%${plantaFilter}%`, new Date().getFullYear()
+    );
+    // Tickets por categoría y mes
+    const ticketsByCategoriaMes = await prisma.$queryRawUnsafe<any[]>(
+      `SELECT categoria_tipo, mes_importacion, COUNT(*) as total FROM tickets_draxton WHERE planta ILIKE $1 AND anio_importacion = $2 GROUP BY categoria_tipo, mes_importacion ORDER BY categoria_tipo, mes_importacion`, `%${plantaFilter}%`, new Date().getFullYear()
     );
 
     const totalTk = Number(ticketsTotal[0]?.total || 0);
@@ -266,7 +286,7 @@ export async function GET(req: NextRequest) {
   </div>
 
   <h1>${tipo === 'cliente' ? 'Informe de Servicio' : 'Informe de Contrato'}</h1>
-  <p class="subtitle">${contrato.titulo} — Planta ${plantaFilter}</p>
+  <p class="subtitle">${contrato.titulo} — Planta ${plantaDisplay}</p>
 
   <h2>Datos del Contrato</h2>
   <div class="kpi-grid">
@@ -275,8 +295,9 @@ export async function GET(req: NextRequest) {
       <div class="kpi-value text-blue">${fmtMoney(mensual)}</div>
     </div>
     <div class="kpi-box">
-      <div class="kpi-label">Importe Anual</div>
-      <div class="kpi-value" style="color:#374151;">${fmtMoney(Number(contrato.importeAnual) || mensual * 12)}</div>
+      <div class="kpi-label">Vigencia</div>
+      <div class="kpi-value" style="color:#374151;font-size:14px;">${fmtDate(contrato.fechaInicio)}</div>
+      <div class="kpi-sub">hasta ${fmtDate(contrato.fechaFin)}</div>
     </div>
     <div class="kpi-box">
       <div class="kpi-label">Horas/Mes Contratadas</div>
@@ -351,12 +372,12 @@ export async function GET(req: NextRequest) {
     <img src="${baseUrl}/images/logo-io.png" alt="Internet Operadores" />
     <div class="page-header-right">
       <div style="font-weight:700;color:#E87A2E;">INDICADORES DE SERVICIO</div>
-      <div>Planta ${plantaFilter} — ${new Date().getFullYear()}</div>
+      <div>Planta ${plantaDisplay} — ${new Date().getFullYear()}</div>
     </div>
   </div>
 
   <h1>Indicadores de Servicio (KPIs)</h1>
-  <p class="subtitle">Análisis de tickets e incidencias gestionadas en la planta de ${plantaFilter}</p>
+  <p class="subtitle">Análisis de tickets e incidencias gestionadas en la planta de ${plantaDisplay}</p>
 
   <div class="kpi-grid">
     <div class="kpi-box">
@@ -417,10 +438,35 @@ export async function GET(req: NextRequest) {
     </tbody>
   </table>
 
-  <h2>Evolución Mensual ${new Date().getFullYear()}</h2>
+  <h2>Volumen Mensual por Técnico — ${new Date().getFullYear()}</h2>
   <table>
-    <thead><tr><th>Mes</th>${ticketsByMes.map((t: any) => `<th class="text-center">${MESES[t.mes_importacion]?.substring(0, 3) || t.mes_importacion}</th>`).join('')}</tr></thead>
-    <tbody><tr><td class="font-bold">Tickets</td>${ticketsByMes.map((t: any) => `<td class="text-center font-bold">${Number(t.total)}</td>`).join('')}</tr></tbody>
+    <thead><tr><th>Técnico</th>${ticketsByMes.map((t: any) => `<th class="text-center" style="font-size:7px;">${MESES[t.mes_importacion]?.substring(0, 3) || t.mes_importacion}</th>`).join('')}<th class="text-center">Total</th></tr></thead>
+    <tbody>
+      ${ticketsByTecnico.map((tec: any) => {
+        const nombre = tec.asignado_a || 'Sin asignar';
+        const nivelTec = personal.find(p => nombre.toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___'))?.nivel;
+        const mesesData = ticketsByMes.map((m: any) => {
+          const match = ticketsByTecnicoMes.find((tm: any) => tm.asignado_a === tec.asignado_a && tm.mes_importacion === m.mes_importacion);
+          return match ? Number(match.total) : 0;
+        });
+        return `<tr><td class="font-bold" style="font-size:8px;">${nombre.split(' ').slice(0,2).join(' ')} ${nivelTec ? '<span class="badge badge-' + (nivelTec >= 3 ? 'red' : nivelTec >= 2 ? 'orange' : 'green') + '" style="font-size:6px;">N' + nivelTec + '</span>' : ''}</td>${mesesData.map((v: number) => `<td class="text-center" style="font-size:9px;">${v || '-'}</td>`).join('')}<td class="text-center font-bold">${Number(tec.total)}</td></tr>`;
+      }).join('')}
+      <tr style="border-top:2px solid #e5e7eb;font-weight:700;"><td>TOTAL</td>${ticketsByMes.map((t: any) => `<td class="text-center">${Number(t.total)}</td>`).join('')}<td class="text-center">${totalTk}</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Volumen Mensual por Categoría — ${new Date().getFullYear()}</h2>
+  <table>
+    <thead><tr><th>Categoría</th>${ticketsByMes.map((t: any) => `<th class="text-center" style="font-size:7px;">${MESES[t.mes_importacion]?.substring(0, 3) || t.mes_importacion}</th>`).join('')}<th class="text-center">Total</th></tr></thead>
+    <tbody>
+      ${ticketsByCategoria.map((cat: any) => {
+        const mesesData = ticketsByMes.map((m: any) => {
+          const match = ticketsByCategoriaMes.find((cm: any) => cm.categoria_tipo === cat.categoria_tipo && cm.mes_importacion === m.mes_importacion);
+          return match ? Number(match.total) : 0;
+        });
+        return `<tr><td class="font-bold" style="font-size:8px;">${cat.categoria_tipo || 'Sin categoría'}</td>${mesesData.map((v: number) => `<td class="text-center" style="font-size:9px;">${v || '-'}</td>`).join('')}<td class="text-center font-bold">${Number(cat.total)}</td></tr>`;
+      }).join('')}
+    </tbody>
   </table>
 
   <div class="page-footer">
@@ -492,7 +538,7 @@ export async function GET(req: NextRequest) {
   <div class="section-highlight">
     <h3 style="margin-bottom:8px;">¿Por qué se requieren técnicos de diferentes niveles?</h3>
     <p style="font-size:9px;line-height:1.7;color:#1e40af;">
-      Aunque el contrato define un nivel base <strong>N1</strong> para las tareas operativas diarias, la realidad operativa de una planta industrial como ${plantaFilter} requiere la intervención de técnicos de niveles superiores para garantizar la continuidad del servicio y la resolución efectiva de incidencias complejas.
+      Aunque el contrato define un nivel base <strong>N1</strong> para las tareas operativas diarias, la realidad operativa de una planta industrial como ${plantaDisplay} requiere la intervención de técnicos de niveles superiores para garantizar la continuidad del servicio y la resolución efectiva de incidencias complejas.
     </p>
   </div>
 
