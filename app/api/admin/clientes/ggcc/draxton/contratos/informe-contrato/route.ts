@@ -231,11 +231,26 @@ export async function GET(req: NextRequest) {
     });
 
     // Calcular tickets por nivel usando matching mejorado
+    // N3 no tiene tickets asignados directamente pero interviene como colaborador
+    // en un % equivalente a su dedicación al contrato sobre los tickets de N2
     function ticketsPorNivel(nivel: number): number {
-      return tecnicosContrato.filter((t: any) => {
+      const directos = tecnicosContrato.filter((t: any) => {
         const p = personal.find(pp => matchTecnico(t.asignado_a || '', pp.nombre));
         return p && p.nivel === nivel;
       }).reduce((s: number, t: any) => s + Number(t.total), 0);
+      
+      if (nivel === 3 && directos === 0) {
+        // N3 interviene como colaborador en los tickets de N2 según su % de dedicación
+        const n3Personal = personal.filter(p => p.nivel === 3 && p.activo);
+        const n2Tickets = tecnicosContrato.filter((t: any) => {
+          const p = personal.find(pp => matchTecnico(t.asignado_a || '', pp.nombre));
+          return p && p.nivel === 2;
+        }).reduce((s: number, t: any) => s + Number(t.total), 0);
+        // Usar la dedicación del N3 con mayor % como referencia
+        const maxDedicacion = Math.max(...n3Personal.map(p => p.dedicacion), 5);
+        return Math.round(n2Tickets * (maxDedicacion / 100));
+      }
+      return directos;
     }
 
     // Recalcular total solo con técnicos del contrato
@@ -593,7 +608,7 @@ export async function GET(req: NextRequest) {
         <td><span class="badge badge-red">N3</span></td>
         <td class="font-bold">Manager / Especialista</td>
         <td>Dirección técnica, toma de decisiones críticas, gestión de proyectos de mejora, interlocución con dirección del cliente, planificación estratégica, resolución de incidencias de máxima complejidad.</td>
-        <td class="text-center font-bold">${ticketsPorNivel(3)}</td>
+        <td class="text-center font-bold">${ticketsPorNivel(3)}<br/><span style="font-size:7px;color:#6b7280;font-weight:400;">Colaborador</span></td>
       </tr>
     </tbody>
   </table>
