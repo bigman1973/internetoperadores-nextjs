@@ -129,8 +129,8 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
               );
             })}
 
-            {/* Link al panel admin si es SUPER_ADMIN (siempre visible, independiente de impersonación) */}
-            {esSuperAdmin && (
+            {/* Link al panel admin si tiene acceso (SUPER_ADMIN, GERENTE, o permisos granulares) */}
+            {(esSuperAdmin || user.role === 'GERENTE' || (user as any).permisos?.length > 0 || (user as any).perfilAsignado) && (
               <div className="pt-4 mt-4 border-t">
                 <Link
                   href="/admin"

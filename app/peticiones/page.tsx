@@ -14,6 +14,8 @@ export default function PeticionesPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ tipo: 'mejora', seccion: 'panel_admin', titulo: '', descripcion: '', captura: '' });
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function fetchData() {
@@ -35,14 +37,16 @@ export default function PeticionesPage() {
     }
     setSaving(true);
     try {
+      const isEdit = editingId !== null;
       const res = await fetch('/api/peticiones', {
-        method: 'POST',
+        method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(isEdit ? { id: editingId, ...form } : form)
       });
       const data = await res.json();
       if (data.success) {
         setShowForm(false);
+        setEditingId(null);
         setForm({ tipo: 'mejora', seccion: 'panel_admin', titulo: '', descripcion: '', captura: '' });
         fetchData();
       } else {
@@ -110,7 +114,7 @@ export default function PeticionesPage() {
       {showForm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Nueva peticion</h2>
+            <h2 className="text-xl font-bold text-gray-900 mb-4">{editingId ? 'Editar peticion' : 'Nueva peticion'}</h2>
 
             <div className="space-y-4">
               {/* Tipo */}
@@ -177,9 +181,9 @@ export default function PeticionesPage() {
             </div>
 
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowForm(false)} className="flex-1 px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
+              <button onClick={() => { setShowForm(false); setEditingId(null); setForm({ tipo: 'mejora', seccion: 'panel_admin', titulo: '', descripcion: '', captura: '' }); }} className="flex-1 px-4 py-2 border rounded-lg text-sm text-gray-700 hover:bg-gray-50">Cancelar</button>
               <button onClick={handleSubmit} disabled={saving} className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50">
-                {saving ? 'Enviando...' : 'Enviar peticion'}
+                {saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Enviar peticion'}
               </button>
             </div>
           </div>
@@ -220,6 +224,15 @@ export default function PeticionesPage() {
                 <div className="text-right text-xs text-gray-400 whitespace-nowrap">
                   {new Date(p.createdAt).toLocaleDateString('es-ES')}
                   {p.resueltaPor && <p className="mt-1 text-green-600">Resuelta por {p.resueltaPor}</p>}
+                  {p.estado === 'pendiente' && (
+                    <div className="mt-2 flex gap-1 justify-end">
+                      <button onClick={() => { setEditingId(p.id); setForm({ tipo: p.tipo, seccion: p.seccion, titulo: p.titulo, descripcion: p.descripcion, captura: p.captura || '' }); setShowForm(true); }}
+                        className="px-2 py-1 text-[10px] bg-blue-50 text-blue-700 rounded hover:bg-blue-100 font-medium">Editar</button>
+                      <button onClick={async () => { if (!confirm('\u00bfEliminar esta petici\u00f3n?')) return; setDeleting(p.id); await fetch(`/api/peticiones?id=${p.id}`, { method: 'DELETE' }); fetchData(); setDeleting(null); }}
+                        disabled={deleting === p.id}
+                        className="px-2 py-1 text-[10px] bg-red-50 text-red-700 rounded hover:bg-red-100 font-medium">Eliminar</button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -508,7 +508,18 @@ export default function HaciendaPage() {
           });
         };
         const cellContent = (doc: any) => doc ? (
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span><span className="text-green-700 text-xs font-medium">Presentado</span>{doc.nombreArchivo && <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-xs">PDF</a>}</span>
+          <span className="inline-flex flex-col items-center gap-0.5">
+            <span className="inline-flex items-center gap-1">
+              <span className={`w-2 h-2 rounded-full ${doc.estado === 'pagado' ? 'bg-green-500' : doc.estado === 'aplazado' ? 'bg-orange-400' : 'bg-blue-500'}`}></span>
+              <span className={`text-xs font-medium ${doc.estado === 'pagado' ? 'text-green-700' : doc.estado === 'aplazado' ? 'text-orange-700' : 'text-blue-700'}`}>
+                {doc.estado === 'pagado' ? 'Pagado' : doc.estado === 'aplazado' ? 'Aplazado' : 'Presentado'}
+              </span>
+              <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-[10px] hover:underline">PDF</a>
+            </span>
+            {doc.importe && Number(doc.importe) > 0 && (
+              <span className="text-[10px] font-bold text-gray-700">{Number(doc.importe).toLocaleString('es-ES', {minimumFractionDigits: 2})} \u20ac</span>
+            )}
+          </span>
         ) : (
           <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
         );
@@ -518,9 +529,9 @@ export default function HaciendaPage() {
           <div className="flex items-center justify-between mb-6">
             <h3 className="font-semibold text-gray-900">Calendario fiscal — Estado de presentaciones</h3>
             <select value={calYear} onChange={e => setCalYear(parseInt(e.target.value))} className="border rounded-lg px-3 py-2 text-sm text-gray-900 font-medium">
-              <option value={2026}>Ejercicio 2026</option>
-              <option value={2025}>Ejercicio 2025</option>
-              <option value={2024}>Ejercicio 2024</option>
+              {[2026,2025,2024,2023,2022,2021,2020,2019,2018,2017,2016].map(y => (
+                <option key={y} value={y}>Ejercicio {y}</option>
+              ))}
             </select>
           </div>
 
@@ -579,8 +590,10 @@ export default function HaciendaPage() {
           </div>
 
           {/* Leyenda */}
-          <div className="flex gap-6 text-xs text-gray-500 mb-6">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Presentado (documento en el sistema)</span>
+          <div className="flex flex-wrap gap-6 text-xs text-gray-500 mb-6">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Pagado</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Presentado (informativa)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> Aplazado</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Pendiente (sin documento)</span>
           </div>
 
