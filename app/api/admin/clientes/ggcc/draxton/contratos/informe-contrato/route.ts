@@ -210,6 +210,37 @@ export async function GET(req: NextRequest) {
     const prioridadNombres: Record<string, string> = { '1': 'Crítica', '2': 'Alta', '3': 'Media', '4': 'Baja', '5': 'Normal' };
     const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
+    // Función de matching mejorada: BD tiene "PARRA GARCIA, JESUS" y tickets "Jesús Parra García"
+    function matchTecnico(ticketName: string, personalName: string): boolean {
+      if (!ticketName || !personalName) return false;
+      const tn = ticketName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const pn = personalName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      // personalName format: "APELLIDO1 APELLIDO2, NOMBRE" 
+      const parts = pn.split(',').map(s => s.trim());
+      const apellidos = parts[0]?.split(' ') || [];
+      const nombre = parts[1]?.split(' ')[0] || '';
+      // ticketName format: "Nombre Apellido1 Apellido2"
+      // Verificar si el primer apellido y el nombre están en el ticketName
+      const primerApellido = apellidos[0] || '';
+      return primerApellido.length > 2 && tn.includes(primerApellido) && (nombre.length < 3 || tn.includes(nombre));
+    }
+
+    // Filtrar tickets solo de técnicos asignados al contrato
+    const tecnicosContrato = ticketsByTecnico.filter((t: any) => {
+      return personal.some(p => matchTecnico(t.asignado_a || '', p.nombre));
+    });
+
+    // Calcular tickets por nivel usando matching mejorado
+    function ticketsPorNivel(nivel: number): number {
+      return tecnicosContrato.filter((t: any) => {
+        const p = personal.find(pp => matchTecnico(t.asignado_a || '', pp.nombre));
+        return p && p.nivel === nivel;
+      }).reduce((s: number, t: any) => s + Number(t.total), 0);
+    }
+
+    // Recalcular total solo con técnicos del contrato
+    const totalTkContrato = tecnicosContrato.reduce((s: number, t: any) => s + Number(t.total), 0);
+
     // 6. Generar HTML
     const fechaInforme = new Date().toLocaleDateString('es-ES', { day: '2-digit', month: 'long', year: 'numeric' });
 
@@ -407,14 +438,14 @@ export async function GET(req: NextRequest) {
       <tr><th>Técnico</th><th class="text-center">Tickets Asignados</th><th class="text-center">Resueltos</th><th class="text-center">% Resolución</th><th>Distribución</th></tr>
     </thead>
     <tbody>
-      ${ticketsByTecnico.map((t: any) => {
+      ${tecnicosContrato.map((t: any) => {
         const tot = Number(t.total);
         const res = Number(t.resueltos);
         const pct = tot > 0 ? (res / tot * 100) : 0;
-        const barW = totalTk > 0 ? (tot / totalTk * 100) : 0;
-        // Determinar nivel del técnico
+        const barW = totalTkContrato > 0 ? (tot / totalTkContrato * 100) : 0;
         const nombre = t.asignado_a || 'Sin asignar';
-        const nivelTec = personal.find(p => nombre.toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___'))?.nivel;
+        const p = personal.find(pp => matchTecnico(nombre, pp.nombre));
+        const nivelTec = p?.nivel;
         return `<tr>
           <td class="font-bold">${nombre} ${nivelTec ? '<span class="badge badge-' + (nivelTec >= 3 ? 'red' : nivelTec >= 2 ? 'orange' : 'green') + '">N' + nivelTec + '</span>' : ''}</td>
           <td class="text-center font-bold">${tot.toLocaleString('es-ES')}</td>
@@ -442,16 +473,17 @@ export async function GET(req: NextRequest) {
   <table>
     <thead><tr><th>Técnico</th>${ticketsByMes.map((t: any) => `<th class="text-center" style="font-size:7px;">${MESES[t.mes_importacion]?.substring(0, 3) || t.mes_importacion}</th>`).join('')}<th class="text-center">Total</th></tr></thead>
     <tbody>
-      ${ticketsByTecnico.map((tec: any) => {
+      ${tecnicosContrato.map((tec: any) => {
         const nombre = tec.asignado_a || 'Sin asignar';
-        const nivelTec = personal.find(p => nombre.toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___'))?.nivel;
+        const p = personal.find(pp => matchTecnico(nombre, pp.nombre));
+        const nivelTec = p?.nivel;
         const mesesData = ticketsByMes.map((m: any) => {
           const match = ticketsByTecnicoMes.find((tm: any) => tm.asignado_a === tec.asignado_a && tm.mes_importacion === m.mes_importacion);
           return match ? Number(match.total) : 0;
         });
         return `<tr><td class="font-bold" style="font-size:8px;">${nombre.split(' ').slice(0,2).join(' ')} ${nivelTec ? '<span class="badge badge-' + (nivelTec >= 3 ? 'red' : nivelTec >= 2 ? 'orange' : 'green') + '" style="font-size:6px;">N' + nivelTec + '</span>' : ''}</td>${mesesData.map((v: number) => `<td class="text-center" style="font-size:9px;">${v || '-'}</td>`).join('')}<td class="text-center font-bold">${Number(tec.total)}</td></tr>`;
       }).join('')}
-      <tr style="border-top:2px solid #e5e7eb;font-weight:700;"><td>TOTAL</td>${ticketsByMes.map((t: any) => `<td class="text-center">${Number(t.total)}</td>`).join('')}<td class="text-center">${totalTk}</td></tr>
+      <tr style="border-top:2px solid #e5e7eb;font-weight:700;"><td>TOTAL</td>${ticketsByMes.map((t: any) => `<td class="text-center">${Number(t.total)}</td>`).join('')}<td class="text-center">${totalTkContrato}</td></tr>
     </tbody>
   </table>
 
@@ -549,19 +581,19 @@ export async function GET(req: NextRequest) {
         <td><span class="badge badge-green">N1</span></td>
         <td class="font-bold">Técnico Operativo</td>
         <td>Soporte presencial/remoto de primer nivel: resolución de incidencias de usuario, gestión de solicitudes, mantenimiento básico de equipos, documentación.</td>
-        <td class="text-center font-bold">${ticketsByTecnico.filter((t: any) => { const n = personal.find(p => (t.asignado_a || '').toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___')); return n && n.nivel === 1; }).reduce((s: number, t: any) => s + Number(t.total), 0)}</td>
+        <td class="text-center font-bold">${ticketsPorNivel(1)}</td>
       </tr>
       <tr>
         <td><span class="badge badge-orange">N2</span></td>
         <td class="font-bold">Responsable Técnico</td>
         <td>Escalado de incidencias complejas, administración de sistemas, gestión de infraestructura de red, coordinación con proveedores, gobierno del servicio, formación del equipo N1.</td>
-        <td class="text-center font-bold">${ticketsByTecnico.filter((t: any) => { const n = personal.find(p => (t.asignado_a || '').toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___')); return n && n.nivel === 2; }).reduce((s: number, t: any) => s + Number(t.total), 0)}</td>
+        <td class="text-center font-bold">${ticketsPorNivel(2)}</td>
       </tr>
       <tr>
         <td><span class="badge badge-red">N3</span></td>
         <td class="font-bold">Manager / Especialista</td>
         <td>Dirección técnica, toma de decisiones críticas, gestión de proyectos de mejora, interlocución con dirección del cliente, planificación estratégica, resolución de incidencias de máxima complejidad.</td>
-        <td class="text-center font-bold">${ticketsByTecnico.filter((t: any) => { const n = personal.find(p => (t.asignado_a || '').toLowerCase().includes(p.nombre.split(',')[0]?.trim().toLowerCase() || '___')); return n && n.nivel === 3; }).reduce((s: number, t: any) => s + Number(t.total), 0)}</td>
+        <td class="text-center font-bold">${ticketsPorNivel(3)}</td>
       </tr>
     </tbody>
   </table>
