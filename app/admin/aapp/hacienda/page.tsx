@@ -511,22 +511,32 @@ export default function HaciendaPage() {
           const conImporte = matches.find(m => m.importe && Number(m.importe) > 0);
           return conImporte || matches[matches.length - 1];
         };
-        const cellContent = (doc: any) => doc ? (
-          <span className="inline-flex flex-col items-center gap-0.5">
-            <span className="inline-flex items-center gap-1">
-              <span className={`w-2 h-2 rounded-full ${doc.estado === 'pagado' ? 'bg-green-500' : doc.estado === 'aplazado' ? 'bg-orange-400' : 'bg-blue-500'}`}></span>
-              <span className={`text-xs font-medium ${doc.estado === 'pagado' ? 'text-green-700' : doc.estado === 'aplazado' ? 'text-orange-700' : 'text-blue-700'}`}>
-                {doc.estado === 'pagado' ? 'Pagado' : doc.estado === 'aplazado' ? 'Aplazado' : 'Presentado'}
+        const estadoConfig: Record<string, {dot: string; text: string; label: string}> = {
+          'pagado': { dot: 'bg-green-500', text: 'text-green-700', label: 'Pagado' },
+          'aplazado': { dot: 'bg-orange-400', text: 'text-orange-700', label: 'Aplazado' },
+          'denegado': { dot: 'bg-red-500', text: 'text-red-700', label: 'Denegado' },
+          'pendiente': { dot: 'bg-yellow-400', text: 'text-yellow-700', label: 'Pte. pago' },
+          'presentado': { dot: 'bg-blue-500', text: 'text-blue-700', label: 'Presentado' },
+        };
+        const cellContent = (doc: any) => {
+          if (!doc) return <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span><span className="text-gray-400 text-xs">-</span></span>;
+          const cfg = estadoConfig[doc.estado] || estadoConfig['presentado'];
+          const imp = doc.importe != null ? Number(doc.importe) : null;
+          return (
+            <span className="inline-flex flex-col items-center gap-0.5">
+              <span className="inline-flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${cfg.dot}`}></span>
+                <span className={`text-xs font-medium ${cfg.text}`}>{cfg.label}</span>
+                <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-[10px] hover:underline">PDF</a>
               </span>
-              <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-[10px] hover:underline">PDF</a>
+              {imp !== null && imp > 0 ? (
+                <span className={`text-[10px] font-bold ${doc.estado === 'denegado' ? 'text-red-600' : doc.estado === 'pendiente' ? 'text-yellow-700' : 'text-gray-700'}`}>{imp.toLocaleString('es-ES', {minimumFractionDigits: 2})} \u20ac</span>
+              ) : imp === 0 ? (
+                <span className="text-[10px] text-gray-400">A compensar</span>
+              ) : null}
             </span>
-            {doc.importe && Number(doc.importe) > 0 && (
-              <span className="text-[10px] font-bold text-gray-700">{Number(doc.importe).toLocaleString('es-ES', {minimumFractionDigits: 2})} €</span>
-            )}
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span><span className="text-amber-700 text-xs font-medium">Pendiente</span></span>
-        );
+          );
+        };
 
         return (
         <div className="bg-white border rounded-lg p-6">
@@ -594,11 +604,13 @@ export default function HaciendaPage() {
           </div>
 
           {/* Leyenda */}
-          <div className="flex flex-wrap gap-6 text-xs text-gray-500 mb-6">
+          <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-6">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500"></span> Pagado</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Presentado (informativa)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Presentado</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400"></span> Aplazado</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400"></span> Pendiente (sin documento)</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400"></span> Pte. pago</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500"></span> Denegado</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-300"></span> Sin documento</span>
           </div>
 
           {/* Alertas y requerimientos con fecha limite */}
