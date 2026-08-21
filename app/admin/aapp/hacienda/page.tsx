@@ -500,12 +500,16 @@ export default function HaciendaPage() {
         const docsYear = docs.filter(d => d.ejercicio === calYear);
         // Funcion helper para buscar documento
         const findDoc = (cat: string, modelo: string, trimestre?: number) => {
-          return docsYear.find(d => {
+          const matches = docsYear.filter(d => {
             if (cat && d.categoria !== cat) return false;
             if (!d.titulo.includes(modelo)) return false;
             if (trimestre) return d.titulo.toLowerCase().includes(trimestre + 't');
-            return true;
+            return !trimestre; // Solo anuales si no se pide trimestre
           });
+          // Priorizar el que tiene importe, luego el más reciente
+          if (matches.length === 0) return undefined;
+          const conImporte = matches.find(m => m.importe && Number(m.importe) > 0);
+          return conImporte || matches[matches.length - 1];
         };
         const cellContent = (doc: any) => doc ? (
           <span className="inline-flex flex-col items-center gap-0.5">
@@ -517,7 +521,7 @@ export default function HaciendaPage() {
               <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-[10px] hover:underline">PDF</a>
             </span>
             {doc.importe && Number(doc.importe) > 0 && (
-              <span className="text-[10px] font-bold text-gray-700">{Number(doc.importe).toLocaleString('es-ES', {minimumFractionDigits: 2})} \u20ac</span>
+              <span className="text-[10px] font-bold text-gray-700">{Number(doc.importe).toLocaleString('es-ES', {minimumFractionDigits: 2})} €</span>
             )}
           </span>
         ) : (

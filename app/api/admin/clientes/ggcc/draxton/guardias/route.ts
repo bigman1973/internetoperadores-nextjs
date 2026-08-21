@@ -250,7 +250,21 @@ export async function POST(req: NextRequest) {
             departamento: body.departamento || null,
             zonaAfectada: body.zonaAfectada || null,
             urgencia: body.urgencia || 'inmediata',
-            estado: 'abierta',
+            estado: body.estado || 'abierta',
+            categoria: body.categoria || null,
+            planta: body.planta || null,
+            horaInicio: body.horaInicio || null,
+            horaFin: body.horaFin || null,
+            tipoResolucion: body.tipoResolucion || null,
+            detalleResolucion: body.detalleResolucion || null,
+            escaladoInterno: body.escaladoInterno || false,
+            escaladoCliente: body.escaladoCliente || false,
+            detalleEscalado: body.detalleEscalado || null,
+            horasDesplazamiento: body.horasDesplazamiento != null ? parseFloat(body.horasDesplazamiento) : null,
+            kmRecorridos: body.kmRecorridos != null ? parseFloat(body.kmRecorridos) : null,
+            costeDesplazamiento: body.costeDesplazamiento != null ? parseFloat(body.costeDesplazamiento) : null,
+            importeClienteDesp: body.importeClienteDesp != null ? parseFloat(body.importeClienteDesp) : null,
+            fechaResolucion: body.estado === 'resuelta' ? new Date() : null,
           }
         })
         return NextResponse.json({ success: true, incidencia })

@@ -22,7 +22,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
     if (!ROLES_PERMITIDOS.includes(session.user.role || '')) {
-      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+      // Verificar si tiene permisos granulares (perfil asignado o permisos específicos)
+      const usuario = await prisma.usuarioAdmin.findUnique({
+        where: { email: session.user.email },
+        select: { perfilAsignado: true, permisos: true }
+      });
+      const tienePermisos = usuario?.perfilAsignado || (Array.isArray(usuario?.permisos) && (usuario.permisos as any[]).length > 0);
+      if (!tienePermisos) {
+        return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+      }
     }
 
     const { searchParams } = new URL(req.url);
