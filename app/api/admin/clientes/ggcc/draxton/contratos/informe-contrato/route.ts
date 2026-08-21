@@ -324,7 +324,7 @@ export async function GET(req: NextRequest) {
 <div class="page">
   ${tipo === 'interno' ? '<div class="confidencial">CONFIDENCIAL — USO INTERNO</div>' : ''}
   <div class="page-header">
-    <img src="${baseUrl}/images/logo-io.png" alt="Internet Operadores" />
+    <img src="${baseUrl}/images/logo-internetoperadores.png" alt="Internet Operadores" />
     <div class="page-header-right">
       <div style="font-weight:700;color:#E87A2E;">INFORME ${tipo === 'cliente' ? 'DE SERVICIO' : 'INTERNO DE CONTRATO'}</div>
       <div>${fechaInforme}</div>
@@ -415,7 +415,7 @@ export async function GET(req: NextRequest) {
 <!-- PÁGINA 2: KPIs DE TICKETS -->
 <div class="page">
   <div class="page-header">
-    <img src="${baseUrl}/images/logo-io.png" alt="Internet Operadores" />
+    <img src="${baseUrl}/images/logo-internetoperadores.png" alt="Internet Operadores" />
     <div class="page-header-right">
       <div style="font-weight:700;color:#E87A2E;">INDICADORES DE SERVICIO</div>
       <div>Planta ${plantaDisplay} — ${new Date().getFullYear()}</div>
@@ -525,7 +525,7 @@ export async function GET(req: NextRequest) {
 <!-- PÁGINA 3: BALANCE DE HORAS + JUSTIFICACIÓN NIVELES -->
 <div class="page">
   <div class="page-header">
-    <img src="${baseUrl}/images/logo-io.png" alt="Internet Operadores" />
+    <img src="${baseUrl}/images/logo-internetoperadores.png" alt="Internet Operadores" />
     <div class="page-header-right">
       <div style="font-weight:700;color:#E87A2E;">${tipo === 'interno' ? 'BALANCE Y JUSTIFICACIÓN' : 'DETALLE DEL SERVICIO'}</div>
       <div>${fechaInforme}</div>
