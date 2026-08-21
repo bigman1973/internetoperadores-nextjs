@@ -1564,6 +1564,23 @@ export default function DraxtonContratosPage() {
                   {expandedId === c.id && (
                     <tr>
                       <td colSpan={12} className="bg-gray-50 px-6 py-4 border-t border-gray-100">
+                        {/* Botones de informe individual */}
+                        <div className="flex gap-2 mb-4">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); window.open(`/api/admin/clientes/ggcc/draxton/contratos/informe-contrato?id=${c.id}&tipo=interno`, '_blank'); }}
+                            className="px-3 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-lg hover:bg-indigo-700 flex items-center gap-1"
+                          >
+                            <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+                            Informe Interno Contrato
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); window.open(`/api/admin/clientes/ggcc/draxton/contratos/informe-contrato?id=${c.id}&tipo=cliente`, '_blank'); }}
+                            className="px-3 py-1.5 bg-orange-500 text-white text-xs font-semibold rounded-lg hover:bg-orange-600 flex items-center gap-1"
+                          >
+                            <DocumentDuplicateIcon className="w-3.5 h-3.5" />
+                            Informe Cliente Contrato
+                          </button>
+                        </div>
                         <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-4">
                           <div>
                             <p className="text-[10px] text-gray-600 uppercase font-semibold">Fecha Firma</p>
