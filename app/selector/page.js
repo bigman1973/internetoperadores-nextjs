@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import Link from 'next/link';
 
 export default function SelectorPage() {
@@ -8,13 +7,13 @@ export default function SelectorPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <Image
+            <img
               src="/logo_transparent.png"
               alt="Internet Operadores"
-              width={247}
-              height={119}
-              priority
-              sizes="(max-width: 640px) 112px, (max-width: 1024px) 144px, 168px"
+              width="247"
+              height="119"
+              fetchPriority="high"
+              decoding="async"
               className="h-12 w-auto sm:h-16 lg:h-20"
             />
             <div className="flex items-center gap-2 sm:gap-4 lg:gap-6 text-xs sm:text-sm">
@@ -71,15 +70,25 @@ export default function SelectorPage() {
             className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
             <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">
-              <Image
-                src="/hero-b2b-empresario.png"
-                alt="Empresario trabajando desde chalet - Cobertura universal"
-                fill
-                priority
-                quality={72}
-                sizes="(max-width: 767px) calc(100vw - 24px), 480px"
-                className="object-cover object-[center_38%] transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
-              />
+              <picture>
+                <source
+                  type="image/webp"
+                  srcSet="/images/hero/selector-empresa-640.webp 640w, /images/hero/selector-empresa-960.webp 960w, /images/hero/selector-empresa-1280.webp 1280w"
+                  sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                />
+                <img
+                  src="/images/hero/selector-empresa-960.jpg"
+                  srcSet="/images/hero/selector-empresa-640.jpg 640w, /images/hero/selector-empresa-960.jpg 960w, /images/hero/selector-empresa-1280.jpg 1280w"
+                  sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                  alt="Empresario trabajando desde chalet - Cobertura universal"
+                  width="960"
+                  height="512"
+                  loading="eager"
+                  fetchPriority="high"
+                  decoding="async"
+                  className="h-full w-full object-cover transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
+                />
+              </picture>
             </div>
             <div className="p-4 sm:p-6 lg:p-12">
               <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 bg-orange-100 rounded-xl sm:rounded-2xl flex items-center justify-center mb-3 sm:mb-4 lg:mb-6 group-hover:bg-orange-500 transition-colors">
@@ -119,14 +128,24 @@ export default function SelectorPage() {
             className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
             <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">
-              <Image
-                src="/hero-b2c-familia.png"
-                alt="Madre con hijo estudiando - Internet que funciona"
-                fill
-                quality={72}
-                sizes="(max-width: 767px) calc(100vw - 24px), 480px"
-                className="object-cover transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
-              />
+              <picture>
+                <source
+                  type="image/webp"
+                  srcSet="/images/hero/selector-hogar-640.webp 640w, /images/hero/selector-hogar-960.webp 960w, /images/hero/selector-hogar-1280.webp 1280w"
+                  sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                />
+                <img
+                  src="/images/hero/selector-hogar-960.jpg"
+                  srcSet="/images/hero/selector-hogar-640.jpg 640w, /images/hero/selector-hogar-960.jpg 960w, /images/hero/selector-hogar-1280.jpg 1280w"
+                  sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                  alt="Madre con hijo estudiando - Internet que funciona"
+                  width="960"
+                  height="512"
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
+                />
+              </picture>
             </div>
             <div className="p-4 sm:p-6 lg:p-12">
               <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-20 lg:h-20 bg-orange-100 rounded-xl sm:rounded-2xl flex items-center justify-center mb-3 sm:mb-4 lg:mb-6 group-hover:bg-orange-500 transition-colors">
