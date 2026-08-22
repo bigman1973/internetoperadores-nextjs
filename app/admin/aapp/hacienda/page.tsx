@@ -530,7 +530,7 @@ export default function HaciendaPage() {
                 <a href={`/api/admin/aapp?action=pdf&id=${doc.id}`} target="_blank" rel="noopener" className="text-indigo-500 text-[10px] hover:underline">PDF</a>
               </span>
               {imp !== null && imp > 0 ? (
-                <span className={`text-[10px] font-bold ${doc.estado === 'denegado' ? 'text-red-600' : doc.estado === 'pendiente' ? 'text-yellow-700' : 'text-gray-700'}`}>{imp.toLocaleString('es-ES', {minimumFractionDigits: 2})} \u20ac</span>
+                <span className={`text-[10px] font-bold ${doc.estado === 'denegado' ? 'text-red-600' : doc.estado === 'pendiente' ? 'text-yellow-700' : 'text-gray-700'}`}>{imp.toLocaleString('es-ES', {minimumFractionDigits: 2})} €</span>
               ) : imp === 0 ? (
                 <span className="text-[10px] text-gray-400">A compensar</span>
               ) : null}
