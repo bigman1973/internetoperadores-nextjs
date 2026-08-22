@@ -230,7 +230,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
           href={item.href}
           onClick={onNavigate}
           className={`
-            group flex gap-x-3 rounded-md p-2 text-sm font-semibold leading-6
+            group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6
             ${isChild ? 'pl-10' : ''}
             ${isActive
               ? 'bg-orange-50 text-orange-600'
@@ -258,8 +258,9 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
       <li key={group.name}>
         <button
           onClick={() => toggleGroup(group.name)}
+          aria-expanded={isOpen}
           className={`
-            w-full group flex items-center gap-x-3 rounded-md p-2 text-sm font-semibold leading-6
+            w-full group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-left text-sm font-semibold leading-6
             ${isChildActive
               ? 'text-orange-600'
               : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
@@ -347,17 +348,24 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
     setIsOpen(false)
   }, [pathname, setIsOpen])
 
-  // Bloquear scroll del body cuando el sidebar está abierto
+  // Bloquear scroll del body y permitir cerrar con Escape en móvil
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+
     if (isOpen) {
       document.body.style.overflow = 'hidden'
+      document.addEventListener('keydown', handleKeyDown)
     } else {
       document.body.style.overflow = ''
     }
+
     return () => {
       document.body.style.overflow = ''
+      document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [isOpen])
+  }, [isOpen, setIsOpen])
 
   return (
     <>
@@ -370,21 +378,23 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
 
       {/* Sidebar móvil - overlay */}
       {isOpen && (
-        <div className="relative z-50 lg:hidden">
+        <div className="relative z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navegación del panel">
           {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-gray-900/80 transition-opacity"
+          <button
+            type="button"
+            aria-label="Cerrar menú"
+            className="fixed inset-0 cursor-default bg-gray-950/70 backdrop-blur-[2px]"
             onClick={() => setIsOpen(false)}
           />
 
           {/* Sidebar panel */}
           <div className="fixed inset-0 flex">
-            <div className="relative mr-16 flex w-full max-w-xs flex-1 overflow-y-auto">
+            <div className="relative flex w-[min(88vw,22rem)] flex-none overflow-y-auto shadow-2xl">
               {/* Close button */}
-              <div className="absolute left-full top-0 flex w-16 justify-center pt-5">
+              <div className="absolute left-full top-0 flex w-12 justify-center pt-3">
                 <button
                   type="button"
-                  className="-m-2.5 p-2.5"
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-950/40 text-white backdrop-blur active:scale-95"
                   onClick={() => setIsOpen(false)}
                 >
                   <span className="sr-only">Cerrar menú</span>

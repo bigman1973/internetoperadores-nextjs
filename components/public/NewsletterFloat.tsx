@@ -60,7 +60,7 @@ export default function NewsletterFloat() {
       {/* Botón flotante */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className={`fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-110 ${
+        className={`fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition duration-200 active:scale-95 sm:bottom-6 sm:right-6 sm:h-14 sm:w-14 sm:hover:scale-105 ${
           isOpen ? 'bg-gray-700 rotate-45' : 'bg-[#E85D2A]'
         }`}
         aria-label="Suscribirse al newsletter"
@@ -78,7 +78,7 @@ export default function NewsletterFloat() {
 
       {/* Panel de suscripción */}
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-50 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden animate-in slide-in-from-bottom-4">
+        <div className="fixed inset-x-3 bottom-[calc(max(1rem,env(safe-area-inset-bottom))+4rem)] z-50 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-2xl border border-gray-200 bg-white shadow-2xl sm:inset-x-auto sm:bottom-24 sm:right-6 sm:w-80">
           {/* Header */}
           <div className={`px-5 py-4 ${isPartner ? 'bg-gray-800' : isParticular ? 'bg-blue-600' : 'bg-[#1a1a2e]'}`}>
             <h3 className="text-white font-semibold text-lg">
@@ -111,7 +111,7 @@ export default function NewsletterFloat() {
                     placeholder="Tu nombre"
                     value={nombre}
                     onChange={(e) => setNombre(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
+                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#E85D2A] sm:text-sm"
                     required
                   />
                 </div>
@@ -121,7 +121,7 @@ export default function NewsletterFloat() {
                     placeholder="tu@email.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
+                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#E85D2A] sm:text-sm"
                     required
                   />
                 </div>
@@ -131,7 +131,7 @@ export default function NewsletterFloat() {
                     placeholder="Teléfono (opcional)"
                     value={telefono}
                     onChange={(e) => setTelefono(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#E85D2A] focus:border-transparent"
+                    className="min-h-11 w-full rounded-lg border border-gray-300 px-3 py-2 text-base text-gray-900 placeholder-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#E85D2A] sm:text-sm"
                   />
                 </div>
                 {error && (
@@ -140,7 +140,7 @@ export default function NewsletterFloat() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className={`w-full py-2.5 rounded-lg text-white font-medium text-sm transition-colors ${
+                  className={`min-h-11 w-full rounded-lg py-2.5 text-sm font-medium text-white transition-colors ${
                     loading
                       ? 'bg-gray-400 cursor-not-allowed'
                       : isPartner

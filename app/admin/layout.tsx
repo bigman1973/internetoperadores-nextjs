@@ -42,11 +42,11 @@ export default async function AdminLayout({
         userId={session.user.id ? parseInt(session.user.id as string) : undefined}
       >
         <SidebarProvider>
-          <div className="min-h-screen bg-gray-50">
+          <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50">
             <AdminSidebar user={session.user} />
-            <div className="lg:pl-64">
+            <div className="min-w-0 lg:pl-64">
               <AdminHeader />
-              <main className="p-4 sm:p-6 lg:p-8">
+              <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">
                 <ProtectedRoute>
                   {children}
                 </ProtectedRoute>

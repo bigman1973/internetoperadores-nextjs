@@ -19,3 +19,40 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Responsive seguro para el panel administrativo */
+[data-admin-shell] button,
+[data-admin-shell] a,
+[data-admin-shell] input,
+[data-admin-shell] select,
+[data-admin-shell] textarea {
+  touch-action: manipulation;
+}
+
+@media (max-width: 767px) {
+  [data-admin-shell] main table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-admin-shell] main table th,
+  [data-admin-shell] main table td {
+    white-space: nowrap;
+  }
+
+  [data-admin-shell] main input:not([type='checkbox']):not([type='radio']),
+  [data-admin-shell] main select,
+  [data-admin-shell] main textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  [data-admin-shell] main button,
+  [data-admin-shell] main a[role='button'] {
+    min-height: 44px;
+  }
+}
