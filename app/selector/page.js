@@ -1,4 +1,6 @@
-"use client";
+import Image from 'next/image';
+import Link from 'next/link';
+
 export default function SelectorPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50">
@@ -6,10 +8,14 @@ export default function SelectorPage() {
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <img 
-              src="/logo_transparent.png" 
-              alt="Internet Operadores" 
-              className="h-12 sm:h-16 lg:h-20"
+            <Image
+              src="/logo_transparent.png"
+              alt="Internet Operadores"
+              width={247}
+              height={119}
+              priority
+              sizes="(max-width: 640px) 112px, (max-width: 1024px) 144px, 168px"
+              className="h-12 w-auto sm:h-16 lg:h-20"
             />
             <div className="flex items-center gap-2 sm:gap-4 lg:gap-6 text-xs sm:text-sm">
               <a href="https://wa.me/34900730034?text=Hola,%20quiero%20informaci%C3%B3n%20sobre%20Internet%20Operadores" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 sm:gap-2 text-gray-600 hover:text-orange-600">
@@ -60,15 +66,19 @@ export default function SelectorPage() {
         {/* Selector B2B/B2C con ROI emocional - Optimizado para móvil */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 lg:gap-8 max-w-5xl mx-auto">
           {/* Card Empresa (B2B) */}
-          <a 
+          <Link
             href="/empresa"
-            className="group relative bg-white rounded-xl sm:rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
+            className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
-            <div className="relative h-48 sm:h-56 lg:h-64 overflow-hidden">
-              <img 
-                src="/hero-b2b-empresario.png" 
+            <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">
+              <Image
+                src="/hero-b2b-empresario.png"
                 alt="Empresario trabajando desde chalet - Cobertura universal"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                fill
+                priority
+                quality={72}
+                sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                className="object-cover object-[center_38%] transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
               />
             </div>
             <div className="p-4 sm:p-6 lg:p-12">
@@ -101,18 +111,21 @@ export default function SelectorPage() {
                 <svg className="w-4 h-4 sm:w-5 sm:h-5 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
               </div>
             </div>
-          </a>
+          </Link>
 
           {/* Card Particular (B2C) */}
-          <a 
+          <Link
             href="/particular"
-            className="group relative bg-white rounded-xl sm:rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border-2 border-transparent hover:border-orange-500"
+            className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
-            <div className="relative h-48 sm:h-56 lg:h-64 overflow-hidden">
-              <img 
-                src="/hero-b2c-familia.png" 
+            <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">
+              <Image
+                src="/hero-b2c-familia.png"
                 alt="Madre con hijo estudiando - Internet que funciona"
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                fill
+                quality={72}
+                sizes="(max-width: 767px) calc(100vw - 24px), 480px"
+                className="object-cover transition-transform duration-300 motion-reduce:transition-none md:group-hover:scale-[1.03]"
               />
             </div>
             <div className="p-4 sm:p-6 lg:p-12">
@@ -145,7 +158,7 @@ export default function SelectorPage() {
                 <svg className="w-4 h-4 sm:w-5 sm:h-5 ml-2 transform group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
               </div>
             </div>
-          </a>
+          </Link>
         </div>
       </main>
 

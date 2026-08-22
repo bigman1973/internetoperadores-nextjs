@@ -18,22 +18,12 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "Internet Operadores - Servicios IT, Seguridad y Telecomunicaciones",
-  description: "Servicios IT profesionales: ciberseguridad, backups, telecomunicaciones. Informe Cero Riesgos por 790€. Más de 25 años de experiencia.",
-  other: {
-    'Cache-Control': 'no-cache, no-store, must-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0'
-  }
+  description: "Servicios IT profesionales: ciberseguridad, backups, telecomunicaciones. Informe Cero Riesgos por 790€. Más de 25 años de experiencia."
 };
 
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <head>
-        <meta httpEquiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-        <meta httpEquiv="Pragma" content="no-cache" />
-        <meta httpEquiv="Expires" content="0" />
-      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >

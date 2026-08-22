@@ -1,6 +1,1 @@
-"use client";
-import { redirect } from 'next/navigation';
-
-export default function Home() {
-  redirect('/selector');
-}
+export { default } from './selector/page';
