@@ -805,7 +805,7 @@ export default function ImputacionesAdminPage() {
                   {imputarForm.clienteNombre ? (
                     <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
                       <span className="text-sm font-medium text-indigo-700 flex-1">{imputarForm.clienteNombre}</span>
-                      <button type="button" onClick={() => { setImputarForm({ ...imputarForm, clienteNombre: '' }); setClienteSearch(''); }} className="text-indigo-400 hover:text-indigo-600 text-xs">\u2715 Cambiar</button>
+                      <button type="button" onClick={() => { setImputarForm({ ...imputarForm, clienteNombre: '' }); setClienteSearch(''); }} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium" aria-label="Cambiar cliente">✕ Cambiar</button>
                     </div>
                   ) : (
                     <>
