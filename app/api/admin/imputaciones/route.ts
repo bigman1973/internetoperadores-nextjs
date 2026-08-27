@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
 import prisma from '@/lib/prisma';
+import { authOptions } from '@/lib/auth';
 import { COMPLEJIDADES_COMERCIALES, RESULTADOS_CERRADOS, normalizeCommercialInput } from '@/lib/imputaciones-comercial';
+import { buildDailyTimesheetBalance, getMadridTodayIso, getWorkWeek } from '@/lib/imputaciones-diarias';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +20,89 @@ export async function GET(req: NextRequest) {
     if (action === 'categorias') {
       const categorias = await prisma.categoriaTimesheet.findMany({ orderBy: { orden: 'asc' } });
       return NextResponse.json({ categorias });
+    }
+
+    if (action === 'balance_diario') {
+      const session = await getServerSession(authOptions);
+      if (!session?.user?.email) {
+        return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+      }
+      if (session.user.role !== 'SUPER_ADMIN') {
+        return NextResponse.json({ error: 'Solo disponible para superadministración' }, { status: 403 });
+      }
+
+      const requestedDate = searchParams.get('fecha');
+      const todayIso = getMadridTodayIso();
+      const referenceIso = requestedDate && /^\d{4}-\d{2}-\d{2}$/.test(requestedDate) ? requestedDate : todayIso;
+      const selectedEmployeeId = searchParams.get('empleadoId');
+      const week = getWorkWeek(referenceIso);
+
+      const employees = await prisma.empleado.findMany({
+        where: {
+          estado: 'ACTIVO',
+          ...(selectedEmployeeId ? { id: selectedEmployeeId } : {}),
+        },
+        select: {
+          id: true,
+          nombreCompleto: true,
+          departamento: true,
+          fechaAlta: true,
+          fechaBaja: true,
+        },
+        orderBy: { nombreCompleto: 'asc' },
+      });
+      const employeeIds = employees.map((employee) => employee.id);
+
+      const [imputations, absences] = employeeIds.length === 0
+        ? [[], []]
+        : await Promise.all([
+            prisma.imputacionHoras.groupBy({
+              by: ['empleadoId', 'fecha'],
+              where: {
+                empleadoId: { in: employeeIds },
+                fecha: { gte: week.startDate, lte: week.endDate },
+              },
+              _sum: { horas: true },
+              _count: { _all: true },
+            }),
+            prisma.calendarioPersonal.findMany({
+              where: {
+                estado: { in: ['APROBADO', 'SOLICITADO'] },
+                fechaInicio: { lte: week.endDate },
+                fechaFin: { gte: week.startDate },
+                OR: [
+                  { empleadoId: { in: employeeIds } },
+                  { empleadoId: null },
+                ],
+              },
+              select: {
+                empleadoId: true,
+                empleadoNombre: true,
+                tipo: true,
+                estado: true,
+                fechaInicio: true,
+                fechaFin: true,
+                horaInicio: true,
+                horaFin: true,
+                tipoPermiso: true,
+              },
+            }),
+          ]);
+
+      const balanceDiario = buildDailyTimesheetBalance({
+        referenceIso,
+        todayIso,
+        employees,
+        imputations: imputations.map((entry) => ({
+          empleadoId: entry.empleadoId,
+          fecha: entry.fecha,
+          horas: entry._sum.horas || 0,
+          registros: entry._count._all,
+        })),
+        absences,
+      });
+
+      return NextResponse.json({ balanceDiario });
     }
 
     if (action === 'pendientes') {

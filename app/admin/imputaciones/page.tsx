@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ClockIcon, UserGroupIcon, CurrencyEuroIcon, ChartBarIcon, PlusIcon, PencilIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 import CommercialContextFields, { InfoTip } from '@/components/imputaciones/CommercialContextFields';
+import DailyTimesheetOverview from '@/components/imputaciones/DailyTimesheetOverview';
 import { getActividadComercial, getComplejidadComercial, getResultadoComercial } from '@/lib/imputaciones-comercial';
 
 interface KPIs {
@@ -72,6 +73,7 @@ export default function ImputacionesAdminPage() {
   const [loading, setLoading] = useState(true);
   const [periodo, setPeriodo] = useState('mes');
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [fechaBalanceDiario, setFechaBalanceDiario] = useState(() => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Madrid' }));
   const [filtroEmpleado, setFiltroEmpleado] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [tab, setTab] = useState<'dashboard' | 'registros' | 'pendientes' | 'categorias'>('dashboard');
@@ -306,6 +308,12 @@ export default function ImputacionesAdminPage() {
 
       {tab === 'dashboard' && (
         <>
+          <DailyTimesheetOverview
+            referenceDate={fechaBalanceDiario}
+            employeeId={filtroEmpleado}
+            onReferenceDateChange={setFechaBalanceDiario}
+          />
+
           {/* Filtros */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
