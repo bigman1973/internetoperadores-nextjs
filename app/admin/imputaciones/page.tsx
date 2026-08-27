@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { ClockIcon, UserGroupIcon, CurrencyEuroIcon, ChartBarIcon, PlusIcon, PencilIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import CommercialContextFields, { InfoTip } from '@/components/imputaciones/CommercialContextFields';
+import { getActividadComercial, getComplejidadComercial, getResultadoComercial } from '@/lib/imputaciones-comercial';
 
 interface KPIs {
   totalHoras: number;
@@ -13,6 +15,9 @@ interface KPIs {
 interface ResumenEmpleado { id: string; nombre: string; horas: number; coste: number; }
 interface ResumenCategoria { nombre: string; horas: number; coste: number; }
 interface ResumenCliente { nombre: string; horas: number; coste: number; }
+interface ComercialKpis { registros: number; registrosContextualizados: number; horas: number; actividadTotal: number; actividadContactable: number; contactosEfectivos: number; efectividadPct: number | null; complejidadMedia: number | null; continuidadPct: number | null; avancePct: number | null; }
+interface ResumenEmpresaGrupo { empresa: string; horas: number; registros: number; actividad: number; contactosEfectivos: number; avances: number; }
+interface ResumenActividadComercial { tipo: string; horas: number; registros: number; cantidad: number; }
 interface Empleado { id: string; nombreCompleto: string; departamento: string | null; }
 interface Categoria { id: string; nombre: string; color: string; subcategorias: string[]; activa: boolean; orden: number; }
 
@@ -23,12 +28,45 @@ const PERIODOS = [
 ];
 
 function formatEur(v: number) { return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0 }).format(v); }
+function formatPct(v: number | null) { return v === null ? 'Sin datos' : `${v.toFixed(0)}%`; }
+function formatComplejidad(v: number | null) {
+  if (v === null) return 'Sin datos';
+  if (v < 1.5) return 'Sencilla';
+  if (v < 2.5) return 'Estándar';
+  return 'Compleja';
+}
+
+function getInitialImputarForm() {
+  return {
+    empleadoId: '',
+    fecha: new Date().toISOString().split('T')[0],
+    horas: '1',
+    categoria: '',
+    subcategoria: '',
+    subcategoria2: '',
+    subcategoria3: '',
+    clienteNombre: '',
+    clienteId: '',
+    descripcion: '',
+    empresaGrupo: 'INTERNET OPERADORES',
+    tipoActividad: '',
+    cantidadActividad: '',
+    contactosEfectivos: '',
+    resultadoComercial: '',
+    complejidadComercial: '',
+    proximaAccion: '',
+    fechaProximaAccion: '',
+  };
+}
 
 export default function ImputacionesAdminPage() {
   const [kpis, setKpis] = useState<KPIs>({ totalHoras: 0, totalCoste: 0, registros: 0, empleadosActivos: 0 });
   const [porEmpleado, setPorEmpleado] = useState<ResumenEmpleado[]>([]);
   const [porCategoria, setPorCategoria] = useState<ResumenCategoria[]>([]);
   const [porCliente, setPorCliente] = useState<ResumenCliente[]>([]);
+  const [comercialKpis, setComercialKpis] = useState<ComercialKpis>({ registros: 0, registrosContextualizados: 0, horas: 0, actividadTotal: 0, actividadContactable: 0, contactosEfectivos: 0, efectividadPct: null, complejidadMedia: null, continuidadPct: null, avancePct: null });
+  const [porEmpresaGrupo, setPorEmpresaGrupo] = useState<ResumenEmpresaGrupo[]>([]);
+  const [porTipoActividad, setPorTipoActividad] = useState<ResumenActividadComercial[]>([]);
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(true);
@@ -49,17 +87,7 @@ export default function ImputacionesAdminPage() {
   // Imputar como admin
   const [showImputarForm, setShowImputarForm] = useState(false);
   const [imputarSubmitting, setImputarSubmitting] = useState(false);
-  const [imputarForm, setImputarForm] = useState({
-    empleadoId: '',
-    fecha: new Date().toISOString().split('T')[0],
-    horas: '1',
-    categoria: '',
-    subcategoria: '',
-    subcategoria2: '',
-    subcategoria3: '',
-    clienteNombre: '',
-    descripcion: '',
-  });
+  const [imputarForm, setImputarForm] = useState(getInitialImputarForm);
 
   // Buscador de clientes
   const [clienteSearch, setClienteSearch] = useState('');
@@ -81,7 +109,7 @@ export default function ImputacionesAdminPage() {
   };
 
   const seleccionarCliente = (cliente: any) => {
-    setImputarForm({ ...imputarForm, clienteNombre: cliente.nombre });
+    setImputarForm({ ...imputarForm, clienteNombre: cliente.nombre, clienteId: String(cliente.id) });
     setClienteSearch(cliente.nombre);
     setShowClienteDropdown(false);
   };
@@ -99,6 +127,9 @@ export default function ImputacionesAdminPage() {
       setPorEmpleado(data.porEmpleado);
       setPorCategoria(data.porCategoria);
       setPorCliente(data.porCliente);
+      setComercialKpis(data.comercialKpis || { registros: 0, registrosContextualizados: 0, horas: 0, actividadTotal: 0, actividadContactable: 0, contactosEfectivos: 0, efectividadPct: null, complejidadMedia: null, continuidadPct: null, avancePct: null });
+      setPorEmpresaGrupo(data.porEmpresaGrupo || []);
+      setPorTipoActividad(data.porTipoActividad || []);
       setEmpleados(data.empleados);
       setImputaciones(data.imputaciones || []);
     } catch (err) {
@@ -157,6 +188,7 @@ export default function ImputacionesAdminPage() {
   };
 
   const maxHoras = Math.max(...porEmpleado.map(e => e.horas), 1);
+  const maxHorasEmpresa = Math.max(...porEmpresaGrupo.map(e => e.horas), 1);
 
   const handleImputar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,7 +208,7 @@ export default function ImputacionesAdminPage() {
       setShowImputarForm(false);
       setEditingImp(null);
       setSelectedProyecto(null);
-      setImputarForm({ empleadoId: '', fecha: new Date().toISOString().split('T')[0], horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', descripcion: '' });
+      setImputarForm(getInitialImputarForm());
       fetchData();
     } catch (err: any) {
       alert(err.message);
@@ -198,7 +230,7 @@ export default function ImputacionesAdminPage() {
      (imputarForm.subcategoria === 'Particular' || imputarForm.subcategoria === 'Empresa') &&
      imputarForm.subcategoria2 !== '' && imputarForm.subcategoria2 !== 'Alta nueva'
     ) ||
-    (imputarForm.categoria === 'Comercial' && imputarForm.subcategoria !== '')
+    (imputarForm.categoria === 'Comercial' && imputarForm.empresaGrupo === 'INTERNET OPERADORES')
   );
 
   const adminNeedsProyectoSearch = imputarForm.categoria === 'Proyectos';
@@ -240,7 +272,7 @@ export default function ImputacionesAdminPage() {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={() => setShowImputarForm(true)}
+            onClick={() => { setEditingImp(null); setSelectedProyecto(null); setImputarForm(getInitialImputarForm()); setClienteSearch(''); setShowImputarForm(true); }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
           >
             <PlusIcon className="w-4 h-4" /> Imputar horas
@@ -355,6 +387,84 @@ export default function ImputacionesAdminPage() {
             </div>
           </div>
 
+          {(filtroCategoria === '' || filtroCategoria === 'Comercial') && (
+            <section className="space-y-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 sm:p-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Lectura contextual de la actividad comercial</h2>
+                  <p className="mt-1 max-w-3xl text-xs leading-relaxed text-gray-600">Estos indicadores no son cuotas individuales. Combinan volumen, resultado, complejidad y continuidad para interpretar el trabajo con contexto: una gestión compleja puede aportar más que muchas acciones breves.</p>
+                </div>
+                <div className="flex shrink-0 gap-2 text-xs">
+                  <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-indigo-700 ring-1 ring-indigo-100">{comercialKpis.horas.toFixed(1)} h</span>
+                  <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-gray-700 ring-1 ring-gray-200">{comercialKpis.registrosContextualizados} de {comercialKpis.registros} con contexto</span>
+                </div>
+              </div>
+
+              {comercialKpis.registros === 0 ? (
+                <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-gray-500 ring-1 ring-gray-100">No hay actividad comercial en el período seleccionado.</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-indigo-100">
+                      <p className="text-xs font-medium text-gray-600">Efectividad de contacto <InfoTip text="Contactos o conversaciones reales sobre el total de intentos comparables informados. No incluye correos, reuniones u ofertas, porque su volumen no es equivalente." /></p>
+                      <p className="mt-2 text-2xl font-bold text-indigo-700">{formatPct(comercialKpis.efectividadPct)}</p>
+                      <p className="mt-1 text-xs text-gray-500">{comercialKpis.contactosEfectivos} efectivos de {comercialKpis.actividadContactable} intentos comparables</p>
+                    </div>
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-violet-100">
+                      <p className="text-xs font-medium text-gray-600">Complejidad media <InfoTip text="Media del contexto indicado por el empleado: sencilla, estándar o compleja. Evita comparar igual una tarea rutinaria y una gestión estratégica o técnica." /></p>
+                      <p className="mt-2 text-2xl font-bold text-violet-700">{formatComplejidad(comercialKpis.complejidadMedia)}</p>
+                      <p className="mt-1 text-xs text-gray-500">{comercialKpis.complejidadMedia === null ? 'Aún no se ha informado' : `${comercialKpis.complejidadMedia.toFixed(1)} sobre 3`}</p>
+                    </div>
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-emerald-100">
+                      <p className="text-xs font-medium text-gray-600">Continuidad comercial <InfoTip text="Porcentaje de gestiones que dejan una próxima acción o que ya han quedado cerradas. Sirve para evitar que una oportunidad pierda seguimiento." /></p>
+                      <p className="mt-2 text-2xl font-bold text-emerald-700">{formatPct(comercialKpis.continuidadPct)}</p>
+                      <p className="mt-1 text-xs text-gray-500">Con seguimiento o cierre trazado</p>
+                    </div>
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-amber-100">
+                      <p className="text-xs font-medium text-gray-600">Avance comercial <InfoTip text="Gestiones con un resultado que hace avanzar la oportunidad: contacto, reunión, oferta, negociación, venta o cierre. Es una lectura orientativa, no una clasificación del empleado." /></p>
+                      <p className="mt-2 text-2xl font-bold text-amber-700">{formatPct(comercialKpis.avancePct)}</p>
+                      <p className="mt-1 text-xs text-gray-500">{comercialKpis.actividadTotal} acciones aproximadas informadas</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-gray-100">
+                      <h3 className="text-sm font-semibold text-gray-900">Dedicación por empresa del grupo</h3>
+                      <div className="mt-3 space-y-3">
+                        {porEmpresaGrupo.map(item => (
+                          <div key={item.empresa}>
+                            <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+                              <span className="font-semibold text-gray-700">{item.empresa}</span>
+                              <span className="text-gray-500">{item.horas.toFixed(1)} h · {item.registros} registros</span>
+                            </div>
+                            <div className="h-2 rounded-full bg-gray-100"><div className="h-2 rounded-full bg-indigo-500" style={{ width: `${Math.max(3, (item.horas / maxHorasEmpresa) * 100)}%` }} /></div>
+                            <p className="mt-1 text-[11px] text-gray-400">{item.actividad} acciones · {item.contactosEfectivos} contactos efectivos · {item.avances} avances</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-4 ring-1 ring-gray-100">
+                      <h3 className="text-sm font-semibold text-gray-900">Actividad informada</h3>
+                      <p className="mt-1 text-[11px] leading-relaxed text-gray-500">El volumen se presenta junto a las horas; nunca se interpreta de forma aislada.</p>
+                      <div className="mt-3 divide-y divide-gray-100">
+                        {porTipoActividad.length === 0 ? <p className="py-5 text-center text-xs text-gray-400">Los registros históricos todavía no incluyen detalle de actividad.</p> : porTipoActividad.map(item => (
+                          <div key={item.tipo} className="flex items-center justify-between gap-3 py-2.5">
+                            <div>
+                              <p className="text-xs font-semibold text-gray-700">{getActividadComercial(item.tipo)?.label || item.tipo}</p>
+                              <p className="text-[11px] text-gray-400">{item.registros} registros · {item.horas.toFixed(1)} h</p>
+                            </div>
+                            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-bold text-indigo-700">{item.cantidad} {getActividadComercial(item.tipo)?.unidad || 'acciones'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
           {/* Tablas */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Por empleado */}
@@ -441,7 +551,7 @@ export default function ImputacionesAdminPage() {
             <p className="text-center text-gray-400 py-8">No hay imputaciones en este período</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[1180px] text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 text-left">
                     <th className="pb-2 font-medium text-gray-600">Fecha</th>
@@ -449,8 +559,9 @@ export default function ImputacionesAdminPage() {
                     <th className="pb-2 font-medium text-gray-600">Horas</th>
                     <th className="pb-2 font-medium text-gray-600">Categoría</th>
                     <th className="pb-2 font-medium text-gray-600">Detalle</th>
+                    <th className="pb-2 font-medium text-gray-600">Contexto comercial</th>
                     <th className="pb-2 font-medium text-gray-600">Cliente</th>
-                    <th className="pb-2 font-medium text-gray-600">Nota</th>
+                    <th className="pb-2 font-medium text-gray-600">Descripción</th>
                     <th className="pb-2 font-medium text-gray-600 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -461,9 +572,19 @@ export default function ImputacionesAdminPage() {
                       <td className="py-2 text-gray-700">{imp.empleado?.nombreCompleto || '-'}</td>
                       <td className="py-2 font-medium text-gray-900">{imp.horas}h</td>
                       <td className="py-2"><span className="px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-700">{imp.categoria}</span></td>
-                      <td className="py-2 text-gray-600 text-xs">{imp.rutaCompleta || imp.subcategoria || '-'}</td>
-                      <td className="py-2 text-gray-600">{imp.clienteNombre || '-'}</td>
-                      <td className="py-2 text-gray-500 text-xs max-w-[150px] truncate">{imp.descripcion || '-'}</td>
+                      <td className="py-3 pr-3 text-gray-600 text-xs">{imp.rutaCompleta || imp.subcategoria || '-'}</td>
+                      <td className="py-3 pr-3 text-xs text-gray-600 min-w-[210px]">
+                        {imp.categoria === 'Comercial' ? (
+                          <div className="space-y-1">
+                            <p className="font-semibold text-indigo-700">{imp.empresaGrupo || 'INTERNET OPERADORES'}</p>
+                            <p>{getActividadComercial(imp.tipoActividad)?.label || 'Actividad sin detallar'}{imp.cantidadActividad !== null && imp.cantidadActividad !== undefined ? ` · ${imp.cantidadActividad} ${getActividadComercial(imp.tipoActividad)?.unidad || 'acciones'}` : ''}</p>
+                            <p>{getResultadoComercial(imp.resultadoComercial)?.label || 'Resultado sin detallar'}{imp.complejidadComercial ? ` · ${getComplejidadComercial(imp.complejidadComercial)?.label || imp.complejidadComercial}` : ''}</p>
+                            {imp.proximaAccion && <p className="text-emerald-700">Siguiente: {imp.proximaAccion}</p>}
+                          </div>
+                        ) : '-'}
+                      </td>
+                      <td className="py-3 pr-3 text-gray-600 min-w-[170px]">{imp.clienteNombre || '-'}</td>
+                      <td className="py-3 pr-3 text-gray-600 text-xs min-w-[280px] max-w-[380px] whitespace-pre-wrap break-words leading-relaxed">{imp.descripcion || '-'}</td>
                       <td className="py-2 text-right">
                         <button
                           onClick={() => {
@@ -477,7 +598,16 @@ export default function ImputacionesAdminPage() {
                               subcategoria2: imp.subcategoria2 || '',
                               subcategoria3: imp.subcategoria3 || '',
                               clienteNombre: imp.clienteNombre || '',
+                              clienteId: imp.clienteId ? String(imp.clienteId) : '',
                               descripcion: imp.descripcion || '',
+                              empresaGrupo: imp.empresaGrupo || 'INTERNET OPERADORES',
+                              tipoActividad: imp.tipoActividad || '',
+                              cantidadActividad: imp.cantidadActividad !== null && imp.cantidadActividad !== undefined ? String(imp.cantidadActividad) : '',
+                              contactosEfectivos: imp.contactosEfectivos !== null && imp.contactosEfectivos !== undefined ? String(imp.contactosEfectivos) : '',
+                              resultadoComercial: imp.resultadoComercial || '',
+                              complejidadComercial: imp.complejidadComercial || '',
+                              proximaAccion: imp.proximaAccion || '',
+                              fechaProximaAccion: imp.fechaProximaAccion ? imp.fechaProximaAccion.split('T')[0] : '',
                             });
                             setShowImputarForm(true);
                           }}
@@ -656,7 +786,7 @@ export default function ImputacionesAdminPage() {
       {/* Modal imputar como admin */}
       {showImputarForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl p-5 sm:p-6 max-h-[92dvh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-900 mb-1">{editingImp ? 'Editar imputacion' : 'Imputar horas'}</h2>
             <p className="text-sm text-gray-500 mb-4">Registra horas en nombre de cualquier empleado</p>
             <form onSubmit={handleImputar} className="space-y-4">
@@ -798,6 +928,22 @@ export default function ImputacionesAdminPage() {
                   </p>
                 </div>
               )}
+              {imputarForm.categoria === 'Comercial' && (
+                <CommercialContextFields
+                  value={imputarForm}
+                  horas={imputarForm.horas}
+                  descripcion={imputarForm.descripcion}
+                  onChange={patch => {
+                    if (patch.empresaGrupo && patch.empresaGrupo !== imputarForm.empresaGrupo) {
+                      setClienteSearch('');
+                      setImputarForm(current => ({ ...current, ...patch, clienteNombre: '', clienteId: '' }));
+                      return;
+                    }
+                    setImputarForm(current => ({ ...current, ...patch }));
+                  }}
+                />
+              )}
+
               {/* Cliente - buscador inteligente o campo libre */}
               {adminNeedsClienteSearch ? (
                 <div className="relative">
@@ -805,7 +951,7 @@ export default function ImputacionesAdminPage() {
                   {imputarForm.clienteNombre ? (
                     <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2">
                       <span className="text-sm font-medium text-indigo-700 flex-1">{imputarForm.clienteNombre}</span>
-                      <button type="button" onClick={() => { setImputarForm({ ...imputarForm, clienteNombre: '' }); setClienteSearch(''); }} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium" aria-label="Cambiar cliente">✕ Cambiar</button>
+                      <button type="button" onClick={() => { setImputarForm({ ...imputarForm, clienteNombre: '', clienteId: '' }); setClienteSearch(''); }} className="text-indigo-600 hover:text-indigo-800 text-xs font-medium" aria-label="Cambiar cliente">✕ Cambiar</button>
                     </div>
                   ) : (
                     <>
@@ -836,10 +982,10 @@ export default function ImputacionesAdminPage() {
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{imputarForm.categoria === 'Comercial' ? 'Cliente, contacto u oportunidad (opcional)' : 'Cliente (opcional)'}</label>
                   <input
                     type="text"
-                    placeholder="Ej: Draxton, Hospital Granollers..."
+                    placeholder={imputarForm.categoria === 'Comercial' ? 'Ej: empresa o contacto sobre el que se ha trabajado' : 'Ej: Draxton, Hospital Granollers...'}
                     value={imputarForm.clienteNombre}
                     onChange={e => setImputarForm({ ...imputarForm, clienteNombre: e.target.value })}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
@@ -892,22 +1038,24 @@ export default function ImputacionesAdminPage() {
                 </div>
               )}
 
-              {/* Nota */}
+              {/* Descripción */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Revision propuesta, llamada seguimiento..."
+                <label className="block text-xs font-medium text-gray-700 mb-1">Descripción del trabajo (opcional)</label>
+                <textarea
+                  rows={4}
+                  maxLength={2000}
+                  placeholder="Resume la gestión, el contexto y cualquier detalle útil para continuar el trabajo."
                   value={imputarForm.descripcion}
                   onChange={e => setImputarForm({ ...imputarForm, descripcion: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400"
+                  className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm leading-relaxed text-gray-900 placeholder-gray-400"
                 />
+                <p className="mt-1 text-[11px] text-gray-400">Unas líneas claras permiten interpretar el tiempo sin convertir la imputación en un informe.</p>
               </div>
               {/* Botones */}
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => { setShowImputarForm(false); setEditingImp(null); }}
+                  onClick={() => { setShowImputarForm(false); setEditingImp(null); setSelectedProyecto(null); setImputarForm(getInitialImputarForm()); }}
                   className="flex-1 px-4 py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 >
                   Cancelar

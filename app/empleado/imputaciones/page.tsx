@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { PlusIcon, TrashIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, ChevronRightIcon as ChevronSmall } from '@heroicons/react/24/outline';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
+import CommercialContextFields from '@/components/imputaciones/CommercialContextFields';
+import { getActividadComercial, getComplejidadComercial, getResultadoComercial } from '@/lib/imputaciones-comercial';
 
 interface SubcatNode {
   nombre: string;
@@ -27,10 +29,40 @@ interface Imputacion {
   rutaCompleta: string | null;
   clienteNombre: string | null;
   descripcion: string | null;
+  empresaGrupo: string;
+  tipoActividad: string | null;
+  cantidadActividad: number | null;
+  contactosEfectivos: number | null;
+  resultadoComercial: string | null;
+  complejidadComercial: string | null;
+  proximaAccion: string | null;
+  fechaProximaAccion: string | null;
   proyecto: { id: string; nombre: string; codigo: string | null } | null;
 }
 
 const DIAS_SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+function getInitialFormData() {
+  return {
+    fecha: formatDate(new Date()),
+    horas: '1',
+    categoria: '',
+    subcategoria: '',
+    subcategoria2: '',
+    subcategoria3: '',
+    clienteNombre: '',
+    clienteId: '',
+    descripcion: '',
+    empresaGrupo: 'INTERNET OPERADORES',
+    tipoActividad: '',
+    cantidadActividad: '',
+    contactosEfectivos: '',
+    resultadoComercial: '',
+    complejidadComercial: '',
+    proximaAccion: '',
+    fechaProximaAccion: '',
+  };
+}
 
 function getMonday(d: Date): Date {
   const date = new Date(d);
@@ -61,17 +93,7 @@ export default function ImputacionesPage() {
   const { impersonatedEmail, getQueryParam } = useImpersonation();
 
   // Form state
-  const [formData, setFormData] = useState({
-    fecha: formatDate(new Date()),
-    horas: '1',
-    categoria: '',
-    subcategoria: '',
-    subcategoria2: '',
-    subcategoria3: '',
-    clienteNombre: '',
-    clienteId: '',
-    descripcion: '',
-  });
+  const [formData, setFormData] = useState(getInitialFormData);
 
   // Buscador de clientes
   const [clienteSearch, setClienteSearch] = useState('');
@@ -182,7 +204,7 @@ export default function ImputacionesPage() {
       
       setShowForm(false);
       setSelectedProyecto(null);
-      setFormData({ fecha: formatDate(new Date()), horas: '1', categoria: '', subcategoria: '', subcategoria2: '', subcategoria3: '', clienteNombre: '', clienteId: '', descripcion: '' });
+      setFormData(getInitialFormData());
       setClienteSearch('');
       fetchData();
     } catch (err: any) {
@@ -237,7 +259,7 @@ export default function ImputacionesPage() {
      (formData.subcategoria === 'Particular' || formData.subcategoria === 'Empresa') &&
      formData.subcategoria2 !== '' && formData.subcategoria2 !== 'Alta nueva'
     ) ||
-    (formData.categoria === 'Comercial' && formData.subcategoria !== '')
+    (formData.categoria === 'Comercial' && formData.empresaGrupo === 'INTERNET OPERADORES')
   );
 
   // Mostrar buscador de proyectos cuando la categoría es "Proyectos"
@@ -342,8 +364,8 @@ export default function ImputacionesPage() {
                   </p>
                   <div className="space-y-2">
                     {dayImps.map(imp => (
-                      <div key={imp.id} className="flex items-center justify-between group">
-                        <div className="flex items-center gap-3 min-w-0">
+                      <div key={imp.id} className="group flex items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-start gap-3">
                           <span className="inline-flex items-center justify-center w-10 h-7 rounded bg-indigo-100 text-indigo-700 text-xs font-bold flex-shrink-0">
                             {imp.horas}h
                           </span>
@@ -353,18 +375,30 @@ export default function ImputacionesPage() {
                               {imp.rutaCompleta && <span className="text-gray-400 font-normal"> · {imp.rutaCompleta}</span>}
                               {!imp.rutaCompleta && imp.subcategoria && <span className="text-gray-400 font-normal"> · {imp.subcategoria}</span>}
                             </p>
+                            {imp.categoria === 'Comercial' && (
+                              <p className="mt-0.5 text-[11px] text-indigo-600">
+                                {imp.empresaGrupo || 'INTERNET OPERADORES'}
+                                {imp.tipoActividad && ` · ${getActividadComercial(imp.tipoActividad)?.label || imp.tipoActividad}`}
+                                {imp.cantidadActividad !== null && ` · ${imp.cantidadActividad} ${getActividadComercial(imp.tipoActividad)?.unidad || 'acciones'}`}
+                                {imp.resultadoComercial && ` · ${getResultadoComercial(imp.resultadoComercial)?.label || imp.resultadoComercial}`}
+                                {imp.complejidadComercial && ` · ${getComplejidadComercial(imp.complejidadComercial)?.label || imp.complejidadComercial}`}
+                              </p>
+                            )}
                             {(imp.clienteNombre || imp.descripcion) && (
-                              <p className="text-xs text-gray-500 truncate">
-                                {imp.clienteNombre && <span className="text-indigo-600">{imp.clienteNombre}</span>}
+                              <p className="mt-0.5 whitespace-pre-wrap break-words text-xs leading-relaxed text-gray-500">
+                                {imp.clienteNombre && <span className="font-medium text-indigo-600">{imp.clienteNombre}</span>}
                                 {imp.clienteNombre && imp.descripcion && ' — '}
                                 {imp.descripcion}
                               </p>
+                            )}
+                            {imp.proximaAccion && (
+                              <p className="mt-1 text-[11px] text-emerald-700">Siguiente: {imp.proximaAccion}{imp.fechaProximaAccion ? ` · ${new Date(imp.fechaProximaAccion).toLocaleDateString('es-ES')}` : ''}</p>
                             )}
                           </div>
                         </div>
                         <button
                           onClick={() => handleDelete(imp.id)}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                          className="shrink-0 rounded p-1.5 text-red-400 opacity-100 transition-all hover:bg-red-50 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100"
                         >
                           <TrashIcon className="w-4 h-4" />
                         </button>
@@ -390,7 +424,7 @@ export default function ImputacionesPage() {
       {/* Modal de nueva imputación */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl p-5 sm:p-6 max-h-[92dvh] overflow-y-auto">
             <h2 className="text-lg font-bold text-gray-900 mb-4">Imputar tiempo</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               {/* Fecha y horas */}
@@ -526,7 +560,23 @@ export default function ImputacionesPage() {
                 </div>
               )}
 
-              {/* Cliente - buscador inteligente cuando es Soporte Técnico y no es Alta nueva */}
+              {formData.categoria === 'Comercial' && (
+                <CommercialContextFields
+                  value={formData}
+                  horas={formData.horas}
+                  descripcion={formData.descripcion}
+                  onChange={patch => {
+                    if (patch.empresaGrupo && patch.empresaGrupo !== formData.empresaGrupo) {
+                      setClienteSearch('');
+                      setFormData(current => ({ ...current, ...patch, clienteNombre: '', clienteId: '' }));
+                      return;
+                    }
+                    setFormData(current => ({ ...current, ...patch }));
+                  }}
+                />
+              )}
+
+              {/* Cliente - buscador inteligente para Internet Operadores y soporte */}
               {needsClienteSearch ? (
                 <div className="relative">
                   <label className="block text-xs font-medium text-gray-600 mb-1">Cliente</label>
@@ -580,10 +630,10 @@ export default function ImputacionesPage() {
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Cliente (opcional)</label>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">{formData.categoria === 'Comercial' ? 'Cliente, contacto u oportunidad (opcional)' : 'Cliente (opcional)'}</label>
                   <input
                     type="text"
-                    placeholder="Ej: Draxton, Hospital Granollers..."
+                    placeholder={formData.categoria === 'Comercial' ? 'Ej: empresa o contacto sobre el que has trabajado' : 'Ej: Draxton, Hospital Granollers...'}
                     value={formData.clienteNombre}
                     onChange={e => setFormData({ ...formData, clienteNombre: e.target.value })}
                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
@@ -637,16 +687,18 @@ export default function ImputacionesPage() {
                 </div>
               )}
 
-              {/* Nota */}
+              {/* Descripción */}
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Nota breve (opcional)</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Revision propuesta, llamada seguimiento..."
+                <label className="block text-xs font-medium text-gray-700 mb-1">Descripción del trabajo (opcional)</label>
+                <textarea
+                  rows={4}
+                  maxLength={2000}
+                  placeholder="Resume qué has gestionado, el contexto necesario y cualquier detalle útil para retomar el trabajo."
                   value={formData.descripcion}
                   onChange={e => setFormData({ ...formData, descripcion: e.target.value })}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                  className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm leading-relaxed text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
                 />
+                <p className="mt-1 text-[11px] text-gray-400">No hace falta escribir un informe: unas líneas claras ayudan a interpretar correctamente el tiempo y el resultado.</p>
               </div>
 
               {/* Botones */}

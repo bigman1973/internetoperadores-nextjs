@@ -1691,6 +1691,15 @@ model ImputacionHoras {
   rutaCompleta    String?  @map("ruta_completa") // Ruta completa: "Fidelización > Empresa > Fibra"
   clienteNombre   String?  @map("cliente_nombre") // Cliente al que se dedica el tiempo (opcional)
   clienteId       Int?     @map("cliente_id_imp") // Relación opcional con ClienteWeb
+  // Contexto comercial (opcional y compatible con registros históricos)
+  empresaGrupo         String    @default("INTERNET OPERADORES") @map("empresa_grupo")
+  tipoActividad        String?   @map("tipo_actividad")
+  cantidadActividad    Int?      @map("cantidad_actividad")
+  contactosEfectivos   Int?      @map("contactos_efectivos")
+  resultadoComercial   String?   @map("resultado_comercial")
+  complejidadComercial String?   @map("complejidad_comercial")
+  proximaAccion        String?   @map("proxima_accion")
+  fechaProximaAccion   DateTime? @db.Date @map("fecha_proxima_accion")
   // Relaciones
   empleado        Empleado @relation(fields: [empleadoId], references: [id])
   proyecto        Proyecto? @relation(fields: [proyectoId], references: [id])
@@ -1702,6 +1711,8 @@ model ImputacionHoras {
   @@index([proyectoId, fecha])
   @@index([fecha])
   @@index([categoria])
+  @@index([empresaGrupo, fecha])
+  @@index([tipoActividad, fecha])
   @@map("imputaciones_horas")
 }
 

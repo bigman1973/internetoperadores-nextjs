@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
+import { COMPLEJIDADES_COMERCIALES, RESULTADOS_CERRADOS, normalizeCommercialInput } from '@/lib/imputaciones-comercial';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,6 +126,55 @@ export async function GET(req: NextRequest) {
       porCliente[cliente].coste += imp.costeImputado || (imp.empleado.costeHoraActual ? imp.empleado.costeHoraActual * imp.horas : 0);
     });
 
+    // Indicadores comerciales contextuales: orientan sin convertir el volumen en un objetivo aislado
+    const comerciales = imputaciones.filter(imp => imp.categoria === 'Comercial');
+    const tiposConContactabilidad = new Set(['LLAMADAS', 'SEGUIMIENTO', 'PROSPECCION']);
+    const comercialesConContactabilidad = comerciales.filter(imp =>
+      imp.tipoActividad && tiposConContactabilidad.has(imp.tipoActividad) && imp.cantidadActividad !== null && imp.contactosEfectivos !== null
+    );
+    const actividadContactable = comercialesConContactabilidad.reduce((sum, imp) => sum + (imp.cantidadActividad || 0), 0);
+    const contactosEfectivos = comercialesConContactabilidad.reduce((sum, imp) => sum + (imp.contactosEfectivos || 0), 0);
+    const efectividadPct = actividadContactable > 0 ? (contactosEfectivos / actividadContactable) * 100 : null;
+
+    const complejidadMap = new Map(COMPLEJIDADES_COMERCIALES.map(item => [item.value, item.weight]));
+    const comercialesConComplejidad = comerciales.filter(imp => imp.complejidadComercial && complejidadMap.has(imp.complejidadComercial));
+    const complejidadMedia = comercialesConComplejidad.length > 0
+      ? comercialesConComplejidad.reduce((sum, imp) => sum + (complejidadMap.get(imp.complejidadComercial!) || 0), 0) / comercialesConComplejidad.length
+      : null;
+
+    // Los registros históricos carecen de estos campos; se excluyen para no penalizar artificialmente los porcentajes.
+    const comercialesConContexto = comerciales.filter(imp =>
+      Boolean(imp.tipoActividad || imp.cantidadActividad !== null || imp.resultadoComercial || imp.complejidadComercial || imp.proximaAccion || imp.fechaProximaAccion)
+    );
+    const registrosConContinuidad = comercialesConContexto.filter(imp =>
+      Boolean(imp.proximaAccion || imp.fechaProximaAccion || (imp.resultadoComercial && RESULTADOS_CERRADOS.has(imp.resultadoComercial)))
+    ).length;
+    const continuidadPct = comercialesConContexto.length > 0 ? (registrosConContinuidad / comercialesConContexto.length) * 100 : null;
+    const comercialesConResultado = comerciales.filter(imp => Boolean(imp.resultadoComercial));
+    const registrosConAvance = comercialesConResultado.filter(imp =>
+      imp.resultadoComercial && !['SIN_CONTACTO', 'SEGUIMIENTO_PENDIENTE'].includes(imp.resultadoComercial)
+    ).length;
+    const avancePct = comercialesConResultado.length > 0 ? (registrosConAvance / comercialesConResultado.length) * 100 : null;
+
+    const porEmpresaGrupo: Record<string, { horas: number; registros: number; actividad: number; contactosEfectivos: number; avances: number }> = {};
+    const porTipoActividad: Record<string, { horas: number; registros: number; cantidad: number }> = {};
+    comerciales.forEach(imp => {
+      const empresa = imp.empresaGrupo || 'INTERNET OPERADORES';
+      if (!porEmpresaGrupo[empresa]) porEmpresaGrupo[empresa] = { horas: 0, registros: 0, actividad: 0, contactosEfectivos: 0, avances: 0 };
+      porEmpresaGrupo[empresa].horas += imp.horas;
+      porEmpresaGrupo[empresa].registros += 1;
+      porEmpresaGrupo[empresa].actividad += imp.cantidadActividad || 0;
+      porEmpresaGrupo[empresa].contactosEfectivos += imp.contactosEfectivos || 0;
+      if (imp.resultadoComercial && !['SIN_CONTACTO', 'SEGUIMIENTO_PENDIENTE'].includes(imp.resultadoComercial)) porEmpresaGrupo[empresa].avances += 1;
+
+      if (imp.tipoActividad) {
+        if (!porTipoActividad[imp.tipoActividad]) porTipoActividad[imp.tipoActividad] = { horas: 0, registros: 0, cantidad: 0 };
+        porTipoActividad[imp.tipoActividad].horas += imp.horas;
+        porTipoActividad[imp.tipoActividad].registros += 1;
+        porTipoActividad[imp.tipoActividad].cantidad += imp.cantidadActividad || 0;
+      }
+    });
+
     // Empleados activos (para filtro)
     const empleados = await prisma.empleado.findMany({
       where: { estado: 'ACTIVO' },
@@ -135,6 +185,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       periodo: { startDate, endDate, tipo: periodo },
       kpis: { totalHoras, totalCoste, registros: imputaciones.length, empleadosActivos: Object.keys(porEmpleado).length },
+      comercialKpis: {
+        registros: comerciales.length,
+        registrosContextualizados: comercialesConContexto.length,
+        horas: comerciales.reduce((sum, imp) => sum + imp.horas, 0),
+        actividadTotal: comerciales.reduce((sum, imp) => sum + (imp.cantidadActividad || 0), 0),
+        actividadContactable,
+        contactosEfectivos,
+        efectividadPct,
+        complejidadMedia,
+        continuidadPct,
+        avancePct,
+      },
+      porEmpresaGrupo: Object.entries(porEmpresaGrupo).map(([empresa, data]) => ({ empresa, ...data })).sort((a, b) => b.horas - a.horas),
+      porTipoActividad: Object.entries(porTipoActividad).map(([tipo, data]) => ({ tipo, ...data })).sort((a, b) => b.horas - a.horas),
       porEmpleado: Object.entries(porEmpleado).map(([id, data]) => ({ id, ...data })).sort((a, b) => b.horas - a.horas),
       porCategoria: Object.entries(porCategoria).map(([nombre, data]) => ({ nombre, ...data })).sort((a, b) => b.horas - a.horas),
       porCliente: Object.entries(porCliente).map(([nombre, data]) => ({ nombre, ...data })).sort((a, b) => b.horas - a.horas),
@@ -181,6 +245,7 @@ export async function POST(req: NextRequest) {
     if (action === 'editar_imputacion') {
       const { id, empleadoId, fecha, horas, categoria, subcategoria, subcategoria2, subcategoria3, clienteNombre, clienteId, proyectoId, descripcion } = body;
       if (!id) return NextResponse.json({ error: 'ID de imputación requerido' }, { status: 400 });
+      const commercialData = normalizeCommercialInput(body, categoria);
       const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
       const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
       const empleado = await prisma.empleado.findUnique({ where: { id: empleadoId }, select: { costeHoraActual: true } });
@@ -200,8 +265,9 @@ export async function POST(req: NextRequest) {
           clienteNombre: clienteNombre || null,
           clienteId: clienteId ? parseInt(clienteId) : null,
           proyectoId: proyectoId || null,
-          descripcion: descripcion || null,
+          descripcion: descripcion?.trim()?.slice(0, 2000) || null,
           costeImputado,
+          ...commercialData,
         },
         include: {
           empleado: { select: { id: true, nombreCompleto: true } },
@@ -223,6 +289,7 @@ export async function POST(req: NextRequest) {
       if (!empleadoId || !fecha || !horas || !categoria) {
         return NextResponse.json({ error: 'Empleado, fecha, horas y categoría son obligatorios' }, { status: 400 });
       }
+      const commercialData = normalizeCommercialInput(body, categoria);
       // Construir ruta completa
       const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
       const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
@@ -243,8 +310,9 @@ export async function POST(req: NextRequest) {
           clienteNombre: clienteNombre || null,
           clienteId: clienteId ? parseInt(clienteId) : null,
           proyectoId: proyectoId || null,
-          descripcion: descripcion || null,
+          descripcion: descripcion?.trim()?.slice(0, 2000) || null,
           costeImputado,
+          ...commercialData,
         },
         include: {
           empleado: { select: { id: true, nombreCompleto: true } },

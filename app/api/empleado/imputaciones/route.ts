@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { resolveEmpleado } from '@/lib/empleado-impersonation';
+import { normalizeCommercialInput } from '@/lib/imputaciones-comercial';
 
 /**
  * GET /api/empleado/imputaciones
@@ -124,6 +125,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Las horas deben estar entre 0 y 24' }, { status: 400 });
     }
 
+    const commercialData = normalizeCommercialInput(body, categoria);
     // Construir ruta completa
     const partes = [subcategoria, subcategoria2, subcategoria3].filter(Boolean);
     const rutaCompleta = partes.length > 0 ? partes.join(' > ') : null;
@@ -144,8 +146,9 @@ export async function POST(req: NextRequest) {
         clienteNombre: clienteNombre || null,
         clienteId: clienteId ? parseInt(clienteId) : null,
         proyectoId: proyectoId || null,
-        descripcion: descripcion || null,
+        descripcion: descripcion?.trim()?.slice(0, 2000) || null,
         costeImputado,
+        ...commercialData,
       },
       include: {
         proyecto: { select: { id: true, nombre: true, codigo: true } },
