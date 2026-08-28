@@ -331,3 +331,119 @@ export function buildDailyTimesheetBalance({
     empleados: employeeBalances,
   };
 }
+
+export interface ResumenPersonalImputaciones {
+  semana: BalanceEmpleado;
+  periodo: {
+    inicioSemana: string;
+    finSemana: string;
+    hoy: string;
+    inicioControl: string;
+  };
+  acumulado: {
+    horasPendientesVencidas: number;
+    diasPendientesVencidos: number;
+    horasPendientesMas48h: number;
+    diasPendientesMas48h: number;
+    fechaPendienteMasAntigua: string | null;
+  };
+  alerta48h: boolean;
+}
+
+function elapsedBusinessDaysAfter(fromIso: string, toIso: string) {
+  let elapsed = 0;
+  const cursor = parseDateOnly(fromIso);
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+  while (dateToIso(cursor) < toIso) {
+    const weekday = cursor.getUTCDay();
+    if (weekday !== 0 && weekday !== 6) elapsed++;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return elapsed;
+}
+
+export function buildEmployeeTimesheetSummary({
+  todayIso,
+  employee,
+  imputations,
+  absences,
+  controlStartIso = FECHA_INICIO_CONTROL_IMPUTACIONES,
+}: {
+  todayIso: string;
+  employee: EmpleadoBalanceInput;
+  imputations: ImputacionBalanceInput[];
+  absences: AusenciaBalanceInput[];
+  controlStartIso?: string;
+}): ResumenPersonalImputaciones {
+  const employeeStartIso = employee.fechaAlta ? dateToIso(employee.fechaAlta) : controlStartIso;
+  const effectiveStartIso = employeeStartIso > controlStartIso ? employeeStartIso : controlStartIso;
+  const currentWeek = getWorkWeek(todayIso);
+  const currentBalance = buildDailyTimesheetBalance({
+    referenceIso: todayIso,
+    todayIso,
+    employees: [employee],
+    imputations,
+    absences,
+    controlStartIso,
+  }).empleados[0];
+
+  const allElapsedDays: BalanceDia[] = [];
+  const firstWeek = getWorkWeek(effectiveStartIso);
+  for (
+    let cursor = new Date(firstWeek.startDate);
+    dateToIso(cursor) <= todayIso;
+    cursor.setUTCDate(cursor.getUTCDate() + 7)
+  ) {
+    const referenceIso = dateToIso(cursor);
+    const weeklyEmployee = buildDailyTimesheetBalance({
+      referenceIso,
+      todayIso,
+      employees: [employee],
+      imputations,
+      absences,
+      controlStartIso,
+    }).empleados[0];
+    if (!weeklyEmployee) continue;
+    weeklyEmployee.dias.forEach((day) => {
+      if (day.fecha >= effectiveStartIso && day.fecha < todayIso && day.horasEsperadas > 0) {
+        allElapsedDays.push(day);
+      }
+    });
+  }
+
+  const pendingDays = allElapsedDays.filter((day) => day.horasPendientes > 0);
+  const pendingOver48Hours = pendingDays.filter((day) => elapsedBusinessDaysAfter(day.fecha, todayIso) >= 2);
+
+  return {
+    semana: currentBalance || {
+      empleadoId: employee.id,
+      nombre: employee.nombreCompleto,
+      departamento: employee.departamento,
+      dias: [],
+      resumen: {
+        horasEsperadasHastaHoy: 0,
+        horasImputadasHastaHoy: 0,
+        horasPendientesVencidas: 0,
+        horasPendientesHoy: 0,
+        diasCompletos: 0,
+        diasPendientesVencidos: 0,
+        diasAusencia: 0,
+        coberturaPct: null,
+      },
+    },
+    periodo: {
+      inicioSemana: dateToIso(currentWeek.startDate),
+      finSemana: dateToIso(currentWeek.endDate),
+      hoy: todayIso,
+      inicioControl: controlStartIso,
+    },
+    acumulado: {
+      horasPendientesVencidas: Math.round(pendingDays.reduce((sum, day) => sum + day.horasPendientes, 0) * 100) / 100,
+      diasPendientesVencidos: pendingDays.length,
+      horasPendientesMas48h: Math.round(pendingOver48Hours.reduce((sum, day) => sum + day.horasPendientes, 0) * 100) / 100,
+      diasPendientesMas48h: pendingOver48Hours.length,
+      fechaPendienteMasAntigua: pendingDays[0]?.fecha || null,
+    },
+    alerta48h: pendingOver48Hours.length > 0,
+  };
+}

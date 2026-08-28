@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import prisma from '@/lib/prisma';
 import { resolveEmpleado } from '@/lib/empleado-impersonation';
+import {
+  buildEmployeeTimesheetSummary,
+  FECHA_INICIO_CONTROL_IMPUTACIONES,
+  getMadridTodayIso,
+  getWorkWeek,
+  parseDateOnly,
+} from '@/lib/imputaciones-diarias';
 
 /**
  * GET /api/empleado/alertas
@@ -16,6 +23,7 @@ export async function GET(req: NextRequest) {
     }
 
     const alertas: any[] = [];
+    let resumenImputaciones = null;
 
     // 1. Horas pendientes en proyectos asignados
     const asignaciones = await prisma.asignacionProyecto.findMany({
@@ -55,72 +63,83 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Dias sin imputar desde 01/09/2026
-    const FECHA_INICIO_CONTROL = new Date('2026-09-01');
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
+    // 2. Balance diario personal y aviso interno cuando una jornada incompleta supera 48 horas laborables
+    const todayIso = getMadridTodayIso();
+    const currentWeek = getWorkWeek(todayIso);
+    const controlStart = parseDateOnly(FECHA_INICIO_CONTROL_IMPUTACIONES);
+    const queryStart = currentWeek.startDate < controlStart ? currentWeek.startDate : controlStart;
 
-    if (hoy >= FECHA_INICIO_CONTROL) {
-      // Obtener dias con imputaciones desde la fecha de inicio
-      const imputaciones = await prisma.imputacionHoras.findMany({
+    const [dailyImputations, absences] = await Promise.all([
+      prisma.imputacionHoras.groupBy({
+        by: ['empleadoId', 'fecha'],
         where: {
           empleadoId: empleado.id,
-          fecha: { gte: FECHA_INICIO_CONTROL, lte: hoy },
+          fecha: { gte: queryStart, lte: currentWeek.endDate },
         },
-        select: { fecha: true },
-      });
-      const diasConImputacion = new Set(
-        imputaciones.map(i => i.fecha.toISOString().split('T')[0])
-      );
-
-      // Obtener vacaciones/bajas/permisos aprobados del empleado en ese periodo
-      const ausencias = await prisma.calendarioPersonal.findMany({
+        _sum: { horas: true },
+        _count: { _all: true },
+      }),
+      prisma.calendarioPersonal.findMany({
         where: {
-          empleadoId: empleado.id,
           estado: { in: ['APROBADO', 'SOLICITADO'] },
-          fechaInicio: { lte: hoy },
-          fechaFin: { gte: FECHA_INICIO_CONTROL },
+          fechaInicio: { lte: currentWeek.endDate },
+          fechaFin: { gte: queryStart },
+          OR: [
+            { empleadoId: empleado.id },
+            { empleadoId: null },
+          ],
         },
-        select: { fechaInicio: true, fechaFin: true },
+        select: {
+          empleadoId: true,
+          empleadoNombre: true,
+          tipo: true,
+          estado: true,
+          fechaInicio: true,
+          fechaFin: true,
+          horaInicio: true,
+          horaFin: true,
+          tipoPermiso: true,
+        },
+      }),
+    ]);
+
+    resumenImputaciones = buildEmployeeTimesheetSummary({
+      todayIso,
+      employee: {
+        id: empleado.id,
+        nombreCompleto: empleado.nombreCompleto,
+        departamento: empleado.departamento,
+        fechaAlta: empleado.fechaAlta,
+        fechaBaja: empleado.fechaBaja,
+      },
+      imputations: dailyImputations.map(entry => ({
+        empleadoId: entry.empleadoId,
+        fecha: entry.fecha,
+        horas: entry._sum.horas || 0,
+        registros: entry._count._all,
+      })),
+      absences,
+    });
+
+    if (resumenImputaciones.alerta48h) {
+      alertas.push({
+        tipo: 'horas_sin_imputar_48h',
+        nivel: 'error',
+        titulo: `${resumenImputaciones.acumulado.horasPendientesMas48h} h llevan más de 48 horas pendientes`,
+        descripcion: 'Revisa las jornadas indicadas cuando puedas. Vacaciones, permisos, bajas y fines de semana ya están descontados automáticamente.',
+        diasSinImputar: resumenImputaciones.acumulado.diasPendientesMas48h,
       });
-
-      // Crear set de dias de ausencia
-      const diasAusencia = new Set<string>();
-      ausencias.forEach(a => {
-        const start = new Date(Math.max(a.fechaInicio.getTime(), FECHA_INICIO_CONTROL.getTime()));
-        const end = new Date(Math.min(a.fechaFin.getTime(), hoy.getTime()));
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-          diasAusencia.add(d.toISOString().split('T')[0]);
-        }
+    } else if (resumenImputaciones.acumulado.horasPendientesVencidas > 0) {
+      alertas.push({
+        tipo: 'horas_sin_imputar',
+        nivel: 'warning',
+        titulo: `Tienes ${resumenImputaciones.acumulado.horasPendientesVencidas} h pendientes de completar`,
+        descripcion: 'Son jornadas recientes y todavía no han superado las 48 horas. Puedes completarlas desde tu vista semanal.',
+        diasSinImputar: resumenImputaciones.acumulado.diasPendientesVencidos,
       });
-
-      // Contar dias laborables sin imputar (lunes a viernes, no ausencia, no hoy)
-      let diasSinImputar = 0;
-      const ayer = new Date(hoy);
-      ayer.setDate(ayer.getDate() - 1); // No contar hoy (aun puede imputar)
-
-      for (let d = new Date(FECHA_INICIO_CONTROL); d <= ayer; d.setDate(d.getDate() + 1)) {
-        const dia = d.getDay(); // 0=dom, 6=sab
-        if (dia === 0 || dia === 6) continue; // Fin de semana
-        const fechaStr = d.toISOString().split('T')[0];
-        if (diasAusencia.has(fechaStr)) continue; // Ausencia
-        if (!diasConImputacion.has(fechaStr)) {
-          diasSinImputar++;
-        }
-      }
-
-      if (diasSinImputar > 0) {
-        alertas.push({
-          tipo: 'dias_sin_imputar',
-          nivel: diasSinImputar > 5 ? 'error' : 'warning',
-          titulo: `Tienes ${diasSinImputar} dia${diasSinImputar > 1 ? 's' : ''} laborable${diasSinImputar > 1 ? 's' : ''} sin imputar`,
-          descripcion: `Desde el 1 de septiembre de 2026, es necesario registrar las horas de trabajo diarias. Tienes ${diasSinImputar} dia${diasSinImputar > 1 ? 's' : ''} pendiente${diasSinImputar > 1 ? 's' : ''}.`,
-          diasSinImputar,
-        });
-      }
     }
 
-    return NextResponse.json({ alertas });
+    return NextResponse.json({ alertas, resumenImputaciones, empleado: { id: empleado.id, nombreCompleto: empleado.nombreCompleto } });
   } catch (error: any) {
     console.error('Error en GET /api/empleado/alertas:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });

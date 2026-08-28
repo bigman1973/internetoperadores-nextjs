@@ -4,6 +4,9 @@ import { useSession } from 'next-auth/react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ReceiptPercentIcon, ClockIcon, DocumentTextIcon, ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
+import { useImpersonation } from '@/components/empleado/ImpersonationContext';
+import EmployeeTimesheetSummary from '@/components/imputaciones/EmployeeTimesheetSummary';
+import type { ResumenPersonalImputaciones } from '@/lib/imputaciones-diarias';
 
 interface Alerta {
   tipo: string;
@@ -16,16 +19,22 @@ interface Alerta {
 
 export default function EmpleadoPage() {
   const { data: session } = useSession();
+  const { impersonatedEmail, impersonatedEmpleado, getQueryParam, isReady } = useImpersonation();
   const [alertas, setAlertas] = useState<Alerta[]>([]);
+  const [resumenImputaciones, setResumenImputaciones] = useState<ResumenPersonalImputaciones | null>(null);
   const [loadingAlertas, setLoadingAlertas] = useState(true);
 
   useEffect(() => {
     async function fetchAlertas() {
+      if (!isReady) return;
       try {
-        const res = await fetch('/api/empleado/alertas');
+        setLoadingAlertas(true);
+        const query = getQueryParam();
+        const res = await fetch(`/api/empleado/alertas${query ? `?${query}` : ''}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           setAlertas(data.alertas || []);
+          setResumenImputaciones(data.resumenImputaciones || null);
         }
       } catch (e) {
         console.error(e);
@@ -34,21 +43,23 @@ export default function EmpleadoPage() {
       }
     }
     fetchAlertas();
-  }, []);
+  }, [impersonatedEmail, getQueryParam, isReady]);
 
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">
-          Hola, {session?.user?.name || 'Empleado'}
+          Hola, {impersonatedEmpleado?.nombreCompleto || session?.user?.name || 'Empleado'}
         </h1>
         <p className="text-gray-500 mt-1">Portal de empleado de Internet Operadores</p>
       </div>
 
-      {/* Alertas */}
-      {!loadingAlertas && alertas.length > 0 && (
+      {!loadingAlertas && resumenImputaciones && <EmployeeTimesheetSummary summary={resumenImputaciones} />}
+
+      {/* Otras alertas */}
+      {!loadingAlertas && alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
         <div className="mb-6 space-y-3">
-          {alertas.map((alerta, i) => (
+          {alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).map((alerta, i) => (
             <div
               key={i}
               className={`rounded-xl border p-4 ${

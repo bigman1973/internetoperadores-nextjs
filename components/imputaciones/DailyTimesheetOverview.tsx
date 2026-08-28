@@ -13,6 +13,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { InfoTip } from '@/components/imputaciones/CommercialContextFields';
 import type { BalanceDia, BalanceEmpleado } from '@/lib/imputaciones-diarias';
+import WeeklyEmployeeEfficiencyChart from '@/components/imputaciones/WeeklyEmployeeEfficiencyChart';
 
 interface DailyBalanceResponse {
   periodo: {
@@ -213,6 +214,8 @@ export default function DailyTimesheetOverview({ referenceDate, employeeId, onRe
               <p className="mt-1 text-[11px] text-cyan-600">Vacaciones, permisos o bajas</p>
             </div>
           </div>
+
+          <WeeklyEmployeeEfficiencyChart employees={visibleEmployees} />
 
           {data.periodo.fin < data.periodo.inicioControl && (
             <div className="flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 sm:flex-row sm:items-center sm:justify-between">

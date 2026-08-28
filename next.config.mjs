@@ -9,6 +9,8 @@ const nextConfig = {
 
   // Aumentar límite de body para enviar imágenes de PDF a GPT Vision
   experimental: {
+    // Evitar picos de memoria durante la generación de cientos de rutas en CI y entornos limitados
+    cpus: 1,
     serverActions: {
       bodySizeLimit: '50mb',
     },

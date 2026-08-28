@@ -74,7 +74,10 @@ function getMonday(d: Date): Date {
 }
 
 function formatDate(d: Date): string {
-  return d.toISOString().split('T')[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function formatDateShort(d: Date): string {
@@ -90,7 +93,7 @@ export default function ImputacionesPage() {
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [empleadoNombre, setEmpleadoNombre] = useState('');
-  const { impersonatedEmail, getQueryParam } = useImpersonation();
+  const { impersonatedEmail, getQueryParam, isReady } = useImpersonation();
 
   // Form state
   const [formData, setFormData] = useState(getInitialFormData);
@@ -162,6 +165,7 @@ export default function ImputacionesPage() {
   };
 
   const fetchData = useCallback(async () => {
+    if (!isReady) return;
     setLoading(true);
     setError(null);
     try {
@@ -169,8 +173,7 @@ export default function ImputacionesPage() {
         vista: 'semanal',
         fecha: formatDate(weekStart),
       });
-      const qp = getQueryParam();
-      if (qp) params.append('as', impersonatedEmail || '');
+      if (impersonatedEmail) params.set('as', impersonatedEmail);
 
       const res = await fetch(`/api/empleado/imputaciones?${params}`);
       const data = await res.json();
@@ -184,7 +187,7 @@ export default function ImputacionesPage() {
     } finally {
       setLoading(false);
     }
-  }, [weekStart, impersonatedEmail, getQueryParam]);
+  }, [weekStart, impersonatedEmail, getQueryParam, isReady]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -194,7 +197,8 @@ export default function ImputacionesPage() {
     try {
       const payload: any = { ...formData };
       if (selectedProyecto) payload.proyectoId = selectedProyecto.id;
-      const res = await fetch('/api/empleado/imputaciones', {
+      const query = getQueryParam();
+      const res = await fetch(`/api/empleado/imputaciones${query ? `?${query}` : ''}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -217,7 +221,9 @@ export default function ImputacionesPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('¿Eliminar esta imputación?')) return;
     try {
-      await fetch(`/api/empleado/imputaciones?id=${id}`, { method: 'DELETE' });
+      const params = new URLSearchParams({ id });
+      if (impersonatedEmail) params.set('as', impersonatedEmail);
+      await fetch(`/api/empleado/imputaciones?${params.toString()}`, { method: 'DELETE' });
       fetchData();
     } catch (err) {
       alert('Error al eliminar');
