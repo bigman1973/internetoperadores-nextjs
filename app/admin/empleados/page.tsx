@@ -152,11 +152,18 @@ export default function AdminEmpleadosPage() {
     }
   }
 
-  function getCondicionVigente(emp: Empleado): CondicionSalarial | null {
+  function getCondicionAlCierreAnual(emp: Empleado): { condicion: CondicionSalarial; esFutura: boolean } | null {
     if (!emp.condicionesSalariales || emp.condicionesSalariales.length === 0) return null;
-    const hoy = new Date().toISOString().split('T')[0];
-    // Condiciones ordenadas desc por fechaEfectiva, la primera que sea <= hoy es la vigente
-    return emp.condicionesSalariales.find(c => c.fechaEfectiva.split('T')[0] <= hoy) || null;
+    const cierreEjercicio = `${anioSeleccionado}-12-31`;
+    const hoyMadrid = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Madrid',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    // La tabla anual representa la condición que estará vigente al cierre del ejercicio seleccionado.
+    const condicion = emp.condicionesSalariales.find(c => c.fechaEfectiva.split('T')[0] <= cierreEjercicio) || null;
+    return condicion ? { condicion, esFutura: condicion.fechaEfectiva.split('T')[0] > hoyMadrid } : null;
   }
 
   function getEmpleadoTotales(emp: Empleado) {
@@ -482,9 +489,9 @@ export default function AdminEmpleadosPage() {
                         );
                       })()}
                       {periodo === 'anual' && (() => {
-                        const cond = getCondicionVigente(emp);
+                        const condicionResumen = getCondicionAlCierreAnual(emp);
                         const bruto = getBrutoTrabajadorAnual(emp);
-                        if (!cond) return (
+                        if (!condicionResumen) return (
                           <td className="px-4 py-3 text-right">
                             {isSuperAdmin ? (
                               <button
@@ -494,15 +501,23 @@ export default function AdminEmpleadosPage() {
                             ) : '—'}
                           </td>
                         );
-                        const diff = bruto ? bruto.proyeccion12 - cond.brutoAnual : 0;
+                        const { condicion: cond, esFutura } = condicionResumen;
+                        const desviacionNomina = bruto ? bruto.proyeccion12 - cond.brutoAnual : 0;
                         return (
                           <td className={`px-4 py-3 text-right ${isSuperAdmin ? 'cursor-pointer hover:bg-orange-50' : ''}`} onClick={() => { if (isSuperAdmin) setModalEmpleado(emp); }}>
-                            <div className="font-semibold text-orange-700">{formatEur(cond.brutoAnual)}</div>
-                            <div className="text-xs text-gray-400">desde {new Date(cond.fechaEfectiva).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}</div>
+                            <div className="flex flex-wrap items-center justify-end gap-1">
+                              <span className="font-semibold text-orange-700">{formatEur(cond.brutoAnual)}</span>
+                              {esFutura && <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">Próxima</span>}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {esFutura ? 'aplica' : 'vigente desde'} {new Date(cond.fechaEfectiva).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}
+                            </div>
                             {isSuperAdmin && <div className="mt-1 text-xs font-semibold text-indigo-600">Simular cambio</div>}
-                            {bruto && Math.abs(diff) > 50 && (
-                              <div className={`text-xs ${diff > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                {diff > 0 ? '+' : ''}{formatEur(diff)} vs real
+                            {bruto && Math.abs(desviacionNomina) > 50 && (
+                              <div className={`text-xs ${desviacionNomina > 0 ? 'text-amber-700' : 'text-green-700'}`}>
+                                {desviacionNomina > 0
+                                  ? `Nómina ${formatEur(Math.abs(desviacionNomina))} sobre pactado`
+                                  : `Pactado ${formatEur(Math.abs(desviacionNomina))} sobre nómina`}
                               </div>
                             )}
                           </td>
@@ -550,8 +565,8 @@ export default function AdminEmpleadosPage() {
                   {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-orange-800">
                       {formatEur(empleados.reduce((sum, emp) => {
-                        const cond = getCondicionVigente(emp);
-                        return sum + (cond ? cond.brutoAnual : 0);
+                        const resumen = getCondicionAlCierreAnual(emp);
+                        return sum + (resumen ? resumen.condicion.brutoAnual : 0);
                       }, 0))}
                     </td>
                   )}
