@@ -151,6 +151,7 @@ const navigation: NavEntry[] = [
     section: 'personal',
     children: [
       { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon, section: 'personal' },
+      { name: 'Organigrama', href: '/admin/empleados/organigrama', icon: UserGroupIcon, section: 'personal' },
       { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon, section: 'personal' },
       { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon, section: 'personal' },
       { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon, section: 'personal' },

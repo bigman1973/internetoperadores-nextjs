@@ -1477,6 +1477,9 @@ model Empleado {
   personalProyectos PersonalProyectoDraxton[] @relation("PersonalProyectoDraxton")
   condicionesSalariales CondicionSalarial[]
   lineasEscenariosSalariales LineaEscenarioSalarial[]
+  puestosOrganizativos PuestoOrganizativo[] @relation("PuestoEmpleado")
+  subordinadosOrganizativos PuestoOrganizativo[] @relation("PuestoSuperior")
+  dependenciasFuncionalesOrganizativas PuestoOrganizativo[] @relation("PuestoDependenciaFuncional")
   objetivos         ObjetivoEmpleado[]
   evaluaciones      EvaluacionDesempeno[]
   formaciones       FormacionEmpleado[]
@@ -1660,6 +1663,8 @@ model Nomina {
   // Archivo
   archivoUrl              String?  @map("archivo_url") // URL del PDF de la nómina
   archivoNombre           String?  @map("archivo_nombre")
+  categoriaProfesional    String?  @map("categoria_profesional")
+  categoriaExtraidaAt     DateTime? @map("categoria_extraida_at")
   // Relaciones
   empleado                Empleado @relation(fields: [empleadoId], references: [id])
   movimientos             MovimientoBancario[]
@@ -1669,6 +1674,39 @@ model Nomina {
   @@unique([empleadoId, mes, anio])
   @@index([anio, mes])
   @@map("nominas")
+}
+
+model PuestoOrganizativo {
+  id                       String    @id @default(uuid())
+  empleadoId               String    @map("empleado_id")
+  empresaGrupo             String    @default("INTERNET OPERADORES") @map("empresa_grupo")
+  departamento             String
+  cargo                    String
+  superiorId               String?   @map("superior_id")
+  dependenciaFuncionalId   String?   @map("dependencia_funcional_id")
+  fechaInicio              DateTime  @map("fecha_inicio") @db.Date
+  fechaFin                 DateTime? @map("fecha_fin") @db.Date
+  categoriaNomina          String?   @map("categoria_nomina")
+  categoriaNominaMes       Int?      @map("categoria_nomina_mes")
+  categoriaNominaAnio      Int?      @map("categoria_nomina_anio")
+  categoriaOrigen          String    @default("ficha_empleado") @map("categoria_origen")
+  funciones                String?   @db.Text
+  notas                    String?   @db.Text
+  ordenOrganigrama         Int       @default(0) @map("orden_organigrama")
+  mostrarEnOrganigrama     Boolean   @default(true) @map("mostrar_en_organigrama")
+  creadoPor                String?   @map("creado_por")
+  empleado                 Empleado  @relation("PuestoEmpleado", fields: [empleadoId], references: [id], onDelete: Cascade)
+  superior                 Empleado? @relation("PuestoSuperior", fields: [superiorId], references: [id])
+  dependenciaFuncional     Empleado? @relation("PuestoDependenciaFuncional", fields: [dependenciaFuncionalId], references: [id])
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  @@unique([empleadoId, fechaInicio])
+  @@index([empleadoId, fechaFin])
+  @@index([superiorId])
+  @@index([dependenciaFuncionalId])
+  @@index([empresaGrupo, departamento])
+  @@map("puestos_organizativos")
 }
 
 model Proyecto {

@@ -269,12 +269,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'codigo requerido' }, { status: 400 })
     }
 
-    // Verificar si ya existe
-    const existing = await prisma.permisoArea.findUnique({ where: { codigo } })
-    if (existing) {
-      return NextResponse.json({ ok: true, existed: true })
-    }
-
     // Generar nombre legible a partir del código
     const parts = codigo.replace('admin.', '').split('.')
     const nombre = parts.map((p: string) => 
@@ -286,16 +280,14 @@ export async function POST(request: Request) {
     parentParts.pop()
     const padre = parentParts.length > 0 ? parentParts.join('.') : null
 
-    await prisma.permisoArea.create({
-      data: {
-        codigo,
-        nombre,
-        padre,
-        activo: true,
-      },
+    // Upsert evita la condición de carrera cuando varias pestañas registran la misma ruta a la vez.
+    const area = await prisma.permisoArea.upsert({
+      where: { codigo },
+      update: { activo: true },
+      create: { codigo, nombre, padre, activo: true },
     })
 
-    return NextResponse.json({ ok: true, created: true })
+    return NextResponse.json({ ok: true, area })
   }
 
   return NextResponse.json({ error: 'Acción no válida' }, { status: 400 })

@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { findCostesFiles, downloadCostesFile } from '@/lib/microsoft-graph';
-import { parseCostesIOPdf, type ParseSummary } from '@/lib/nominas-parser';
+import { extractProfessionalCategoryFromPayrollText, parseCostesIOPdf, type ParseSummary } from '@/lib/nominas-parser';
 
 // Increase Vercel function timeout to avoid timeouts when downloading multiple PDFs
 export const maxDuration = 120;
@@ -330,8 +330,9 @@ export async function POST(req: NextRequest) {
         debugLog.push(`  PDF text length: ${extractedText.length}, has NIF.B: ${extractedText.includes('NIF.')}, has LIQUIDO: ${extractedText.includes('LIQUIDO')}`);
         debugLog.push(`  First 300 chars: ${extractedText.substring(0, 300).replace(/\n/g, '|')}`);
         
-        const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
-        debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}`);
+          const parsed = await parseCostesIOPdf(pdfBuffer, file.name);
+          const categoriaProfesional = extractProfessionalCategoryFromPayrollText(extractedText);
+          debugLog.push(`  Parsed: ${parsed.nominas.length} nominas, format=${parsed.formato}, mes=${parsed.mes}, anio=${parsed.anio}, categoria=${categoriaProfesional || 'no detectada'}`);
         
         if (parsed.nominas.length > 0) {
           const nominaData = parsed.nominas.find(n => n.nif === empleado.nif) || parsed.nominas[0];
@@ -351,6 +352,8 @@ export async function POST(req: NextRequest) {
               complementoEspecie: nominaData.complementoEspecie > 0 ? nominaData.complementoEspecie : null,
               archivoUrl: downloadUrl,
               archivoNombre: file.name,
+              categoriaProfesional,
+              categoriaExtraidaAt: categoriaProfesional ? new Date() : null,
             },
           });
           vinculadasByMonth.set(monthNum, (vinculadasByMonth.get(monthNum) || 0) + 1);
@@ -379,9 +382,25 @@ export async function POST(req: NextRequest) {
         });
         
         if (existingNomina) {
+          let categoriaProfesional = existingNomina.categoriaProfesional;
+          if (!categoriaProfesional) {
+            try {
+              const pdfBuffer = await downloadCostesFile(file.id);
+              const pdfParse = (await import('pdf-parse')).default;
+              const pdfData = await pdfParse(pdfBuffer);
+              categoriaProfesional = extractProfessionalCategoryFromPayrollText(pdfData.text);
+            } catch (categoryError: any) {
+              debugLog.push(`  WARN categoría ${file.name}: ${categoryError.message}`);
+            }
+          }
           await prisma.nomina.update({
             where: { id: existingNomina.id },
-            data: { archivoUrl: downloadUrl, archivoNombre: file.name },
+            data: {
+              archivoUrl: downloadUrl,
+              archivoNombre: file.name,
+              categoriaProfesional,
+              categoriaExtraidaAt: categoriaProfesional ? new Date() : existingNomina.categoriaExtraidaAt,
+            },
           });
           vinculadasByMonth.set(monthNum, (vinculadasByMonth.get(monthNum) || 0) + 1);
         }
