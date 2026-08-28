@@ -30,6 +30,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (session.user.role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ error: 'Operación exclusiva para SUPER_ADMIN' }, { status: 403 });
+  }
 
   const body = await req.json();
   const { empleadoId, fechaEfectiva, brutoAnual, motivo, notas } = body;
@@ -64,6 +67,9 @@ export async function POST(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (session.user.role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ error: 'Operación exclusiva para SUPER_ADMIN' }, { status: 403 });
+  }
 
   const body = await req.json();
   const { id, fechaEfectiva, brutoAnual, motivo, notas } = body;
@@ -94,6 +100,9 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (session.user.role !== 'SUPER_ADMIN') {
+    return NextResponse.json({ error: 'Operación exclusiva para SUPER_ADMIN' }, { status: 403 });
+  }
 
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
