@@ -1476,6 +1476,7 @@ model Empleado {
   proyectosDraxton   ProyectoContratoDraxton[] @relation("ProyectoResponsable")
   personalProyectos PersonalProyectoDraxton[] @relation("PersonalProyectoDraxton")
   condicionesSalariales CondicionSalarial[]
+  lineasEscenariosSalariales LineaEscenarioSalarial[]
   objetivos         ObjetivoEmpleado[]
   evaluaciones      EvaluacionDesempeno[]
   formaciones       FormacionEmpleado[]
@@ -1581,6 +1582,56 @@ model CondicionSalarial {
   @@index([empleadoId])
   @@index([fechaEfectiva])
   @@map("condiciones_salariales")
+}
+
+model EscenarioSalarial {
+  id                  String   @id @default(uuid())
+  nombre              String
+  fechaEfectiva       DateTime @map("fecha_efectiva") @db.Date
+  tipoAjusteGeneral   String   @default("porcentaje") @map("tipo_ajuste_general") // porcentaje, importe
+  valorAjusteGeneral  Decimal  @default(0) @map("valor_ajuste_general") @db.Decimal(12, 4)
+  estado              String   @default("borrador") // borrador, revisado, descartado
+  notas               String?
+  creadoPor           String?  @map("creado_por")
+  snapshotFecha       DateTime @default(now()) @map("snapshot_fecha")
+  lineas              LineaEscenarioSalarial[]
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([estado])
+  @@index([fechaEfectiva])
+  @@map("escenarios_salariales")
+}
+
+model LineaEscenarioSalarial {
+  id                          String   @id @default(uuid())
+  escenarioId                 String   @map("escenario_id")
+  empleadoId                  String   @map("empleado_id")
+  empleadoNombre              String   @map("empleado_nombre")
+  empleadoEmail               String?  @map("empleado_email")
+  categoria                   String?
+  incluido                    Boolean  @default(true)
+  brutoActual                 Decimal  @map("bruto_actual") @db.Decimal(12, 2)
+  brutoPropuesto              Decimal  @map("bruto_propuesto") @db.Decimal(12, 2)
+  tasaSSEmpresa               Decimal  @map("tasa_ss_empresa") @db.Decimal(8, 6)
+  costeEmpresaActual          Decimal  @map("coste_empresa_actual") @db.Decimal(12, 2)
+  costeEmpresaPropuesto       Decimal  @map("coste_empresa_propuesto") @db.Decimal(12, 2)
+  porcentajeSubida            Decimal  @map("porcentaje_subida") @db.Decimal(8, 4)
+  incrementoBrutoAnual        Decimal  @map("incremento_bruto_anual") @db.Decimal(12, 2)
+  incrementoCosteEmpresaAnual Decimal  @map("incremento_coste_empresa_anual") @db.Decimal(12, 2)
+  origenSalario               String   @map("origen_salario")
+  referenciaFecha             DateTime? @map("referencia_fecha") @db.Date
+  nominasUtilizadas           Int      @default(0) @map("nominas_utilizadas")
+  notas                       String?
+  escenario                   EscenarioSalarial @relation(fields: [escenarioId], references: [id], onDelete: Cascade)
+  empleado                    Empleado @relation(fields: [empleadoId], references: [id])
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+
+  @@unique([escenarioId, empleadoId])
+  @@index([empleadoId])
+  @@index([escenarioId, incluido])
+  @@map("lineas_escenarios_salariales")
 }
 
 model Nomina {
