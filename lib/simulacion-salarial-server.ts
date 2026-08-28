@@ -1,14 +1,18 @@
 import prisma from '@/lib/prisma';
+import { downloadCostesFile } from '@/lib/microsoft-graph';
+import { parsePayrollProfessionalCategory } from '@/lib/nominas-parser';
 import { calculateSalarySimulation } from '@/lib/simulacion-salarial';
 
 export async function buildSalarySimulationContext({
   empleadoId,
   fechaEfectiva,
   brutoAnualPropuesto,
+  includePayrollCategory = false,
 }: {
   empleadoId: string;
   fechaEfectiva: string;
   brutoAnualPropuesto: number;
+  includePayrollCategory?: boolean;
 }) {
   const effectiveDate = new Date(`${fechaEfectiva}T00:00:00.000Z`);
   if (Number.isNaN(effectiveDate.getTime())) throw new Error('La fecha efectiva no es válida');
@@ -45,6 +49,8 @@ export async function buildSalarySimulationContext({
           baseSS: true,
           ssEmpresa: true,
           gastosDesplazamiento: true,
+          archivoUrl: true,
+          archivoNombre: true,
         },
       },
     },
@@ -54,6 +60,21 @@ export async function buildSalarySimulationContext({
 
   const condicionVigente = empleado.condicionesSalariales[0] || null;
   const ultimaNomina = empleado.nominas[0] || null;
+  const nominaConPdf = empleado.nominas.find(nomina => Boolean(nomina.archivoUrl)) || null;
+  let categoriaNomina: string | null = null;
+
+  if (includePayrollCategory && nominaConPdf?.archivoUrl) {
+    const fileId = nominaConPdf.archivoUrl.match(/\/api\/admin\/nominas\/download\/([^/?#]+)/)?.[1];
+    if (fileId) {
+      try {
+        const pdfBuffer = await downloadCostesFile(fileId);
+        categoriaNomina = await parsePayrollProfessionalCategory(Buffer.from(pdfBuffer));
+      } catch (error) {
+        console.warn('No se pudo extraer la categoría profesional de la nómina de referencia:', error);
+      }
+    }
+  }
+
   const brutoAnualActual = condicionVigente?.brutoAnual || (ultimaNomina ? ultimaNomina.devengadoTotal * 12 : 0);
   if (brutoAnualActual <= 0) throw new Error('No hay condición salarial ni nómina disponible para establecer el bruto anual actual');
 
@@ -64,7 +85,11 @@ export async function buildSalarySimulationContext({
       nif: empleado.nif,
       email: empleado.email,
       departamento: empleado.departamento,
-      categoria: empleado.categoria,
+      categoria: categoriaNomina || empleado.categoria,
+      categoriaOrigen: categoriaNomina ? ('nomina' as const) : ('ficha_empleado' as const),
+      categoriaNominaPeriodo: categoriaNomina && nominaConPdf
+        ? { mes: nominaConPdf.mes, anio: nominaConPdf.anio, archivoNombre: nominaConPdf.archivoNombre }
+        : null,
       estado: empleado.estado,
     },
     referenciaActual: condicionVigente

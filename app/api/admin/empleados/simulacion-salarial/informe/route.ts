@@ -7,6 +7,11 @@ import { buildSalarySimulationContext } from '@/lib/simulacion-salarial-server';
 
 export const dynamic = 'force-dynamic';
 
+const DOCUMENT_AUTHOR = {
+  name: 'David Pérez',
+  email: 'david.perez@internetoperadores.com',
+};
+
 const MOTIVOS: Record<string, string> = {
   incorporacion: 'Incorporación',
   subida_anual: 'Subida anual',
@@ -57,12 +62,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Empleado, fecha efectiva y bruto anual propuesto son obligatorios' }, { status: 400 });
     }
 
-    const context = await buildSalarySimulationContext({ empleadoId, fechaEfectiva, brutoAnualPropuesto });
+    const context = await buildSalarySimulationContext({ empleadoId, fechaEfectiva, brutoAnualPropuesto, includePayrollCategory: true });
     const { empleado, simulacion, referenciaActual } = context;
     const logoBuffer = await readFile(path.join(process.cwd(), 'public/images/logo-internetoperadores.png'));
     const logoDataUrl = `data:image/png;base64,${logoBuffer.toString('base64')}`;
     const positive = simulacion.incremento.brutoAnual >= 0;
     const referenceLabel = referenciaActual.origen === 'condicion_salarial' ? 'Condición salarial vigente' : 'Proyección de la última nómina disponible';
+    const categoriaReferencia = empleado.categoriaOrigen === 'nomina' && empleado.categoriaNominaPeriodo
+      ? `Nómina ${String(empleado.categoriaNominaPeriodo.mes).padStart(2, '0')}/${empleado.categoriaNominaPeriodo.anio}`
+      : 'Ficha del empleado (nómina no disponible)';
 
     const html = `<!DOCTYPE html>
 <html lang="es">
@@ -152,7 +160,7 @@ export async function POST(req: NextRequest) {
       <h2>Datos de la propuesta</h2>
       <div class="meta">
         <div><span class="label">Empleado</span><span class="value">${escapeHtml(empleado.nombreCompleto)}</span></div>
-        <div><span class="label">Categoría</span><span class="value">${escapeHtml(empleado.categoria || 'No informada')}</span></div>
+        <div><span class="label">Categoría profesional</span><span class="value">${escapeHtml(empleado.categoria || 'No informada')}</span><span style="display:block;margin-top:1px;color:#798397;font-size:8px">${escapeHtml(categoriaReferencia)}</span></div>
         <div><span class="label">Departamento</span><span class="value">${escapeHtml(empleado.departamento || 'No informado')}</span></div>
         <div><span class="label">Fecha efectiva propuesta</span><span class="value">${formatDate(`${fechaEfectiva}T00:00:00.000Z`)}</span></div>
         <div><span class="label">Motivo</span><span class="value">${escapeHtml(MOTIVOS[motivo] || motivo)}</span></div>
@@ -203,7 +211,7 @@ export async function POST(req: NextRequest) {
       <div><div class="line">Conclusión de la revisión</div><div class="line">Observaciones</div></div>
     </section>
 
-    <footer class="footer"><span>Internet Operadores S.L. · Documento interno confidencial</span><span>Generado por ${escapeHtml(session.user.email)} · ${formatDate(new Date())}</span></footer>
+    <footer class="footer"><span>Internet Operadores S.L. · Documento interno confidencial</span><span>Generado por ${escapeHtml(DOCUMENT_AUTHOR.name)} · ${escapeHtml(DOCUMENT_AUTHOR.email)} · ${formatDate(new Date())}</span></footer>
   </main>
 </body>
 </html>`;

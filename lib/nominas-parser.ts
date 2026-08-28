@@ -43,6 +43,38 @@ export interface ParseSummary {
 }
 
 /**
+ * Extract the professional category printed on an individual payslip.
+ * The worker row follows the pattern: NAME  CATEGORY  DATE  NIF.
+ */
+export function extractProfessionalCategoryFromPayrollText(text: string): string | null {
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    if (line.includes('NIF.') || line.includes('AFILIACION')) continue;
+    if (!/(\d{8}[A-Z])\s*$/.test(line)) continue;
+
+    const segments = line.trim().split(/\s{2,}/).filter(Boolean);
+    if (segments.length >= 3) {
+      const nifIndex = segments.findIndex(segment => /\d{8}[A-Z]\s*$/.test(segment));
+      if (nifIndex >= 2) {
+        const category = segments[1].trim();
+        if (category && !/\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(category)) return category;
+      }
+    }
+
+    const categoryMatch = line.match(/^\s{2,}.+?\s{2,}([A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑ\s/.-]+?)\s{2,}.*\d{8}[A-Z]\s*$/);
+    if (categoryMatch?.[1]) return categoryMatch[1].trim();
+  }
+
+  return null;
+}
+
+export async function parsePayrollProfessionalCategory(pdfBuffer: Buffer): Promise<string | null> {
+  const data = await pdf(pdfBuffer);
+  return extractProfessionalCategoryFromPayrollText(data.text);
+}
+
+/**
  * Parse a Spanish-format number (1.234,56 or -1.234,56)
  */
 function parseNumber(s: string): number {
