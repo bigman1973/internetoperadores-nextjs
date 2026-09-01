@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { calcularFinanzasProyecto } from '@/lib/proyectos-finanzas'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
         include: { empleado: { select: { id: true, nombreCompleto: true, departamento: true, costeHoraActual: true } } }
       },
       imputaciones: {
-        select: { horas: true, costeImputado: true }
+        select: { empleadoId: true, horas: true, costeImputado: true }
       }
     },
     orderBy: { createdAt: 'desc' }
@@ -30,15 +31,22 @@ export async function GET(req: NextRequest) {
 
   // Calcular totales por proyecto
   const proyectosConTotales = proyectos.map(p => {
-    const horasImputadas = p.imputaciones.reduce((sum, i) => sum + i.horas, 0)
-    const costeRecursos = p.imputaciones.reduce((sum, i) => sum + (i.costeImputado || 0), 0)
-    const horasEstimadas = p.asignaciones.reduce((sum, a) => sum + (a.horasEstimadas || 0), 0)
     const importeVenta = p.importeVenta ? Number(p.importeVenta) : 0
     const costeProveedores = p.costeProveedores ? Number(p.costeProveedores) : 0
     const otrosCostes = p.otrosCostes ? Number(p.otrosCostes) : 0
-    const costeTotalReal = costeProveedores + otrosCostes + costeRecursos
-    const margenBruto = importeVenta - costeTotalReal
-    const margenPct = importeVenta > 0 ? (margenBruto / importeVenta) * 100 : 0
+    const finanzas = calcularFinanzasProyecto({
+      importeVenta,
+      costeProveedores,
+      otrosCostes,
+      asignaciones: p.asignaciones.map(a => ({
+        empleadoId: a.empleadoId,
+        horasEstimadas: a.horasEstimadas,
+        costeHora: a.costeHora,
+        costeHoraEmpleado: a.empleado.costeHoraActual,
+        activa: a.activa,
+      })),
+      imputaciones: p.imputaciones,
+    })
 
     return {
       id: p.id,
@@ -59,12 +67,11 @@ export async function GET(req: NextRequest) {
       presupuesto: p.presupuesto,
       documentosJson: p.documentosJson,
       asignaciones: p.asignaciones,
-      horasImputadas,
-      horasEstimadas,
-      costeRecursos,
-      costeTotalReal,
-      margenBruto,
-      margenPct,
+      ...finanzas,
+      // Compatibilidad con consumidores anteriores: estos campos siguen representando el dato real contabilizado.
+      costeRecursos: finanzas.costeRecursosReal,
+      margenBruto: finanzas.margenRealBruto,
+      margenPct: finanzas.margenRealPct,
       createdAt: p.createdAt,
     }
   })
@@ -196,18 +203,43 @@ export async function POST(req: NextRequest) {
 
       // Calcular horas imputadas por empleado
       const horasPorEmpleado: Record<string, number> = {}
+      const costesPorEmpleado: Record<string, number> = {}
       proyecto.imputaciones.forEach(imp => {
         horasPorEmpleado[imp.empleadoId] = (horasPorEmpleado[imp.empleadoId] || 0) + imp.horas
+        costesPorEmpleado[imp.empleadoId] = (costesPorEmpleado[imp.empleadoId] || 0) + Number(imp.costeImputado || 0)
+      })
+
+      const importeVenta = proyecto.importeVenta ? Number(proyecto.importeVenta) : 0
+      const costeProveedores = proyecto.costeProveedores ? Number(proyecto.costeProveedores) : 0
+      const otrosCostes = proyecto.otrosCostes ? Number(proyecto.otrosCostes) : 0
+      const finanzas = calcularFinanzasProyecto({
+        importeVenta,
+        costeProveedores,
+        otrosCostes,
+        asignaciones: proyecto.asignaciones.map(a => ({
+          empleadoId: a.empleadoId,
+          horasEstimadas: a.horasEstimadas,
+          costeHora: a.costeHora,
+          costeHoraEmpleado: a.empleado.costeHoraActual,
+          activa: a.activa,
+        })),
+        imputaciones: proyecto.imputaciones.map(i => ({
+          empleadoId: i.empleadoId,
+          horas: i.horas,
+          costeImputado: i.costeImputado,
+        })),
       })
 
       return NextResponse.json({
         ...proyecto,
-        importeVenta: proyecto.importeVenta ? Number(proyecto.importeVenta) : null,
-        costeProveedores: proyecto.costeProveedores ? Number(proyecto.costeProveedores) : null,
-        otrosCostes: proyecto.otrosCostes ? Number(proyecto.otrosCostes) : null,
+        importeVenta,
+        costeProveedores,
+        otrosCostes,
         horasPorEmpleado,
-        totalHorasImputadas: proyecto.imputaciones.reduce((s, i) => s + i.horas, 0),
-        totalCosteRecursos: proyecto.imputaciones.reduce((s, i) => s + (i.costeImputado || 0), 0),
+        costesPorEmpleado,
+        ...finanzas,
+        totalHorasImputadas: finanzas.horasImputadas,
+        totalCosteRecursos: finanzas.costeRecursosReal,
       })
     }
 
