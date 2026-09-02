@@ -14,6 +14,7 @@ interface Alerta {
   titulo: string;
   descripcion: string;
   proyectos?: any[];
+  peticiones?: Array<{ id: number; titulo: string; fechaResolucion: string | null }>;
   diasSinImputar?: number;
 }
 
@@ -54,62 +55,74 @@ export default function EmpleadoPage() {
         <p className="text-gray-500 mt-1">Portal de empleado de Internet Operadores</p>
       </div>
 
-      {!loadingAlertas && resumenImputaciones && <EmployeeTimesheetSummary summary={resumenImputaciones} />}
-
-      {/* Otras alertas */}
+      {/* Avisos prioritarios al iniciar sesión */}
       {!loadingAlertas && alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
         <div className="mb-6 space-y-3">
-          {alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).map((alerta, i) => (
-            <div
-              key={i}
-              className={`rounded-xl border p-4 ${
-                alerta.nivel === 'error'
-                  ? 'bg-red-50 border-red-200'
-                  : 'bg-amber-50 border-amber-200'
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                <ExclamationTriangleIcon
-                  className={`w-5 h-5 mt-0.5 flex-shrink-0 ${
-                    alerta.nivel === 'error' ? 'text-red-500' : 'text-amber-500'
-                  }`}
-                />
-                <div className="flex-1">
-                  <p className={`font-medium ${alerta.nivel === 'error' ? 'text-red-800' : 'text-amber-800'}`}>
-                    {alerta.titulo}
-                  </p>
-                  <p className={`text-sm mt-0.5 ${alerta.nivel === 'error' ? 'text-red-600' : 'text-amber-600'}`}>
-                    {alerta.descripcion}
-                  </p>
-                  {alerta.tipo === 'proyectos_pendientes' && alerta.proyectos && (
-                    <div className="mt-2 space-y-1">
-                      {alerta.proyectos.map((p: any, j: number) => (
-                        <div key={j} className="flex items-center gap-2 text-sm">
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${p.proyecto.tipo === 'cliente' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
-                            {p.proyecto.tipo === 'cliente' ? 'Cliente' : 'Interno'}
-                          </span>
-                          <span className="text-gray-700">{p.proyecto.nombre}</span>
-                          <span className="text-amber-700 font-medium">{p.horasPendientes}h pendientes</span>
-                        </div>
-                      ))}
-                    </div>
+          {alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).map((alerta, i) => {
+            const esPeticion = alerta.tipo === 'peticiones_pendientes_validacion';
+            const esError = alerta.nivel === 'error';
+            return (
+              <div
+                key={i}
+                className={`rounded-xl border p-4 ${
+                  esPeticion
+                    ? 'bg-violet-50 border-violet-300'
+                    : esError
+                      ? 'bg-red-50 border-red-200'
+                      : 'bg-amber-50 border-amber-200'
+                }`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                  {esPeticion ? (
+                    <InformationCircleIcon className="w-5 h-5 mt-0.5 flex-shrink-0 text-violet-600" />
+                  ) : (
+                    <ExclamationTriangleIcon className={`w-5 h-5 mt-0.5 flex-shrink-0 ${esError ? 'text-red-500' : 'text-amber-500'}`} />
                   )}
+                  <div className="min-w-0 flex-1">
+                    <p className={`font-medium ${esPeticion ? 'text-violet-900' : esError ? 'text-red-800' : 'text-amber-800'}`}>
+                      {alerta.titulo}
+                    </p>
+                    <p className={`text-sm mt-0.5 ${esPeticion ? 'text-violet-700' : esError ? 'text-red-600' : 'text-amber-600'}`}>
+                      {alerta.descripcion}
+                    </p>
+                    {esPeticion && alerta.peticiones && (
+                      <div className="mt-2 space-y-1">
+                        {alerta.peticiones.slice(0, 3).map(peticion => (
+                          <p key={peticion.id} className="truncate text-xs font-medium text-violet-900">#{peticion.id} · {peticion.titulo}</p>
+                        ))}
+                        {alerta.peticiones.length > 3 && <p className="text-xs text-violet-700">Y {alerta.peticiones.length - 3} más pendientes.</p>}
+                      </div>
+                    )}
+                    {alerta.tipo === 'proyectos_pendientes' && alerta.proyectos && (
+                      <div className="mt-2 space-y-1">
+                        {alerta.proyectos.map((p: any, j: number) => (
+                          <div key={j} className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${p.proyecto.tipo === 'cliente' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                              {p.proyecto.tipo === 'cliente' ? 'Cliente' : 'Interno'}
+                            </span>
+                            <span className="text-gray-700">{p.proyecto.nombre}</span>
+                            <span className="text-amber-700 font-medium">{p.horasPendientes}h pendientes</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <Link
+                    href={esPeticion ? '/peticiones' : '/empleado/imputaciones'}
+                    className={`shrink-0 rounded-lg px-3 py-2 text-center text-xs font-medium text-white ${
+                      esPeticion ? 'bg-violet-700 hover:bg-violet-800' : esError ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
+                    }`}
+                  >
+                    {esPeticion ? 'Revisar ahora' : 'Imputar ahora'}
+                  </Link>
                 </div>
-                <Link
-                  href="/empleado/imputaciones"
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium ${
-                    alerta.nivel === 'error'
-                      ? 'bg-red-600 text-white hover:bg-red-700'
-                      : 'bg-amber-600 text-white hover:bg-amber-700'
-                  }`}
-                >
-                  Imputar ahora
-                </Link>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      {!loadingAlertas && resumenImputaciones && <EmployeeTimesheetSummary summary={resumenImputaciones} />}
 
       {/* Accesos rapidos */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

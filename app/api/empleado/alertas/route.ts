@@ -25,7 +25,31 @@ export async function GET(req: NextRequest) {
     const alertas: any[] = [];
     let resumenImputaciones = null;
 
-    // 1. Horas pendientes en proyectos asignados
+    // 1. Peticiones entregadas que necesitan la validación del solicitante
+    if (empleado.email) {
+      const peticionesPendientes = await prisma.peticionInterna.findMany({
+        where: {
+          usuarioEmail: { equals: empleado.email.toLowerCase(), mode: 'insensitive' },
+          estado: 'pendiente_validacion',
+        },
+        select: { id: true, titulo: true, fechaResolucion: true },
+        orderBy: { fechaResolucion: 'asc' },
+      });
+
+      if (peticionesPendientes.length > 0) {
+        alertas.push({
+          tipo: 'peticiones_pendientes_validacion',
+          nivel: 'info',
+          titulo: peticionesPendientes.length === 1
+            ? 'Tienes una petición pendiente de validar'
+            : `Tienes ${peticionesPendientes.length} peticiones pendientes de validar`,
+          descripcion: 'Revisa lo realizado y confirma si cumple tus requisitos o indica qué ajustes necesitas.',
+          peticiones: peticionesPendientes,
+        });
+      }
+    }
+
+    // 2. Horas pendientes en proyectos asignados
     const asignaciones = await prisma.asignacionProyecto.findMany({
       where: { empleadoId: empleado.id, activa: true, horasEstimadas: { not: null, gt: 0 } },
       include: { proyecto: { select: { id: true, nombre: true, tipo: true, estado: true } } },
@@ -63,7 +87,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Balance diario personal y aviso interno cuando una jornada incompleta supera 48 horas laborables
+    // 3. Balance diario personal y aviso interno cuando una jornada incompleta supera 48 horas laborables
     const todayIso = getMadridTodayIso();
     const currentWeek = getWorkWeek(todayIso);
     const controlStart = parseDateOnly(FECHA_INICIO_CONTROL_IMPUTACIONES);

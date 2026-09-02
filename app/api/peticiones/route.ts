@@ -14,13 +14,26 @@ function peticionPropia(id: number, email: string) {
   })
 }
 
-// GET — obtener mis peticiones con su conversación
-export async function GET() {
+// GET — obtener mis peticiones con su conversación o un resumen para el aviso de inicio
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
+  const usuarioEmail = normalizarEmail(session.user.email)
+  if (req.nextUrl.searchParams.get('resumen') === 'validacion') {
+    const peticiones = await prisma.peticionInterna.findMany({
+      where: {
+        usuarioEmail: { equals: usuarioEmail, mode: 'insensitive' },
+        estado: 'pendiente_validacion',
+      },
+      select: { id: true, titulo: true, fechaResolucion: true },
+      orderBy: { fechaResolucion: 'asc' },
+    })
+    return NextResponse.json({ total: peticiones.length, peticiones })
+  }
+
   const peticiones = await prisma.peticionInterna.findMany({
-    where: { usuarioEmail: { equals: normalizarEmail(session.user.email), mode: 'insensitive' } },
+    where: { usuarioEmail: { equals: usuarioEmail, mode: 'insensitive' } },
     include: { mensajes: { orderBy: { createdAt: 'asc' } } },
     orderBy: { createdAt: 'desc' },
   })

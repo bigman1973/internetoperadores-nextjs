@@ -1,6 +1,7 @@
 'use client'
 
 import { useRole } from './RoleContext'
+import PendingPetitionsAlert from '@/components/peticiones/PendingPetitionsAlert'
 import { 
   CreditCardIcon, 
   UsersIcon,
@@ -50,11 +51,14 @@ export default function DashboardClient({
     (effectiveRole === 'GERENTE' && !isViewingAs) ||
     (effectiveRole === 'SUPER_ADMIN')
 
-  if (!showKPIs) {
-    return <VisorDashboard userName={displayName} />
-  }
-
-  return <DirectivoDashboard userName={displayName} stats={stats} mesActual={mesActual} />
+  return (
+    <>
+      <PendingPetitionsAlert />
+      {!showKPIs
+        ? <VisorDashboard userName={displayName} />
+        : <DirectivoDashboard userName={displayName} stats={stats} mesActual={mesActual} />}
+    </>
+  )
 }
 
 function VisorDashboard({ userName }: { userName: string }) {
