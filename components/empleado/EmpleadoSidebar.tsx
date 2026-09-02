@@ -46,7 +46,7 @@ function esEmpleadoAprobador(email?: string | null, categoria?: string | null): 
 export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { impersonatedEmail, impersonatedEmpleado } = useImpersonation();
+  const { impersonatedEmail, impersonatedEmpleado, getQueryParam } = useImpersonation();
 
   const esAprobador = ROLES_APROBADOR.includes(user.role || '') ||
     EMAILS_APROBADOR.includes(user.email?.toLowerCase() || '');
@@ -69,7 +69,7 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
     { href: '/empleado/nominas', label: isImpersonating ? 'Nóminas' : 'Mis Nóminas', icon: DocumentTextIcon },
     { href: '/empleado/imputaciones', label: 'Imputación de Horas', icon: ClockIcon },
     { href: '/empleado/gastos', label: isImpersonating ? 'Tickets de Gasto' : 'Mis Tickets de Gasto', icon: ReceiptPercentIcon },
-    { href: '/peticiones', label: 'Peticiones y Mejoras', icon: ChatBubbleLeftEllipsisIcon },
+    { href: `/peticiones${getQueryParam() ? `?${getQueryParam()}` : ''}`, label: 'Peticiones y Mejoras', icon: ChatBubbleLeftEllipsisIcon },
   ];
 
   if (mostrarAprobar) {
@@ -110,7 +110,8 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
           {/* Navigation */}
           <nav className="flex-1 px-3 py-4 space-y-1">
             {navItems.map(item => {
-              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              const itemPath = item.href.split('?')[0];
+              const isActive = pathname === itemPath || pathname.startsWith(itemPath + '/');
               const Icon = item.icon;
               return (
                 <Link

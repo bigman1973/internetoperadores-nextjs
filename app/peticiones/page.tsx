@@ -22,6 +22,8 @@ interface Peticion {
   estado: string
   captura: string | null
   notasAdmin: string | null
+  usuarioEmail: string
+  usuarioNombre: string
   resueltaPor: string | null
   fechaResolucion: string | null
   feedbackSatisfecho: boolean | null
@@ -59,16 +61,23 @@ export default function PeticionesPage() {
   const [feedbackForm, setFeedbackForm] = useState<FeedbackForm | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [isImpersonating, setIsImpersonating] = useState(false)
+  const [viewedEmail, setViewedEmail] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function fetchData() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch('/api/peticiones')
+      const params = new URLSearchParams(window.location.search)
+      const asEmail = params.get('as')
+      const endpoint = asEmail ? `/api/peticiones?as=${encodeURIComponent(asEmail)}` : '/api/peticiones'
+      const res = await fetch(endpoint, { cache: 'no-store' })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'No se han podido cargar tus peticiones')
+      if (!res.ok) throw new Error(data.error || 'No se han podido cargar las peticiones')
       setPeticiones(data.peticiones || [])
+      setIsImpersonating(Boolean(data.isImpersonating))
+      setViewedEmail(data.usuarioEmail || '')
     } catch (e: any) {
       setError(e.message || 'No se han podido cargar tus peticiones')
     } finally {
@@ -79,6 +88,7 @@ export default function PeticionesPage() {
   useEffect(() => { fetchData() }, [])
 
   async function handleSubmit() {
+    if (isImpersonating) return
     if (!form.titulo.trim() || !form.descripcion.trim()) {
       alert('El título y la descripción son obligatorios')
       return
@@ -106,7 +116,7 @@ export default function PeticionesPage() {
   }
 
   async function handleFeedback() {
-    if (!feedbackForm) return
+    if (isImpersonating || !feedbackForm) return
     if (!feedbackForm.satisfecho && !feedbackForm.comentario.trim()) {
       alert('Explícanos qué ajustes necesitas para poder revisarlo')
       return
@@ -162,6 +172,8 @@ export default function PeticionesPage() {
     return <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${item.color}`}>{item.label}</span>
   }
 
+  const viewedName = peticiones[0]?.usuarioNombre || viewedEmail
+
   const seccionLabel = (seccion: string) => ({
     panel_admin: 'Panel Admin',
     web_publica: 'Web pública',
@@ -172,22 +184,31 @@ export default function PeticionesPage() {
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Mis Peticiones</h1>
-          <p className="mt-1 text-sm text-gray-500">Solicita mejoras y valida personalmente el resultado antes de que se cierre.</p>
+          <h1 className="text-2xl font-bold text-gray-900">{isImpersonating ? `Peticiones de ${viewedName}` : 'Mis Peticiones'}</h1>
+          <p className="mt-1 text-sm text-gray-500">{isImpersonating ? 'Vista de comprobación del solicitante y sus entregas pendientes.' : 'Solicita mejoras y valida personalmente el resultado antes de que se cierre.'}</p>
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 sm:w-auto"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          Nueva petición
-        </button>
+        {!isImpersonating && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 sm:w-auto"
+          >
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+            Nueva petición
+          </button>
+        )}
       </div>
 
-      <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
-        <p className="font-semibold">Tú confirmas cuándo una petición está realmente resuelta.</p>
-        <p className="mt-1 text-violet-800">Cuando terminemos el trabajo recibirás una solicitud de validación. Podrás aceptarla o explicar qué ajustes faltan; no se cerrará sin tu conformidad.</p>
-      </div>
+      {isImpersonating ? (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-semibold">Estás comprobando las peticiones de {viewedName}.</p>
+          <p className="mt-1 text-amber-800">Puedes revisar las entregas y conversaciones en modo lectura. La conformidad o los ajustes debe enviarlos el propio solicitante al iniciar sesión.</p>
+        </div>
+      ) : (
+        <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
+          <p className="font-semibold">Tú confirmas cuándo una petición está realmente resuelta.</p>
+          <p className="mt-1 text-violet-800">Cuando terminemos el trabajo recibirás una solicitud de validación. Podrás aceptarla o explicar qué ajustes faltan; no se cerrará sin tu conformidad.</p>
+        </div>
+      )}
 
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
@@ -298,8 +319,8 @@ export default function PeticionesPage() {
       ) : peticiones.length === 0 ? (
         <div className="rounded-xl border bg-white py-16 text-center">
           <svg className="mx-auto h-12 w-12 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-          <p className="mt-3 text-gray-500">No tienes peticiones todavía</p>
-          <p className="mt-1 text-sm text-gray-400">Pulsa “Nueva petición” para reportar un error o solicitar una mejora.</p>
+          <p className="mt-3 text-gray-500">{isImpersonating ? 'Este usuario no tiene peticiones' : 'No tienes peticiones todavía'}</p>
+          <p className="mt-1 text-sm text-gray-400">{isImpersonating ? 'No hay solicitudes asociadas al correo seleccionado.' : 'Pulsa “Nueva petición” para reportar un error o solicitar una mejora.'}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -320,7 +341,7 @@ export default function PeticionesPage() {
                   </div>
                   <div className="flex shrink-0 items-center justify-between gap-3 sm:block sm:text-right">
                     <p className="text-xs text-gray-400">{new Date(peticion.createdAt).toLocaleDateString('es-ES')}</p>
-                    {peticion.estado === 'pendiente' && (
+                    {!isImpersonating && peticion.estado === 'pendiente' && (
                       <div className="mt-0 flex gap-2 sm:mt-3 sm:justify-end">
                         <button onClick={() => { setEditingId(peticion.id); setForm({ tipo: peticion.tipo, seccion: peticion.seccion, titulo: peticion.titulo, descripcion: peticion.descripcion, captura: peticion.captura || '' }); setShowForm(true) }}
                           className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100">Editar</button>
@@ -344,12 +365,18 @@ export default function PeticionesPage() {
 
                 {peticion.estado === 'pendiente_validacion' && (
                   <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4">
-                    <p className="font-semibold text-violet-900">Necesitamos tu validación</p>
-                    <p className="mt-1 text-sm text-violet-800">Revisa lo realizado y dinos si cumple tus requisitos. Solo se cerrará si lo confirmas.</p>
-                    <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <button onClick={() => setFeedbackForm({ peticion, satisfecho: true, comentario: '' })} className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700">Sí, cumple mis requisitos</button>
-                      <button onClick={() => setFeedbackForm({ peticion, satisfecho: false, comentario: '' })} className="rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-800 hover:bg-amber-50">Necesita ajustes</button>
-                    </div>
+                    <p className="font-semibold text-violet-900">{isImpersonating ? `Pendiente de validación por ${peticion.usuarioNombre}` : 'Necesitamos tu validación'}</p>
+                    <p className="mt-1 text-sm text-violet-800">
+                      {isImpersonating
+                        ? 'Puedes comprobar la entrega en modo lectura. El solicitante verá aquí las opciones de conformidad cuando entre con su propia sesión.'
+                        : 'Revisa lo realizado y dinos si cumple tus requisitos. Solo se cerrará si lo confirmas.'}
+                    </p>
+                    {!isImpersonating && (
+                      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                        <button onClick={() => setFeedbackForm({ peticion, satisfecho: true, comentario: '' })} className="rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-green-700">Sí, cumple mis requisitos</button>
+                        <button onClick={() => setFeedbackForm({ peticion, satisfecho: false, comentario: '' })} className="rounded-lg border border-amber-300 bg-white px-4 py-2.5 text-sm font-semibold text-amber-800 hover:bg-amber-50">Necesita ajustes</button>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -377,7 +404,7 @@ export default function PeticionesPage() {
                         {peticion.mensajes.map(mensaje => (
                           <div key={mensaje.id} className={`rounded-lg border p-3 ${mensaje.autorTipo === 'solicitante' ? 'ml-0 border-orange-200 bg-orange-50 sm:ml-12' : 'mr-0 border-blue-200 bg-blue-50 sm:mr-12'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-xs font-semibold text-gray-800">{mensaje.autorNombre} · {mensaje.autorTipo === 'solicitante' ? 'Tú' : 'Equipo'}</p>
+                              <p className="text-xs font-semibold text-gray-800">{mensaje.autorNombre} · {mensaje.autorTipo === 'solicitante' ? (isImpersonating ? 'Solicitante' : 'Tú') : 'Equipo'}</p>
                               <p className="text-xs text-gray-500">{new Date(mensaje.createdAt).toLocaleString('es-ES')}</p>
                             </div>
                             <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{mensaje.mensaje}</p>

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { estadoTrasFeedback, normalizarEmail } from '@/lib/peticiones-flujo'
+import { canImpersonate } from '@/lib/empleado-impersonation'
 
 function peticionPropia(id: number, email: string) {
   return prisma.peticionInterna.findFirst({
@@ -19,7 +20,19 @@ export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user?.email) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
-  const usuarioEmail = normalizarEmail(session.user.email)
+  const sessionEmail = normalizarEmail(session.user.email)
+  const requestedEmail = req.nextUrl.searchParams.get('as')
+  let usuarioEmail = sessionEmail
+  let isImpersonating = false
+
+  if (requestedEmail && normalizarEmail(requestedEmail) !== sessionEmail) {
+    if (!canImpersonate(sessionEmail, session.user.role || '')) {
+      return NextResponse.json({ error: 'No tienes permisos para consultar las peticiones de otro usuario' }, { status: 403 })
+    }
+    usuarioEmail = normalizarEmail(requestedEmail)
+    isImpersonating = true
+  }
+
   if (req.nextUrl.searchParams.get('resumen') === 'validacion') {
     const peticiones = await prisma.peticionInterna.findMany({
       where: {
@@ -29,7 +42,7 @@ export async function GET(req: NextRequest) {
       select: { id: true, titulo: true, fechaResolucion: true },
       orderBy: { fechaResolucion: 'asc' },
     })
-    return NextResponse.json({ total: peticiones.length, peticiones })
+    return NextResponse.json({ total: peticiones.length, peticiones, isImpersonating, usuarioEmail })
   }
 
   const peticiones = await prisma.peticionInterna.findMany({
@@ -38,7 +51,21 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   })
 
-  return NextResponse.json({ peticiones })
+  const ordenEstado: Record<string, number> = {
+    pendiente_validacion: 0,
+    ajustes_solicitados: 1,
+    en_desarrollo: 2,
+    aprobada: 3,
+    pendiente: 4,
+    resuelta: 5,
+    descartada: 6,
+  }
+  peticiones.sort((a, b) => {
+    const diferenciaEstado = (ordenEstado[a.estado] ?? 99) - (ordenEstado[b.estado] ?? 99)
+    return diferenciaEstado || b.createdAt.getTime() - a.createdAt.getTime()
+  })
+
+  return NextResponse.json({ peticiones, isImpersonating, usuarioEmail })
 }
 
 // PUT — editar mi petición (solo si está pendiente)

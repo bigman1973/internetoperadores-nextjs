@@ -53,7 +53,10 @@ export default function DashboardClient({
 
   return (
     <>
-      <PendingPetitionsAlert />
+      <PendingPetitionsAlert
+        asEmail={isViewingAsUser ? viewingUser?.email : null}
+        asName={isViewingAsUser ? viewingUser?.nombre : null}
+      />
       {!showKPIs
         ? <VisorDashboard userName={displayName} />
         : <DirectivoDashboard userName={displayName} stats={stats} mesActual={mesActual} />}

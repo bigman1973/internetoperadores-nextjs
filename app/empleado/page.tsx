@@ -108,7 +108,7 @@ export default function EmpleadoPage() {
                     )}
                   </div>
                   <Link
-                    href={esPeticion ? '/peticiones' : '/empleado/imputaciones'}
+                    href={esPeticion ? `/peticiones${getQueryParam() ? `?${getQueryParam()}` : ''}` : '/empleado/imputaciones'}
                     className={`shrink-0 rounded-lg px-3 py-2 text-center text-xs font-medium text-white ${
                       esPeticion ? 'bg-violet-700 hover:bg-violet-800' : esError ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
                     }`}

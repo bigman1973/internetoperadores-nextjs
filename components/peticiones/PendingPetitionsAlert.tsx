@@ -10,12 +10,15 @@ interface PeticionPendiente {
   fechaResolucion: string | null
 }
 
-export default function PendingPetitionsAlert() {
+export default function PendingPetitionsAlert({ asEmail, asName }: { asEmail?: string | null; asName?: string | null }) {
   const [peticiones, setPeticiones] = useState<PeticionPendiente[]>([])
 
   useEffect(() => {
     let active = true
-    fetch('/api/peticiones?resumen=validacion', { cache: 'no-store' })
+    const params = new URLSearchParams({ resumen: 'validacion' })
+    if (asEmail) params.set('as', asEmail)
+
+    fetch(`/api/peticiones?${params.toString()}`, { cache: 'no-store' })
       .then(async response => {
         const data = await response.json()
         if (!response.ok) throw new Error(data.error || 'No se pudieron consultar las peticiones')
@@ -24,7 +27,7 @@ export default function PendingPetitionsAlert() {
       .catch(error => console.error('Error cargando peticiones pendientes de validación:', error))
 
     return () => { active = false }
-  }, [])
+  }, [asEmail])
 
   if (peticiones.length === 0) return null
 
@@ -37,9 +40,15 @@ export default function PendingPetitionsAlert() {
           </div>
           <div className="min-w-0">
             <p className="font-semibold text-violet-950">
-              {peticiones.length === 1 ? 'Tienes una petición pendiente de validar' : `Tienes ${peticiones.length} peticiones pendientes de validar`}
+              {asEmail
+                ? `${asName || 'Este usuario'} tiene ${peticiones.length === 1 ? 'una petición pendiente de validar' : `${peticiones.length} peticiones pendientes de validar`}`
+                : peticiones.length === 1 ? 'Tienes una petición pendiente de validar' : `Tienes ${peticiones.length} peticiones pendientes de validar`}
             </p>
-            <p className="mt-1 text-sm text-violet-800">Revisa lo realizado y confirma si cumple tus requisitos o indica qué ajustes necesitas.</p>
+            <p className="mt-1 text-sm text-violet-800">
+              {asEmail
+                ? 'Puedes revisar las entregas en modo lectura. La conformidad debe enviarla el propio solicitante.'
+                : 'Revisa lo realizado y confirma si cumple tus requisitos o indica qué ajustes necesitas.'}
+            </p>
             <div className="mt-2 space-y-1">
               {peticiones.slice(0, 3).map(peticion => (
                 <p key={peticion.id} className="truncate text-xs font-medium text-violet-900">#{peticion.id} · {peticion.titulo}</p>
@@ -48,7 +57,7 @@ export default function PendingPetitionsAlert() {
             </div>
           </div>
         </div>
-        <Link href="/peticiones" className="shrink-0 rounded-lg bg-violet-700 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-violet-800">
+        <Link href={asEmail ? `/peticiones?as=${encodeURIComponent(asEmail)}` : '/peticiones'} className="shrink-0 rounded-lg bg-violet-700 px-4 py-2.5 text-center text-sm font-semibold text-white hover:bg-violet-800">
           Revisar ahora
         </Link>
       </div>
