@@ -2875,25 +2875,45 @@ model HoraExtraEmpleado {
 
 
 model PeticionInterna {
-  id              Int       @id @default(autoincrement())
-  tipo            String    @default("mejora") // error, mejora, sugerencia
-  seccion         String    @default("panel_admin") // panel_admin, web_publica, portal_empleado
-  titulo          String
-  descripcion     String
-  prioridad       String    @default("media") // baja, media, alta, critica
-  estado          String    @default("pendiente") // pendiente, aprobada, en_desarrollo, resuelta, descartada
-  captura         String?   // base64 de captura de pantalla
-  usuarioEmail    String    @map("usuario_email")
-  usuarioNombre   String    @map("usuario_nombre")
-  notasAdmin      String?   @map("notas_admin")
-  resueltaPor     String?   @map("resuelta_por")
-  fechaResolucion DateTime? @map("fecha_resolucion")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  id                  Int       @id @default(autoincrement())
+  tipo                String    @default("mejora") // error, mejora, sugerencia
+  seccion             String    @default("panel_admin") // panel_admin, web_publica, portal_empleado
+  titulo              String
+  descripcion         String
+  prioridad           String    @default("media") // baja, media, alta, critica
+  estado              String    @default("pendiente") // pendiente, aprobada, en_desarrollo, pendiente_validacion, ajustes_solicitados, resuelta, descartada
+  captura             String?   // base64 de captura de pantalla
+  usuarioEmail        String    @map("usuario_email")
+  usuarioNombre       String    @map("usuario_nombre")
+  notasAdmin          String?   @map("notas_admin")
+  resueltaPor         String?   @map("resuelta_por")
+  fechaResolucion     DateTime? @map("fecha_resolucion") // Fecha de entrega para validacion
+  feedbackSatisfecho  Boolean?  @map("feedback_satisfecho")
+  fechaFeedback       DateTime? @map("fecha_feedback")
+  fechaCierre         DateTime? @map("fecha_cierre")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  mensajes            PeticionMensaje[]
+
   @@index([usuarioEmail])
   @@index([estado])
   @@index([tipo])
   @@map("peticiones_internas")
+}
+
+model PeticionMensaje {
+  id          Int             @id @default(autoincrement())
+  peticionId  Int             @map("peticion_id")
+  peticion    PeticionInterna @relation(fields: [peticionId], references: [id], onDelete: Cascade)
+  autorEmail  String          @map("autor_email")
+  autorNombre String          @map("autor_nombre")
+  autorTipo   String          @map("autor_tipo") // admin, solicitante
+  tipo        String          @default("comentario") // entrega, conformidad, ajustes, comentario
+  mensaje     String
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  @@index([peticionId, createdAt])
+  @@map("peticiones_mensajes")
 }
 
 model DocumentoAAPP {
