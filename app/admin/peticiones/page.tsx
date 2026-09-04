@@ -69,6 +69,8 @@ export default function AdminPeticionesPage() {
   const [detalle, setDetalle] = useState<Peticion | null>(null)
   const [notasEdit, setNotasEdit] = useState('')
   const [mensajeEntrega, setMensajeEntrega] = useState('')
+  const [comentario, setComentario] = useState('')
+  const [sendingComment, setSendingComment] = useState(false)
   const [error, setError] = useState('')
 
   async function fetchData() {
@@ -109,6 +111,9 @@ export default function AdminPeticionesPage() {
       if (data.peticion) {
         setDetalle(current => current?.id === id ? data.peticion : current)
       }
+      if (action === 'enviar_validacion' && data.email?.enviado === false) {
+        alert('La petición ha quedado pendiente de validación, pero el correo no ha podido enviarse. El usuario seguirá viendo el aviso al iniciar sesión.')
+      }
       await fetchData()
       return true
     } catch (e: any) {
@@ -123,12 +128,25 @@ export default function AdminPeticionesPage() {
     setDetalle(peticion)
     setNotasEdit(peticion.notasAdmin || '')
     setMensajeEntrega('')
+    setComentario('')
   }
 
   async function handleGuardarNotas() {
     if (!detalle) return
     const success = await handleAction('notas_admin', detalle.id, { notas: notasEdit })
     if (success) setDetalle(current => current ? { ...current, notasAdmin: notasEdit.trim() || null } : null)
+  }
+
+  async function handleEnviarComentario() {
+    if (!detalle) return
+    if (!comentario.trim()) {
+      alert('Escribe un comentario antes de enviarlo')
+      return
+    }
+    setSendingComment(true)
+    const success = await handleAction('comentario', detalle.id, { mensaje: comentario })
+    if (success) setComentario('')
+    setSendingComment(false)
   }
 
   async function handleEnviarValidacion() {
@@ -174,7 +192,7 @@ export default function AdminPeticionesPage() {
 
       <div className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
         <p className="font-semibold">El estado “Cerrada” ya no se asigna manualmente.</p>
-        <p className="mt-1 text-violet-800">Cuando el trabajo esté listo, envíalo a validación. El cierre se producirá automáticamente cuando el solicitante confirme que cumple sus requisitos.</p>
+        <p className="mt-1 text-violet-800">Utiliza la conversación para aclarar requisitos y ajustes. Cuando el trabajo esté listo, envíalo a validación; el cierre se producirá cuando el solicitante confirme su conformidad.</p>
       </div>
 
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
@@ -345,25 +363,35 @@ export default function AdminPeticionesPage() {
             {puedeEnviarValidacion(detalle.estado) && (
               <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-4">
                 <h3 className="font-semibold text-violet-950">Enviar al usuario para validación</h3>
-                <p className="mt-1 text-sm text-violet-800">Explica qué se ha realizado. Esta entrega quedará registrada y la petición no se cerrará hasta que el solicitante la confirme.</p>
+                <p className="mt-1 text-sm text-violet-800">Explica qué se ha realizado. La entrega quedará registrada y enviaremos un correo automático al solicitante para que la revise.</p>
                 <textarea value={mensajeEntrega} onChange={e => setMensajeEntrega(e.target.value)} rows={4} placeholder="Ejemplo: Hemos corregido el formulario y verificado que conserva todos los campos. Por favor, comprueba si ahora cumple lo solicitado." className="mt-3 w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm text-gray-900" />
                 <button onClick={handleEnviarValidacion} disabled={saving} className="mt-3 w-full rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50 sm:w-auto">{saving ? 'Enviando...' : 'Enviar para validación'}</button>
               </div>
             )}
 
-            {detalle.mensajes?.length > 0 && (
-              <div className="mb-5">
-                <h3 className="font-semibold text-gray-900">Conversación y validaciones</h3>
-                <div className="mt-3 space-y-3">
-                  {detalle.mensajes.map(mensaje => (
-                    <div key={mensaje.id} className={`rounded-lg border p-3 ${mensaje.autorTipo === 'solicitante' ? 'ml-0 border-orange-200 bg-orange-50 sm:ml-12' : 'mr-0 border-blue-200 bg-blue-50 sm:mr-12'}`}>
-                      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-gray-800">{mensaje.autorNombre} · {mensaje.autorTipo === 'solicitante' ? 'Solicitante' : 'Equipo'}</p><p className="text-xs text-gray-500">{new Date(mensaje.createdAt).toLocaleString('es-ES')}</p></div>
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{mensaje.mensaje}</p>
-                    </div>
-                  ))}
-                </div>
+            <div className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4">
+              <h3 className="font-semibold text-gray-900">Conversación con {detalle.usuarioNombre}</h3>
+              <p className="mt-1 text-xs text-gray-500">Utiliza este hilo para aclarar requisitos y debatir ajustes. Los comentarios no cambian el estado de la petición.</p>
+              <div className="mt-4 space-y-3">
+                {detalle.mensajes?.length > 0 ? detalle.mensajes.map(mensaje => (
+                  <div key={mensaje.id} className={`rounded-lg border p-3 ${mensaje.autorTipo === 'solicitante' ? 'ml-0 border-orange-200 bg-orange-50 sm:ml-12' : 'mr-0 border-blue-200 bg-blue-50 sm:mr-12'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-semibold text-gray-800">{mensaje.autorNombre} · {mensaje.autorTipo === 'solicitante' ? 'Solicitante' : 'Equipo'}</p><p className="text-xs text-gray-500">{new Date(mensaje.createdAt).toLocaleString('es-ES')}</p></div>
+                    <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{mensaje.mensaje}</p>
+                  </div>
+                )) : <p className="rounded-lg bg-white p-3 text-sm text-gray-500">Todavía no hay comentarios. Puedes abrir la conversación con el solicitante.</p>}
               </div>
-            )}
+
+              {!['resuelta', 'descartada'].includes(detalle.estado) ? (
+                <div className="mt-4 border-t pt-4">
+                  <label className="text-xs font-semibold text-gray-700">Escribir al solicitante</label>
+                  <textarea value={comentario} onChange={e => setComentario(e.target.value)} maxLength={2000} rows={3} placeholder="Escribe una aclaración, pregunta o respuesta sobre los ajustes..." className="mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900" />
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-xs text-gray-500">Máximo 2.000 caracteres.</p>
+                    <button onClick={handleEnviarComentario} disabled={saving || sendingComment} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{sendingComment ? 'Enviando...' : 'Enviar comentario'}</button>
+                  </div>
+                </div>
+              ) : <p className="mt-4 border-t pt-3 text-xs text-gray-500">La conversación quedó cerrada con la petición.</p>}
+            </div>
 
             {detalle.notasAdmin && detalle.mensajes?.length === 0 && (
               <div className="mb-5 rounded-lg bg-blue-50 p-3 text-sm text-blue-900"><p className="font-semibold">Respuesta histórica visible</p><p className="mt-1 whitespace-pre-wrap">{detalle.notasAdmin}</p></div>

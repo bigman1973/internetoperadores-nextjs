@@ -189,6 +189,42 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
+
+    if (body.action === 'comentario') {
+      const id = Number(body.id)
+      const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
+      if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: 'Petición no válida' }, { status: 400 })
+      if (!mensaje) return NextResponse.json({ error: 'Escribe un comentario antes de enviarlo' }, { status: 400 })
+      if (mensaje.length > 2000) return NextResponse.json({ error: 'El comentario no puede superar 2.000 caracteres' }, { status: 400 })
+
+      const existing = await peticionPropia(id, session.user.email)
+      if (!existing) return NextResponse.json({ error: 'Petición no encontrada' }, { status: 404 })
+      if (['resuelta', 'descartada'].includes(existing.estado)) {
+        return NextResponse.json({ error: 'La conversación está cerrada para esta petición' }, { status: 409 })
+      }
+
+      const autorEmail = normalizarEmail(session.user.email)
+      const autorNombre = session.user.name || existing.usuarioNombre || autorEmail.split('@')[0]
+      const peticion = await prisma.$transaction(async tx => {
+        await tx.peticionMensaje.create({
+          data: {
+            peticionId: id,
+            autorEmail,
+            autorNombre,
+            autorTipo: 'solicitante',
+            tipo: 'comentario',
+            mensaje,
+          },
+        })
+        return tx.peticionInterna.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+          include: { mensajes: { orderBy: { createdAt: 'asc' } } },
+        })
+      })
+      return NextResponse.json({ success: true, peticion })
+    }
+
     const { tipo, seccion, captura } = body
     const titulo = typeof body.titulo === 'string' ? body.titulo.trim() : ''
     const descripcion = typeof body.descripcion === 'string' ? body.descripcion.trim() : ''

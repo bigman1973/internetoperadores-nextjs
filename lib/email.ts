@@ -35,12 +35,12 @@ async function getAccessToken(): Promise<string> {
     return cachedToken.token
   }
 
-  const tenantId = process.env.AZURE_TENANT_ID
-  const clientId = process.env.AZURE_CLIENT_ID
-  const clientSecret = process.env.AZURE_CLIENT_SECRET
+  const tenantId = process.env.AZURE_TENANT_ID || process.env.AZURE_AD_TENANT_ID
+  const clientId = process.env.AZURE_CLIENT_ID || process.env.AZURE_AD_CLIENT_ID
+  const clientSecret = process.env.AZURE_CLIENT_SECRET || process.env.AZURE_AD_CLIENT_SECRET
 
   if (!tenantId || !clientId || !clientSecret) {
-    throw new Error('Faltan variables de entorno de Azure AD (AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET)')
+    throw new Error('Faltan las credenciales de Azure AD necesarias para enviar correo')
   }
 
   const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`

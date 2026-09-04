@@ -60,6 +60,8 @@ export default function PeticionesPage() {
   const [deleting, setDeleting] = useState<number | null>(null)
   const [feedbackForm, setFeedbackForm] = useState<FeedbackForm | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [comentarios, setComentarios] = useState<Record<number, string>>({})
+  const [sendingCommentId, setSendingCommentId] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [isImpersonating, setIsImpersonating] = useState(false)
   const [viewedEmail, setViewedEmail] = useState('')
@@ -145,6 +147,33 @@ export default function PeticionesPage() {
     }
   }
 
+  async function handleComentario(peticion: Peticion) {
+    if (isImpersonating) return
+    const mensaje = (comentarios[peticion.id] || '').trim()
+    if (!mensaje) {
+      alert('Escribe un comentario antes de enviarlo')
+      return
+    }
+
+    setSendingCommentId(peticion.id)
+    try {
+      const res = await fetch('/api/peticiones', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'comentario', id: peticion.id, mensaje }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se ha podido enviar el comentario')
+      setPeticiones(current => current.map(item => item.id === peticion.id ? data.peticion : item))
+      setComentarios(current => ({ ...current, [peticion.id]: '' }))
+      setExpandedId(peticion.id)
+    } catch (e: any) {
+      alert(e.message)
+    } finally {
+      setSendingCommentId(null)
+    }
+  }
+
   function handleCaptura(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -206,7 +235,7 @@ export default function PeticionesPage() {
       ) : (
         <div className="mb-5 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
           <p className="font-semibold">Tú confirmas cuándo una petición está realmente resuelta.</p>
-          <p className="mt-1 text-violet-800">Cuando terminemos el trabajo recibirás una solicitud de validación. Podrás aceptarla o explicar qué ajustes faltan; no se cerrará sin tu conformidad.</p>
+          <p className="mt-1 text-violet-800">Puedes comentar cualquier detalle con el equipo durante el proceso. Cuando terminemos el trabajo podrás aceptarlo o explicar qué ajustes faltan; no se cerrará sin tu conformidad.</p>
         </div>
       )}
 
@@ -394,14 +423,14 @@ export default function PeticionesPage() {
                   </div>
                 )}
 
-                {hasConversation && (
-                  <div className="mt-4 border-t pt-4">
-                    <button onClick={() => setExpandedId(expanded ? null : peticion.id)} className="text-sm font-semibold text-blue-700 hover:text-blue-900">
-                      {expanded ? 'Ocultar conversación' : `Ver conversación (${peticion.mensajes.length})`}
-                    </button>
-                    {expanded && (
-                      <div className="mt-3 space-y-3">
-                        {peticion.mensajes.map(mensaje => (
+                <div className="mt-4 border-t pt-4">
+                  <button onClick={() => setExpandedId(expanded ? null : peticion.id)} className="text-sm font-semibold text-blue-700 hover:text-blue-900">
+                    {expanded ? 'Ocultar conversación' : `Abrir conversación (${peticion.mensajes?.length || 0})`}
+                  </button>
+                  {expanded && (
+                    <div className="mt-3">
+                      <div className="space-y-3">
+                        {hasConversation ? peticion.mensajes.map(mensaje => (
                           <div key={mensaje.id} className={`rounded-lg border p-3 ${mensaje.autorTipo === 'solicitante' ? 'ml-0 border-orange-200 bg-orange-50 sm:ml-12' : 'mr-0 border-blue-200 bg-blue-50 sm:mr-12'}`}>
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <p className="text-xs font-semibold text-gray-800">{mensaje.autorNombre} · {mensaje.autorTipo === 'solicitante' ? (isImpersonating ? 'Solicitante' : 'Tú') : 'Equipo'}</p>
@@ -409,11 +438,38 @@ export default function PeticionesPage() {
                             </div>
                             <p className="mt-1 whitespace-pre-wrap text-sm text-gray-700">{mensaje.mensaje}</p>
                           </div>
-                        ))}
+                        )) : <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">Aún no hay comentarios. Puedes abrir la conversación con el equipo.</p>}
                       </div>
-                    )}
-                  </div>
-                )}
+
+                      {!isImpersonating && !['resuelta', 'descartada'].includes(peticion.estado) && (
+                        <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3">
+                          <label className="text-xs font-semibold text-gray-700">Comentar con el equipo</label>
+                          <textarea
+                            value={comentarios[peticion.id] || ''}
+                            onChange={e => setComentarios(current => ({ ...current, [peticion.id]: e.target.value }))}
+                            maxLength={2000}
+                            rows={3}
+                            placeholder="Escribe una duda, una aclaración o los detalles que necesites comentar..."
+                            className="mt-2 w-full rounded-lg border bg-white px-3 py-2 text-sm text-gray-900"
+                          />
+                          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-xs text-gray-500">El comentario no cambia el estado de la petición.</p>
+                            <button onClick={() => handleComentario(peticion)} disabled={sendingCommentId === peticion.id} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+                              {sendingCommentId === peticion.id ? 'Enviando...' : 'Enviar comentario'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {isImpersonating && (
+                        <p className="mt-3 text-xs text-amber-700">Modo lectura: el comentario debe enviarlo el solicitante desde su propia sesión.</p>
+                      )}
+                      {['resuelta', 'descartada'].includes(peticion.estado) && (
+                        <p className="mt-3 text-xs text-gray-500">La conversación quedó cerrada con la petición.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </article>
             )
           })}

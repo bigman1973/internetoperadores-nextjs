@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { normalizarEmail, puedeCambiarEstadoAdmin, puedeEnviarAValidacion } from '@/lib/peticiones-flujo'
+import { notificarPeticionPendienteValidacion } from '@/lib/peticiones-email'
 
 async function requireAdmin() {
   const session = await getServerSession(authOptions)
@@ -89,6 +90,36 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, peticion })
     }
 
+    if (action === 'comentario') {
+      const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
+      if (!mensaje) return NextResponse.json({ error: 'Escribe un comentario antes de enviarlo' }, { status: 400 })
+      if (mensaje.length > 2000) return NextResponse.json({ error: 'El comentario no puede superar 2.000 caracteres' }, { status: 400 })
+      if (['resuelta', 'descartada'].includes(existing.estado)) {
+        return NextResponse.json({ error: 'La conversación está cerrada para esta petición' }, { status: 409 })
+      }
+
+      const autorEmail = normalizarEmail(session.user.email)
+      const autorNombre = session.user.name || autorEmail
+      const peticion = await prisma.$transaction(async tx => {
+        await tx.peticionMensaje.create({
+          data: {
+            peticionId: id,
+            autorEmail,
+            autorNombre,
+            autorTipo: 'admin',
+            tipo: 'comentario',
+            mensaje,
+          },
+        })
+        return tx.peticionInterna.update({
+          where: { id },
+          data: { updatedAt: new Date() },
+          include: includeConversacion,
+        })
+      })
+      return NextResponse.json({ success: true, peticion })
+    }
+
     if (action === 'enviar_validacion') {
       const mensaje = typeof body.mensaje === 'string' ? body.mensaje.trim() : ''
       if (!mensaje) {
@@ -102,6 +133,20 @@ export async function POST(req: NextRequest) {
       const autorEmail = normalizarEmail(session.user.email)
       const autorNombre = session.user.name || autorEmail
       const peticion = await prisma.$transaction(async tx => {
+        const change = await tx.peticionInterna.updateMany({
+          where: { id, estado: existing.estado },
+          data: {
+            estado: 'pendiente_validacion',
+            notasAdmin: mensaje,
+            resueltaPor: autorNombre,
+            fechaResolucion: now,
+            feedbackSatisfecho: null,
+            fechaFeedback: null,
+            fechaCierre: null,
+          },
+        })
+        if (change.count !== 1) throw new Error('VALIDATION_CONFLICT')
+
         await tx.peticionMensaje.create({
           data: {
             peticionId: id,
@@ -113,22 +158,29 @@ export async function POST(req: NextRequest) {
           },
         })
 
-        return tx.peticionInterna.update({
+        return tx.peticionInterna.findUniqueOrThrow({
           where: { id },
-          data: {
-            estado: 'pendiente_validacion',
-            notasAdmin: mensaje,
-            resueltaPor: autorNombre,
-            fechaResolucion: now,
-            feedbackSatisfecho: null,
-            fechaFeedback: null,
-            fechaCierre: null,
-          },
           include: includeConversacion,
         })
       })
 
-      return NextResponse.json({ success: true, peticion })
+      const email = await notificarPeticionPendienteValidacion({
+        to: peticion.usuarioEmail,
+        usuarioNombre: peticion.usuarioNombre,
+        peticionId: peticion.id,
+        titulo: peticion.titulo,
+        entrega: mensaje,
+        baseUrl: process.env.NEXTAUTH_URL || new URL(req.url).origin,
+      })
+      if (!email.success) {
+        console.error(`No se pudo notificar por email la petición #${peticion.id}:`, email.error)
+      }
+
+      return NextResponse.json({
+        success: true,
+        peticion,
+        email: { enviado: email.success, error: email.success ? undefined : email.error },
+      })
     }
 
     if (action === 'cambiar_prioridad') {
@@ -160,6 +212,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ error: 'Acción no reconocida' }, { status: 400 })
   } catch (error: any) {
+    if (error.message === 'VALIDATION_CONFLICT') {
+      return NextResponse.json({ error: 'Esta petición ya se ha enviado a validación' }, { status: 409 })
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
