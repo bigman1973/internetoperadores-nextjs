@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../lib/crm-segmentos';
 
 interface LeadSolucion {
   id: string;
@@ -10,6 +11,7 @@ interface LeadSolucion {
   empresa: string;
   telefono: string | null;
   datos: Record<string, any>;
+  segmentoCrm: SegmentoCrmValue;
   estado: string;
   prioridad: string;
   notas: string | null;
@@ -330,6 +332,9 @@ export default function LeadsSolucionesClient() {
                     >
                       <td className="px-4 py-3">
                         <div className="text-sm font-medium text-gray-900">{lead.empresa}</div>
+                        <span className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${SEGMENTO_CRM_CONFIG[lead.segmentoCrm].badgeClass}`}>
+                          {SEGMENTO_CRM_CONFIG[lead.segmentoCrm].label}
+                        </span>
                       </td>
                       <td className="px-4 py-3">
                         <div className="text-sm text-gray-900">{lead.nombre}</div>
@@ -395,6 +400,9 @@ export default function LeadsSolucionesClient() {
             <div className="flex items-center gap-2">
               <span className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-medium ${TIPO_COLORS[selectedLead.tipo] || 'bg-gray-100 text-gray-800'}`}>
                 {TIPO_LABELS[selectedLead.tipo] || selectedLead.tipo}
+              </span>
+              <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${SEGMENTO_CRM_CONFIG[selectedLead.segmentoCrm].badgeClass}`}>
+                CRM: {SEGMENTO_CRM_CONFIG[selectedLead.segmentoCrm].label}
               </span>
               <span className="text-xs text-gray-500">{formatDate(selectedLead.createdAt)}</span>
             </div>

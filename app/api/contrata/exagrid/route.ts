@@ -304,6 +304,7 @@ export async function POST(request: Request) {
     const dbPromise = prisma.leadSolucion.create({
       data: {
         tipo: 'EXAGRID',
+        segmentoCrm: 'EMPRESA',
         nombre,
         email,
         empresa,

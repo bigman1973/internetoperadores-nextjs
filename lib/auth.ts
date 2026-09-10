@@ -100,12 +100,17 @@ export const authOptions: NextAuthOptions = {
                       }
                     });
                   } else {
+                    const personaFisica = clienteData.personafisica === 1 || clienteData.personafisica === '1' || clienteData.personafisica === true;
                     cliente = await prisma.clienteWeb.create({
                       data: {
                         email: credentials.email,
                         passwordHash: newPasswordHash,
                         nombre: clienteData.nombre,
                         ispGestionId: ispgestionId,
+                        personaFisica,
+                        segmentoCrm: personaFisica ? 'PARTICULAR' : 'EMPRESA',
+                        segmentoCrmActualizadoAt: new Date(),
+                        segmentoCrmActualizadoPor: 'Alta desde ISPGestión',
                         newsletterSuscrito: false,
                       }
                     });

@@ -11,6 +11,8 @@ export default function NuevoClientePage() {
     email: '',
     password: '',
     ispGestionId: '',
+    personaFisica: true,
+    segmentoCrm: 'PARTICULAR',
     newsletterSuscrito: false,
   });
 
@@ -20,7 +22,10 @@ export default function NuevoClientePage() {
       const checked = (e.target as HTMLInputElement).checked;
       setFormData(prev => ({ ...prev, [name]: checked }));
     } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      setFormData(prev => ({
+        ...prev,
+        [name]: name === 'personaFisica' ? value === 'true' : value,
+      }));
     }
   };
 
@@ -74,6 +79,34 @@ export default function NuevoClientePage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">ID ISPGestión (Opcional)</label>
                 <input type="text" name="ispGestionId" value={formData.ispGestionId} onChange={handleChange} className="w-full px-3 py-2 border border-gray-300 rounded-md" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Tipo fiscal</label>
+                <select
+                  name="personaFisica"
+                  value={String(formData.personaFisica)}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
+                >
+                  <option value="true">Persona física</option>
+                  <option value="false">Persona jurídica</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Clasificación CRM</label>
+                <select
+                  name="segmentoCrm"
+                  value={formData.segmentoCrm}
+                  onChange={handleChange}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-gray-900"
+                >
+                  <option value="PARTICULAR">Particular</option>
+                  <option value="EMPRESA">Empresa</option>
+                  <option value="PARTNER">Partner</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Clasificación operativa principal dentro del CRM.</p>
               </div>
             </div>
             <div className="flex items-center gap-2">

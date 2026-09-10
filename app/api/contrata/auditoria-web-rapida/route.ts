@@ -112,6 +112,7 @@ export async function POST(request: Request) {
     // Crear lead en LeadMigracionWeb (formulario simplificado)
     const lead = await prisma.leadMigracionWeb.create({
       data: {
+        segmentoCrm: 'EMPRESA',
         nombreEmpresa: empresa,
         contacto: nombre,
         email,

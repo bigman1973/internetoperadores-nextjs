@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../../../../lib/crm-segmentos'
 
 interface Contrato {
   id: number
@@ -185,11 +186,18 @@ export default function EditarClientePage() {
             {form.cif && <span className="text-xs">CIF: {form.cif}</span>}
           </p>
         </div>
-        <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
-          form.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-        }`}>
-          {form.activo ? 'Activo' : 'Inactivo'}
-        </span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {form.segmentoCrm && SEGMENTO_CRM_CONFIG[form.segmentoCrm as SegmentoCrmValue] && (
+            <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ring-1 ring-inset ${SEGMENTO_CRM_CONFIG[form.segmentoCrm as SegmentoCrmValue].badgeClass}`}>
+              CRM: {SEGMENTO_CRM_CONFIG[form.segmentoCrm as SegmentoCrmValue].label}
+            </span>
+          )}
+          <span className={`inline-flex items-center rounded-full px-3 py-1 text-sm font-medium ${
+            form.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
+            {form.activo ? 'Activo' : 'Inactivo'}
+          </span>
+        </div>
       </div>
 
       {error && (
@@ -262,7 +270,7 @@ export default function EditarClientePage() {
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
               <span className="text-orange-500">&#9679;</span> Estado y Referencia
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">ID ISP Gestión</label>
                 <input type="text" value={form.ispGestionId || ''} disabled
@@ -272,6 +280,19 @@ export default function EditarClientePage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Código</label>
                 <input type="text" value={form.codigo || ''} disabled
                   className="w-full border rounded-md px-3 py-2 bg-gray-100 text-gray-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Clasificación CRM</label>
+                <select
+                  value={form.segmentoCrm || 'PARTICULAR'}
+                  onChange={(e) => handleChange('segmentoCrm', e.target.value)}
+                  className="w-full border rounded-md px-3 py-2 text-gray-900"
+                >
+                  <option value="PARTICULAR">Particular</option>
+                  <option value="EMPRESA">Empresa</option>
+                  <option value="PARTNER">Partner</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">Área operativa principal; no cambia el tipo fiscal.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
@@ -307,6 +328,15 @@ export default function EditarClientePage() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Origen</label>
                 <input type="text" value={form.origen || ''} onChange={(e) => handleChange('origen', e.target.value)}
                   className="w-full border rounded-md px-3 py-2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Última clasificación CRM</label>
+                <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+                  <p>{form.segmentoCrmActualizadoPor || 'Clasificación inicial automática'}</p>
+                  {form.segmentoCrmActualizadoAt && (
+                    <p className="mt-0.5 text-xs text-gray-500">{new Date(form.segmentoCrmActualizadoAt).toLocaleString('es-ES')}</p>
+                  )}
+                </div>
               </div>
             </div>
           </section>

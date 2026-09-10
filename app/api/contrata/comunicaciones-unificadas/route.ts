@@ -303,6 +303,7 @@ export async function POST(request: Request) {
     const dbPromise = prisma.leadSolucion.create({
       data: {
         tipo: 'COMUNICACIONES_UNIFICADAS',
+        segmentoCrm: 'EMPRESA',
         nombre,
         email,
         empresa,

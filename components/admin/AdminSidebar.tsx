@@ -96,6 +96,7 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 
 const navigation: NavEntry[] = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon, section: 'dashboard' },
+  { name: 'CRM', href: '/admin/crm', icon: ChartBarIcon, section: 'crm' },
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon, section: 'tarifas' },
   {
     name: 'Clientes',

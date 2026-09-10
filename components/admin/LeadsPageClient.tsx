@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../lib/crm-segmentos';
 
 interface Lead {
   id: string;
@@ -11,6 +12,7 @@ interface Lead {
   telefono: string | null;
   urlWeb: string | null;
   sector: string | null;
+  segmentoCrm: SegmentoCrmValue;
   estado: string;
   prioridad: string;
   presupuesto: string | null;
@@ -226,7 +228,12 @@ export default function LeadsPageClient() {
                 {leads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{lead.nombreEmpresa}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-gray-900">{lead.nombreEmpresa}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset ${SEGMENTO_CRM_CONFIG[lead.segmentoCrm].badgeClass}`}>
+                          {SEGMENTO_CRM_CONFIG[lead.segmentoCrm].label}
+                        </span>
+                      </div>
                       {lead.urlWeb && (
                         <a href={lead.urlWeb} target="_blank" rel="noopener" className="text-xs text-orange-600 hover:underline">
                           {lead.urlWeb}
@@ -272,7 +279,7 @@ export default function LeadsPageClient() {
                           Ver detalle →
                         </Link>
                         <button
-                          onClick={() => handleDeleteLead(lead.id, lead.empresa || lead.nombre)}
+                          onClick={() => handleDeleteLead(lead.id, lead.nombreEmpresa)}
                           className="text-red-400 hover:text-red-600 transition-colors"
                           title="Eliminar lead"
                         >

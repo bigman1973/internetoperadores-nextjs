@@ -19,6 +19,7 @@ import {
   BoltIcon,
 } from '@heroicons/react/24/outline'
 import { formatDate } from '../../lib/utils/format'
+import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../lib/crm-segmentos'
 
 interface TiposFacturacion {
   mensual: boolean
@@ -44,6 +45,9 @@ interface Cliente {
   nif?: string | null
   cif?: string | null
   personaFisica?: boolean | null
+  segmentoCrm: SegmentoCrmValue
+  segmentoCrmActualizadoAt?: Date | null
+  segmentoCrmActualizadoPor?: string | null
   nombreComercial?: string | null
   apellidos?: string | null
   nombrePila?: string | null
@@ -184,7 +188,8 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NIF/CIF</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">CRM</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo fiscal</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contacto</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Municipio</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Forma Pago</th>
@@ -237,15 +242,23 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                     {cliente.cif || cliente.nif || '-'}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset ${SEGMENTO_CRM_CONFIG[cliente.segmentoCrm].badgeClass}`}
+                      title={SEGMENTO_CRM_CONFIG[cliente.segmentoCrm].descripcion}
+                    >
+                      {SEGMENTO_CRM_CONFIG[cliente.segmentoCrm].label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
                     <span className={`inline-flex items-center gap-x-1 rounded-md px-2 py-0.5 text-xs font-medium ${
-                      cliente.personaFisica === false 
-                        ? 'bg-blue-100 text-blue-700' 
+                      cliente.personaFisica === false
+                        ? 'bg-blue-50 text-blue-700'
                         : 'bg-gray-100 text-gray-700'
                     }`}>
                       {cliente.personaFisica === false ? (
-                        <><BuildingOfficeIcon className="h-3 w-3" /> Empresa</>
+                        <><BuildingOfficeIcon className="h-3 w-3" /> Persona jurídica</>
                       ) : (
-                        <><UserIcon className="h-3 w-3" /> Particular</>
+                        <><UserIcon className="h-3 w-3" /> Persona física</>
                       )}
                     </span>
                   </td>
@@ -288,7 +301,7 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                 </tr>
                 {expandedId === cliente.id && (
                   <tr key={`${cliente.id}-detail`} className="bg-gray-50">
-                    <td colSpan={10} className="px-6 py-4">
+                    <td colSpan={11} className="px-6 py-4">
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         {/* Identificación */}
                         <div>
@@ -324,10 +337,20 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                                 <dd className="text-gray-900">{cliente.cif}</dd>
                               </div>
                             )}
-                            <div className="flex justify-between">
-                              <dt className="text-gray-500">Tipo:</dt>
+                            <div className="flex justify-between gap-3">
+                              <dt className="text-gray-500">Clasificación CRM:</dt>
+                              <dd className="font-semibold text-gray-900">{SEGMENTO_CRM_CONFIG[cliente.segmentoCrm].label}</dd>
+                            </div>
+                            <div className="flex justify-between gap-3">
+                              <dt className="text-gray-500">Tipo fiscal:</dt>
                               <dd className="text-gray-900">{cliente.personaFisica === false ? 'Persona Jurídica' : 'Persona Física'}</dd>
                             </div>
+                            {cliente.segmentoCrmActualizadoPor && (
+                              <div className="flex justify-between gap-3">
+                                <dt className="text-gray-500">Clasificado por:</dt>
+                                <dd className="text-right text-gray-900">{cliente.segmentoCrmActualizadoPor}</dd>
+                              </div>
+                            )}
                             {cliente.nombreComercial && (
                               <div className="flex justify-between">
                                 <dt className="text-gray-500">Nombre Comercial:</dt>
@@ -525,7 +548,7 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
             ))}
             {localClientes.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-500">
+                <td colSpan={11} className="px-6 py-12 text-center text-sm text-gray-500">
                   No se encontraron clientes con los filtros seleccionados
                 </td>
               </tr>

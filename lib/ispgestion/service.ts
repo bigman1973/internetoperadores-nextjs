@@ -100,6 +100,8 @@ export async function syncClients() {
         const email = rawEmail.split(',')[0].trim() || `sin-email-${ispId}@placeholder.local`;
         
         const nombreCompleto = client.nombrecompleto || `${client.nombre || ''} ${client.apellidos || ''}`.trim() || 'Sin nombre';
+        const personaFisica = client.personafisica === 1 || client.personafisica === '1' || client.personafisica === true;
+        const segmentoCrm = personaFisica ? 'PARTICULAR' : 'EMPRESA';
         const activo = !client.fecha_fin;
         const fechaAlta = client.fecha_inicio || null;
         const fechaBaja = client.fecha_fin || null;
@@ -107,8 +109,9 @@ export async function syncClients() {
         await prisma.$executeRaw`
           INSERT INTO clientes_web (
             email, password_hash, isp_gestion_id, nombre, newsletter_suscrito,
-            cliente_id_isp, codigo, nif, cif, persona_fisica, nombre_comercial,
-            apellidos, nombre_pila, telefono, movil, fax, web, movil_sms,
+            cliente_id_isp, codigo, nif, cif, persona_fisica,
+            segmento_crm, segmento_crm_actualizado_at, segmento_crm_actualizado_por,
+            nombre_comercial, apellidos, nombre_pila, telefono, movil, fax, web, movil_sms,
             tipo_calle, domicilio, numero, edificio, bloque, escalera, piso, puerta,
             municipio, localidad, codigo_postal, provincia, pais, coordenadas,
             cuenta_cargo, cuenta_contable, forma_pago, tipo_iva,
@@ -123,8 +126,8 @@ export async function syncClients() {
             ${email}, ${defaultPasswordHash}, ${ispId}, ${nombreCompleto}, false,
             ${client.clienteid || null}, ${client.codigo || null},
             ${client.nif || null}, ${client.cif || null},
-            ${client.personafisica === 1}, ${client.nombre_comercial || null},
-            ${client.apellidos || null}, ${client.nombre || null},
+            ${personaFisica}, ${segmentoCrm}::"SegmentoCrm", NOW(), 'Sincronización ISPGestión',
+            ${client.nombre_comercial || null}, ${client.apellidos || null}, ${client.nombre || null},
             ${client.telefono1 || null}, ${client.movil || null},
             ${client.fax || null}, ${client.web && client.web !== 'http://' ? client.web : null},
             ${client.movil_sms || null},

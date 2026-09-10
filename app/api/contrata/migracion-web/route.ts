@@ -145,6 +145,7 @@ export async function POST(request: Request) {
     // Crear el lead en la BD
     const lead = await prisma.leadMigracionWeb.create({
       data: {
+        segmentoCrm: 'EMPRESA',
         nombreEmpresa,
         contacto,
         email,

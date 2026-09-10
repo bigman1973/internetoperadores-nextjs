@@ -297,6 +297,7 @@ export async function POST(request: Request) {
     const dbPromise = prisma.leadSolucion.create({
       data: {
         tipo: 'CONECTIVIDAD_AVANZADA',
+        segmentoCrm: 'EMPRESA',
         nombre,
         email,
         empresa,

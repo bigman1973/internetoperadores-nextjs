@@ -156,6 +156,9 @@ model ClienteWeb {
   nif                  String?
   cif                  String?
   personaFisica        Boolean?              @default(true) @map("persona_fisica")
+  segmentoCrm          SegmentoCrm           @default(PARTICULAR) @map("segmento_crm")
+  segmentoCrmActualizadoAt DateTime?          @map("segmento_crm_actualizado_at")
+  segmentoCrmActualizadoPor String?           @map("segmento_crm_actualizado_por")
   nombreComercial      String?               @map("nombre_comercial")
   // Contacto
   apellidos            String?
@@ -216,6 +219,7 @@ model ClienteWeb {
   @@index([activo])
   @@index([municipio])
   @@index([personaFisica])
+  @@index([segmentoCrm])
   @@map("clientes_web")
 }
 
@@ -331,6 +335,12 @@ enum RolAdmin {
 enum TipoCliente {
   PARTICULAR
   EMPRESA
+}
+
+enum SegmentoCrm {
+  PARTICULAR
+  EMPRESA
+  PARTNER
 }
 
 enum TipoClienteCategoria {
@@ -537,6 +547,8 @@ model LeadMigracionWeb {
   presupuesto       String?
   fechaLimite       String?             @map("fecha_limite")
   comoNosConocio    String?             @map("como_nos_conocio")
+  // Clasificación operativa CRM (este formulario siempre capta empresas)
+  segmentoCrm       SegmentoCrm         @default(EMPRESA) @map("segmento_crm")
   // Estado del lead
   estado            EstadoLead          @default(NUEVO)
   prioridad         PrioridadLead       @default(MEDIA)
@@ -566,6 +578,7 @@ model LeadMigracionWeb {
   @@index([estado])
   @@index([sector])
   @@index([email])
+  @@index([segmentoCrm])
   @@index([createdAt])
   @@map("leads_migracion_web")
 }
@@ -851,6 +864,8 @@ model LeadSolucion {
   telefono        String?
   // Datos específicos del formulario (JSON flexible)
   datos           Json              @db.JsonB
+  // Clasificación operativa CRM (las soluciones actuales son B2B)
+  segmentoCrm     SegmentoCrm        @default(EMPRESA) @map("segmento_crm")
   // Estado comercial
   estado          EstadoLeadSolucion @default(NUEVO)
   prioridad       PrioridadLead     @default(MEDIA)
@@ -878,8 +893,46 @@ model LeadSolucion {
   @@index([tipo])
   @@index([estado])
   @@index([email])
+  @@index([segmentoCrm])
   @@index([createdAt])
   @@map("leads_soluciones")
+}
+
+model LeadPartner {
+  id              String            @id @default(uuid())
+  segmentoCrm     SegmentoCrm       @default(PARTNER) @map("segmento_crm")
+  nombre          String
+  empresa         String?
+  email           String
+  telefono        String
+  sector          String
+  numClientes     String?           @map("num_clientes")
+  mensaje         String?
+  newsletter      Boolean           @default(false)
+  estado          EstadoLeadPartner @default(NUEVO)
+  prioridad       PrioridadLead     @default(MEDIA)
+  notas           String?
+  asignadoA       Int?              @map("asignado_a")
+  fechaContacto   DateTime?         @map("fecha_contacto")
+  fechaAprobacion DateTime?         @map("fecha_aprobacion")
+  fechaCierre     DateTime?         @map("fecha_cierre")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@index([segmentoCrm])
+  @@index([estado])
+  @@index([email])
+  @@index([createdAt])
+  @@map("leads_partners")
+}
+
+enum EstadoLeadPartner {
+  NUEVO
+  CONTACTADO
+  EN_EVALUACION
+  APROBADO
+  RECHAZADO
+  DESCARTADO
 }
 
 enum TipoSolucion {

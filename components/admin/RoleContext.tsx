@@ -19,16 +19,16 @@ export type RolId = typeof ROLES_DISPONIBLES[number]['id']
 export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
   SUPER_ADMIN: ['*'],
   GERENTE: [
-    'dashboard', 'tarifas', 'clientes', 'leads', 'comunicados',
+    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
     'estadisticas', 'usuarios', 'subida-precios', 'personal',
     'proyectos', 'historial', 'configuracion'
   ],
   MARKETING: [
-    'dashboard', 'leads', 'comunicados', 'estadisticas'
+    'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'
   ],
   VENTAS: [
-    'dashboard', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'
+    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'
   ],
   CONTABILIDAD: [
     'dashboard', 'facturacion', 'finanzas', 'subida-precios', 'estadisticas'
@@ -45,6 +45,7 @@ export const SECCIONES_SUPER_ADMIN_ONLY = ['finanzas-tickets']
 // Mapeo de secciones del sidebar a códigos de área granular
 const SECTION_TO_AREA: Record<string, string> = {
   'dashboard': 'admin',
+  'crm': 'admin.crm',
   'tarifas': 'admin.tarifas',
   'clientes': 'admin.clientes',
   'clientes.todos': 'admin.clientes.todos',

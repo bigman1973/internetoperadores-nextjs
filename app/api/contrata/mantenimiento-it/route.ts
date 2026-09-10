@@ -321,6 +321,7 @@ export async function POST(request: Request) {
     const dbPromise = prisma.leadSolucion.create({
       data: {
         tipo: 'MANTENIMIENTO_IT',
+        segmentoCrm: 'EMPRESA',
         nombre,
         email,
         empresa,

@@ -13,6 +13,7 @@ interface SearchParams {
   newsletter?: string
   estado?: string
   tipo?: string
+  segmento?: string
   municipio?: string
   page?: string
   facturacion?: string
@@ -196,6 +197,10 @@ async function getClientes(searchParams: SearchParams) {
     where.personaFisica = true
   } else if (searchParams.tipo === 'juridica') {
     where.personaFisica = false
+  }
+
+  if (['PARTICULAR', 'EMPRESA', 'PARTNER'].includes(searchParams.segmento || '')) {
+    where.segmentoCrm = searchParams.segmento
   }
 
   if (searchParams.municipio) {
@@ -436,7 +441,7 @@ export default async function ClientesPage({
       <div className="rounded-lg bg-white shadow border border-gray-200">
         <div className="px-4 py-5 sm:p-6">
           <form method="get" className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
               <div>
                 <label htmlFor="search" className="block text-sm font-medium text-gray-700">Buscar</label>
                 <div className="relative mt-1">
@@ -469,7 +474,21 @@ export default async function ClientesPage({
                 </select>
               </div>
               <div>
-                <label htmlFor="tipo" className="block text-sm font-medium text-gray-700">Tipo</label>
+                <label htmlFor="segmento" className="block text-sm font-medium text-gray-700">Clasificación CRM</label>
+                <select
+                  id="segmento"
+                  name="segmento"
+                  defaultValue={resolvedSearchParams.segmento}
+                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                >
+                  <option value="">Todas</option>
+                  <option value="PARTICULAR">Particulares</option>
+                  <option value="EMPRESA">Empresas</option>
+                  <option value="PARTNER">Partners</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="tipo" className="block text-sm font-medium text-gray-700">Tipo fiscal</label>
                 <select
                   id="tipo"
                   name="tipo"

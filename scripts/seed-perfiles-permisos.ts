@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 // Mapeo de secciones legacy a códigos de área (del RoleContext)
 const SECTION_TO_AREAS: Record<string, string[]> = {
   'dashboard': ['admin'],
+  'crm': ['admin.crm', 'admin.crm.particulares', 'admin.crm.empresas', 'admin.crm.partners'],
   'tarifas': ['admin.tarifas'],
   'clientes': ['admin.clientes', 'admin.clientes.todos', 'admin.clientes.migracion_adamo', 'admin.clientes.ggcc.draxton', 'admin.clientes.ggcc.draxton.finanzas', 'admin.clientes.ggcc.draxton.contratos', 'admin.clientes.ggcc.draxton.personal', 'admin.clientes.ggcc.draxton.seguimiento', 'admin.clientes.ggcc.draxton.kpis', 'admin.clientes.ggcc.draxton.informes', 'admin.clientes.ggcc.draxton.proyectos', 'admin.clientes.ggcc.draxton.proyectos_singulares', 'admin.clientes.ggcc.draxton.contrato_guardias'],
   'leads': ['admin.leads', 'admin.leads.generales', 'admin.leads.mantenimiento', 'admin.leads.soluciones'],
@@ -25,16 +26,16 @@ const SECTION_TO_AREAS: Record<string, string[]> = {
 // Permisos por rol (del RoleContext actual)
 const PERMISOS_POR_ROL: Record<string, string[]> = {
   GERENTE: [
-    'dashboard', 'tarifas', 'clientes', 'leads', 'comunicados',
+    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
     'estadisticas', 'usuarios', 'subida-precios', 'personal',
     'proyectos', 'historial', 'configuracion'
   ],
   MARKETING: [
-    'dashboard', 'leads', 'comunicados', 'estadisticas'
+    'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'
   ],
   VENTAS: [
-    'dashboard', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'
+    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'
   ],
   CONTABILIDAD: [
     'dashboard', 'facturacion', 'finanzas', 'subida-precios', 'estadisticas'
@@ -54,8 +55,8 @@ const PERFIL_COLORS: Record<string, string> = {
 
 const PERFIL_DESCRIPTIONS: Record<string, string> = {
   GERENTE: 'Acceso completo a todas las secciones del panel de administración (excepto tickets financieros)',
-  MARKETING: 'Acceso a leads, comunicados y estadísticas',
-  VENTAS: 'Acceso a tarifas, clientes, leads, altas pendientes y contratos',
+  MARKETING: 'Acceso al CRM, leads, comunicados y estadísticas',
+  VENTAS: 'Acceso al CRM, tarifas, clientes, leads, altas pendientes y contratos',
   CONTABILIDAD: 'Acceso a facturación, finanzas, subida de precios y estadísticas',
   RRHH: 'Acceso a la gestión de personal, nóminas y calendario',
 };

@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from 'next/server';
+import { prisma } from '../../../lib/prisma';
 
 // IDs de listas
 const HUBSPOT_LISTA_SOLICITUDES_PARTNER = '496';
@@ -40,7 +41,24 @@ export async function POST(request) {
     const hubspotToken = (process.env.HUBSPOT_API_KEY || '').trim();
     const sectorNombre = SECTORES_MAP[sector] || sector;
 
-    // Ejecutar todas las acciones en paralelo
+    // PostgreSQL es la fuente de verdad del CRM. Las integraciones externas son complementarias.
+    const leadPartner = await prisma.leadPartner.create({
+      data: {
+        segmentoCrm: 'PARTNER',
+        nombre: String(nombre).trim(),
+        empresa: empresa ? String(empresa).trim() : null,
+        email: String(email).trim().toLowerCase(),
+        telefono: String(telefono).trim(),
+        sector: sectorNombre,
+        numClientes: numClientes ? String(numClientes).trim() : null,
+        mensaje: mensaje ? String(mensaje).trim() : null,
+        newsletter: newsletter === true,
+        estado: 'NUEVO',
+        prioridad: 'MEDIA',
+      },
+    });
+
+    // Ejecutar todas las acciones externas en paralelo
     const promises = [];
 
     // 1. Email de notificación a comercial
@@ -65,7 +83,7 @@ export async function POST(request) {
 
     await Promise.allSettled(promises);
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, id: leadPartner.id }, { status: 201 });
 
   } catch (error) {
     console.error('❌ Error procesando solicitud de partner:', error);

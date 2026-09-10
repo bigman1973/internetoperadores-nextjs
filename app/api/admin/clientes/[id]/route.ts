@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '../../../../../lib/auth'
 import prisma from '../../../../../lib/prisma'
+import { esSegmentoCrm } from '../../../../../lib/crm-segmentos'
 
 export async function DELETE(
   request: Request,
@@ -99,6 +100,15 @@ export async function PUT(
     const clienteId = parseInt(resolvedParams.id)
     const body = await request.json()
 
+    const clienteActual = await prisma.clienteWeb.findUnique({
+      where: { id: clienteId },
+      select: { segmentoCrm: true },
+    })
+
+    if (!clienteActual) {
+      return NextResponse.json({ error: 'Cliente no encontrado' }, { status: 404 })
+    }
+
     // Campos actualizables
     const updateData: any = {}
     const allowedFields = [
@@ -116,6 +126,21 @@ export async function PUT(
     for (const field of allowedFields) {
       if (body[field] !== undefined) {
         updateData[field] = body[field]
+      }
+    }
+
+    if (body.segmentoCrm !== undefined) {
+      if (!esSegmentoCrm(body.segmentoCrm)) {
+        return NextResponse.json(
+          { error: 'La clasificación CRM debe ser Particular, Empresa o Partner' },
+          { status: 400 }
+        )
+      }
+
+      if (body.segmentoCrm !== clienteActual.segmentoCrm) {
+        updateData.segmentoCrm = body.segmentoCrm
+        updateData.segmentoCrmActualizadoAt = new Date()
+        updateData.segmentoCrmActualizadoPor = session.user.email || session.user.name || 'Administrador'
       }
     }
 
