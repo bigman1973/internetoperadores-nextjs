@@ -232,6 +232,10 @@ export async function previewHubspotLists() {
 }
 
 export async function syncHubspotLists(executedBy: string) {
+  await prisma.crmSincronizacionHubspot.updateMany({
+    where: { estado: 'EN_PROGRESO', finalizadoAt: null },
+    data: { estado: 'INTERRUMPIDA', finalizadoAt: new Date() },
+  })
   const sync = await prisma.crmSincronizacionHubspot.create({
     data: { modo: 'MANUAL', estado: 'EN_PROGRESO', ejecutadoPor: executedBy },
   })
@@ -278,55 +282,7 @@ export async function syncHubspotLists(executedBy: string) {
       }
     }
 
-    for (const [objectTypeId, ids] of recordIdsByType) {
-      const records = recordsByType.get(objectTypeId) || new Map<string, HubspotRecord>()
-      const commands = [...ids].map((hubspotId) => {
-        const record = records.get(hubspotId)
-        const properties = record?.properties || {}
-        const fullName = [properties.firstname, properties.lastname].filter(Boolean).join(' ').trim()
-        const name = objectTypeId === '0-1'
-          ? fullName || properties.email || null
-          : properties.name || properties.dealname || null
-        const email = properties.email?.trim().toLowerCase() || null
-        return prisma.crmRegistroHubspot.upsert({
-          where: { objectTypeId_hubspotId: { objectTypeId, hubspotId } },
-          create: {
-            objectTypeId,
-            hubspotId,
-            nombre: name,
-            email,
-            telefono: properties.phone || properties.mobilephone || null,
-            empresa: properties.company || properties.name || null,
-            propiedades: properties,
-            clienteWebId: email ? localClients.get(email) || null : null,
-            hubspotCreadoAt: toDate(record?.createdAt),
-            hubspotActualizadoAt: toDate(record?.updatedAt),
-            sincronizadoAt: startedAt,
-          },
-          update: {
-            nombre: name,
-            email,
-            telefono: properties.phone || properties.mobilephone || null,
-            empresa: properties.company || properties.name || null,
-            propiedades: properties,
-            clienteWebId: email ? localClients.get(email) || null : null,
-            hubspotCreadoAt: toDate(record?.createdAt),
-            hubspotActualizadoAt: toDate(record?.updatedAt),
-            sincronizadoAt: startedAt,
-          },
-        })
-      })
-      for (let index = 0; index < commands.length; index += 50) {
-        await prisma.$transaction(commands.slice(index, index + 50))
-      }
-      recordsUpdated += commands.length
-    }
-
-    const recordRows = await prisma.crmRegistroHubspot.findMany({
-      select: { id: true, objectTypeId: true, hubspotId: true },
-    })
-    const recordMap = new Map(recordRows.map((row) => [`${row.objectTypeId}:${row.hubspotId}`, row.id]))
-
+    const listIds = new Map<string, string>()
     for (const remoteList of catalog) {
       const detail = details.get(remoteList.listId) || remoteList
       const memberRows = memberships.get(remoteList.listId) || []
@@ -374,25 +330,89 @@ export async function syncHubspotLists(executedBy: string) {
           activo: true,
         },
       })
+      listIds.set(remoteList.listId, list.id)
       if (isNew) created += 1
       else updated += 1
+    }
 
-      const newMemberships = memberRows.flatMap((member) => {
+    const recordData: Array<{
+      objectTypeId: string
+      hubspotId: string
+      nombre: string | null
+      email: string | null
+      telefono: string | null
+      empresa: string | null
+      propiedades: Record<string, string | null>
+      clienteWebId: number | null
+      hubspotCreadoAt: Date | null
+      hubspotActualizadoAt: Date | null
+      sincronizadoAt: Date
+    }> = []
+    for (const [objectTypeId, ids] of recordIdsByType) {
+      const records = recordsByType.get(objectTypeId) || new Map<string, HubspotRecord>()
+      for (const hubspotId of ids) {
+        const record = records.get(hubspotId)
+        const properties = record?.properties || {}
+        const fullName = [properties.firstname, properties.lastname].filter(Boolean).join(' ').trim()
+        const name = objectTypeId === '0-1'
+          ? fullName || properties.email || null
+          : properties.name || properties.dealname || null
+        const email = properties.email?.trim().toLowerCase() || null
+        recordData.push({
+          objectTypeId,
+          hubspotId,
+          nombre: name,
+          email,
+          telefono: properties.phone || properties.mobilephone || null,
+          empresa: properties.company || properties.name || null,
+          propiedades: properties,
+          clienteWebId: email ? localClients.get(email) || null : null,
+          hubspotCreadoAt: toDate(record?.createdAt),
+          hubspotActualizadoAt: toDate(record?.updatedAt),
+          sincronizadoAt: startedAt,
+        })
+      }
+    }
+    const recordOperations = [prisma.crmRegistroHubspot.deleteMany()]
+    for (let index = 0; index < recordData.length; index += 500) {
+      recordOperations.push(prisma.crmRegistroHubspot.createMany({ data: recordData.slice(index, index + 500) }))
+    }
+    await prisma.$transaction(recordOperations)
+    recordsUpdated = recordData.length
+
+    const recordRows = await prisma.crmRegistroHubspot.findMany({
+      select: { id: true, objectTypeId: true, hubspotId: true },
+    })
+    const recordMap = new Map(recordRows.map((row) => [`${row.objectTypeId}:${row.hubspotId}`, row.id]))
+
+    const allMemberships: Array<{
+      listaId: string
+      registroId: string
+      incorporadoAt: Date | null
+      vistoEnHubspotAt: Date
+      activo: boolean
+    }> = []
+    for (const remoteList of catalog) {
+      const detail = details.get(remoteList.listId) || remoteList
+      const memberRows = memberships.get(remoteList.listId) || []
+      const listaId = listIds.get(remoteList.listId)
+      if (!listaId) continue
+      allMemberships.push(...memberRows.flatMap((member) => {
         const registroId = recordMap.get(`${detail.objectTypeId}:${member.recordId}`)
         return registroId ? [{
-          listaId: list.id,
+          listaId,
           registroId,
           incorporadoAt: toDate(member.membershipTimestamp),
           vistoEnHubspotAt: startedAt,
           activo: true,
         }] : []
-      })
-
-      await prisma.$transaction([
-        prisma.crmListaMiembro.deleteMany({ where: { listaId: list.id } }),
-        ...(newMemberships.length > 0 ? [prisma.crmListaMiembro.createMany({ data: newMemberships })] : []),
-      ])
+      }))
     }
+    const membershipOperations = []
+    for (let index = 0; index < allMemberships.length; index += 1000) {
+      membershipOperations.push(prisma.crmListaMiembro.createMany({ data: allMemberships.slice(index, index + 1000), skipDuplicates: true }))
+    }
+    if (membershipOperations.length > 0) await prisma.$transaction(membershipOperations)
 
     const remoteIds = catalog.map((list) => list.listId)
     await prisma.crmLista.updateMany({
