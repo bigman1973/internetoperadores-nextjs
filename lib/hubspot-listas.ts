@@ -254,21 +254,24 @@ export async function syncHubspotLists(executedBy: string) {
     const memberships = new Map<string, Membership[]>()
     const recordIdsByType = new Map<string, Set<string>>()
 
-    for (const list of catalog) {
-      try {
-        const [detail, memberData] = await Promise.all([
-          getHubspotListDetail(list.listId),
-          getHubspotMemberships(list.listId),
-        ])
-        details.set(list.listId, { ...list, ...detail })
-        memberships.set(list.listId, memberData.results)
-        membershipsDetected += memberData.total
-        const ids = recordIdsByType.get(list.objectTypeId) || new Set<string>()
-        memberData.results.forEach((member) => ids.add(member.recordId))
-        recordIdsByType.set(list.objectTypeId, ids)
-      } catch (error) {
-        errors.push({ listId: list.listId, name: list.name, error: error instanceof Error ? error.message : String(error) })
-      }
+    for (let index = 0; index < catalog.length; index += 6) {
+      const batch = catalog.slice(index, index + 6)
+      await Promise.all(batch.map(async (list) => {
+        try {
+          const [detail, memberData] = await Promise.all([
+            getHubspotListDetail(list.listId),
+            getHubspotMemberships(list.listId),
+          ])
+          details.set(list.listId, { ...list, ...detail })
+          memberships.set(list.listId, memberData.results)
+          membershipsDetected += memberData.total
+          const ids = recordIdsByType.get(list.objectTypeId) || new Set<string>()
+          memberData.results.forEach((member) => ids.add(member.recordId))
+          recordIdsByType.set(list.objectTypeId, ids)
+        } catch (error) {
+          errors.push({ listId: list.listId, name: list.name, error: error instanceof Error ? error.message : String(error) })
+        }
+      }))
     }
 
     const localClients = await mapLocalClientsByEmail()
