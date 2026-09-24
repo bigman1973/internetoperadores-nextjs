@@ -39,7 +39,8 @@ import {
   ArrowsRightLeftIcon,
   AcademicCapIcon,
   ChatBubbleLeftEllipsisIcon,
-  BuildingLibraryIcon
+  BuildingLibraryIcon,
+  CircleStackIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
 
@@ -96,7 +97,18 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 
 const navigation: NavEntry[] = [
   { name: 'Dashboard', href: '/admin', icon: HomeIcon, section: 'dashboard' },
-  { name: 'CRM', href: '/admin/crm', icon: ChartBarIcon, section: 'crm' },
+  {
+    name: 'CRM',
+    icon: ChartBarIcon,
+    section: 'crm',
+    children: [
+      { name: 'Resumen', href: '/admin/crm', icon: ChartBarIcon, section: 'crm' },
+      { name: 'Listas y segmentos', href: '/admin/crm/listas', icon: CircleStackIcon, section: 'crm.listas' },
+      { name: 'Particulares', href: '/admin/clientes?segmento=PARTICULAR', icon: UserIcon, section: 'crm.particulares' },
+      { name: 'Empresas', href: '/admin/clientes?segmento=EMPRESA', icon: BuildingOffice2Icon, section: 'crm.empresas' },
+      { name: 'Partners', href: '/admin/crm/partners', icon: UserGroupIcon, section: 'crm.partners' },
+    ],
+  },
   { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon, section: 'tarifas' },
   {
     name: 'Clientes',

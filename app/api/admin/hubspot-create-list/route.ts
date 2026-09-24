@@ -1,19 +1,24 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { verificarPermisoServer } from '@/lib/permisos';
 
 const HUBSPOT_API_KEY = (process.env.HUBSPOT_API_KEY || '').trim();
 
-// Endpoint temporal para crear listas en HubSpot
-// Uso: POST /api/admin/hubspot-create-list { "name": "IO-UCAAS", "secret": "crear-lista-2026" }
-// GET: buscar lista por nombre
+async function authorize(tipo: 'lectura' | 'escritura') {
+  const session = await getServerSession(authOptions);
+  if (!session || session.user.userType !== 'admin' || !session.user.id) return null;
+  const permission = await verificarPermisoServer(Number(session.user.id), 'admin.crm.listas', session.user.role);
+  return permission[tipo] ? session : null;
+}
+
 export async function GET(request: Request) {
   try {
+    if (!await authorize('lectura')) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
+    }
     const url = new URL(request.url);
     const name = url.searchParams.get('name');
-    const secret = url.searchParams.get('secret');
-
-    if (secret !== 'crear-lista-2026') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-    }
 
     // Buscar lista por nombre
     const res = await fetch('https://api.hubapi.com/crm/v3/lists/search', {
@@ -44,12 +49,10 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const { name, secret } = await request.json();
-
-    // Protección básica
-    if (secret !== 'crear-lista-2026') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    if (!await authorize('escritura')) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 403 });
     }
+    const { name } = await request.json();
 
     if (!name) {
       return NextResponse.json({ error: 'Falta el nombre de la lista' }, { status: 400 });

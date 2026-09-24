@@ -3,6 +3,7 @@ import {
   ArrowRightIcon,
   BuildingOffice2Icon,
   ChartBarIcon,
+  CircleStackIcon,
   UserGroupIcon,
   UserIcon,
 } from '@heroicons/react/24/outline'
@@ -37,9 +38,10 @@ export default async function CrmPage() {
     registrarArea('admin.crm.particulares', 'CRM > Particulares', 'admin.crm'),
     registrarArea('admin.crm.empresas', 'CRM > Empresas', 'admin.crm'),
     registrarArea('admin.crm.partners', 'CRM > Partners', 'admin.crm'),
+    registrarArea('admin.crm.listas', 'CRM > Listas y segmentos', 'admin.crm'),
   ])
 
-  const [clientesPorSegmento, leadsMigracion, leadsPorProducto, leadsPartner, totalClientes, clientesSinClasificar] = await Promise.all([
+  const [clientesPorSegmento, leadsMigracion, leadsPorProducto, leadsPartner, totalClientes, clientesSinClasificar, listasCrm, listasActivas, membresiasListas] = await Promise.all([
     prisma.clienteWeb.groupBy({
       by: ['segmentoCrm'],
       where: { activo: true },
@@ -58,6 +60,9 @@ export default async function CrmPage() {
       FROM clientes_web
       WHERE segmento_crm IS NULL
     `,
+    prisma.crmLista.count({ where: { activo: true } }),
+    prisma.crmLista.count({ where: { activo: true, processingType: 'DYNAMIC' } }),
+    prisma.crmLista.aggregate({ where: { activo: true }, _sum: { tamanoHubspot: true } }),
   ])
 
   const clientesCount = new Map<SegmentoCrmValue, number>(
@@ -116,6 +121,32 @@ export default async function CrmPage() {
           <ArrowRightIcon className="h-4 w-4" />
         </Link>
       </header>
+
+      <section className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 sm:p-6">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex gap-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-600 text-white shadow-sm">
+              <CircleStackIcon className="h-7 w-7" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-bold text-gray-900">Listas y segmentos</h2>
+                <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-800">HubSpot</span>
+              </div>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">Consulta las listas reales, distingue las activas de las estáticas y revisa sus criterios y miembros sin perder la lógica de segmentación.</p>
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-700">
+                <span><strong className="text-gray-900">{listasCrm}</strong> listas copiadas</span>
+                <span><strong className="text-blue-800">{listasActivas}</strong> activas</span>
+                <span><strong className="text-gray-900">{Number(membresiasListas._sum.tamanoHubspot || 0).toLocaleString('es-ES')}</strong> membresías</span>
+              </div>
+            </div>
+          </div>
+          <Link href="/admin/crm/listas" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">
+            Abrir listas
+            <ArrowRightIcon className="h-4 w-4" />
+          </Link>
+        </div>
+      </section>
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {segmentos.map(({ key, detalle, enlace, meta }) => {

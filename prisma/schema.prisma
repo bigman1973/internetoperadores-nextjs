@@ -3033,3 +3033,103 @@ model PagoFraccionado {
   @@index([estado])
   @@map("pagos_fraccionados")
 }
+
+// ==========================================
+// CRM - LISTAS Y SEGMENTOS HUBSPOT
+// ==========================================
+
+model CrmLista {
+  id                    String            @id @default(cuid())
+  hubspotId             String            @unique @map("hubspot_id")
+  nombre                String
+  descripcion           String?
+  segmentoCrm           SegmentoCrm?      @map("segmento_crm")
+  proposito             String            @default("SIN_CLASIFICAR")
+  objectTypeId          String            @map("object_type_id")
+  processingType        String            @map("processing_type")
+  processingStatus      String?           @map("processing_status")
+  listVersion           Int?              @map("list_version")
+  criterios             Json?             @db.JsonB
+  criteriosResumen      Json?             @map("criterios_resumen") @db.JsonB
+  propiedadesHubspot    Json?             @map("propiedades_hubspot") @db.JsonB
+  tamanoHubspot         Int               @default(0) @map("tamano_hubspot")
+  filtrosActualizadosAt DateTime?         @map("filtros_actualizados_at")
+  hubspotCreadoAt       DateTime?         @map("hubspot_creado_at")
+  hubspotActualizadoAt  DateTime?         @map("hubspot_actualizado_at")
+  hubspotCreatedById    String?           @map("hubspot_created_by_id")
+  hubspotUpdatedById    String?           @map("hubspot_updated_by_id")
+  sincronizadoAt        DateTime?         @map("sincronizado_at")
+  ultimoError           String?           @map("ultimo_error")
+  notasInternas         String?           @map("notas_internas")
+  activo                Boolean           @default(true)
+  createdAt             DateTime          @default(now()) @map("created_at")
+  updatedAt             DateTime          @updatedAt @map("updated_at")
+  miembros              CrmListaMiembro[]
+
+  @@index([segmentoCrm])
+  @@index([proposito])
+  @@index([processingType])
+  @@index([activo])
+  @@map("crm_listas")
+}
+
+model CrmRegistroHubspot {
+  id                   String            @id @default(cuid())
+  hubspotId            String            @map("hubspot_id")
+  objectTypeId         String            @map("object_type_id")
+  nombre               String?
+  email                String?
+  telefono             String?
+  empresa              String?
+  propiedades          Json?             @db.JsonB
+  clienteWebId         Int?              @map("cliente_web_id")
+  hubspotCreadoAt      DateTime?         @map("hubspot_creado_at")
+  hubspotActualizadoAt DateTime?         @map("hubspot_actualizado_at")
+  sincronizadoAt       DateTime?         @map("sincronizado_at")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  listas               CrmListaMiembro[]
+
+  @@unique([objectTypeId, hubspotId])
+  @@index([email])
+  @@index([clienteWebId])
+  @@map("crm_registros_hubspot")
+}
+
+model CrmListaMiembro {
+  id               String             @id @default(cuid())
+  listaId          String             @map("lista_id")
+  registroId       String             @map("registro_id")
+  incorporadoAt    DateTime?          @map("incorporado_at")
+  vistoEnHubspotAt DateTime           @map("visto_en_hubspot_at")
+  activo           Boolean            @default(true)
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  lista            CrmLista           @relation(fields: [listaId], references: [id], onDelete: Cascade)
+  registro         CrmRegistroHubspot @relation(fields: [registroId], references: [id], onDelete: Cascade)
+
+  @@unique([listaId, registroId])
+  @@index([listaId, activo])
+  @@index([registroId])
+  @@map("crm_lista_miembros")
+}
+
+model CrmSincronizacionHubspot {
+  id                    String    @id @default(cuid())
+  modo                  String
+  estado                String
+  ejecutadoPor          String?   @map("ejecutado_por")
+  listasDetectadas      Int       @default(0) @map("listas_detectadas")
+  listasCreadas         Int       @default(0) @map("listas_creadas")
+  listasActualizadas    Int       @default(0) @map("listas_actualizadas")
+  miembrosDetectados    Int       @default(0) @map("miembros_detectados")
+  registrosActualizados Int       @default(0) @map("registros_actualizados")
+  errores               Int       @default(0)
+  detalle               Json?     @db.JsonB
+  iniciadoAt            DateTime  @default(now()) @map("iniciado_at")
+  finalizadoAt          DateTime? @map("finalizado_at")
+
+  @@index([iniciadoAt(sort: Desc)])
+  @@index([estado])
+  @@map("crm_sincronizaciones_hubspot")
+}
