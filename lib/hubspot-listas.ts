@@ -105,7 +105,6 @@ async function getHubspotListDetail(listId: string): Promise<HubspotList> {
 async function getHubspotMemberships(listId: string): Promise<{ results: Membership[]; total: number }> {
   const results: Membership[] = []
   let after: string | undefined
-  let total = 0
 
   do {
     const query = new URLSearchParams({ limit: '250' })
@@ -116,11 +115,11 @@ async function getHubspotMemberships(listId: string): Promise<{ results: Members
       paging?: { next?: { after?: string } }
     }>(`/crm/v3/lists/${encodeURIComponent(listId)}/memberships/join-order?${query}`)
     results.push(...(data.results || []))
-    total = typeof data.total === 'number' ? data.total : results.length
     after = data.paging?.next?.after
   } while (after)
 
-  return { results, total }
+  const uniqueResults = [...new Map(results.map((membership) => [membership.recordId, membership])).values()]
+  return { results: uniqueResults, total: uniqueResults.length }
 }
 
 function objectPath(objectTypeId: string) {
