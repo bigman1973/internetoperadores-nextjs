@@ -159,6 +159,9 @@ function toDate(value?: string) {
 
 function inferPurpose(name: string) {
   const normalized = name.toLocaleUpperCase('es-ES')
+  if (normalized.startsWith('HUBSPOT PARTNER -')) {
+    return normalized.includes('INVALID') ? 'SUPRESION' : 'OPERATIVA'
+  }
   if (/REBOT|ERROR|SUPRES|EXCLU|BAJA|BOUNCE/.test(normalized)) return 'SUPRESION'
   if (/NEWSLETTER|SUSCRIT/.test(normalized)) return 'NEWSLETTER'
   if (/PARTNER|COLABORADOR|GESTOR/.test(normalized)) return 'PARTNERS'

@@ -123,7 +123,7 @@ export default async function CrmListasPage({ searchParams }: { searchParams: Pr
       )}
 
       <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
-        <form method="get" className="grid gap-3 border-b border-gray-200 p-4 sm:grid-cols-2 lg:grid-cols-5">
+        <form method="get" className="grid gap-3 border-b border-gray-200 p-4 sm:grid-cols-2 lg:grid-cols-6">
           <label className="relative sm:col-span-2">
             <span className="sr-only">Buscar listas</span>
             <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-5 w-5 text-gray-400" />
@@ -140,6 +140,10 @@ export default async function CrmListasPage({ searchParams }: { searchParams: Pr
             <option value="PARTICULAR">Particulares</option>
             <option value="EMPRESA">Empresas</option>
             <option value="PARTNER">Partners</option>
+          </select>
+          <select name="purpose" defaultValue={params.purpose || ''} aria-label="Uso de la lista" className="min-h-11 rounded-lg border-gray-300 bg-white text-gray-900 focus:border-orange-500 focus:ring-orange-500">
+            <option value="">Todos los usos</option>
+            {Object.entries(PURPOSE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
           <button className="min-h-11 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800">Aplicar filtros</button>
         </form>
