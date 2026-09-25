@@ -103,6 +103,7 @@ const navigation: NavEntry[] = [
     section: 'crm',
     children: [
       { name: 'Resumen', href: '/admin/crm', icon: ChartBarIcon, section: 'crm' },
+      { name: 'Contactos', href: '/admin/crm/contactos', icon: UserGroupIcon, section: 'crm.contactos' },
       { name: 'Listas y segmentos', href: '/admin/crm/listas', icon: CircleStackIcon, section: 'crm.listas' },
       { name: 'Particulares', href: '/admin/clientes?segmento=PARTICULAR', icon: UserIcon, section: 'crm.particulares' },
       { name: 'Empresas', href: '/admin/clientes?segmento=EMPRESA', icon: BuildingOffice2Icon, section: 'crm.empresas' },

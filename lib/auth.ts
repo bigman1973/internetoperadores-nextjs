@@ -4,6 +4,7 @@ import AzureADProvider from 'next-auth/providers/azure-ad'
 import bcrypt from 'bcryptjs'
 import prisma from './prisma'
 import { verifyClienteCredentials, getClienteByEmail } from './ispgestion/service'
+import { reconciliarContactosCrmConClientes } from './crm-contactos'
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -123,6 +124,8 @@ export const authOptions: NextAuthOptions = {
             if (!cliente || !isValidPassword) {
               return null
             }
+
+            await reconciliarContactosCrmConClientes([cliente.email])
 
             return {
               id: cliente.id.toString(),

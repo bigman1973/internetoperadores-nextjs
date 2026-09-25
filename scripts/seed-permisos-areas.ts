@@ -31,7 +31,8 @@ const areas = [
   { codigo: 'admin.crm.particulares', nombre: 'CRM > Particulares', padre: 'admin.crm', orden: 1 },
   { codigo: 'admin.crm.empresas', nombre: 'CRM > Empresas', padre: 'admin.crm', orden: 2 },
   { codigo: 'admin.crm.partners', nombre: 'CRM > Partners', padre: 'admin.crm', orden: 3 },
-  { codigo: 'admin.crm.listas', nombre: 'CRM > Listas y segmentos', padre: 'admin.crm', orden: 4 },
+  { codigo: 'admin.crm.contactos', nombre: 'CRM > Contactos', padre: 'admin.crm', orden: 4 },
+  { codigo: 'admin.crm.listas', nombre: 'CRM > Listas y segmentos', padre: 'admin.crm', orden: 5 },
 
   // Nivel 3: Clientes > GGCC
   { codigo: 'admin.clientes.ggcc', nombre: 'Grandes Cuentas', padre: 'admin.clientes', orden: 1 },

@@ -215,6 +215,7 @@ model ClienteWeb {
   unidadTramitadora    String?               @map("unidad_tramitadora")
   notificaciones       NotificacionCliente[]
   contratosDraxton     ContratoDraxton[]
+  contactosCrm         CrmRegistroHubspot[]
 
   @@index([activo])
   @@index([municipio])
@@ -3083,16 +3084,24 @@ model CrmRegistroHubspot {
   empresa              String?
   propiedades          Json?             @db.JsonB
   clienteWebId         Int?              @map("cliente_web_id")
+  segmentoCrm          SegmentoCrm?      @map("segmento_crm")
+  segmentoCrmActualizadoAt DateTime?      @map("segmento_crm_actualizado_at")
+  segmentoCrmActualizadoPor String?       @map("segmento_crm_actualizado_por")
+  vinculoClienteOrigen String?            @map("vinculo_cliente_origen")
+  convertidoAt         DateTime?         @map("convertido_at")
   hubspotCreadoAt      DateTime?         @map("hubspot_creado_at")
   hubspotActualizadoAt DateTime?         @map("hubspot_actualizado_at")
   sincronizadoAt       DateTime?         @map("sincronizado_at")
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
   listas               CrmListaMiembro[]
+  clienteWeb           ClienteWeb?       @relation(fields: [clienteWebId], references: [id], onDelete: SetNull)
 
   @@unique([objectTypeId, hubspotId])
   @@index([email])
   @@index([clienteWebId])
+  @@index([segmentoCrm])
+  @@index([convertidoAt])
   @@map("crm_registros_hubspot")
 }
 
@@ -3118,6 +3127,7 @@ model CrmSincronizacionHubspot {
   id                    String    @id @default(cuid())
   modo                  String
   estado                String
+  bloqueo               String?   @unique
   ejecutadoPor          String?   @map("ejecutado_por")
   listasDetectadas      Int       @default(0) @map("listas_detectadas")
   listasCreadas         Int       @default(0) @map("listas_creadas")

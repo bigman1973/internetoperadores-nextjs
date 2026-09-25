@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { prisma } from '../prisma';
 import bcrypt from 'bcryptjs';
+import { reconciliarContactosCrmConClientes } from '../crm-contactos';
 
 const API_URL = process.env.ISPGESTION_API_URL || 'https://internetoperadores.ispgestion.com/api';
 const API_USER = process.env.ISPGESTION_API_USER || 'VOLA';
@@ -220,6 +221,7 @@ export async function syncClients() {
     
     const totalActivos = externalClients.filter((c: any) => !c.fecha_fin).length;
     const totalInactivos = externalClients.filter((c: any) => c.fecha_fin).length;
+    const contactosConvertidos = await reconciliarContactosCrmConClientes();
     
     return { 
       success: true, 
@@ -228,6 +230,7 @@ export async function syncClients() {
       deactivated: Number(deactivated),
       activos: totalActivos,
       inactivos: totalInactivos,
+      contactosConvertidos,
       errors 
     };
   } catch (error: any) {

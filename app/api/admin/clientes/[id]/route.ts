@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '../../../../../lib/auth'
 import prisma from '../../../../../lib/prisma'
 import { esSegmentoCrm } from '../../../../../lib/crm-segmentos'
+import { reconciliarContactosCrmConClientes } from '../../../../../lib/crm-contactos'
 
 export async function DELETE(
   request: Request,
@@ -102,7 +103,7 @@ export async function PUT(
 
     const clienteActual = await prisma.clienteWeb.findUnique({
       where: { id: clienteId },
-      select: { segmentoCrm: true },
+      select: { segmentoCrm: true, email: true },
     })
 
     if (!clienteActual) {
@@ -148,6 +149,10 @@ export async function PUT(
       where: { id: clienteId },
       data: updateData,
     })
+
+    if (body.email !== undefined || body.segmentoCrm !== undefined) {
+      await reconciliarContactosCrmConClientes([clienteActual.email, cliente.email])
+    }
 
     return NextResponse.json(cliente)
   } catch (error) {

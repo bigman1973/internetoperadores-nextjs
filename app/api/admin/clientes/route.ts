@@ -4,6 +4,7 @@ import { getServerSession } from 'next-auth'
 import { NextResponse } from 'next/server'
 import { authOptions } from '../../../../lib/auth'
 import { esSegmentoCrm } from '../../../../lib/crm-segmentos'
+import { reconciliarContactosCrmConClientes } from '../../../../lib/crm-contactos'
 import prisma from '../../../../lib/prisma'
 
 export const dynamic = 'force-dynamic'
@@ -71,6 +72,8 @@ export async function POST(request: Request) {
         segmentoCrm: true,
       },
     })
+
+    await reconciliarContactosCrmConClientes([email])
 
     return NextResponse.json({ success: true, cliente }, { status: 201 })
   } catch (error) {

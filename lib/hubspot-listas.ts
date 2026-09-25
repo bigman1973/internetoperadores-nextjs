@@ -1,4 +1,6 @@
 import prisma from '@/lib/prisma'
+import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
+import { randomUUID } from 'node:crypto'
 
 const HUBSPOT_BASE = 'https://api.hubapi.com'
 const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company']
@@ -205,9 +207,22 @@ export function summarizeFilterBranch(branch: unknown): Array<{
 async function mapLocalClientsByEmail() {
   const clients = await prisma.clienteWeb.findMany({
     where: { email: { not: '' } },
-    select: { id: true, email: true },
+    select: { id: true, email: true, segmentoCrm: true },
   })
-  return new Map(clients.map((client) => [client.email.trim().toLowerCase(), client.id]))
+  const candidatesByEmail = new Map<string, Array<{ id: number; segmentoCrm: 'PARTICULAR' | 'EMPRESA' | 'PARTNER' }>>()
+  for (const client of clients) {
+    const email = client.email.trim().toLowerCase()
+    if (email && !email.endsWith('@placeholder.local')) {
+      const candidates = candidatesByEmail.get(email) || []
+      candidates.push({ id: client.id, segmentoCrm: client.segmentoCrm })
+      candidatesByEmail.set(email, candidates)
+    }
+  }
+  const clientsByEmail = new Map<string, { id: number; segmentoCrm: 'PARTICULAR' | 'EMPRESA' | 'PARTNER' }>()
+  for (const [email, candidates] of candidatesByEmail) {
+    if (candidates.length === 1) clientsByEmail.set(email, candidates[0])
+  }
+  return clientsByEmail
 }
 
 export async function previewHubspotLists() {
@@ -235,12 +250,18 @@ export async function previewHubspotLists() {
 
 export async function syncHubspotLists(executedBy: string) {
   await prisma.crmSincronizacionHubspot.updateMany({
-    where: { estado: 'EN_PROGRESO', finalizadoAt: null },
-    data: { estado: 'INTERRUMPIDA', finalizadoAt: new Date() },
+    where: { estado: 'EN_PROGRESO', finalizadoAt: null, iniciadoAt: { lt: new Date(Date.now() - 15 * 60 * 1000) } },
+    data: { estado: 'INTERRUMPIDA', bloqueo: null, finalizadoAt: new Date() },
   })
-  const sync = await prisma.crmSincronizacionHubspot.create({
-    data: { modo: 'MANUAL', estado: 'EN_PROGRESO', ejecutadoPor: executedBy },
-  })
+  let sync
+  try {
+    sync = await prisma.crmSincronizacionHubspot.create({
+      data: { modo: 'MANUAL', estado: 'EN_PROGRESO', bloqueo: 'hubspot-listas', ejecutadoPor: executedBy },
+    })
+  } catch (error: any) {
+    if (error?.code === 'P2002') throw new Error('Ya hay una sincronización de HubSpot en curso. Espera a que termine antes de iniciar otra.')
+    throw error
+  }
 
   const startedAt = new Date()
   let created = 0
@@ -252,6 +273,9 @@ export async function syncHubspotLists(executedBy: string) {
   try {
     const catalog = await getAllHubspotLists()
     const localIds = new Set((await prisma.crmLista.findMany({ select: { hubspotId: true } })).map((row) => row.hubspotId))
+    if (catalog.length === 0 && localIds.size > 0) {
+      throw new Error('HubSpot ha devuelto un inventario vacío de forma inesperada. No se ha modificado ningún dato local.')
+    }
     const details = new Map<string, HubspotList>()
     const memberships = new Map<string, Membership[]>()
     const recordIdsByType = new Map<string, Set<string>>()
@@ -277,6 +301,11 @@ export async function syncHubspotLists(executedBy: string) {
     }
 
     const localClients = await mapLocalClientsByEmail()
+    const currentRecords = new Map(
+      (await prisma.crmRegistroHubspot.findMany({
+        select: { id: true, objectTypeId: true, hubspotId: true, clienteWebId: true, segmentoCrm: true, segmentoCrmActualizadoAt: true, segmentoCrmActualizadoPor: true, vinculoClienteOrigen: true, convertidoAt: true },
+      })).map((record) => [`${record.objectTypeId}:${record.hubspotId}`, record])
+    )
     const recordsByType = new Map<string, Map<string, HubspotRecord>>()
     for (const [objectTypeId, ids] of recordIdsByType) {
       try {
@@ -285,6 +314,10 @@ export async function syncHubspotLists(executedBy: string) {
       } catch (error) {
         errors.push({ error: `No se pudieron leer registros ${objectTypeId}: ${error instanceof Error ? error.message : String(error)}` })
       }
+    }
+
+    if (errors.length > 0) {
+      throw new Error(`HubSpot no ha devuelto un snapshot completo (${errors.length} avisos). No se ha modificado ningún contacto ni ninguna membresía local.`)
     }
 
     const listIds = new Map<string, string>()
@@ -341,6 +374,7 @@ export async function syncHubspotLists(executedBy: string) {
     }
 
     const recordData: Array<{
+      id: string
       objectTypeId: string
       hubspotId: string
       nombre: string | null
@@ -349,6 +383,11 @@ export async function syncHubspotLists(executedBy: string) {
       empresa: string | null
       propiedades: Record<string, string | null>
       clienteWebId: number | null
+      segmentoCrm: 'PARTICULAR' | 'EMPRESA' | 'PARTNER' | null
+      segmentoCrmActualizadoAt: Date | null
+      segmentoCrmActualizadoPor: string | null
+      vinculoClienteOrigen: string | null
+      convertidoAt: Date | null
       hubspotCreadoAt: Date | null
       hubspotActualizadoAt: Date | null
       sincronizadoAt: Date
@@ -363,7 +402,12 @@ export async function syncHubspotLists(executedBy: string) {
           ? fullName || properties.email || null
           : properties.name || properties.dealname || null
         const email = properties.email?.trim().toLowerCase() || null
+        const current = currentRecords.get(`${objectTypeId}:${hubspotId}`)
+        const matchedClient = email ? localClients.get(email) : undefined
+        const hasProtectedLink = Boolean(current?.clienteWebId && current.vinculoClienteOrigen !== 'EMAIL_AUTOMATICO')
+        const clienteWebId = hasProtectedLink ? current!.clienteWebId : matchedClient?.id || current?.clienteWebId || null
         recordData.push({
+          id: current?.id || randomUUID(),
           objectTypeId,
           hubspotId,
           nombre: name,
@@ -371,24 +415,19 @@ export async function syncHubspotLists(executedBy: string) {
           telefono: properties.phone || properties.mobilephone || null,
           empresa: properties.company || properties.name || null,
           propiedades: properties,
-          clienteWebId: email ? localClients.get(email) || null : null,
+          clienteWebId,
+          segmentoCrm: current?.segmentoCrm || matchedClient?.segmentoCrm || null,
+          segmentoCrmActualizadoAt: current?.segmentoCrmActualizadoAt || (matchedClient ? startedAt : null),
+          segmentoCrmActualizadoPor: current?.segmentoCrmActualizadoPor || (matchedClient ? 'Conversión automática a cliente' : null),
+          vinculoClienteOrigen: current?.vinculoClienteOrigen || (matchedClient ? 'EMAIL_AUTOMATICO' : null),
+          convertidoAt: clienteWebId ? current?.convertidoAt || startedAt : null,
           hubspotCreadoAt: toDate(record?.createdAt),
           hubspotActualizadoAt: toDate(record?.updatedAt),
           sincronizadoAt: startedAt,
         })
       }
     }
-    const recordOperations = [prisma.crmRegistroHubspot.deleteMany()]
-    for (let index = 0; index < recordData.length; index += 500) {
-      recordOperations.push(prisma.crmRegistroHubspot.createMany({ data: recordData.slice(index, index + 500) }))
-    }
-    await prisma.$transaction(recordOperations)
-    recordsUpdated = recordData.length
-
-    const recordRows = await prisma.crmRegistroHubspot.findMany({
-      select: { id: true, objectTypeId: true, hubspotId: true },
-    })
-    const recordMap = new Map(recordRows.map((row) => [`${row.objectTypeId}:${row.hubspotId}`, row.id]))
+    const recordMap = new Map(recordData.map((row) => [`${row.objectTypeId}:${row.hubspotId}`, row.id]))
 
     const allMemberships: Array<{
       listaId: string
@@ -413,17 +452,22 @@ export async function syncHubspotLists(executedBy: string) {
         }] : []
       }))
     }
-    const membershipOperations = []
-    for (let index = 0; index < allMemberships.length; index += 1000) {
-      membershipOperations.push(prisma.crmListaMiembro.createMany({ data: allMemberships.slice(index, index + 1000), skipDuplicates: true }))
+    const snapshotOperations = [prisma.crmRegistroHubspot.deleteMany()]
+    for (let index = 0; index < recordData.length; index += 500) {
+      snapshotOperations.push(prisma.crmRegistroHubspot.createMany({ data: recordData.slice(index, index + 500) }))
     }
-    if (membershipOperations.length > 0) await prisma.$transaction(membershipOperations)
+    for (let index = 0; index < allMemberships.length; index += 1000) {
+      snapshotOperations.push(prisma.crmListaMiembro.createMany({ data: allMemberships.slice(index, index + 1000), skipDuplicates: true }))
+    }
+    await prisma.$transaction(snapshotOperations)
+    recordsUpdated = recordData.length
 
     const remoteIds = catalog.map((list) => list.listId)
     await prisma.crmLista.updateMany({
       where: { hubspotId: { notIn: remoteIds } },
       data: { activo: false },
     })
+    await reconciliarContactosCrmConClientes()
 
     const result = {
       listasDetectadas: catalog.length,
@@ -437,14 +481,14 @@ export async function syncHubspotLists(executedBy: string) {
 
     await prisma.crmSincronizacionHubspot.update({
       where: { id: sync.id },
-      data: { ...result, estado: errors.length ? 'COMPLETADA_CON_AVISOS' : 'COMPLETADA', finalizadoAt: new Date() },
+      data: { ...result, estado: 'COMPLETADA', bloqueo: null, finalizadoAt: new Date() },
     })
     return result
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await prisma.crmSincronizacionHubspot.update({
       where: { id: sync.id },
-      data: { estado: 'ERROR', errores: errors.length + 1, detalle: [...errors, { error: message }], finalizadoAt: new Date() },
+      data: { estado: 'ERROR', bloqueo: null, errores: errors.length + 1, detalle: [...errors, { error: message }], finalizadoAt: new Date() },
     })
     throw error
   }

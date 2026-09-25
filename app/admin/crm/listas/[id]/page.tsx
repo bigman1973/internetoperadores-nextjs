@@ -9,7 +9,7 @@ import {
   FunnelIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline'
-import { requireAuth } from '@/lib/middleware/auth'
+import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmListaSettings from '@/components/admin/CrmListaSettings'
@@ -62,7 +62,7 @@ function formatValue(value?: string) {
 }
 
 export default async function CrmListaDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
-  await requireAuth('admin')
+  await requireAdminAreaRead('admin.crm.listas', ['MARKETING', 'VENTAS'])
   await registrarArea('admin.crm.listas', 'CRM > Listas', 'admin.crm')
   const [{ id }, query] = await Promise.all([params, searchParams])
   const page = Math.max(1, Number(query.page || 1) || 1)
@@ -168,7 +168,7 @@ export default async function CrmListaDetailPage({ params, searchParams }: { par
               {members.map((member) => <MemberCard key={member.id} member={member} />)}
             </div>
             <div className="hidden overflow-x-auto md:block">
-              <table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><Th>Contacto o registro</Th><Th>Empresa</Th><Th>Incorporación</Th><Th>Vínculo local</Th></tr></thead><tbody className="divide-y divide-gray-100">{members.map((member) => <tr key={member.id}><td className="px-5 py-4"><p className="font-semibold text-gray-900">{member.registro.nombre || `Registro #${member.registro.hubspotId}`}</p><p className="mt-1 text-sm text-gray-500">{member.registro.email || member.registro.telefono || 'Sin datos de contacto'}</p></td><td className="px-5 py-4 text-sm text-gray-700">{member.registro.empresa || '—'}</td><td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500">{member.incorporadoAt?.toLocaleDateString('es-ES') || 'No disponible'}</td><td className="px-5 py-4 text-sm">{member.registro.clienteWebId ? <Link href={`/admin/clientes/${member.registro.clienteWebId}`} className="font-semibold text-orange-700 hover:text-orange-800">Abrir cliente</Link> : <span className="text-gray-400">Sin coincidencia local</span>}</td></tr>)}</tbody></table>
+              <table className="min-w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><Th>Contacto o registro</Th><Th>Empresa</Th><Th>Incorporación</Th><Th>Estado CRM</Th></tr></thead><tbody className="divide-y divide-gray-100">{members.map((member) => <tr key={member.id}><td className="px-5 py-4"><p className="font-semibold text-gray-900">{member.registro.nombre || `Registro #${member.registro.hubspotId}`}</p><p className="mt-1 text-sm text-gray-500">{member.registro.email || member.registro.telefono || 'Sin datos de contacto'}</p></td><td className="px-5 py-4 text-sm text-gray-700">{member.registro.empresa || '—'}</td><td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500">{member.incorporadoAt?.toLocaleDateString('es-ES') || 'No disponible'}</td><td className="px-5 py-4 text-sm"><Link href={`/admin/crm/contactos/${member.registro.id}`} className="font-semibold text-orange-700 hover:text-orange-800">{member.registro.clienteWebId ? 'Cliente · ver ficha' : 'Lead · ver ficha'}</Link></td></tr>)}</tbody></table>
             </div>
           </>
         )}
@@ -180,4 +180,4 @@ export default async function CrmListaDetailPage({ params, searchParams }: { par
 }
 
 function Th({ children }: { children: React.ReactNode }) { return <th className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{children}</th> }
-function MemberCard({ member }: { member: any }) { return <article className="p-4"><p className="font-semibold text-gray-900">{member.registro.nombre || `Registro #${member.registro.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{member.registro.email || member.registro.telefono || 'Sin datos de contacto'}</p><div className="mt-3 flex items-end justify-between gap-3 text-sm"><span className="text-gray-600">{member.registro.empresa || 'Sin empresa'}</span>{member.registro.clienteWebId ? <Link href={`/admin/clientes/${member.registro.clienteWebId}`} className="font-semibold text-orange-700">Abrir cliente</Link> : <span className="text-xs text-gray-400">Sin coincidencia local</span>}</div></article> }
+function MemberCard({ member }: { member: any }) { return <article className="p-4"><p className="font-semibold text-gray-900">{member.registro.nombre || `Registro #${member.registro.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{member.registro.email || member.registro.telefono || 'Sin datos de contacto'}</p><div className="mt-3 flex items-end justify-between gap-3 text-sm"><span className="text-gray-600">{member.registro.empresa || 'Sin empresa'}</span><Link href={`/admin/crm/contactos/${member.registro.id}`} className="font-semibold text-orange-700">{member.registro.clienteWebId ? 'Ver cliente' : 'Ver lead'}</Link></div></article> }

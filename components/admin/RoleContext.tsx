@@ -46,6 +46,7 @@ export const SECCIONES_SUPER_ADMIN_ONLY = ['finanzas-tickets']
 const SECTION_TO_AREA: Record<string, string> = {
   'dashboard': 'admin',
   'crm': 'admin.crm',
+  'crm.contactos': 'admin.crm.contactos',
   'crm.listas': 'admin.crm.listas',
   'crm.particulares': 'admin.crm.particulares',
   'crm.empresas': 'admin.crm.empresas',

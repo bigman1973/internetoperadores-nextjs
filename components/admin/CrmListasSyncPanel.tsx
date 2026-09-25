@@ -15,7 +15,7 @@ type Preview = {
 
 export default function CrmListasSyncPanel() {
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
-  const canWrite = (isSuperAdmin && !isViewingAs) || hasAreaAccess('admin.crm.listas', 'escritura')
+  const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.listas', 'escritura'))
   const [loading, setLoading] = useState<'preview' | 'sync' | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)

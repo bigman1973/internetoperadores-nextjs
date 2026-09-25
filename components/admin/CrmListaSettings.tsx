@@ -30,7 +30,7 @@ type Props = {
 
 export default function CrmListaSettings({ id, initialSegment, initialPurpose, initialNotes }: Props) {
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
-  const canWrite = (isSuperAdmin && !isViewingAs) || hasAreaAccess('admin.crm.listas', 'escritura')
+  const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.listas', 'escritura'))
   const [segmentoCrm, setSegmentoCrm] = useState(initialSegment || '')
   const [proposito, setProposito] = useState(initialPurpose)
   const [notasInternas, setNotasInternas] = useState(initialNotes || '')

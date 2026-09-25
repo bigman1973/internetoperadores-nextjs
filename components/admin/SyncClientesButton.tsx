@@ -1,9 +1,14 @@
 'use client'
 import { useState } from 'react'
 import { ArrowPathIcon } from '@heroicons/react/24/outline'
+import { useRole } from './RoleContext'
 
 export default function SyncClientesButton() {
+  const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
+  const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.clientes', 'escritura'))
   const [isSyncing, setIsSyncing] = useState(false)
+
+  if (!canWrite) return null
 
   const handleSync = async () => {
     setIsSyncing(true)
@@ -13,7 +18,8 @@ export default function SyncClientesButton() {
       })
       const data = await response.json()
       if (data.success) {
-        alert(`Sincronización exitosa: ${data.updated} clientes actualizados.`)
+        const conversiones = Number(data.contactosConvertidos || 0)
+        alert(`Sincronización completada: ${Number(data.upserted || data.count || 0).toLocaleString('es-ES')} clientes revisados.${conversiones ? ` ${conversiones.toLocaleString('es-ES')} contactos CRM han pasado a cliente.` : ' No había nuevos contactos CRM para convertir.'}`)
         window.location.reload()
       } else {
         alert(`Error: ${data.error}`)

@@ -9,7 +9,7 @@ import {
   MagnifyingGlassIcon,
   UserGroupIcon,
 } from '@heroicons/react/24/outline'
-import { requireAuth } from '@/lib/middleware/auth'
+import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmListasSyncPanel from '@/components/admin/CrmListasSyncPanel'
@@ -56,7 +56,7 @@ function queryString(params: SearchParams, page: number) {
 }
 
 export default async function CrmListasPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  await requireAuth('admin')
+  await requireAdminAreaRead('admin.crm.listas', ['MARKETING', 'VENTAS'])
   await registrarArea('admin.crm.listas', 'CRM > Listas', 'admin.crm')
   const params = await searchParams
   const page = Math.max(1, Number(params.page || 1) || 1)
