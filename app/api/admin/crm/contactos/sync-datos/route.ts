@@ -45,7 +45,7 @@ export async function POST(request: Request) {
         data: { propiedadesCompletasAt: null },
       })
     }
-    const result = await syncHubspotContactPropertyBatch(100)
+    const result = await syncHubspotContactPropertyBatch(500)
     await prisma.crmSincronizacionHubspot.update({
       where: { id: run.id },
       data: {
