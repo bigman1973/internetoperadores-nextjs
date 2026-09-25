@@ -56,19 +56,30 @@ function getToken() {
 }
 
 async function hubspotRequest<T>(path: string, init?: RequestInit, attempt = 0): Promise<T> {
-  const response = await fetch(`${HUBSPOT_BASE}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-      'Content-Type': 'application/json',
-      ...(init?.headers || {}),
-    },
-    cache: 'no-store',
-  })
+  let response: Response
+  try {
+    response = await fetch(`${HUBSPOT_BASE}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${getToken()}`,
+        'Content-Type': 'application/json',
+        ...(init?.headers || {}),
+      },
+      signal: init?.signal || AbortSignal.timeout(25_000),
+      cache: 'no-store',
+    })
+  } catch (error) {
+    if (attempt < 4) {
+      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** attempt))
+      return hubspotRequest<T>(path, init, attempt + 1)
+    }
+    throw new Error(`No se ha podido conectar con HubSpot después de varios intentos: ${error instanceof Error ? error.message : 'error de red'}`)
+  }
 
-  if (response.status === 429 && attempt < 3) {
-    const retryAfter = Number(response.headers.get('retry-after') || 1)
-    await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfter) * 1000))
+  if ((response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500) && attempt < 4) {
+    const retryAfter = Number(response.headers.get('retry-after') || 0)
+    const delay = retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt
+    await new Promise((resolve) => setTimeout(resolve, Math.max(1000, delay)))
     return hubspotRequest<T>(path, init, attempt + 1)
   }
 
