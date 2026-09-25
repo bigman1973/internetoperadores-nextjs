@@ -346,7 +346,7 @@ export async function syncHubspotContactPropertyBatch(limit = 500) {
   if (unavailableContacts.length > 0) {
     await prisma.crmRegistroHubspot.updateMany({
       where: { id: { in: unavailableContacts.map((contact) => contact.id) } },
-      data: { propiedadesCompletasError: 'La ficha ya no está disponible en HubSpot, ni siquiera como contacto archivado.', sincronizadoAt: now },
+      data: { propiedadesCompletasError: 'La ficha ya no está disponible en HubSpot, ni siquiera como contacto archivado', sincronizadoAt: now },
     })
   }
   await recomputeEffectiveContactFields(sourceRows.map((row) => row.id))
