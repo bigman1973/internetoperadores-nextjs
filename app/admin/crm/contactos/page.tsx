@@ -74,7 +74,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
   }
   if (params.list) where.listas = { some: { activo: true, listaId: params.list, lista: { activo: true } } }
 
-  const [contacts, total, totalContacts, customers, withoutEmail, lists, ambiguous, fullContacts] = await Promise.all([
+  const [contacts, total, totalContacts, customers, withoutEmail, lists, ambiguous, fullContacts, failedContacts] = await Promise.all([
     prisma.crmRegistroHubspot.findMany({
       where,
       include: {
@@ -112,6 +112,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
       WHERE contacto.object_type_id = '0-1'
     `,
     prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: { not: null }, listas: { some: { activo: true, lista: { activo: true } } } } }),
+    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasError: { not: null }, listas: { some: { activo: true, lista: { activo: true } } } } }),
   ])
 
   const leads = totalContacts - customers
@@ -144,7 +145,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         <Kpi label="Correo duplicado" value={Number(ambiguous[0]?.total || 0)} icon={<ExclamationTriangleIcon className="h-5 w-5" />} tone="amber" />
       </section>
 
-      <CrmContactosDataSyncPanel total={totalContacts} initialCompleted={fullContacts} />
+      <CrmContactosDataSyncPanel total={totalContacts} initialCompleted={fullContacts} initialFailed={failedContacts} />
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
         <strong>Conversión automática:</strong> la sincronización de clientes de ISPGestión y las altas manuales del panel comprueban el correo. La conversión no crea duplicados, no modifica HubSpot y conserva todas las pertenencias a listas. Si el mismo correo corresponde a varios clientes, el contacto sigue como lead para evitar una asociación equivocada.

@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     if (body?.restart === true) {
       await prisma.crmRegistroHubspot.updateMany({
         where: { objectTypeId: '0-1', listas: { some: { activo: true, lista: { activo: true } } } },
-        data: { propiedadesCompletasAt: null },
+        data: { propiedadesCompletasAt: null, propiedadesCompletasError: null },
       })
     }
     const result = await syncHubspotContactPropertyBatch(500)
@@ -53,10 +53,14 @@ export async function POST(request: Request) {
         bloqueo: null,
         registrosActualizados: result.processed,
         propiedadesDetectadas: result.definitions,
+        detalle: result.unavailable > 0 ? [{ incidencias: result.unavailable, motivo: 'Contactos no disponibles en HubSpot ni como archivados' }] : undefined,
         finalizadoAt: new Date(),
       },
     })
-    return NextResponse.json({ success: true, ...result })
+    const failedTotal = await prisma.crmRegistroHubspot.count({
+      where: { objectTypeId: '0-1', propiedadesCompletasError: { not: null }, listas: { some: { activo: true, lista: { activo: true } } } },
+    })
+    return NextResponse.json({ success: true, ...result, failedTotal })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo completar el lote de contactos.'
     await prisma.crmSincronizacionHubspot.update({

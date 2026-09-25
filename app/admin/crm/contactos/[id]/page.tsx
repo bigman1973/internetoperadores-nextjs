@@ -136,7 +136,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         updatedBy={contact.datosActualizadoPor}
         history={asHistory(contact.historialCambios)}
         fullPropertiesAt={contact.propiedadesCompletasAt?.toISOString() || null}
-        syncError={null}
+        syncError={contact.propiedadesCompletasError}
         initialVersion={contact.datosVersion}
       />
 

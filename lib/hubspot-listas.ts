@@ -166,7 +166,7 @@ async function getHubspotPropertyDefinitions(objectTypeId: string): Promise<Hubs
   return data.results || []
 }
 
-async function getRecords(objectTypeId: string, ids: string[], requestedProperties?: string[]): Promise<HubspotRecord[]> {
+async function getRecords(objectTypeId: string, ids: string[], requestedProperties?: string[], archived = false): Promise<HubspotRecord[]> {
   const object = objectPath(objectTypeId)
   if (!object || ids.length === 0) return []
 
@@ -174,7 +174,7 @@ async function getRecords(objectTypeId: string, ids: string[], requestedProperti
   for (let index = 0; index < ids.length; index += 100) {
     const chunk = ids.slice(index, index + 100)
     const data = await hubspotRequest<{ results?: HubspotRecord[] }>(
-      `/crm/v3/objects/${object.path}/batch/read?archived=false`,
+      `/crm/v3/objects/${object.path}/batch/read?archived=${archived ? 'true' : 'false'}`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -191,12 +191,13 @@ async function getRecords(objectTypeId: string, ids: string[], requestedProperti
 async function getRecordsWithAllProperties(
   objectTypeId: string,
   ids: string[],
-  definitions: HubspotPropertyDefinition[]
+  definitions: HubspotPropertyDefinition[],
+  archived = false
 ): Promise<HubspotRecord[]> {
   if (objectTypeId !== '0-1') return getRecords(objectTypeId, ids)
 
   const propertyNames = definitions.map((property) => property.name)
-  const records = await getRecords(objectTypeId, ids, propertyNames)
+  const records = await getRecords(objectTypeId, ids, propertyNames, archived)
   return records.map((record) => ({
     ...record,
     properties: Object.fromEntries(
@@ -207,7 +208,8 @@ async function getRecordsWithAllProperties(
 
 export async function syncHubspotContactProperties(hubspotId: string) {
   const definitions = await getHubspotPropertyDefinitions('0-1')
-  const records = await getRecordsWithAllProperties('0-1', [hubspotId], definitions)
+  let records = await getRecordsWithAllProperties('0-1', [hubspotId], definitions)
+  if (records.length === 0) records = await getRecordsWithAllProperties('0-1', [hubspotId], definitions, true)
   const record = records[0]
   if (!record) throw new Error('HubSpot no ha devuelto la ficha del contacto.')
   const properties = record.properties || {}
@@ -246,6 +248,7 @@ export async function syncHubspotContactProperties(hubspotId: string) {
       data: {
         propiedades: properties,
         propiedadesCompletasAt: now,
+        propiedadesCompletasError: null,
         hubspotCreadoAt: toDate(record.createdAt),
         hubspotActualizadoAt: toDate(record.updatedAt),
         sincronizadoAt: now,
@@ -262,7 +265,7 @@ export async function syncHubspotContactProperties(hubspotId: string) {
 export async function syncHubspotContactPropertyBatch(limit = 500) {
   const batchSize = Math.min(Math.max(limit, 1), 500)
   const contacts = await prisma.crmRegistroHubspot.findMany({
-    where: { objectTypeId: '0-1', propiedadesCompletasAt: null, listas: { some: { activo: true, lista: { activo: true } } } },
+    where: { objectTypeId: '0-1', propiedadesCompletasAt: null, propiedadesCompletasError: null, listas: { some: { activo: true, lista: { activo: true } } } },
     select: { id: true, hubspotId: true, email: true },
     orderBy: { id: 'asc' },
     take: batchSize,
@@ -289,8 +292,10 @@ export async function syncHubspotContactPropertyBatch(limit = 500) {
     : await getHubspotPropertyDefinitions('0-1')
   const records = await getRecordsWithAllProperties('0-1', contacts.map((contact) => contact.hubspotId), definitions)
   const byHubspotId = new Map(records.map((record) => [record.id, record]))
-  if (records.length !== contacts.length) {
-    throw new Error(`HubSpot devolvió ${records.length} de ${contacts.length} contactos. No se ha guardado este lote incompleto.`)
+  const missingIds = contacts.map((contact) => contact.hubspotId).filter((id) => !byHubspotId.has(id))
+  if (missingIds.length > 0) {
+    const archivedRecords = await getRecordsWithAllProperties('0-1', missingIds, definitions, true)
+    archivedRecords.forEach((record) => byHubspotId.set(record.id, record))
   }
   const now = new Date()
   if (cachedDefinitions.length === 0) {
@@ -316,29 +321,40 @@ export async function syncHubspotContactPropertyBatch(limit = 500) {
     })
   }
   const affectedEmails: string[] = []
-  const sourceRows = contacts.map((contact) => {
-    const record = byHubspotId.get(contact.hubspotId)!
+  const sourceRows = contacts.flatMap((contact) => {
+    const record = byHubspotId.get(contact.hubspotId)
+    if (!record) return []
     const properties = record.properties || {}
     if (contact.email) affectedEmails.push(contact.email)
-    return { id: contact.id, properties, createdAt: record.createdAt || null, updatedAt: record.updatedAt || null }
+    return [{ id: contact.id, properties, createdAt: record.createdAt || null, updatedAt: record.updatedAt || null }]
   })
-  await prisma.$executeRaw(Prisma.sql`
-    UPDATE crm_registros_hubspot AS contacto
-    SET propiedades = datos.propiedades,
-        propiedades_completas_at = ${now},
-        hubspot_creado_at = CAST(datos.creado_at AS timestamptz),
-        hubspot_actualizado_at = CAST(datos.actualizado_at AS timestamptz),
-        sincronizado_at = ${now},
-        updated_at = NOW()
-    FROM (VALUES ${Prisma.join(sourceRows.map((row) => Prisma.sql`(${row.id}, CAST(${JSON.stringify(row.properties)} AS jsonb), ${row.createdAt}, ${row.updatedAt})`))}) AS datos(id, propiedades, creado_at, actualizado_at)
-    WHERE contacto.id = datos.id
-  `)
-  await recomputeEffectiveContactFields(contacts.map((contact) => contact.id))
+  if (sourceRows.length > 0) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE crm_registros_hubspot AS contacto
+      SET propiedades = datos.propiedades,
+          propiedades_completas_at = ${now},
+          propiedades_completas_error = NULL,
+          hubspot_creado_at = CAST(datos.creado_at AS timestamptz),
+          hubspot_actualizado_at = CAST(datos.actualizado_at AS timestamptz),
+          sincronizado_at = ${now},
+          updated_at = NOW()
+      FROM (VALUES ${Prisma.join(sourceRows.map((row) => Prisma.sql`(${row.id}, CAST(${JSON.stringify(row.properties)} AS jsonb), ${row.createdAt}, ${row.updatedAt})`))}) AS datos(id, propiedades, creado_at, actualizado_at)
+      WHERE contacto.id = datos.id
+    `)
+  }
+  const unavailableContacts = contacts.filter((contact) => !byHubspotId.has(contact.hubspotId))
+  if (unavailableContacts.length > 0) {
+    await prisma.crmRegistroHubspot.updateMany({
+      where: { id: { in: unavailableContacts.map((contact) => contact.id) } },
+      data: { propiedadesCompletasError: 'La ficha ya no está disponible en HubSpot, ni siquiera como contacto archivado.', sincronizadoAt: now },
+    })
+  }
+  await recomputeEffectiveContactFields(sourceRows.map((row) => row.id))
   const refreshedContacts = await prisma.crmRegistroHubspot.findMany({ where: { id: { in: contacts.map((contact) => contact.id) } }, select: { email: true } })
   refreshedContacts.forEach((contact) => { if (contact.email) affectedEmails.push(contact.email) })
   await reconciliarContactosCrmConClientes(affectedEmails)
-  const remaining = await prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: null, listas: { some: { activo: true, lista: { activo: true } } } } })
-  return { processed: contacts.length, remaining, definitions: definitions.length }
+  const remaining = await prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: null, propiedadesCompletasError: null, listas: { some: { activo: true, lista: { activo: true } } } } })
+  return { processed: sourceRows.length, unavailable: unavailableContacts.length, remaining, definitions: definitions.length }
 }
 
 function toDate(value?: string) {

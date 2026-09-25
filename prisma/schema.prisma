@@ -3084,6 +3084,7 @@ model CrmRegistroHubspot {
   empresa              String?
   propiedades          Json?             @db.JsonB
   propiedadesCompletasAt DateTime?        @map("propiedades_completas_at")
+  propiedadesCompletasError String?       @map("propiedades_completas_error")
   propiedadesLocales   Json?             @map("propiedades_locales") @db.JsonB
   notasInternas        String?            @map("notas_internas")
   historialCambios     Json?             @map("historial_cambios") @db.JsonB
