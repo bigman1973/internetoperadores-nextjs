@@ -3083,6 +3083,13 @@ model CrmRegistroHubspot {
   telefono             String?
   empresa              String?
   propiedades          Json?             @db.JsonB
+  propiedadesCompletasAt DateTime?        @map("propiedades_completas_at")
+  propiedadesLocales   Json?             @map("propiedades_locales") @db.JsonB
+  notasInternas        String?            @map("notas_internas")
+  historialCambios     Json?             @map("historial_cambios") @db.JsonB
+  datosActualizadoAt   DateTime?          @map("datos_actualizado_at")
+  datosActualizadoPor  String?            @map("datos_actualizado_por")
+  datosVersion         Int                @default(0) @map("datos_version")
   clienteWebId         Int?              @map("cliente_web_id")
   segmentoCrm          SegmentoCrm?      @map("segmento_crm")
   segmentoCrmActualizadoAt DateTime?      @map("segmento_crm_actualizado_at")
@@ -3102,7 +3109,34 @@ model CrmRegistroHubspot {
   @@index([clienteWebId])
   @@index([segmentoCrm])
   @@index([convertidoAt])
+  @@index([objectTypeId, propiedadesCompletasAt, id])
   @@map("crm_registros_hubspot")
+}
+
+model CrmPropiedadHubspot {
+  id                   String    @id @default(cuid())
+  objectTypeId         String    @map("object_type_id")
+  nombre               String
+  etiqueta             String
+  grupoNombre          String?   @map("grupo_nombre")
+  tipo                  String?
+  tipoCampo             String?   @map("tipo_campo")
+  descripcion          String?
+  opciones             Json?     @db.JsonB
+  soloLectura          Boolean   @default(false) @map("solo_lectura")
+  oculta               Boolean   @default(false)
+  calculada             Boolean   @default(false)
+  ordenVisual           Int?      @map("orden_visual")
+  hubspotCreadaAt      DateTime? @map("hubspot_creada_at")
+  hubspotActualizadaAt DateTime? @map("hubspot_actualizada_at")
+  sincronizadoAt       DateTime  @default(now()) @map("sincronizado_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@unique([objectTypeId, nombre])
+  @@index([objectTypeId, grupoNombre])
+  @@index([objectTypeId, soloLectura])
+  @@map("crm_propiedades_hubspot")
 }
 
 model CrmListaMiembro {
@@ -3134,6 +3168,7 @@ model CrmSincronizacionHubspot {
   listasActualizadas    Int       @default(0) @map("listas_actualizadas")
   miembrosDetectados    Int       @default(0) @map("miembros_detectados")
   registrosActualizados Int       @default(0) @map("registros_actualizados")
+  propiedadesDetectadas Int       @default(0) @map("propiedades_detectadas")
   errores               Int       @default(0)
   detalle               Json?     @db.JsonB
   iniciadoAt            DateTime  @default(now()) @map("iniciado_at")

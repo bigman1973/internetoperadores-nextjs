@@ -48,7 +48,7 @@ export default function CrmListasSyncPanel() {
         const result = data.result
         setMessage({
           type: result.errores ? 'error' : 'success',
-          text: `Sincronización finalizada: ${result.listasDetectadas} listas, ${result.miembrosDetectados.toLocaleString('es-ES')} membresías y ${result.registrosActualizados.toLocaleString('es-ES')} registros revisados${result.errores ? `, con ${result.errores} avisos` : ''}.`,
+          text: `Sincronización finalizada: ${result.listasDetectadas} listas, ${result.miembrosDetectados.toLocaleString('es-ES')} membresías, ${result.registrosActualizados.toLocaleString('es-ES')} contactos y ${Number(result.propiedadesDetectadas || 0).toLocaleString('es-ES')} campos HubSpot revisados${result.errores ? `, con ${result.errores} avisos` : ''}.`,
         })
         setPreview(null)
         window.setTimeout(() => window.location.reload(), 900)

@@ -1,6 +1,7 @@
 import prisma from '@/lib/prisma'
 import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
 import { randomUUID } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 
 const HUBSPOT_BASE = 'https://api.hubapi.com'
 const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company']
@@ -30,6 +31,22 @@ type HubspotRecord = {
   properties?: Record<string, string | null>
   createdAt?: string
   updatedAt?: string
+}
+
+type HubspotPropertyDefinition = {
+  name: string
+  label: string
+  groupName?: string
+  type?: string
+  fieldType?: string
+  description?: string
+  options?: Array<{ label?: string; value?: string; hidden?: boolean; displayOrder?: number }>
+  hidden?: boolean
+  calculated?: boolean
+  displayOrder?: number
+  createdAt?: string
+  updatedAt?: string
+  modificationMetadata?: { readOnlyValue?: boolean }
 }
 
 function getToken() {
@@ -131,7 +148,14 @@ function objectPath(objectTypeId: string) {
   return null
 }
 
-async function getRecords(objectTypeId: string, ids: string[]): Promise<HubspotRecord[]> {
+async function getHubspotPropertyDefinitions(objectTypeId: string): Promise<HubspotPropertyDefinition[]> {
+  const data = await hubspotRequest<{ results?: HubspotPropertyDefinition[] }>(
+    `/crm/v3/properties/${encodeURIComponent(objectTypeId)}?archived=false`
+  )
+  return data.results || []
+}
+
+async function getRecords(objectTypeId: string, ids: string[], requestedProperties?: string[]): Promise<HubspotRecord[]> {
   const object = objectPath(objectTypeId)
   if (!object || ids.length === 0) return []
 
@@ -144,7 +168,7 @@ async function getRecords(objectTypeId: string, ids: string[]): Promise<HubspotR
         method: 'POST',
         body: JSON.stringify({
           inputs: chunk.map((id) => ({ id })),
-          properties: object.properties,
+          properties: requestedProperties?.length ? requestedProperties : object.properties,
         }),
       }
     )
@@ -153,10 +177,203 @@ async function getRecords(objectTypeId: string, ids: string[]): Promise<HubspotR
   return records
 }
 
+async function getRecordsWithAllProperties(
+  objectTypeId: string,
+  ids: string[],
+  definitions: HubspotPropertyDefinition[]
+): Promise<HubspotRecord[]> {
+  if (objectTypeId !== '0-1') return getRecords(objectTypeId, ids)
+
+  const propertyNames = definitions.map((property) => property.name)
+  const records = await getRecords(objectTypeId, ids, propertyNames)
+  return records.map((record) => ({
+    ...record,
+    properties: Object.fromEntries(
+      Object.entries(record.properties || {}).filter(([, value]) => value != null && String(value).trim() !== '')
+    ),
+  }))
+}
+
+export async function syncHubspotContactProperties(hubspotId: string) {
+  const definitions = await getHubspotPropertyDefinitions('0-1')
+  const records = await getRecordsWithAllProperties('0-1', [hubspotId], definitions)
+  const record = records[0]
+  if (!record) throw new Error('HubSpot no ha devuelto la ficha del contacto.')
+  const properties = record.properties || {}
+
+  const existing = await prisma.crmRegistroHubspot.findUnique({
+    where: { objectTypeId_hubspotId: { objectTypeId: '0-1', hubspotId } },
+    select: { id: true, email: true },
+  })
+  if (!existing) throw new Error('El contacto todavía no existe en el CRM local.')
+  const now = new Date()
+
+  await prisma.$transaction([
+    prisma.crmPropiedadHubspot.deleteMany({ where: { objectTypeId: '0-1' } }),
+    prisma.crmPropiedadHubspot.createMany({
+      data: definitions.map((property) => ({
+        objectTypeId: '0-1',
+        nombre: property.name,
+        etiqueta: property.label || property.name,
+        grupoNombre: property.groupName || null,
+        tipo: property.type || null,
+        tipoCampo: property.fieldType || null,
+        descripcion: property.description || null,
+        opciones: property.options || [],
+        soloLectura: Boolean(property.modificationMetadata?.readOnlyValue),
+        oculta: Boolean(property.hidden),
+        calculada: Boolean(property.calculated),
+        ordenVisual: typeof property.displayOrder === 'number' ? property.displayOrder : null,
+        hubspotCreadaAt: toDate(property.createdAt),
+        hubspotActualizadaAt: toDate(property.updatedAt),
+        sincronizadoAt: now,
+      })),
+      skipDuplicates: true,
+    }),
+    prisma.crmRegistroHubspot.update({
+      where: { id: existing.id },
+      data: {
+        propiedades: properties,
+        propiedadesCompletasAt: now,
+        hubspotCreadoAt: toDate(record.createdAt),
+        hubspotActualizadoAt: toDate(record.updatedAt),
+        sincronizadoAt: now,
+      },
+    }),
+  ])
+  await recomputeEffectiveContactFields([existing.id])
+  const refreshed = await prisma.crmRegistroHubspot.findUnique({ where: { id: existing.id }, select: { email: true } })
+  await reconciliarContactosCrmConClientes([existing.email || '', refreshed?.email || ''])
+
+  return { properties: Object.keys(properties).length, definitions: definitions.length, syncedAt: now }
+}
+
+export async function syncHubspotContactPropertyBatch(limit = 100) {
+  const batchSize = Math.min(Math.max(limit, 1), 100)
+  const contacts = await prisma.crmRegistroHubspot.findMany({
+    where: { objectTypeId: '0-1', propiedadesCompletasAt: null, listas: { some: { activo: true, lista: { activo: true } } } },
+    select: { id: true, hubspotId: true, email: true },
+    orderBy: { id: 'asc' },
+    take: batchSize,
+  })
+  if (contacts.length === 0) return { processed: 0, remaining: 0, definitions: 0 }
+
+  const cachedDefinitions = await prisma.crmPropiedadHubspot.findMany({ where: { objectTypeId: '0-1' } })
+  const definitions: HubspotPropertyDefinition[] = cachedDefinitions.length > 0
+    ? cachedDefinitions.map((property) => ({
+        name: property.nombre,
+        label: property.etiqueta,
+        groupName: property.grupoNombre || undefined,
+        type: property.tipo || undefined,
+        fieldType: property.tipoCampo || undefined,
+        description: property.descripcion || undefined,
+        options: Array.isArray(property.opciones) ? property.opciones as HubspotPropertyDefinition['options'] : [],
+        hidden: property.oculta,
+        calculated: property.calculada,
+        displayOrder: property.ordenVisual ?? undefined,
+        createdAt: property.hubspotCreadaAt?.toISOString(),
+        updatedAt: property.hubspotActualizadaAt?.toISOString(),
+        modificationMetadata: { readOnlyValue: property.soloLectura },
+      }))
+    : await getHubspotPropertyDefinitions('0-1')
+  const records = await getRecordsWithAllProperties('0-1', contacts.map((contact) => contact.hubspotId), definitions)
+  const byHubspotId = new Map(records.map((record) => [record.id, record]))
+  if (records.length !== contacts.length) {
+    throw new Error(`HubSpot devolvió ${records.length} de ${contacts.length} contactos. No se ha guardado este lote incompleto.`)
+  }
+  const now = new Date()
+  const operations: Prisma.PrismaPromise<unknown>[] = [
+    prisma.crmPropiedadHubspot.createMany({
+      data: definitions.map((property) => ({
+        objectTypeId: '0-1',
+        nombre: property.name,
+        etiqueta: property.label || property.name,
+        grupoNombre: property.groupName || null,
+        tipo: property.type || null,
+        tipoCampo: property.fieldType || null,
+        descripcion: property.description || null,
+        opciones: property.options || [],
+        soloLectura: Boolean(property.modificationMetadata?.readOnlyValue),
+        oculta: Boolean(property.hidden),
+        calculada: Boolean(property.calculated),
+        ordenVisual: typeof property.displayOrder === 'number' ? property.displayOrder : null,
+        hubspotCreadaAt: toDate(property.createdAt),
+        hubspotActualizadaAt: toDate(property.updatedAt),
+        sincronizadoAt: now,
+      })),
+      skipDuplicates: true,
+    }),
+  ]
+  const affectedEmails: string[] = []
+  for (const contact of contacts) {
+    const record = byHubspotId.get(contact.hubspotId)!
+    const properties = record.properties || {}
+    if (contact.email) affectedEmails.push(contact.email)
+    operations.push(prisma.crmRegistroHubspot.update({
+      where: { id: contact.id },
+      data: {
+        propiedades: properties,
+        propiedadesCompletasAt: now,
+        hubspotCreadoAt: toDate(record.createdAt),
+        hubspotActualizadoAt: toDate(record.updatedAt),
+        sincronizadoAt: now,
+      },
+    }))
+  }
+  await prisma.$transaction(operations)
+  await recomputeEffectiveContactFields(contacts.map((contact) => contact.id))
+  const refreshedContacts = await prisma.crmRegistroHubspot.findMany({ where: { id: { in: contacts.map((contact) => contact.id) } }, select: { email: true } })
+  refreshedContacts.forEach((contact) => { if (contact.email) affectedEmails.push(contact.email) })
+  await reconciliarContactosCrmConClientes(affectedEmails)
+  const remaining = await prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: null, listas: { some: { activo: true, lista: { activo: true } } } } })
+  return { processed: contacts.length, remaining, definitions: definitions.length }
+}
+
 function toDate(value?: string) {
   if (!value) return null
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? null : date
+}
+
+function asStringRecord(value: unknown): Record<string, string | null> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, fieldValue]) => [
+      key,
+      fieldValue == null ? null : String(fieldValue),
+    ])
+  )
+}
+
+async function recomputeEffectiveContactFields(ids: string[]) {
+  if (ids.length === 0) return
+  for (let index = 0; index < ids.length; index += 1000) {
+    const chunk = ids.slice(index, index + 1000)
+    await prisma.$executeRaw(Prisma.sql`
+    WITH efectivos AS (
+      SELECT
+        id,
+        object_type_id,
+        COALESCE(propiedades, '{}'::jsonb) || COALESCE(propiedades_locales, '{}'::jsonb) AS datos
+      FROM crm_registros_hubspot
+      WHERE id IN (${Prisma.join(chunk)})
+    )
+    UPDATE crm_registros_hubspot AS contacto
+    SET nombre = CASE
+          WHEN efectivos.object_type_id = '0-1' THEN COALESCE(
+            NULLIF(TRIM(CONCAT_WS(' ', efectivos.datos->>'firstname', efectivos.datos->>'lastname')), ''),
+            NULLIF(TRIM(efectivos.datos->>'email'), '')
+          )
+          ELSE COALESCE(NULLIF(TRIM(efectivos.datos->>'name'), ''), NULLIF(TRIM(efectivos.datos->>'dealname'), ''))
+        END,
+        email = NULLIF(LOWER(TRIM(efectivos.datos->>'email')), ''),
+        telefono = COALESCE(NULLIF(TRIM(efectivos.datos->>'phone'), ''), NULLIF(TRIM(efectivos.datos->>'mobilephone'), '')),
+        empresa = COALESCE(NULLIF(TRIM(efectivos.datos->>'company'), ''), NULLIF(TRIM(efectivos.datos->>'name'), '')),
+        updated_at = NOW()
+    FROM efectivos
+    WHERE contacto.id = efectivos.id
+    `)
+  }
 }
 
 function inferPurpose(name: string) {
@@ -256,7 +473,7 @@ export async function syncHubspotLists(executedBy: string) {
   let sync
   try {
     sync = await prisma.crmSincronizacionHubspot.create({
-      data: { modo: 'MANUAL', estado: 'EN_PROGRESO', bloqueo: 'hubspot-listas', ejecutadoPor: executedBy },
+      data: { modo: 'MANUAL', estado: 'EN_PROGRESO', bloqueo: 'hubspot-crm-write', ejecutadoPor: executedBy },
     })
   } catch (error: any) {
     if (error?.code === 'P2002') throw new Error('Ya hay una sincronización de HubSpot en curso. Espera a que termine antes de iniciar otra.')
@@ -303,9 +520,34 @@ export async function syncHubspotLists(executedBy: string) {
     const localClients = await mapLocalClientsByEmail()
     const currentRecords = new Map(
       (await prisma.crmRegistroHubspot.findMany({
-        select: { id: true, objectTypeId: true, hubspotId: true, clienteWebId: true, segmentoCrm: true, segmentoCrmActualizadoAt: true, segmentoCrmActualizadoPor: true, vinculoClienteOrigen: true, convertidoAt: true },
+        select: {
+          id: true,
+          objectTypeId: true,
+          hubspotId: true,
+          clienteWebId: true,
+          segmentoCrm: true,
+          segmentoCrmActualizadoAt: true,
+          segmentoCrmActualizadoPor: true,
+          vinculoClienteOrigen: true,
+          convertidoAt: true,
+          propiedades: true,
+          propiedadesCompletasAt: true,
+          propiedadesLocales: true,
+          notasInternas: true,
+          historialCambios: true,
+          datosActualizadoAt: true,
+          datosActualizadoPor: true,
+        },
       })).map((record) => [`${record.objectTypeId}:${record.hubspotId}`, record])
     )
+    const propertyDefinitionsByType = new Map<string, HubspotPropertyDefinition[]>()
+    for (const objectTypeId of recordIdsByType.keys()) {
+      try {
+        propertyDefinitionsByType.set(objectTypeId, await getHubspotPropertyDefinitions(objectTypeId))
+      } catch (error) {
+        errors.push({ error: `No se pudo leer el catálogo de propiedades ${objectTypeId}: ${error instanceof Error ? error.message : String(error)}` })
+      }
+    }
     const recordsByType = new Map<string, Map<string, HubspotRecord>>()
     for (const [objectTypeId, ids] of recordIdsByType) {
       try {
@@ -382,6 +624,12 @@ export async function syncHubspotLists(executedBy: string) {
       telefono: string | null
       empresa: string | null
       propiedades: Record<string, string | null>
+      propiedadesCompletasAt: Date | null
+      propiedadesLocales: Record<string, string | null> | null
+      notasInternas: string | null
+      historialCambios: any
+      datosActualizadoAt: Date | null
+      datosActualizadoPor: string | null
       clienteWebId: number | null
       segmentoCrm: 'PARTICULAR' | 'EMPRESA' | 'PARTNER' | null
       segmentoCrmActualizadoAt: Date | null
@@ -396,13 +644,15 @@ export async function syncHubspotLists(executedBy: string) {
       const records = recordsByType.get(objectTypeId) || new Map<string, HubspotRecord>()
       for (const hubspotId of ids) {
         const record = records.get(hubspotId)
-        const properties = record?.properties || {}
-        const fullName = [properties.firstname, properties.lastname].filter(Boolean).join(' ').trim()
-        const name = objectTypeId === '0-1'
-          ? fullName || properties.email || null
-          : properties.name || properties.dealname || null
-        const email = properties.email?.trim().toLowerCase() || null
+        const properties = { ...asStringRecord(currentRecords.get(`${objectTypeId}:${hubspotId}`)?.propiedades), ...(record?.properties || {}) }
         const current = currentRecords.get(`${objectTypeId}:${hubspotId}`)
+        const localProperties = asStringRecord(current?.propiedadesLocales)
+        const effectiveProperties = { ...properties, ...localProperties }
+        const fullName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim()
+        const name = objectTypeId === '0-1'
+          ? fullName || effectiveProperties.email || null
+          : effectiveProperties.name || effectiveProperties.dealname || null
+        const email = effectiveProperties.email?.trim().toLowerCase() || null
         const matchedClient = email ? localClients.get(email) : undefined
         const hasProtectedLink = Boolean(current?.clienteWebId && current.vinculoClienteOrigen !== 'EMAIL_AUTOMATICO')
         const clienteWebId = hasProtectedLink ? current!.clienteWebId : matchedClient?.id || current?.clienteWebId || null
@@ -412,9 +662,15 @@ export async function syncHubspotLists(executedBy: string) {
           hubspotId,
           nombre: name,
           email,
-          telefono: properties.phone || properties.mobilephone || null,
-          empresa: properties.company || properties.name || null,
+          telefono: effectiveProperties.phone || effectiveProperties.mobilephone || null,
+          empresa: effectiveProperties.company || effectiveProperties.name || null,
           propiedades: properties,
+          propiedadesCompletasAt: current?.propiedadesCompletasAt || null,
+          propiedadesLocales: Object.keys(localProperties).length ? localProperties : null,
+          notasInternas: current?.notasInternas || null,
+          historialCambios: current?.historialCambios || null,
+          datosActualizadoAt: current?.datosActualizadoAt || null,
+          datosActualizadoPor: current?.datosActualizadoPor || null,
           clienteWebId,
           segmentoCrm: current?.segmentoCrm || matchedClient?.segmentoCrm || null,
           segmentoCrmActualizadoAt: current?.segmentoCrmActualizadoAt || (matchedClient ? startedAt : null),
@@ -428,6 +684,23 @@ export async function syncHubspotLists(executedBy: string) {
       }
     }
     const recordMap = new Map(recordData.map((row) => [`${row.objectTypeId}:${row.hubspotId}`, row.id]))
+    const propertyDefinitionData = (propertyDefinitionsByType.get('0-1') || []).map((property) => ({
+      objectTypeId: '0-1',
+      nombre: property.name,
+      etiqueta: property.label || property.name,
+      grupoNombre: property.groupName || null,
+      tipo: property.type || null,
+      tipoCampo: property.fieldType || null,
+      descripcion: property.description || null,
+      opciones: property.options || [],
+      soloLectura: Boolean(property.modificationMetadata?.readOnlyValue),
+      oculta: Boolean(property.hidden),
+      calculada: Boolean(property.calculated),
+      ordenVisual: typeof property.displayOrder === 'number' ? property.displayOrder : null,
+      hubspotCreadaAt: toDate(property.createdAt),
+      hubspotActualizadaAt: toDate(property.updatedAt),
+      sincronizadoAt: startedAt,
+    }))
 
     const allMemberships: Array<{
       listaId: string
@@ -452,10 +725,29 @@ export async function syncHubspotLists(executedBy: string) {
         }] : []
       }))
     }
-    const snapshotOperations = [prisma.crmRegistroHubspot.deleteMany()]
-    for (let index = 0; index < recordData.length; index += 500) {
-      snapshotOperations.push(prisma.crmRegistroHubspot.createMany({ data: recordData.slice(index, index + 500) }))
+    for (let index = 0; index < recordData.length; index += 100) {
+      const batch = recordData.slice(index, index + 100)
+      await prisma.$transaction(batch.map((row) => prisma.crmRegistroHubspot.upsert({
+        where: { objectTypeId_hubspotId: { objectTypeId: row.objectTypeId, hubspotId: row.hubspotId } },
+        create: row,
+        update: {
+          propiedades: row.propiedades,
+          propiedadesCompletasAt: row.propiedadesCompletasAt,
+          hubspotCreadoAt: row.hubspotCreadoAt,
+          hubspotActualizadoAt: row.hubspotActualizadoAt,
+          sincronizadoAt: row.sincronizadoAt,
+        },
+      })))
     }
+    await recomputeEffectiveContactFields(recordData.map((row) => row.id))
+
+    const snapshotOperations: Prisma.PrismaPromise<unknown>[] = [
+      prisma.crmPropiedadHubspot.deleteMany({ where: { objectTypeId: '0-1' } }),
+    ]
+    for (let index = 0; index < propertyDefinitionData.length; index += 500) {
+      snapshotOperations.push(prisma.crmPropiedadHubspot.createMany({ data: propertyDefinitionData.slice(index, index + 500) }))
+    }
+    snapshotOperations.push(prisma.crmListaMiembro.deleteMany())
     for (let index = 0; index < allMemberships.length; index += 1000) {
       snapshotOperations.push(prisma.crmListaMiembro.createMany({ data: allMemberships.slice(index, index + 1000), skipDuplicates: true }))
     }
@@ -475,6 +767,7 @@ export async function syncHubspotLists(executedBy: string) {
       listasActualizadas: updated,
       miembrosDetectados: membershipsDetected,
       registrosActualizados: recordsUpdated,
+      propiedadesDetectadas: propertyDefinitionData.length,
       errores: errors.length,
       detalle: errors,
     }

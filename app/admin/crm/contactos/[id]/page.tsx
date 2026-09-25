@@ -15,6 +15,7 @@ import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactoSettings from '@/components/admin/CrmContactoSettings'
+import CrmContactoDataEditor from '@/components/admin/CrmContactoDataEditor'
 
 export const dynamic = 'force-dynamic'
 
@@ -51,6 +52,12 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
     },
   })
   if (!contact) notFound()
+
+  const propertyDefinitions = await prisma.crmPropiedadHubspot.findMany({
+    where: { objectTypeId: '0-1', oculta: false },
+    orderBy: [{ grupoNombre: 'asc' }, { ordenVisual: 'asc' }, { etiqueta: 'asc' }],
+  })
+  const visiblePropertyNames = new Set(propertyDefinitions.map((property) => property.nombre))
 
   const matchingCustomers = contact.email
     ? await prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -107,6 +114,32 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         </section>
       )}
 
+      <CrmContactoDataEditor
+        id={contact.id}
+        sourceProperties={pickStringRecord(contact.propiedades, visiblePropertyNames)}
+        localProperties={pickStringRecord(contact.propiedadesLocales, visiblePropertyNames)}
+        definitions={propertyDefinitions.map((property) => ({
+          name: property.nombre,
+          label: property.etiqueta,
+          groupName: property.grupoNombre,
+          type: property.tipo,
+          fieldType: property.tipoCampo,
+          description: property.descripcion,
+          options: Array.isArray(property.opciones) ? property.opciones as Array<{ label?: string; value?: string; hidden?: boolean; displayOrder?: number }> : [],
+          readOnly: property.soloLectura,
+          hidden: property.oculta,
+          calculated: property.calculada,
+          displayOrder: property.ordenVisual,
+        }))}
+        initialNotes={contact.notasInternas || ''}
+        updatedAt={contact.datosActualizadoAt?.toISOString() || null}
+        updatedBy={contact.datosActualizadoPor}
+        history={asHistory(contact.historialCambios)}
+        fullPropertiesAt={contact.propiedadesCompletasAt?.toISOString() || null}
+        syncError={null}
+        initialVersion={contact.datosVersion}
+      />
+
       <CrmContactoSettings id={contact.id} initialSegment={contact.segmentoCrm} isCustomer={isCustomer} customerSegment={segment ? SEGMENT_LABELS[segment] || segment : null} />
 
       <section className="rounded-xl border border-gray-200 bg-white">
@@ -123,4 +156,17 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
 
 function Info({ icon, label, value, breakValue = false }: { icon: React.ReactNode; label: string; value: string; breakValue?: boolean }) {
   return <div className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div><p className={`mt-2 font-semibold text-gray-900 ${breakValue ? 'break-all' : 'break-words'}`}>{value}</p></div>
+}
+
+function asStringRecord(value: unknown): Record<string, string | null> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, field]) => [key, field == null ? null : String(field)]))
+}
+
+function pickStringRecord(value: unknown, allowed: Set<string>): Record<string, string | null> {
+  return Object.fromEntries(Object.entries(asStringRecord(value)).filter(([key]) => allowed.has(key)))
+}
+
+function asHistory(value: unknown): Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> {
+  return Array.isArray(value) ? value as Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> : []
 }
