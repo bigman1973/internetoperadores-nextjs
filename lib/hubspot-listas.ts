@@ -45,6 +45,12 @@ type HubspotRecord = {
   properties?: Record<string, string | null>
   createdAt?: string
   updatedAt?: string
+  associations?: {
+    contacts?: {
+      results?: Array<{ id: string; type?: string }>
+      paging?: { next?: { after?: string } }
+    }
+  }
 }
 
 type HubspotPipelineStage = {
@@ -202,6 +208,7 @@ async function getAllHubspotDeals(): Promise<HubspotRecord[]> {
       limit: '100',
       archived: 'false',
       properties: DEAL_PROPERTIES.join(','),
+      associations: 'contacts',
     })
     if (after) query.set('after', after)
     const data = await hubspotRequest<{
@@ -233,60 +240,32 @@ async function getAllHubspotOwners(): Promise<HubspotOwner[]> {
   return [...new Map(owners.map((owner) => [owner.id, owner])).values()]
 }
 
-async function getHubspotDealContactAssociations(dealIds: string[]): Promise<HubspotDealContactAssociation[]> {
+async function getHubspotDealContactAssociations(deals: HubspotRecord[]): Promise<HubspotDealContactAssociation[]> {
   const associations: HubspotDealContactAssociation[] = []
   type AssociationPage = {
-    from: { id: string }
-    to?: Array<{ toObjectId: string | number; associationTypes?: HubspotAssociationType[] }>
+    results?: Array<{ id: string; type?: string }>
     paging?: { next?: { after?: string } }
   }
 
-  const readBatch = async (inputs: Array<{ id: string; after?: string }>) => {
-    const data = await hubspotRequest<{
-      status?: string
-      numErrors?: number
-      errors?: unknown[]
-      results?: AssociationPage[]
-    }>('/crm/v4/associations/deals/contacts/batch/read', {
-      method: 'POST',
-      body: JSON.stringify({ inputs }),
-    })
-    if ((data.numErrors || 0) > 0 || (data.errors?.length || 0) > 0) {
-      throw new Error(`HubSpot ha devuelto ${data.numErrors || data.errors?.length || 1} errores al leer asociaciones negocio-contacto.`)
+  const append = (dealId: string, rows: Array<{ id: string; type?: string }>) => {
+    for (const association of rows) {
+      associations.push({
+        dealId,
+        contactId: String(association.id),
+        associationTypes: association.type ? [{ category: 'HUBSPOT_DEFINED', label: association.type }] : [],
+      })
     }
-    const results = data.results || []
-    const returnedIds = new Set(results.map((row) => row.from.id))
-    const missingIds = inputs.filter((input) => !returnedIds.has(input.id)).map((input) => input.id)
-    if (missingIds.length > 0) {
-      throw new Error(`HubSpot no ha devuelto asociaciones para ${missingIds.length} negocios solicitados. Se conserva el snapshot local anterior.`)
-    }
-    return { ...data, results }
   }
 
-  for (let index = 0; index < dealIds.length; index += 1000) {
-    const data = await readBatch(dealIds.slice(index, index + 1000).map((id) => ({ id })))
-    for (const row of data.results || []) {
-      for (const association of row.to || []) {
-        associations.push({
-          dealId: row.from.id,
-          contactId: String(association.toObjectId),
-          associationTypes: association.associationTypes || [],
-        })
-      }
-
-      let after = row.paging?.next?.after
-      while (after) {
-        const next = await readBatch([{ id: row.from.id, after }])
-        const nextRow = next.results?.[0]
-        for (const association of nextRow?.to || []) {
-          associations.push({
-            dealId: row.from.id,
-            contactId: String(association.toObjectId),
-            associationTypes: association.associationTypes || [],
-          })
-        }
-        after = nextRow?.paging?.next?.after
-      }
+  for (const deal of deals) {
+    const included = deal.associations?.contacts
+    append(deal.id, included?.results || [])
+    let after = included?.paging?.next?.after
+    while (after) {
+      const query = new URLSearchParams({ limit: '500', after })
+      const next = await hubspotRequest<AssociationPage>(`/crm/v3/objects/deals/${encodeURIComponent(deal.id)}/associations/contacts?${query}`)
+      append(deal.id, next.results || [])
+      after = next.paging?.next?.after
     }
   }
 
@@ -302,7 +281,7 @@ async function getHubspotSalesSnapshot(): Promise<HubspotSalesSnapshot> {
     getAllHubspotDeals(),
     getAllHubspotOwners().catch(() => []),
   ])
-  const associations = await getHubspotDealContactAssociations(deals.map((deal) => deal.id))
+  const associations = await getHubspotDealContactAssociations(deals)
   return { pipelines, deals, associations, owners }
 }
 
