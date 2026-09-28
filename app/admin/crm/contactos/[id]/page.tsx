@@ -16,6 +16,7 @@ import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactoSettings from '@/components/admin/CrmContactoSettings'
 import CrmContactoDataEditor from '@/components/admin/CrmContactoDataEditor'
+import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,6 +59,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
     orderBy: [{ grupoNombre: 'asc' }, { ordenVisual: 'asc' }, { etiqueta: 'asc' }],
   })
   const visiblePropertyNames = new Set(propertyDefinitions.map((property) => property.nombre))
+  const businessUnitDefinition = propertyDefinitions.find((property) => property.nombre === CRM_BUSINESS_UNIT_PROPERTY)
+  const businessUnitOptions = getCrmBusinessUnitOptions(businessUnitDefinition?.opciones)
 
   const matchingCustomers = contact.email
     ? await prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -103,6 +106,21 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         <Info icon={<PhoneIcon className="h-5 w-5" />} label="Teléfono" value={contact.telefono || 'No disponible'} />
         <Info icon={<BuildingOffice2Icon className="h-5 w-5" />} label="Empresa" value={contact.empresa || contact.clienteWeb?.nombreComercial || 'No informada'} />
         <Info icon={<CalendarDaysIcon className="h-5 w-5" />} label={isCustomer ? 'Vínculo con cliente detectado' : 'Actualizado desde HubSpot'} value={(contact.convertidoAt || contact.sincronizadoAt)?.toLocaleString('es-ES') || 'Sin fecha'} />
+      </section>
+
+      <section className="rounded-xl border border-orange-200 bg-orange-50/50 p-5 sm:p-6">
+        <div className="flex items-start gap-3">
+          <BuildingOffice2Icon className="mt-0.5 h-6 w-6 shrink-0 text-orange-700" />
+          <div className="min-w-0">
+            <h2 className="font-semibold text-gray-900">Unidad de negocio LFGD</h2>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {contact.unidadesNegocio.length > 0
+                ? contact.unidadesNegocio.map((unit) => <span key={unit} className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-orange-800 shadow-sm ring-1 ring-orange-200">{crmBusinessUnitLabel(unit, businessUnitOptions)}</span>)
+                : <span className="rounded-full bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-800">Sin unidad asignada</span>}
+            </div>
+            <p className="mt-2 text-sm leading-6 text-gray-600">Un contacto puede interactuar con varias empresas del grupo. Esta clasificación organiza el directorio, pero no limita su consulta desde Internet Operadores.</p>
+          </div>
+        </div>
       </section>
 
       {contact.clienteWeb && (

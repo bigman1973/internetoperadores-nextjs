@@ -2,9 +2,10 @@ import prisma from '@/lib/prisma'
 import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
+import { CRM_BUSINESS_UNIT_PROPERTY } from '@/lib/crm-unidades-negocio'
 
 const HUBSPOT_BASE = 'https://api.hubapi.com'
-const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company']
+const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', CRM_BUSINESS_UNIT_PROPERTY]
 const COMPANY_PROPERTIES = ['name', 'domain', 'phone']
 const DEAL_PROPERTIES = ['dealname', 'amount', 'dealstage', 'pipeline']
 
@@ -373,7 +374,7 @@ function asStringRecord(value: unknown): Record<string, string | null> {
   )
 }
 
-async function recomputeEffectiveContactFields(ids: string[]) {
+export async function recomputeEffectiveContactFields(ids: string[]) {
   if (ids.length === 0) return
   for (let index = 0; index < ids.length; index += 1000) {
     const chunk = ids.slice(index, index + 1000)
@@ -397,6 +398,36 @@ async function recomputeEffectiveContactFields(ids: string[]) {
         email = NULLIF(LOWER(TRIM(efectivos.datos->>'email')), ''),
         telefono = COALESCE(NULLIF(TRIM(efectivos.datos->>'phone'), ''), NULLIF(TRIM(efectivos.datos->>'mobilephone'), '')),
         empresa = COALESCE(NULLIF(TRIM(efectivos.datos->>'company'), ''), NULLIF(TRIM(efectivos.datos->>'name'), '')),
+        unidades_negocio = CASE
+          WHEN efectivos.object_type_id = '0-1' THEN ARRAY(
+            SELECT unidad_limpia
+            FROM (
+              SELECT CASE LOWER(TRIM(unidad))
+                       WHEN 'lfdeal' THEN 'LFDeal'
+                       WHEN 'lf kapital' THEN 'LF Kapital'
+                       WHEN 'lfgd' THEN 'LFGD'
+                       WHEN 'farmsplanet' THEN 'FarmsPlanet'
+                       WHEN 'mikels' THEN 'Mikels'
+                       WHEN 'internet operadores' THEN 'Internet Operadores'
+                       ELSE TRIM(unidad)
+                     END AS unidad_limpia,
+                     MIN(posicion) AS primera_posicion
+              FROM regexp_split_to_table(COALESCE(efectivos.datos->>${CRM_BUSINESS_UNIT_PROPERTY}, ''), ';') WITH ORDINALITY AS valor(unidad, posicion)
+              WHERE TRIM(unidad) <> ''
+              GROUP BY CASE LOWER(TRIM(unidad))
+                         WHEN 'lfdeal' THEN 'LFDeal'
+                         WHEN 'lf kapital' THEN 'LF Kapital'
+                         WHEN 'lfgd' THEN 'LFGD'
+                         WHEN 'farmsplanet' THEN 'FarmsPlanet'
+                         WHEN 'mikels' THEN 'Mikels'
+                         WHEN 'internet operadores' THEN 'Internet Operadores'
+                         ELSE TRIM(unidad)
+                       END
+            ) AS unidades_unicas
+            ORDER BY primera_posicion
+          )
+          ELSE ARRAY[]::text[]
+        END,
         updated_at = NOW()
     FROM efectivos
     WHERE contacto.id = efectivos.id
@@ -673,6 +704,9 @@ export async function syncHubspotLists(executedBy: string) {
       for (const hubspotId of ids) {
         const record = records.get(hubspotId)
         const properties = { ...asStringRecord(currentRecords.get(`${objectTypeId}:${hubspotId}`)?.propiedades), ...(record?.properties || {}) }
+        if (objectTypeId === '0-1' && record && !Object.prototype.hasOwnProperty.call(record.properties || {}, CRM_BUSINESS_UNIT_PROPERTY)) {
+          properties[CRM_BUSINESS_UNIT_PROPERTY] = null
+        }
         const current = currentRecords.get(`${objectTypeId}:${hubspotId}`)
         const localProperties = asStringRecord(current?.propiedadesLocales)
         const effectiveProperties = { ...properties, ...localProperties }

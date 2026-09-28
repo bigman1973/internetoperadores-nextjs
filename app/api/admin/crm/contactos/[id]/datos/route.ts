@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
+import { CRM_BUSINESS_UNIT_PROPERTY, parseCrmBusinessUnits } from '@/lib/crm-unidades-negocio'
 
 function asStringRecord(value: unknown): Record<string, string | null> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -111,6 +112,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           email,
           telefono: effective.phone || effective.mobilephone || null,
           empresa: effective.company || effective.name || null,
+          unidadesNegocio: parseCrmBusinessUnits(effective[CRM_BUSINESS_UNIT_PROPERTY]),
           vinculoClienteOrigen: current.clienteWebId && (current.email || null) !== email ? 'CRM_MANUAL' : current.vinculoClienteOrigen,
           datosVersion: { increment: 1 },
         },

@@ -3091,6 +3091,7 @@ model CrmRegistroHubspot {
   datosActualizadoAt   DateTime?          @map("datos_actualizado_at")
   datosActualizadoPor  String?            @map("datos_actualizado_por")
   datosVersion         Int                @default(0) @map("datos_version")
+  unidadesNegocio      String[]           @default([]) @map("unidades_negocio")
   clienteWebId         Int?              @map("cliente_web_id")
   segmentoCrm          SegmentoCrm?      @map("segmento_crm")
   segmentoCrmActualizadoAt DateTime?      @map("segmento_crm_actualizado_at")
@@ -3111,6 +3112,7 @@ model CrmRegistroHubspot {
   @@index([segmentoCrm])
   @@index([convertidoAt])
   @@index([objectTypeId, propiedadesCompletasAt, id])
+  @@index([unidadesNegocio], type: Gin)
   @@map("crm_registros_hubspot")
 }
 

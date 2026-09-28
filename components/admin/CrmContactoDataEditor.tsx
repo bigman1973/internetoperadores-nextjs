@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react'
 import { CheckIcon, MagnifyingGlassIcon, PlusIcon, ArrowUturnLeftIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
+import { CRM_BUSINESS_UNIT_PROPERTY } from '@/lib/crm-unidades-negocio'
 
 type PropertyDefinition = {
   name: string
@@ -33,7 +34,7 @@ type Props = {
 }
 
 const PRIMARY_FIELDS = [
-  'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', 'jobtitle', 'website',
+  'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', CRM_BUSINESS_UNIT_PROPERTY, 'jobtitle', 'website',
   'address', 'address2', 'city', 'state', 'zip', 'country', 'lifecyclestage', 'hs_lead_status',
 ]
 
