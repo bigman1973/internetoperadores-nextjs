@@ -2,12 +2,25 @@ import prisma from '@/lib/prisma'
 import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
-import { CRM_BUSINESS_UNIT_PROPERTY } from '@/lib/crm-unidades-negocio'
+import { CRM_BUSINESS_UNIT_PROPERTY, parseCrmBusinessUnits } from '@/lib/crm-unidades-negocio'
 
 const HUBSPOT_BASE = 'https://api.hubapi.com'
 const CONTACT_PROPERTIES = ['firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', CRM_BUSINESS_UNIT_PROPERTY]
 const COMPANY_PROPERTIES = ['name', 'domain', 'phone']
-const DEAL_PROPERTIES = ['dealname', 'amount', 'dealstage', 'pipeline']
+const DEAL_PROPERTIES = [
+  'dealname',
+  'amount',
+  'dealstage',
+  'pipeline',
+  'closedate',
+  'hs_is_closed',
+  'hs_is_closed_won',
+  'hubspot_owner_id',
+  'hs_currency_code',
+  'dealtype',
+  'description',
+  'hs_next_step',
+]
 
 export type HubspotList = {
   listId: string
@@ -32,6 +45,52 @@ type HubspotRecord = {
   properties?: Record<string, string | null>
   createdAt?: string
   updatedAt?: string
+}
+
+type HubspotPipelineStage = {
+  id: string
+  label: string
+  displayOrder?: number
+  archived?: boolean
+  metadata?: {
+    isClosed?: boolean | string
+    probability?: string
+  }
+}
+
+type HubspotPipeline = {
+  id: string
+  label: string
+  displayOrder?: number
+  archived?: boolean
+  stages?: HubspotPipelineStage[]
+}
+
+type HubspotAssociationType = {
+  category?: string
+  typeId?: number
+  label?: string | null
+}
+
+type HubspotDealContactAssociation = {
+  dealId: string
+  contactId: string
+  associationTypes: HubspotAssociationType[]
+}
+
+type HubspotOwner = {
+  id: string
+  email?: string
+  firstName?: string
+  lastName?: string
+  archived?: boolean
+}
+
+type HubspotSalesSnapshot = {
+  pipelines: HubspotPipeline[]
+  deals: HubspotRecord[]
+  associations: HubspotDealContactAssociation[]
+  owners: HubspotOwner[]
 }
 
 type HubspotPropertyDefinition = {
@@ -124,6 +183,127 @@ export async function getAllHubspotLists(): Promise<HubspotList[]> {
   }
 
   return lists
+}
+
+async function getAllHubspotPipelines(): Promise<HubspotPipeline[]> {
+  const [active, archived] = await Promise.all([
+    hubspotRequest<{ results?: HubspotPipeline[] }>('/crm/v3/pipelines/deals?archived=false'),
+    hubspotRequest<{ results?: HubspotPipeline[] }>('/crm/v3/pipelines/deals?archived=true'),
+  ])
+  return [...new Map([...(active.results || []), ...(archived.results || [])].map((pipeline) => [pipeline.id, pipeline])).values()]
+}
+
+async function getAllHubspotDeals(): Promise<HubspotRecord[]> {
+  const deals: HubspotRecord[] = []
+  let after: string | undefined
+
+  do {
+    const query = new URLSearchParams({
+      limit: '100',
+      archived: 'false',
+      properties: DEAL_PROPERTIES.join(','),
+    })
+    if (after) query.set('after', after)
+    const data = await hubspotRequest<{
+      results?: HubspotRecord[]
+      paging?: { next?: { after?: string } }
+    }>(`/crm/v3/objects/deals?${query}`)
+    deals.push(...(data.results || []))
+    after = data.paging?.next?.after
+  } while (after)
+
+  return [...new Map(deals.map((deal) => [deal.id, deal])).values()]
+}
+
+async function getAllHubspotOwners(): Promise<HubspotOwner[]> {
+  const owners: HubspotOwner[] = []
+  let after: string | undefined
+
+  do {
+    const query = new URLSearchParams({ limit: '500', archived: 'false' })
+    if (after) query.set('after', after)
+    const data = await hubspotRequest<{
+      results?: HubspotOwner[]
+      paging?: { next?: { after?: string } }
+    }>(`/crm/v3/owners?${query}`)
+    owners.push(...(data.results || []))
+    after = data.paging?.next?.after
+  } while (after)
+
+  return [...new Map(owners.map((owner) => [owner.id, owner])).values()]
+}
+
+async function getHubspotDealContactAssociations(dealIds: string[]): Promise<HubspotDealContactAssociation[]> {
+  const associations: HubspotDealContactAssociation[] = []
+  type AssociationPage = {
+    from: { id: string }
+    to?: Array<{ toObjectId: string | number; associationTypes?: HubspotAssociationType[] }>
+    paging?: { next?: { after?: string } }
+  }
+
+  const readBatch = async (inputs: Array<{ id: string; after?: string }>) => {
+    const data = await hubspotRequest<{
+      status?: string
+      numErrors?: number
+      errors?: unknown[]
+      results?: AssociationPage[]
+    }>('/crm/v4/associations/deals/contacts/batch/read', {
+      method: 'POST',
+      body: JSON.stringify({ inputs }),
+    })
+    if ((data.numErrors || 0) > 0 || (data.errors?.length || 0) > 0) {
+      throw new Error(`HubSpot ha devuelto ${data.numErrors || data.errors?.length || 1} errores al leer asociaciones negocio-contacto.`)
+    }
+    const results = data.results || []
+    const returnedIds = new Set(results.map((row) => row.from.id))
+    const missingIds = inputs.filter((input) => !returnedIds.has(input.id)).map((input) => input.id)
+    if (missingIds.length > 0) {
+      throw new Error(`HubSpot no ha devuelto asociaciones para ${missingIds.length} negocios solicitados. Se conserva el snapshot local anterior.`)
+    }
+    return { ...data, results }
+  }
+
+  for (let index = 0; index < dealIds.length; index += 1000) {
+    const data = await readBatch(dealIds.slice(index, index + 1000).map((id) => ({ id })))
+    for (const row of data.results || []) {
+      for (const association of row.to || []) {
+        associations.push({
+          dealId: row.from.id,
+          contactId: String(association.toObjectId),
+          associationTypes: association.associationTypes || [],
+        })
+      }
+
+      let after = row.paging?.next?.after
+      while (after) {
+        const next = await readBatch([{ id: row.from.id, after }])
+        const nextRow = next.results?.[0]
+        for (const association of nextRow?.to || []) {
+          associations.push({
+            dealId: row.from.id,
+            contactId: String(association.toObjectId),
+            associationTypes: association.associationTypes || [],
+          })
+        }
+        after = nextRow?.paging?.next?.after
+      }
+    }
+  }
+
+  return [...new Map(associations.map((association) => [
+    `${association.dealId}:${association.contactId}`,
+    association,
+  ])).values()]
+}
+
+async function getHubspotSalesSnapshot(): Promise<HubspotSalesSnapshot> {
+  const [pipelines, deals, owners] = await Promise.all([
+    getAllHubspotPipelines(),
+    getAllHubspotDeals(),
+    getAllHubspotOwners().catch(() => []),
+  ])
+  const associations = await getHubspotDealContactAssociations(deals.map((deal) => deal.id))
+  return { pipelines, deals, associations, owners }
 }
 
 async function getHubspotListDetail(listId: string): Promise<HubspotList> {
@@ -266,7 +446,15 @@ export async function syncHubspotContactProperties(hubspotId: string) {
 export async function syncHubspotContactPropertyBatch(limit = 500) {
   const batchSize = Math.min(Math.max(limit, 1), 500)
   const contacts = await prisma.crmRegistroHubspot.findMany({
-    where: { objectTypeId: '0-1', propiedadesCompletasAt: null, propiedadesCompletasError: null, listas: { some: { activo: true, lista: { activo: true } } } },
+    where: {
+      objectTypeId: '0-1',
+      propiedadesCompletasAt: null,
+      propiedadesCompletasError: null,
+      OR: [
+        { listas: { some: { activo: true, lista: { activo: true } } } },
+        { negocios: { some: { negocio: { activo: true } } } },
+      ],
+    },
     select: { id: true, hubspotId: true, email: true },
     orderBy: { id: 'asc' },
     take: batchSize,
@@ -354,7 +542,17 @@ export async function syncHubspotContactPropertyBatch(limit = 500) {
   const refreshedContacts = await prisma.crmRegistroHubspot.findMany({ where: { id: { in: contacts.map((contact) => contact.id) } }, select: { email: true } })
   refreshedContacts.forEach((contact) => { if (contact.email) affectedEmails.push(contact.email) })
   await reconciliarContactosCrmConClientes(affectedEmails)
-  const remaining = await prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: null, propiedadesCompletasError: null, listas: { some: { activo: true, lista: { activo: true } } } } })
+  const remaining = await prisma.crmRegistroHubspot.count({
+    where: {
+      objectTypeId: '0-1',
+      propiedadesCompletasAt: null,
+      propiedadesCompletasError: null,
+      OR: [
+        { listas: { some: { activo: true, lista: { activo: true } } } },
+        { negocios: { some: { negocio: { activo: true } } } },
+      ],
+    },
+  })
   return { processed: sourceRows.length, unavailable: unavailableContacts.length, remaining, definitions: definitions.length }
 }
 
@@ -501,6 +699,224 @@ async function mapLocalClientsByEmail() {
   return clientsByEmail
 }
 
+function hubspotBoolean(value: unknown) {
+  return value === true || String(value || '').toLowerCase() === 'true'
+}
+
+function decimalOrNull(value: unknown) {
+  if (value == null || String(value).trim() === '') return null
+  try {
+    return new Prisma.Decimal(String(value))
+  } catch {
+    return null
+  }
+}
+
+function ownerName(owner?: HubspotOwner) {
+  if (!owner) return null
+  return [owner.firstName, owner.lastName].filter(Boolean).join(' ').trim() || owner.email || null
+}
+
+function buildSalesDefinitions(snapshot: HubspotSalesSnapshot) {
+  const pipelineMap = new Map(snapshot.pipelines.map((pipeline) => [pipeline.id, { ...pipeline, stages: [...(pipeline.stages || [])] }]))
+
+  for (const deal of snapshot.deals) {
+    const properties = deal.properties || {}
+    const pipelineId = properties.pipeline || '__SIN_PIPELINE__'
+    const stageId = properties.dealstage || '__SIN_ETAPA__'
+    let pipeline = pipelineMap.get(pipelineId)
+    if (!pipeline) {
+      pipeline = {
+        id: pipelineId,
+        label: pipelineId === '__SIN_PIPELINE__' ? 'Sin pipeline informado' : `Pipeline no disponible (${pipelineId})`,
+        archived: true,
+        stages: [],
+      }
+      pipelineMap.set(pipelineId, pipeline)
+    }
+    if (!(pipeline.stages || []).some((stage) => stage.id === stageId)) {
+      pipeline.stages = [
+        ...(pipeline.stages || []),
+        {
+          id: stageId,
+          label: stageId === '__SIN_ETAPA__' ? 'Sin etapa informada' : `Etapa no disponible (${stageId})`,
+          archived: true,
+          metadata: {
+            isClosed: properties.hs_is_closed || false,
+            probability: properties.hs_is_closed_won === 'true' ? '1' : undefined,
+          },
+        },
+      ]
+    }
+  }
+
+  return [...pipelineMap.values()]
+}
+
+async function persistHubspotSalesSnapshot(
+  snapshot: HubspotSalesSnapshot,
+  contactRecords: HubspotRecord[],
+  syncedAt: Date
+) {
+  const pipelines = buildSalesDefinitions(snapshot)
+  const ownersById = new Map(snapshot.owners.map((owner) => [owner.id, owner]))
+  const stages = pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => ({ pipeline, stage })))
+  const stageKeys = new Set(stages.map(({ pipeline, stage }) => `${pipeline.id}:${stage.id}`))
+  const requestedContactIds = [...new Set(snapshot.associations.map((association) => association.contactId))]
+  const remoteContacts = new Map(contactRecords.map((contact) => [contact.id, contact]))
+  const currentContacts = new Map((await prisma.crmRegistroHubspot.findMany({
+    where: { objectTypeId: '0-1', hubspotId: { in: requestedContactIds } },
+    select: { id: true, hubspotId: true, propiedades: true, propiedadesLocales: true },
+  })).map((contact) => [contact.hubspotId, contact]))
+
+  const contactRows = requestedContactIds.map((hubspotId) => {
+    const current = currentContacts.get(hubspotId)
+    const record = remoteContacts.get(hubspotId)
+    const sourceProperties = { ...asStringRecord(current?.propiedades), ...(record?.properties || {}) }
+    if (record && !Object.prototype.hasOwnProperty.call(record.properties || {}, CRM_BUSINESS_UNIT_PROPERTY)) {
+      sourceProperties[CRM_BUSINESS_UNIT_PROPERTY] = null
+    }
+    const localProperties = asStringRecord(current?.propiedadesLocales)
+    const effectiveProperties = { ...sourceProperties, ...localProperties }
+    const fullName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim()
+    return {
+      id: current?.id || randomUUID(),
+      hubspotId,
+      sourceProperties,
+      nombre: fullName || effectiveProperties.email || `Contacto HubSpot #${hubspotId}`,
+      email: effectiveProperties.email?.trim().toLowerCase() || null,
+      telefono: effectiveProperties.phone || effectiveProperties.mobilephone || null,
+      empresa: effectiveProperties.company || null,
+      unidadesNegocio: parseCrmBusinessUnits(effectiveProperties[CRM_BUSINESS_UNIT_PROPERTY]),
+      hubspotCreadoAt: toDate(record?.createdAt),
+      hubspotActualizadoAt: toDate(record?.updatedAt),
+    }
+  })
+  const contactRecordMap = new Map(contactRows.map((contact) => [contact.hubspotId, contact.id]))
+  const associationRows = snapshot.associations.map((association) => ({
+    negocioHubspotId: association.dealId,
+    contactoId: contactRecordMap.get(association.contactId)!,
+    tiposAsociacion: association.associationTypes as Prisma.InputJsonValue,
+    sincronizadoAt: syncedAt,
+  }))
+  if (associationRows.some((association) => !association.contactoId)) {
+    throw new Error('No se han podido materializar todos los contactos asociados. Se conserva el snapshot local anterior.')
+  }
+
+  await prisma.$transaction(async (tx) => {
+    for (const contact of contactRows) {
+      await tx.crmRegistroHubspot.upsert({
+        where: { objectTypeId_hubspotId: { objectTypeId: '0-1', hubspotId: contact.hubspotId } },
+        create: {
+          id: contact.id,
+          objectTypeId: '0-1',
+          hubspotId: contact.hubspotId,
+          nombre: contact.nombre,
+          email: contact.email,
+          telefono: contact.telefono,
+          empresa: contact.empresa,
+          unidadesNegocio: contact.unidadesNegocio,
+          propiedades: contact.sourceProperties,
+          hubspotCreadoAt: contact.hubspotCreadoAt,
+          hubspotActualizadoAt: contact.hubspotActualizadoAt,
+          sincronizadoAt: syncedAt,
+        },
+        update: {
+          nombre: contact.nombre,
+          email: contact.email,
+          telefono: contact.telefono,
+          empresa: contact.empresa,
+          unidadesNegocio: contact.unidadesNegocio,
+          propiedades: contact.sourceProperties,
+          hubspotCreadoAt: contact.hubspotCreadoAt,
+          hubspotActualizadoAt: contact.hubspotActualizadoAt,
+          sincronizadoAt: syncedAt,
+        },
+      })
+    }
+
+    for (const pipeline of pipelines) {
+      await tx.crmPipelineHubspot.upsert({
+        where: { hubspotId: pipeline.id },
+        create: { hubspotId: pipeline.id, nombre: pipeline.label || pipeline.id, displayOrder: pipeline.displayOrder ?? null, activo: !pipeline.archived, sincronizadoAt: syncedAt },
+        update: { nombre: pipeline.label || pipeline.id, displayOrder: pipeline.displayOrder ?? null, activo: !pipeline.archived, sincronizadoAt: syncedAt },
+      })
+    }
+    for (const { pipeline, stage } of stages) {
+      await tx.crmPipelineEtapaHubspot.upsert({
+        where: { clave: `${pipeline.id}:${stage.id}` },
+        create: {
+          clave: `${pipeline.id}:${stage.id}`,
+          hubspotId: stage.id,
+          pipelineHubspotId: pipeline.id,
+          nombre: stage.label || stage.id,
+          displayOrder: stage.displayOrder ?? null,
+          cerrado: hubspotBoolean(stage.metadata?.isClosed),
+          probabilidad: decimalOrNull(stage.metadata?.probability),
+          propiedadesHubspot: (stage.metadata || {}) as Prisma.InputJsonValue,
+          activo: !stage.archived,
+          sincronizadoAt: syncedAt,
+        },
+        update: {
+          nombre: stage.label || stage.id,
+          displayOrder: stage.displayOrder ?? null,
+          cerrado: hubspotBoolean(stage.metadata?.isClosed),
+          probabilidad: decimalOrNull(stage.metadata?.probability),
+          propiedadesHubspot: (stage.metadata || {}) as Prisma.InputJsonValue,
+          activo: !stage.archived,
+          sincronizadoAt: syncedAt,
+        },
+      })
+    }
+    for (const deal of snapshot.deals) {
+      const properties = deal.properties || {}
+      const pipelineHubspotId = properties.pipeline || '__SIN_PIPELINE__'
+      const stageId = properties.dealstage || '__SIN_ETAPA__'
+      const etapaClave = `${pipelineHubspotId}:${stageId}`
+      if (!stageKeys.has(etapaClave)) throw new Error(`No se pudo resolver la etapa ${stageId} del negocio ${deal.id}.`)
+      const stage = pipelines.find((pipeline) => pipeline.id === pipelineHubspotId)?.stages?.find((item) => item.id === stageId)
+      const closed = hubspotBoolean(properties.hs_is_closed) || hubspotBoolean(stage?.metadata?.isClosed)
+      const won = hubspotBoolean(properties.hs_is_closed_won)
+      const ownerId = properties.hubspot_owner_id || null
+      const dealData = {
+        nombre: properties.dealname?.trim() || `Negocio #${deal.id}`,
+        pipelineHubspotId,
+        etapaClave,
+        importe: decimalOrNull(properties.amount),
+        moneda: properties.hs_currency_code || null,
+        fechaCierre: toDate(properties.closedate || undefined),
+        cerrado: closed,
+        ganado: won,
+        propietarioHubspotId: ownerId,
+        propietarioNombre: ownerName(ownerId ? ownersById.get(ownerId) : undefined) || (ownerId ? `HubSpot #${ownerId}` : null),
+        propiedades: properties as Prisma.InputJsonValue,
+        hubspotCreadoAt: toDate(deal.createdAt),
+        hubspotActualizadoAt: toDate(deal.updatedAt),
+        sincronizadoAt: syncedAt,
+        activo: true,
+      }
+      await tx.crmNegocioHubspot.upsert({ where: { hubspotId: deal.id }, create: { hubspotId: deal.id, ...dealData }, update: dealData })
+    }
+
+    await tx.crmNegocioContacto.deleteMany()
+    for (let index = 0; index < associationRows.length; index += 1000) {
+      await tx.crmNegocioContacto.createMany({ data: associationRows.slice(index, index + 1000), skipDuplicates: true })
+    }
+    await tx.crmNegocioHubspot.updateMany({ where: { hubspotId: { notIn: snapshot.deals.map((deal) => deal.id) } }, data: { activo: false } })
+    await tx.crmPipelineHubspot.updateMany({ where: { hubspotId: { notIn: pipelines.map((pipeline) => pipeline.id) } }, data: { activo: false } })
+    await tx.crmPipelineEtapaHubspot.updateMany({ where: { clave: { notIn: [...stageKeys] } }, data: { activo: false } })
+  }, { maxWait: 10_000, timeout: 120_000 })
+
+  await reconciliarContactosCrmConClientes(contactRows.map((contact) => contact.email || ''))
+  return {
+    pipelinesDetectados: pipelines.length,
+    etapasDetectadas: stages.length,
+    negociosDetectados: snapshot.deals.length,
+    asociacionesDetectadas: associationRows.length,
+    contactosAsociados: contactRows.length,
+  }
+}
+
 export async function previewHubspotLists() {
   const lists = await getAllHubspotLists()
   let active = 0
@@ -521,6 +937,103 @@ export async function previewHubspotLists() {
       companies: lists.filter((list) => list.objectTypeId === '0-2').length,
       deals: lists.filter((list) => list.objectTypeId === '0-3').length,
     },
+  }
+}
+
+export async function previewHubspotSales() {
+  const snapshot = await getHubspotSalesSnapshot()
+  const pipelines = buildSalesDefinitions(snapshot)
+  if (snapshot.deals.length > 0 && snapshot.pipelines.length === 0) {
+    throw new Error('HubSpot ha devuelto negocios pero ningún pipeline. Se conserva el snapshot local anterior.')
+  }
+  const stageByKey = new Map(pipelines.flatMap((pipeline) => (pipeline.stages || []).map((stage) => [`${pipeline.id}:${stage.id}`, stage] as const)))
+  const openDeals = snapshot.deals.filter((deal) => {
+    const properties = deal.properties || {}
+    const stage = stageByKey.get(`${properties.pipeline || '__SIN_PIPELINE__'}:${properties.dealstage || '__SIN_ETAPA__'}`)
+    return !hubspotBoolean(properties.hs_is_closed) && !hubspotBoolean(stage?.metadata?.isClosed)
+  }).length
+
+  return {
+    pipelines: pipelines.length,
+    stages: pipelines.reduce((total, pipeline) => total + (pipeline.stages?.length || 0), 0),
+    deals: snapshot.deals.length,
+    openDeals,
+    associations: snapshot.associations.length,
+    contacts: new Set(snapshot.associations.map((association) => association.contactId)).size,
+  }
+}
+
+export async function syncHubspotSales(executedBy: string) {
+  await prisma.crmSincronizacionHubspot.updateMany({
+    where: { estado: 'EN_PROGRESO', finalizadoAt: null, iniciadoAt: { lt: new Date(Date.now() - 15 * 60 * 1000) } },
+    data: { estado: 'INTERRUMPIDA', bloqueo: null, finalizadoAt: new Date() },
+  })
+  let sync
+  try {
+    sync = await prisma.crmSincronizacionHubspot.create({
+      data: { modo: 'NEGOCIOS', estado: 'EN_PROGRESO', bloqueo: 'hubspot-crm-write', ejecutadoPor: executedBy },
+    })
+  } catch (error: any) {
+    if (error?.code === 'P2002') throw new Error('Ya hay una sincronización de HubSpot en curso. Espera a que termine antes de iniciar otra.')
+    throw error
+  }
+
+  try {
+    const snapshot = await getHubspotSalesSnapshot()
+    const [localDeals, localPipelines, localAssociations] = await Promise.all([
+      prisma.crmNegocioHubspot.count({ where: { activo: true } }),
+      prisma.crmPipelineHubspot.count(),
+      prisma.crmNegocioContacto.count(),
+    ])
+    if (snapshot.deals.length === 0 && localDeals > 0) {
+      throw new Error('HubSpot ha devuelto cero negocios de forma inesperada. Se conserva el snapshot comercial anterior.')
+    }
+    if (snapshot.deals.length > 0 && snapshot.pipelines.length === 0) {
+      throw new Error('HubSpot ha devuelto negocios pero ningún pipeline. Se conserva el snapshot comercial anterior.')
+    }
+    if (snapshot.pipelines.length === 0 && localPipelines > 0) {
+      throw new Error('HubSpot ha devuelto cero pipelines de forma inesperada. Se conserva el snapshot comercial anterior.')
+    }
+    if (snapshot.associations.length === 0 && localAssociations > 0 && snapshot.deals.length > 0) {
+      throw new Error('HubSpot ha devuelto cero relaciones negocio-contacto de forma inesperada. Se conserva el snapshot comercial anterior.')
+    }
+
+    const contactIds = [...new Set(snapshot.associations.map((association) => association.contactId))]
+    const activeContacts = await getRecords('0-1', contactIds)
+    const activeIds = new Set(activeContacts.map((contact) => contact.id))
+    const missingIds = contactIds.filter((id) => !activeIds.has(id))
+    const archivedContacts = missingIds.length > 0 ? await getRecords('0-1', missingIds, undefined, true) : []
+    const contacts = [...activeContacts, ...archivedContacts]
+    const returnedIds = new Set(contacts.map((contact) => contact.id))
+    const unavailableContacts = contactIds.filter((id) => !returnedIds.has(id))
+    const syncedAt = new Date()
+    const result = await persistHubspotSalesSnapshot(snapshot, contacts, syncedAt)
+    const details = unavailableContacts.length > 0
+      ? [{ aviso: `${unavailableContacts.length} contactos asociados ya no están disponibles en HubSpot; se conservan como referencias locales.` }]
+      : []
+
+    await prisma.crmSincronizacionHubspot.update({
+      where: { id: sync.id },
+      data: {
+        estado: 'COMPLETADA',
+        bloqueo: null,
+        finalizadoAt: new Date(),
+        pipelinesDetectados: result.pipelinesDetectados,
+        etapasDetectadas: result.etapasDetectadas,
+        negociosDetectados: result.negociosDetectados,
+        asociacionesDetectadas: result.asociacionesDetectadas,
+        registrosActualizados: result.contactosAsociados,
+        detalle: details,
+      },
+    })
+    return { ...result, contactosNoDisponibles: unavailableContacts.length }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    await prisma.crmSincronizacionHubspot.update({
+      where: { id: sync.id },
+      data: { estado: 'ERROR', bloqueo: null, errores: 1, detalle: [{ error: message }], finalizadoAt: new Date() },
+    })
+    throw error
   }
 }
 

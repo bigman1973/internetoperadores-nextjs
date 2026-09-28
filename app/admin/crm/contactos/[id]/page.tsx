@@ -3,6 +3,9 @@ import { notFound } from 'next/navigation'
 import {
   ArrowLeftIcon,
   ArrowRightIcon,
+  ArrowTopRightOnSquareIcon,
+  BanknotesIcon,
+  BriefcaseIcon,
   BuildingOffice2Icon,
   CalendarDaysIcon,
   CheckBadgeIcon,
@@ -50,6 +53,18 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         include: { lista: true },
         orderBy: [{ lista: { nombre: 'asc' } }],
       },
+      negocios: {
+        where: { negocio: { activo: true } },
+        include: {
+          negocio: {
+            include: {
+              pipeline: true,
+              etapa: true,
+            },
+          },
+        },
+        orderBy: [{ negocio: { cerrado: 'asc' } }, { negocio: { hubspotActualizadoAt: 'desc' } }],
+      },
     },
   })
   if (!contact) notFound()
@@ -87,7 +102,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
               <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isCustomer ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{isCustomer ? 'Cliente' : 'Lead'}</span>
               {segment && <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{SEGMENT_LABELS[segment] || segment}</span>}
             </div>
-            <p className="mt-2 text-sm text-gray-500">HubSpot #{contact.hubspotId} · {contact.listas.length.toLocaleString('es-ES')} {contact.listas.length === 1 ? 'lista' : 'listas'}</p>
+            <p className="mt-2 text-sm text-gray-500">HubSpot #{contact.hubspotId} · {contact.listas.length.toLocaleString('es-ES')} {contact.listas.length === 1 ? 'lista' : 'listas'} · {contact.negocios.length.toLocaleString('es-ES')} {contact.negocios.length === 1 ? 'negocio' : 'negocios'}</p>
           </div>
           {contact.clienteWebId && <Link href={`/admin/clientes/${contact.clienteWebId}/editar`} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">Abrir ficha de cliente <ArrowRightIcon className="h-4 w-4" /></Link>}
         </div>
@@ -121,6 +136,43 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
             <p className="mt-2 text-sm leading-6 text-gray-600">Un contacto puede interactuar con varias empresas del grupo. Esta clasificación organiza el directorio, pero no limita su consulta desde Internet Operadores.</p>
           </div>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white">
+        <div className="border-b border-gray-200 p-5 sm:p-6">
+          <div className="flex items-center gap-2"><BriefcaseIcon className="h-5 w-5 text-orange-600" /><h2 className="text-lg font-semibold text-gray-900">Negocios asociados</h2></div>
+          <p className="mt-1 text-sm leading-6 text-gray-500">Oportunidades reales de HubSpot vinculadas a este contacto, ordenadas con las abiertas en primer lugar.</p>
+        </div>
+        {contact.negocios.length === 0 ? (
+          <div className="p-8 text-sm text-gray-500">No hay ningún negocio asociado en la última sincronización.</div>
+        ) : (
+          <div className="divide-y divide-gray-100">
+            {contact.negocios.map(({ negocio }) => (
+              <article key={negocio.hubspotId} className="p-5 sm:px-6">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="break-words font-semibold text-gray-900">{negocio.nombre}</h3>
+                      <DealStatusBadge closed={negocio.cerrado} won={negocio.ganado} />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
+                      <span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-800">{negocio.pipeline.nombre}</span>
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">{negocio.etapa.nombre}</span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
+                      <span className="inline-flex items-center gap-1.5"><BanknotesIcon className="h-4 w-4" />{formatDealAmount(negocio.importe, negocio.moneda)}</span>
+                      <span>Cierre: {negocio.fechaCierre?.toLocaleDateString('es-ES') || 'sin fecha'}</span>
+                      <span>Propietario: {negocio.propietarioNombre || 'sin asignar'}</span>
+                    </div>
+                  </div>
+                  <a href={`https://app-eu1.hubspot.com/contacts/24927923/record/0-3/${negocio.hubspotId}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:border-orange-300 hover:text-orange-800">
+                    Abrir en HubSpot <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       {contact.clienteWeb && (
@@ -174,6 +226,23 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
 
 function Info({ icon, label, value, breakValue = false }: { icon: React.ReactNode; label: string; value: string; breakValue?: boolean }) {
   return <div className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div><p className={`mt-2 font-semibold text-gray-900 ${breakValue ? 'break-all' : 'break-words'}`}>{value}</p></div>
+}
+
+function DealStatusBadge({ closed, won }: { closed: boolean; won: boolean }) {
+  if (!closed) return <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">Abierto</span>
+  if (won) return <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">Ganado</span>
+  return <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">Perdido / cerrado</span>
+}
+
+function formatDealAmount(value: unknown, currency: string | null) {
+  if (value == null) return 'Importe no informado'
+  const amount = Number(String(value))
+  if (!Number.isFinite(amount)) return String(value)
+  try {
+    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: (currency || 'EUR').toUpperCase(), maximumFractionDigits: 2 }).format(amount)
+  } catch {
+    return `${amount.toLocaleString('es-ES')} ${currency || 'EUR'}`
+  }
 }
 
 function asStringRecord(value: unknown): Record<string, string | null> {

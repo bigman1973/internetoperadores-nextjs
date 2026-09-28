@@ -3104,6 +3104,7 @@ model CrmRegistroHubspot {
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
   listas               CrmListaMiembro[]
+  negocios             CrmNegocioContacto[]
   clienteWeb           ClienteWeb?       @relation(fields: [clienteWebId], references: [id], onDelete: SetNull)
 
   @@unique([objectTypeId, hubspotId])
@@ -3160,6 +3161,87 @@ model CrmListaMiembro {
   @@map("crm_lista_miembros")
 }
 
+model CrmPipelineHubspot {
+  hubspotId      String                    @id @map("hubspot_id")
+  nombre         String
+  displayOrder   Int?                      @map("display_order")
+  activo         Boolean                   @default(true)
+  sincronizadoAt DateTime?                 @map("sincronizado_at")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+  etapas         CrmPipelineEtapaHubspot[]
+  negocios       CrmNegocioHubspot[]
+
+  @@index([activo, displayOrder])
+  @@map("crm_pipelines_hubspot")
+}
+
+model CrmPipelineEtapaHubspot {
+  clave              String                @id
+  hubspotId          String                @map("hubspot_id")
+  pipelineHubspotId  String                @map("pipeline_hubspot_id")
+  nombre             String
+  displayOrder       Int?                  @map("display_order")
+  cerrado            Boolean               @default(false)
+  probabilidad       Decimal?              @db.Decimal(6, 5)
+  propiedadesHubspot Json?                 @map("propiedades_hubspot") @db.JsonB
+  activo              Boolean               @default(true)
+  sincronizadoAt      DateTime?             @map("sincronizado_at")
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+  pipeline            CrmPipelineHubspot    @relation(fields: [pipelineHubspotId], references: [hubspotId], onDelete: Cascade)
+  negocios            CrmNegocioHubspot[]
+
+  @@unique([pipelineHubspotId, hubspotId])
+  @@index([pipelineHubspotId, activo, displayOrder])
+  @@map("crm_pipeline_etapas_hubspot")
+}
+
+model CrmNegocioHubspot {
+  hubspotId           String                     @id @map("hubspot_id")
+  nombre              String
+  pipelineHubspotId   String                     @map("pipeline_hubspot_id")
+  etapaClave          String                     @map("etapa_clave")
+  importe             Decimal?                   @db.Decimal(16, 2)
+  moneda              String?
+  fechaCierre         DateTime?                  @map("fecha_cierre")
+  cerrado             Boolean                    @default(false)
+  ganado              Boolean                    @default(false)
+  propietarioHubspotId String?                   @map("propietario_hubspot_id")
+  propietarioNombre   String?                    @map("propietario_nombre")
+  propiedades         Json?                      @db.JsonB
+  hubspotCreadoAt     DateTime?                  @map("hubspot_creado_at")
+  hubspotActualizadoAt DateTime?                 @map("hubspot_actualizado_at")
+  sincronizadoAt      DateTime?                  @map("sincronizado_at")
+  activo              Boolean                    @default(true)
+  createdAt           DateTime                   @default(now()) @map("created_at")
+  updatedAt           DateTime                   @updatedAt @map("updated_at")
+  pipeline            CrmPipelineHubspot         @relation(fields: [pipelineHubspotId], references: [hubspotId], onDelete: Restrict)
+  etapa               CrmPipelineEtapaHubspot    @relation(fields: [etapaClave], references: [clave], onDelete: Restrict)
+  contactos           CrmNegocioContacto[]
+
+  @@index([pipelineHubspotId, activo, cerrado])
+  @@index([etapaClave, activo])
+  @@index([activo, cerrado, ganado])
+  @@index([nombre])
+  @@map("crm_negocios_hubspot")
+}
+
+model CrmNegocioContacto {
+  negocioHubspotId String                 @map("negocio_hubspot_id")
+  contactoId       String                 @map("contacto_id")
+  tiposAsociacion  Json?                  @map("tipos_asociacion") @db.JsonB
+  sincronizadoAt   DateTime               @map("sincronizado_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+  negocio          CrmNegocioHubspot      @relation(fields: [negocioHubspotId], references: [hubspotId], onDelete: Cascade)
+  contacto         CrmRegistroHubspot     @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@id([negocioHubspotId, contactoId])
+  @@index([contactoId])
+  @@map("crm_negocio_contactos")
+}
+
 model CrmSincronizacionHubspot {
   id                    String    @id @default(cuid())
   modo                  String
@@ -3172,6 +3254,10 @@ model CrmSincronizacionHubspot {
   miembrosDetectados    Int       @default(0) @map("miembros_detectados")
   registrosActualizados Int       @default(0) @map("registros_actualizados")
   propiedadesDetectadas Int       @default(0) @map("propiedades_detectadas")
+  pipelinesDetectados   Int       @default(0) @map("pipelines_detectados")
+  etapasDetectadas      Int       @default(0) @map("etapas_detectadas")
+  negociosDetectados    Int       @default(0) @map("negocios_detectados")
+  asociacionesDetectadas Int      @default(0) @map("asociaciones_detectadas")
   errores               Int       @default(0)
   detalle               Json?     @db.JsonB
   iniciadoAt            DateTime  @default(now()) @map("iniciado_at")
