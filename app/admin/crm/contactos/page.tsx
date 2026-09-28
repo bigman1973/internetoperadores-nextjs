@@ -125,6 +125,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
     delete openDealWhere.ganado
     where.negocios = { none: { negocio: openDealWhere } }
   }
+  const displayedDealWhere = hasPositiveDealFilter ? dealWhere : { activo: true }
 
   const [contacts, total, totalContacts, customers, withoutEmail, lists, ambiguous, fullContacts, failedContacts, unitCounts, withoutBusinessUnit, pipelines, contactsWithOpenDeals] = await Promise.all([
     prisma.crmRegistroHubspot.findMany({
@@ -138,7 +139,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
           take: 4,
         },
         negocios: {
-          where: { negocio: { activo: true } },
+          where: { negocio: displayedDealWhere },
           include: {
             negocio: {
               include: {
@@ -153,7 +154,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         _count: {
           select: {
             listas: { where: { activo: true, lista: { activo: true } } },
-            negocios: { where: { negocio: { activo: true } } },
+            negocios: { where: { negocio: displayedDealWhere } },
           },
         },
       },
@@ -367,7 +368,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         ) : (
           <>
             <div className="divide-y divide-gray-100 lg:hidden">
-              {contacts.map((contact) => <ContactCard key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} />)}
+              {contacts.map((contact) => <ContactCard key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} dealsFiltered={hasPositiveDealFilter} />)}
             </div>
             <div className="hidden overflow-x-auto lg:block">
               <table className="min-w-full divide-y divide-gray-200">
@@ -378,7 +379,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
                       <td className="px-5 py-4"><p className="font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></td>
                       <td className="px-5 py-4 text-sm text-gray-700">{contact.empresa || '—'}</td>
                       <td className="px-5 py-4"><BusinessUnitSummary units={contact.unidadesNegocio} options={businessUnitOptions} /></td>
-                      <td className="px-5 py-4"><DealSummary contact={contact} /></td>
+                      <td className="px-5 py-4"><DealSummary contact={contact} filtered={hasPositiveDealFilter} /></td>
                       <td className="px-5 py-4"><ContactStatus contact={contact} /></td>
                       <td className="px-5 py-4"><ListSummary contact={contact} /></td>
                       <td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500">{contact.sincronizadoAt?.toLocaleDateString('es-ES') || 'Pendiente'}</td>
@@ -428,7 +429,7 @@ function ListSummary({ contact }: { contact: any }) {
   return <div className="max-w-xs"><div className="flex flex-wrap gap-1">{contact.listas.slice(0, 2).map((membership: any) => <span key={membership.id} className="max-w-40 truncate rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700" title={membership.lista.nombre}>{membership.lista.nombre}</span>)}</div><p className="mt-1 text-xs text-gray-500">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div>
 }
 
-function DealSummary({ contact }: { contact: any }) {
+function DealSummary({ contact, filtered = false }: { contact: any; filtered?: boolean }) {
   if (contact._count.negocios === 0) return <span className="text-xs text-gray-400">Sin negocio asociado</span>
   const displayed = contact.negocios.slice(0, 2)
   return (
@@ -443,7 +444,7 @@ function DealSummary({ contact }: { contact: any }) {
           </div>
         ))}
       </div>
-      <p className="mt-1 text-xs text-gray-500">{contact._count.negocios.toLocaleString('es-ES')} {contact._count.negocios === 1 ? 'negocio' : 'negocios'}</p>
+      <p className="mt-1 text-xs text-gray-500">{contact._count.negocios.toLocaleString('es-ES')} {filtered ? (contact._count.negocios === 1 ? 'coincidencia' : 'coincidencias') : (contact._count.negocios === 1 ? 'negocio' : 'negocios')}</p>
     </div>
   )
 }
@@ -453,6 +454,6 @@ function BusinessUnitSummary({ units, options }: { units: string[]; options: Arr
   return <div className="flex max-w-xs flex-wrap gap-1">{units.map((unit) => <span key={unit} className="rounded-full bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-800">{crmBusinessUnitLabel(unit, options)}</span>)}</div>
 }
 
-function ContactCard({ contact, businessUnitOptions }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }> }) {
-  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><BusinessUnitSummary units={contact.unidadesNegocio} options={businessUnitOptions} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
+function ContactCard({ contact, businessUnitOptions, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; dealsFiltered?: boolean }) {
+  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><BusinessUnitSummary units={contact.unidadesNegocio} options={businessUnitOptions} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
 }
