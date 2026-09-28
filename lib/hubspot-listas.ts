@@ -782,109 +782,127 @@ async function persistHubspotSalesSnapshot(
     throw new Error('No se han podido materializar todos los contactos asociados. Se conserva el snapshot local anterior.')
   }
 
-  await prisma.$transaction(async (tx) => {
-    for (const contact of contactRows) {
-      await tx.crmRegistroHubspot.upsert({
-        where: { objectTypeId_hubspotId: { objectTypeId: '0-1', hubspotId: contact.hubspotId } },
-        create: {
-          id: contact.id,
-          objectTypeId: '0-1',
-          hubspotId: contact.hubspotId,
-          nombre: contact.nombre,
-          email: contact.email,
-          telefono: contact.telefono,
-          empresa: contact.empresa,
-          unidadesNegocio: contact.unidadesNegocio,
-          propiedades: contact.sourceProperties,
-          hubspotCreadoAt: contact.hubspotCreadoAt,
-          hubspotActualizadoAt: contact.hubspotActualizadoAt,
-          sincronizadoAt: syncedAt,
-        },
-        update: {
-          nombre: contact.nombre,
-          email: contact.email,
-          telefono: contact.telefono,
-          empresa: contact.empresa,
-          unidadesNegocio: contact.unidadesNegocio,
-          propiedades: contact.sourceProperties,
-          hubspotCreadoAt: contact.hubspotCreadoAt,
-          hubspotActualizadoAt: contact.hubspotActualizadoAt,
-          sincronizadoAt: syncedAt,
-        },
-      })
+  const pipelineRows = pipelines.map((pipeline) => ({
+    hubspotId: pipeline.id,
+    nombre: pipeline.label || pipeline.id,
+    displayOrder: pipeline.displayOrder ?? null,
+    activo: !pipeline.archived,
+    sincronizadoAt: syncedAt,
+  }))
+  const stageRows = stages.map(({ pipeline, stage }) => ({
+    clave: `${pipeline.id}:${stage.id}`,
+    hubspotId: stage.id,
+    pipelineHubspotId: pipeline.id,
+    nombre: stage.label || stage.id,
+    displayOrder: stage.displayOrder ?? null,
+    cerrado: hubspotBoolean(stage.metadata?.isClosed),
+    probabilidad: decimalOrNull(stage.metadata?.probability),
+    propiedadesHubspot: (stage.metadata || {}) as Prisma.InputJsonValue,
+    activo: !stage.archived,
+    sincronizadoAt: syncedAt,
+  }))
+  const dealRows = snapshot.deals.map((deal) => {
+    const properties = deal.properties || {}
+    const pipelineHubspotId = properties.pipeline || '__SIN_PIPELINE__'
+    const stageId = properties.dealstage || '__SIN_ETAPA__'
+    const etapaClave = `${pipelineHubspotId}:${stageId}`
+    if (!stageKeys.has(etapaClave)) throw new Error(`No se pudo resolver la etapa ${stageId} del negocio ${deal.id}.`)
+    const stage = pipelines.find((pipeline) => pipeline.id === pipelineHubspotId)?.stages?.find((item) => item.id === stageId)
+    const ownerId = properties.hubspot_owner_id || null
+    return {
+      hubspotId: deal.id,
+      nombre: properties.dealname?.trim() || `Negocio #${deal.id}`,
+      pipelineHubspotId,
+      etapaClave,
+      importe: decimalOrNull(properties.amount),
+      moneda: properties.hs_currency_code || null,
+      fechaCierre: toDate(properties.closedate || undefined),
+      cerrado: hubspotBoolean(properties.hs_is_closed) || hubspotBoolean(stage?.metadata?.isClosed),
+      ganado: hubspotBoolean(properties.hs_is_closed_won),
+      propietarioHubspotId: ownerId,
+      propietarioNombre: ownerName(ownerId ? ownersById.get(ownerId) : undefined) || (ownerId ? `HubSpot #${ownerId}` : null),
+      propiedades: properties as Prisma.InputJsonValue,
+      hubspotCreadoAt: toDate(deal.createdAt),
+      hubspotActualizadoAt: toDate(deal.updatedAt),
+      sincronizadoAt: syncedAt,
+      activo: true,
     }
+  })
 
-    for (const pipeline of pipelines) {
-      await tx.crmPipelineHubspot.upsert({
-        where: { hubspotId: pipeline.id },
-        create: { hubspotId: pipeline.id, nombre: pipeline.label || pipeline.id, displayOrder: pipeline.displayOrder ?? null, activo: !pipeline.archived, sincronizadoAt: syncedAt },
-        update: { nombre: pipeline.label || pipeline.id, displayOrder: pipeline.displayOrder ?? null, activo: !pipeline.archived, sincronizadoAt: syncedAt },
-      })
-    }
-    for (const { pipeline, stage } of stages) {
-      await tx.crmPipelineEtapaHubspot.upsert({
-        where: { clave: `${pipeline.id}:${stage.id}` },
-        create: {
-          clave: `${pipeline.id}:${stage.id}`,
-          hubspotId: stage.id,
-          pipelineHubspotId: pipeline.id,
-          nombre: stage.label || stage.id,
-          displayOrder: stage.displayOrder ?? null,
-          cerrado: hubspotBoolean(stage.metadata?.isClosed),
-          probabilidad: decimalOrNull(stage.metadata?.probability),
-          propiedadesHubspot: (stage.metadata || {}) as Prisma.InputJsonValue,
-          activo: !stage.archived,
-          sincronizadoAt: syncedAt,
-        },
-        update: {
-          nombre: stage.label || stage.id,
-          displayOrder: stage.displayOrder ?? null,
-          cerrado: hubspotBoolean(stage.metadata?.isClosed),
-          probabilidad: decimalOrNull(stage.metadata?.probability),
-          propiedadesHubspot: (stage.metadata || {}) as Prisma.InputJsonValue,
-          activo: !stage.archived,
-          sincronizadoAt: syncedAt,
-        },
-      })
-    }
-    for (const deal of snapshot.deals) {
-      const properties = deal.properties || {}
-      const pipelineHubspotId = properties.pipeline || '__SIN_PIPELINE__'
-      const stageId = properties.dealstage || '__SIN_ETAPA__'
-      const etapaClave = `${pipelineHubspotId}:${stageId}`
-      if (!stageKeys.has(etapaClave)) throw new Error(`No se pudo resolver la etapa ${stageId} del negocio ${deal.id}.`)
-      const stage = pipelines.find((pipeline) => pipeline.id === pipelineHubspotId)?.stages?.find((item) => item.id === stageId)
-      const closed = hubspotBoolean(properties.hs_is_closed) || hubspotBoolean(stage?.metadata?.isClosed)
-      const won = hubspotBoolean(properties.hs_is_closed_won)
-      const ownerId = properties.hubspot_owner_id || null
-      const dealData = {
-        nombre: properties.dealname?.trim() || `Negocio #${deal.id}`,
-        pipelineHubspotId,
-        etapaClave,
-        importe: decimalOrNull(properties.amount),
-        moneda: properties.hs_currency_code || null,
-        fechaCierre: toDate(properties.closedate || undefined),
-        cerrado: closed,
-        ganado: won,
-        propietarioHubspotId: ownerId,
-        propietarioNombre: ownerName(ownerId ? ownersById.get(ownerId) : undefined) || (ownerId ? `HubSpot #${ownerId}` : null),
-        propiedades: properties as Prisma.InputJsonValue,
-        hubspotCreadoAt: toDate(deal.createdAt),
-        hubspotActualizadoAt: toDate(deal.updatedAt),
-        sincronizadoAt: syncedAt,
-        activo: true,
-      }
-      await tx.crmNegocioHubspot.upsert({ where: { hubspotId: deal.id }, create: { hubspotId: deal.id, ...dealData }, update: dealData })
+  await prisma.$transaction(async (tx) => {
+    if (contactRows.length > 0) {
+      const payload = JSON.stringify(contactRows.map((contact) => ({
+        id: contact.id,
+        hubspot_id: contact.hubspotId,
+        nombre: contact.nombre,
+        email: contact.email,
+        telefono: contact.telefono,
+        empresa: contact.empresa,
+        unidades_negocio: contact.unidadesNegocio,
+        propiedades: contact.sourceProperties,
+        hubspot_creado_at: contact.hubspotCreadoAt?.toISOString() || null,
+        hubspot_actualizado_at: contact.hubspotActualizadoAt?.toISOString() || null,
+        sincronizado_at: syncedAt.toISOString(),
+      })))
+      await tx.$executeRaw`
+        INSERT INTO crm_registros_hubspot AS existing (
+          id, object_type_id, hubspot_id, nombre, email, telefono, empresa,
+          unidades_negocio, propiedades, hubspot_creado_at, hubspot_actualizado_at,
+          sincronizado_at, created_at, updated_at
+        )
+        SELECT
+          row.id,
+          '0-1',
+          row.hubspot_id,
+          row.nombre,
+          row.email,
+          row.telefono,
+          row.empresa,
+          ARRAY(SELECT jsonb_array_elements_text(COALESCE(row.unidades_negocio, '[]'::jsonb))),
+          row.propiedades,
+          row.hubspot_creado_at,
+          row.hubspot_actualizado_at,
+          row.sincronizado_at,
+          NOW(),
+          NOW()
+        FROM jsonb_to_recordset(${payload}::jsonb) AS row(
+          id text,
+          hubspot_id text,
+          nombre text,
+          email text,
+          telefono text,
+          empresa text,
+          unidades_negocio jsonb,
+          propiedades jsonb,
+          hubspot_creado_at timestamptz,
+          hubspot_actualizado_at timestamptz,
+          sincronizado_at timestamptz
+        )
+        ON CONFLICT (object_type_id, hubspot_id) DO UPDATE SET
+          nombre = EXCLUDED.nombre,
+          email = EXCLUDED.email,
+          telefono = EXCLUDED.telefono,
+          empresa = EXCLUDED.empresa,
+          unidades_negocio = EXCLUDED.unidades_negocio,
+          propiedades = EXCLUDED.propiedades,
+          hubspot_creado_at = COALESCE(EXCLUDED.hubspot_creado_at, existing.hubspot_creado_at),
+          hubspot_actualizado_at = COALESCE(EXCLUDED.hubspot_actualizado_at, existing.hubspot_actualizado_at),
+          sincronizado_at = EXCLUDED.sincronizado_at,
+          updated_at = NOW()
+      `
     }
 
     await tx.crmNegocioContacto.deleteMany()
+    await tx.crmNegocioHubspot.deleteMany()
+    await tx.crmPipelineEtapaHubspot.deleteMany()
+    await tx.crmPipelineHubspot.deleteMany()
+    if (pipelineRows.length > 0) await tx.crmPipelineHubspot.createMany({ data: pipelineRows })
+    if (stageRows.length > 0) await tx.crmPipelineEtapaHubspot.createMany({ data: stageRows })
+    if (dealRows.length > 0) await tx.crmNegocioHubspot.createMany({ data: dealRows })
     for (let index = 0; index < associationRows.length; index += 1000) {
       await tx.crmNegocioContacto.createMany({ data: associationRows.slice(index, index + 1000), skipDuplicates: true })
     }
-    await tx.crmNegocioHubspot.updateMany({ where: { hubspotId: { notIn: snapshot.deals.map((deal) => deal.id) } }, data: { activo: false } })
-    await tx.crmPipelineHubspot.updateMany({ where: { hubspotId: { notIn: pipelines.map((pipeline) => pipeline.id) } }, data: { activo: false } })
-    await tx.crmPipelineEtapaHubspot.updateMany({ where: { clave: { notIn: [...stageKeys] } }, data: { activo: false } })
-  }, { maxWait: 10_000, timeout: 120_000 })
+  }, { maxWait: 10_000, timeout: 60_000 })
 
   await reconciliarContactosCrmConClientes(contactRows.map((contact) => contact.email || ''))
   return {
