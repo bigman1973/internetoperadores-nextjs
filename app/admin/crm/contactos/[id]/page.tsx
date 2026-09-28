@@ -100,7 +100,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const units = contact.unidadesNegocio.map((unit) => crmBusinessUnitLabel(unit, businessUnitOptions))
   const lifecycle = formatPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
   const leadStatus = formatPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
-  const owner = effectiveProperties.hubspot_owner_id ? 'Asignado en HubSpot' : 'Sin asignar'
+  const owner = effectiveProperties.hubspot_owner_id ? 'Asignado' : 'Sin asignar'
 
   const qualityIssues: string[] = []
   if (!email) qualityIssues.push('Falta el correo electrónico.')
@@ -109,7 +109,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   if (units.length === 0) qualityIssues.push('Falta asignar la unidad de negocio.')
   if (!effectiveProperties.lifecyclestage) qualityIssues.push('Falta revisar el ciclo de vida comercial.')
   if (ambiguousMatches > 1) qualityIssues.push(`El correo coincide con ${ambiguousMatches.toLocaleString('es-ES')} clientes y requiere revisión manual.`)
-  if (contact.propiedadesCompletasError) qualityIssues.push('HubSpot no permite recuperar ahora toda la información del contacto.')
+  if (contact.propiedadesCompletasError) qualityIssues.push('La última importación de origen no pudo recuperar toda la información del contacto.')
 
   const statusNotice = isCustomer
     ? { tone: 'green' as const, title: 'Contacto convertido en cliente.', text: 'Su correo coincide con una persona o empresa que ya ha comprado. Conserva sus listas y su histórico de origen.' }

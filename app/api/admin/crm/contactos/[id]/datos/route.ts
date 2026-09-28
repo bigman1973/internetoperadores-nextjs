@@ -58,9 +58,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     ? new Date(body.sourceSyncedAt)
     : null
   if (hasSourceVersion && requestedSourceSyncedAt && Number.isNaN(requestedSourceSyncedAt.getTime())) {
-    return NextResponse.json({ error: 'La versión de HubSpot no es válida. Recarga la página.' }, { status: 400 })
+    return NextResponse.json({ error: 'La versión de los datos de origen no es válida. Recarga la página.' }, { status: 400 })
   }
-  const notes = typeof body.notasInternas === 'string' ? body.notasInternas.trim().slice(0, 20_000) || null : null
+  const hasNotes = Object.prototype.hasOwnProperty.call(body, 'notasInternas')
+  if (hasNotes && body.notasInternas != null && typeof body.notasInternas !== 'string') {
+    return NextResponse.json({ error: 'Las notas internas no son válidas.' }, { status: 400 })
+  }
+  const notes = hasNotes ? (typeof body.notasInternas === 'string' ? body.notasInternas.trim().slice(0, 20_000) || null : null) : undefined
   const author = session.user.email || session.user.name || 'Administrador'
 
   try {
@@ -80,13 +84,14 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }
 
       const allowed = new Set(definitions.map((definition) => definition.nombre))
+      const disallowedField = Object.keys(values as Record<string, unknown>).find((name) => !allowed.has(name))
+      if (disallowedField) return { kind: 'disallowed' as const, field: disallowedField }
       const source = asStringRecord(current.propiedades)
       const previousLocal = asStringRecord(current.propiedadesLocales)
       const nextLocal = { ...previousLocal }
       const changes: Array<{ campo: string; anterior: string | null; nuevo: string | null }> = []
 
       for (const [name, rawValue] of Object.entries(values as Record<string, unknown>)) {
-        if (!allowed.has(name)) continue
         const value = cleanValue(rawValue)
         if (value === undefined) return { kind: 'invalid' as const, field: name }
         const previousEffective = Object.prototype.hasOwnProperty.call(previousLocal, name) ? previousLocal[name] : source[name] ?? null
@@ -96,11 +101,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         if (previousEffective !== nextEffective) changes.push({ campo: name, anterior: previousEffective, nuevo: nextEffective })
       }
 
-      if ((current.notasInternas || null) !== notes) {
+      if (hasNotes && (current.notasInternas || null) !== notes) {
         changes.push({ campo: 'notas_internas', anterior: current.notasInternas || null, nuevo: notes })
       }
       if (changes.length === 0) {
-        return { kind: 'unchanged' as const, localProperties: previousLocal, version: current.datosVersion }
+        return { kind: 'unchanged' as const, localProperties: previousLocal, businessUnits: current.unidadesNegocio, version: current.datosVersion }
       }
 
       const effective = { ...source, ...nextLocal }
@@ -114,7 +119,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         where: { id, datosVersion: requestedVersion },
         data: {
           propiedadesLocales: Object.keys(nextLocal).length ? nextLocal : Prisma.DbNull,
-          notasInternas: notes,
+          ...(hasNotes ? { notasInternas: notes } : {}),
           historialCambios: history,
           datosActualizadoAt: now,
           datosActualizadoPor: author,
@@ -131,16 +136,17 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
       const contact = await tx.crmRegistroHubspot.findUniqueOrThrow({
         where: { id },
-        select: { id: true, email: true, propiedadesLocales: true, datosActualizadoAt: true, datosActualizadoPor: true, datosVersion: true },
+        select: { id: true, email: true, propiedadesLocales: true, unidadesNegocio: true, datosActualizadoAt: true, datosActualizadoPor: true, datosVersion: true },
       })
       return { kind: 'updated' as const, contact, previousEmail: current.email }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted })
 
     if (result.kind === 'missing') return NextResponse.json({ error: 'Contacto no encontrado.' }, { status: 404 })
     if (result.kind === 'conflict') return NextResponse.json({ error: 'Otra persona o una sincronización ha actualizado esta ficha. Recárgala antes de guardar para no perder cambios.' }, { status: 409 })
-    if (result.kind === 'source-conflict') return NextResponse.json({ error: 'HubSpot ha actualizado este contacto mientras lo estabas editando. Recarga la ficha para revisar la información nueva antes de guardar.' }, { status: 409 })
+    if (result.kind === 'source-conflict') return NextResponse.json({ error: 'Los datos de origen se han actualizado mientras estabas editando. Recarga la ficha antes de guardar para revisar la información nueva.' }, { status: 409 })
+    if (result.kind === 'disallowed') return NextResponse.json({ error: `El campo ${result.field} no está disponible para edición. Recarga la página o completa antes el catálogo de campos.` }, { status: 400 })
     if (result.kind === 'invalid') return NextResponse.json({ error: `El valor de ${result.field} no es válido.` }, { status: 400 })
-    if (result.kind === 'unchanged') return NextResponse.json({ success: true, unchanged: true, localProperties: result.localProperties, version: result.version })
+    if (result.kind === 'unchanged') return NextResponse.json({ success: true, unchanged: true, localProperties: result.localProperties, businessUnits: result.businessUnits, version: result.version })
 
     await reconciliarContactosCrmConClientes([result.previousEmail || '', result.contact.email || ''])
     return NextResponse.json({
@@ -150,6 +156,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       updatedAt: result.contact.datosActualizadoAt,
       updatedBy: result.contact.datosActualizadoPor,
       version: result.contact.datosVersion,
+      businessUnits: result.contact.unidadesNegocio,
     })
   } catch (error: any) {
     if (error?.code === 'P2034' || (error?.code === 'P2010' && error?.meta?.code === '40001')) {

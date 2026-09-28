@@ -16,10 +16,11 @@ import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactosDataSyncPanel from '@/components/admin/CrmContactosDataSyncPanel'
 import CrmNegociosSyncPanel from '@/components/admin/CrmNegociosSyncPanel'
+import CrmHubspotMigrationSection from '@/components/admin/CrmHubspotMigrationSection'
+import CrmBusinessUnitQuickEditor from '@/components/admin/CrmBusinessUnitQuickEditor'
 import {
   CRM_BUSINESS_UNIT_NONE,
   CRM_BUSINESS_UNIT_PROPERTY,
-  crmBusinessUnitLabel,
   getCrmBusinessUnitOptions,
 } from '@/lib/crm-unidades-negocio'
 
@@ -71,9 +72,10 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
   const pageSize = 40
   const businessUnitDefinition = await prisma.crmPropiedadHubspot.findUnique({
     where: { objectTypeId_nombre: { objectTypeId: '0-1', nombre: CRM_BUSINESS_UNIT_PROPERTY } },
-    select: { opciones: true },
+    select: { opciones: true, soloLectura: true, calculada: true, oculta: true },
   })
   const businessUnitOptions = getCrmBusinessUnitOptions(businessUnitDefinition?.opciones)
+  const businessUnitEditable = Boolean(businessUnitDefinition && !businessUnitDefinition.soloLectura && !businessUnitDefinition.calculada && !businessUnitDefinition.oculta)
   const visibleContactScope = {
     OR: [
       { listas: { some: { activo: true, lista: { activo: true } } } },
@@ -237,7 +239,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
             <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-800">CRM operativo</span>
           </div>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-600">
-            Todos los contactos importados de HubSpot empiezan como leads. Cuando su correo coincide con un cliente que ha comprado, pasan automáticamente a cliente sin perder ninguna de sus listas.
+            Directorio corporativo unificado de leads y clientes. Cuando un correo coincide con un cliente que ha comprado, el contacto pasa automáticamente a cliente sin perder sus listas, negocios ni información histórica.
           </p>
         </div>
       </header>
@@ -251,9 +253,10 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         <Kpi label="Correo duplicado" value={Number(ambiguous[0]?.total || 0)} icon={<ExclamationTriangleIcon className="h-5 w-5" />} tone="amber" />
       </section>
 
-      <CrmContactosDataSyncPanel total={totalContacts} initialCompleted={fullContacts} initialFailed={failedContacts} />
-
-      <CrmNegociosSyncPanel />
+      <CrmHubspotMigrationSection description="Importación final de fichas, pipelines y negocios. El directorio y su edición diaria ya funcionan dentro del panel.">
+        <CrmContactosDataSyncPanel total={totalContacts} initialCompleted={fullContacts} initialFailed={failedContacts} />
+        <CrmNegociosSyncPanel />
+      </CrmHubspotMigrationSection>
 
       <section className="rounded-xl border border-orange-200 bg-orange-50/50 p-4 sm:p-5">
         <div className="flex items-start gap-3">
@@ -277,7 +280,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
       </section>
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-        <strong>Conversión automática:</strong> la sincronización de clientes de ISPGestión y las altas manuales del panel comprueban el correo. La conversión no crea duplicados, no modifica HubSpot y conserva todas las pertenencias a listas. Si el mismo correo corresponde a varios clientes, el contacto sigue como lead para evitar una asociación equivocada.
+        <strong>Conversión automática:</strong> la sincronización de clientes de ISPGestión y las altas manuales del panel comprueban el correo. La conversión no crea duplicados y conserva todas las pertenencias a listas. Si el mismo correo corresponde a varios clientes, el contacto sigue como lead para evitar una asociación equivocada.
       </div>
 
       <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -368,17 +371,17 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         ) : (
           <>
             <div className="divide-y divide-gray-100 lg:hidden">
-              {contacts.map((contact) => <ContactCard key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} dealsFiltered={hasPositiveDealFilter} />)}
+              {contacts.map((contact) => <ContactCard key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} businessUnitEditable={businessUnitEditable} dealsFiltered={hasPositiveDealFilter} />)}
             </div>
             <div className="hidden overflow-x-auto lg:block">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50"><tr><Th>Contacto</Th><Th>Empresa</Th><Th>Unidad de negocio</Th><Th>Negocios</Th><Th>Estado</Th><Th>Listas</Th><Th>Actualización</Th><Th><span className="sr-only">Abrir</span></Th></tr></thead>
+                <thead className="bg-gray-50"><tr><Th>Contacto</Th><Th>Empresa</Th><Th>Unidad de negocio · editable</Th><Th>Negocios</Th><Th>Estado</Th><Th>Listas</Th><Th>Actualización</Th><Th><span className="sr-only">Abrir</span></Th></tr></thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
                   {contacts.map((contact) => (
                     <tr key={contact.id}>
                       <td className="px-5 py-4"><p className="font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></td>
                       <td className="px-5 py-4 text-sm text-gray-700">{contact.empresa || '—'}</td>
-                      <td className="px-5 py-4"><BusinessUnitSummary units={contact.unidadesNegocio} options={businessUnitOptions} /></td>
+                      <td className="px-5 py-4"><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} /></td>
                       <td className="px-5 py-4"><DealSummary contact={contact} filtered={hasPositiveDealFilter} /></td>
                       <td className="px-5 py-4"><ContactStatus contact={contact} /></td>
                       <td className="px-5 py-4"><ListSummary contact={contact} /></td>
@@ -449,11 +452,6 @@ function DealSummary({ contact, filtered = false }: { contact: any; filtered?: b
   )
 }
 
-function BusinessUnitSummary({ units, options }: { units: string[]; options: Array<{ value: string; label: string }> }) {
-  if (units.length === 0) return <span className="text-xs font-medium text-amber-700">Sin unidad asignada</span>
-  return <div className="flex max-w-xs flex-wrap gap-1">{units.map((unit) => <span key={unit} className="rounded-full bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-800">{crmBusinessUnitLabel(unit, options)}</span>)}</div>
-}
-
-function ContactCard({ contact, businessUnitOptions, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; dealsFiltered?: boolean }) {
-  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><BusinessUnitSummary units={contact.unidadesNegocio} options={businessUnitOptions} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
+function ContactCard({ contact, businessUnitOptions, businessUnitEditable, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; businessUnitEditable: boolean; dealsFiltered?: boolean }) {
+  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
 }

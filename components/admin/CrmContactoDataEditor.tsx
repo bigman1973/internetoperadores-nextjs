@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ArrowPathIcon,
   ArrowUturnLeftIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -111,7 +110,6 @@ export default function CrmContactoDataEditor({
   const [showEmpty, setShowEmpty] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   const hasDraft = dirtyFields.size > 0 || notes !== savedNotes
@@ -222,27 +220,13 @@ export default function CrmContactoDataEditor({
       setSavedNotes(notes)
       setDirtyFields(new Set())
       setEditingSection(null)
-      setMessage({ type: 'success', text: data.unchanged ? 'No había cambios pendientes.' : 'Cambios guardados. El valor original de HubSpot permanece disponible.' })
+      setMessage({ type: 'success', text: data.unchanged ? 'No había cambios pendientes.' : 'Cambios guardados. El valor importado originalmente permanece disponible.' })
       return true
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo guardar la información.' })
       return false
     } finally {
       setSaving(false)
-    }
-  }
-
-  const refreshFromHubspot = async () => {
-    setSyncing(true)
-    setMessage(null)
-    try {
-      const response = await fetch(`/api/admin/crm/contactos/${id}/hubspot`, { method: 'POST' })
-      const data = await response.json()
-      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar la ficha desde HubSpot.')
-      window.location.reload()
-    } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo actualizar la ficha desde HubSpot.' })
-      setSyncing(false)
     }
   }
 
@@ -331,23 +315,22 @@ export default function CrmContactoDataEditor({
             <h2 className="text-lg font-semibold text-gray-900">Datos del contacto</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500">Consulta primero y edita solo la sección que necesites. Los campos vacíos y técnicos no ocupan espacio salvo que decidas mostrarlos.</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-gray-600">
-              {fullPropertiesAt && <span className="rounded-full bg-gray-100 px-2.5 py-1">HubSpot: {new Date(fullPropertiesAt).toLocaleString('es-ES')}</span>}
+              {fullPropertiesAt && <span className="rounded-full bg-gray-100 px-2.5 py-1">Datos de origen importados: {new Date(fullPropertiesAt).toLocaleString('es-ES')}</span>}
               {(updatedAt || updatedBy) && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">Edición local: {updatedAt ? new Date(updatedAt).toLocaleString('es-ES') : ''}{updatedBy ? ` · ${updatedBy}` : ''}</span>}
               {Object.keys(locals).length > 0 && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{Object.keys(locals).length} {Object.keys(locals).length === 1 ? 'dato modificado' : 'datos modificados'}</span>}
             </div>
           </div>
           <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
             <button type="button" onClick={() => setShowEmpty((current) => !current)} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">{showEmpty ? 'Ocultar campos vacíos' : 'Mostrar campos vacíos'}</button>
-            {canWrite && <button type="button" onClick={refreshFromHubspot} disabled={syncing || editingSection !== null} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"><ArrowPathIcon className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />{syncing ? 'Actualizando…' : 'Actualizar desde HubSpot'}</button>}
           </div>
         </div>
       </section>
 
-      {syncError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">No se pudo completar ahora la lectura de HubSpot: {syncError}. Los datos ya disponibles y las modificaciones locales se mantienen.</div>}
+      {syncError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">No se pudo completar la última importación de origen: {syncError}. Los datos ya disponibles y las modificaciones locales se mantienen.</div>}
       {message && <div role={message.type === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl border p-4 text-sm leading-6 ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}>{message.text}</div>}
 
       {definitions.length === 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Todavía no se ha importado el catálogo completo de campos. Utiliza <strong>Actualizar desde HubSpot</strong> o completa la importación desde el directorio de Contactos.</div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Todavía no se ha importado el catálogo completo de campos. Completa la migración temporal desde el directorio de Contactos.</div>
       ) : (
         <>
           {renderSection('essential', 'Datos esenciales', 'Identificación, contacto, empresa, ubicación y estado comercial.', primaryProperties)}
@@ -377,7 +360,7 @@ export default function CrmContactoDataEditor({
           {canWrite && editingSection === null && (
             <section className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/40 p-4 sm:p-5">
               <h3 className="text-sm font-semibold text-gray-900">Añadir otro dato a la ficha</h3>
-              <p className="mt-1 text-xs leading-5 text-gray-500">Busca cualquiera de los campos configurados en la cuenta de HubSpot. Se añadirá a su sección correspondiente.</p>
+              <p className="mt-1 text-xs leading-5 text-gray-500">Busca cualquiera de los campos disponibles en el catálogo importado. Se añadirá a su sección correspondiente.</p>
               <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                 <label className="relative">
                   <span className="sr-only">Buscar campo</span>
@@ -396,7 +379,7 @@ export default function CrmContactoDataEditor({
           {readOnlyWithValue.length > 0 && (
             <section className="rounded-2xl border border-gray-200 bg-gray-50">
               <button type="button" onClick={() => setShowTechnical((current) => !current)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 text-left text-sm font-semibold text-gray-700 sm:px-5">
-                <span>Datos calculados y técnicos de HubSpot ({readOnlyWithValue.length.toLocaleString('es-ES')})</span>
+                <span>Datos calculados y técnicos de origen ({readOnlyWithValue.length.toLocaleString('es-ES')})</span>
                 <ChevronDownIcon className={`h-5 w-5 transition-transform ${showTechnical ? 'rotate-180' : ''}`} />
               </button>
               {showTechnical && <div className="grid gap-3 border-t border-gray-200 p-4 md:grid-cols-2 xl:grid-cols-3 sm:p-5">{readOnlyWithValue.map((property) => <PropertyValue key={property.name} property={property} value={values[property.name] ?? null} sourceValue={source[property.name] ?? null} overridden={false} />)}</div>}
@@ -419,7 +402,7 @@ function PropertyValue({ property, value, sourceValue, overridden }: { property:
         <details className="mt-2 text-xs">
           <summary className="cursor-pointer font-semibold text-blue-700">Modificado en el panel</summary>
           <div className="mt-2 rounded-lg border border-blue-100 bg-white p-2.5 leading-5 text-gray-600">
-            <span className="font-medium text-gray-700">Valor de HubSpot:</span> {formatValue(sourceValue, property)}
+            <span className="font-medium text-gray-700">Valor importado originalmente:</span> {formatValue(sourceValue, property)}
           </div>
         </details>
       )}
@@ -444,7 +427,7 @@ function PropertyField({ property, value, sourceValue, overridden, disabled, onC
         <input id={inputId} type={property.type === 'number' ? 'number' : property.type === 'datetime' ? 'datetime-local' : property.type === 'date' ? 'date' : property.fieldType === 'phonenumber' ? 'tel' : property.name === 'email' ? 'email' : 'text'} value={formatInputValue(value, property)} onChange={(event) => onChange(parseInputValue(event.target.value, property))} disabled={disabled} className={common} />
       )}
       {property.description && <span className="mt-1 block text-xs font-normal leading-5 text-gray-500">{property.description}</span>}
-      {overridden && <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-blue-700">Modificado en el panel</span><button type="button" onClick={onRestore} disabled={disabled} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:hidden"><ArrowUturnLeftIcon className="h-3.5 w-3.5" />Restaurar HubSpot</button><span className="w-full font-normal text-gray-500">Original: {formatValue(sourceValue, property)}</span></div>}
+      {overridden && <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-blue-700">Modificado en el panel</span><button type="button" onClick={onRestore} disabled={disabled} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:hidden"><ArrowUturnLeftIcon className="h-3.5 w-3.5" />Restaurar valor importado</button><span className="w-full font-normal text-gray-500">Original: {formatValue(sourceValue, property)}</span></div>}
     </div>
   )
 }

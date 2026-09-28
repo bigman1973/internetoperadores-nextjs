@@ -13,6 +13,7 @@ import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmListasSyncPanel from '@/components/admin/CrmListasSyncPanel'
+import CrmHubspotMigrationSection from '@/components/admin/CrmHubspotMigrationSection'
 
 export const dynamic = 'force-dynamic'
 
@@ -98,15 +99,17 @@ export default async function CrmListasPage({ searchParams }: { searchParams: Pr
           <div className="flex flex-wrap items-center gap-3">
             <CircleStackIcon className="h-8 w-8 text-orange-600" />
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">Listas y segmentos</h1>
-            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">Origen HubSpot</span>
+            <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-semibold text-blue-800">Migradas de HubSpot</span>
           </div>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-gray-600">
-            Consulta las listas reales de HubSpot con su nombre, tipo, criterios y miembros. Las listas activas conservan su definición dinámica y muestran una instantánea fechada de sus miembros actuales.
+            Consulta en el CRM las listas migradas con su nombre, tipo, criterios y miembros. Las listas activas conservan su definición original y muestran una instantánea fechada de sus miembros.
           </p>
         </div>
       </header>
 
-      <CrmListasSyncPanel />
+      <CrmHubspotMigrationSection description="Control final para verificar y actualizar la copia local de nombres, criterios y miembros antes de retirar la conexión externa.">
+        <CrmListasSyncPanel />
+      </CrmHubspotMigrationSection>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Kpi label="Listas" value={aggregate._count._all} icon={<CircleStackIcon className="h-5 w-5" />} />

@@ -4,7 +4,6 @@ import { useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeftIcon,
-  ArrowPathIcon,
   ArrowRightIcon,
   ArrowTopRightOnSquareIcon,
   BanknotesIcon,
@@ -138,14 +137,11 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                 <div className="mt-3 flex flex-wrap gap-2">
                   {contact.units.length > 0 ? contact.units.map((unit) => <span key={unit} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-orange-800 shadow-sm ring-1 ring-orange-200">{unit}</span>) : <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">Sin unidad de negocio</span>}
                 </div>
-                <p className="mt-3 text-xs text-gray-500">HubSpot #{contact.hubspotId} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
+                <p className="mt-3 text-xs text-gray-500">Referencia de origen #{contact.hubspotId} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
               </div>
             </div>
 
-            <div className="grid shrink-0 gap-2 sm:grid-cols-2 xl:flex">
-              {customer && <Link href={`/admin/clientes/${customer.id}/editar`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 active:scale-[0.97]">Abrir ficha de cliente <ArrowRightIcon className="h-4 w-4" /></Link>}
-              <a href={`https://app-eu1.hubspot.com/contacts/24927923/record/0-1/${contact.hubspotId}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 transition hover:border-orange-300 hover:text-orange-800 active:scale-[0.97]">Abrir en HubSpot <ArrowTopRightOnSquareIcon className="h-4 w-4" /></a>
-            </div>
+            {customer && <div className="grid shrink-0 gap-2 xl:flex"><Link href={`/admin/clientes/${customer.id}/editar`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white transition hover:bg-orange-700 active:scale-[0.97]">Abrir ficha de cliente <ArrowRightIcon className="h-4 w-4" /></Link></div>}
           </div>
         </div>
 
@@ -188,7 +184,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
               </div>
 
               <div className="space-y-5">
-                <Card title="Situación comercial" icon={<BriefcaseIcon className="h-5 w-5" />}>
+                <Card title="Situación comercial" icon={<BriefcaseIcon className="h-5 w-5" />} action={<button type="button" onClick={() => setActiveTab('data')} className="inline-flex min-h-9 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Editar unidades <ArrowRightIcon className="h-4 w-4" /></button>}>
                   <div className="space-y-4">
                     <SummaryField label="Ciclo de vida" value={contact.lifecycle} />
                     <SummaryField label="Estado del lead" value={contact.leadStatus} />
@@ -216,7 +212,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
         <section role="tabpanel" id="crm-contact-panel-deals" aria-labelledby="crm-contact-tab-deals" tabIndex={0} hidden={activeTab !== 'deals'}>
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-            <SectionHeader title="Negocios asociados" description="Oportunidades reales de HubSpot, con las abiertas en primer lugar." icon={<BriefcaseIcon className="h-5 w-5" />} />
+            <SectionHeader title="Negocios asociados" description="Oportunidades incorporadas al CRM, con las abiertas en primer lugar." icon={<BriefcaseIcon className="h-5 w-5" />} />
             {deals.length === 0 ? <div className="p-8"><EmptyState text="No hay ningún negocio asociado en la última sincronización." /></div> : <div className="divide-y divide-gray-100">{deals.map((deal) => <FullDeal key={deal.id} deal={deal} />)}</div>}
           </div>
         </section>
@@ -233,14 +229,14 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         <section role="tabpanel" id="crm-contact-panel-history" aria-labelledby="crm-contact-tab-history" tabIndex={0} hidden={activeTab !== 'history'}>
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-              <SectionHeader title="Historial de modificaciones" description="Cambios realizados dentro del panel, conservando siempre la fuente de HubSpot." icon={<ClockIcon className="h-5 w-5" />} />
+              <SectionHeader title="Historial de modificaciones" description="Cambios realizados dentro del panel, conservando siempre el valor importado de origen." icon={<ClockIcon className="h-5 w-5" />} />
               {history.length === 0 ? <div className="p-8"><EmptyState text="Todavía no se han realizado modificaciones locales en esta ficha." /></div> : <div className="divide-y divide-gray-100">{history.map((entry, index) => <article key={`${entry.date}-${index}`} className="p-5 sm:px-6"><div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between"><p className="font-semibold text-gray-900">{entry.author}</p><time className="text-xs text-gray-500">{entry.date || 'Fecha no disponible'}</time></div><ul className="mt-3 space-y-2">{entry.changes.map((change, changeIndex) => <li key={`${change.field}-${changeIndex}`} className="rounded-xl bg-gray-50 p-3 text-sm leading-6"><p className="font-semibold text-gray-800">{change.label}</p><p className="mt-1 break-words text-gray-500"><span className="line-through">{change.previous}</span> <ArrowRightIcon className="mx-1 inline h-3.5 w-3.5" /> <span className="font-medium text-gray-800 no-underline">{change.next}</span></p></li>)}</ul></article>)}</div>}
             </section>
             <aside className="space-y-4">
-              <Card title="Origen y sincronización" icon={<ArrowPathIcon className="h-5 w-5" />}>
+              <Card title="Origen y conservación" icon={<ClockIcon className="h-5 w-5" />}>
                 <div className="space-y-4">
                   <SummaryField label="Actualización del registro" value={contact.sourceUpdatedAt || 'Sin fecha'} />
-                  <SummaryField label="Ficha completa de HubSpot" value={contact.fullPropertiesAt || 'Pendiente'} />
+                  <SummaryField label="Ficha de origen importada" value={contact.fullPropertiesAt || 'Pendiente'} />
                   <SummaryField label="Última edición local" value={contact.localUpdatedAt || 'Sin modificaciones'} />
                   <SummaryField label="Editado por" value={contact.localUpdatedBy || 'No aplicable'} />
                   <SummaryField label="Campos modificados localmente" value={contact.localChanges.toLocaleString('es-ES')} />
@@ -281,7 +277,7 @@ function CompactDeal({ deal }: { deal: Deal }) {
 }
 
 function FullDeal({ deal }: { deal: Deal }) {
-  return <article className="p-5 sm:px-6"><div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words font-semibold text-gray-900">{deal.name}</h3><DealStatusBadge closed={deal.closed} won={deal.won} /></div><div className="mt-2 flex flex-wrap gap-2 text-xs font-medium"><span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-800">{deal.pipeline}</span><span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">{deal.stage}</span></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600"><span className="inline-flex items-center gap-1.5"><BanknotesIcon className="h-4 w-4" />{deal.amount}</span><span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="h-4 w-4" />Cierre: {deal.closeDate || 'sin fecha'}</span><span>Propietario: {deal.owner}</span></div></div><a href={`https://app-eu1.hubspot.com/contacts/24927923/record/0-3/${deal.hubspotId}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:border-orange-300 hover:text-orange-800">Abrir en HubSpot <ArrowTopRightOnSquareIcon className="h-4 w-4" /></a></div></article>
+  return <article className="p-5 sm:px-6"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="break-words font-semibold text-gray-900">{deal.name}</h3><DealStatusBadge closed={deal.closed} won={deal.won} /></div><div className="mt-2 flex flex-wrap gap-2 text-xs font-medium"><span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-800">{deal.pipeline}</span><span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">{deal.stage}</span></div><div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600"><span className="inline-flex items-center gap-1.5"><BanknotesIcon className="h-4 w-4" />{deal.amount}</span><span className="inline-flex items-center gap-1.5"><CalendarDaysIcon className="h-4 w-4" />Cierre: {deal.closeDate || 'sin fecha'}</span><span>Propietario: {deal.owner}</span></div></div></article>
 }
 
 function DealStatusBadge({ closed, won }: { closed: boolean; won: boolean }) {

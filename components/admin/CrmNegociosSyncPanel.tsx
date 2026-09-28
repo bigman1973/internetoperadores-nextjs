@@ -54,20 +54,20 @@ export default function CrmNegociosSyncPanel() {
         <div className="flex max-w-3xl items-start gap-3">
           <div className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><BriefcaseIcon className="h-5 w-5" /></div>
           <div>
-            <h2 className="font-semibold text-gray-900">Pipelines y negocios de HubSpot</h2>
-            <p className="mt-1 text-sm leading-6 text-gray-600">Comprueba e importa las oportunidades, sus etapas y los contactos asociados. La operación es de solo lectura en HubSpot: no cambia negocios ni envía comunicaciones.</p>
+            <h2 className="font-semibold text-gray-900">Importación final de pipelines y negocios</h2>
+            <p className="mt-1 text-sm leading-6 text-gray-600">Comprueba y copia las oportunidades, sus etapas y los contactos asociados. La operación es de solo lectura en el sistema de origen: no cambia negocios ni envía comunicaciones.</p>
           </div>
         </div>
         {canWrite ? (
           <div className="flex flex-col gap-2 sm:flex-row">
             <button type="button" onClick={() => run('preview')} disabled={loading !== null} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-4 py-2 text-sm font-semibold text-orange-800 shadow-sm hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60">
               <ArrowPathIcon className={`h-5 w-5 ${loading === 'preview' ? 'animate-spin' : ''}`} />
-              {loading === 'preview' ? 'Comprobando…' : 'Comprobar negocios'}
+              {loading === 'preview' ? 'Comprobando…' : 'Comprobar origen'}
             </button>
             {preview && (
               <button type="button" onClick={() => run('sync')} disabled={loading !== null} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
                 <ArrowPathIcon className={`h-5 w-5 ${loading === 'sync' ? 'animate-spin' : ''}`} />
-                {loading === 'sync' ? 'Actualizando…' : 'Actualizar negocios'}
+                {loading === 'sync' ? 'Importando…' : 'Importar negocios'}
               </button>
             )}
           </div>
