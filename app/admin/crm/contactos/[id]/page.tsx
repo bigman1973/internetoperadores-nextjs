@@ -119,12 +119,15 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
 
   const definitions = propertyDefinitions.map((property) => ({
     name: property.nombre,
-    label: property.etiqueta,
+    label: friendlyPropertyLabel(property.nombre, property.etiqueta),
     groupName: property.grupoNombre,
     type: property.tipo,
     fieldType: property.tipoCampo,
     description: property.descripcion,
-    options: asPropertyOptions(property.opciones),
+    options: asPropertyOptions(property.opciones).map((option) => ({
+      ...option,
+      label: friendlyPropertyOptionLabel(property.nombre, option.value, option.label),
+    })),
     readOnly: property.soloLectura,
     hidden: property.oculta,
     calculated: property.calculada,
@@ -192,7 +195,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
           const definition = change.campo ? definitionsByName.get(change.campo) : undefined
           return {
             field: change.campo || 'dato',
-            label: change.campo === 'notas_internas' ? 'Notas internas' : definition?.etiqueta || humanize(change.campo || 'Dato'),
+            label: change.campo === 'notas_internas' ? 'Notas internas' : friendlyPropertyLabel(change.campo || 'dato', definition?.etiqueta),
             previous: formatPropertyValue(change.anterior, definition),
             next: formatPropertyValue(change.nuevo, definition),
           }
@@ -236,9 +239,9 @@ function formatPropertyValue(value: string | null | undefined, property?: Proper
   const text = String(value)
   const options = asPropertyOptions(property?.opciones)
   const parts = text.split(';').filter(Boolean)
-  if (parts.length > 1 || text.includes(';')) return parts.map((part) => options.find((option) => option.value === part)?.label || part).join(', ')
+  if (parts.length > 1 || text.includes(';')) return parts.map((part) => friendlyPropertyOptionLabel(property?.nombre, part, options.find((option) => option.value === part)?.label)).join(', ')
   const option = options.find((item) => item.value === text)
-  if (option?.label) return option.label
+  if (option?.label) return friendlyPropertyOptionLabel(property?.nombre, text, option.label)
   if (property?.tipo === 'bool') return text === 'true' ? 'Sí' : text === 'false' ? 'No' : text
   if (property?.tipo === 'date' || property?.tipo === 'datetime') {
     const numeric = /^\d+$/.test(text) ? Number(text) : NaN
@@ -268,4 +271,59 @@ function asHistory(value: unknown): Array<{ fecha?: string; autor?: string; camb
 
 function humanize(value: string) {
   return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+const FRIENDLY_PROPERTY_LABELS: Record<string, string> = {
+  firstname: 'Nombre',
+  lastname: 'Apellidos',
+  email: 'Correo electrónico',
+  phone: 'Teléfono',
+  mobilephone: 'Teléfono móvil',
+  company: 'Empresa',
+  jobtitle: 'Cargo',
+  website: 'Sitio web',
+  address: 'Dirección',
+  city: 'Localidad',
+  state: 'Provincia / Estado',
+  zip: 'Código postal',
+  country: 'País',
+  lifecyclestage: 'Ciclo de vida',
+  hs_lead_status: 'Estado del lead',
+  hubspot_owner_id: 'Propietario',
+  lfgd_business_unit: 'Unidad de negocio',
+  industry: 'Sector',
+  salutation: 'Tratamiento',
+  date_of_birth: 'Fecha de nacimiento',
+}
+
+function friendlyPropertyLabel(name: string, fallback?: string | null) {
+  return FRIENDLY_PROPERTY_LABELS[name] || fallback || humanize(name)
+}
+
+const FRIENDLY_PROPERTY_OPTIONS: Record<string, Record<string, string>> = {
+  lifecyclestage: {
+    subscriber: 'Suscriptor',
+    lead: 'Lead',
+    marketingqualifiedlead: 'Lead cualificado de marketing',
+    salesqualifiedlead: 'Lead cualificado de ventas',
+    opportunity: 'Oportunidad',
+    customer: 'Cliente',
+    evangelist: 'Prescriptor',
+    other: 'Otro',
+  },
+  hs_lead_status: {
+    NEW: 'Nuevo',
+    OPEN: 'En curso',
+    IN_PROGRESS: 'En progreso',
+    OPEN_DEAL: 'Negocio abierto',
+    UNQUALIFIED: 'No cualificado',
+    ATTEMPTED_TO_CONTACT: 'Intento de contacto',
+    CONNECTED: 'Contactado',
+    BAD_TIMING: 'No es el momento',
+  },
+}
+
+function friendlyPropertyOptionLabel(propertyName: string | undefined, value: string | undefined, fallback?: string) {
+  if (!value) return fallback || 'Sin informar'
+  return (propertyName && FRIENDLY_PROPERTY_OPTIONS[propertyName]?.[value]) || fallback || value
 }
