@@ -109,8 +109,21 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }
 
       const effective = { ...source, ...nextLocal }
-      const name = [effective.firstname, effective.lastname].filter(Boolean).join(' ').trim() || effective.email || null
-      const email = effective.email?.trim().toLowerCase() || null
+      const hasEffective = (field: string) => Object.prototype.hasOwnProperty.call(effective, field)
+      const hasNameSource = hasEffective('firstname') || hasEffective('lastname') || hasEffective('email')
+      const name = hasNameSource
+        ? [effective.firstname, effective.lastname].filter(Boolean).join(' ').trim() || effective.email || null
+        : current.nombre
+      const email = hasEffective('email') ? effective.email?.trim().toLowerCase() || null : current.email
+      const phone = hasEffective('phone') || hasEffective('mobilephone')
+        ? effective.phone || effective.mobilephone || null
+        : current.telefono
+      const company = hasEffective('company') || hasEffective('name')
+        ? effective.company || effective.name || null
+        : current.empresa
+      const businessUnits = hasEffective(CRM_BUSINESS_UNIT_PROPERTY)
+        ? parseCrmBusinessUnits(effective[CRM_BUSINESS_UNIT_PROPERTY])
+        : current.unidadesNegocio
       const now = new Date()
       const previousHistory = Array.isArray(current.historialCambios) ? current.historialCambios : []
       const history = [...previousHistory, { fecha: now.toISOString(), autor: author, cambios: changes }].slice(-100)
@@ -125,9 +138,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
           datosActualizadoPor: author,
           nombre: name,
           email,
-          telefono: effective.phone || effective.mobilephone || null,
-          empresa: effective.company || effective.name || null,
-          unidadesNegocio: parseCrmBusinessUnits(effective[CRM_BUSINESS_UNIT_PROPERTY]),
+          telefono: phone,
+          empresa: company,
+          unidadesNegocio: businessUnits,
           vinculoClienteOrigen: current.clienteWebId && (current.email || null) !== email ? 'CRM_MANUAL' : current.vinculoClienteOrigen,
           datosVersion: { increment: 1 },
         },
