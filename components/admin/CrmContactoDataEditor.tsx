@@ -27,6 +27,16 @@ export type CrmContactPropertyDefinition = {
   displayOrder: number | null
 }
 
+export type CrmContactSaveResult = {
+  success: boolean
+  unchanged?: boolean
+  localProperties?: Record<string, string | null>
+  businessUnits?: string[]
+  version?: number
+  updatedAt?: string | null
+  updatedBy?: string | null
+}
+
 export type CrmContactDataEditorProps = {
   id: string
   sourceProperties: Record<string, string | null>
@@ -40,11 +50,12 @@ export type CrmContactDataEditorProps = {
   syncError?: string | null
   initialVersion: number
   onDraftChange?: (hasDraft: boolean) => void
+  onRecordChanged?: (data: CrmContactSaveResult) => void
 }
 
 const PRIMARY_FIELDS = [
   'firstname', 'lastname', 'email', 'phone', 'mobilephone', 'company', CRM_BUSINESS_UNIT_PROPERTY, 'jobtitle', 'website',
-  'address', 'address2', 'city', 'state', 'zip', 'country', 'lifecyclestage', 'hs_lead_status',
+  'address', 'address2', 'city', 'state', 'zip', 'country', 'lifecyclestage', 'hs_lead_status', 'hubspot_owner_id',
 ]
 
 const PRIMARY_FIELD_SET = new Set(PRIMARY_FIELDS)
@@ -88,6 +99,7 @@ export default function CrmContactoDataEditor({
   syncError,
   initialVersion,
   onDraftChange,
+  onRecordChanged,
 }: CrmContactDataEditorProps) {
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -97,7 +109,8 @@ export default function CrmContactoDataEditor({
   const [notes, setNotes] = useState(initialNotes)
   const [savedNotes, setSavedNotes] = useState(initialNotes)
   const [version, setVersion] = useState(initialVersion)
-  const [dirtyFields, setDirtyFields] = useState<Set<string>>(new Set())
+  const [editingField, setEditingField] = useState<string | null>(null)
+  const [fieldHasDraft, setFieldHasDraft] = useState(false)
   const [visibleNames, setVisibleNames] = useState(() => new Set([
     ...PRIMARY_FIELDS,
     ...definitions.filter((property) => hasValue(values[property.name])).map((property) => property.name),
@@ -105,14 +118,12 @@ export default function CrmContactoDataEditor({
   ]))
   const [propertySearch, setPropertySearch] = useState('')
   const [selectedProperty, setSelectedProperty] = useState('')
-  const [editingSection, setEditingSection] = useState<string | null>(null)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set(['essential']))
   const [showEmpty, setShowEmpty] = useState(false)
   const [showTechnical, setShowTechnical] = useState(false)
-  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const hasDraft = dirtyFields.size > 0 || notes !== savedNotes
+  const hasDraft = fieldHasDraft || (editingField === 'notes' && notes !== savedNotes)
 
   useEffect(() => {
     onDraftChange?.(hasDraft)
@@ -129,7 +140,7 @@ export default function CrmContactoDataEditor({
       const target = event.target
       const link = target instanceof Element ? target.closest('a') : null
       if (!link || link.target === '_blank' || link.hasAttribute('download')) return
-      if (!window.confirm('Hay cambios sin guardar en la ficha. ¿Quieres salir y descartarlos?')) {
+      if (!window.confirm('Hay un cambio sin guardar. ¿Quieres salir y descartarlo?')) {
         event.preventDefault()
         event.stopImmediatePropagation()
       }
@@ -173,263 +184,342 @@ export default function CrmContactoDataEditor({
     if (!selectedProperty) return
     const definition = definitions.find((property) => property.name === selectedProperty)
     setVisibleNames((current) => new Set([...current, selectedProperty]))
-    setEditingSection(definition && PRIMARY_FIELD_SET.has(definition.name) ? 'essential' : definition?.groupName || 'otros')
+    const sectionName = definition && PRIMARY_FIELD_SET.has(definition.name) ? 'essential' : definition?.groupName || 'otros'
+    setExpandedSections((current) => new Set([...current, sectionName]))
+    setEditingField(selectedProperty)
     setSelectedProperty('')
     setPropertySearch('')
   }
 
-  const restore = (name: string) => {
-    setValues((current) => ({ ...current, [name]: source[name] ?? null }))
-    setLocals((current) => {
-      const next = { ...current }
-      delete next[name]
-      return next
-    })
-    setDirtyFields((current) => new Set([...current, name]))
+  const handleSaved = (data: CrmContactSaveResult) => {
+    const nextLocals = normalizeRecord(data.localProperties)
+    setLocals(nextLocals)
+    setValues({ ...source, ...nextLocals })
+    setVersion(Number(data.version ?? version))
+    setEditingField(null)
+    setFieldHasDraft(false)
+    setMessage({ type: 'success', text: data.unchanged ? 'El dato ya estaba actualizado.' : 'Dato guardado.' })
+    onRecordChanged?.(data)
   }
 
-  const cancelSection = (sectionName: string, properties: CrmContactPropertyDefinition[]) => {
-    const names = new Set(properties.map((property) => property.name))
-    setValues((current) => {
-      const next = { ...current }
-      for (const name of names) next[name] = Object.prototype.hasOwnProperty.call(locals, name) ? locals[name] : source[name] ?? null
-      return next
-    })
-    setDirtyFields((current) => new Set([...current].filter((name) => !names.has(name))))
-    if (sectionName === 'notes') setNotes(savedNotes)
-    setEditingSection(null)
-    setMessage(null)
-  }
+  const handleSaveError = (text: string) => setMessage({ type: 'error', text })
 
-  const save = async () => {
-    setSaving(true)
+  const saveNotes = async () => {
     setMessage(null)
     try {
-      const editableValues = Object.fromEntries([...dirtyFields].map((name) => [name, values[name] ?? null]))
       const response = await fetch(`/api/admin/crm/contactos/${id}/datos`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values: editableValues, notasInternas: notes, version, sourceSyncedAt }),
+        body: JSON.stringify({ values: {}, notasInternas: notes, version, sourceSyncedAt }),
       })
       const data = await response.json()
-      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo guardar la información.')
-      const nextLocals = normalizeRecord(data.localProperties)
-      setLocals(nextLocals)
-      setValues({ ...source, ...nextLocals })
-      setVersion(Number(data.version ?? version))
+      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudieron guardar las notas.')
       setSavedNotes(notes)
-      setDirtyFields(new Set())
-      setEditingSection(null)
-      setMessage({ type: 'success', text: data.unchanged ? 'No había cambios pendientes.' : 'Cambios guardados. El valor importado originalmente permanece disponible.' })
-      return true
+      setVersion(Number(data.version ?? version))
+      setEditingField(null)
+      setMessage({ type: 'success', text: data.unchanged ? 'La nota ya estaba actualizada.' : 'Nota guardada.' })
+      onRecordChanged?.(data)
     } catch (error) {
-      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo guardar la información.' })
-      return false
+      handleSaveError(error instanceof Error ? error.message : 'No se pudieron guardar las notas.')
+    }
+  }
+
+  const renderSection = (sectionName: string, title: string, description: string, properties: CrmContactPropertyDefinition[]) => {
+    const visibleProperties = properties.filter((property) => showEmpty || hasValue(values[property.name]) || Object.prototype.hasOwnProperty.call(locals, property.name))
+    const isOpen = expandedSections.has(sectionName) || properties.some((property) => property.name === editingField)
+    return (
+      <section key={sectionName} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+        <button
+          type="button"
+          aria-expanded={isOpen}
+          onClick={() => setExpandedSections((current) => {
+            const next = new Set(current)
+            if (next.has(sectionName)) next.delete(sectionName)
+            else next.add(sectionName)
+            return next
+          })}
+          className="group flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition hover:bg-slate-50/80"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <span className="h-2 w-2 rounded-full bg-orange-500" />
+              <h3 className="font-semibold text-slate-900">{title}</h3>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">{visibleProperties.length}</span>
+            </div>
+            <p className="mt-1 pl-4.5 text-xs leading-5 text-slate-500">{description}</p>
+          </div>
+          <ChevronDownIcon className={`h-5 w-5 shrink-0 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+
+        {isOpen && (
+          <div className="border-t border-slate-100 px-3 py-2 sm:px-5 sm:py-3">
+            {visibleProperties.length === 0 ? (
+              <div className="px-3 py-8 text-center text-sm text-slate-500">No hay datos informados en esta sección.</div>
+            ) : (
+              <div className="grid gap-x-6 lg:grid-cols-2">
+                {visibleProperties.map((property) => (
+                  <CrmInlineProperty
+                    key={property.name}
+                    id={id}
+                    property={property}
+                    value={values[property.name] ?? null}
+                    sourceValue={source[property.name] ?? null}
+                    overridden={Object.prototype.hasOwnProperty.call(locals, property.name)}
+                    canWrite={canWrite}
+                    version={version}
+                    sourceSyncedAt={sourceSyncedAt}
+                    editing={editingField === property.name}
+                    disabledByOtherEdit={editingField !== null && editingField !== property.name}
+                    onStartEdit={() => {
+                      if (hasDraft && editingField !== property.name && !window.confirm('Hay un cambio sin guardar. ¿Quieres descartarlo?')) return
+                      setEditingField(property.name)
+                      setFieldHasDraft(false)
+                      setMessage(null)
+                    }}
+                    onCancel={() => {
+                      setEditingField(null)
+                      setFieldHasDraft(false)
+                    }}
+                    onDraftChange={setFieldHasDraft}
+                    onSaved={handleSaved}
+                    onError={handleSaveError}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+    )
+  }
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+      <aside className="self-start xl:sticky xl:top-4">
+        <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-orange-600">Información avanzada</p>
+          <h2 className="mt-2 text-lg font-bold text-slate-900">Datos del contacto</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">Pasa el cursor por cualquier dato y pulsa el lápiz para editarlo sin abrir un formulario completo.</p>
+          <div className="mt-4 space-y-1">
+            <SectionLink label="Datos esenciales" active={expandedSections.has('essential')} onClick={() => setExpandedSections((current) => new Set([...current, 'essential']))} />
+            {groups.map(([groupName]) => <SectionLink key={groupName} label={groupLabel(groupName)} active={expandedSections.has(groupName)} onClick={() => setExpandedSections((current) => new Set([...current, groupName]))} />)}
+          </div>
+          <button type="button" onClick={() => setShowEmpty((current) => !current)} className="mt-4 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-800">
+            {showEmpty ? 'Ocultar campos vacíos' : 'Mostrar campos vacíos'}
+          </button>
+          <div className="mt-4 border-t border-slate-100 pt-4 text-xs leading-5 text-slate-500">
+            {fullPropertiesAt && <p>Datos importados: {new Date(fullPropertiesAt).toLocaleString('es-ES')}</p>}
+            {(updatedAt || updatedBy) && <p className="mt-1 text-blue-700">Última edición: {updatedAt ? new Date(updatedAt).toLocaleString('es-ES') : ''}{updatedBy ? ` · ${updatedBy}` : ''}</p>}
+          </div>
+        </div>
+      </aside>
+
+      <div className="min-w-0 space-y-4">
+        {syncError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">No se pudo completar la última importación de origen: {syncError}. Los datos ya disponibles y las modificaciones locales se mantienen.</div>}
+        {message && <div role={message.type === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl border px-4 py-3 text-sm ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>{message.text}</div>}
+
+        {definitions.length === 0 ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Todavía no se ha importado el catálogo completo de campos. Completa la migración temporal desde el directorio de Contactos.</div>
+        ) : (
+          <>
+            {renderSection('essential', 'Datos esenciales', 'Identificación, contacto, empresa, ubicación y estado comercial.', primaryProperties)}
+            {groups.map(([groupName, properties]) => renderSection(groupName, groupLabel(groupName), groupDescription(groupName), properties))}
+
+            <section id="crm-contact-notes-card" className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-slate-900">Notas internas</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">Contexto comercial, acuerdos y próximos pasos del equipo.</p>
+                </div>
+                {canWrite && editingField !== 'notes' && <button type="button" onClick={() => setEditingField('notes')} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-orange-700 transition hover:bg-orange-50"><PencilSquareIcon className="h-4 w-4" />Editar</button>}
+              </div>
+              {editingField === 'notes' ? (
+                <div className="mt-4">
+                  <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={6} autoFocus placeholder="Contexto comercial, próximos pasos o información útil para el equipo…" className="block w-full rounded-xl border-slate-300 text-slate-900 focus:border-orange-500 focus:ring-orange-500" />
+                  <div className="mt-3 flex justify-end gap-2">
+                    <button type="button" onClick={() => { setNotes(savedNotes); setEditingField(null) }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"><XMarkIcon className="h-4 w-4" />Cancelar</button>
+                    <button type="button" onClick={saveNotes} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"><CheckIcon className="h-4 w-4" />Guardar</button>
+                  </div>
+                </div>
+              ) : <p className="mt-4 whitespace-pre-wrap rounded-xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">{savedNotes || 'No hay notas internas todavía.'}</p>}
+            </section>
+
+            {canWrite && editingField === null && (
+              <section className="rounded-2xl border border-dashed border-orange-200 bg-orange-50/40 p-5">
+                <h3 className="text-sm font-semibold text-slate-900">Añadir otro dato</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Busca cualquier campo disponible y se incorporará a su sección.</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+                  <label className="relative">
+                    <span className="sr-only">Buscar campo</span>
+                    <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-5 w-5 text-slate-400" />
+                    <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Buscar campo…" className="min-h-11 w-full rounded-xl border-slate-300 pl-10 text-slate-900 focus:border-orange-500 focus:ring-orange-500" />
+                  </label>
+                  <select aria-label="Campo a añadir" value={selectedProperty} onChange={(event) => setSelectedProperty(event.target.value)} className="min-h-11 min-w-0 rounded-xl border-slate-300 bg-white text-slate-900 focus:border-orange-500 focus:ring-orange-500">
+                    <option value="">Selecciona un campo</option>
+                    {available.map((property) => <option key={property.name} value={property.name}>{property.label}</option>)}
+                  </select>
+                  <button type="button" onClick={addProperty} disabled={!selectedProperty} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-50"><PlusIcon className="h-5 w-5" />Añadir</button>
+                </div>
+              </section>
+            )}
+
+            {readOnlyWithValue.length > 0 && (
+              <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50">
+                <button type="button" onClick={() => setShowTechnical((current) => !current)} className="flex min-h-14 w-full items-center justify-between gap-3 px-5 text-left text-sm font-semibold text-slate-700">
+                  <span>Datos calculados y técnicos ({readOnlyWithValue.length.toLocaleString('es-ES')})</span>
+                  <ChevronDownIcon className={`h-5 w-5 transition-transform ${showTechnical ? 'rotate-180' : ''}`} />
+                </button>
+                {showTechnical && <div className="grid gap-x-6 border-t border-slate-200 bg-white px-5 py-3 lg:grid-cols-2">{readOnlyWithValue.map((property) => <ReadOnlyProperty key={property.name} property={property} value={values[property.name] ?? null} />)}</div>}
+              </section>
+            )}
+          </>
+        )}
+
+        {!canWrite && <p className="rounded-xl bg-slate-100 p-4 text-sm text-slate-500">Modo lectura: puedes consultar toda la información, pero no modificarla.</p>}
+      </div>
+    </div>
+  )
+}
+
+export function CrmInlineProperty({
+  id,
+  property,
+  value,
+  sourceValue,
+  overridden,
+  canWrite,
+  version,
+  sourceSyncedAt,
+  editing,
+  disabledByOtherEdit = false,
+  compact = false,
+  icon,
+  onStartEdit,
+  onCancel,
+  onDraftChange,
+  onSaved,
+  onError,
+}: {
+  id: string
+  property: CrmContactPropertyDefinition
+  value: string | null
+  sourceValue: string | null
+  overridden: boolean
+  canWrite: boolean
+  version: number
+  sourceSyncedAt: string | null
+  editing: boolean
+  disabledByOtherEdit?: boolean
+  compact?: boolean
+  icon?: React.ReactNode
+  onStartEdit: () => void
+  onCancel: () => void
+  onDraftChange?: (dirty: boolean) => void
+  onSaved: (data: CrmContactSaveResult) => void
+  onError: (message: string) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(value)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!editing) setDraft(value)
+  }, [editing, value])
+
+  const dirty = (draft || null) !== (value || null)
+  useEffect(() => onDraftChange?.(editing && dirty), [dirty, editing, onDraftChange])
+
+  useEffect(() => {
+    if (!editing || !dirty) return
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', beforeUnload)
+    return () => window.removeEventListener('beforeunload', beforeUnload)
+  }, [dirty, editing])
+
+  const save = async (nextValue = draft) => {
+    if (saving) return
+    setSaving(true)
+    try {
+      const response = await fetch(`/api/admin/crm/contactos/${id}/datos`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ values: { [property.name]: nextValue }, version, sourceSyncedAt }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo guardar el dato.')
+      onSaved(data)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'No se pudo guardar el dato.')
     } finally {
       setSaving(false)
     }
   }
 
-  const renderSection = (sectionName: string, title: string, description: string, properties: CrmContactPropertyDefinition[]) => {
-    const isEditing = editingSection === sectionName
-    const visibleProperties = properties.filter((property) => showEmpty || hasValue(values[property.name]) || Object.prototype.hasOwnProperty.call(locals, property.name))
+  if (editing) {
     return (
-      <details
-        key={sectionName}
-        className="group rounded-2xl border border-gray-200 bg-white shadow-sm"
-        open={isEditing || expandedSections.has(sectionName)}
-        onToggle={(event) => {
-          if (isEditing) return
-          const nextOpen = event.currentTarget.open
-          setExpandedSections((current) => {
-            if (current.has(sectionName) === nextOpen) return current
-            const next = new Set(current)
-            if (nextOpen) next.add(sectionName)
-            else next.delete(sectionName)
-            return next
-          })
-        }}
-      >
-        <summary className="flex min-h-16 cursor-pointer list-none items-center justify-between gap-4 px-4 py-4 sm:px-5">
-          <div className="min-w-0">
-            <h3 className="font-semibold text-gray-900">{title}</h3>
-            <p className="mt-0.5 text-xs leading-5 text-gray-500">{description}</p>
+      <div className={`${compact ? 'rounded-xl bg-orange-50/70 p-3' : 'col-span-full my-1 rounded-xl border border-orange-200 bg-orange-50/60 p-3.5'} min-w-0`}>
+        <div className="flex items-center gap-2 text-xs font-semibold text-orange-900">{icon}{property.label}</div>
+        <PropertyInput property={property} value={draft} disabled={saving} onChange={setDraft} onSubmit={save} />
+        {property.description && <p className="mt-1.5 text-xs leading-5 text-slate-500">{property.description}</p>}
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0 text-xs text-slate-500">
+            {overridden && <span>Original: {formatValue(sourceValue, property)}</span>}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-600">{visibleProperties.length}</span>
-            <ChevronDownIcon className="h-5 w-5 text-gray-400 transition-transform duration-200 group-open:rotate-180" />
+          <div className="flex gap-1.5">
+            {overridden && <button type="button" onClick={() => { setDraft(sourceValue); void save(sourceValue) }} disabled={saving} title="Restaurar valor original" aria-label={`Restaurar ${property.label} al valor original`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-700 hover:bg-blue-50"><ArrowUturnLeftIcon className="h-4 w-4" /></button>}
+            <button type="button" onClick={() => { setDraft(value); onCancel() }} disabled={saving} title="Cancelar" aria-label={`Cancelar edición de ${property.label}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"><XMarkIcon className="h-4 w-4" /></button>
+            <button type="button" onClick={() => void save()} disabled={saving || !dirty} title="Guardar" aria-label={`Guardar ${property.label}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50"><CheckIcon className="h-4 w-4" /></button>
           </div>
-        </summary>
-        <div className="border-t border-gray-100 p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-gray-500">{isEditing ? 'Modifica únicamente los datos necesarios y guarda esta sección.' : 'Vista de lectura. Los campos vacíos permanecen ocultos.'}</p>
-            {canWrite && !isEditing && editingSection === null && <button type="button" onClick={() => setEditingSection(sectionName)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 transition hover:border-orange-300 hover:text-orange-800 active:scale-[0.97]"><PencilSquareIcon className="h-4 w-4" />Editar sección</button>}
-          </div>
-
-          {visibleProperties.length === 0 && !isEditing ? (
-            <div className="rounded-xl bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">No hay datos informados en esta sección.</div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {(isEditing ? properties : visibleProperties).map((property) => isEditing ? (
-                <PropertyField
-                  key={property.name}
-                  property={property}
-                  value={values[property.name] ?? ''}
-                  sourceValue={source[property.name] ?? null}
-                  overridden={Object.prototype.hasOwnProperty.call(locals, property.name)}
-                  disabled={!canWrite}
-                  onChange={(value) => {
-                    setValues((current) => ({ ...current, [property.name]: value }))
-                    setDirtyFields((current) => new Set([...current, property.name]))
-                  }}
-                  onRestore={() => restore(property.name)}
-                />
-              ) : (
-                <PropertyValue
-                  key={property.name}
-                  property={property}
-                  value={values[property.name] ?? null}
-                  sourceValue={source[property.name] ?? null}
-                  overridden={Object.prototype.hasOwnProperty.call(locals, property.name)}
-                />
-              ))}
-            </div>
-          )}
-
-          {isEditing && (
-            <div className="mt-5 flex flex-col-reverse gap-2 border-t border-gray-100 pt-4 sm:flex-row sm:justify-end">
-              <button type="button" onClick={() => cancelSection(sectionName, properties)} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"><XMarkIcon className="h-5 w-5" />Cancelar</button>
-              <button type="button" onClick={save} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"><CheckIcon className="h-5 w-5" />{saving ? 'Guardando…' : 'Guardar sección'}</button>
-            </div>
-          )}
         </div>
-      </details>
+      </div>
     )
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-gray-900">Datos del contacto</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-500">Consulta primero y edita solo la sección que necesites. Los campos vacíos y técnicos no ocupan espacio salvo que decidas mostrarlos.</p>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs font-medium text-gray-600">
-              {fullPropertiesAt && <span className="rounded-full bg-gray-100 px-2.5 py-1">Datos de origen importados: {new Date(fullPropertiesAt).toLocaleString('es-ES')}</span>}
-              {(updatedAt || updatedBy) && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">Edición local: {updatedAt ? new Date(updatedAt).toLocaleString('es-ES') : ''}{updatedBy ? ` · ${updatedBy}` : ''}</span>}
-              {Object.keys(locals).length > 0 && <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">{Object.keys(locals).length} {Object.keys(locals).length === 1 ? 'dato modificado' : 'datos modificados'}</span>}
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
-            <button type="button" onClick={() => setShowEmpty((current) => !current)} className="inline-flex min-h-11 items-center justify-center rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50">{showEmpty ? 'Ocultar campos vacíos' : 'Mostrar campos vacíos'}</button>
-          </div>
-        </div>
-      </section>
-
-      {syncError && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">No se pudo completar la última importación de origen: {syncError}. Los datos ya disponibles y las modificaciones locales se mantienen.</div>}
-      {message && <div role={message.type === 'error' ? 'alert' : 'status'} aria-live="polite" className={`rounded-xl border p-4 text-sm leading-6 ${message.type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}>{message.text}</div>}
-
-      {definitions.length === 0 ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">Todavía no se ha importado el catálogo completo de campos. Completa la migración temporal desde el directorio de Contactos.</div>
-      ) : (
-        <>
-          {renderSection('essential', 'Datos esenciales', 'Identificación, contacto, empresa, ubicación y estado comercial.', primaryProperties)}
-          {groups.map(([groupName, properties]) => renderSection(groupName, groupLabel(groupName), groupDescription(groupName), properties))}
-
-          <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h3 className="font-semibold text-gray-900">Notas internas</h3>
-                <p className="mt-1 text-xs leading-5 text-gray-500">Contexto comercial y próximos pasos visibles únicamente dentro del panel.</p>
-              </div>
-              {canWrite && editingSection === null && <button type="button" onClick={() => setEditingSection('notes')} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 text-sm font-semibold text-gray-700 hover:border-orange-300 hover:text-orange-800"><PencilSquareIcon className="h-4 w-4" />Editar notas</button>}
-            </div>
-            {editingSection === 'notes' ? (
-              <div className="mt-4">
-                <label htmlFor="crm-contact-notes" className="sr-only">Notas internas</label>
-                <textarea id="crm-contact-notes" value={notes} onChange={(event) => setNotes(event.target.value)} rows={6} placeholder="Contexto comercial, próximos pasos, preferencias o cualquier información útil para el equipo…" className="block w-full rounded-xl border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500" />
-                {notes !== savedNotes && <span className="mt-2 block text-xs font-semibold text-blue-700">Cambio pendiente de guardar</span>}
-                <div className="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                  <button type="button" onClick={() => cancelSection('notes', [])} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 text-sm font-semibold text-gray-700"><XMarkIcon className="h-5 w-5" />Cancelar</button>
-                  <button type="button" onClick={save} disabled={saving} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-5 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"><CheckIcon className="h-5 w-5" />{saving ? 'Guardando…' : 'Guardar notas'}</button>
-                </div>
-              </div>
-            ) : <p className="mt-4 whitespace-pre-wrap rounded-xl bg-gray-50 p-4 text-sm leading-6 text-gray-700">{savedNotes || 'No hay notas internas todavía.'}</p>}
-          </section>
-
-          {canWrite && editingSection === null && (
-            <section className="rounded-2xl border border-dashed border-orange-300 bg-orange-50/40 p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-gray-900">Añadir otro dato a la ficha</h3>
-              <p className="mt-1 text-xs leading-5 text-gray-500">Busca cualquiera de los campos disponibles en el catálogo importado. Se añadirá a su sección correspondiente.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-                <label className="relative">
-                  <span className="sr-only">Buscar campo</span>
-                  <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                  <input value={propertySearch} onChange={(event) => setPropertySearch(event.target.value)} placeholder="Buscar campo…" className="min-h-11 w-full rounded-lg border-gray-300 pl-10 text-gray-900 focus:border-orange-500 focus:ring-orange-500" />
-                </label>
-                <select aria-label="Campo a añadir" value={selectedProperty} onChange={(event) => setSelectedProperty(event.target.value)} className="min-h-11 min-w-0 rounded-lg border-gray-300 bg-white text-gray-900 focus:border-orange-500 focus:ring-orange-500">
-                  <option value="">Selecciona un campo</option>
-                  {available.map((property) => <option key={property.name} value={property.name}>{property.label}</option>)}
-                </select>
-                <button type="button" onClick={addProperty} disabled={!selectedProperty} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-semibold text-orange-800 hover:bg-orange-100 disabled:opacity-50"><PlusIcon className="h-5 w-5" />Añadir</button>
-              </div>
-            </section>
-          )}
-
-          {readOnlyWithValue.length > 0 && (
-            <section className="rounded-2xl border border-gray-200 bg-gray-50">
-              <button type="button" onClick={() => setShowTechnical((current) => !current)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 text-left text-sm font-semibold text-gray-700 sm:px-5">
-                <span>Datos calculados y técnicos de origen ({readOnlyWithValue.length.toLocaleString('es-ES')})</span>
-                <ChevronDownIcon className={`h-5 w-5 transition-transform ${showTechnical ? 'rotate-180' : ''}`} />
-              </button>
-              {showTechnical && <div className="grid gap-3 border-t border-gray-200 p-4 md:grid-cols-2 xl:grid-cols-3 sm:p-5">{readOnlyWithValue.map((property) => <PropertyValue key={property.name} property={property} value={values[property.name] ?? null} sourceValue={source[property.name] ?? null} overridden={false} />)}</div>}
-            </section>
-          )}
-        </>
-      )}
-
-      {!canWrite && <p className="rounded-xl bg-gray-50 p-4 text-sm text-gray-500">Modo lectura: puedes consultar toda la información, pero no modificarla.</p>}
-    </div>
+    <button
+      type="button"
+      disabled={!canWrite || disabledByOtherEdit}
+      onClick={onStartEdit}
+      aria-label={canWrite ? `Editar ${property.label}` : undefined}
+      className={`${compact ? 'rounded-xl px-3 py-2.5' : 'border-b border-slate-100 px-3 py-3.5'} group relative min-w-0 text-left transition hover:bg-orange-50/50 disabled:cursor-default disabled:hover:bg-transparent`}
+    >
+      <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">{icon}{property.label}{overridden && <span className="h-1.5 w-1.5 rounded-full bg-blue-500" title="Modificado en el panel" />}</span>
+      <span className={`mt-1 block break-words text-sm font-semibold leading-5 ${hasValue(value) ? 'text-slate-900' : 'text-slate-400'}`}>{formatValue(value, property)}</span>
+      {canWrite && !disabledByOtherEdit && <span className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-orange-700 opacity-100 shadow-sm ring-1 ring-slate-200 transition group-hover:ring-orange-200 sm:opacity-0 sm:group-hover:opacity-100"><PencilSquareIcon className="h-4 w-4" /></span>}
+    </button>
   )
 }
 
-function PropertyValue({ property, value, sourceValue, overridden }: { property: CrmContactPropertyDefinition; value: string | null; sourceValue: string | null; overridden: boolean }) {
-  return (
-    <div className={`min-w-0 rounded-xl border p-3.5 ${overridden ? 'border-blue-200 bg-blue-50/50' : 'border-gray-100 bg-gray-50/80'}`}>
-      <p className="text-xs font-medium leading-5 text-gray-500">{property.label}</p>
-      <p className="mt-1 break-words text-sm font-semibold leading-6 text-gray-900">{formatValue(value, property)}</p>
-      {overridden && (
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer font-semibold text-blue-700">Modificado en el panel</summary>
-          <div className="mt-2 rounded-lg border border-blue-100 bg-white p-2.5 leading-5 text-gray-600">
-            <span className="font-medium text-gray-700">Valor importado originalmente:</span> {formatValue(sourceValue, property)}
-          </div>
-        </details>
-      )}
-    </div>
-  )
+function PropertyInput({ property, value, disabled, onChange, onSubmit }: { property: CrmContactPropertyDefinition; value: string | null; disabled: boolean; onChange: (value: string | null) => void; onSubmit: (value?: string | null) => void }) {
+  const options = property.options.filter((option) => !option.hidden && option.value != null).sort(optionSort)
+  const common = 'mt-2 block min-h-11 w-full rounded-xl border-slate-300 bg-white text-sm text-slate-900 shadow-sm focus:border-orange-500 focus:ring-orange-500 disabled:bg-slate-100'
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && (property.fieldType !== 'textarea' || event.ctrlKey || event.metaKey)) {
+      event.preventDefault()
+      onSubmit()
+    }
+  }
+
+  if (property.fieldType === 'textarea') return <textarea autoFocus value={value || ''} onChange={(event) => onChange(event.target.value)} onKeyDown={handleKeyDown} disabled={disabled} rows={4} className={common} />
+  if (property.fieldType === 'checkbox' && options.length > 0) {
+    const selected = new Set((value || '').split(';').filter(Boolean))
+    return <div className="mt-2 grid gap-2 sm:grid-cols-2">{options.map((option) => {
+      const optionValue = String(option.value)
+      return <label key={optionValue} className="flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 hover:border-orange-200"><input type="checkbox" checked={selected.has(optionValue)} disabled={disabled} onChange={(event) => { const next = new Set(selected); if (event.target.checked) next.add(optionValue); else next.delete(optionValue); onChange([...next].join(';') || null) }} className="rounded border-slate-300 text-orange-600 focus:ring-orange-500" />{option.label || optionValue}</label>
+    })}</div>
+  }
+  if (options.length > 0) return <select autoFocus value={value || ''} onChange={(event) => onChange(event.target.value || null)} disabled={disabled} className={common}><option value="">Sin informar</option>{options.map((option) => <option key={option.value} value={option.value}>{option.label || option.value}</option>)}</select>
+  return <input autoFocus type={property.type === 'number' ? 'number' : property.type === 'datetime' ? 'datetime-local' : property.type === 'date' ? 'date' : property.fieldType === 'phonenumber' ? 'tel' : property.name === 'email' ? 'email' : 'text'} value={formatInputValue(value, property)} onChange={(event) => onChange(parseInputValue(event.target.value, property))} onKeyDown={handleKeyDown} disabled={disabled} className={common} />
 }
 
-function PropertyField({ property, value, sourceValue, overridden, disabled, onChange, onRestore }: { property: CrmContactPropertyDefinition; value: string | null; sourceValue: string | null; overridden: boolean; disabled: boolean; onChange: (value: string | null) => void; onRestore: () => void }) {
-  const options = property.options.filter((option) => !option.hidden && option.value != null)
-  const common = 'mt-1 block min-h-11 w-full rounded-lg border-gray-300 bg-white text-gray-900 focus:border-orange-500 focus:ring-orange-500 disabled:bg-gray-100'
-  const inputId = `crm-property-${property.name}`
-  return (
-    <div className={`min-w-0 rounded-xl border p-3.5 text-sm font-medium text-gray-700 ${overridden ? 'border-blue-200 bg-blue-50/40' : 'border-gray-200 bg-white'}`}>
-      <label htmlFor={inputId}>{property.label}</label>
-      {property.fieldType === 'textarea' ? (
-        <textarea id={inputId} value={value || ''} onChange={(event) => onChange(event.target.value)} disabled={disabled} rows={3} className={common} />
-      ) : property.fieldType === 'checkbox' && options.length > 0 ? (
-        <select id={inputId} multiple value={(value || '').split(';').filter(Boolean)} onChange={(event) => onChange([...event.target.selectedOptions].map((option) => option.value).join(';') || null)} disabled={disabled} className={`${common} min-h-28`}>{options.sort(optionSort).map((option) => <option key={option.value} value={option.value}>{option.label || option.value}</option>)}</select>
-      ) : options.length > 0 ? (
-        <select id={inputId} value={value || ''} onChange={(event) => onChange(event.target.value || null)} disabled={disabled} className={common}><option value="">Sin informar</option>{options.sort(optionSort).map((option) => <option key={option.value} value={option.value}>{option.label || option.value}</option>)}</select>
-      ) : (
-        <input id={inputId} type={property.type === 'number' ? 'number' : property.type === 'datetime' ? 'datetime-local' : property.type === 'date' ? 'date' : property.fieldType === 'phonenumber' ? 'tel' : property.name === 'email' ? 'email' : 'text'} value={formatInputValue(value, property)} onChange={(event) => onChange(parseInputValue(event.target.value, property))} disabled={disabled} className={common} />
-      )}
-      {property.description && <span className="mt-1 block text-xs font-normal leading-5 text-gray-500">{property.description}</span>}
-      {overridden && <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-blue-700">Modificado en el panel</span><button type="button" onClick={onRestore} disabled={disabled} className="inline-flex min-h-8 items-center gap-1 rounded-md border border-blue-200 bg-white px-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:hidden"><ArrowUturnLeftIcon className="h-3.5 w-3.5" />Restaurar valor importado</button><span className="w-full font-normal text-gray-500">Original: {formatValue(sourceValue, property)}</span></div>}
-    </div>
-  )
+function ReadOnlyProperty({ property, value }: { property: CrmContactPropertyDefinition; value: string | null }) {
+  return <div className="border-b border-slate-100 px-3 py-3"><p className="text-xs font-medium text-slate-500">{property.label}</p><p className="mt-1 break-words text-sm font-semibold text-slate-800">{formatValue(value, property)}</p></div>
+}
+
+function SectionLink({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${active ? 'bg-orange-50 font-semibold text-orange-800' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}`}>{label}</button>
 }
 
 function sortProperties(a: CrmContactPropertyDefinition, b: CrmContactPropertyDefinition) {
@@ -458,6 +548,10 @@ function humanize(value: string) {
 
 function hasValue(value: string | null | undefined) {
   return value != null && String(value).trim() !== ''
+}
+
+export function formatCrmPropertyValue(value: string | null | undefined, property: CrmContactPropertyDefinition) {
+  return formatValue(value, property)
 }
 
 function formatValue(value: string | null | undefined, property: CrmContactPropertyDefinition) {

@@ -152,6 +152,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         lifecycle,
         leadStatus,
         owner,
+        createdAt: formatDateTime(contact.hubspotCreadoAt),
         sourceUpdatedAt: formatDateTime(contact.hubspotActualizadoAt || contact.sincronizadoAt),
         fullPropertiesAt: formatDateTime(contact.propiedadesCompletasAt),
         localUpdatedAt: formatDateTime(contact.datosActualizadoAt),
@@ -188,7 +189,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         joinedAt: membership.incorporadoAt?.toLocaleDateString('es-ES') || null,
       }))}
       qualityIssues={qualityIssues}
-      history={asHistory(contact.historialCambios).reverse().slice(0, 50).map((entry) => ({
+      history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
         author: entry.autor || 'Administrador',
         changes: (entry.cambios || []).map((change) => {
