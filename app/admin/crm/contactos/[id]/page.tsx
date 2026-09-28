@@ -1,24 +1,8 @@
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowTopRightOnSquareIcon,
-  BanknotesIcon,
-  BriefcaseIcon,
-  BuildingOffice2Icon,
-  CalendarDaysIcon,
-  CheckBadgeIcon,
-  CircleStackIcon,
-  EnvelopeIcon,
-  PhoneIcon,
-  UserIcon,
-} from '@heroicons/react/24/outline'
 import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
-import CrmContactoSettings from '@/components/admin/CrmContactoSettings'
-import CrmContactoDataEditor from '@/components/admin/CrmContactoDataEditor'
+import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 
 export const dynamic = 'force-dynamic'
@@ -37,6 +21,20 @@ const PURPOSE_LABELS: Record<string, string> = {
   PARTNERS: 'Partners',
   SUPRESION: 'Exclusión / bajas',
   OPERATIVA: 'Operativa interna',
+}
+
+type PropertyDefinition = {
+  nombre: string
+  etiqueta: string
+  grupoNombre: string | null
+  tipo: string | null
+  tipoCampo: string | null
+  descripcion: string | null
+  opciones: unknown
+  soloLectura: boolean
+  oculta: boolean
+  calculada: boolean
+  ordenVisual: number | null
 }
 
 export default async function CrmContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -74,8 +72,12 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
     orderBy: [{ grupoNombre: 'asc' }, { ordenVisual: 'asc' }, { etiqueta: 'asc' }],
   })
   const visiblePropertyNames = new Set(propertyDefinitions.map((property) => property.nombre))
+  const definitionsByName = new Map(propertyDefinitions.map((property) => [property.nombre, property]))
   const businessUnitDefinition = propertyDefinitions.find((property) => property.nombre === CRM_BUSINESS_UNIT_PROPERTY)
   const businessUnitOptions = getCrmBusinessUnitOptions(businessUnitDefinition?.opciones)
+  const sourceProperties = pickStringRecord(contact.propiedades, visiblePropertyNames)
+  const localProperties = pickStringRecord(contact.propiedadesLocales, visiblePropertyNames)
+  const effectiveProperties = { ...sourceProperties, ...localProperties }
 
   const matchingCustomers = contact.email
     ? await prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -88,150 +90,130 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
 
   const segment = contact.clienteWeb?.segmentoCrm || contact.segmentoCrm
   const isCustomer = Boolean(contact.clienteWebId)
+  const email = effectiveProperties.email || contact.email || ''
+  const phone = effectiveProperties.phone || effectiveProperties.mobilephone || contact.telefono || ''
+  const company = effectiveProperties.company || contact.empresa || contact.clienteWeb?.nombreComercial || ''
+  const jobTitle = effectiveProperties.jobtitle || ''
+  const website = effectiveProperties.website || ''
+  const city = effectiveProperties.city || ''
+  const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId}`
+  const units = contact.unidadesNegocio.map((unit) => crmBusinessUnitLabel(unit, businessUnitOptions))
+  const lifecycle = formatPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
+  const leadStatus = formatPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
+  const owner = effectiveProperties.hubspot_owner_id ? 'Asignado en HubSpot' : 'Sin asignar'
+
+  const qualityIssues: string[] = []
+  if (!email) qualityIssues.push('Falta el correo electrónico.')
+  if (!phone) qualityIssues.push('Falta un teléfono de contacto.')
+  if (!company) qualityIssues.push('No se ha informado la empresa.')
+  if (units.length === 0) qualityIssues.push('Falta asignar la unidad de negocio.')
+  if (!effectiveProperties.lifecyclestage) qualityIssues.push('Falta revisar el ciclo de vida comercial.')
+  if (ambiguousMatches > 1) qualityIssues.push(`El correo coincide con ${ambiguousMatches.toLocaleString('es-ES')} clientes y requiere revisión manual.`)
+  if (contact.propiedadesCompletasError) qualityIssues.push('HubSpot no permite recuperar ahora toda la información del contacto.')
+
+  const statusNotice = isCustomer
+    ? { tone: 'green' as const, title: 'Contacto convertido en cliente.', text: 'Su correo coincide con una persona o empresa que ya ha comprado. Conserva sus listas y su histórico de origen.' }
+    : ambiguousMatches > 1
+      ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. No se ha convertido automáticamente para evitar una asociación equivocada.` }
+      : { tone: 'blue' as const, title: 'Lead.', text: 'Todavía no existe una compra asociada a este correo. Pasará automáticamente a cliente cuando aparezca en la cartera del panel.' }
+
+  const definitions = propertyDefinitions.map((property) => ({
+    name: property.nombre,
+    label: property.etiqueta,
+    groupName: property.grupoNombre,
+    type: property.tipo,
+    fieldType: property.tipoCampo,
+    description: property.descripcion,
+    options: asPropertyOptions(property.opciones),
+    readOnly: property.soloLectura,
+    hidden: property.oculta,
+    calculated: property.calculada,
+    displayOrder: property.ordenVisual,
+  }))
 
   return (
-    <main className="space-y-6 px-1 py-1 sm:px-2">
-      <Link href="/admin/crm/contactos" className="inline-flex min-h-11 items-center gap-2 text-sm font-medium text-gray-500 hover:text-orange-700"><ArrowLeftIcon className="h-4 w-4" />Volver a contactos</Link>
-
-      <header className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
-              <UserIcon className="h-8 w-8 text-orange-600" />
-              <h1 className="break-words text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</h1>
-              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${isCustomer ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'}`}>{isCustomer ? 'Cliente' : 'Lead'}</span>
-              {segment && <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-700">{SEGMENT_LABELS[segment] || segment}</span>}
-            </div>
-            <p className="mt-2 text-sm text-gray-500">HubSpot #{contact.hubspotId} · {contact.listas.length.toLocaleString('es-ES')} {contact.listas.length === 1 ? 'lista' : 'listas'} · {contact.negocios.length.toLocaleString('es-ES')} {contact.negocios.length === 1 ? 'negocio' : 'negocios'}</p>
-          </div>
-          {contact.clienteWebId && <Link href={`/admin/clientes/${contact.clienteWebId}/editar`} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">Abrir ficha de cliente <ArrowRightIcon className="h-4 w-4" /></Link>}
-        </div>
-      </header>
-
-      {isCustomer ? (
-        <div className="flex gap-3 rounded-xl border border-green-200 bg-green-50 p-4 text-sm leading-6 text-green-900"><CheckBadgeIcon className="mt-0.5 h-5 w-5 shrink-0" /><p><strong>Contacto convertido en cliente.</strong> Su correo coincide con una persona o empresa que ya ha comprado. Conserva sus listas y su histórico de origen.</p></div>
-      ) : ambiguousMatches > 1 ? (
-        <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><UserIcon className="mt-0.5 h-5 w-5 shrink-0" /><p><strong>Lead pendiente de revisión.</strong> Este correo aparece en {ambiguousMatches.toLocaleString('es-ES')} clientes distintos. No se ha convertido automáticamente para evitar una asociación equivocada.</p></div>
-      ) : (
-        <div className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><UserIcon className="mt-0.5 h-5 w-5 shrink-0" /><p><strong>Lead.</strong> Todavía no existe una compra asociada a este correo. Pasará automáticamente a cliente cuando aparezca en la cartera del panel.</p></div>
-      )}
-
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Info icon={<EnvelopeIcon className="h-5 w-5" />} label="Correo" value={contact.email || 'No disponible'} breakValue />
-        <Info icon={<PhoneIcon className="h-5 w-5" />} label="Teléfono" value={contact.telefono || 'No disponible'} />
-        <Info icon={<BuildingOffice2Icon className="h-5 w-5" />} label="Empresa" value={contact.empresa || contact.clienteWeb?.nombreComercial || 'No informada'} />
-        <Info icon={<CalendarDaysIcon className="h-5 w-5" />} label={isCustomer ? 'Vínculo con cliente detectado' : 'Actualizado desde HubSpot'} value={(contact.convertidoAt || contact.sincronizadoAt)?.toLocaleString('es-ES') || 'Sin fecha'} />
-      </section>
-
-      <section className="rounded-xl border border-orange-200 bg-orange-50/50 p-5 sm:p-6">
-        <div className="flex items-start gap-3">
-          <BuildingOffice2Icon className="mt-0.5 h-6 w-6 shrink-0 text-orange-700" />
-          <div className="min-w-0">
-            <h2 className="font-semibold text-gray-900">Unidad de negocio LFGD</h2>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {contact.unidadesNegocio.length > 0
-                ? contact.unidadesNegocio.map((unit) => <span key={unit} className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-orange-800 shadow-sm ring-1 ring-orange-200">{crmBusinessUnitLabel(unit, businessUnitOptions)}</span>)
-                : <span className="rounded-full bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-800">Sin unidad asignada</span>}
-            </div>
-            <p className="mt-2 text-sm leading-6 text-gray-600">Un contacto puede interactuar con varias empresas del grupo. Esta clasificación organiza el directorio, pero no limita su consulta desde Internet Operadores.</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-xl border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 p-5 sm:p-6">
-          <div className="flex items-center gap-2"><BriefcaseIcon className="h-5 w-5 text-orange-600" /><h2 className="text-lg font-semibold text-gray-900">Negocios asociados</h2></div>
-          <p className="mt-1 text-sm leading-6 text-gray-500">Oportunidades reales de HubSpot vinculadas a este contacto, ordenadas con las abiertas en primer lugar.</p>
-        </div>
-        {contact.negocios.length === 0 ? (
-          <div className="p-8 text-sm text-gray-500">No hay ningún negocio asociado en la última sincronización.</div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {contact.negocios.map(({ negocio }) => (
-              <article key={negocio.hubspotId} className="p-5 sm:px-6">
-                <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="break-words font-semibold text-gray-900">{negocio.nombre}</h3>
-                      <DealStatusBadge closed={negocio.cerrado} won={negocio.ganado} />
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium">
-                      <span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-800">{negocio.pipeline.nombre}</span>
-                      <span className="rounded-full bg-gray-100 px-2.5 py-1 text-gray-700">{negocio.etapa.nombre}</span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
-                      <span className="inline-flex items-center gap-1.5"><BanknotesIcon className="h-4 w-4" />{formatDealAmount(negocio.importe, negocio.moneda)}</span>
-                      <span>Cierre: {negocio.fechaCierre?.toLocaleDateString('es-ES') || 'sin fecha'}</span>
-                      <span>Propietario: {negocio.propietarioNombre || 'sin asignar'}</span>
-                    </div>
-                  </div>
-                  <a href={`https://app-eu1.hubspot.com/contacts/24927923/record/0-3/${negocio.hubspotId}`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-700 hover:border-orange-300 hover:text-orange-800">
-                    Abrir en HubSpot <ArrowTopRightOnSquareIcon className="h-4 w-4" />
-                  </a>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {contact.clienteWeb && (
-        <section className="rounded-xl border border-green-200 bg-white p-5 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div><p className="text-xs font-semibold uppercase tracking-wide text-green-700">Cliente vinculado</p><h2 className="mt-1 text-xl font-bold text-gray-900">{contact.clienteWeb.nombre}</h2><p className="mt-1 text-sm text-gray-600">{contact.clienteWeb.activo ? 'Cliente activo' : 'Cliente histórico/inactivo'} · {SEGMENT_LABELS[contact.clienteWeb.segmentoCrm]}</p></div>
-            <Link href={`/admin/clientes/${contact.clienteWeb.id}/editar`} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-4 text-sm font-semibold text-orange-800 hover:bg-orange-100">Ver datos del cliente <ArrowRightIcon className="h-4 w-4" /></Link>
-          </div>
-        </section>
-      )}
-
-      <CrmContactoDataEditor
-        id={contact.id}
-        sourceProperties={pickStringRecord(contact.propiedades, visiblePropertyNames)}
-        localProperties={pickStringRecord(contact.propiedadesLocales, visiblePropertyNames)}
-        definitions={propertyDefinitions.map((property) => ({
-          name: property.nombre,
-          label: property.etiqueta,
-          groupName: property.grupoNombre,
-          type: property.tipo,
-          fieldType: property.tipoCampo,
-          description: property.descripcion,
-          options: Array.isArray(property.opciones) ? property.opciones as Array<{ label?: string; value?: string; hidden?: boolean; displayOrder?: number }> : [],
-          readOnly: property.soloLectura,
-          hidden: property.oculta,
-          calculated: property.calculada,
-          displayOrder: property.ordenVisual,
-        }))}
-        initialNotes={contact.notasInternas || ''}
-        updatedAt={contact.datosActualizadoAt?.toISOString() || null}
-        updatedBy={contact.datosActualizadoPor}
-        history={asHistory(contact.historialCambios)}
-        fullPropertiesAt={contact.propiedadesCompletasAt?.toISOString() || null}
-        syncError={contact.propiedadesCompletasError}
-        initialVersion={contact.datosVersion}
-      />
-
-      <CrmContactoSettings id={contact.id} initialSegment={contact.segmentoCrm} isCustomer={isCustomer} customerSegment={segment ? SEGMENT_LABELS[segment] || segment : null} />
-
-      <section className="rounded-xl border border-gray-200 bg-white">
-        <div className="border-b border-gray-200 p-5 sm:p-6"><div className="flex items-center gap-2"><CircleStackIcon className="h-5 w-5 text-orange-600" /><h2 className="text-lg font-semibold text-gray-900">Listas a las que pertenece</h2></div><p className="mt-1 text-sm text-gray-500">La conversión a cliente no elimina ni altera ninguna pertenencia.</p></div>
-        {contact.listas.length === 0 ? <div className="p-8 text-sm text-gray-500">No pertenece a ninguna lista activa en la última sincronización.</div> : <div className="divide-y divide-gray-100">{contact.listas.map((membership) => (
-          <article key={membership.id} className={`p-5 sm:px-6 ${membership.lista.proposito === 'SUPRESION' ? 'bg-amber-50/40' : ''}`}>
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{membership.lista.nombre}</p><div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500"><span>{membership.lista.processingType === 'DYNAMIC' ? 'Activa' : membership.lista.processingType === 'SNAPSHOT' ? 'Instantánea' : 'Estática'}</span><span>{PURPOSE_LABELS[membership.lista.proposito] || membership.lista.proposito}</span><span>Desde {membership.incorporadoAt?.toLocaleDateString('es-ES') || 'fecha no disponible'}</span></div></div><Link href={`/admin/crm/listas/${membership.lista.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver lista <ArrowRightIcon className="h-4 w-4" /></Link></div>
-          </article>
-        ))}</div>}
-      </section>
-    </main>
+    <CrmContactoWorkspace
+      contact={{
+        id: contact.id,
+        hubspotId: contact.hubspotId,
+        name: contactName,
+        email: email || 'Sin informar',
+        phone: phone || 'Sin informar',
+        company: company || 'Sin informar',
+        jobTitle: jobTitle || 'Sin informar',
+        website: website || 'Sin informar',
+        city: city || 'Sin informar',
+        isCustomer,
+        segmentLabel: segment ? SEGMENT_LABELS[segment] || segment : null,
+        units,
+        lifecycle,
+        leadStatus,
+        owner,
+        sourceUpdatedAt: formatDateTime(contact.hubspotActualizadoAt || contact.sincronizadoAt),
+        fullPropertiesAt: formatDateTime(contact.propiedadesCompletasAt),
+        localUpdatedAt: formatDateTime(contact.datosActualizadoAt),
+        localUpdatedBy: contact.datosActualizadoPor,
+        localChanges: Object.keys(localProperties).length,
+        notes: contact.notasInternas || '',
+      }}
+      statusNotice={statusNotice}
+      customer={contact.clienteWeb ? {
+        id: contact.clienteWeb.id,
+        name: contact.clienteWeb.nombre,
+        active: contact.clienteWeb.activo,
+        segment: SEGMENT_LABELS[contact.clienteWeb.segmentoCrm] || contact.clienteWeb.segmentoCrm,
+      } : null}
+      deals={contact.negocios.map(({ negocio }) => ({
+        id: negocio.hubspotId,
+        hubspotId: negocio.hubspotId,
+        name: negocio.nombre,
+        pipeline: negocio.pipeline.nombre,
+        stage: negocio.etapa.nombre,
+        amount: formatDealAmount(negocio.importe, negocio.moneda),
+        closeDate: negocio.fechaCierre?.toLocaleDateString('es-ES') || null,
+        owner: negocio.propietarioNombre || 'Sin asignar',
+        closed: negocio.cerrado,
+        won: negocio.ganado,
+      }))}
+      lists={contact.listas.map((membership) => ({
+        id: membership.id,
+        listId: membership.lista.id,
+        name: membership.lista.nombre,
+        kind: membership.lista.processingType === 'DYNAMIC' ? 'Activa' : membership.lista.processingType === 'SNAPSHOT' ? 'Instantánea' : 'Estática',
+        purpose: PURPOSE_LABELS[membership.lista.proposito] || membership.lista.proposito,
+        suppression: membership.lista.proposito === 'SUPRESION',
+        joinedAt: membership.incorporadoAt?.toLocaleDateString('es-ES') || null,
+      }))}
+      qualityIssues={qualityIssues}
+      history={asHistory(contact.historialCambios).reverse().slice(0, 50).map((entry) => ({
+        date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
+        author: entry.autor || 'Administrador',
+        changes: (entry.cambios || []).map((change) => {
+          const definition = change.campo ? definitionsByName.get(change.campo) : undefined
+          return {
+            field: change.campo || 'dato',
+            label: change.campo === 'notas_internas' ? 'Notas internas' : definition?.etiqueta || humanize(change.campo || 'Dato'),
+            previous: formatPropertyValue(change.anterior, definition),
+            next: formatPropertyValue(change.nuevo, definition),
+          }
+        }),
+      }))}
+      dataEditor={{
+        id: contact.id,
+        sourceProperties,
+        localProperties,
+        definitions,
+        initialNotes: contact.notasInternas || '',
+        updatedAt: contact.datosActualizadoAt?.toISOString() || null,
+        updatedBy: contact.datosActualizadoPor,
+        fullPropertiesAt: contact.propiedadesCompletasAt?.toISOString() || null,
+        sourceSyncedAt: contact.sincronizadoAt?.toISOString() || null,
+        syncError: contact.propiedadesCompletasError,
+        initialVersion: contact.datosVersion,
+      }}
+      settings={{ initialSegment: contact.segmentoCrm, customerSegment: segment ? SEGMENT_LABELS[segment] || segment : null }}
+    />
   )
-}
-
-function Info({ icon, label, value, breakValue = false }: { icon: React.ReactNode; label: string; value: string; breakValue?: boolean }) {
-  return <div className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex items-center gap-2 text-sm font-medium text-gray-500">{icon}{label}</div><p className={`mt-2 font-semibold text-gray-900 ${breakValue ? 'break-all' : 'break-words'}`}>{value}</p></div>
-}
-
-function DealStatusBadge({ closed, won }: { closed: boolean; won: boolean }) {
-  if (!closed) return <span className="rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-800">Abierto</span>
-  if (won) return <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800">Ganado</span>
-  return <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">Perdido / cerrado</span>
 }
 
 function formatDealAmount(value: unknown, currency: string | null) {
@@ -245,6 +227,32 @@ function formatDealAmount(value: unknown, currency: string | null) {
   }
 }
 
+function formatDateTime(value: Date | null | undefined) {
+  return value ? value.toLocaleString('es-ES') : null
+}
+
+function formatPropertyValue(value: string | null | undefined, property?: PropertyDefinition) {
+  if (value == null || value === '') return 'Sin informar'
+  const text = String(value)
+  const options = asPropertyOptions(property?.opciones)
+  const parts = text.split(';').filter(Boolean)
+  if (parts.length > 1 || text.includes(';')) return parts.map((part) => options.find((option) => option.value === part)?.label || part).join(', ')
+  const option = options.find((item) => item.value === text)
+  if (option?.label) return option.label
+  if (property?.tipo === 'bool') return text === 'true' ? 'Sí' : text === 'false' ? 'No' : text
+  if (property?.tipo === 'date' || property?.tipo === 'datetime') {
+    const numeric = /^\d+$/.test(text) ? Number(text) : NaN
+    const date = Number.isFinite(numeric) ? new Date(numeric) : new Date(text)
+    if (!Number.isNaN(date.getTime())) return property.tipo === 'date' ? date.toLocaleDateString('es-ES') : date.toLocaleString('es-ES')
+  }
+  return text
+}
+
+function asPropertyOptions(value: unknown): Array<{ label?: string; value?: string; hidden?: boolean; displayOrder?: number }> {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => item && typeof item === 'object' && !Array.isArray(item) ? [item as { label?: string; value?: string; hidden?: boolean; displayOrder?: number }] : [])
+}
+
 function asStringRecord(value: unknown): Record<string, string | null> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, field]) => [key, field == null ? null : String(field)]))
@@ -256,4 +264,8 @@ function pickStringRecord(value: unknown, allowed: Set<string>): Record<string, 
 
 function asHistory(value: unknown): Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> {
   return Array.isArray(value) ? value as Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> : []
+}
+
+function humanize(value: string) {
+  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }

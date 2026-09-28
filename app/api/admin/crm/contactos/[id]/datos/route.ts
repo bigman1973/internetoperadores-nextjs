@@ -53,6 +53,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!Number.isInteger(requestedVersion) || requestedVersion < 0) {
     return NextResponse.json({ error: 'La versión de la ficha no es válida. Recarga la página.' }, { status: 400 })
   }
+  const hasSourceVersion = Object.prototype.hasOwnProperty.call(body, 'sourceSyncedAt')
+  const requestedSourceSyncedAt = typeof body.sourceSyncedAt === 'string' && body.sourceSyncedAt
+    ? new Date(body.sourceSyncedAt)
+    : null
+  if (hasSourceVersion && requestedSourceSyncedAt && Number.isNaN(requestedSourceSyncedAt.getTime())) {
+    return NextResponse.json({ error: 'La versión de HubSpot no es válida. Recarga la página.' }, { status: 400 })
+  }
   const notes = typeof body.notasInternas === 'string' ? body.notasInternas.trim().slice(0, 20_000) || null : null
   const author = session.user.email || session.user.name || 'Administrador'
 
@@ -68,6 +75,9 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       ])
       if (!current) return { kind: 'missing' as const }
       if (current.datosVersion !== requestedVersion) return { kind: 'conflict' as const }
+      if (hasSourceVersion && (current.sincronizadoAt?.getTime() ?? null) !== (requestedSourceSyncedAt?.getTime() ?? null)) {
+        return { kind: 'source-conflict' as const }
+      }
 
       const allowed = new Set(definitions.map((definition) => definition.nombre))
       const source = asStringRecord(current.propiedades)
@@ -128,6 +138,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 
     if (result.kind === 'missing') return NextResponse.json({ error: 'Contacto no encontrado.' }, { status: 404 })
     if (result.kind === 'conflict') return NextResponse.json({ error: 'Otra persona o una sincronización ha actualizado esta ficha. Recárgala antes de guardar para no perder cambios.' }, { status: 409 })
+    if (result.kind === 'source-conflict') return NextResponse.json({ error: 'HubSpot ha actualizado este contacto mientras lo estabas editando. Recarga la ficha para revisar la información nueva antes de guardar.' }, { status: 409 })
     if (result.kind === 'invalid') return NextResponse.json({ error: `El valor de ${result.field} no es válido.` }, { status: 400 })
     if (result.kind === 'unchanged') return NextResponse.json({ success: true, unchanged: true, localProperties: result.localProperties, version: result.version })
 
