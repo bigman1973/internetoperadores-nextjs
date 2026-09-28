@@ -123,7 +123,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
     groupName: property.grupoNombre,
     type: property.tipo,
     fieldType: property.tipoCampo,
-    description: property.descripcion,
+    description: friendlyPropertyDescription(property.nombre, property.descripcion),
     options: asPropertyOptions(property.opciones).map((option) => ({
       ...option,
       label: friendlyPropertyOptionLabel(property.nombre, option.value, option.label),
@@ -298,6 +298,31 @@ const FRIENDLY_PROPERTY_LABELS: Record<string, string> = {
 
 function friendlyPropertyLabel(name: string, fallback?: string | null) {
   return FRIENDLY_PROPERTY_LABELS[name] || fallback || humanize(name)
+}
+
+const FRIENDLY_PROPERTY_DESCRIPTIONS: Record<string, string> = {
+  firstname: 'Nombre de la persona de contacto.',
+  lastname: 'Apellidos de la persona de contacto.',
+  email: 'Correo electrónico principal para contactar con esta persona.',
+  phone: 'Teléfono principal de contacto.',
+  mobilephone: 'Teléfono móvil de contacto.',
+  company: 'Empresa u organización con la que se relaciona este contacto.',
+  jobtitle: 'Cargo o función que desempeña en su organización.',
+  website: 'Sitio web de la empresa o del contacto.',
+  address: 'Dirección postal principal.',
+  city: 'Localidad de residencia o trabajo.',
+  state: 'Provincia, comunidad o estado.',
+  zip: 'Código postal de la dirección principal.',
+  country: 'País de residencia o actividad.',
+  lifecyclestage: 'Momento de la relación comercial: lead, oportunidad, cliente u otro estado.',
+  hs_lead_status: 'Situación actual del seguimiento comercial con este contacto.',
+  hubspot_owner_id: 'Persona del equipo responsable del seguimiento.',
+  lfgd_business_unit: 'Empresa o empresas del grupo con las que interactúa este contacto.',
+  industry: 'Sector de actividad de la empresa.',
+}
+
+function friendlyPropertyDescription(name: string, fallback?: string | null) {
+  return FRIENDLY_PROPERTY_DESCRIPTIONS[name] || fallback || null
 }
 
 const FRIENDLY_PROPERTY_OPTIONS: Record<string, Record<string, string>> = {
