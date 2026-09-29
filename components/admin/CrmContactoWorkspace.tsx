@@ -10,6 +10,7 @@ import {
   BriefcaseIcon,
   BuildingOffice2Icon,
   CalendarDaysIcon,
+  ChatBubbleLeftRightIcon,
   CheckBadgeIcon,
   CheckCircleIcon,
   ChevronDownIcon,
@@ -18,9 +19,11 @@ import {
   DocumentTextIcon,
   EnvelopeIcon,
   ExclamationTriangleIcon,
+  MapPinIcon,
   PhoneIcon,
   PhoneArrowDownLeftIcon,
   PhoneArrowUpRightIcon,
+  PlusIcon,
   UserCircleIcon,
 } from '@heroicons/react/24/outline'
 import CrmContactoDataEditor, {
@@ -30,6 +33,7 @@ import CrmContactoDataEditor, {
   type CrmContactSaveResult,
 } from './CrmContactoDataEditor'
 import CrmContactoSettings from './CrmContactoSettings'
+import CrmActivityComposer, { type CrmActivityType } from './CrmActivityComposer'
 import CrmCallComposer from './CrmCallComposer'
 import { useRole } from './RoleContext'
 
@@ -74,6 +78,7 @@ type ContactActivity = {
   durationMinutes: number | null
   author: string
   origin: string
+  metadata: Record<string, unknown>
   deals: Array<{ id: string; name: string }>
   followUp: { id: string; title: string; dueAt: string; state: string } | null
 }
@@ -108,6 +113,7 @@ type Props = {
   deals: Deal[]
   lists: ListMembership[]
   activities?: ContactActivity[]
+  emailSender: string
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -126,7 +132,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -138,6 +144,9 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   const [quickValues, setQuickValues] = useState<Record<string, string | null>>({ ...dataEditor.sourceProperties, ...dataEditor.localProperties })
   const [quickMessage, setQuickMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [callComposerOpen, setCallComposerOpen] = useState(false)
+  const [activityMenuOpen, setActivityMenuOpen] = useState(false)
+  const [activitySectionMenuOpen, setActivitySectionMenuOpen] = useState(false)
+  const [activityComposerType, setActivityComposerType] = useState<CrmActivityType | null>(null)
   const [taskUpdating, setTaskUpdating] = useState<string | null>(null)
   const [openRightCards, setOpenRightCards] = useState(() => new Set(['customer', 'deals', 'lists']))
   const openDeals = deals.filter((deal) => !deal.closed)
@@ -194,6 +203,20 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     if (targetId) window.setTimeout(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
   }
 
+  const openActivityComposer = (type: 'LLAMADA' | CrmActivityType) => {
+    setActivityMenuOpen(false)
+    setActivitySectionMenuOpen(false)
+    if (type === 'LLAMADA') setCallComposerOpen(true)
+    else setActivityComposerType(type)
+  }
+
+  const handleActivityCreated = (type: string) => {
+    const label = activityTypeLabel(type)
+    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : `${label} registrada en el CRM.` })
+    setActiveTab('activity')
+    router.refresh()
+  }
+
   const updateTask = async (taskId: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => {
     setTaskUpdating(taskId)
     setQuickMessage(null)
@@ -239,8 +262,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {canWrite && <button type="button" onClick={() => setCallComposerOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 active:scale-[0.97]"><PhoneIcon className="h-4 w-4" />Registrar llamada</button>}
-            <button type="button" onClick={() => openAdvanced('crm-contact-notes-card')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200 hover:text-orange-700 active:scale-[0.97]"><DocumentTextIcon className="h-4 w-4" />Añadir nota</button>
+            {canWrite && <ActivityMenu open={activityMenuOpen} setOpen={setActivityMenuOpen} onSelect={openActivityComposer} />}
             {customer && <Link href={`/admin/clientes/${customer.id}/editar`} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.97]">Abrir cliente <ArrowRightIcon className="h-4 w-4" /></Link>}
           </div>
         </div>
@@ -290,7 +312,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
                 </div>
                 <div className="mt-5">
                   {activities.length > 0
-                    ? activities.slice(0, 3).map((activity, index) => <ActivityItem key={activity.id} title={activity.title} date={activity.date} text={`${callMeta(activity)} · ${activity.description}`} first={index === 0} last={index === Math.min(activities.length, 3) - 1} />)
+                    ? activities.slice(0, 3).map((activity, index) => <ActivityItem key={activity.id} title={activity.title} date={activity.date} text={`${activityMeta(activity)} · ${activity.description}`} first={index === 0} last={index === Math.min(activities.length, 3) - 1} />)
                     : history.length === 0
                       ? <ActivityItem title="Contacto creado" date={contact.createdAt || 'Fecha no disponible'} text="El contacto se incorporó al directorio corporativo." first last />
                       : history.slice(0, 3).map((entry, index) => <ActivityItem key={`${entry.date}-${index}`} title={entry.author} date={entry.date || 'Fecha no disponible'} text={entry.changes.map((change) => `${change.label}: ${change.next}`).join(' · ')} first={index === 0} last={index === Math.min(history.length, 3) - 1} />)}
@@ -331,11 +353,11 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
             <div className="space-y-5">
               <Panel>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <PanelTitle title="Actividad comercial" subtitle="Llamadas, conversaciones y próximos pasos registrados en este CRM." />
-                  {canWrite && <button type="button" onClick={() => setCallComposerOpen(true)} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"><PhoneIcon className="h-4 w-4" />Registrar llamada</button>}
+                  <PanelTitle title="Actividad comercial" subtitle="Correos, llamadas, reuniones, notas, tareas y conversaciones registradas en este CRM." />
+                  {canWrite && <ActivityMenu open={activitySectionMenuOpen} setOpen={setActivitySectionMenuOpen} onSelect={openActivityComposer} compact />}
                 </div>
                 <div className="mt-6 space-y-4">
-                  {activities.length === 0 ? <EmptyState text="Todavía no hay llamadas registradas en el CRM. Usa “Registrar llamada” para crear la primera." /> : activities.map((activity) => <CallActivityCard key={activity.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
+                  {activities.length === 0 ? <EmptyState text="Todavía no hay actividad registrada. Usa “Registrar actividad” para crear la primera." /> : activities.map((activity) => <ActivityCard key={activity.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
                 </div>
               </Panel>
               <Panel>
@@ -356,7 +378,8 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
           <CrmContactoSettings id={contact.id} initialSegment={settings.initialSegment} isCustomer={contact.isCustomer} customerSegment={settings.customerSegment} />
         </section>}
       </div>
-      <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => { setQuickMessage({ type: 'success', text: 'Llamada registrada en el CRM.' }); setActiveTab('activity'); router.refresh() }} />
+      <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} senderEmail={emailSender} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
     </main>
   )
 }
@@ -381,16 +404,22 @@ function ActivityItem({ title, date, text, first = false, last = false }: { titl
   return <article className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0"><div className="relative flex justify-center">{!first && <span className="absolute -top-5 bottom-1/2 w-px bg-slate-200" />}{!last && <span className="absolute top-1/2 -bottom-5 w-px bg-slate-200" />}<span className="relative z-10 mt-1 flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700"><ClockIcon className="h-4 w-4" /></span></div><div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between"><p className="font-semibold text-slate-900">{title}</p><time className="text-xs text-slate-400">{date}</time></div><p className="mt-1 text-sm leading-6 text-slate-600">{text}</p></div></article>
 }
 
-function CallActivityCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
-  const DirectionIcon = activity.direction === 'ENTRANTE' ? PhoneArrowDownLeftIcon : PhoneArrowUpRightIcon
+function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
+  const visual = activityVisual(activity)
+  const Icon = visual.icon
+  const emailTo = stringArray(activity.metadata.para)
+  const sender = typeof activity.metadata.remitente === 'string' ? activity.metadata.remitente : null
+  const location = typeof activity.metadata.ubicacion === 'string' ? activity.metadata.ubicacion : null
   return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
     <div className="flex items-start gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700"><DirectionIcon className="h-5 w-5" /></span>
+      <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${visual.style}`}><Icon className="h-5 w-5" /></span>
       <div className="min-w-0 flex-1">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-          <div><p className="font-bold text-slate-950">{activity.title}</p><p className="mt-1 text-xs font-medium text-slate-500">{callMeta(activity)} · {activity.author}</p></div>
-          <div className="flex shrink-0 flex-wrap gap-1.5"><span className="rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-800">{callResultLabel(activity.result)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
+          <div><p className="font-bold text-slate-950">{activity.title}</p><p className="mt-1 text-xs font-medium text-slate-500">{activity.date} · {activityMeta(activity)} · {activity.author}</p></div>
+          <div className="flex shrink-0 flex-wrap gap-1.5"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${resultStyle(activity.type === 'TAREA' && activity.followUp?.state === 'COMPLETADA' ? 'COMPLETADA' : activity.result)}`}>{activityResultLabel(activity)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
         </div>
+        {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
+        {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
         {activity.deals.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{activity.deals.map((deal) => <span key={deal.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">{deal.name}</span>)}</div>}
         {activity.followUp && <div className={`mt-4 flex flex-col gap-3 rounded-xl border px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${activity.followUp.state === 'COMPLETADA' ? 'border-emerald-200 bg-emerald-50' : 'border-blue-200 bg-blue-50'}`}><div className="min-w-0"><p className={`text-xs font-bold ${activity.followUp.state === 'COMPLETADA' ? 'text-emerald-900' : 'text-blue-900'}`}>{activity.followUp.state === 'COMPLETADA' ? 'Seguimiento completado' : 'Próximo seguimiento'}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{activity.followUp.title}</p><p className="mt-1 text-xs text-slate-500">Fecha límite: {activity.followUp.dueAt}</p></div>{canWrite && <button type="button" disabled={updating} onClick={() => onTaskState(activity.followUp!.id, activity.followUp!.state === 'COMPLETADA' ? 'PENDIENTE' : 'COMPLETADA', activity.followUp!.state === 'COMPLETADA' ? 'COMPLETADA' : 'PENDIENTE')} className="min-h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:border-orange-200 hover:text-orange-800 disabled:opacity-50">{updating ? 'Actualizando…' : activity.followUp.state === 'COMPLETADA' ? 'Reabrir' : 'Completar'}</button>}</div>}
@@ -404,15 +433,90 @@ function FollowUpCard({ activity, canWrite, updating, onTaskState }: { activity:
   return <div className="rounded-xl border border-blue-200 bg-blue-50 p-3"><p className="text-sm font-bold text-slate-900">{task.title}</p><p className="mt-1 text-xs text-blue-800">Vence: {task.dueAt}</p><p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{activity.description}</p>{canWrite && <button type="button" disabled={updating} onClick={() => onTaskState(task.id, 'COMPLETADA', 'PENDIENTE')} className="mt-3 min-h-9 w-full rounded-lg bg-white px-3 text-xs font-bold text-blue-800 shadow-sm ring-1 ring-blue-200 hover:bg-blue-100 disabled:opacity-50">{updating ? 'Actualizando…' : 'Marcar como completada'}</button>}</div>
 }
 
-function callMeta(activity: ContactActivity) {
-  const direction = activity.direction === 'ENTRANTE' ? 'Entrante' : activity.direction === 'SALIENTE' ? 'Saliente' : 'Dirección sin informar'
+function activityMeta(activity: ContactActivity) {
+  const direction = activity.direction === 'ENTRANTE' ? 'Entrante' : activity.direction === 'SALIENTE' ? 'Saliente' : null
   const duration = activity.durationMinutes == null ? null : `${activity.durationMinutes.toLocaleString('es-ES')} min`
-  return [activity.date, direction, duration].filter(Boolean).join(' · ')
+  return [activityTypeLabel(activity.type), direction, duration].filter(Boolean).join(' · ')
 }
 
 function callResultLabel(result: string | null) {
   const labels: Record<string, string> = { CONTACTADO: 'Contactado', SIN_RESPUESTA: 'Sin respuesta', OCUPADO: 'Ocupado', BUZON_DE_VOZ: 'Buzón de voz', NUMERO_INCORRECTO: 'Número incorrecto', OTRO: 'Otro resultado' }
   return result ? labels[result] || result : 'Sin resultado'
+}
+
+function activityResultLabel(activity: ContactActivity) {
+  if (activity.type === 'LLAMADA') return callResultLabel(activity.result)
+  if (activity.type === 'TAREA' && activity.followUp?.state === 'COMPLETADA') return 'Completada'
+  const labels: Record<string, string> = {
+    ENVIADO: 'Enviado',
+    ACEPTADO_GRAPH: 'Aceptado por Microsoft 365',
+    ENVIO_PENDIENTE: 'En proceso',
+    ENVIO_INCIERTO: 'Revisar envío',
+    ERROR_ENVIO: 'No enviado',
+    PENDIENTE: 'Pendiente',
+    REGISTRADA: 'Registrada',
+  }
+  return activity.result ? labels[activity.result] || humanizeActivity(activity.result) : 'Registrada'
+}
+
+function resultStyle(result: string | null) {
+  if (result === 'ERROR_ENVIO' || result === 'ENVIO_INCIERTO') return 'bg-red-100 text-red-800'
+  if (result === 'PENDIENTE' || result === 'ENVIO_PENDIENTE') return 'bg-amber-100 text-amber-800'
+  if (result === 'ACEPTADO_GRAPH') return 'bg-blue-100 text-blue-800'
+  if (result === 'ENVIADO' || result === 'CONTACTADO' || result === 'REGISTRADA' || result === 'COMPLETADA') return 'bg-emerald-100 text-emerald-800'
+  return 'bg-slate-100 text-slate-700'
+}
+
+function activityTypeLabel(type: string) {
+  const labels: Record<string, string> = {
+    LLAMADA: 'Llamada',
+    CORREO: 'Correo',
+    REUNION: 'Reunión',
+    NOTA: 'Nota',
+    TAREA: 'Tarea',
+    WHATSAPP: 'WhatsApp',
+    LINKEDIN: 'LinkedIn',
+    SMS: 'SMS',
+    CORREO_POSTAL: 'Correo postal',
+  }
+  return labels[type] || humanizeActivity(type)
+}
+
+function activityVisual(activity: ContactActivity) {
+  if (activity.type === 'LLAMADA') return { icon: activity.direction === 'ENTRANTE' ? PhoneArrowDownLeftIcon : PhoneArrowUpRightIcon, style: 'bg-orange-100 text-orange-700' }
+  if (activity.type === 'CORREO') return { icon: EnvelopeIcon, style: 'bg-blue-100 text-blue-700' }
+  if (activity.type === 'REUNION') return { icon: CalendarDaysIcon, style: 'bg-violet-100 text-violet-700' }
+  if (activity.type === 'NOTA') return { icon: DocumentTextIcon, style: 'bg-amber-100 text-amber-700' }
+  if (activity.type === 'TAREA') return { icon: CheckCircleIcon, style: 'bg-emerald-100 text-emerald-700' }
+  return { icon: ChatBubbleLeftRightIcon, style: 'bg-sky-100 text-sky-700' }
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
+}
+
+function humanizeActivity(value: string) {
+  return value.replace(/_/g, ' ').toLocaleLowerCase('es-ES').replace(/^./, (letter) => letter.toLocaleUpperCase('es-ES'))
+}
+
+function ActivityMenu({ open, setOpen, onSelect, compact = false }: { open: boolean; setOpen: React.Dispatch<React.SetStateAction<boolean>>; onSelect: (type: 'LLAMADA' | CrmActivityType) => void; compact?: boolean }) {
+  const options: Array<{ type: 'LLAMADA' | CrmActivityType; label: string; detail: string; icon: React.ComponentType<{ className?: string }>; color: string }> = [
+    { type: 'CORREO', label: 'Correo', detail: 'Enviar con Outlook', icon: EnvelopeIcon, color: 'bg-blue-100 text-blue-700' },
+    { type: 'LLAMADA', label: 'Llamada', detail: 'Entrante o saliente', icon: PhoneIcon, color: 'bg-orange-100 text-orange-700' },
+    { type: 'REUNION', label: 'Reunión', detail: 'Fecha, duración y lugar', icon: CalendarDaysIcon, color: 'bg-violet-100 text-violet-700' },
+    { type: 'NOTA', label: 'Nota', detail: 'Contexto interno', icon: DocumentTextIcon, color: 'bg-amber-100 text-amber-700' },
+    { type: 'TAREA', label: 'Tarea', detail: 'Seguimiento con vencimiento', icon: CheckCircleIcon, color: 'bg-emerald-100 text-emerald-700' },
+    { type: 'WHATSAPP', label: 'WhatsApp', detail: 'Registrar conversación', icon: ChatBubbleLeftRightIcon, color: 'bg-green-100 text-green-700' },
+    { type: 'LINKEDIN', label: 'LinkedIn', detail: 'Registrar interacción', icon: ChatBubbleLeftRightIcon, color: 'bg-sky-100 text-sky-700' },
+    { type: 'SMS', label: 'SMS', detail: 'Registrar mensaje', icon: ChatBubbleLeftRightIcon, color: 'bg-indigo-100 text-indigo-700' },
+    { type: 'CORREO_POSTAL', label: 'Correo postal', detail: 'Registrar envío físico', icon: DocumentTextIcon, color: 'bg-stone-100 text-stone-700' },
+  ]
+  return <div className="relative">
+    <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((current) => !current)} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 active:scale-[0.97] ${compact ? 'shrink-0' : ''}`}><PlusIcon className="h-4 w-4" />Registrar actividad<ChevronDownIcon className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} /></button>
+    {open && <div role="menu" className="absolute right-0 top-full z-40 mt-2 grid w-[min(360px,calc(100vw-2rem))] grid-cols-1 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl sm:grid-cols-2">
+      {options.map((option) => { const Icon = option.icon; return <button key={option.type} type="button" role="menuitem" onClick={() => onSelect(option.type)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-slate-50 focus:bg-orange-50 focus:outline-none"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${option.color}`}><Icon className="h-4 w-4" /></span><span className="min-w-0"><span className="block text-sm font-bold text-slate-900">{option.label}</span><span className="block truncate text-[11px] text-slate-500">{option.detail}</span></span></button> })}
+    </div>}
+  </div>
 }
 
 function AssociationCard({ id, title, count, icon, children, openCards, setOpenCards, defaultOpen = true }: { id: string; title: string; count: number; icon: React.ReactNode; children: React.ReactNode; openCards: Set<string>; setOpenCards: React.Dispatch<React.SetStateAction<Set<string>>>; defaultOpen?: boolean }) {

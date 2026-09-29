@@ -3252,6 +3252,7 @@ model CrmActividad {
   tipo              String
   titulo            String?
   descripcion       String                 @db.Text
+  metadatos         Json?                  @db.JsonB
   fechaActividad    DateTime               @map("fecha_actividad")
   direccion         String?
   resultado         String?

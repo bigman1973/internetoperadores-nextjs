@@ -4,6 +4,7 @@ import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
 import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
+import { getDefaultEmailSender } from '@/lib/email'
 
 export const dynamic = 'force-dynamic'
 
@@ -208,6 +209,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         durationMinutes: activity.duracionSegundos == null ? null : Math.max(0, Math.round(activity.duracionSegundos / 60)),
         author: activity.creadoPorNombre || 'Usuario no identificado',
         origin: activity.origen,
+        metadata: asActivityMetadata(activity.metadatos),
         deals: activity.negocios.map(({ negocio }) => ({ id: negocio.hubspotId, name: negocio.nombre })),
         followUp: activity.tareaSeguimiento ? {
           id: activity.tareaSeguimiento.id,
@@ -216,6 +218,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
           state: activity.tareaSeguimiento.estado,
         } : null,
       }))}
+      emailSender={getDefaultEmailSender()}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
@@ -288,6 +291,14 @@ function asPropertyOptions(value: unknown): Array<{ label?: string; value?: stri
 function asStringRecord(value: unknown): Record<string, string | null> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, field]) => [key, field == null ? null : String(field)]))
+}
+
+function asActivityMetadata(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const metadata = value as Record<string, unknown>
+  return Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph']
+    .filter((key) => metadata[key] !== undefined)
+    .map((key) => [key, metadata[key]]))
 }
 
 function pickStringRecord(value: unknown, allowed: Set<string>): Record<string, string | null> {
