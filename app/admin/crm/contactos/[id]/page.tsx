@@ -5,6 +5,7 @@ import prisma from '@/lib/prisma'
 import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
+import { getCorporateCalendarMailbox, isCorporateCalendarEnabled } from '@/lib/outlook-calendar'
 
 export const dynamic = 'force-dynamic'
 
@@ -102,6 +103,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const isCustomer = Boolean(contact.clienteWebId)
   const email = effectiveProperties.email || contact.email || ''
   const phone = effectiveProperties.phone || effectiveProperties.mobilephone || contact.telefono || ''
+  const linkedIn = effectiveProperties.hs_linkedin_url || ''
   const company = effectiveProperties.company || contact.empresa || contact.clienteWeb?.nombreComercial || ''
   const jobTitle = effectiveProperties.jobtitle || ''
   const website = effectiveProperties.website || ''
@@ -152,6 +154,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         name: contactName,
         email: email || 'Sin informar',
         phone: phone || 'Sin informar',
+        linkedIn,
         company: company || 'Sin informar',
         jobTitle: jobTitle || 'Sin informar',
         website: website || 'Sin informar',
@@ -200,6 +203,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       }))}
       activities={activities.map((activity) => ({
         id: activity.id,
+        contactId: contact.id,
         type: activity.tipo,
         title: activity.titulo || (activity.tipo === 'LLAMADA' ? 'Llamada' : 'Actividad'),
         description: activity.descripcion,
@@ -219,6 +223,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         } : null,
       }))}
       emailSender={getDefaultEmailSender()}
+      calendarMailbox={getCorporateCalendarMailbox()}
+      calendarEnabled={isCorporateCalendarEnabled()}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
@@ -296,9 +302,12 @@ function asStringRecord(value: unknown): Record<string, string | null> {
 function asActivityMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const metadata = value as Record<string, unknown>
-  return Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph']
+  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'buzonCalendario', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado']
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]]))
+  if (typeof metadata.outlookWebLink === 'string') publicMetadata.outlookDisponible = true
+  if (typeof metadata.teamsJoinUrl === 'string') publicMetadata.teamsDisponible = true
+  return publicMetadata
 }
 
 function pickStringRecord(value: unknown, allowed: Set<string>): Record<string, string | null> {

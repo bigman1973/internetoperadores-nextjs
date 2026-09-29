@@ -41,7 +41,7 @@ export function getDefaultEmailSender() {
   return (process.env.EMAIL_FROM || 'david.perez@internetoperadores.com').trim().toLowerCase()
 }
 
-async function getAccessToken(): Promise<string> {
+export async function getMicrosoftGraphAccessToken(): Promise<string> {
   if (cachedToken && cachedToken.expiresAt > Date.now() + 300_000) return cachedToken.token
 
   const tenantId = process.env.AZURE_TENANT_ID || process.env.AZURE_AD_TENANT_ID
@@ -89,7 +89,7 @@ async function sendGraphEmail(options: EmailOptions): Promise<CrmEmailResult> {
   let requestStarted = false
 
   try {
-    const accessToken = await getAccessToken()
+    const accessToken = await getMicrosoftGraphAccessToken()
     const attachments = await Promise.all(options.attachments?.map(async (attachment) => {
       const content = attachment.content != null
         ? attachment.content

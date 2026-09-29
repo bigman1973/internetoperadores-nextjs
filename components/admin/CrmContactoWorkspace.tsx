@@ -69,6 +69,7 @@ type HistoryEntry = {
 
 type ContactActivity = {
   id: string
+  contactId: string
   type: string
   title: string
   description: string
@@ -90,6 +91,7 @@ type Props = {
     name: string
     email: string
     phone: string
+    linkedIn: string
     company: string
     jobTitle: string
     website: string
@@ -114,6 +116,8 @@ type Props = {
   lists: ListMembership[]
   activities?: ContactActivity[]
   emailSender: string
+  calendarMailbox: string
+  calendarEnabled: boolean
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -132,7 +136,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, calendarMailbox, calendarEnabled, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -210,9 +214,9 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     else setActivityComposerType(type)
   }
 
-  const handleActivityCreated = (type: string) => {
+  const handleActivityCreated = (type: string, details?: { outlook: boolean }) => {
     const label = activityTypeLabel(type)
-    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : `${label} registrada en el CRM.` })
+    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : type === 'REUNION' && details?.outlook ? 'La reunión se ha creado en Outlook corporativo y registrado en el CRM.' : `${label} registrada en el CRM.` })
     setActiveTab('activity')
     router.refresh()
   }
@@ -379,7 +383,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
       </div>
       <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
-      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} senderEmail={emailSender} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} calendarMailbox={calendarMailbox} calendarEnabled={calendarEnabled} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
     </main>
   )
 }
@@ -410,6 +414,9 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
   const emailTo = stringArray(activity.metadata.para)
   const sender = typeof activity.metadata.remitente === 'string' ? activity.metadata.remitente : null
   const location = typeof activity.metadata.ubicacion === 'string' ? activity.metadata.ubicacion : null
+  const calendarMailbox = typeof activity.metadata.buzonCalendario === 'string' ? activity.metadata.buzonCalendario : null
+  const outlookWebLink = canWrite && activity.metadata.outlookDisponible === true ? `/api/admin/crm/contactos/${encodeURIComponent(activity.contactId)}/actividades/${encodeURIComponent(activity.id)}/outlook?target=outlook` : null
+  const teamsJoinUrl = canWrite && activity.metadata.teamsDisponible === true ? `/api/admin/crm/contactos/${encodeURIComponent(activity.contactId)}/actividades/${encodeURIComponent(activity.id)}/outlook?target=teams` : null
   return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
     <div className="flex items-start gap-3">
       <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${visual.style}`}><Icon className="h-5 w-5" /></span>
@@ -419,6 +426,8 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
           <div className="flex shrink-0 flex-wrap gap-1.5"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${resultStyle(activity.type === 'TAREA' && activity.followUp?.state === 'COMPLETADA' ? 'COMPLETADA' : activity.result)}`}>{activityResultLabel(activity)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
         </div>
         {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
+        {activity.type === 'REUNION' && calendarMailbox && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950"><p><strong>Calendario:</strong> {calendarMailbox}</p>{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con Outlook corporativo.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en el calendario antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
+        {activity.result === 'CANAL_PREPARADO' && <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700"><strong>Contenido preparado desde el CRM.</strong> La plataforma externa no ha confirmado apertura ni entrega.</div>}
         {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
         {activity.deals.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{activity.deals.map((deal) => <span key={deal.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">{deal.name}</span>)}</div>}
@@ -455,15 +464,20 @@ function activityResultLabel(activity: ContactActivity) {
     ERROR_ENVIO: 'No enviado',
     PENDIENTE: 'Pendiente',
     REGISTRADA: 'Registrada',
+    CANAL_PREPARADO: 'Preparada',
+    CALENDARIO_CREADO: 'Creada en Outlook',
+    CALENDARIO_PENDIENTE: 'Creando en Outlook',
+    CALENDARIO_INCIERTO: 'Revisar calendario',
+    ERROR_CALENDARIO: 'No creada en Outlook',
   }
   return activity.result ? labels[activity.result] || humanizeActivity(activity.result) : 'Registrada'
 }
 
 function resultStyle(result: string | null) {
-  if (result === 'ERROR_ENVIO' || result === 'ENVIO_INCIERTO') return 'bg-red-100 text-red-800'
-  if (result === 'PENDIENTE' || result === 'ENVIO_PENDIENTE') return 'bg-amber-100 text-amber-800'
+  if (result === 'ERROR_ENVIO' || result === 'ENVIO_INCIERTO' || result === 'ERROR_CALENDARIO' || result === 'CALENDARIO_INCIERTO') return 'bg-red-100 text-red-800'
+  if (result === 'PENDIENTE' || result === 'ENVIO_PENDIENTE' || result === 'CALENDARIO_PENDIENTE' || result === 'CANAL_PREPARADO') return 'bg-amber-100 text-amber-800'
   if (result === 'ACEPTADO_GRAPH') return 'bg-blue-100 text-blue-800'
-  if (result === 'ENVIADO' || result === 'CONTACTADO' || result === 'REGISTRADA' || result === 'COMPLETADA') return 'bg-emerald-100 text-emerald-800'
+  if (result === 'ENVIADO' || result === 'CONTACTADO' || result === 'REGISTRADA' || result === 'COMPLETADA' || result === 'CALENDARIO_CREADO') return 'bg-emerald-100 text-emerald-800'
   return 'bg-slate-100 text-slate-700'
 }
 
@@ -503,12 +517,12 @@ function ActivityMenu({ open, setOpen, onSelect, compact = false }: { open: bool
   const options: Array<{ type: 'LLAMADA' | CrmActivityType; label: string; detail: string; icon: React.ComponentType<{ className?: string }>; color: string }> = [
     { type: 'CORREO', label: 'Correo', detail: 'Enviar con Outlook', icon: EnvelopeIcon, color: 'bg-blue-100 text-blue-700' },
     { type: 'LLAMADA', label: 'Llamada', detail: 'Entrante o saliente', icon: PhoneIcon, color: 'bg-orange-100 text-orange-700' },
-    { type: 'REUNION', label: 'Reunión', detail: 'Fecha, duración y lugar', icon: CalendarDaysIcon, color: 'bg-violet-100 text-violet-700' },
+    { type: 'REUNION', label: 'Reunión', detail: 'Crear en Outlook corporativo', icon: CalendarDaysIcon, color: 'bg-violet-100 text-violet-700' },
     { type: 'NOTA', label: 'Nota', detail: 'Contexto interno', icon: DocumentTextIcon, color: 'bg-amber-100 text-amber-700' },
     { type: 'TAREA', label: 'Tarea', detail: 'Seguimiento con vencimiento', icon: CheckCircleIcon, color: 'bg-emerald-100 text-emerald-700' },
-    { type: 'WHATSAPP', label: 'WhatsApp', detail: 'Registrar conversación', icon: ChatBubbleLeftRightIcon, color: 'bg-green-100 text-green-700' },
-    { type: 'LINKEDIN', label: 'LinkedIn', detail: 'Registrar interacción', icon: ChatBubbleLeftRightIcon, color: 'bg-sky-100 text-sky-700' },
-    { type: 'SMS', label: 'SMS', detail: 'Registrar mensaje', icon: ChatBubbleLeftRightIcon, color: 'bg-indigo-100 text-indigo-700' },
+    { type: 'WHATSAPP', label: 'WhatsApp', detail: 'Preparar, abrir y registrar', icon: ChatBubbleLeftRightIcon, color: 'bg-green-100 text-green-700' },
+    { type: 'LINKEDIN', label: 'LinkedIn', detail: 'Abrir perfil y registrar', icon: ChatBubbleLeftRightIcon, color: 'bg-sky-100 text-sky-700' },
+    { type: 'SMS', label: 'SMS', detail: 'Preparar, abrir y registrar', icon: ChatBubbleLeftRightIcon, color: 'bg-indigo-100 text-indigo-700' },
     { type: 'CORREO_POSTAL', label: 'Correo postal', detail: 'Registrar envío físico', icon: DocumentTextIcon, color: 'bg-stone-100 text-stone-700' },
   ]
   return <div className="relative">
