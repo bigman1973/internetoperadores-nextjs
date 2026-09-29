@@ -19,6 +19,8 @@ import {
   EnvelopeIcon,
   ExclamationTriangleIcon,
   PhoneIcon,
+  PhoneArrowDownLeftIcon,
+  PhoneArrowUpRightIcon,
   UserCircleIcon,
 } from '@heroicons/react/24/outline'
 import CrmContactoDataEditor, {
@@ -28,6 +30,7 @@ import CrmContactoDataEditor, {
   type CrmContactSaveResult,
 } from './CrmContactoDataEditor'
 import CrmContactoSettings from './CrmContactoSettings'
+import CrmCallComposer from './CrmCallComposer'
 import { useRole } from './RoleContext'
 
 
@@ -60,6 +63,21 @@ type HistoryEntry = {
   changes: Array<{ field: string; label: string; previous: string; next: string }>
 }
 
+type ContactActivity = {
+  id: string
+  type: string
+  title: string
+  description: string
+  date: string
+  direction: string | null
+  result: string | null
+  durationMinutes: number | null
+  author: string
+  origin: string
+  deals: Array<{ id: string; name: string }>
+  followUp: { id: string; title: string; dueAt: string; state: string } | null
+}
+
 type Props = {
   contact: {
     id: string
@@ -89,6 +107,7 @@ type Props = {
   customer: { id: number; name: string; active: boolean; segment: string } | null
   deals: Deal[]
   lists: ListMembership[]
+  activities?: ContactActivity[]
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -107,7 +126,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -118,12 +137,14 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   const [quickLocals, setQuickLocals] = useState<Record<string, string | null>>(dataEditor.localProperties)
   const [quickValues, setQuickValues] = useState<Record<string, string | null>>({ ...dataEditor.sourceProperties, ...dataEditor.localProperties })
   const [quickMessage, setQuickMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [callComposerOpen, setCallComposerOpen] = useState(false)
+  const [taskUpdating, setTaskUpdating] = useState<string | null>(null)
   const [openRightCards, setOpenRightCards] = useState(() => new Set(['customer', 'deals', 'lists']))
   const openDeals = deals.filter((deal) => !deal.closed)
   const definitionsByName = useMemo(() => new Map(dataEditor.definitions.map((definition) => [definition.name, definition])), [dataEditor.definitions])
   const tabs: Array<{ key: TabKey; label: string; count?: number }> = [
     { key: 'summary', label: 'Resumen' },
-    { key: 'activity', label: 'Actividad', count: history.length },
+    { key: 'activity', label: 'Actividad', count: activities.length + history.length },
     { key: 'advanced', label: 'Información avanzada' },
   ]
 
@@ -173,6 +194,26 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     if (targetId) window.setTimeout(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
   }
 
+  const updateTask = async (taskId: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => {
+    setTaskUpdating(taskId)
+    setQuickMessage(null)
+    try {
+      const response = await fetch(`/api/admin/crm/tareas/${encodeURIComponent(taskId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state, expectedState }),
+      })
+      const data = await response.json()
+      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar la tarea.')
+      setQuickMessage({ type: 'success', text: state === 'COMPLETADA' ? 'Tarea completada.' : 'Tarea reabierta.' })
+      router.refresh()
+    } catch (error) {
+      setQuickMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo actualizar la tarea.' })
+    } finally {
+      setTaskUpdating(null)
+    }
+  }
+
   return (
     <main className="-m-3 min-h-screen bg-[#f4f6f8] pb-8 sm:-m-5 lg:-m-6">
       <div className="border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
@@ -198,6 +239,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {canWrite && <button type="button" onClick={() => setCallComposerOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 active:scale-[0.97]"><PhoneIcon className="h-4 w-4" />Registrar llamada</button>}
             <button type="button" onClick={() => openAdvanced('crm-contact-notes-card')} className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-orange-200 hover:text-orange-700 active:scale-[0.97]"><DocumentTextIcon className="h-4 w-4" />Añadir nota</button>
             {customer && <Link href={`/admin/clientes/${customer.id}/editar`} className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-3.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.97]">Abrir cliente <ArrowRightIcon className="h-4 w-4" /></Link>}
           </div>
@@ -243,11 +285,15 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
               <Panel>
                 <div className="flex items-center justify-between gap-3">
-                  <PanelTitle title="Actividad reciente" subtitle="Cambios y seguimiento disponibles dentro del panel." />
+                  <PanelTitle title="Actividad reciente" subtitle="Conversaciones, tareas y cambios disponibles dentro del panel." />
                   <button type="button" onClick={() => changeTab('activity')} className="shrink-0 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver actividad</button>
                 </div>
                 <div className="mt-5">
-                  {history.length === 0 ? <ActivityItem title="Contacto creado" date={contact.createdAt || 'Fecha no disponible'} text="El contacto se incorporó al directorio corporativo." first last /> : history.slice(0, 3).map((entry, index) => <ActivityItem key={`${entry.date}-${index}`} title={entry.author} date={entry.date || 'Fecha no disponible'} text={entry.changes.map((change) => `${change.label}: ${change.next}`).join(' · ')} first={index === 0} last={index === Math.min(history.length, 3) - 1} />)}
+                  {activities.length > 0
+                    ? activities.slice(0, 3).map((activity, index) => <ActivityItem key={activity.id} title={activity.title} date={activity.date} text={`${callMeta(activity)} · ${activity.description}`} first={index === 0} last={index === Math.min(activities.length, 3) - 1} />)
+                    : history.length === 0
+                      ? <ActivityItem title="Contacto creado" date={contact.createdAt || 'Fecha no disponible'} text="El contacto se incorporó al directorio corporativo." first last />
+                      : history.slice(0, 3).map((entry, index) => <ActivityItem key={`${entry.date}-${index}`} title={entry.author} date={entry.date || 'Fecha no disponible'} text={entry.changes.map((change) => `${change.label}: ${change.next}`).join(' · ')} first={index === 0} last={index === Math.min(history.length, 3) - 1} />)}
                 </div>
               </Panel>
 
@@ -282,11 +328,23 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
         {activeTab === 'activity' && <section role="tabpanel" id="crm-contact-panel-activity" aria-labelledby="crm-contact-tab-activity" tabIndex={0}>
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <Panel>
-              <PanelTitle title="Historial de actividad" subtitle="Trazabilidad de los cambios realizados dentro del panel." />
-              <div className="mt-6">{history.length === 0 ? <ActivityItem title="Contacto creado" date={contact.createdAt || 'Fecha no disponible'} text="El contacto se incorporó al directorio corporativo." first last /> : history.map((entry, index) => <ActivityItem key={`${entry.date}-${index}`} title={entry.author} date={entry.date || 'Fecha no disponible'} text={entry.changes.map((change) => `${change.label}: ${change.previous} → ${change.next}`).join(' · ')} first={index === 0} last={index === history.length - 1} />)}</div>
-            </Panel>
+            <div className="space-y-5">
+              <Panel>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <PanelTitle title="Actividad comercial" subtitle="Llamadas, conversaciones y próximos pasos registrados en este CRM." />
+                  {canWrite && <button type="button" onClick={() => setCallComposerOpen(true)} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-orange-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700"><PhoneIcon className="h-4 w-4" />Registrar llamada</button>}
+                </div>
+                <div className="mt-6 space-y-4">
+                  {activities.length === 0 ? <EmptyState text="Todavía no hay llamadas registradas en el CRM. Usa “Registrar llamada” para crear la primera." /> : activities.map((activity) => <CallActivityCard key={activity.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp?.id} onTaskState={updateTask} />)}
+                </div>
+              </Panel>
+              <Panel>
+                <PanelTitle title="Cambios de la ficha" subtitle="Trazabilidad de modificaciones sobre los datos del contacto." />
+                <div className="mt-6">{history.length === 0 ? <ActivityItem title="Contacto creado" date={contact.createdAt || 'Fecha no disponible'} text="El contacto se incorporó al directorio corporativo." first last /> : history.map((entry, index) => <ActivityItem key={`${entry.date}-${index}`} title={entry.author} date={entry.date || 'Fecha no disponible'} text={entry.changes.map((change) => `${change.label}: ${change.previous} → ${change.next}`).join(' · ')} first={index === 0} last={index === history.length - 1} />)}</div>
+              </Panel>
+            </div>
             <aside className="space-y-4">
+              <Panel><PanelTitle title="Seguimientos pendientes" /><div className="mt-4 space-y-3">{activities.filter((activity) => activity.followUp?.state === 'PENDIENTE').length === 0 ? <SmallEmpty text="No hay tareas de seguimiento pendientes." /> : activities.filter((activity) => activity.followUp?.state === 'PENDIENTE').map((activity) => <FollowUpCard key={activity.followUp!.id} activity={activity} canWrite={canWrite} updating={taskUpdating === activity.followUp!.id} onTaskState={updateTask} />)}</div></Panel>
               <Panel><PanelTitle title="Origen y conservación" /><div className="mt-4 space-y-4"><Info label="Creación" value={contact.createdAt || 'Sin fecha'} /><Info label="Actualización del origen" value={contact.sourceUpdatedAt || 'Sin fecha'} /><Info label="Última edición local" value={contact.localUpdatedAt || 'Sin modificaciones'} /><Info label="Editado por" value={contact.localUpdatedBy || 'No aplicable'} /><Info label="Campos modificados" value={contact.localChanges.toLocaleString('es-ES')} /></div></Panel>
               {contact.notes && <Panel><PanelTitle title="Nota interna" /><p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{contact.notes}</p></Panel>}
             </aside>
@@ -298,6 +356,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
           <CrmContactoSettings id={contact.id} initialSegment={settings.initialSegment} isCustomer={contact.isCustomer} customerSegment={settings.customerSegment} />
         </section>}
       </div>
+      <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => { setQuickMessage({ type: 'success', text: 'Llamada registrada en el CRM.' }); setActiveTab('activity'); router.refresh() }} />
     </main>
   )
 }
@@ -320,6 +379,40 @@ function Highlight({ label, value }: { label: string; value: string }) {
 
 function ActivityItem({ title, date, text, first = false, last = false }: { title: string; date: string; text: string; first?: boolean; last?: boolean }) {
   return <article className="relative grid grid-cols-[28px_minmax(0,1fr)] gap-3 pb-5 last:pb-0"><div className="relative flex justify-center">{!first && <span className="absolute -top-5 bottom-1/2 w-px bg-slate-200" />}{!last && <span className="absolute top-1/2 -bottom-5 w-px bg-slate-200" />}<span className="relative z-10 mt-1 flex h-7 w-7 items-center justify-center rounded-full border border-orange-200 bg-orange-50 text-orange-700"><ClockIcon className="h-4 w-4" /></span></div><div className="rounded-xl border border-slate-100 bg-slate-50/70 px-4 py-3"><div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between"><p className="font-semibold text-slate-900">{title}</p><time className="text-xs text-slate-400">{date}</time></div><p className="mt-1 text-sm leading-6 text-slate-600">{text}</p></div></article>
+}
+
+function CallActivityCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
+  const DirectionIcon = activity.direction === 'ENTRANTE' ? PhoneArrowDownLeftIcon : PhoneArrowUpRightIcon
+  return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
+    <div className="flex items-start gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700"><DirectionIcon className="h-5 w-5" /></span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div><p className="font-bold text-slate-950">{activity.title}</p><p className="mt-1 text-xs font-medium text-slate-500">{callMeta(activity)} · {activity.author}</p></div>
+          <div className="flex shrink-0 flex-wrap gap-1.5"><span className="rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-bold text-orange-800">{callResultLabel(activity.result)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
+        </div>
+        <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>
+        {activity.deals.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{activity.deals.map((deal) => <span key={deal.id} className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">{deal.name}</span>)}</div>}
+        {activity.followUp && <div className={`mt-4 flex flex-col gap-3 rounded-xl border px-3 py-3 sm:flex-row sm:items-center sm:justify-between ${activity.followUp.state === 'COMPLETADA' ? 'border-emerald-200 bg-emerald-50' : 'border-blue-200 bg-blue-50'}`}><div className="min-w-0"><p className={`text-xs font-bold ${activity.followUp.state === 'COMPLETADA' ? 'text-emerald-900' : 'text-blue-900'}`}>{activity.followUp.state === 'COMPLETADA' ? 'Seguimiento completado' : 'Próximo seguimiento'}</p><p className="mt-1 break-words text-sm font-semibold text-slate-900">{activity.followUp.title}</p><p className="mt-1 text-xs text-slate-500">Fecha límite: {activity.followUp.dueAt}</p></div>{canWrite && <button type="button" disabled={updating} onClick={() => onTaskState(activity.followUp!.id, activity.followUp!.state === 'COMPLETADA' ? 'PENDIENTE' : 'COMPLETADA', activity.followUp!.state === 'COMPLETADA' ? 'COMPLETADA' : 'PENDIENTE')} className="min-h-9 shrink-0 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:border-orange-200 hover:text-orange-800 disabled:opacity-50">{updating ? 'Actualizando…' : activity.followUp.state === 'COMPLETADA' ? 'Reabrir' : 'Completar'}</button>}</div>}
+      </div>
+    </div>
+  </article>
+}
+
+function FollowUpCard({ activity, canWrite, updating, onTaskState }: { activity: ContactActivity; canWrite: boolean; updating: boolean; onTaskState: (id: string, state: 'PENDIENTE' | 'COMPLETADA', expectedState: 'PENDIENTE' | 'COMPLETADA') => void }) {
+  const task = activity.followUp!
+  return <div className="rounded-xl border border-blue-200 bg-blue-50 p-3"><p className="text-sm font-bold text-slate-900">{task.title}</p><p className="mt-1 text-xs text-blue-800">Vence: {task.dueAt}</p><p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">{activity.description}</p>{canWrite && <button type="button" disabled={updating} onClick={() => onTaskState(task.id, 'COMPLETADA', 'PENDIENTE')} className="mt-3 min-h-9 w-full rounded-lg bg-white px-3 text-xs font-bold text-blue-800 shadow-sm ring-1 ring-blue-200 hover:bg-blue-100 disabled:opacity-50">{updating ? 'Actualizando…' : 'Marcar como completada'}</button>}</div>
+}
+
+function callMeta(activity: ContactActivity) {
+  const direction = activity.direction === 'ENTRANTE' ? 'Entrante' : activity.direction === 'SALIENTE' ? 'Saliente' : 'Dirección sin informar'
+  const duration = activity.durationMinutes == null ? null : `${activity.durationMinutes.toLocaleString('es-ES')} min`
+  return [activity.date, direction, duration].filter(Boolean).join(' · ')
+}
+
+function callResultLabel(result: string | null) {
+  const labels: Record<string, string> = { CONTACTADO: 'Contactado', SIN_RESPUESTA: 'Sin respuesta', OCUPADO: 'Ocupado', BUZON_DE_VOZ: 'Buzón de voz', NUMERO_INCORRECTO: 'Número incorrecto', OTRO: 'Otro resultado' }
+  return result ? labels[result] || result : 'Sin resultado'
 }
 
 function AssociationCard({ id, title, count, icon, children, openCards, setOpenCards, defaultOpen = true }: { id: string; title: string; count: number; icon: React.ReactNode; children: React.ReactNode; openCards: Set<string>; setOpenCards: React.Dispatch<React.SetStateAction<Set<string>>>; defaultOpen?: boolean }) {

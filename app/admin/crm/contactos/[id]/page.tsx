@@ -67,6 +67,15 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   })
   if (!contact) notFound()
 
+  const activities = await prisma.crmActividad.findMany({
+    where: { contactos: { some: { contactoId: id } } },
+    include: {
+      negocios: { include: { negocio: true } },
+      tareaSeguimiento: true,
+    },
+    orderBy: [{ fechaActividad: 'desc' }, { createdAt: 'desc' }],
+  })
+
   const propertyDefinitions = await prisma.crmPropiedadHubspot.findMany({
     where: { objectTypeId: '0-1', oculta: false },
     orderBy: [{ grupoNombre: 'asc' }, { ordenVisual: 'asc' }, { etiqueta: 'asc' }],
@@ -187,6 +196,25 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         purpose: PURPOSE_LABELS[membership.lista.proposito] || membership.lista.proposito,
         suppression: membership.lista.proposito === 'SUPRESION',
         joinedAt: membership.incorporadoAt?.toLocaleDateString('es-ES') || null,
+      }))}
+      activities={activities.map((activity) => ({
+        id: activity.id,
+        type: activity.tipo,
+        title: activity.titulo || (activity.tipo === 'LLAMADA' ? 'Llamada' : 'Actividad'),
+        description: activity.descripcion,
+        date: formatDateTime(activity.fechaActividad) || 'Fecha no disponible',
+        direction: activity.direccion,
+        result: activity.resultado,
+        durationMinutes: activity.duracionSegundos == null ? null : Math.max(0, Math.round(activity.duracionSegundos / 60)),
+        author: activity.creadoPorNombre || 'Usuario no identificado',
+        origin: activity.origen,
+        deals: activity.negocios.map(({ negocio }) => ({ id: negocio.hubspotId, name: negocio.nombre })),
+        followUp: activity.tareaSeguimiento ? {
+          id: activity.tareaSeguimiento.id,
+          title: activity.tareaSeguimiento.titulo,
+          dueAt: formatDateTime(activity.tareaSeguimiento.venceAt) || 'Sin fecha',
+          state: activity.tareaSeguimiento.estado,
+        } : null,
       }))}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({

@@ -11,6 +11,8 @@ type Preview = {
   openDeals: number
   associations: number
   contacts: number
+  calls: number
+  callAssociations: number
 }
 
 export default function CrmNegociosSyncPanel() {
@@ -34,11 +36,11 @@ export default function CrmNegociosSyncPanel() {
 
       if (mode === 'preview') {
         setPreview(data.summary)
-        setMessage({ type: 'success', text: `Comprobación completada: ${data.summary.deals.toLocaleString('es-ES')} negocios en ${data.summary.pipelines.toLocaleString('es-ES')} pipelines y ${data.summary.associations.toLocaleString('es-ES')} relaciones con contactos. Todavía no se ha modificado ningún dato local.` })
+        setMessage({ type: 'success', text: `Comprobación completada: ${data.summary.deals.toLocaleString('es-ES')} negocios, ${data.summary.pipelines.toLocaleString('es-ES')} pipelines y ${data.summary.calls.toLocaleString('es-ES')} llamadas. Todavía no se ha modificado ningún dato local.` })
       } else {
         const result = data.result
         setPreview(null)
-        setMessage({ type: 'success', text: `Actualización completada: ${result.negociosDetectados.toLocaleString('es-ES')} negocios, ${result.asociacionesDetectadas.toLocaleString('es-ES')} relaciones y ${result.contactosAsociados.toLocaleString('es-ES')} contactos asociados.${result.contactosNoDisponibles ? ` ${result.contactosNoDisponibles} contactos ya no están disponibles en HubSpot y se conservan como referencia.` : ''}` })
+        setMessage({ type: 'success', text: `Actualización completada: ${result.negociosDetectados.toLocaleString('es-ES')} negocios, ${result.llamadasDetectadas.toLocaleString('es-ES')} llamadas y ${result.llamadasImportadas.toLocaleString('es-ES')} relaciones de llamada con contactos.${result.contactosNoDisponibles ? ` ${result.contactosNoDisponibles} contactos ya no están disponibles en el origen y se conservan como referencia.` : ''}` })
         window.setTimeout(() => window.location.reload(), 900)
       }
     } catch (error) {
@@ -54,8 +56,8 @@ export default function CrmNegociosSyncPanel() {
         <div className="flex max-w-3xl items-start gap-3">
           <div className="rounded-lg bg-white p-2 text-orange-700 shadow-sm"><BriefcaseIcon className="h-5 w-5" /></div>
           <div>
-            <h2 className="font-semibold text-gray-900">Importación final de pipelines y negocios</h2>
-            <p className="mt-1 text-sm leading-6 text-gray-600">Comprueba y copia las oportunidades, sus etapas y los contactos asociados. La operación es de solo lectura en el sistema de origen: no cambia negocios ni envía comunicaciones.</p>
+            <h2 className="font-semibold text-gray-900">Importación final de actividad comercial</h2>
+            <p className="mt-1 text-sm leading-6 text-gray-600">Comprueba y copia pipelines, oportunidades, llamadas y sus asociaciones. La operación es de solo lectura en el sistema de origen: no cambia datos ni envía comunicaciones.</p>
           </div>
         </div>
         {canWrite ? (
@@ -67,7 +69,7 @@ export default function CrmNegociosSyncPanel() {
             {preview && (
               <button type="button" onClick={() => run('sync')} disabled={loading !== null} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60">
                 <ArrowPathIcon className={`h-5 w-5 ${loading === 'sync' ? 'animate-spin' : ''}`} />
-                {loading === 'sync' ? 'Importando…' : 'Importar negocios'}
+                {loading === 'sync' ? 'Importando…' : 'Importar actividad'}
               </button>
             )}
           </div>
@@ -77,13 +79,15 @@ export default function CrmNegociosSyncPanel() {
       </div>
 
       {preview && (
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8">
           <Summary label="Pipelines" value={preview.pipelines} />
           <Summary label="Etapas" value={preview.stages} />
           <Summary label="Negocios" value={preview.deals} />
           <Summary label="Abiertos" value={preview.openDeals} />
           <Summary label="Contactos" value={preview.contacts} />
           <Summary label="Relaciones" value={preview.associations} />
+          <Summary label="Llamadas" value={preview.calls} />
+          <Summary label="Llamada-contacto" value={preview.callAssociations} />
         </div>
       )}
 

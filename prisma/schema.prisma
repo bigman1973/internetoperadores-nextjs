@@ -3105,6 +3105,9 @@ model CrmRegistroHubspot {
   updatedAt            DateTime          @updatedAt @map("updated_at")
   listas               CrmListaMiembro[]
   negocios             CrmNegocioContacto[]
+  actividades          CrmActividad[]         @relation("CrmActividadPrincipal")
+  actividadesAsociadas CrmActividadContacto[]
+  tareasCrm            CrmTarea[]
   clienteWeb           ClienteWeb?       @relation(fields: [clienteWebId], references: [id], onDelete: SetNull)
 
   @@unique([objectTypeId, hubspotId])
@@ -3219,6 +3222,7 @@ model CrmNegocioHubspot {
   pipeline            CrmPipelineHubspot         @relation(fields: [pipelineHubspotId], references: [hubspotId], onDelete: Restrict)
   etapa               CrmPipelineEtapaHubspot    @relation(fields: [etapaClave], references: [clave], onDelete: Restrict)
   contactos           CrmNegocioContacto[]
+  actividades         CrmActividadNegocio[]
 
   @@index([pipelineHubspotId, activo, cerrado])
   @@index([etapaClave, activo])
@@ -3240,6 +3244,82 @@ model CrmNegocioContacto {
   @@id([negocioHubspotId, contactoId])
   @@index([contactoId])
   @@map("crm_negocio_contactos")
+}
+
+model CrmActividad {
+  id                String                 @id @default(cuid())
+  contactoId        String                 @map("contacto_id")
+  tipo              String
+  titulo            String?
+  descripcion       String                 @db.Text
+  fechaActividad    DateTime               @map("fecha_actividad")
+  direccion         String?
+  resultado         String?
+  duracionSegundos  Int?                   @map("duracion_segundos")
+  origen            String                 @default("LOCAL")
+  hubspotId         String?                @unique @map("hubspot_id")
+  clientRequestId   String?                @unique @map("client_request_id")
+  creadoPorId       Int?                   @map("creado_por_id")
+  creadoPorNombre   String?                @map("creado_por_nombre")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  contacto          CrmRegistroHubspot     @relation("CrmActividadPrincipal", fields: [contactoId], references: [id], onDelete: Cascade)
+  contactos         CrmActividadContacto[]
+  negocios          CrmActividadNegocio[]
+  tareaSeguimiento  CrmTarea?
+
+  @@index([contactoId, fechaActividad(sort: Desc)])
+  @@index([tipo, fechaActividad(sort: Desc)])
+  @@index([origen])
+  @@map("crm_actividades")
+}
+
+model CrmActividadContacto {
+  actividadId  String             @map("actividad_id")
+  contactoId   String             @map("contacto_id")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  actividad    CrmActividad       @relation(fields: [actividadId], references: [id], onDelete: Cascade)
+  contacto     CrmRegistroHubspot @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@id([actividadId, contactoId])
+  @@index([contactoId])
+  @@map("crm_actividad_contactos")
+}
+
+model CrmActividadNegocio {
+  actividadId      String             @map("actividad_id")
+  negocioHubspotId String             @map("negocio_hubspot_id")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  actividad        CrmActividad       @relation(fields: [actividadId], references: [id], onDelete: Cascade)
+  negocio          CrmNegocioHubspot  @relation(fields: [negocioHubspotId], references: [hubspotId], onDelete: Cascade)
+
+  @@id([actividadId, negocioHubspotId])
+  @@index([negocioHubspotId])
+  @@map("crm_actividad_negocios")
+}
+
+model CrmTarea {
+  id                 String             @id @default(cuid())
+  contactoId         String             @map("contacto_id")
+  actividadOrigenId  String?            @unique @map("actividad_origen_id")
+  titulo             String
+  descripcion        String?            @db.Text
+  venceAt            DateTime            @map("vence_at")
+  estado             String              @default("PENDIENTE")
+  prioridad          String              @default("MEDIA")
+  asignadoAId        Int?                @map("asignado_a_id")
+  asignadoANombre    String?             @map("asignado_a_nombre")
+  creadoPorId        Int?                @map("creado_por_id")
+  creadoPorNombre    String?             @map("creado_por_nombre")
+  completadoAt       DateTime?           @map("completado_at")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  contacto           CrmRegistroHubspot  @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+  actividadOrigen    CrmActividad?       @relation(fields: [actividadOrigenId], references: [id], onDelete: SetNull)
+
+  @@index([contactoId, estado, venceAt])
+  @@index([asignadoAId, estado, venceAt])
+  @@map("crm_tareas")
 }
 
 model CrmSincronizacionHubspot {

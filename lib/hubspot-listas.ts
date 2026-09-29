@@ -21,6 +21,15 @@ const DEAL_PROPERTIES = [
   'description',
   'hs_next_step',
 ]
+const CALL_PROPERTIES = [
+  'hs_call_title',
+  'hs_call_body',
+  'hs_call_direction',
+  'hs_call_disposition',
+  'hs_call_duration',
+  'hs_timestamp',
+  'hubspot_owner_id',
+]
 
 export type HubspotList = {
   listId: string
@@ -47,6 +56,10 @@ type HubspotRecord = {
   updatedAt?: string
   associations?: {
     contacts?: {
+      results?: Array<{ id: string; type?: string }>
+      paging?: { next?: { after?: string } }
+    }
+    deals?: {
       results?: Array<{ id: string; type?: string }>
       paging?: { next?: { after?: string } }
     }
@@ -97,6 +110,12 @@ type HubspotSalesSnapshot = {
   deals: HubspotRecord[]
   associations: HubspotDealContactAssociation[]
   owners: HubspotOwner[]
+}
+
+type HubspotCallSnapshot = {
+  calls: HubspotRecord[]
+  contactAssociations: Array<{ callId: string; contactId: string }>
+  dealAssociations: Array<{ callId: string; dealId: string }>
 }
 
 type HubspotPropertyDefinition = {
@@ -283,6 +302,61 @@ async function getHubspotSalesSnapshot(): Promise<HubspotSalesSnapshot> {
   ])
   const associations = await getHubspotDealContactAssociations(deals)
   return { pipelines, deals, associations, owners }
+}
+
+async function getAllHubspotCalls(): Promise<HubspotRecord[]> {
+  const calls: HubspotRecord[] = []
+  let after: string | undefined
+
+  do {
+    const query = new URLSearchParams({
+      limit: '100',
+      archived: 'false',
+      properties: CALL_PROPERTIES.join(','),
+      associations: 'contacts,deals',
+    })
+    if (after) query.set('after', after)
+    const data = await hubspotRequest<{
+      results?: HubspotRecord[]
+      paging?: { next?: { after?: string } }
+    }>(`/crm/v3/objects/calls?${query}`)
+    calls.push(...(data.results || []))
+    after = data.paging?.next?.after
+  } while (after)
+
+  return [...new Map(calls.map((call) => [call.id, call])).values()]
+}
+
+async function getHubspotCallAssociations(calls: HubspotRecord[], type: 'contacts' | 'deals') {
+  const rows: Array<{ callId: string; recordId: string }> = []
+  type AssociationPage = { results?: Array<{ id: string }>; paging?: { next?: { after?: string } } }
+
+  for (const call of calls) {
+    const included = call.associations?.[type]
+    for (const association of included?.results || []) rows.push({ callId: call.id, recordId: String(association.id) })
+    let after = included?.paging?.next?.after
+    while (after) {
+      const query = new URLSearchParams({ limit: '500', after })
+      const next = await hubspotRequest<AssociationPage>(`/crm/v3/objects/calls/${encodeURIComponent(call.id)}/associations/${type}?${query}`)
+      for (const association of next.results || []) rows.push({ callId: call.id, recordId: String(association.id) })
+      after = next.paging?.next?.after
+    }
+  }
+
+  return [...new Map(rows.map((row) => [`${row.callId}:${row.recordId}`, row])).values()]
+}
+
+async function getHubspotCallSnapshot(): Promise<HubspotCallSnapshot> {
+  const calls = await getAllHubspotCalls()
+  const [contacts, deals] = await Promise.all([
+    getHubspotCallAssociations(calls, 'contacts'),
+    getHubspotCallAssociations(calls, 'deals'),
+  ])
+  return {
+    calls,
+    contactAssociations: contacts.map((row) => ({ callId: row.callId, contactId: row.recordId })),
+    dealAssociations: deals.map((row) => ({ callId: row.callId, dealId: row.recordId })),
+  }
 }
 
 async function getHubspotListDetail(listId: string): Promise<HubspotList> {
@@ -892,6 +966,10 @@ async function persistHubspotSalesSnapshot(
       `
     }
 
+    const localActivityDeals = await tx.crmActividadNegocio.findMany({
+      where: { actividad: { origen: 'LOCAL' } },
+      select: { actividadId: true, negocioHubspotId: true },
+    })
     await tx.crmNegocioContacto.deleteMany()
     await tx.crmNegocioHubspot.deleteMany()
     await tx.crmPipelineEtapaHubspot.deleteMany()
@@ -902,6 +980,9 @@ async function persistHubspotSalesSnapshot(
     for (let index = 0; index < associationRows.length; index += 1000) {
       await tx.crmNegocioContacto.createMany({ data: associationRows.slice(index, index + 1000), skipDuplicates: true })
     }
+    const availableDealIds = new Set(dealRows.map((deal) => deal.hubspotId))
+    const preservedActivityDeals = localActivityDeals.filter((association) => availableDealIds.has(association.negocioHubspotId))
+    if (preservedActivityDeals.length > 0) await tx.crmActividadNegocio.createMany({ data: preservedActivityDeals, skipDuplicates: true })
   }, { maxWait: 10_000, timeout: 60_000 })
 
   await reconciliarContactosCrmConClientes(contactRows.map((contact) => contact.email || ''))
@@ -912,6 +993,198 @@ async function persistHubspotSalesSnapshot(
     asociacionesDetectadas: associationRows.length,
     contactosAsociados: contactRows.length,
   }
+}
+
+const CALL_DISPOSITIONS: Record<string, string> = {
+  'f240bbac-87c9-4f6e-bf70-924b57d47db7': 'CONTACTADO',
+  'b2cf5968-551e-4856-9783-52b3da59a7d0': 'BUZON_DE_VOZ',
+  '73a0d17f-1163-4015-bdd5-ec830791da20': 'SIN_RESPUESTA',
+  '9d9162e7-6cf3-4944-bf63-4dff82258764': 'OCUPADO',
+  '17b47fee-58de-441e-a44c-c6300d46f273': 'NUMERO_INCORRECTO',
+}
+
+function plainText(value?: string | null, maxLength = 20_000) {
+  return String(value || '')
+    .replace(/<\/(div|li|h[1-6]|tr|blockquote)>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#(x?[0-9a-f]+);/gi, (_match, code: string) => {
+      const numeric = code.toLowerCase().startsWith('x') ? Number.parseInt(code.slice(1), 16) : Number.parseInt(code, 10)
+      return Number.isFinite(numeric) && numeric > 0 && numeric <= 0x10ffff ? String.fromCodePoint(numeric) : ''
+    })
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxLength)
+}
+
+function callDirection(value?: string | null) {
+  const normalized = String(value || '').toUpperCase()
+  if (normalized === 'INBOUND' || normalized === 'ENTRANTE') return 'ENTRANTE'
+  if (normalized === 'OUTBOUND' || normalized === 'SALIENTE') return 'SALIENTE'
+  return null
+}
+
+async function persistHubspotCallSnapshot(snapshot: HubspotCallSnapshot, owners: HubspotOwner[], remoteContactRecords: HubspotRecord[], syncedAt: Date) {
+  const ownersById = new Map(snapshot.calls.map((call) => [call.id, call]))
+  const ownerNamesById = new Map(owners.map((owner) => [owner.id, ownerName(owner)]))
+  const requestedContactIds = [...new Set(snapshot.contactAssociations.map((association) => association.contactId))]
+  const remoteContacts = new Map(remoteContactRecords.map((contact) => [contact.id, contact]))
+  const persisted = await prisma.$transaction(async (tx) => {
+  const currentContacts = new Map((await tx.crmRegistroHubspot.findMany({
+    where: { objectTypeId: '0-1', hubspotId: { in: requestedContactIds } },
+    select: { id: true, hubspotId: true, propiedades: true, propiedadesLocales: true },
+  })).map((contact) => [contact.hubspotId, contact]))
+
+  const contactRows = requestedContactIds.map((hubspotId) => {
+    const current = currentContacts.get(hubspotId)
+    const record = remoteContacts.get(hubspotId)
+    const sourceProperties = { ...asStringRecord(current?.propiedades), ...(record?.properties || {}) }
+    const effectiveProperties = { ...sourceProperties, ...asStringRecord(current?.propiedadesLocales) }
+    const fullName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim()
+    return {
+      id: current?.id || randomUUID(), hubspotId, sourceProperties,
+      nombre: fullName || effectiveProperties.email || `Contacto HubSpot #${hubspotId}`,
+      email: effectiveProperties.email?.trim().toLowerCase() || null,
+      telefono: effectiveProperties.phone || effectiveProperties.mobilephone || null,
+      empresa: effectiveProperties.company || null,
+      unidadesNegocio: parseCrmBusinessUnits(effectiveProperties[CRM_BUSINESS_UNIT_PROPERTY]),
+      hubspotCreadoAt: toDate(record?.createdAt), hubspotActualizadoAt: toDate(record?.updatedAt),
+    }
+  })
+
+  if (contactRows.length > 0) {
+    const payload = JSON.stringify(contactRows.map((contact) => ({
+      id: contact.id, hubspot_id: contact.hubspotId, nombre: contact.nombre, email: contact.email,
+      telefono: contact.telefono, empresa: contact.empresa, unidades_negocio: contact.unidadesNegocio,
+      propiedades: contact.sourceProperties, hubspot_creado_at: contact.hubspotCreadoAt?.toISOString() || null,
+      hubspot_actualizado_at: contact.hubspotActualizadoAt?.toISOString() || null, sincronizado_at: syncedAt.toISOString(),
+    })))
+    await tx.$executeRaw`
+      INSERT INTO crm_registros_hubspot AS existing (
+        id, object_type_id, hubspot_id, nombre, email, telefono, empresa, unidades_negocio,
+        propiedades, hubspot_creado_at, hubspot_actualizado_at, sincronizado_at, created_at, updated_at
+      )
+      SELECT row.id, '0-1', row.hubspot_id, row.nombre, row.email, row.telefono, row.empresa,
+        ARRAY(SELECT jsonb_array_elements_text(COALESCE(row.unidades_negocio, '[]'::jsonb))),
+        row.propiedades, row.hubspot_creado_at, row.hubspot_actualizado_at, row.sincronizado_at, NOW(), NOW()
+      FROM jsonb_to_recordset(${payload}::jsonb) AS row(
+        id text, hubspot_id text, nombre text, email text, telefono text, empresa text,
+        unidades_negocio jsonb, propiedades jsonb, hubspot_creado_at timestamptz,
+        hubspot_actualizado_at timestamptz, sincronizado_at timestamptz
+      )
+      ON CONFLICT (object_type_id, hubspot_id) DO UPDATE SET
+        nombre = EXCLUDED.nombre, email = EXCLUDED.email, telefono = EXCLUDED.telefono,
+        empresa = EXCLUDED.empresa, unidades_negocio = EXCLUDED.unidades_negocio,
+        propiedades = EXCLUDED.propiedades,
+        hubspot_creado_at = COALESCE(EXCLUDED.hubspot_creado_at, existing.hubspot_creado_at),
+        hubspot_actualizado_at = COALESCE(EXCLUDED.hubspot_actualizado_at, existing.hubspot_actualizado_at),
+        sincronizado_at = EXCLUDED.sincronizado_at, updated_at = NOW()
+    `
+  }
+
+  const localContacts = new Map((await tx.crmRegistroHubspot.findMany({
+    where: { objectTypeId: '0-1', hubspotId: { in: requestedContactIds } }, select: { id: true, hubspotId: true },
+  })).map((contact) => [contact.hubspotId, contact.id]))
+  const callContactRows = snapshot.contactAssociations.flatMap((association) => {
+    const contactoId = localContacts.get(association.contactId)
+    return contactoId ? [{ callId: association.callId, contactoId }] : []
+  })
+  const contactsByCall = new Map<string, string[]>()
+  for (const association of callContactRows) {
+    contactsByCall.set(association.callId, [...(contactsByCall.get(association.callId) || []), association.contactoId])
+  }
+  const activityRows = snapshot.calls.flatMap((call) => {
+    const contactoId = contactsByCall.get(call.id)?.[0]
+    if (!contactoId) return []
+    const properties = call.properties || {}
+    const direction = callDirection(properties.hs_call_direction)
+    const durationMs = Number(properties.hs_call_duration || 0)
+    const ownerId = properties.hubspot_owner_id || null
+    return [{
+      id: randomUUID(), contactoId, hubspotId: call.id,
+      titulo: plainText(properties.hs_call_title, 250) || (direction === 'ENTRANTE' ? 'Llamada entrante' : 'Llamada saliente'),
+      descripcion: plainText(properties.hs_call_body) || 'Llamada importada sin resumen disponible.',
+      fechaActividad: (toDate(properties.hs_timestamp || undefined) || toDate(call.createdAt) || syncedAt).toISOString(),
+      direccion: direction,
+      resultado: CALL_DISPOSITIONS[properties.hs_call_disposition || ''] || (properties.hs_call_disposition ? 'OTRO' : null),
+      duracionSegundos: Number.isFinite(durationMs) && durationMs > 0 ? Math.round(durationMs / 1000) : null,
+      creadoPorNombre: (ownerId ? ownerNamesById.get(ownerId) : null) || (ownerId ? `HubSpot #${ownerId}` : 'HubSpot'),
+    }]
+  })
+
+  if (activityRows.length > 0) {
+    const payload = JSON.stringify(activityRows.map((activity) => ({
+      id: activity.id, contacto_id: activity.contactoId, hubspot_id: activity.hubspotId,
+      titulo: activity.titulo, descripcion: activity.descripcion, fecha_actividad: activity.fechaActividad,
+      direccion: activity.direccion, resultado: activity.resultado, duracion_segundos: activity.duracionSegundos,
+      creado_por_nombre: activity.creadoPorNombre,
+    })))
+    await tx.$executeRaw`
+      INSERT INTO crm_actividades AS existing (
+        id, contacto_id, tipo, titulo, descripcion, fecha_actividad, direccion, resultado,
+        duracion_segundos, origen, hubspot_id, creado_por_nombre, created_at, updated_at
+      )
+      SELECT row.id, row.contacto_id, 'LLAMADA', row.titulo, row.descripcion, row.fecha_actividad,
+        row.direccion, row.resultado, row.duracion_segundos, 'HUBSPOT', row.hubspot_id,
+        row.creado_por_nombre, NOW(), NOW()
+      FROM jsonb_to_recordset(${payload}::jsonb) AS row(
+        id text, contacto_id text, hubspot_id text, titulo text, descripcion text,
+        fecha_actividad timestamptz, direccion text, resultado text, duracion_segundos integer,
+        creado_por_nombre text
+      )
+      ON CONFLICT (hubspot_id) DO UPDATE SET
+        contacto_id = EXCLUDED.contacto_id,
+        titulo = EXCLUDED.titulo, descripcion = EXCLUDED.descripcion,
+        fecha_actividad = EXCLUDED.fecha_actividad, direccion = EXCLUDED.direccion,
+        resultado = EXCLUDED.resultado, duracion_segundos = EXCLUDED.duracion_segundos,
+        creado_por_nombre = EXCLUDED.creado_por_nombre, updated_at = NOW()
+    `
+  }
+
+  const importedActivities = await tx.crmActividad.findMany({
+    where: { origen: 'HUBSPOT', hubspotId: { in: snapshot.calls.map((call) => call.id) } },
+    select: { id: true, hubspotId: true },
+  })
+  const importedActivityIds = importedActivities.map((activity) => activity.id)
+  if (importedActivityIds.length > 0) {
+    await tx.crmActividadContacto.deleteMany({ where: { actividadId: { in: importedActivityIds } } })
+    await tx.crmActividadNegocio.deleteMany({ where: { actividadId: { in: importedActivityIds } } })
+  }
+  const activitiesByCall = new Map(importedActivities.flatMap((activity) => activity.hubspotId ? [[activity.hubspotId, activity.id] as const] : []))
+  const activityContactRows = callContactRows.flatMap((association) => {
+    const actividadId = activitiesByCall.get(association.callId)
+    return actividadId ? [{ actividadId, contactoId: association.contactoId }] : []
+  })
+  if (activityContactRows.length > 0) await tx.crmActividadContacto.createMany({ data: activityContactRows, skipDuplicates: true })
+  const availableDeals = new Set((await tx.crmNegocioHubspot.findMany({
+    where: { hubspotId: { in: snapshot.dealAssociations.map((association) => association.dealId) } },
+    select: { hubspotId: true },
+  })).map((deal) => deal.hubspotId))
+  const dealRows = snapshot.dealAssociations.flatMap((association) => {
+    const actividadId = activitiesByCall.get(association.callId)
+    return actividadId && availableDeals.has(association.dealId) ? [{ actividadId, negocioHubspotId: association.dealId }] : []
+  })
+  if (dealRows.length > 0) await tx.crmActividadNegocio.createMany({ data: dealRows, skipDuplicates: true })
+
+  return {
+    llamadasDetectadas: snapshot.calls.length,
+    llamadasImportadas: activityRows.length,
+    relacionesLlamadaContacto: activityContactRows.length,
+    llamadasSinContacto: snapshot.calls.length - new Set(snapshot.contactAssociations.map((association) => association.callId)).size,
+    relacionesLlamadaNegocio: dealRows.length,
+    emails: contactRows.map((contact) => contact.email || ''),
+  }
+  }, { maxWait: 10_000, timeout: 60_000 })
+  await reconciliarContactosCrmConClientes(persisted.emails)
+  const { emails: _emails, ...result } = persisted
+  return result
 }
 
 export async function previewHubspotLists() {
@@ -938,7 +1211,7 @@ export async function previewHubspotLists() {
 }
 
 export async function previewHubspotSales() {
-  const snapshot = await getHubspotSalesSnapshot()
+  const [snapshot, callSnapshot] = await Promise.all([getHubspotSalesSnapshot(), getHubspotCallSnapshot()])
   const pipelines = buildSalesDefinitions(snapshot)
   if (snapshot.deals.length > 0 && snapshot.pipelines.length === 0) {
     throw new Error('HubSpot ha devuelto negocios pero ningún pipeline. Se conserva el snapshot local anterior.')
@@ -957,6 +1230,8 @@ export async function previewHubspotSales() {
     openDeals,
     associations: snapshot.associations.length,
     contacts: new Set(snapshot.associations.map((association) => association.contactId)).size,
+    calls: callSnapshot.calls.length,
+    callAssociations: callSnapshot.contactAssociations.length,
   }
 }
 
@@ -976,11 +1251,12 @@ export async function syncHubspotSales(executedBy: string) {
   }
 
   try {
-    const snapshot = await getHubspotSalesSnapshot()
-    const [localDeals, localPipelines, localAssociations] = await Promise.all([
+    const [snapshot, callSnapshot] = await Promise.all([getHubspotSalesSnapshot(), getHubspotCallSnapshot()])
+    const [localDeals, localPipelines, localAssociations, localCalls] = await Promise.all([
       prisma.crmNegocioHubspot.count({ where: { activo: true } }),
       prisma.crmPipelineHubspot.count(),
       prisma.crmNegocioContacto.count(),
+      prisma.crmActividad.count({ where: { origen: 'HUBSPOT', tipo: 'LLAMADA' } }),
     ])
     if (snapshot.deals.length === 0 && localDeals > 0) {
       throw new Error('HubSpot ha devuelto cero negocios de forma inesperada. Se conserva el snapshot comercial anterior.')
@@ -994,8 +1270,14 @@ export async function syncHubspotSales(executedBy: string) {
     if (snapshot.associations.length === 0 && localAssociations > 0 && snapshot.deals.length > 0) {
       throw new Error('HubSpot ha devuelto cero relaciones negocio-contacto de forma inesperada. Se conserva el snapshot comercial anterior.')
     }
+    if (callSnapshot.calls.length === 0 && localCalls > 0) {
+      throw new Error('HubSpot ha devuelto cero llamadas de forma inesperada. Se conserva la actividad histórica ya importada.')
+    }
 
-    const contactIds = [...new Set(snapshot.associations.map((association) => association.contactId))]
+    const contactIds = [...new Set([
+      ...snapshot.associations.map((association) => association.contactId),
+      ...callSnapshot.contactAssociations.map((association) => association.contactId),
+    ])]
     const activeContacts = await getRecords('0-1', contactIds)
     const activeIds = new Set(activeContacts.map((contact) => contact.id))
     const missingIds = contactIds.filter((id) => !activeIds.has(id))
@@ -1005,9 +1287,11 @@ export async function syncHubspotSales(executedBy: string) {
     const unavailableContacts = contactIds.filter((id) => !returnedIds.has(id))
     const syncedAt = new Date()
     const result = await persistHubspotSalesSnapshot(snapshot, contacts, syncedAt)
+    const callResult = await persistHubspotCallSnapshot(callSnapshot, snapshot.owners, contacts, syncedAt)
     const details = unavailableContacts.length > 0
       ? [{ aviso: `${unavailableContacts.length} contactos asociados ya no están disponibles en HubSpot; se conservan como referencias locales.` }]
       : []
+    details.push({ aviso: `${callResult.llamadasImportadas} relaciones de llamada-contacto importadas desde ${callResult.llamadasDetectadas} llamadas.` })
 
     await prisma.crmSincronizacionHubspot.update({
       where: { id: sync.id },
@@ -1023,7 +1307,7 @@ export async function syncHubspotSales(executedBy: string) {
         detalle: details,
       },
     })
-    return { ...result, contactosNoDisponibles: unavailableContacts.length }
+    return { ...result, ...callResult, contactosNoDisponibles: unavailableContacts.length }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     await prisma.crmSincronizacionHubspot.update({
