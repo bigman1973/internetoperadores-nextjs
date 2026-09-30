@@ -243,6 +243,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
       <li key={item.name}>
         <Link
           href={item.href}
+          prefetch={false}
           onClick={onNavigate}
           className={`
             group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6
@@ -305,7 +306,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
     <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
       {/* Logo */}
       <div className="flex h-16 shrink-0 items-center">
-        <Link href="/admin" className="flex items-center" onClick={onNavigate}>
+        <Link href="/admin" prefetch={false} className="flex items-center" onClick={onNavigate}>
           <span className="text-2xl font-bold">
             <span className="text-black">internet</span>
             <span className="text-orange-500">operadores</span>

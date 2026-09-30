@@ -30,22 +30,11 @@ export async function GET(request: Request) {
       ];
     }
 
-    const leads = await prisma.leadSolucion.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-    });
-
-    // Estadísticas rápidas
-    const stats = await prisma.leadSolucion.groupBy({
-      by: ['estado'],
-      _count: { id: true },
-    });
-
-    // Estadísticas por tipo
-    const statsTipo = await prisma.leadSolucion.groupBy({
-      by: ['tipo'],
-      _count: { id: true },
-    });
+    const [leads, stats, statsTipo] = await Promise.all([
+      prisma.leadSolucion.findMany({ where, orderBy: { createdAt: 'desc' } }),
+      prisma.leadSolucion.groupBy({ by: ['estado'], _count: { id: true } }),
+      prisma.leadSolucion.groupBy({ by: ['tipo'], _count: { id: true } }),
+    ]);
 
     return NextResponse.json({ leads, stats, statsTipo });
   } catch (error: any) {

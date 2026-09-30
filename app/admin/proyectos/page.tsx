@@ -44,17 +44,25 @@ export default function ProyectosPage() {
       const params = new URLSearchParams()
       if (filtroTipo) params.set('tipo', filtroTipo)
       if (filtroEstado) params.set('estado', filtroEstado)
-      const res = await fetch(`/api/admin/proyectos?${params}`)
-      const data = await res.json()
-      setProyectos(data.proyectos || [])
+      const parse = async (response: Response) => {
+        if (!response.ok) throw new Error(`Error HTTP ${response.status}`)
+        return response.json()
+      }
+      const [projectResult, employeeResult] = await Promise.allSettled([
+        fetch(`/api/admin/proyectos?${params}`).then(parse),
+        fetch('/api/admin/empleados?view=project-select').then(parse),
+      ])
+      if (projectResult.status === 'fulfilled') setProyectos(projectResult.value.proyectos || [])
+      else console.error('Error cargando proyectos:', projectResult.reason)
+      if (employeeResult.status === 'fulfilled') {
+        const emps = employeeResult.value.empleados || employeeResult.value || []
+        setEmpleados(Array.isArray(emps) ? emps : [])
+      } else {
+        console.error('Error cargando empleados:', employeeResult.reason)
+        setEmpleados([])
+      }
     } catch (e) { console.error(e) }
-    try {
-      const empRes = await fetch('/api/admin/empleados')
-      const empData = await empRes.json()
-      const emps = empData.empleados || empData || []
-      setEmpleados(Array.isArray(emps) ? emps : [])
-    } catch (e) { setEmpleados([]) }
-    setLoading(false)
+    finally { setLoading(false) }
   }, [filtroTipo, filtroEstado])
 
   useEffect(() => { fetchData() }, [fetchData])

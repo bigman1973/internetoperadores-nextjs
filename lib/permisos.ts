@@ -1,11 +1,21 @@
 import prisma from '@/lib/prisma'
 
+// Solo se almacenan códigos de áreas públicas, nunca identidades ni permisos.
+// La TTL permite revalidar un área si la configuración cambia en otra instancia.
+const registeredAreas = new Map<string, { expires: number; pending?: Promise<void> }>()
+const AREA_TTL_MS = 5 * 60 * 1000
+
 /**
  * Registra un área automáticamente si no existe.
  * Llamar desde el server-side de cada página protegida.
  * Si el área ya existe, no hace nada.
  */
 export async function registrarArea(codigo: string, nombre: string, padre?: string) {
+  const cached = registeredAreas.get(codigo)
+  if (cached?.pending) return cached.pending
+  if (cached && cached.expires > Date.now()) return
+
+  const pending = (async () => {
   try {
     await prisma.permisoArea.upsert({
       where: { codigo },
@@ -17,10 +27,15 @@ export async function registrarArea(codigo: string, nombre: string, padre?: stri
         activo: true,
       },
     })
+    registeredAreas.set(codigo, { expires: Date.now() + AREA_TTL_MS })
   } catch (e) {
+    registeredAreas.delete(codigo)
     // Silenciar errores de registro (puede haber race conditions)
     console.warn(`[permisos] Error registrando área ${codigo}:`, e)
   }
+  })()
+  registeredAreas.set(codigo, { expires: 0, pending })
+  return pending
 }
 
 /**
@@ -46,14 +61,20 @@ export async function verificarPermisoServer(
   }
 
   // Buscar permisos del usuario en cualquiera de los niveles
-  const permisos = await prisma.permisoUsuario.findMany({
-    where: {
-      usuarioId,
-      area: {
-        codigo: { in: codigosHerencia },
+  const [areaObjetivo, permisos] = await Promise.all([
+    prisma.permisoArea.findUnique({ where: { codigo: codigoArea }, select: { activo: true } }),
+    prisma.permisoUsuario.findMany({
+      where: {
+        usuarioId,
+        area: {
+          codigo: { in: codigosHerencia },
+          activo: true,
+        },
       },
-    },
-  })
+    }),
+  ])
+
+  if (areaObjetivo?.activo === false) return { lectura: false, escritura: false }
 
   if (permisos.length === 0) {
     return { lectura: false, escritura: false }

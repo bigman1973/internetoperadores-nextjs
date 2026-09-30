@@ -21,54 +21,41 @@ export async function GET(req: NextRequest) {
     ...(mes ? { mesImportacion: mes } : {}),
   };
 
-  const totalTickets = await prisma.ticketDraxton.count({ where: ticketsWhere });
-
-  const ticketsCerrados = await prisma.ticketDraxton.count({
-    where: { ...ticketsWhere, estatus: { in: ['Completed', 'Resolved'] } },
-  });
-
-  // Tickets por mes
-  const ticketsPorMes = await prisma.ticketDraxton.groupBy({
-    by: ['mesImportacion'],
-    where: { ...plantaFilter, anioImportacion: anio },
-    _count: { id: true },
-  });
-
-  // Tickets por categoría (nivel 2)
-  const ticketsPorCategoria = await prisma.ticketDraxton.groupBy({
-    by: ['categoriaNivel2'],
-    where: ticketsWhere,
-    _count: { id: true },
-    orderBy: { _count: { id: 'desc' } },
-  });
-
-  // Tickets por técnico
-  const ticketsPorTecnico = await prisma.ticketDraxton.groupBy({
-    by: ['asignadoA'],
-    where: ticketsWhere,
-    _count: { id: true },
-    orderBy: { _count: { id: 'desc' } },
-  });
-
-  // Tickets por severidad
-  const ticketsPorSeveridad = await prisma.ticketDraxton.groupBy({
-    by: ['severidad'],
-    where: ticketsWhere,
-    _count: { id: true },
-  });
-
-  // SLA status
-  const ticketsPorSla = await prisma.ticketDraxton.groupBy({
-    by: ['slaStatus'],
-    where: ticketsWhere,
-    _count: { id: true },
-  });
-
-  // MTTR (tiempo medio de resolución en horas) - solo tickets cerrados con fecha cierre
-  const ticketsConCierre = await prisma.ticketDraxton.findMany({
-    where: { ...ticketsWhere, fechaCierre: { not: null } },
-    select: { fechaCreacion: true, fechaCierre: true },
-  });
+  // Las consultas comparten filtros pero ninguna depende del resultado de otra.
+  const [
+    totalTickets, ticketsCerrados, ticketsPorMes, ticketsPorCategoria,
+    ticketsPorTecnico, ticketsPorSeveridad, ticketsPorSla, ticketsConCierre,
+    ticketsProactivos, ticketsPorTipo, proyectos, kpiMensual, kpisAnuales,
+  ] = await Promise.all([
+    prisma.ticketDraxton.count({ where: ticketsWhere }),
+    prisma.ticketDraxton.count({ where: { ...ticketsWhere, estatus: { in: ['Completed', 'Resolved'] } } }),
+    prisma.ticketDraxton.groupBy({
+      by: ['mesImportacion'], where: { ...plantaFilter, anioImportacion: anio }, _count: { id: true },
+    }),
+    prisma.ticketDraxton.groupBy({
+      by: ['categoriaNivel2'], where: ticketsWhere, _count: { id: true }, orderBy: { _count: { id: 'desc' } },
+    }),
+    prisma.ticketDraxton.groupBy({
+      by: ['asignadoA'], where: ticketsWhere, _count: { id: true }, orderBy: { _count: { id: 'desc' } },
+    }),
+    prisma.ticketDraxton.groupBy({ by: ['severidad'], where: ticketsWhere, _count: { id: true } }),
+    prisma.ticketDraxton.groupBy({ by: ['slaStatus'], where: ticketsWhere, _count: { id: true } }),
+    prisma.ticketDraxton.findMany({
+      where: { ...ticketsWhere, fechaCierre: { not: null } },
+      select: { fechaCreacion: true, fechaCierre: true },
+    }),
+    prisma.ticketDraxton.count({ where: { ...ticketsWhere, categoriaTipo: { contains: 'SOLICITUD' } } }),
+    prisma.ticketDraxton.groupBy({ by: ['categoriaTipo'], where: ticketsWhere, _count: { id: true } }),
+    prisma.proyectoContratoDraxton.findMany({
+      where: { activo: true },
+      include: { responsable: { select: { nombreCompleto: true } } },
+      orderBy: [{ prioridad: 'asc' }, { orden: 'asc' }],
+    }),
+    mes ? prisma.kpiMensualDraxton.findUnique({
+      where: { planta_mes_anio: { planta: planta === 'TODAS' ? 'LLEIDA' : planta, mes, anio } },
+    }) : Promise.resolve(null),
+    prisma.kpiMensualDraxton.findMany({ where: { ...plantaFilter, anio }, orderBy: { mes: 'asc' } }),
+  ]);
 
   let mttrHoras = 0;
   if (ticketsConCierre.length > 0) {
@@ -80,41 +67,13 @@ export async function GET(req: NextRequest) {
   }
 
   // Ratio proactividad: tickets tipo SOLICITUDES (generados por IT) vs INCIDENCIAS (usuarios)
-  const ticketsProactivos = await prisma.ticketDraxton.count({
-    where: { ...ticketsWhere, categoriaTipo: { contains: 'SOLICITUD' } },
-  });
   const ratioProactividad = totalTickets > 0 ? (ticketsProactivos / totalTickets) * 100 : 0;
 
-  // Tickets por tipo (solicitudes vs incidencias)
-  const ticketsPorTipo = await prisma.ticketDraxton.groupBy({
-    by: ['categoriaTipo'],
-    where: ticketsWhere,
-    _count: { id: true },
-  });
-
   // === PROYECTOS INTERNOS ===
-  const proyectos = await prisma.proyectoContratoDraxton.findMany({
-    where: { activo: true },
-    include: { responsable: { select: { nombreCompleto: true } } },
-    orderBy: [{ prioridad: 'asc' }, { orden: 'asc' }],
-  });
-
   const proyectosActivos = proyectos.filter(p => p.estado === 'en_curso');
   const proyectosCompletados = proyectos.filter(p => p.estado === 'completado');
   const proyectosPlanificados = proyectos.filter(p => p.estado === 'planificado');
   const proyectosPausados = proyectos.filter(p => p.estado === 'pausado');
-
-  // === BLOQUE 2-4: KPIs manuales ===
-  const kpiMensual = mes
-    ? await prisma.kpiMensualDraxton.findUnique({
-        where: { planta_mes_anio: { planta: planta === 'TODAS' ? 'LLEIDA' : planta, mes, anio } },
-      })
-    : null;
-
-  const kpisAnuales = await prisma.kpiMensualDraxton.findMany({
-    where: { ...plantaFilter, anio },
-    orderBy: { mes: 'asc' },
-  });
 
   // Acumulados anuales de KPIs manuales
   const acumuladoKpis = kpisAnuales.reduce(

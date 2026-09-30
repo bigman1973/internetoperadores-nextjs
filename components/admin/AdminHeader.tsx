@@ -20,16 +20,23 @@ export default function AdminHeader() {
   const { isSuperAdmin, isViewingAs, isViewingAsUser, viewingUser, activeRole, setViewAsRole, setViewAsUser } = useRole()
   const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([])
   const [showUserSelector, setShowUserSelector] = useState(false)
+  const [usersLoaded, setUsersLoaded] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState(false)
 
-  // Cargar lista de usuarios para el selector
+  // La mayoría de visitas no utiliza el visor; no competir con las consultas de la página.
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetch('/api/admin/usuarios')
-        .then(res => res.json())
-        .then(data => setUsuarios(data.usuarios || []))
-        .catch(err => console.error('Error cargando usuarios:', err))
-    }
-  }, [isSuperAdmin])
+    if (!isSuperAdmin || !showUserSelector || usersLoaded) return
+    const controller = new AbortController()
+    setUsersLoading(true)
+    setUsersError(false)
+    fetch('/api/admin/usuarios', { signal: controller.signal })
+      .then(res => { if (!res.ok) throw new Error('No se pudo cargar la lista de usuarios'); return res.json() })
+      .then(data => { setUsuarios(data.usuarios || []); setUsersLoaded(true) })
+      .catch(err => { if (!controller.signal.aborted) { setUsersError(true); console.error('Error cargando usuarios:', err) } })
+      .finally(() => { if (!controller.signal.aborted) setUsersLoading(false) })
+    return () => controller.abort()
+  }, [isSuperAdmin, showUserSelector, usersLoaded])
   
   return (
     <header className="sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-x-2 border-b border-gray-200 bg-white/95 px-2 py-2 shadow-sm backdrop-blur sm:gap-x-4 sm:px-6 lg:px-8">
@@ -111,6 +118,8 @@ export default function AdminHeader() {
                     <div className="p-2 border-b border-gray-100">
                       <p className="text-[10px] text-gray-500 uppercase font-semibold">Ver como usuario</p>
                     </div>
+                    {!usersLoaded && !usersError && <p role="status" className="px-3 py-3 text-xs text-gray-500">Cargando usuarios…</p>}
+                    {!usersLoading && usersError && <p role="alert" className="px-3 py-3 text-xs text-red-700">No se pudieron cargar. Cierra y vuelve a abrir para reintentar.</p>}
                     {usuarios.filter(u => u.rol !== 'SUPER_ADMIN').map(u => (
                       <button
                         key={u.id}

@@ -3,10 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { calcularFinanzasProyecto } from '@/lib/proyectos-finanzas'
+import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const denied = await checkAdminAreaRead('admin.proyectos', [], session)
+  if (denied) return denied
 
   const tipo = req.nextUrl.searchParams.get('tipo') // 'cliente', 'interno' o null (todos)
   const estado = req.nextUrl.searchParams.get('estado') // 'ACTIVO', 'COMPLETADO', etc.
@@ -82,6 +85,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const denied = await checkAdminAreaWrite('admin.proyectos', [], session)
+  if (denied) return denied
 
   const body = await req.json()
   const { accion } = body

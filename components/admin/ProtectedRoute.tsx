@@ -20,13 +20,24 @@ const ROUTE_PARENT_MAP: Record<string, string> = {
   'admin.subida_precios': 'admin.subida_precios',
 }
 
+const recentlyRegistered = new Map<string, number>()
+const REGISTRATION_TTL_MS = 5 * 60 * 1000
+
 /**
  * Mapea una ruta del panel admin a un código de área de permisos.
  * La conversión es automática: /admin/clientes/ggcc/draxton/contratos → admin.clientes.ggcc.draxton.contratos
  * Con corrección de rutas planas que deberían estar anidadas.
  */
-function pathToAreaCode(pathname: string): string {
-  const withoutAdmin = pathname.replace(/^\/admin\/?/, '')
+export function pathToAreaCode(pathname: string): string {
+  // Una ficha no es un área: /contactos/[id] hereda de /contactos.
+  // Evita crear un permiso distinto (y un POST) por cada registro visitado.
+  const segments = pathname.replace(/^\/admin\/?/, '').split('/').filter(Boolean)
+  const dynamicIndex = segments.findIndex((segment) =>
+    /^\d+$/.test(segment) ||
+    /^c[a-z0-9]{23,}$/i.test(segment) ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)
+  )
+  const withoutAdmin = (dynamicIndex === -1 ? segments : segments.slice(0, dynamicIndex)).join('/')
   
   if (!withoutAdmin) return 'admin' // Dashboard principal
   
@@ -48,20 +59,22 @@ function pathToAreaCode(pathname: string): string {
  * Auto-registra el área en la base de datos si no existe.
  * No registra áreas que están en la lista de ignorados (ya mapeadas manualmente).
  */
-function useAutoRegisterArea(areaCode: string, pathname: string) {
+function useAutoRegisterArea(areaCode: string) {
   useEffect(() => {
     if (!areaCode || areaCode === 'admin') return
-    
+    if ((recentlyRegistered.get(areaCode) || 0) > Date.now()) return
+    recentlyRegistered.set(areaCode, Date.now() + REGISTRATION_TTL_MS)
     fetch('/api/admin/permisos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'auto_registrar',
         codigo: areaCode,
-        pathname: pathname,
       }),
-    }).catch(() => {})
-  }, [areaCode, pathname])
+    }).then((response) => {
+      if (!response.ok) recentlyRegistered.delete(areaCode)
+    }).catch(() => { recentlyRegistered.delete(areaCode) })
+  }, [areaCode])
 }
 
 /**
@@ -89,7 +102,7 @@ export default function ProtectedRoute({ children }: { children: React.ReactNode
   const areaCode = pathToAreaCode(pathname)
   
   // Auto-registrar el área (solo para SUPER_ADMIN, en background)
-  useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '', pathname)
+  useAutoRegisterArea(isSuperAdmin && !isViewingAs ? areaCode : '')
 
   // SUPER_ADMIN real sin simulación: acceso total
   if (isSuperAdmin && !isViewingAs) {

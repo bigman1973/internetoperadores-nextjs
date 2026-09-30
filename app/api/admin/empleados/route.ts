@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-
-const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
+import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 
 /**
  * GET /api/admin/empleados
@@ -18,22 +17,21 @@ const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.email) {
+    if (!session?.user?.email || session.user.userType !== 'admin') {
       return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
     }
-    if (!ROLES_PERMITIDOS.includes(session.user.role || '')) {
-      // Verificar si tiene permisos granulares (perfil asignado o permisos específicos)
-      const usuario = await prisma.usuarioAdmin.findUnique({
-        where: { email: session.user.email },
-        select: { perfilAsignado: true, permisos: true }
-      });
-      const tienePermisos = usuario?.perfilAsignado || (Array.isArray(usuario?.permisos) && (usuario.permisos as any[]).length > 0);
-      if (!tienePermisos) {
-        return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-      }
-    }
-
     const { searchParams } = new URL(req.url);
+    if (searchParams.get('view') === 'project-select') {
+      const denied = await checkAdminAreaRead('admin.proyectos', [], session);
+      if (denied) return denied;
+      const empleados = await prisma.empleado.findMany({
+        select: { id: true, nombreCompleto: true, departamento: true, costeHoraActual: true },
+        orderBy: { nombreCompleto: 'asc' },
+      });
+      return NextResponse.json({ empleados });
+    }
+    const denied = await checkAdminAreaRead('admin.personal.empleados', ['CONTABILIDAD', 'RRHH'], session);
+    if (denied) return denied;
     const estado = searchParams.get('estado') || 'todos';
     const periodo = searchParams.get('periodo') || 'mes';
     const mes = parseInt(searchParams.get('mes') || '0');

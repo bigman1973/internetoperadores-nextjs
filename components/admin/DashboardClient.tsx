@@ -47,9 +47,7 @@ export default function DashboardClient({
   const displayName = (isViewingAsUser && viewingUser) ? viewingUser.nombre : userName
   
   // Solo mostrar KPIs si es directivo real (no simulando otro rol)
-  const showKPIs = (isSuperAdmin && !isViewingAs) || 
-    (effectiveRole === 'GERENTE' && !isViewingAs) ||
-    (effectiveRole === 'SUPER_ADMIN')
+  const showKPIs = !isViewingAs && (isSuperAdmin || effectiveRole === 'GERENTE')
 
   return (
     <>

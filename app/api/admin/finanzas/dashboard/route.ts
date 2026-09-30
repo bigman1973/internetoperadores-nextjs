@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 
 export async function GET(req: NextRequest) {
   try {
+    const denied = await checkAdminAreaRead('admin.finanzas', ['CONTABILIDAD']);
+    if (denied) return denied;
     const { searchParams } = new URL(req.url);
     const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString());
     const trimestre = searchParams.get('trimestre'); // 1, 2, 3, 4 o null para todo el año
@@ -18,36 +21,41 @@ export async function GET(req: NextRequest) {
       hasta = new Date(year, 11, 31, 23, 59, 59);
     }
 
-    // 1. Saldos bancarios actuales
-    const cuentas = await prisma.cuentaBancaria.findMany({
-      where: { activa: true },
-      orderBy: { banco: 'asc' },
-    });
+    const mesesNominas = trimestre
+      ? Array.from({ length: 3 }, (_, i) => (parseInt(trimestre) - 1) * 3 + i + 1)
+      : Array.from({ length: 12 }, (_, i) => i + 1);
 
-    // 2. Facturas recibidas (IVA Soportado)
-    const facturasRecibidas = await prisma.facturaRecibida.findMany({
-      where: {
-        fecha: { gte: desde, lte: hasta },
-        estado: { not: 'RECHAZADA' },
-        deducibleIva: true,
-      },
-    });
+    // Lecturas independientes; los cálculos y criterios contables permanecen idénticos.
+    const [cuentas, facturasRecibidas, facturasISP, movimientos, facturasPendientes, nominasPeriodo] = await Promise.all([
+      prisma.cuentaBancaria.findMany({
+        where: { activa: true }, orderBy: { banco: 'asc' },
+        select: { id: true, banco: true, alias: true, saldoActual: true, fechaSaldo: true },
+      }),
+      prisma.facturaRecibida.findMany({
+        where: { fecha: { gte: desde, lte: hasta }, estado: { not: 'RECHAZADA' }, deducibleIva: true },
+        select: { importeIva: true, base: true, importeIrpf: true, total: true },
+      }),
+      prisma.factura.findMany({
+        where: { ejercicio: year, ...(trimestre ? { fecha: { gte: desde, lte: hasta } } : {}) },
+        select: { total: true, totalImpuesto: true, base: true, situacion: true, totalPendiente: true },
+      }),
+      prisma.movimientoBancario.findMany({
+        where: { fechaOperacion: { gte: desde, lte: hasta } },
+        select: { importe: true, categoria: true, concepto: true, fechaOperacion: true, conciliado: true, tipoPago: true, pagoACuentaVola: true },
+      }),
+      prisma.facturaRecibida.count({ where: { estado: 'PENDIENTE_REVISION' } }),
+      prisma.nomina.findMany({
+        where: { anio: year, mes: { in: mesesNominas } },
+        select: { irpf: true, ssEmpresa: true, ssTrabajador: true, mes: true },
+      }),
+    ]);
 
     const ivaSoportado = facturasRecibidas.reduce((sum, f) => sum + f.importeIva, 0);
     const baseImponibleCompras = facturasRecibidas.reduce((sum, f) => sum + f.base, 0);
     const irpfRetenido = facturasRecibidas.reduce((sum, f) => sum + f.importeIrpf, 0);
     const totalCompras = facturasRecibidas.reduce((sum, f) => sum + f.total, 0);
 
-    // 3. Facturas emitidas - usar tabla 'facturas' (ISPGestión, actualizada con sync)
-    const facturasISP = await prisma.factura.findMany({
-      where: {
-        ejercicio: year,
-        ...(trimestre ? {
-          fecha: { gte: desde, lte: hasta },
-        } : {}),
-      },
-    });
-
+    // Facturas emitidas - tabla 'facturas' (ISPGestión).
     const totalVentas = facturasISP.reduce((sum, f) => sum + Number(f.total), 0);
     const totalImpuestoVentas = facturasISP.reduce((sum, f) => sum + Number(f.totalImpuesto), 0);
     const baseImponibleVentas = facturasISP.reduce((sum, f) => sum + Number(f.base), 0);
@@ -64,13 +72,7 @@ export async function GET(req: NextRequest) {
       facturasEmitidasPorEstado[estado].total += Number(f.total);
     }
 
-    // 4. Movimientos por categoría
-    const movimientos = await prisma.movimientoBancario.findMany({
-      where: {
-        fechaOperacion: { gte: desde, lte: hasta },
-      },
-    });
-
+    // Movimientos por categoría.
     const ingresos = movimientos.filter(m => m.importe > 0).reduce((sum, m) => sum + m.importe, 0);
     const totalSalidas = movimientos.filter(m => m.importe < 0).reduce((sum, m) => sum + Math.abs(m.importe), 0);
 
@@ -138,11 +140,7 @@ export async function GET(req: NextRequest) {
     const conciliados = movimientos.filter(m => m.conciliado).length;
     const sinCategorizar = movimientos.filter(m => !m.categoria).length;
 
-    // 7. Alertas
-    const facturasPendientes = await prisma.facturaRecibida.count({
-      where: { estado: 'PENDIENTE_REVISION' },
-    });
-
+    // Alertas.
     const facturasImpagadas = facturasISP.filter(f => f.situacion === 'PENDIENTE').length;
     const facturasVencidas = 0; // La tabla facturas de ISPGestión no tiene fecha_vencimiento
 
@@ -153,22 +151,7 @@ export async function GET(req: NextRequest) {
       gastosPorTipo[tipo] = (gastosPorTipo[tipo] || 0) + Math.abs(mov.importe);
     }
 
-    // 9. IRPF Nóminas - calcular retenciones de IRPF de las nóminas del periodo
-    let mesesNominas: number[] = [];
-    if (trimestre) {
-      const t = parseInt(trimestre);
-      mesesNominas = [(t - 1) * 3 + 1, (t - 1) * 3 + 2, (t - 1) * 3 + 3];
-    } else {
-      mesesNominas = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    }
-
-    const nominasPeriodo = await prisma.nomina.findMany({
-      where: {
-        anio: year,
-        mes: { in: mesesNominas },
-      },
-    });
-
+    // IRPF Nóminas - calcular retenciones de las nóminas del periodo.
     const irpfNominas = nominasPeriodo.reduce((sum, n) => sum + (n.irpf || 0), 0);
     const ssEmpresaNominas = nominasPeriodo.reduce((sum, n) => sum + (n.ssEmpresa || 0), 0);
     const ssTrabajadorNominas = nominasPeriodo.reduce((sum, n) => sum + (n.ssTrabajador || 0), 0);
@@ -253,6 +236,6 @@ export async function GET(req: NextRequest) {
     });
   } catch (error: any) {
     console.error('Error en dashboard financiero:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo cargar el dashboard financiero' }, { status: 500 });
   }
 }

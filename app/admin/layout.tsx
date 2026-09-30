@@ -35,7 +35,7 @@ export default async function AdminLayout({
   }
   
   return (
-    <SessionProvider>
+    <SessionProvider session={session}>
       <RoleProvider 
         userRole={session.user.role || 'VENTAS'} 
         userRoles={session.user.roles || []}

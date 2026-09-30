@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read';
 
 // Nombres de clientes Draxton (grupo)
 const DRAXTON_CLIENTES = ['Draxton', 'Fuchosa', 'Altec', 'Infun'];
@@ -9,6 +10,8 @@ const DRAXTON_CLIENTES = ['Draxton', 'Fuchosa', 'Altec', 'Infun'];
  */
 export async function GET(request: NextRequest) {
   try {
+    const denied = await checkAdminAreaRead('admin.finanzas.ggcc_draxton', ['CONTABILIDAD']);
+    if (denied) return denied;
     const { searchParams } = new URL(request.url);
     const year = parseInt(searchParams.get('year') || '2026');
 
@@ -16,7 +19,7 @@ export async function GET(request: NextRequest) {
     const endDate = new Date(`${year + 1}-01-01`);
 
     // 1. Facturas emitidas a Draxton (buscar por nombre de cliente)
-    const facturasEmitidas = await prisma.facturaEmitida.findMany({
+    const facturasEmitidasQuery = prisma.facturaEmitida.findMany({
       where: {
         OR: DRAXTON_CLIENTES.map(nombre => ({
           cliente: { contains: nombre, mode: 'insensitive' as const },
@@ -42,7 +45,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 2. Documentos de confirming (facturas recibidas de la carpeta Confirming Draxton)
-    const documentosConfirming = await prisma.facturaRecibida.findMany({
+    const documentosConfirmingQuery = prisma.facturaRecibida.findMany({
       where: {
         carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' },
       },
@@ -82,7 +85,7 @@ export async function GET(request: NextRequest) {
     });
 
     // 3. Movimientos bancarios de cobro Draxton/Confirming (ingresos)
-    const movimientosCobro = await prisma.movimientoBancario.findMany({
+    const movimientosCobroQuery = prisma.movimientoBancario.findMany({
       where: {
         fechaOperacion: { gte: startDate, lt: endDate },
         importe: { gt: 0 },
@@ -113,6 +116,13 @@ export async function GET(request: NextRequest) {
       },
     });
 
+    const [facturasEmitidas, documentosConfirming, movimientosCobro, gastosAgg] = await Promise.all([
+      facturasEmitidasQuery, documentosConfirmingQuery, movimientosCobroQuery,
+      prisma.confirmingLinea.aggregate({
+        _sum: { gastosFinancieros: true, comision: true, intereses: true },
+      }),
+    ]);
+
     // Filtrar movimientos: solo los que realmente son de Draxton/Confirming
     // Excluir: Clavería Alcalá (no es confirming Draxton)
     const movimientosRelevantes = movimientosCobro.filter(m => {
@@ -131,8 +141,33 @@ export async function GET(request: NextRequest) {
              tercero.includes('santander factoring');
     });
     
-    // Enriquecer movimientos vinculados: buscar TODAS las facturas del confirming asociado
-    const movimientosEnriquecidos = await Promise.all(movimientosRelevantes.map(async (m) => {
+    // Buscar los documentos referenciados en un solo viaje a PostgreSQL.
+    const nombresDocumentos = [...new Set(movimientosRelevantes
+      .map(m => m.notaConciliacion?.match(/Auto-conciliado con (.+?) \(/)?.[1])
+      .filter((name): name is string => Boolean(name)))];
+    const documentosAsociados = nombresDocumentos.length
+      ? await prisma.facturaRecibida.findMany({
+        where: { numFactura: { in: nombresDocumentos } },
+        orderBy: { id: 'asc' },
+        select: {
+          numFactura: true,
+          confirmingLineas: {
+            where: { facturaEmitidaId: { not: null } },
+            select: { facturaEmitida: { select: { numFactura: true, cliente: true, total: true } } },
+          },
+        },
+      })
+      : [];
+    const porNumero = new Map<string, (typeof documentosAsociados)[number]>();
+    for (const doc of documentosAsociados) {
+      if (!doc.numFactura) continue;
+      if (porNumero.has(doc.numFactura)) {
+        return NextResponse.json({ error: 'Hay documentos confirming con numeración duplicada; revise sus asociaciones antes de mostrarlos.' }, { status: 409 });
+      }
+      porNumero.set(doc.numFactura, doc);
+    }
+
+    const movimientosEnriquecidos = movimientosRelevantes.map(m => {
       if (!m.notaConciliacion?.includes('Auto-conciliado con')) {
         return { ...m, facturasConfirming: m.facturaEmitida ? [m.facturaEmitida] : [] };
       }
@@ -141,23 +176,12 @@ export async function GET(request: NextRequest) {
       if (!matchDoc) {
         return { ...m, facturasConfirming: m.facturaEmitida ? [m.facturaEmitida] : [] };
       }
-      const docName = matchDoc[1];
-      const doc = await prisma.facturaRecibida.findFirst({
-        where: { numFactura: docName },
-        select: {
-          confirmingLineas: {
-            where: { facturaEmitidaId: { not: null } },
-            select: {
-              facturaEmitida: { select: { numFactura: true, cliente: true, total: true } },
-            },
-          },
-        },
-      });
+      const doc = porNumero.get(matchDoc[1]);
       const facturas = doc?.confirmingLineas
         .map(l => l.facturaEmitida)
         .filter(Boolean) || (m.facturaEmitida ? [m.facturaEmitida] : []);
       return { ...m, facturasConfirming: facturas };
-    }));
+    });
 
     // 4. KPIs
     const totalFacturado = facturasEmitidas.reduce((sum, f) => sum + f.total, 0);
@@ -171,9 +195,6 @@ export async function GET(request: NextRequest) {
     const totalIngresado = movimientosEnriquecidos.reduce((sum, m) => sum + Number(m.importe), 0);
 
     // 5. Gastos financieros (sumar de todas las líneas de confirming)
-    const gastosAgg = await prisma.confirmingLinea.aggregate({
-      _sum: { gastosFinancieros: true, comision: true, intereses: true },
-    });
     const totalGastosFinancieros = gastosAgg._sum.gastosFinancieros || 0;
     const totalComisiones = gastosAgg._sum.comision || 0;
     const totalIntereses = gastosAgg._sum.intereses || 0;
@@ -224,6 +245,8 @@ export async function GET(request: NextRequest) {
  */
 export async function POST(request: NextRequest) {
   try {
+    const denied = await checkAdminAreaWrite('admin.finanzas.ggcc_draxton', ['CONTABILIDAD']);
+    if (denied) return denied;
     const body = await request.json();
     const { movimientoId, facturaEmitidaId, accion } = body;
 

@@ -5,9 +5,9 @@ import DashboardClient from '../../components/admin/DashboardClient'
 
 async function getDashboardStats() {
   try {
-    const tarifasActivas = await prisma.tarifa.count({ where: { activa: true } })
-
-    const clientesResult: any[] = await prisma.$queryRawUnsafe(`
+    const [tarifasActivas, clientesResult, contratosResult, facturacionResult] = await Promise.all([
+      prisma.tarifa.count({ where: { activa: true } }),
+      prisma.$queryRaw<Array<{ total: number; empresas: number; particulares: number }>>`
       SELECT 
         COUNT(DISTINCT c.id)::int as total,
         COUNT(DISTINCT c.id) FILTER (WHERE c.persona_fisica = false)::int as empresas,
@@ -15,13 +15,11 @@ async function getDashboardStats() {
       FROM clientes_web c
       INNER JOIN contratos_servicio cs ON cs.cliente_id = c.cliente_id_isp
       WHERE c.activo = true AND cs.activo = true
-    `)
-
-    const contratosResult: any[] = await prisma.$queryRawUnsafe(`
+      `,
+      prisma.$queryRaw<Array<{ total: number }>>`
       SELECT COUNT(*)::int as total FROM contratos_servicio WHERE activo = true
-    `)
-
-    const facturacionResult: any[] = await prisma.$queryRawUnsafe(`
+      `,
+      prisma.$queryRaw<Array<{ total: number; base_imponible: number; num_facturas: number }>>`
       SELECT 
         COALESCE(SUM(total), 0)::float as total, 
         COALESCE(SUM(base), 0)::float as base_imponible,
@@ -29,7 +27,8 @@ async function getDashboardStats() {
       FROM facturas 
       WHERE ejercicio = EXTRACT(YEAR FROM CURRENT_DATE)::int 
         AND EXTRACT(MONTH FROM fecha) = EXTRACT(MONTH FROM CURRENT_DATE)::int
-    `)
+      `,
+    ])
 
     return {
       tarifasActivas,
@@ -58,8 +57,12 @@ async function getDashboardStats() {
 
 export default async function AdminDashboard() {
   const session = await requireAuth('admin')
-  
-  const stats = await getDashboardStats()
+  // Los indicadores empresariales solo se consultan y serializan para dirección.
+  const isDirector = session.user.role === 'SUPER_ADMIN' || session.user.role === 'GERENTE'
+  const stats = isDirector ? await getDashboardStats() : {
+    tarifasActivas: 0, clientesActivos: 0, clientesEmpresa: 0, clientesParticular: 0,
+    contratosActivos: 0, facturacionMesActual: 0, baseImponibleMes: 0, facturasMes: 0,
+  }
   const mesActual = new Date().toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })
   const userName = session.user.name || 'Usuario'
 

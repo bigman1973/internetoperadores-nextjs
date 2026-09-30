@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 
 export async function GET(req: NextRequest) {
   try {
+    const denied = await checkAdminAreaRead('admin.finanzas.analitica_costes', ['CONTABILIDAD']);
+    if (denied) return denied;
     const { searchParams } = new URL(req.url);
     const page = parseInt(searchParams.get('page') || '1');
     const limit = parseInt(searchParams.get('limit') || '50');
@@ -119,15 +122,13 @@ export async function GET(req: NextRequest) {
     });
 
     // KPIs
-    const totalFacturas = await prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' } } });
-    const imputadasCount = await prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: true } });
-    const clasificadasCount = await prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: false, imputacion: { not: null } } });
-    const pendientesCount = await prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: false, imputacion: null } });
-
-    // Importe total imputado a clientes
-    const importeImputado = await prisma.imputacionCosteCliente.aggregate({
-      _sum: { importe: true },
-    });
+    const [totalFacturas, imputadasCount, clasificadasCount, pendientesCount, importeImputado] = await Promise.all([
+      prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' } } }),
+      prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: true } }),
+      prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: false, imputacion: { not: null } } }),
+      prisma.facturaRecibida.count({ where: { estado: { not: 'RECHAZADA' }, imputadoAVentas: false, imputacion: null } }),
+      prisma.imputacionCosteCliente.aggregate({ _sum: { importe: true } }),
+    ]);
 
     return NextResponse.json({
       facturas: facturasEnriquecidas,
@@ -144,6 +145,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Error en analítica de costes:', error);
+    return NextResponse.json({ error: 'No se pudo cargar la analítica de costes' }, { status: 500 });
   }
 }

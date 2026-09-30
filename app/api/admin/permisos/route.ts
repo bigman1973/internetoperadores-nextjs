@@ -3,14 +3,35 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 
+async function canManagePermissions(userId: number) {
+  const user = await prisma.usuarioAdmin.findUnique({
+    where: { id: userId }, select: { rol: true, activo: true },
+  })
+  return Boolean(user?.activo && (user.rol === 'SUPER_ADMIN' || user.rol === 'GERENTE'))
+}
+
 // GET: Listar áreas de permisos y/o permisos de un usuario
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  if (!session?.user || session.user.userType !== 'admin') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const actorId = Number(session.user.id)
+  if (!Number.isInteger(actorId) || actorId <= 0) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  const actor = await prisma.usuarioAdmin.findUnique({
+    where: { id: actorId }, select: { rol: true, activo: true },
+  })
+  if (!actor?.activo) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const action = searchParams.get('action') || 'areas'
   const usuarioId = searchParams.get('usuarioId')
+  const targetId = Number(usuarioId)
+  const targetOfCheck = Number(searchParams.get('uid') || actorId)
+  const managerAction = ['areas', 'todos', 'perfiles'].includes(action)
+  const otherUser = action === 'usuario' && usuarioId !== null && targetId !== actorId
+  const otherCheck = action === 'verificar' && targetOfCheck !== actorId
+  if ((managerAction || otherUser || otherCheck) && !['SUPER_ADMIN', 'GERENTE'].includes(actor.rol)) {
+    return NextResponse.json({ error: 'Sin permiso para consultar accesos ajenos' }, { status: 403 })
+  }
 
   // Listar todas las áreas
   if (action === 'areas') {
@@ -23,8 +44,9 @@ export async function GET(request: Request) {
 
   // Obtener permisos de un usuario específico
   if (action === 'usuario' && usuarioId) {
+    if (!Number.isInteger(targetId) || targetId <= 0) return NextResponse.json({ error: 'usuarioId no válido' }, { status: 400 })
     const permisos = await prisma.permisoUsuario.findMany({
-      where: { usuarioId: parseInt(usuarioId) },
+      where: { usuarioId: targetId, area: { activo: true } },
       include: { area: true },
     })
     return NextResponse.json({ permisos })
@@ -33,11 +55,10 @@ export async function GET(request: Request) {
   // Verificar permiso de un usuario en un área específica
   if (action === 'verificar') {
     const codigo = searchParams.get('codigo')
-    const uid = searchParams.get('uid') || (session.user as any).id
-
     if (!codigo) return NextResponse.json({ error: 'codigo requerido' }, { status: 400 })
+    if (!Number.isInteger(targetOfCheck) || targetOfCheck <= 0) return NextResponse.json({ error: 'uid no válido' }, { status: 400 })
 
-    const resultado = await verificarPermiso(parseInt(uid), codigo)
+    const resultado = await verificarPermiso(targetOfCheck, codigo)
     return NextResponse.json(resultado)
   }
 
@@ -74,11 +95,11 @@ export async function GET(request: Request) {
 // POST: Crear/actualizar permisos
 export async function POST(request: Request) {
   const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  if (!session?.user || session.user.userType !== 'admin') return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
 
   // Solo SUPER_ADMIN y GERENTE pueden gestionar permisos
-  const user = session.user as any
-  if (!['SUPER_ADMIN', 'GERENTE'].includes(user.role)) {
+  const actorId = Number(session.user.id)
+  if (!Number.isInteger(actorId) || !await canManagePermissions(actorId)) {
     return NextResponse.json({ error: 'Sin permisos para gestionar accesos' }, { status: 403 })
   }
 
@@ -283,7 +304,7 @@ export async function POST(request: Request) {
     // Upsert evita la condición de carrera cuando varias pestañas registran la misma ruta a la vez.
     const area = await prisma.permisoArea.upsert({
       where: { codigo },
-      update: { activo: true },
+      update: {},
       create: { codigo, nombre, padre, activo: true },
     })
 
@@ -328,6 +349,7 @@ export async function verificarPermiso(
       usuarioId,
       area: {
         codigo: { in: codigosHerencia },
+        activo: true,
       },
     },
     include: { area: true },
