@@ -1,9 +1,11 @@
 import { getServerSession } from 'next-auth'
+import { revalidateTag } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import { previewHubspotLists, syncHubspotLists } from '@/lib/hubspot-listas'
 import { verificarPermisoServer } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
+import { CRM_CONTACT_PROPERTY_CATALOG_TAG } from '@/lib/crm-contact-property-catalog'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -42,6 +44,7 @@ export async function POST(request: Request) {
     }
 
     const result = await syncHubspotLists(session.user.email || session.user.name || 'Usuario administrador')
+    revalidateTag(CRM_CONTACT_PROPERTY_CATALOG_TAG, { expire: 0 })
     return NextResponse.json({ success: true, mode, result })
   } catch (error) {
     console.error('[CRM-LISTAS] Error de sincronización:', error)

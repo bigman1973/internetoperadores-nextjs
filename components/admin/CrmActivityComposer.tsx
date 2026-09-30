@@ -44,7 +44,7 @@ type Props = {
 
 const CONFIG: Record<CrmActivityType, { title: string; description: string; action: string; placeholder: string; color: string }> = {
   CORREO: { title: 'Enviar correo', description: 'Se tramitará con Microsoft 365 y quedará registrado en la cronología.', action: 'Enviar y registrar', placeholder: 'Escribe el mensaje que recibirá el contacto…', color: 'bg-blue-100 text-blue-700' },
-  REUNION: { title: 'Programar reunión', description: 'Crea el evento en tu agenda de Outlook y regístralo en el CRM.', action: 'Registrar reunión', placeholder: 'Objetivo, asistentes, acuerdos y próximos pasos…', color: 'bg-violet-100 text-violet-700' },
+  REUNION: { title: 'Programar reunión', description: 'Regístrala en el CRM y, si lo eliges, crea también el evento en tu Outlook.', action: 'Registrar reunión', placeholder: 'Objetivo, asistentes, acuerdos y próximos pasos…', color: 'bg-violet-100 text-violet-700' },
   NOTA: { title: 'Añadir nota', description: 'Guarda contexto interno sin modificar las propiedades del contacto.', action: 'Guardar nota', placeholder: 'Información útil para el equipo…', color: 'bg-amber-100 text-amber-700' },
   TAREA: { title: 'Crear tarea', description: 'Deja un próximo paso con fecha límite y prioridad.', action: 'Crear tarea', placeholder: 'Qué hay que hacer y cuál es el resultado esperado…', color: 'bg-emerald-100 text-emerald-700' },
   WHATSAPP: { title: 'WhatsApp asistido', description: 'Prepara el mensaje y conserva el registro en la cronología.', action: 'Registrar WhatsApp', placeholder: 'Escribe el mensaje o resume la conversación…', color: 'bg-green-100 text-green-700' },
@@ -55,6 +55,11 @@ const CONFIG: Record<CrmActivityType, { title: string; description: string; acti
 
 const MESSAGE_TYPES = new Set<CrmActivityType>(['WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
 const FOLLOW_UP_TYPES = new Set<CrmActivityType>(['CORREO', 'REUNION', 'NOTA', 'WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function isValidEmail(value: string | null | undefined) {
+  return Boolean(value && EMAIL_PATTERN.test(value.trim()))
+}
 
 export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, deals, onClose, onCreated }: Props) {
   const config = CONFIG[type]
@@ -65,7 +70,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [location, setLocation] = useState('')
   const [syncOutlook, setSyncOutlook] = useState(false)
   const [onlineMeeting, setOnlineMeeting] = useState(false)
-  const [inviteAttendees, setInviteAttendees] = useState(Boolean(contactEmail))
+  const [inviteAttendees, setInviteAttendees] = useState(isValidEmail(contactEmail))
   const [direction, setDirection] = useState('SALIENTE')
   const [to, setTo] = useState(contactEmail)
   const [cc, setCc] = useState('')
@@ -97,7 +102,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setLocation('')
     setSyncOutlook(false)
     setOnlineMeeting(false)
-    setInviteAttendees(type === 'REUNION' && Boolean(contactEmail))
+    setInviteAttendees(type === 'REUNION' && isValidEmail(contactEmail))
     setDirection('SALIENTE')
     setTo(contactEmail)
     setCc('')
@@ -154,6 +159,11 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   })
 
   if (!open) return null
+  const invitationRecipientCount = new Set(
+    [contactEmail, ...[...selectedContacts.values()].map((contact) => contact.email || '')]
+      .filter(isValidEmail)
+      .map((email) => email.trim().toLowerCase()),
+  ).size
 
   function hasDraft() {
     return Boolean(title.trim() || description.trim() || cc.trim() || bcc.trim() || selectedDeals.size || selectedContacts.size)
@@ -282,7 +292,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
               {outlookConnection.enabled && !outlookConnection.connected && <a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-violet-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-violet-800 active:scale-[0.97]">Conectar mi Outlook</a>}
               {outlookConnection.enabled && outlookConnection.connected && <div className="flex flex-wrap gap-3 text-xs font-bold"><a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="text-violet-700 underline decoration-violet-300 underline-offset-2">Renovar conexión</a><button type="button" onClick={disconnectOutlook} disabled={disconnectingOutlook} className="text-slate-600 underline decoration-slate-300 underline-offset-2 disabled:opacity-50">{disconnectingOutlook ? 'Desconectando…' : 'Desconectar de este CRM'}</button></div>}
               {outlookConnection.lastError && <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">{outlookConnection.lastError}</p>}
-              {syncOutlook && <div className="grid gap-3 border-t border-violet-200 pt-3 sm:grid-cols-2"><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={inviteAttendees} onChange={(event) => setInviteAttendees(event.target.checked)} disabled={!contactEmail && selectedContacts.size === 0} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Enviar invitación a los contactos con correo</span></label><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={onlineMeeting} onChange={(event) => setOnlineMeeting(event.target.checked)} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Añadir reunión de Microsoft Teams</span></label></div>}
+              {syncOutlook && <div className="space-y-3 border-t border-violet-200 pt-3"><div className="grid gap-3 sm:grid-cols-2"><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={inviteAttendees} onChange={(event) => setInviteAttendees(event.target.checked)} disabled={invitationRecipientCount === 0} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Enviar invitación de calendario a los contactos con correo</span></label><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={onlineMeeting} onChange={(event) => setOnlineMeeting(event.target.checked)} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Añadir reunión de Microsoft Teams</span></label></div><p className={`rounded-lg px-3 py-2 text-xs font-semibold leading-5 ${inviteAttendees && invitationRecipientCount > 0 ? 'bg-white text-violet-800 ring-1 ring-violet-200' : 'bg-slate-100 text-slate-600'}`}>{inviteAttendees && invitationRecipientCount > 0 ? `Microsoft 365 solicitará el envío de la invitación a ${invitationRecipientCount} destinatario${invitationRecipientCount === 1 ? '' : 's'} único${invitationRecipientCount === 1 ? '' : 's'} con correo válido.` : 'No se enviará ninguna invitación al contacto; el evento solo quedará en tu agenda.'}</p></div>}
             </div>}
 
             {isAssistedChannel(type) && <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700"><p className="font-bold text-slate-900">Apertura asistida</p><p className="mt-0.5 text-xs">Al guardar una comunicación saliente se abrirá {type === 'WHATSAPP' ? 'WhatsApp' : type === 'SMS' ? 'la aplicación de SMS' : 'LinkedIn'} con el contacto y el texto preparado. El CRM la marcará como preparada, no como entregada.</p>{type !== 'LINKEDIN' && !normalisePhone(contactPhone) && <p className="mt-2 text-xs font-semibold text-amber-700">Este contacto no tiene un teléfono válido; podrás registrar la actividad, pero no abrir el canal.</p>}</div>}

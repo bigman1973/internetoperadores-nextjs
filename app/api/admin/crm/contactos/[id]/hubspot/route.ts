@@ -1,9 +1,11 @@
 import { getServerSession } from 'next-auth'
+import { revalidateTag } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 import { syncHubspotContactProperties } from '@/lib/hubspot-listas'
+import { CRM_CONTACT_PROPERTY_CATALOG_TAG } from '@/lib/crm-contact-property-catalog'
 
 export const maxDuration = 60
 
@@ -47,6 +49,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
 
   try {
     const result = await syncHubspotContactProperties(contact.hubspotId)
+    revalidateTag(CRM_CONTACT_PROPERTY_CATALOG_TAG, { expire: 0 })
     await prisma.crmSincronizacionHubspot.update({
       where: { id: run.id },
       data: { estado: 'COMPLETADA', bloqueo: null, registrosActualizados: 1, propiedadesDetectadas: result.definitions, finalizadoAt: new Date() },

@@ -239,6 +239,7 @@ model ClienteWeb {
   contratosDraxton     ContratoDraxton[]
   contactosCrm         CrmRegistroHubspot[]
 
+  @@index([email])
   @@index([activo])
   @@index([municipio])
   @@index([personaFisica])

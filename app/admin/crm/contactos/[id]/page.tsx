@@ -6,6 +6,12 @@ import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
 import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
+import {
+  formatCrmContactPropertyValue,
+  friendlyPropertyLabel,
+  getCrmContactInitialPropertyCatalog,
+  serializeCrmContactPropertyDefinitions,
+} from '@/lib/crm-contact-property-catalog'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,64 +31,53 @@ const PURPOSE_LABELS: Record<string, string> = {
   OPERATIVA: 'Operativa interna',
 }
 
-type PropertyDefinition = {
-  nombre: string
-  etiqueta: string
-  grupoNombre: string | null
-  tipo: string | null
-  tipoCampo: string | null
-  descripcion: string | null
-  opciones: unknown
-  soloLectura: boolean
-  oculta: boolean
-  calculada: boolean
-  ordenVisual: number | null
-}
-
 export default async function CrmContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const session = await requireAdminAreaRead('admin.crm.contactos', ['MARKETING', 'VENTAS'])
-  await registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm')
   const { id } = await params
-  const outlookConnection = await getOutlookConnectionStatus(Number(session.user.id))
-
-  const contact = await prisma.crmRegistroHubspot.findFirst({
-    where: { id, objectTypeId: '0-1' },
-    include: {
-      clienteWeb: true,
-      listas: {
-        where: { activo: true, lista: { activo: true } },
-        include: { lista: true },
-        orderBy: [{ lista: { nombre: 'asc' } }],
-      },
-      negocios: {
-        where: { negocio: { activo: true } },
-        include: {
-          negocio: {
-            include: {
-              pipeline: true,
-              etapa: true,
+  const [, contact, activities, propertyDefinitions, outlookConnection, matchingCustomers] = await Promise.all([
+    registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm'),
+    prisma.crmRegistroHubspot.findFirst({
+      where: { id, objectTypeId: '0-1' },
+      include: {
+        clienteWeb: true,
+        listas: {
+          where: { activo: true, lista: { activo: true } },
+          include: { lista: true },
+          orderBy: [{ lista: { nombre: 'asc' } }],
+        },
+        negocios: {
+          where: { negocio: { activo: true } },
+          include: {
+            negocio: {
+              include: {
+                pipeline: true,
+                etapa: true,
+              },
             },
           },
+          orderBy: [{ negocio: { cerrado: 'asc' } }, { negocio: { hubspotActualizadoAt: 'desc' } }],
         },
-        orderBy: [{ negocio: { cerrado: 'asc' } }, { negocio: { hubspotActualizadoAt: 'desc' } }],
       },
-    },
-  })
+    }),
+    prisma.crmActividad.findMany({
+      where: { contactos: { some: { contactoId: id } } },
+      include: {
+        negocios: { include: { negocio: true } },
+        tareaSeguimiento: true,
+      },
+      orderBy: [{ fechaActividad: 'desc' }, { createdAt: 'desc' }],
+    }),
+    getCrmContactInitialPropertyCatalog(),
+    getOutlookConnectionStatus(Number(session.user.id)),
+    prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(*)::bigint AS total
+      FROM clientes_web cliente
+      JOIN crm_registros_hubspot contacto
+        ON contacto.id = ${id}
+       AND cliente.email = contacto.email
+    `,
+  ])
   if (!contact) notFound()
-
-  const activities = await prisma.crmActividad.findMany({
-    where: { contactos: { some: { contactoId: id } } },
-    include: {
-      negocios: { include: { negocio: true } },
-      tareaSeguimiento: true,
-    },
-    orderBy: [{ fechaActividad: 'desc' }, { createdAt: 'desc' }],
-  })
-
-  const propertyDefinitions = await prisma.crmPropiedadHubspot.findMany({
-    where: { objectTypeId: '0-1', oculta: false },
-    orderBy: [{ grupoNombre: 'asc' }, { ordenVisual: 'asc' }, { etiqueta: 'asc' }],
-  })
   const visiblePropertyNames = new Set(propertyDefinitions.map((property) => property.nombre))
   const definitionsByName = new Map(propertyDefinitions.map((property) => [property.nombre, property]))
   const businessUnitDefinition = propertyDefinitions.find((property) => property.nombre === CRM_BUSINESS_UNIT_PROPERTY)
@@ -91,13 +86,6 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const localProperties = pickStringRecord(contact.propiedadesLocales, visiblePropertyNames)
   const effectiveProperties = { ...sourceProperties, ...localProperties }
 
-  const matchingCustomers = contact.email
-    ? await prisma.$queryRaw<Array<{ total: bigint }>>`
-        SELECT COUNT(*)::bigint AS total
-        FROM clientes_web
-        WHERE LOWER(TRIM(email)) = LOWER(TRIM(${contact.email}))
-      `
-    : [{ total: BigInt(0) }]
   const ambiguousMatches = Number(matchingCustomers[0]?.total || 0)
 
   const segment = contact.clienteWeb?.segmentoCrm || contact.segmentoCrm
@@ -111,8 +99,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const city = effectiveProperties.city || ''
   const contactName = [effectiveProperties.firstname, effectiveProperties.lastname].filter(Boolean).join(' ').trim() || contact.nombre || email || `Contacto #${contact.hubspotId}`
   const units = contact.unidadesNegocio.map((unit) => crmBusinessUnitLabel(unit, businessUnitOptions))
-  const lifecycle = formatPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
-  const leadStatus = formatPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
+  const lifecycle = formatCrmContactPropertyValue(effectiveProperties.lifecyclestage, definitionsByName.get('lifecyclestage'))
+  const leadStatus = formatCrmContactPropertyValue(effectiveProperties.hs_lead_status, definitionsByName.get('hs_lead_status'))
   const owner = effectiveProperties.hubspot_owner_id ? 'Asignado' : 'Sin asignar'
 
   const qualityIssues: string[] = []
@@ -130,22 +118,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       ? { tone: 'amber' as const, title: 'Lead pendiente de revisión.', text: `Este correo aparece en ${ambiguousMatches.toLocaleString('es-ES')} clientes distintos. No se ha convertido automáticamente para evitar una asociación equivocada.` }
       : { tone: 'blue' as const, title: 'Lead.', text: 'Todavía no existe una compra asociada a este correo. Pasará automáticamente a cliente cuando aparezca en la cartera del panel.' }
 
-  const definitions = propertyDefinitions.map((property) => ({
-    name: property.nombre,
-    label: friendlyPropertyLabel(property.nombre, property.etiqueta),
-    groupName: property.grupoNombre,
-    type: property.tipo,
-    fieldType: property.tipoCampo,
-    description: friendlyPropertyDescription(property.nombre, property.descripcion),
-    options: asPropertyOptions(property.opciones).map((option) => ({
-      ...option,
-      label: friendlyPropertyOptionLabel(property.nombre, option.value, option.label),
-    })),
-    readOnly: property.soloLectura,
-    hidden: property.oculta,
-    calculated: property.calculada,
-    displayOrder: property.ordenVisual,
-  }))
+  const definitions = serializeCrmContactPropertyDefinitions(propertyDefinitions)
 
   return (
     <CrmContactoWorkspace
@@ -234,8 +207,8 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
           return {
             field: change.campo || 'dato',
             label: change.campo === 'notas_internas' ? 'Notas internas' : friendlyPropertyLabel(change.campo || 'dato', definition?.etiqueta),
-            previous: formatPropertyValue(change.anterior, definition),
-            next: formatPropertyValue(change.nuevo, definition),
+            previous: formatCrmContactPropertyValue(change.anterior, definition),
+            next: formatCrmContactPropertyValue(change.nuevo, definition),
           }
         }),
       }))}
@@ -272,28 +245,6 @@ function formatDateTime(value: Date | null | undefined) {
   return value ? value.toLocaleString('es-ES') : null
 }
 
-function formatPropertyValue(value: string | null | undefined, property?: PropertyDefinition) {
-  if (value == null || value === '') return 'Sin informar'
-  const text = String(value)
-  const options = asPropertyOptions(property?.opciones)
-  const parts = text.split(';').filter(Boolean)
-  if (parts.length > 1 || text.includes(';')) return parts.map((part) => friendlyPropertyOptionLabel(property?.nombre, part, options.find((option) => option.value === part)?.label)).join(', ')
-  const option = options.find((item) => item.value === text)
-  if (option?.label) return friendlyPropertyOptionLabel(property?.nombre, text, option.label)
-  if (property?.tipo === 'bool') return text === 'true' ? 'Sí' : text === 'false' ? 'No' : text
-  if (property?.tipo === 'date' || property?.tipo === 'datetime') {
-    const numeric = /^\d+$/.test(text) ? Number(text) : NaN
-    const date = Number.isFinite(numeric) ? new Date(numeric) : new Date(text)
-    if (!Number.isNaN(date.getTime())) return property.tipo === 'date' ? date.toLocaleDateString('es-ES') : date.toLocaleString('es-ES')
-  }
-  return text
-}
-
-function asPropertyOptions(value: unknown): Array<{ label?: string; value?: string; hidden?: boolean; displayOrder?: number }> {
-  if (!Array.isArray(value)) return []
-  return value.flatMap((item) => item && typeof item === 'object' && !Array.isArray(item) ? [item as { label?: string; value?: string; hidden?: boolean; displayOrder?: number }] : [])
-}
-
 function asStringRecord(value: unknown): Record<string, string | null> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, field]) => [key, field == null ? null : String(field)]))
@@ -316,88 +267,4 @@ function pickStringRecord(value: unknown, allowed: Set<string>): Record<string, 
 
 function asHistory(value: unknown): Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> {
   return Array.isArray(value) ? value as Array<{ fecha?: string; autor?: string; cambios?: Array<{ campo?: string; anterior?: string | null; nuevo?: string | null }> }> : []
-}
-
-function humanize(value: string) {
-  return value.replace(/[_-]+/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
-}
-
-const FRIENDLY_PROPERTY_LABELS: Record<string, string> = {
-  firstname: 'Nombre',
-  lastname: 'Apellidos',
-  email: 'Correo electrónico',
-  phone: 'Teléfono',
-  mobilephone: 'Teléfono móvil',
-  company: 'Empresa',
-  jobtitle: 'Cargo',
-  website: 'Sitio web',
-  address: 'Dirección',
-  city: 'Localidad',
-  state: 'Provincia / Estado',
-  zip: 'Código postal',
-  country: 'País',
-  lifecyclestage: 'Ciclo de vida',
-  hs_lead_status: 'Estado del lead',
-  hubspot_owner_id: 'Propietario',
-  lfgd_business_unit: 'Unidad de negocio',
-  industry: 'Sector',
-  salutation: 'Tratamiento',
-  date_of_birth: 'Fecha de nacimiento',
-}
-
-function friendlyPropertyLabel(name: string, fallback?: string | null) {
-  return FRIENDLY_PROPERTY_LABELS[name] || fallback || humanize(name)
-}
-
-const FRIENDLY_PROPERTY_DESCRIPTIONS: Record<string, string> = {
-  firstname: 'Nombre de la persona de contacto.',
-  lastname: 'Apellidos de la persona de contacto.',
-  email: 'Correo electrónico principal para contactar con esta persona.',
-  phone: 'Teléfono principal de contacto.',
-  mobilephone: 'Teléfono móvil de contacto.',
-  company: 'Empresa u organización con la que se relaciona este contacto.',
-  jobtitle: 'Cargo o función que desempeña en su organización.',
-  website: 'Sitio web de la empresa o del contacto.',
-  address: 'Dirección postal principal.',
-  city: 'Localidad de residencia o trabajo.',
-  state: 'Provincia, comunidad o estado.',
-  zip: 'Código postal de la dirección principal.',
-  country: 'País de residencia o actividad.',
-  lifecyclestage: 'Momento de la relación comercial: lead, oportunidad, cliente u otro estado.',
-  hs_lead_status: 'Situación actual del seguimiento comercial con este contacto.',
-  hubspot_owner_id: 'Persona del equipo responsable del seguimiento.',
-  lfgd_business_unit: 'Empresa o empresas del grupo con las que interactúa este contacto.',
-  industry: 'Sector de actividad de la empresa.',
-}
-
-function friendlyPropertyDescription(name: string, fallback?: string | null) {
-  return FRIENDLY_PROPERTY_DESCRIPTIONS[name] || fallback || null
-}
-
-const FRIENDLY_PROPERTY_OPTIONS: Record<string, Record<string, string>> = {
-  lifecyclestage: {
-    subscriber: 'Suscriptor',
-    lead: 'Lead',
-    marketingqualifiedlead: 'Lead cualificado de marketing',
-    salesqualifiedlead: 'Lead cualificado de ventas',
-    opportunity: 'Oportunidad',
-    customer: 'Cliente',
-    evangelist: 'Prescriptor',
-    other: 'Otro',
-  },
-  hs_lead_status: {
-    NEW: 'Nuevo',
-    OPEN: 'En curso',
-    IN_PROGRESS: 'En progreso',
-    OPEN_DEAL: 'Negocio abierto',
-    UNQUALIFIED: 'No cualificado',
-    ATTEMPTED_TO_CONTACT: 'Intento de contacto',
-    CONNECTED: 'Contactado',
-    BAD_TIMING: 'No es el momento',
-  },
-}
-
-function friendlyPropertyOptionLabel(propertyName: string | undefined, value: string | undefined, fallback?: string) {
-  if (!value) return fallback || 'Sin informar'
-  return (propertyName && FRIENDLY_PROPERTY_OPTIONS[propertyName]?.[value]) || fallback || value
 }

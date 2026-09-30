@@ -6,6 +6,7 @@ import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 import { reconciliarContactosCrmConClientes } from '@/lib/crm-contactos'
 import { CRM_BUSINESS_UNIT_PROPERTY, parseCrmBusinessUnits } from '@/lib/crm-unidades-negocio'
+import { getCrmContactPropertyCatalog, serializeCrmContactPropertyDefinitions } from '@/lib/crm-contact-property-catalog'
 
 function asStringRecord(value: unknown): Record<string, string | null> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -18,6 +19,56 @@ function cleanValue(value: unknown) {
   const normalized = String(value).trim()
   if (normalized.length > 20_000) return undefined
   return normalized || null
+}
+
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions)
+  if (!session || session.user.userType !== 'admin' || !session.user.id) {
+    return NextResponse.json({ error: 'No autorizado.' }, { status: 401 })
+  }
+
+  const permission = await verificarPermisoServer(Number(session.user.id), 'admin.crm.contactos', session.user.role)
+  if (!permission.lectura) {
+    return NextResponse.json({ error: 'No tienes permiso para consultar este contacto.' }, { status: 403 })
+  }
+
+  const { id } = await context.params
+  const [contact, definitions] = await Promise.all([
+    prisma.crmRegistroHubspot.findFirst({
+      where: { id, objectTypeId: '0-1' },
+      select: {
+        propiedades: true,
+        propiedadesLocales: true,
+        notasInternas: true,
+        datosActualizadoAt: true,
+        datosActualizadoPor: true,
+        propiedadesCompletasAt: true,
+        sincronizadoAt: true,
+        propiedadesCompletasError: true,
+        datosVersion: true,
+      },
+    }),
+    getCrmContactPropertyCatalog(),
+  ])
+  if (!contact) return NextResponse.json({ error: 'Contacto no encontrado.' }, { status: 404 })
+
+  const visibleNames = new Set(definitions.map((definition) => definition.nombre))
+  return NextResponse.json({
+    success: true,
+    editor: {
+      id,
+      sourceProperties: pickStringRecord(contact.propiedades, visibleNames),
+      localProperties: pickStringRecord(contact.propiedadesLocales, visibleNames),
+      definitions: serializeCrmContactPropertyDefinitions(definitions),
+      initialNotes: contact.notasInternas || '',
+      updatedAt: contact.datosActualizadoAt?.toISOString() || null,
+      updatedBy: contact.datosActualizadoPor,
+      fullPropertiesAt: contact.propiedadesCompletasAt?.toISOString() || null,
+      sourceSyncedAt: contact.sincronizadoAt?.toISOString() || null,
+      syncError: contact.propiedadesCompletasError,
+      initialVersion: contact.datosVersion,
+    },
+  })
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -177,4 +228,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     }
     throw error
   }
+}
+
+function pickStringRecord(value: unknown, allowed: Set<string>) {
+  return Object.fromEntries(Object.entries(asStringRecord(value)).filter(([key]) => allowed.has(key)))
 }

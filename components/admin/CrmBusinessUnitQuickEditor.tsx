@@ -85,8 +85,8 @@ export default function CrmBusinessUnitQuickEditor({ contactId, initialUnits, op
         <>
           <BusinessUnitChips units={savedUnits} options={allOptions} />
           {canWrite && (
-            <button type="button" onClick={() => { setSelectedUnits(savedUnits); setEditing(true); setMessage(null) }} className="mt-2 inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-2.5 text-xs font-semibold text-gray-700 transition hover:border-orange-300 hover:text-orange-800">
-              <PencilSquareIcon className="h-4 w-4" />Editar unidades
+            <button type="button" onClick={() => { setSelectedUnits(savedUnits); setEditing(true); setMessage(null) }} className="mt-2 inline-flex h-8 items-center gap-1 rounded-md border border-gray-300 bg-white px-2 text-[11px] font-semibold text-gray-700 transition hover:border-orange-300 hover:text-orange-800">
+              <PencilSquareIcon className="h-3.5 w-3.5" />Editar unidades
             </button>
           )}
           {!editable && <p className="mt-2 text-[11px] leading-4 text-amber-700">Edición pendiente de completar el catálogo de campos.</p>}
@@ -106,8 +106,8 @@ export default function CrmBusinessUnitQuickEditor({ contactId, initialUnits, op
           </fieldset>
           <p className="mt-2 text-[11px] leading-4 text-gray-500">Puedes dejar el contacto sin unidad o asignarlo a varias empresas del grupo.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={save} disabled={saving} className="inline-flex min-h-9 items-center gap-1 rounded-lg bg-orange-600 px-3 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-60"><CheckIcon className="h-4 w-4" />{saving ? 'Guardando…' : 'Guardar'}</button>
-            <button type="button" onClick={cancel} disabled={saving} className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"><XMarkIcon className="h-4 w-4" />Cancelar</button>
+            <button type="button" onClick={save} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-md bg-orange-600 px-2.5 text-xs font-semibold text-white hover:bg-orange-700 disabled:opacity-60"><CheckIcon className="h-3.5 w-3.5" />{saving ? 'Guardando…' : 'Guardar'}</button>
+            <button type="button" onClick={cancel} disabled={saving} className="inline-flex h-8 items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"><XMarkIcon className="h-3.5 w-3.5" />Cancelar</button>
           </div>
         </div>
       )}

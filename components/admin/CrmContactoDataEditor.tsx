@@ -227,11 +227,13 @@ export default function CrmContactoDataEditor({
   const renderSection = (sectionName: string, title: string, description: string, properties: CrmContactPropertyDefinition[]) => {
     const visibleProperties = properties.filter((property) => showEmpty || hasValue(values[property.name]) || Object.prototype.hasOwnProperty.call(locals, property.name))
     const isOpen = expandedSections.has(sectionName) || properties.some((property) => property.name === editingField)
+    const panelId = `crm-contact-section-${sectionName.replace(/[^a-z0-9_-]/gi, '-')}`
     return (
       <section key={sectionName} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
         <button
           type="button"
           aria-expanded={isOpen}
+          aria-controls={panelId}
           onClick={() => setExpandedSections((current) => {
             const next = new Set(current)
             if (next.has(sectionName)) next.delete(sectionName)
@@ -252,7 +254,7 @@ export default function CrmContactoDataEditor({
         </button>
 
         {isOpen && (
-          <div className="border-t border-slate-100 px-3 py-2 sm:px-5 sm:py-3">
+          <div id={panelId} className="border-t border-slate-100 px-3 py-2 sm:px-5 sm:py-3">
             {visibleProperties.length === 0 ? (
               <div className="px-3 py-8 text-center text-sm text-slate-500">No hay datos informados en esta sección.</div>
             ) : (
@@ -331,14 +333,14 @@ export default function CrmContactoDataEditor({
                   <h3 className="font-semibold text-slate-900">Notas internas</h3>
                   <p className="mt-1 text-xs leading-5 text-slate-500">Contexto comercial, acuerdos y próximos pasos del equipo.</p>
                 </div>
-                {canWrite && editingField !== 'notes' && <button type="button" onClick={() => setEditingField('notes')} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-sm font-semibold text-orange-700 transition hover:bg-orange-50"><PencilSquareIcon className="h-4 w-4" />Editar</button>}
+                {canWrite && editingField !== 'notes' && <button type="button" onClick={() => setEditingField('notes')} className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-semibold text-orange-700 transition hover:bg-orange-50"><PencilSquareIcon className="h-3.5 w-3.5" />Editar</button>}
               </div>
               {editingField === 'notes' ? (
                 <div className="mt-4">
                   <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={6} autoFocus placeholder="Contexto comercial, próximos pasos o información útil para el equipo…" className="block w-full rounded-xl border-slate-300 text-slate-900 focus:border-orange-500 focus:ring-orange-500" />
                   <div className="mt-3 flex justify-end gap-2">
-                    <button type="button" onClick={() => { setNotes(savedNotes); setEditingField(null) }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700"><XMarkIcon className="h-4 w-4" />Cancelar</button>
-                    <button type="button" onClick={saveNotes} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-orange-600 px-4 text-sm font-semibold text-white hover:bg-orange-700"><CheckIcon className="h-4 w-4" />Guardar</button>
+                    <button type="button" onClick={() => { setNotes(savedNotes); setEditingField(null) }} className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 px-2.5 text-xs font-semibold text-slate-700"><XMarkIcon className="h-3.5 w-3.5" />Cancelar</button>
+                    <button type="button" onClick={saveNotes} className="inline-flex h-8 items-center gap-1 rounded-md bg-orange-600 px-3 text-xs font-semibold text-white hover:bg-orange-700"><CheckIcon className="h-3.5 w-3.5" />Guardar</button>
                   </div>
                 </div>
               ) : <p className="mt-4 whitespace-pre-wrap rounded-xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">{savedNotes || 'No hay notas internas todavía.'}</p>}
@@ -468,9 +470,9 @@ export function CrmInlineProperty({
             {overridden && <span>Original: {formatValue(sourceValue, property)}</span>}
           </div>
           <div className="flex gap-1.5">
-            {overridden && <button type="button" onClick={() => { setDraft(sourceValue); void save(sourceValue) }} disabled={saving} title="Restaurar valor original" aria-label={`Restaurar ${property.label} al valor original`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-700 hover:bg-blue-50"><ArrowUturnLeftIcon className="h-4 w-4" /></button>}
-            <button type="button" onClick={() => { setDraft(value); onCancel() }} disabled={saving} title="Cancelar" aria-label={`Cancelar edición de ${property.label}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"><XMarkIcon className="h-4 w-4" /></button>
-            <button type="button" onClick={() => void save()} disabled={saving || !dirty} title="Guardar" aria-label={`Guardar ${property.label}`} className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50"><CheckIcon className="h-4 w-4" /></button>
+            {overridden && <button type="button" onClick={() => { setDraft(sourceValue); void save(sourceValue) }} disabled={saving} title="Restaurar valor original" aria-label={`Restaurar ${property.label} al valor original`} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-50"><ArrowUturnLeftIcon className="h-3.5 w-3.5" /></button>}
+            <button type="button" onClick={() => { setDraft(value); onCancel() }} disabled={saving} title="Cancelar" aria-label={`Cancelar edición de ${property.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"><XMarkIcon className="h-3.5 w-3.5" /></button>
+            <button type="button" onClick={() => void save()} disabled={saving || !dirty} title="Guardar" aria-label={`Guardar ${property.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50"><CheckIcon className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       </div>
@@ -487,7 +489,7 @@ export function CrmInlineProperty({
     >
       <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">{icon}{property.label}{overridden && <span className="h-1.5 w-1.5 rounded-full bg-blue-500" title="Modificado en el panel" />}</span>
       <span className={`mt-1 block break-words text-sm font-semibold leading-5 ${hasValue(value) ? 'text-slate-900' : 'text-slate-400'}`}>{formatValue(value, property)}</span>
-      {canWrite && !disabledByOtherEdit && <span className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-orange-700 opacity-100 shadow-sm ring-1 ring-slate-200 transition group-hover:ring-orange-200 sm:opacity-0 sm:group-hover:opacity-100"><PencilSquareIcon className="h-4 w-4" /></span>}
+      {canWrite && !disabledByOtherEdit && <span className={`absolute inline-flex items-center justify-center bg-white text-orange-700 opacity-100 shadow-sm ring-1 ring-slate-200 transition group-hover:ring-orange-200 sm:opacity-0 sm:group-hover:opacity-100 ${compact ? 'right-1.5 top-1.5 h-6 w-6 rounded-md' : 'right-2 top-2 h-7 w-7 rounded-md'}`}><PencilSquareIcon className="h-3.5 w-3.5" /></span>}
     </button>
   )
 }

@@ -347,10 +347,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         where: { id: { in: contactIds }, objectTypeId: '0-1' },
         select: { id: true, nombre: true, email: true, propiedades: true, propiedadesLocales: true },
       })
-      const attendees = inviteAttendees ? meetingContacts.flatMap((contact) => {
-        const email = contactEmail(contact)
-        return EMAIL_PATTERN.test(email) ? [{ email, name: contact.nombre }] : []
-      }) : []
+      const attendees = inviteAttendees ? [...meetingContacts.reduce((unique, contact) => {
+        const email = contactEmail(contact).trim().toLowerCase()
+        if (EMAIL_PATTERN.test(email) && !unique.has(email)) unique.set(email, { email, name: contact.nombre })
+        return unique
+      }, new Map<string, { email: string; name: string | null }>()).values()] : []
       const eventResult = await createOutlookUserCalendarEvent({
         accessToken: calendarAuthorization!.accessToken,
         mailbox: calendarMailbox,

@@ -158,6 +158,11 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   const [activityComposerType, setActivityComposerType] = useState<CrmActivityType | null>(null)
   const [taskUpdating, setTaskUpdating] = useState<string | null>(null)
   const [openRightCards, setOpenRightCards] = useState(() => new Set(['customer', 'deals', 'lists']))
+  const [advancedEditor, setAdvancedEditor] = useState<CrmContactDataEditorProps | null>(null)
+  const [advancedLoading, setAdvancedLoading] = useState(false)
+  const [advancedError, setAdvancedError] = useState<string | null>(null)
+  const [advancedLoadAttempt, setAdvancedLoadAttempt] = useState(0)
+  const [advancedScrollTarget, setAdvancedScrollTarget] = useState<string | null>(null)
   const openDeals = deals.filter((deal) => !deal.closed)
   const definitionsByName = useMemo(() => new Map(dataEditor.definitions.map((definition) => [definition.name, definition])), [dataEditor.definitions])
   const tabs: Array<{ key: TabKey; label: string; count?: number }> = [
@@ -173,18 +178,48 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     setQuickValues({ ...dataEditor.sourceProperties, ...dataEditor.localProperties })
   }, [dataEditor.initialVersion, dataEditor.localProperties, dataEditor.sourceProperties, editingQuickField, hasDraft])
 
+  useEffect(() => {
+    if (activeTab !== 'advanced' || advancedEditor) return
+    const controller = new AbortController()
+    setAdvancedLoading(true)
+    setAdvancedError(null)
+    void fetch(`/api/admin/crm/contactos/${encodeURIComponent(contact.id)}/datos`, { cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const data = await response.json()
+        if (!response.ok || !data.success || !data.editor) throw new Error(data.error || 'No se pudo cargar la información avanzada.')
+        setAdvancedEditor(data.editor as CrmContactDataEditorProps)
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) setAdvancedError(error instanceof Error ? error.message : 'No se pudo cargar la información avanzada.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setAdvancedLoading(false)
+      })
+    return () => controller.abort()
+  }, [activeTab, advancedEditor, advancedLoadAttempt, contact.id])
+
+  useEffect(() => {
+    if (activeTab !== 'advanced' || !advancedEditor || !advancedScrollTarget) return
+    const timer = window.setTimeout(() => {
+      document.getElementById(advancedScrollTarget)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setAdvancedScrollTarget(null)
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [activeTab, advancedEditor, advancedScrollTarget])
+
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
     const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : event.key === 'ArrowRight' ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length
     const nextTab = tabs[nextIndex]
-    changeTab(nextTab.key)
+    if (!changeTab(nextTab.key)) return
     requestAnimationFrame(() => document.getElementById(`crm-contact-tab-${nextTab.key}`)?.focus())
   }
 
   const changeTab = (tab: TabKey) => {
-    if (hasDraft && tab !== activeTab && !window.confirm('Hay un cambio sin guardar. ¿Quieres descartarlo?')) return
+    if (hasDraft && tab !== activeTab && !window.confirm('Hay un cambio sin guardar. ¿Quieres descartarlo?')) return false
     setActiveTab(tab)
+    return true
   }
 
   const handleQuickSaved = (data: CrmContactSaveResult) => {
@@ -194,6 +229,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
     setQuickVersion(Number(data.version ?? quickVersion))
     setEditingQuickField(null)
     setHasDraft(false)
+    setAdvancedEditor(null)
     setQuickMessage({ type: 'success', text: data.unchanged ? 'El dato ya estaba actualizado.' : 'Dato guardado.' })
     router.refresh()
   }
@@ -208,8 +244,8 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   }
 
   const openAdvanced = (targetId?: string) => {
-    setActiveTab('advanced')
-    if (targetId) window.setTimeout(() => document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80)
+    if (!changeTab('advanced')) return
+    if (targetId) setAdvancedScrollTarget(targetId)
   }
 
   const openActivityComposer = (type: 'LLAMADA' | CrmActivityType) => {
@@ -383,7 +419,9 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
 
         {activeTab === 'advanced' && <section role="tabpanel" id="crm-contact-panel-advanced" aria-labelledby="crm-contact-tab-advanced" tabIndex={0} className="space-y-5">
-          <CrmContactoDataEditor {...dataEditor} initialVersion={quickVersion} localProperties={quickLocals} onDraftChange={setHasDraft} onRecordChanged={handleAdvancedSaved} />
+          {advancedLoading && <AdvancedEditorSkeleton />}
+          {advancedError && <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-800"><p className="font-semibold">No se ha podido cargar la información avanzada.</p><p className="mt-1">{advancedError}</p><button type="button" onClick={() => setAdvancedLoadAttempt((current) => current + 1)} className="mt-3 rounded-lg bg-white px-3 py-2 text-xs font-bold text-red-700 ring-1 ring-red-200 hover:bg-red-100">Reintentar</button></div>}
+          {advancedEditor && <CrmContactoDataEditor {...advancedEditor} onDraftChange={setHasDraft} onRecordChanged={handleAdvancedSaved} />}
           <CrmContactoSettings id={contact.id} initialSegment={settings.initialSegment} isCustomer={contact.isCustomer} customerSegment={settings.customerSegment} />
         </section>}
       </div>
@@ -395,6 +433,14 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}>{children}</section>
+}
+
+function AdvancedEditorSkeleton() {
+  return <div role="status" aria-label="Cargando información avanzada" className="grid animate-pulse gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+    <div className="h-64 rounded-2xl border border-slate-200 bg-white p-4"><div className="h-3 w-28 rounded bg-slate-200" /><div className="mt-4 h-6 w-40 rounded bg-slate-200" /><div className="mt-6 space-y-3">{[1, 2, 3, 4].map((item) => <div key={item} className="h-9 rounded-lg bg-slate-100" />)}</div></div>
+    <div className="space-y-4">{[1, 2, 3].map((item) => <div key={item} className="h-28 rounded-2xl border border-slate-200 bg-white p-5"><div className="h-4 w-44 rounded bg-slate-200" /><div className="mt-4 h-3 w-3/4 rounded bg-slate-100" /></div>)}</div>
+    <span className="sr-only">Cargando información avanzada…</span>
+  </div>
 }
 
 function PanelHeader({ title, icon }: { title: string; icon: React.ReactNode }) {

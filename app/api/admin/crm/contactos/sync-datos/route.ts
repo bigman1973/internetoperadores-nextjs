@@ -1,9 +1,11 @@
 import { getServerSession } from 'next-auth'
+import { revalidateTag } from 'next/cache'
 import { NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 import { syncHubspotContactPropertyBatch } from '@/lib/hubspot-listas'
+import { CRM_CONTACT_PROPERTY_CATALOG_TAG } from '@/lib/crm-contact-property-catalog'
 
 export const maxDuration = 60
 
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
       })
     }
     const result = await syncHubspotContactPropertyBatch(500)
+    revalidateTag(CRM_CONTACT_PROPERTY_CATALOG_TAG, { expire: 0 })
     await prisma.crmSincronizacionHubspot.update({
       where: { id: run.id },
       data: {
