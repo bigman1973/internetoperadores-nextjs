@@ -37,6 +37,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const [, contact, activities, propertyDefinitions, outlookConnection, matchingCustomers] = await Promise.all([
     registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm'),
     prisma.crmRegistroHubspot.findFirst({
+      relationLoadStrategy: 'join',
       where: { id, objectTypeId: '0-1' },
       include: {
         clienteWeb: true,
@@ -60,6 +61,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       },
     }),
     prisma.crmActividad.findMany({
+      relationLoadStrategy: 'join',
       where: { contactos: { some: { contactoId: id } } },
       include: {
         negocios: { include: { negocio: true } },

@@ -14,6 +14,7 @@ import {
 import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import { registrarArea } from '@/lib/permisos'
 import prisma from '@/lib/prisma'
+import { getCrmContactDirectoryStats } from '@/lib/crm-contact-directory-stats'
 import CrmContactosDataSyncPanel from '@/components/admin/CrmContactosDataSyncPanel'
 import CrmNegociosSyncPanel from '@/components/admin/CrmNegociosSyncPanel'
 import CrmHubspotMigrationSection from '@/components/admin/CrmHubspotMigrationSection'
@@ -70,12 +71,6 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
   const params = await searchParams
   const page = Math.max(1, Number(params.page || 1) || 1)
   const pageSize = 40
-  const businessUnitDefinition = await prisma.crmPropiedadHubspot.findUnique({
-    where: { objectTypeId_nombre: { objectTypeId: '0-1', nombre: CRM_BUSINESS_UNIT_PROPERTY } },
-    select: { opciones: true, soloLectura: true, calculada: true, oculta: true },
-  })
-  const businessUnitOptions = getCrmBusinessUnitOptions(businessUnitDefinition?.opciones)
-  const businessUnitEditable = Boolean(businessUnitDefinition && !businessUnitDefinition.soloLectura && !businessUnitDefinition.calculada && !businessUnitDefinition.oculta)
   const visibleContactScope = {
     OR: [
       { listas: { some: { activo: true, lista: { activo: true } } } },
@@ -129,10 +124,29 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
   }
   const displayedDealWhere = hasPositiveDealFilter ? dealWhere : { activo: true }
 
-  const [contacts, total, totalContacts, customers, withoutEmail, lists, ambiguous, fullContacts, failedContacts, unitCounts, withoutBusinessUnit, pipelines, contactsWithOpenDeals] = await Promise.all([
+  const hasFilters = andFilters.length > 1 || where.clienteWebId !== undefined || where.unidadesNegocio !== undefined || where.listas !== undefined || where.negocios !== undefined
+  const [businessUnitDefinition, contacts, directory, lists, pipelines, filteredTotal] = await Promise.all([
+    prisma.crmPropiedadHubspot.findUnique({
+      where: { objectTypeId_nombre: { objectTypeId: '0-1', nombre: CRM_BUSINESS_UNIT_PROPERTY } },
+      select: { opciones: true, soloLectura: true, calculada: true, oculta: true },
+    }),
     prisma.crmRegistroHubspot.findMany({
+      // JOIN evita viajes separados a Railway; las columnas JSON pesadas
+      // se reservan para la ficha y no se cargan 40 veces por página.
+      relationLoadStrategy: 'join',
       where,
-      include: {
+      select: {
+        id: true,
+        hubspotId: true,
+        nombre: true,
+        email: true,
+        telefono: true,
+        empresa: true,
+        unidadesNegocio: true,
+        datosVersion: true,
+        sincronizadoAt: true,
+        clienteWebId: true,
+        segmentoCrm: true,
         clienteWeb: { select: { id: true, nombre: true, segmentoCrm: true, activo: true } },
         listas: {
           where: { activo: true, lista: { activo: true } },
@@ -164,63 +178,30 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-    prisma.crmRegistroHubspot.count({ where }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', ...visibleContactScope } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', clienteWebId: { not: null }, ...visibleContactScope } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', email: null, ...visibleContactScope } }),
+    getCrmContactDirectoryStats(),
     prisma.crmLista.findMany({ where: { activo: true, objectTypeId: '0-1' }, select: { id: true, nombre: true }, orderBy: { nombre: 'asc' } }),
-    prisma.$queryRaw<Array<{ total: bigint }>>`
-      WITH emails_duplicados AS (
-        SELECT LOWER(TRIM(email)) AS email_normalizado
-        FROM clientes_web
-        WHERE email IS NOT NULL
-          AND TRIM(email) <> ''
-          AND LOWER(TRIM(email)) NOT LIKE '%@placeholder.local'
-        GROUP BY LOWER(TRIM(email))
-        HAVING COUNT(*) > 1
-      )
-      SELECT COUNT(*)::bigint AS total
-      FROM crm_registros_hubspot contacto
-      JOIN emails_duplicados duplicado ON duplicado.email_normalizado = LOWER(TRIM(contacto.email))
-      WHERE contacto.object_type_id = '0-1'
-    `,
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasAt: { not: null }, ...visibleContactScope } }),
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', propiedadesCompletasError: { not: null }, ...visibleContactScope } }),
-    prisma.$queryRaw<Array<{ unidad: string; total: bigint }>>`
-      SELECT unidad, COUNT(DISTINCT contacto.id)::bigint AS total
-      FROM crm_registros_hubspot contacto
-      CROSS JOIN LATERAL unnest(contacto.unidades_negocio) AS unidad
-      WHERE contacto.object_type_id = '0-1'
-        AND (
-          EXISTS (
-            SELECT 1
-            FROM crm_lista_miembros miembro
-            JOIN crm_listas lista ON lista.id = miembro.lista_id
-            WHERE miembro.registro_id = contacto.id AND miembro.activo = true AND lista.activo = true
-          )
-          OR EXISTS (
-            SELECT 1
-            FROM crm_negocio_contactos relacion
-            JOIN crm_negocios_hubspot negocio ON negocio.hubspot_id = relacion.negocio_hubspot_id
-            WHERE relacion.contacto_id = contacto.id AND negocio.activo = true
-          )
-        )
-      GROUP BY unidad
-    `,
-    prisma.crmRegistroHubspot.count({ where: { objectTypeId: '0-1', unidadesNegocio: { isEmpty: true }, ...visibleContactScope } }),
     prisma.crmPipelineHubspot.findMany({
+      relationLoadStrategy: 'join',
       where: { negocios: { some: { activo: true } } },
       include: { etapas: { where: { negocios: { some: { activo: true } } }, orderBy: [{ displayOrder: 'asc' }, { nombre: 'asc' }] } },
       orderBy: [{ displayOrder: 'asc' }, { nombre: 'asc' }],
     }),
-    prisma.crmRegistroHubspot.count({
-      where: { objectTypeId: '0-1', negocios: { some: { negocio: { activo: true, cerrado: false } } } },
-    }),
+    hasFilters ? prisma.crmRegistroHubspot.count({ where }) : Promise.resolve(null),
   ])
 
+  const totalContacts = directory.stats.total
+  const customers = directory.stats.customers
+  const withoutEmail = directory.stats.withoutEmail
+  const fullContacts = directory.stats.fullContacts
+  const failedContacts = directory.stats.failedContacts
+  const withoutBusinessUnit = directory.stats.withoutBusinessUnit
+  const contactsWithOpenDeals = directory.contactsWithOpenDeals
+  const total = filteredTotal ?? totalContacts
+  const businessUnitOptions = getCrmBusinessUnitOptions(businessUnitDefinition?.opciones)
+  const businessUnitEditable = Boolean(businessUnitDefinition && !businessUnitDefinition.soloLectura && !businessUnitDefinition.calculada && !businessUnitDefinition.oculta)
   const leads = totalContacts - customers
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const unitCountMap = new Map(unitCounts.map((row) => [row.unidad, Number(row.total)]))
+  const unitCountMap = new Map(directory.units.map((row) => [row.unit, row.total]))
   const stageOptions = params.pipeline
     ? pipelines.find((pipeline) => pipeline.hubspotId === params.pipeline)?.etapas || []
     : pipelines.flatMap((pipeline) => pipeline.etapas.map((stage) => ({ ...stage, pipelineNombre: pipeline.nombre })))
@@ -250,7 +231,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
         <Kpi label="Ya son clientes" value={customers} icon={<CheckBadgeIcon className="h-5 w-5" />} tone="green" />
         <Kpi label="Con negocio abierto" value={contactsWithOpenDeals} icon={<BriefcaseIcon className="h-5 w-5" />} tone="orange" />
         <Kpi label="Sin correo" value={withoutEmail} icon={<MagnifyingGlassIcon className="h-5 w-5" />} tone="amber" />
-        <Kpi label="Correo duplicado" value={Number(ambiguous[0]?.total || 0)} icon={<ExclamationTriangleIcon className="h-5 w-5" />} tone="amber" />
+        <Kpi label="Correo duplicado" value={directory.ambiguous} icon={<ExclamationTriangleIcon className="h-5 w-5" />} tone="amber" />
       </section>
 
       <CrmHubspotMigrationSection description="Importación final de fichas, pipelines y negocios. El directorio y su edición diaria ya funcionan dentro del panel.">
@@ -269,13 +250,13 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link href={`?${filterQueryString(params)}`} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${!params.unit ? 'bg-gray-900 text-white' : 'border border-gray-300 bg-white text-gray-700 hover:border-orange-400'}`}>Todas · {totalContacts.toLocaleString('es-ES')}</Link>
+          <Link href={`?${filterQueryString(params)}`} prefetch={false} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${!params.unit ? 'bg-gray-900 text-white' : 'border border-gray-300 bg-white text-gray-700 hover:border-orange-400'}`}>Todas · {totalContacts.toLocaleString('es-ES')}</Link>
           {businessUnitOptions.map((unit) => (
-            <Link key={unit.value} href={`?${filterQueryString(params, unit.value)}`} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${params.unit === unit.value ? 'bg-orange-600 text-white' : 'border border-orange-200 bg-white text-orange-900 hover:border-orange-400'}`}>
+            <Link key={unit.value} href={`?${filterQueryString(params, unit.value)}`} prefetch={false} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${params.unit === unit.value ? 'bg-orange-600 text-white' : 'border border-orange-200 bg-white text-orange-900 hover:border-orange-400'}`}>
               {unit.label} · {(unitCountMap.get(unit.value) || 0).toLocaleString('es-ES')}
             </Link>
           ))}
-          <Link href={`?${filterQueryString(params, CRM_BUSINESS_UNIT_NONE)}`} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${params.unit === CRM_BUSINESS_UNIT_NONE ? 'bg-amber-600 text-white' : 'border border-amber-200 bg-white text-amber-900 hover:border-amber-400'}`}>Sin unidad · {withoutBusinessUnit.toLocaleString('es-ES')}</Link>
+          <Link href={`?${filterQueryString(params, CRM_BUSINESS_UNIT_NONE)}`} prefetch={false} className={`rounded-full px-3 py-2 text-xs font-semibold transition ${params.unit === CRM_BUSINESS_UNIT_NONE ? 'bg-amber-600 text-white' : 'border border-amber-200 bg-white text-amber-900 hover:border-amber-400'}`}>Sin unidad · {withoutBusinessUnit.toLocaleString('es-ES')}</Link>
         </div>
       </section>
 
@@ -386,7 +367,7 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
                       <td className="px-5 py-4"><ContactStatus contact={contact} /></td>
                       <td className="px-5 py-4"><ListSummary contact={contact} /></td>
                       <td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500">{contact.sincronizadoAt?.toLocaleDateString('es-ES') || 'Pendiente'}</td>
-                      <td className="px-5 py-4 text-right"><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></td>
+                      <td className="px-5 py-4 text-right"><Link href={`/admin/crm/contactos/${contact.id}`} prefetch={false} className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -398,9 +379,9 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
 
       {totalPages > 1 && (
         <nav className="flex items-center justify-between gap-3 text-sm" aria-label="Paginación">
-          {page > 1 ? <Link href={`?${queryString(params, page - 1)}`} className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700">Anterior</Link> : <span />}
+          {page > 1 ? <Link href={`?${queryString(params, page - 1)}`} prefetch={false} className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700">Anterior</Link> : <span />}
           <span className="text-center text-gray-600">Página {page} de {totalPages} · {total.toLocaleString('es-ES')} resultados</span>
-          {page < totalPages ? <Link href={`?${queryString(params, page + 1)}`} className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700">Siguiente</Link> : <span />}
+          {page < totalPages ? <Link href={`?${queryString(params, page + 1)}`} prefetch={false} className="rounded-lg border border-gray-300 bg-white px-4 py-2 font-semibold text-gray-700">Siguiente</Link> : <span />}
         </nav>
       )}
     </main>
@@ -453,5 +434,5 @@ function DealSummary({ contact, filtered = false }: { contact: any; filtered?: b
 }
 
 function ContactCard({ contact, businessUnitOptions, businessUnitEditable, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; businessUnitEditable: boolean; dealsFiltered?: boolean }) {
-  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
+  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} prefetch={false} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
 }
