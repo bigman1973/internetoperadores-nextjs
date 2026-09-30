@@ -24,8 +24,30 @@ model UsuarioAdmin {
   tarifasEditadas  Tarifa[]          @relation("TarifaEditor")
   permisos         PermisoUsuario[]
   perfilAsignado   String?           @map("perfil_asignado") // Nombre del perfil de permisos asignado
+  outlookConexion  OutlookConexion?
 
   @@map("usuarios_admin")
+}
+
+model OutlookConexion {
+  id                    String       @id @default(cuid())
+  usuarioId             Int          @unique @map("usuario_id")
+  email                 String
+  microsoftObjectId     String       @map("microsoft_object_id")
+  tenantId              String       @map("tenant_id")
+  refreshTokenCifrado   String       @map("refresh_token_cifrado") @db.Text
+  scopes                String
+  conectadoAt           DateTime     @default(now()) @map("conectado_at")
+  ultimoUsoAt           DateTime?    @map("ultimo_uso_at")
+  ultimoError           String?      @map("ultimo_error") @db.Text
+  revocadoAt            DateTime?    @map("revocado_at")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+  usuario               UsuarioAdmin @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@unique([tenantId, microsoftObjectId])
+  @@map("outlook_conexiones")
 }
 
 model Tarifa {

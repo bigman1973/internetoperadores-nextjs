@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client'
 import { createHash } from 'node:crypto'
 import { authOptions } from '@/lib/auth'
 import { getDefaultEmailSender, sendCrmEmail } from '@/lib/email'
-import { createCorporateCalendarEvent, getCorporateCalendarMailbox, isCorporateCalendarEnabled } from '@/lib/outlook-calendar'
+import { createOutlookUserCalendarEvent } from '@/lib/outlook-calendar'
+import { getOutlookConnectionStatus, getOutlookUserAccessToken } from '@/lib/outlook-user-connection'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 
@@ -128,8 +129,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const to = cleanEmailList(body.to, 20)
   const cc = cleanEmailList(body.cc, 20)
   const bcc = cleanEmailList(body.bcc, 20)
-  const requestedOutlook = type === 'REUNION' && body.syncOutlook !== false
-  const syncOutlook = requestedOutlook && isCorporateCalendarEnabled()
+  const authorId = Number(session.user.id)
+  const authorName = session.user.name || session.user.email || 'Administrador'
+  const authorEmail = session.user.email?.trim().toLowerCase() || ''
+  const requestedOutlook = type === 'REUNION' && body.syncOutlook === true
+  const outlookStatus = requestedOutlook ? await getOutlookConnectionStatus(authorId) : null
+  const syncOutlook = Boolean(requestedOutlook && outlookStatus?.enabled && outlookStatus.connected)
   const onlineMeeting = syncOutlook && body.onlineMeeting === true
   const inviteAttendees = syncOutlook && body.inviteAttendees === true
   const preparedExternalChannel = ['WHATSAPP', 'LINKEDIN', 'SMS'].includes(type) && direction === 'SALIENTE' && body.prepareExternalChannel === true
@@ -153,7 +158,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (activityDate.getTime() < Date.now() - 5 * 60 * 1000) return NextResponse.json({ error: 'La reunión de Outlook debe programarse en el futuro.' }, { status: 400 })
     if (!durationMinutes || durationMinutes < 5) return NextResponse.json({ error: 'Indica una duración mínima de 5 minutos.' }, { status: 400 })
   }
-  if (requestedOutlook && !syncOutlook) return NextResponse.json({ error: 'El calendario corporativo aún está pendiente de activación segura en Microsoft 365.' }, { status: 503 })
+  if (requestedOutlook && !outlookStatus?.enabled) return NextResponse.json({ error: 'Outlook individual aún está pendiente de activación en Microsoft 365.' }, { status: 503 })
+  if (requestedOutlook && !outlookStatus?.connected) return NextResponse.json({ error: 'Conecta tu cuenta de Outlook antes de crear la reunión en tu agenda.' }, { status: 428 })
 
   let followUpDate: Date | null = null
   let followUpTitle: string | null = null
@@ -167,17 +173,22 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   }
   if (type === 'TAREA' && !followUpDate) return NextResponse.json({ error: 'Indica la fecha límite de la tarea.' }, { status: 400 })
 
-  const authorId = Number(session.user.id)
-  const authorName = session.user.name || session.user.email || 'Administrador'
   const sender = getDefaultEmailSender()
-  const calendarMailbox = getCorporateCalendarMailbox()
-  const authorEmail = session.user.email?.trim().toLowerCase() || ''
+  let calendarAuthorization: Awaited<ReturnType<typeof getOutlookUserAccessToken>> | null = null
+  if (syncOutlook) {
+    try {
+      calendarAuthorization = await getOutlookUserAccessToken(authorId, authorEmail)
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Vuelve a conectar tu cuenta de Outlook.' }, { status: 401 })
+    }
+  }
+  const calendarMailbox = calendarAuthorization?.mailbox || ''
   const replyTo = EMAIL_PATTERN.test(authorEmail) && CORPORATE_DOMAINS.some((domain) => authorEmail.endsWith(`@${domain}`)) ? authorEmail : undefined
   if (type === 'CORREO' && (!EMAIL_PATTERN.test(sender) || !CORPORATE_DOMAINS.some((domain) => sender.endsWith(`@${domain}`)))) {
     return NextResponse.json({ error: 'El buzón corporativo de salida no está configurado correctamente.' }, { status: 500 })
   }
   if (syncOutlook && (!EMAIL_PATTERN.test(calendarMailbox) || !CORPORATE_DOMAINS.some((domain) => calendarMailbox.endsWith(`@${domain}`)))) {
-    return NextResponse.json({ error: 'El calendario corporativo de Outlook no está configurado correctamente.' }, { status: 500 })
+    return NextResponse.json({ error: 'La cuenta de Outlook conectada no corresponde a un buzón corporativo válido.' }, { status: 500 })
   }
   const emailFingerprint = type === 'CORREO'
     ? createHash('sha256').update(JSON.stringify({ sender, to, cc, bcc, title, description })).digest('hex')
@@ -250,6 +261,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       }
       if (syncOutlook) {
         metadata.buzonCalendario = calendarMailbox
+        metadata.organizadorUsuarioId = authorId
         metadata.huellaCalendario = calendarFingerprint
         metadata.estadoCalendario = 'PENDIENTE'
         metadata.reunionTeams = onlineMeeting
@@ -311,7 +323,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         return NextResponse.json({ success: true, activityId: activity.id, unchanged: true, linkedToOutlook: Boolean(previousMetadata.outlookWebLink) })
       }
       if (activity.resultado === 'CALENDARIO_INCIERTO') {
-        return NextResponse.json({ error: 'No se pudo confirmar si Outlook creó la reunión. Revisa el calendario corporativo antes de repetirla.' }, { status: 409 })
+        return NextResponse.json({ error: 'No se pudo confirmar si Outlook creó la reunión. Revisa tu calendario antes de repetirla.' }, { status: 409 })
       }
       if (setup.kind === 'existing' && activity.resultado === 'CALENDARIO_PENDIENTE') {
         if (activity.createdAt.getTime() < Date.now() - 2 * 60 * 1000) {
@@ -319,7 +331,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             where: { id: activity.id, resultado: 'CALENDARIO_PENDIENTE', creadoPorId: authorId },
             data: { resultado: 'CALENDARIO_INCIERTO' },
           })
-          return NextResponse.json({ error: 'La creación anterior no terminó de confirmarse. Revisa el calendario corporativo antes de repetirla.' }, { status: 409 })
+          return NextResponse.json({ error: 'La creación anterior no terminó de confirmarse. Revisa tu calendario antes de repetirla.' }, { status: 409 })
         }
         return NextResponse.json({ error: 'Esta reunión ya se está procesando en Outlook.' }, { status: 409 })
       }
@@ -339,7 +351,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const email = contactEmail(contact)
         return EMAIL_PATTERN.test(email) ? [{ email, name: contact.nombre }] : []
       }) : []
-      const eventResult = await createCorporateCalendarEvent({
+      const eventResult = await createOutlookUserCalendarEvent({
+        accessToken: calendarAuthorization!.accessToken,
+        mailbox: calendarMailbox,
         operationId: clientRequestId,
         subject: title!,
         html: textToCalendarHtml(description, authorName),
@@ -358,6 +372,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
             resultado: uncertain ? 'CALENDARIO_INCIERTO' : 'ERROR_CALENDARIO',
             metadatos: {
               buzonCalendario: calendarMailbox,
+              organizadorUsuarioId: authorId,
               huellaCalendario: calendarFingerprint,
               estadoCalendario: uncertain ? 'INCIERTO' : 'RECHAZADO',
               codigoGraph: eventResult.status,
@@ -369,14 +384,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         })
         return NextResponse.json({
           error: uncertain
-            ? 'No se pudo confirmar si Outlook creó la reunión. Revisa el calendario corporativo antes de repetirla.'
-            : 'Microsoft 365 ha rechazado la creación de la reunión. Revisa los permisos del calendario corporativo.',
+            ? 'No se pudo confirmar si Outlook creó la reunión. Revisa tu calendario antes de repetirla.'
+            : 'Microsoft 365 ha rechazado la creación de la reunión. Vuelve a conectar tu cuenta de Outlook.',
           retryable: !uncertain,
         }, { status: uncertain ? 502 : 422 })
       }
 
       const createdMetadata = {
         buzonCalendario: eventResult.mailbox,
+        organizadorUsuarioId: authorId,
         huellaCalendario: calendarFingerprint,
         estadoCalendario: 'CREADO',
         codigoGraph: eventResult.status,

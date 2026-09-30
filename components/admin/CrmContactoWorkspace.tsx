@@ -116,8 +116,13 @@ type Props = {
   lists: ListMembership[]
   activities?: ContactActivity[]
   emailSender: string
-  calendarMailbox: string
-  calendarEnabled: boolean
+  outlookConnection: {
+    enabled: boolean
+    connected: boolean
+    email: string | null
+    connectedAt: string | null
+    lastError: string | null
+  }
   qualityIssues: string[]
   history: HistoryEntry[]
   dataEditor: CrmContactDataEditorProps
@@ -136,7 +141,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, calendarMailbox, calendarEnabled, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -216,7 +221,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
   const handleActivityCreated = (type: string, details?: { outlook: boolean }) => {
     const label = activityTypeLabel(type)
-    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : type === 'REUNION' && details?.outlook ? 'La reunión se ha creado en Outlook corporativo y registrado en el CRM.' : `${label} registrada en el CRM.` })
+    setQuickMessage({ type: 'success', text: type === 'CORREO' ? 'Microsoft 365 ha aceptado el correo y el intento ha quedado registrado en el CRM.' : type === 'REUNION' && details?.outlook ? 'La reunión se ha creado en tu agenda de Outlook y registrado en el CRM.' : `${label} registrada en el CRM.` })
     setActiveTab('activity')
     router.refresh()
   }
@@ -383,7 +388,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
         </section>}
       </div>
       <CrmCallComposer open={callComposerOpen} contactId={contact.id} contactName={contact.name} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} deals={deals} onClose={() => setCallComposerOpen(false)} onCreated={() => handleActivityCreated('LLAMADA')} />
-      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} calendarMailbox={calendarMailbox} calendarEnabled={calendarEnabled} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
+      {activityComposerType && <CrmActivityComposer open type={activityComposerType} contactId={contact.id} contactName={contact.name} contactEmail={contact.email === 'Sin informar' ? '' : contact.email} contactPhone={contact.phone === 'Sin informar' ? '' : contact.phone} contactLinkedIn={contact.linkedIn} senderEmail={emailSender} outlookConnection={outlookConnection} deals={deals} onClose={() => setActivityComposerType(null)} onCreated={handleActivityCreated} />}
     </main>
   )
 }
@@ -414,7 +419,6 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
   const emailTo = stringArray(activity.metadata.para)
   const sender = typeof activity.metadata.remitente === 'string' ? activity.metadata.remitente : null
   const location = typeof activity.metadata.ubicacion === 'string' ? activity.metadata.ubicacion : null
-  const calendarMailbox = typeof activity.metadata.buzonCalendario === 'string' ? activity.metadata.buzonCalendario : null
   const outlookWebLink = canWrite && activity.metadata.outlookDisponible === true ? `/api/admin/crm/contactos/${encodeURIComponent(activity.contactId)}/actividades/${encodeURIComponent(activity.id)}/outlook?target=outlook` : null
   const teamsJoinUrl = canWrite && activity.metadata.teamsDisponible === true ? `/api/admin/crm/contactos/${encodeURIComponent(activity.contactId)}/actividades/${encodeURIComponent(activity.id)}/outlook?target=teams` : null
   return <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] sm:p-5">
@@ -426,7 +430,7 @@ function ActivityCard({ activity, canWrite, updating, onTaskState }: { activity:
           <div className="flex shrink-0 flex-wrap gap-1.5"><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${resultStyle(activity.type === 'TAREA' && activity.followUp?.state === 'COMPLETADA' ? 'COMPLETADA' : activity.result)}`}>{activityResultLabel(activity)}</span>{activity.origin === 'HUBSPOT' && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">Importada</span>}</div>
         </div>
         {activity.type === 'CORREO' && <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900"><p><strong>De:</strong> {sender || 'Remitente no disponible'}</p><p><strong>Para:</strong> {emailTo.join(', ') || 'Destinatario no disponible'}</p>{(activity.result === 'ACEPTADO_GRAPH' || activity.result === 'ENVIADO') && <p className="font-semibold text-blue-700">Microsoft 365 aceptó el envío; se solicitó guardar copia en Elementos enviados.</p>}{(activity.result === 'ENVIO_INCIERTO' || activity.result === 'ENVIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en Elementos enviados antes de repetirlo.</p>}</div>}
-        {activity.type === 'REUNION' && calendarMailbox && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950"><p><strong>Calendario:</strong> {calendarMailbox}</p>{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con Outlook corporativo.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en el calendario antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
+        {activity.type === 'REUNION' && (activity.result?.startsWith('CALENDARIO_') || activity.result === 'ERROR_CALENDARIO') && <div className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-950">{activity.result === 'CALENDARIO_CREADO' && <p className="font-semibold text-violet-700">Evento creado y vinculado con la agenda individual de Outlook.</p>}{(activity.result === 'CALENDARIO_INCIERTO' || activity.result === 'CALENDARIO_PENDIENTE') && <p className="font-semibold text-red-700">Requiere revisión en la agenda antes de repetirlo.</p>}<div className="mt-1 flex flex-wrap gap-3">{outlookWebLink && <a href={outlookWebLink} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Abrir en Outlook</a>}{teamsJoinUrl && <a href={teamsJoinUrl} target="_blank" rel="noopener noreferrer" className="font-bold text-violet-700 underline decoration-violet-300 underline-offset-2">Unirse por Teams</a>}</div></div>}
         {activity.result === 'CANAL_PREPARADO' && <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700"><strong>Contenido preparado desde el CRM.</strong> La plataforma externa no ha confirmado apertura ni entrega.</div>}
         {location && <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600"><MapPinIcon className="h-4 w-4" />{location}</p>}
         <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{activity.description}</p>

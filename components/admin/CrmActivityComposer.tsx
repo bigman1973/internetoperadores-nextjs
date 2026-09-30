@@ -30,8 +30,13 @@ type Props = {
   contactPhone: string
   contactLinkedIn: string
   senderEmail: string
-  calendarMailbox: string
-  calendarEnabled: boolean
+  outlookConnection: {
+    enabled: boolean
+    connected: boolean
+    email: string | null
+    connectedAt: string | null
+    lastError: string | null
+  }
   deals: DealOption[]
   onClose: () => void
   onCreated: (type: CrmActivityType, details?: { outlook: boolean }) => void
@@ -39,7 +44,7 @@ type Props = {
 
 const CONFIG: Record<CrmActivityType, { title: string; description: string; action: string; placeholder: string; color: string }> = {
   CORREO: { title: 'Enviar correo', description: 'Se tramitará con Microsoft 365 y quedará registrado en la cronología.', action: 'Enviar y registrar', placeholder: 'Escribe el mensaje que recibirá el contacto…', color: 'bg-blue-100 text-blue-700' },
-  REUNION: { title: 'Programar reunión', description: 'Crea el evento en el calendario corporativo y regístralo en el CRM.', action: 'Registrar reunión', placeholder: 'Objetivo, asistentes, acuerdos y próximos pasos…', color: 'bg-violet-100 text-violet-700' },
+  REUNION: { title: 'Programar reunión', description: 'Crea el evento en tu agenda de Outlook y regístralo en el CRM.', action: 'Registrar reunión', placeholder: 'Objetivo, asistentes, acuerdos y próximos pasos…', color: 'bg-violet-100 text-violet-700' },
   NOTA: { title: 'Añadir nota', description: 'Guarda contexto interno sin modificar las propiedades del contacto.', action: 'Guardar nota', placeholder: 'Información útil para el equipo…', color: 'bg-amber-100 text-amber-700' },
   TAREA: { title: 'Crear tarea', description: 'Deja un próximo paso con fecha límite y prioridad.', action: 'Crear tarea', placeholder: 'Qué hay que hacer y cuál es el resultado esperado…', color: 'bg-emerald-100 text-emerald-700' },
   WHATSAPP: { title: 'WhatsApp asistido', description: 'Prepara el mensaje y conserva el registro en la cronología.', action: 'Registrar WhatsApp', placeholder: 'Escribe el mensaje o resume la conversación…', color: 'bg-green-100 text-green-700' },
@@ -51,14 +56,14 @@ const CONFIG: Record<CrmActivityType, { title: string; description: string; acti
 const MESSAGE_TYPES = new Set<CrmActivityType>(['WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
 const FOLLOW_UP_TYPES = new Set<CrmActivityType>(['CORREO', 'REUNION', 'NOTA', 'WHATSAPP', 'LINKEDIN', 'SMS', 'CORREO_POSTAL'])
 
-export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, calendarMailbox, calendarEnabled, deals, onClose, onCreated }: Props) {
+export default function CrmActivityComposer({ open, type, contactId, contactName, contactEmail, contactPhone, contactLinkedIn, senderEmail, outlookConnection, deals, onClose, onCreated }: Props) {
   const config = CONFIG[type]
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [activityDate, setActivityDate] = useState(() => toLocalDateTime(new Date()))
   const [durationMinutes, setDurationMinutes] = useState('')
   const [location, setLocation] = useState('')
-  const [syncOutlook, setSyncOutlook] = useState(type === 'REUNION' && calendarEnabled)
+  const [syncOutlook, setSyncOutlook] = useState(false)
   const [onlineMeeting, setOnlineMeeting] = useState(false)
   const [inviteAttendees, setInviteAttendees] = useState(Boolean(contactEmail))
   const [direction, setDirection] = useState('SALIENTE')
@@ -78,6 +83,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
   const [followUpTitle, setFollowUpTitle] = useState('')
   const [priority, setPriority] = useState('MEDIA')
   const [saving, setSaving] = useState(false)
+  const [disconnectingOutlook, setDisconnectingOutlook] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(() => createRequestId())
 
@@ -89,7 +95,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setActivityDate(toLocalDateTime(now))
     setDurationMinutes(type === 'REUNION' ? '60' : '')
     setLocation('')
-    setSyncOutlook(type === 'REUNION' && calendarEnabled)
+    setSyncOutlook(false)
     setOnlineMeeting(false)
     setInviteAttendees(type === 'REUNION' && Boolean(contactEmail))
     setDirection('SALIENTE')
@@ -110,7 +116,7 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     setSaving(false)
     setError(null)
     setRequestId(createRequestId())
-  }, [calendarEnabled, contactEmail, contactName, open, type])
+  }, [contactEmail, contactName, open, outlookConnection.connected, outlookConnection.enabled, type])
 
   useEffect(() => {
     if (!open || !showContacts || contactQuery.trim().length < 2) {
@@ -217,6 +223,21 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
     }
   }
 
+  async function disconnectOutlook() {
+    if (!window.confirm('¿Quieres desconectar esta cuenta de Outlook del CRM? Podrás volver a conectarla cuando quieras.')) return
+    setDisconnectingOutlook(true)
+    setError(null)
+    try {
+      const response = await fetch('/api/admin/integraciones/outlook', { method: 'DELETE' })
+      const data = await response.json()
+      if (!response.ok || !data.success) throw new Error(data.error || 'No se pudo desconectar Outlook.')
+      window.location.reload()
+    } catch (disconnectError) {
+      setError(disconnectError instanceof Error ? disconnectError.message : 'No se pudo desconectar Outlook.')
+      setDisconnectingOutlook(false)
+    }
+  }
+
   const Icon = type === 'CORREO' ? EnvelopeIcon : type === 'REUNION' ? CalendarDaysIcon : type === 'NOTA' ? DocumentTextIcon : type === 'TAREA' ? CheckCircleIcon : ChatBubbleLeftRightIcon
   const canOpenAssistedChannel = direction === 'SALIENTE' && Boolean(channelUrl(type, contactPhone, contactLinkedIn, contactName, description))
   const primaryAction = type === 'REUNION' && syncOutlook
@@ -257,7 +278,10 @@ export default function CrmActivityComposer({ open, type, contactId, contactName
             </>}
 
             {type === 'REUNION' && <div className="space-y-3 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-950">
-              <label className={`flex items-start gap-3 ${calendarEnabled ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'}`}><input type="checkbox" checked={syncOutlook} onChange={(event) => setSyncOutlook(event.target.checked)} disabled={!calendarEnabled} className="mt-1 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span><span className="block font-bold">Crear en Outlook corporativo</span><span className="mt-0.5 block text-xs leading-5 text-violet-800">{calendarEnabled ? <>Organizador: {calendarMailbox}. El CRM guardará el enlace y el identificador del evento.</> : 'Pendiente de habilitar el permiso y el aislamiento del calendario en Microsoft 365. Mientras tanto, puedes registrar la reunión solo en el CRM.'}</span></span></label>
+              <label className={`flex items-start gap-3 ${outlookConnection.enabled && outlookConnection.connected ? 'cursor-pointer' : 'cursor-not-allowed opacity-75'}`}><input type="checkbox" checked={syncOutlook} onChange={(event) => setSyncOutlook(event.target.checked)} disabled={!outlookConnection.enabled || !outlookConnection.connected} className="mt-1 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span><span className="block font-bold">Crear en mi agenda de Outlook</span><span className="mt-0.5 block text-xs leading-5 text-violet-800">{outlookConnection.enabled && outlookConnection.connected ? <>Organizador: {outlookConnection.email}. El CRM guardará el enlace y el identificador del evento.</> : outlookConnection.enabled ? 'Conecta tu cuenta corporativa para que tú figures como organizador.' : 'La integración individual está pendiente de habilitarse en Microsoft 365. Mientras tanto, puedes registrar la reunión solo en el CRM.'}</span></span></label>
+              {outlookConnection.enabled && !outlookConnection.connected && <a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="inline-flex min-h-10 items-center justify-center rounded-xl bg-violet-700 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-violet-800 active:scale-[0.97]">Conectar mi Outlook</a>}
+              {outlookConnection.enabled && outlookConnection.connected && <div className="flex flex-wrap gap-3 text-xs font-bold"><a href={`/api/admin/integraciones/outlook/connect?returnTo=${encodeURIComponent(`/admin/crm/contactos/${contactId}`)}`} className="text-violet-700 underline decoration-violet-300 underline-offset-2">Renovar conexión</a><button type="button" onClick={disconnectOutlook} disabled={disconnectingOutlook} className="text-slate-600 underline decoration-slate-300 underline-offset-2 disabled:opacity-50">{disconnectingOutlook ? 'Desconectando…' : 'Desconectar de este CRM'}</button></div>}
+              {outlookConnection.lastError && <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">{outlookConnection.lastError}</p>}
               {syncOutlook && <div className="grid gap-3 border-t border-violet-200 pt-3 sm:grid-cols-2"><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={inviteAttendees} onChange={(event) => setInviteAttendees(event.target.checked)} disabled={!contactEmail && selectedContacts.size === 0} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Enviar invitación a los contactos con correo</span></label><label className="flex cursor-pointer items-start gap-2"><input type="checkbox" checked={onlineMeeting} onChange={(event) => setOnlineMeeting(event.target.checked)} className="mt-0.5 rounded border-violet-300 text-violet-600 focus:ring-violet-500" /><span className="text-xs leading-5">Añadir reunión de Microsoft Teams</span></label></div>}
             </div>}
 

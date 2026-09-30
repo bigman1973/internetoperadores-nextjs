@@ -5,7 +5,7 @@ import prisma from '@/lib/prisma'
 import CrmContactoWorkspace from '@/components/admin/CrmContactoWorkspace'
 import { CRM_BUSINESS_UNIT_PROPERTY, crmBusinessUnitLabel, getCrmBusinessUnitOptions } from '@/lib/crm-unidades-negocio'
 import { getDefaultEmailSender } from '@/lib/email'
-import { getCorporateCalendarMailbox, isCorporateCalendarEnabled } from '@/lib/outlook-calendar'
+import { getOutlookConnectionStatus } from '@/lib/outlook-user-connection'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,9 +40,10 @@ type PropertyDefinition = {
 }
 
 export default async function CrmContactDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireAdminAreaRead('admin.crm.contactos', ['MARKETING', 'VENTAS'])
+  const session = await requireAdminAreaRead('admin.crm.contactos', ['MARKETING', 'VENTAS'])
   await registrarArea('admin.crm.contactos', 'CRM > Contactos', 'admin.crm')
   const { id } = await params
+  const outlookConnection = await getOutlookConnectionStatus(Number(session.user.id))
 
   const contact = await prisma.crmRegistroHubspot.findFirst({
     where: { id, objectTypeId: '0-1' },
@@ -223,8 +224,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         } : null,
       }))}
       emailSender={getDefaultEmailSender()}
-      calendarMailbox={getCorporateCalendarMailbox()}
-      calendarEnabled={isCorporateCalendarEnabled()}
+      outlookConnection={outlookConnection}
       qualityIssues={qualityIssues}
       history={asHistory(contact.historialCambios).reverse().map((entry) => ({
         date: entry.fecha ? formatDateTime(new Date(entry.fecha)) : null,
@@ -302,7 +302,7 @@ function asStringRecord(value: unknown): Record<string, string | null> {
 function asActivityMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const metadata = value as Record<string, unknown>
-  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'buzonCalendario', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado']
+  const publicMetadata = Object.fromEntries(['remitente', 'para', 'cc', 'ubicacion', 'guardadoEnEnviados', 'estadoGraph', 'codigoGraph', 'estadoCalendario', 'reunionTeams', 'modoAsistido', 'canalPreparado']
     .filter((key) => metadata[key] !== undefined)
     .map((key) => [key, metadata[key]]))
   if (typeof metadata.outlookWebLink === 'string') publicMetadata.outlookDisponible = true

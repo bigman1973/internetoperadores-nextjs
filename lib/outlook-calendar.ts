@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto'
-import { getMicrosoftGraphAccessToken } from '@/lib/email'
 
 export type OutlookCalendarAttendee = {
   email: string
@@ -7,6 +6,8 @@ export type OutlookCalendarAttendee = {
 }
 
 export type OutlookCalendarEventOptions = {
+  accessToken: string
+  mailbox: string
   operationId: string
   subject: string
   html: string
@@ -31,20 +32,11 @@ export type OutlookCalendarEventResult = {
   }
 }
 
-export function getCorporateCalendarMailbox() {
-  return (process.env.OUTLOOK_CALENDAR_MAILBOX || '').trim().toLowerCase()
-}
-
-export function isCorporateCalendarEnabled() {
-  return process.env.OUTLOOK_CALENDAR_ENABLED === 'true' && Boolean(getCorporateCalendarMailbox())
-}
-
-export async function createCorporateCalendarEvent(options: OutlookCalendarEventOptions): Promise<OutlookCalendarEventResult> {
-  const mailbox = getCorporateCalendarMailbox()
+export async function createOutlookUserCalendarEvent(options: OutlookCalendarEventOptions): Promise<OutlookCalendarEventResult> {
+  const mailbox = options.mailbox.trim().toLowerCase()
   let requestStarted = false
 
   try {
-    const accessToken = await getMicrosoftGraphAccessToken()
     const attendees = uniqueAttendees(options.attendees || []).map((attendee) => ({
       emailAddress: {
         address: attendee.email,
@@ -69,14 +61,15 @@ export async function createCorporateCalendarEvent(options: OutlookCalendarEvent
     }
 
     requestStarted = true
-    const response = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/calendar/events`, {
+    const response = await fetch('https://graph.microsoft.com/v1.0/me/calendar/events', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${options.accessToken}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(event),
       cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
     })
 
     if (response.status === 201) {
@@ -111,7 +104,7 @@ export async function createCorporateCalendarEvent(options: OutlookCalendarEvent
       errorMessage = errorText || errorMessage
     }
     console.error('Error Microsoft Graph Calendar:', errorMessage)
-    const uncertain = response.status === 408 || response.status >= 500
+    const uncertain = response.status === 408 || response.status === 429 || response.status >= 500
     return { success: false, mailbox, status: response.status, error: errorMessage, uncertain }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Error desconocido creando el evento de Outlook'
