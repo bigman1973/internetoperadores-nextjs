@@ -41,6 +41,11 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
       where: { id, objectTypeId: '0-1' },
       include: {
         clienteWeb: true,
+        empresasCrm: {
+          where: { activo: true, empresa: { activo: true } },
+          include: { empresa: { select: { id: true, nombre: true, tipo: true, clientes: { select: { clienteId: true }, take: 1 } } } },
+          orderBy: [{ principal: 'desc' }, { createdAt: 'asc' }],
+        },
         listas: {
           where: { activo: true, lista: { activo: true } },
           include: { lista: true },
@@ -95,7 +100,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const email = effectiveProperties.email || contact.email || ''
   const phone = effectiveProperties.phone || effectiveProperties.mobilephone || contact.telefono || ''
   const linkedIn = effectiveProperties.hs_linkedin_url || ''
-  const company = effectiveProperties.company || contact.empresa || contact.clienteWeb?.nombreComercial || ''
+  const company = contact.empresasCrm.find((association) => association.principal)?.empresa.nombre || effectiveProperties.company || contact.empresa || contact.clienteWeb?.nombreComercial || ''
   const jobTitle = effectiveProperties.jobtitle || ''
   const website = effectiveProperties.website || ''
   const city = effectiveProperties.city || ''
@@ -108,7 +113,7 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
   const qualityIssues: string[] = []
   if (!email) qualityIssues.push('Falta el correo electrónico.')
   if (!phone) qualityIssues.push('Falta un teléfono de contacto.')
-  if (!company) qualityIssues.push('No se ha informado la empresa.')
+  if (!contact.empresasCrm.length && segment !== 'PARTICULAR') qualityIssues.push('La empresa aún no está vinculada a una ficha de empresa CRM.')
   if (units.length === 0) qualityIssues.push('Falta asignar la unidad de negocio.')
   if (!effectiveProperties.lifecyclestage) qualityIssues.push('Falta revisar el ciclo de vida comercial.')
   if (ambiguousMatches > 1) qualityIssues.push(`El correo coincide con ${ambiguousMatches.toLocaleString('es-ES')} clientes y requiere revisión manual.`)
@@ -156,6 +161,14 @@ export default async function CrmContactDetailPage({ params }: { params: Promise
         active: contact.clienteWeb.activo,
         segment: SEGMENT_LABELS[contact.clienteWeb.segmentoCrm] || contact.clienteWeb.segmentoCrm,
       } : null}
+      companies={contact.empresasCrm.map((association) => ({
+        id: association.empresa.id,
+        nombre: association.empresa.nombre,
+        tipo: association.empresa.tipo,
+        principal: association.principal,
+        papel: association.papel,
+        clientes: association.empresa.clientes.length,
+      }))}
       deals={contact.negocios.map(({ negocio }) => ({
         id: negocio.hubspotId,
         hubspotId: negocio.hubspotId,

@@ -26,6 +26,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     select: { hubspotId: true },
   })
   if (!contact) return NextResponse.json({ error: 'Contacto no encontrado.' }, { status: 404 })
+  if (contact.hubspotId.startsWith('local:')) return NextResponse.json({ error: 'Este contacto se creó en el CRM local y no existe en HubSpot.' }, { status: 400 })
 
   await prisma.crmSincronizacionHubspot.updateMany({
     where: { estado: 'EN_PROGRESO', bloqueo: 'hubspot-crm-write', iniciadoAt: { lt: new Date(Date.now() - 15 * 60 * 1000) } },

@@ -126,6 +126,12 @@ export default async function CrmPage() {
       </header>
 
       <section className="grid gap-5 xl:grid-cols-2">
+        <article className="rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-white p-5 sm:p-6">
+          <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div><h2 className="text-xl font-bold text-slate-950">Empresas y autónomos</h2><p className="mt-1 text-sm leading-6 text-slate-600">Cuenta comercial independiente, contactos asociados y clientes ISPgestion vinculados explícitamente. El autónomo figura a la vez como titular y contacto.</p></div>
+            <Link href="/admin/crm/empresas" prefetch={false} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-700">Abrir empresas <ArrowRightIcon className="h-4 w-4" /></Link>
+          </div>
+        </article>
         <article className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-5 sm:p-6">
           <div className="flex h-full flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex gap-4">

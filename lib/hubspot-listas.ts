@@ -140,7 +140,7 @@ function getToken() {
   return token
 }
 
-async function hubspotRequest<T>(path: string, init?: RequestInit, attempt = 0): Promise<T> {
+export async function hubspotRequest<T>(path: string, init?: RequestInit, attempt = 0): Promise<T> {
   let response: Response
   try {
     response = await fetch(`${HUBSPOT_BASE}${path}`, {

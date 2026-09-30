@@ -239,6 +239,7 @@ model ClienteWeb {
   notificaciones       NotificacionCliente[]
   contratosDraxton     ContratoDraxton[]
   contactosCrm         CrmRegistroHubspot[]
+  empresasCrm          CrmEmpresaCliente[]
 
   @@index([email])
   @@index([activo])
@@ -3133,6 +3134,7 @@ model CrmRegistroHubspot {
   actividadesAsociadas CrmActividadContacto[]
   tareasCrm            CrmTarea[]
   clienteWeb           ClienteWeb?       @relation(fields: [clienteWebId], references: [id], onDelete: SetNull)
+  empresasCrm          CrmEmpresaContacto[]
 
   @@unique([objectTypeId, hubspotId])
   @@index([email])
@@ -3142,6 +3144,77 @@ model CrmRegistroHubspot {
   @@index([objectTypeId, propiedadesCompletasAt, id])
   @@index([unidadesNegocio], type: Gin)
   @@map("crm_registros_hubspot")
+}
+
+// Cuenta comercial independiente: un prospecto nunca se convierte en cliente por asociación.
+// Para un autónomo el titular es también un contacto de la misma cuenta, sin duplicar su persona.
+model CrmEmpresa {
+  id                 String                 @id @default(cuid())
+  hubspotId          String?                @unique @map("hubspot_id")
+  nombre             String
+  nombreComercial    String?                @map("nombre_comercial")
+  nif                String?
+  nifNormalizado     String?                @map("nif_normalizado")
+  tipo               String                 @default("SOCIEDAD")
+  segmentoCrm        SegmentoCrm            @default(EMPRESA) @map("segmento_crm")
+  dominio            String?
+  web                String?
+  telefono           String?
+  email              String?
+  sector             String?
+  direccion          String?
+  codigoPostal       String?                @map("codigo_postal")
+  localidad          String?
+  provincia          String?
+  pais               String?                @default("ES")
+  descripcion        String?
+  origen             String                 @default("LOCAL")
+  propiedadesHubspot Json?                  @map("propiedades_hubspot") @db.JsonB
+  sincronizadoAt     DateTime?              @map("sincronizado_at")
+  version            Int                    @default(0)
+  actualizadoPor     String?                @map("actualizado_por")
+  activo             Boolean                @default(true)
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+  contactos          CrmEmpresaContacto[]
+  clientes           CrmEmpresaCliente[]
+
+  @@index([nombre])
+  @@index([nifNormalizado])
+  @@index([dominio])
+  @@index([segmentoCrm, activo])
+  @@map("crm_empresas")
+}
+
+model CrmEmpresaContacto {
+  empresaId    String              @map("empresa_id")
+  contactoId   String              @map("contacto_id")
+  principal    Boolean             @default(false)
+  activo       Boolean             @default(true)
+  papel        String?             // TITULAR, EMPLEADO, ASESOR, REPRESENTANTE, OTRO
+  origen       String              @default("LOCAL")
+  etiquetas    Json?               @db.JsonB
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+  empresa      CrmEmpresa          @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  contacto     CrmRegistroHubspot  @relation(fields: [contactoId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, contactoId])
+  @@index([contactoId, activo, principal])
+  @@map("crm_empresa_contactos")
+}
+
+// Un mismo NIF puede corresponder a varias cuentas ISPgestion (sedes/códigos).
+model CrmEmpresaCliente {
+  empresaId String      @map("empresa_id")
+  clienteId Int         @unique @map("cliente_id")
+  origen    String      @default("MANUAL")
+  createdAt DateTime    @default(now()) @map("created_at")
+  empresa   CrmEmpresa  @relation(fields: [empresaId], references: [id], onDelete: Cascade)
+  cliente   ClienteWeb  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@id([empresaId, clienteId])
+  @@map("crm_empresa_clientes")
 }
 
 model CrmPropiedadHubspot {

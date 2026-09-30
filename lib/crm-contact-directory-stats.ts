@@ -31,6 +31,10 @@ export async function getCrmContactDirectoryStats() {
       FROM crm_negocio_contactos relacion
       JOIN crm_negocios_hubspot negocio ON negocio.hubspot_id = relacion.negocio_hubspot_id
       WHERE negocio.activo = true
+      UNION
+      SELECT id FROM crm_registros_hubspot WHERE object_type_id = '0-1' AND hubspot_id LIKE 'local:%'
+      UNION
+      SELECT contacto_id FROM crm_empresa_contactos WHERE activo = true
     ), eligible AS MATERIALIZED (
       SELECT contacto.cliente_web_id, contacto.email,
              contacto.propiedades_completas_at, contacto.propiedades_completas_error,

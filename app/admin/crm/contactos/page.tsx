@@ -73,6 +73,8 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
   const pageSize = 40
   const visibleContactScope = {
     OR: [
+      { hubspotId: { startsWith: 'local:' } },
+      { empresasCrm: { some: { activo: true } } },
       { listas: { some: { activo: true, lista: { activo: true } } } },
       { negocios: { some: { negocio: { activo: true } } } },
     ],

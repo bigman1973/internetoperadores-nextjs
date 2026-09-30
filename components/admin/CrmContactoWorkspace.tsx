@@ -35,6 +35,7 @@ import CrmContactoDataEditor, {
 import CrmContactoSettings from './CrmContactoSettings'
 import CrmActivityComposer, { type CrmActivityType } from './CrmActivityComposer'
 import CrmCallComposer from './CrmCallComposer'
+import CrmCompanyPicker from './CrmCompanyPicker'
 import { useRole } from './RoleContext'
 
 
@@ -112,6 +113,7 @@ type Props = {
   }
   statusNotice: { tone: 'green' | 'blue' | 'amber'; title: string; text: string }
   customer: { id: number; name: string; active: boolean; segment: string } | null
+  companies: Array<{ id: string; nombre: string; tipo: string; principal: boolean; papel: string | null; clientes: number }>
   deals: Deal[]
   lists: ListMembership[]
   activities?: ContactActivity[]
@@ -141,7 +143,7 @@ const QUICK_FIELDS = [
   { name: 'hs_lead_status', icon: <CheckBadgeIcon className="h-4 w-4" /> },
 ]
 
-export default function CrmContactoWorkspace({ contact, statusNotice, customer, deals, lists, activities = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
+export default function CrmContactoWorkspace({ contact, statusNotice, customer, companies, deals, lists, activities = [], emailSender, outlookConnection, qualityIssues, history, dataEditor, settings }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -157,7 +159,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
   const [activitySectionMenuOpen, setActivitySectionMenuOpen] = useState(false)
   const [activityComposerType, setActivityComposerType] = useState<CrmActivityType | null>(null)
   const [taskUpdating, setTaskUpdating] = useState<string | null>(null)
-  const [openRightCards, setOpenRightCards] = useState(() => new Set(['customer', 'deals', 'lists']))
+  const [openRightCards, setOpenRightCards] = useState(() => new Set(['company', 'customer', 'deals', 'lists']))
   const [advancedEditor, setAdvancedEditor] = useState<CrmContactDataEditorProps | null>(null)
   const [advancedLoading, setAdvancedLoading] = useState(false)
   const [advancedError, setAdvancedError] = useState<string | null>(null)
@@ -302,7 +304,7 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
               <div className="mt-3 flex flex-wrap gap-2">
                 {contact.units.length > 0 ? contact.units.map((unit) => <span key={unit} className="rounded-full border border-orange-200 bg-orange-50 px-2.5 py-1 text-xs font-semibold text-orange-800">{unit}</span>) : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Sin unidad de negocio</span>}
               </div>
-              <p className="mt-3 text-xs text-slate-400">Referencia #{contact.hubspotId} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
+              <p className="mt-3 text-xs text-slate-400">{contact.hubspotId.startsWith('local:') ? 'Origen: CRM local' : `Referencia #${contact.hubspotId}`} · {openDeals.length.toLocaleString('es-ES')} {openDeals.length === 1 ? 'negocio abierto' : 'negocios abiertos'} · {lists.length.toLocaleString('es-ES')} {lists.length === 1 ? 'lista' : 'listas'}</p>
             </div>
           </div>
 
@@ -374,7 +376,10 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
             </div>
 
             <aside className="space-y-4">
-              <AssociationCard id="customer" title="Empresa / cliente" count={customer ? 1 : 0} icon={<BuildingOffice2Icon className="h-5 w-5" />} openCards={openRightCards} setOpenCards={setOpenRightCards}>
+              <AssociationCard id="company" title="Empresas asociadas" count={companies.length} icon={<BuildingOffice2Icon className="h-5 w-5" />} openCards={openRightCards} setOpenCards={setOpenRightCards}>
+                <CrmCompanyPicker contactId={contact.id} contactName={contact.name} current={companies} customerId={isSuperAdmin || hasAreaAccess('admin.clientes', 'lectura') ? customer?.id || null : null} canWrite={canWrite && (isSuperAdmin || hasAreaAccess('admin.crm.empresas', 'escritura'))} />
+              </AssociationCard>
+              <AssociationCard id="customer" title="Cuenta cliente / ISPgestion" count={customer ? 1 : 0} icon={<BuildingOffice2Icon className="h-5 w-5" />} openCards={openRightCards} setOpenCards={setOpenRightCards}>
                 {customer ? <div className="rounded-xl bg-emerald-50 p-3"><p className="font-semibold text-slate-900">{customer.name}</p><p className="mt-1 text-xs text-slate-600">{customer.active ? 'Cliente activo' : 'Cliente histórico'} · {customer.segment}</p><Link href={`/admin/clientes/${customer.id}/editar`} className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-emerald-800">Abrir cliente <ArrowRightIcon className="h-4 w-4" /></Link></div> : <SmallEmpty text="No hay cliente asociado." />}
               </AssociationCard>
 
