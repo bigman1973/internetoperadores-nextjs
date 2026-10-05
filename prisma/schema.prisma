@@ -1739,6 +1739,10 @@ model Nomina {
   ssEmpresa               Float?   @map("ss_empresa") // Cuota SS empresa
   ssTCI                   Float?   @map("ss_tci") // SS Total Coste Integrado
   costeTotalEmpresa       Float?   @map("coste_total_empresa") // Devengado + SS Empresa
+  // Desglose informativo incluido en los importes totales anteriores; nunca se suma otra vez.
+  liquidacionDevengado    Float?   @map("liquidacion_devengado")
+  liquidacionNeto         Float?   @map("liquidacion_neto")
+  liquidacionCoste        Float?   @map("liquidacion_coste")
   // Archivo
   archivoUrl              String?  @map("archivo_url") // URL del PDF de la nómina
   archivoNombre           String?  @map("archivo_nombre")

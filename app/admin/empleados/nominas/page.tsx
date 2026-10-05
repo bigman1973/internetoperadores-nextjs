@@ -55,8 +55,9 @@ interface UploadResult {
 
 interface SyncResult {
   success: boolean;
+  dryRun?: boolean;
   anio: number;
-  resultados: { mes: number; success: boolean; summary?: { empleados: number }; error?: string; documentos?: number; incidencias?: string[] }[];
+  resultados: { mes: number; success: boolean; summary?: { empleados: number }; error?: string; documentos?: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; incidencias?: string[] }[];
   resumen: { totalArchivos: number; exitosos: number; fallidos: number; documentosVinculados?: number };
   error?: string;
 }
@@ -70,6 +71,7 @@ export default function NominasPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [previewedMonths, setPreviewedMonths] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -95,7 +97,7 @@ export default function NominasPage() {
     }
   }
 
-  async function handleSync(meses?: number[]) {
+  async function handleSync(meses?: number[], dryRun = true) {
     setSyncing(true);
     setSyncResult(null);
     setError(null);
@@ -107,16 +109,20 @@ export default function NominasPage() {
         const res = await fetch('/api/admin/nominas/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ anio: 2026, meses: [month] }),
+          body: JSON.stringify({ anio: 2026, meses: [month], dryRun }),
         });
         const data = await res.json();
         if (!res.ok && !data.resultados) {
           outcomes.push({ mes: month, success: false, error: data.error || 'Error al sincronizar' });
+          setPreviewedMonths(previous => previous.filter(value => value !== month));
         } else {
           outcomes.push(...data.resultados);
           totalFiles += data.resumen?.totalArchivos || 0;
+          if (dryRun && data.resultados?.[0]?.success) setPreviewedMonths(previous => [...new Set([...previous, month])]);
+          if (dryRun && !data.resultados?.[0]?.success) setPreviewedMonths(previous => previous.filter(value => value !== month));
+          if (!dryRun) setPreviewedMonths(previous => previous.filter(value => value !== month));
         }
-        setSyncResult({ success: outcomes.every(r => r.success), anio: 2026, resultados: [...outcomes], resumen: {
+        setSyncResult({ success: outcomes.every(r => r.success), dryRun, anio: 2026, resultados: [...outcomes], resumen: {
           totalArchivos: totalFiles, exitosos: outcomes.filter(r => r.success).length, fallidos: outcomes.filter(r => !r.success).length,
         } });
       }
@@ -232,10 +238,12 @@ export default function NominasPage() {
                     <div className="text-xs">
                       <div className="flex items-center gap-2">
                         {file.loaded && <span className="text-green-700">{file.empleadosEnBD} empleados</span>}
-                        <button onClick={() => handleSync([file.monthNum])} disabled={syncing || loading}
+                        <button onClick={() => handleSync([file.monthNum], true)} disabled={syncing || loading}
                           className="text-blue-700 hover:text-blue-900 font-medium disabled:opacity-50">
-                          {file.loaded ? 'Revisar y actualizar' : 'Importar'}
+                          Comprobar
                         </button>
+                        {previewedMonths.includes(file.monthNum) && <button onClick={() => handleSync([file.monthNum], false)} disabled={syncing || loading}
+                          className="rounded-md bg-blue-600 px-2 py-1 font-medium text-white hover:bg-blue-700 disabled:opacity-50">{file.loaded ? 'Actualizar' : 'Importar'}</button>}
                       </div>
                     </div>
                   </div>
@@ -244,19 +252,19 @@ export default function NominasPage() {
 
               {/* Sync all button */}
               <button
-                onClick={() => handleSync()}
+                onClick={() => handleSync(undefined, true)}
                 disabled={syncing || loading}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
               >
                 {syncing ? (
                   <>
                     <ArrowPathIcon className="h-4 w-4 animate-spin" />
-                    Sincronizando...
+                    Comprobando...
                   </>
                 ) : (
                   <>
                     <ArrowPathIcon className="h-4 w-4" />
-                    Revisar todos los meses
+                    Comprobar todos los meses
                   </>
                 )}
               </button>
@@ -275,16 +283,19 @@ export default function NominasPage() {
           {syncResult && (
             <div className={`p-3 rounded-lg text-sm ${syncResult.resumen.fallidos > 0 ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'}`}>
                 <p className="font-medium">
-                Meses importados: {syncResult.resumen.exitosos}/{syncResult.resultados.length}
+                {syncResult.dryRun ? 'Meses comprobados (sin importar)' : 'Meses importados'}: {syncResult.resumen.exitosos}/{syncResult.resultados.length}
               </p>
               {syncResult.resultados.map((r, i) => (
-                <div key={i} className="mt-1 flex items-center gap-1">
+                <div key={i} className="mt-1 flex flex-wrap items-center gap-1">
                   {r.success ? (
                     <CheckCircleIcon className="h-3.5 w-3.5 text-green-500" />
                   ) : (
                     <XCircleIcon className="h-3.5 w-3.5 text-red-500" />
                   )}
                   <span>{MESES[r.mes]}: {r.success ? `${r.summary?.empleados || 0} empleados; ${r.documentos || 0} documentos vinculados` : r.error}</span>
+                  {r.success && (r.liquidacionesEnResumen || r.sinReciboIndividual) ? <span className="text-xs text-amber-800">
+                    {r.liquidacionesEnResumen || 0} liquidaciones incluidas en resumen; {r.sinReciboIndividual || 0} personas sin recibo individual.
+                  </span> : null}
                 </div>
               ))}
               {syncResult.resultados.flatMap(r => r.incidencias || []).map((message, index) => (
@@ -351,7 +362,7 @@ export default function NominasPage() {
                   <div className="space-y-1 text-green-700">
                     <p><span className="font-medium">Archivo:</span> {uploadResult.archivo}</p>
                     <p><span className="font-medium">Periodo:</span> {MESES[uploadResult.mes || 0]} {uploadResult.anio}</p>
-                    <p><span className="font-medium">Empleados:</span> {uploadResult.empleadosProcesados}/{uploadResult.empleadosEnPDF} procesados</p>
+                    <p><span className="font-medium">Trabajadores:</span> {uploadResult.empleadosProcesados} · {uploadResult.empleadosEnPDF} conceptos en el resumen (un finiquito no crea otro trabajador)</p>
                     {uploadResult.resumen && (
                       <div className="mt-2 pt-2 border-t border-green-200 grid grid-cols-2 gap-1">
                         <p>Bruto: {formatEur(uploadResult.resumen.totalBruto)}</p>

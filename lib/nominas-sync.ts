@@ -4,9 +4,25 @@ import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph
 import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
 type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null };
-type Result = { mes: number; success: boolean; empleados: number; documentos: number; incidencias: string[]; error?: string };
+type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; incidencias: string[]; error?: string };
 
 function normaliseNif(s: string) { return s.replace(/[\s.-]/g, '').toUpperCase(); }
+function normaliseName(s: string) { return s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+export function nameSuffixMatchesPerson(suffix: string, fullName: string) {
+  const parts = normaliseName(fullName).split(/[^A-Z]+/).filter(part => part.length > 2);
+  // La gestoría usa tanto _DAVID PÉREZ como _DAVIDPÉREZ; comprobar que
+  // cada token sucesivo pertenece al nombre impreso, aunque cambie el orden.
+  let remaining = normaliseName(suffix).replace(/[^A-Z]/g, '');
+  if (!remaining) return true;
+  const available = [...parts];
+  while (remaining) {
+    const next = available.filter(part => remaining.startsWith(part)).sort((a, b) => b.length - a.length)[0];
+    if (!next) return false;
+    remaining = remaining.slice(next.length);
+    available.splice(available.indexOf(next), 1);
+  }
+  return true;
+}
 function cents(n: number) { return Math.round((n + Number.EPSILON) * 100); }
 export function payrollAmountsMatch(summary: NominaParseResult, individual: NominaParseResult) {
   const fields = ['devengadoTotal', 'netoPercibir', 'irpf', 'ssTrabajador', 'ssEmpresa', 'baseIrpf', 'costeTotalEmpresa'] as const;
@@ -43,11 +59,9 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       if (file.tipo === 'nomina_individual' && !summary.verificado) throw new Error('Los importes de la nómina individual no cuadran');
       // Comprobar identidad por nombre para impedir asignar un PDF individual a otra persona.
       if (file.tipo !== 'costes_io') {
-        const fileName = file.name.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        const payrollName = summary.nominas[0].nombre.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const fileName = normaliseName(file.name);
         const suffix = fileName.includes('_') ? fileName.split('_').pop()?.replace(/\.PDF$/, '').trim() || '' : '';
-        const words = suffix.split(/[\s,]+/).filter(w => w.length > 2);
-        if (words.length && !words.every(w => payrollName.includes(w))) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
+        if (suffix && !nameSuffixMatchesPerson(suffix, summary.nominas[0].nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
       }
       const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
       parsed.push({ file, records: summary.nominas, verified: summary.verificado, category });
@@ -126,7 +140,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
     }
   }
 
-  if (incidencias.some(message => message.startsWith('Hay un empleado'))) {
+  if (incidencias.some(message => message.startsWith('Hay una persona'))) {
     return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: 'Hay personas sin ficha en Personal: no se ha escrito nada' };
   }
   if (!values.size) return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: 'No se extrajeron importes válidos' };
@@ -140,16 +154,22 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   }
 
   const linkedCount = [...linked.values()].reduce((count, docs) => count + docs.length, 0);
-  if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, incidencias };
+  const liquidacionesEnResumen = [...bulkComponents.values()].filter(components => components.has('LIQUIDACION')).length;
+  const sinReciboIndividual = [...values.keys()].filter(id => !(linked.get(id) || []).some(doc => doc.tipo === 'NOMINA')).length;
+  if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, incidencias };
   await prisma.$transaction(async tx => {
     for (const [employeeId, record] of values) {
       const docs = linked.get(employeeId) || [];
       const payslip = docs.find(d => d.tipo === 'NOMINA');
+      const settlement = bulkComponents.get(employeeId)?.get('LIQUIDACION');
       const data = {
         devengadoTotal: record.devengadoTotal, netoPercibir: record.netoPercibir,
         irpf: record.irpf, ssTrabajador: record.ssTrabajador, ssEmpresa: record.ssEmpresa,
         baseIrpf: record.baseIrpf, costeTotalEmpresa: record.costeTotalEmpresa,
         complementoEspecie: record.complementoEspecie || null,
+        liquidacionDevengado: settlement?.devengadoTotal ?? null,
+        liquidacionNeto: settlement?.netoPercibir ?? null,
+        liquidacionCoste: settlement?.costeTotalEmpresa ?? null,
         ...(payslip ? { archivoNombre: payslip.file.name, archivoUrl: `/api/admin/nominas/download/${encodeURIComponent(payslip.file.id)}` } : {}),
         ...(payslip?.category ? { categoriaProfesional: payslip.category, categoriaExtraidaAt: new Date() } : {}),
       };
@@ -174,5 +194,5 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       }
     }
   }, { timeout: 30000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  return { mes: month, success: true, empleados: values.size, documentos: linkedCount, incidencias };
+  return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, incidencias };
 }

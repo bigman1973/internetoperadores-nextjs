@@ -27,6 +27,9 @@ interface Nomina {
   ssEmpresa: number | null;
   ssTCI: number | null;
   costeTotalEmpresa: number | null;
+  liquidacionDevengado: number | null;
+  liquidacionNeto: number | null;
+  liquidacionCoste: number | null;
   archivoUrl: string | null;
   documentos: { driveItemId: string; tipo: string }[];
 }
@@ -252,6 +255,7 @@ export default function EmpleadoDetallePage() {
                   <tr key={nom.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium text-gray-900">
                       {MESES[nom.mes]} {nom.anio}
+                      {nom.liquidacionCoste !== null && <span className="block text-xs font-normal text-amber-700">Incluye liquidación</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-700">{formatEur(nom.devengadoTotal)}</td>
                     <td className="px-4 py-3 text-right text-red-600">
@@ -262,7 +266,10 @@ export default function EmpleadoDetallePage() {
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-green-700">{formatEur(nom.netoPercibir)}</td>
                     <td className="px-4 py-3 text-right text-gray-700">{formatEur(nom.ssEmpresa)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatEur(nom.costeTotalEmpresa)}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                      {formatEur(nom.costeTotalEmpresa)}
+                      {nom.liquidacionCoste !== null && <span className="block text-xs font-normal text-amber-700">Liquidación incluida: {formatEur(nom.liquidacionCoste)}</span>}
+                    </td>
                     <td className="px-4 py-3 text-center">
                       {nom.documentos?.length ? (
                         <div className="flex flex-wrap justify-center gap-2">
@@ -278,7 +285,7 @@ export default function EmpleadoDetallePage() {
                           <DocumentTextIcon className="h-4 w-4 inline" />
                         </a>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-xs text-gray-500">Sin recibo individual</span>
                       )}
                     </td>
                   </tr>

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { classifyPayrollFile, findCostesFiles, payrollMonthFromFolder } from '../lib/microsoft-graph';
-import { payrollAmountsMatch } from '../lib/nominas-sync';
+import { nameSuffixMatchesPerson, payrollAmountsMatch } from '../lib/nominas-sync';
+import { parseCostesIO } from '../lib/nominas-parser';
 
 async function main() {
   const synthetic = { nombre: 'Persona de prueba', nif: '00000000T', mes: 9, anio: 2026, fechaCobro: '',
@@ -9,6 +10,28 @@ async function main() {
   assert.equal(payrollAmountsMatch(synthetic, { ...synthetic }), true);
   assert.equal(payrollAmountsMatch(synthetic, { ...synthetic, netoPercibir: 1001 }), false);
   assert.equal(payrollAmountsMatch(synthetic, { ...synthetic, costeTotalEmpresa: 1401 }), false);
+  assert(nameSuffixMatchesPerson('DAVIDPEREZ', 'PEREZ MONTANO DAVID JAVIER'));
+  assert(!nameSuffixMatchesPerson('OTRA PERSONA', 'PEREZ MONTANO DAVID JAVIER'));
+  const settlementSummary = parseCostesIO([
+    'Resumen de NóminaPAGA TOTAL DEL 01/09/2026 AL 30/09/2026',
+    '00000000T', 'MENSUAL', '21/09/2026', '-50,00 950,00 1.000,00 1.000,00 200,00 250,00',
+    '000004 PERSONA DE PRUEBA',
+    '00000000T', 'FINIQUITO', '21/09/2026', '1.560,84 1.560,84',
+    '000004 PERSONA DE PRUEBA',
+  ].join('\n'));
+  assert.equal(settlementSummary.nominas.length, 2);
+  assert.equal(settlementSummary.nominas[1].tipo, 'LIQUIDACION');
+  assert.equal(settlementSummary.nominas[1].netoPercibir, 1560.84);
+  assert.equal(settlementSummary.nominas[0].ssEmpresa, 200);
+  assert.equal(settlementSummary.nominas[0].costeTotalEmpresa, 1200);
+  assert.equal(settlementSummary.verificado, true);
+  const compensatedErrors = parseCostesIO([
+    'Resumen de NóminaPAGA TOTAL DEL 01/09/2026 AL 30/09/2026',
+    '00000000T', 'MENSUAL', '30/09/2026', '-51,00 950,00 1.000,00 1.000,00 200,00 251,00', '000001 PERSONA UNO',
+    '00000001R', 'MENSUAL', '30/09/2026', '-49,00 950,00 1.000,00 1.000,00 200,00 249,00', '000002 PERSONA DOS',
+  ].join('\n'));
+  assert.equal(compensatedErrors.nominas.length, 2);
+  assert.equal(compensatedErrors.verificado, false);
   assert.equal(payrollMonthFromFolder('SEPTIEMBRE 2026'), 9);
   assert.equal(payrollMonthFromFolder('09 - SEPTIEMBRE'), 9);
   assert.equal(classifyPayrollFile('COSTES INTERNET OPERADORES SEPTIEMBRE 2026.pdf'), 'costes_io');

@@ -10,6 +10,8 @@ interface Nomina {
   anio: number;
   devengadoTotal: number;
   netoPercibir: number;
+  liquidacionNeto: number | null;
+  liquidacionDevengado: number | null;
   irpf: number | null;
   ssTrabajador: number | null;
   archivoUrl: string | null;
@@ -103,6 +105,7 @@ export default function MisNominasPage() {
                       <DocumentTextIcon className="h-4 w-4 text-gray-400" />
                       <span className="font-medium text-gray-900">{MESES[nom.mes]} {nom.anio}</span>
                     </div>
+                    {nom.liquidacionNeto !== null && <span className="text-xs text-amber-700">Incluye liquidación</span>}
                   </td>
                   <td className="px-4 py-3 text-right text-gray-700">{formatEur(nom.devengadoTotal)}</td>
                   <td className="px-4 py-3 text-right text-red-600">
@@ -111,7 +114,10 @@ export default function MisNominasPage() {
                   <td className="px-4 py-3 text-right text-red-600">
                     {nom.ssTrabajador ? `-${formatEur(nom.ssTrabajador)}` : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right font-semibold text-green-700">{formatEur(nom.netoPercibir)}</td>
+                  <td className="px-4 py-3 text-right font-semibold text-green-700">
+                    {formatEur(nom.netoPercibir)}
+                    {nom.liquidacionNeto !== null && <span className="block text-xs font-normal text-amber-700">Liquidación incluida: {formatEur(nom.liquidacionNeto)}</span>}
+                  </td>
                   <td className="px-4 py-3 text-center">
                     {nom.documentos?.length ? (
                       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -133,7 +139,7 @@ export default function MisNominasPage() {
                         <span className="text-xs">PDF</span>
                       </a>
                     ) : (
-                      <span className="text-gray-300 text-xs">No disponible</span>
+                      <span className="text-gray-500 text-xs">Recibo individual no disponible</span>
                     )}
                   </td>
                 </tr>

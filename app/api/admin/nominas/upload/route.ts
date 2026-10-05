@@ -27,16 +27,24 @@ export async function POST(req: NextRequest) {
     const employees = await prisma.empleado.findMany({ select: { id: true, nif: true } });
     const byNif = new Map(employees.map(e => [e.nif.replace(/[\s.-]/g, '').toUpperCase(), e.id]));
     const lines = new Map<string, typeof summary.nominas[number]>();
-    for (const line of summary.nominas) {
-      const employeeId = byNif.get(line.nif.replace(/[\s.-]/g, '').toUpperCase());
-      if (!employeeId) return NextResponse.json({ error: 'Hay un trabajador del resumen sin ficha de Personal. No se ha modificado ninguna nómina.' }, { status: 422 });
-      const old = lines.get(employeeId);
-      if (!old) { lines.set(employeeId, line); continue; }
+    const settlements = new Map<string, typeof summary.nominas[number]>();
+    function addLines(old: typeof summary.nominas[number], line: typeof summary.nominas[number]) {
       const merged = { ...old };
       for (const key of ['devengadoTotal', 'netoPercibir', 'irpf', 'ssTrabajador', 'ssEmpresa', 'baseIrpf', 'costeTotalEmpresa', 'complementoEspecie'] as const) {
         merged[key] = (Math.round(old[key] * 100) + Math.round(line[key] * 100)) / 100;
       }
-      lines.set(employeeId, merged);
+      return merged;
+    }
+    for (const line of summary.nominas) {
+      const employeeId = byNif.get(line.nif.replace(/[\s.-]/g, '').toUpperCase());
+      if (!employeeId) return NextResponse.json({ error: 'Hay un trabajador del resumen sin ficha de Personal. No se ha modificado ninguna nómina.' }, { status: 422 });
+      if (line.tipo === 'LIQUIDACION') {
+        const previousSettlement = settlements.get(employeeId);
+        settlements.set(employeeId, previousSettlement ? addLines(previousSettlement, line) : line);
+      }
+      const old = lines.get(employeeId);
+      if (!old) { lines.set(employeeId, line); continue; }
+      lines.set(employeeId, addLines(old, line));
     }
     const previous = await prisma.nomina.findMany({ where: { mes: summary.mes, anio: summary.anio }, select: { empleadoId: true } });
     if (previous.some(n => !lines.has(n.empleadoId))) {
@@ -44,10 +52,14 @@ export async function POST(req: NextRequest) {
     }
     await prisma.$transaction(async tx => {
       for (const [empleadoId, n] of lines) {
+        const settlement = settlements.get(empleadoId);
         const data = {
           devengadoTotal: n.devengadoTotal, netoPercibir: n.netoPercibir, irpf: n.irpf,
           ssTrabajador: n.ssTrabajador, ssEmpresa: n.ssEmpresa, baseIrpf: n.baseIrpf,
           costeTotalEmpresa: n.costeTotalEmpresa, complementoEspecie: n.complementoEspecie || null,
+          liquidacionDevengado: settlement?.devengadoTotal ?? null,
+          liquidacionNeto: settlement?.netoPercibir ?? null,
+          liquidacionCoste: settlement?.costeTotalEmpresa ?? null,
         };
         await tx.nomina.upsert({
           where: { empleadoId_mes_anio: { empleadoId, mes: summary.mes, anio: summary.anio } },

@@ -175,7 +175,7 @@ function joinAndExtractNumbers(blockLines: string[]): number[] {
   return numbers.map(n => parseNumber(n));
 }
 
-function parseCostesIO(text: string): ParseSummary {
+export function parseCostesIO(text: string): ParseSummary {
   const { mes, anio } = detectPeriodCostes(text);
   const nominas: NominaParseResult[] = [];
   const lines = text.split('\n');
@@ -220,11 +220,21 @@ function parseCostesIO(text: string): ParseSummary {
     const blockLines = lines.slice(dataStartIdx, empEntry.lineIdx);
     const numbers = joinAndExtractNumbers(blockLines);
     
-    if (isFiniquito && numbers.length < 3) continue;
-    if (numbers.length < 4) continue;
+    // En el resumen de la gestoría un finiquito sin IRPF ni cotización se
+    // imprime solo con NETO y DEVENGADO. No omitir esa segunda línea del empleado.
+    if (isFiniquito && numbers.length === 2 && Math.abs(numbers[0] - numbers[1]) <= 0.01) {
+      nominas.push({
+        nombre: empEntry.name, nif: nifEntry.nif, tipo: 'LIQUIDACION', mes, anio, fechaCobro,
+        devengadoTotal: numbers[1], netoPercibir: numbers[0], irpf: 0,
+        ssTrabajador: 0, ssEmpresa: 0, baseIrpf: 0,
+        costeTotalEmpresa: numbers[1], complementoEspecie: 0,
+      });
+      continue;
+    }
+    if (numbers.length < 4) throw new Error('El resumen contiene una fila de trabajador incompleta');
     
     let irpf: number, ssTrab: number, neto: number, devengado: number;
-    let baseIrpf: number, ssTci: number, especie: number;
+    let baseIrpf: number, ssEmpresa: number, especie: number;
     
     if (numbers.length >= 7) {
       irpf = Math.abs(numbers[0]);
@@ -232,7 +242,7 @@ function parseCostesIO(text: string): ParseSummary {
       neto = numbers[2];
       devengado = numbers[3];
       baseIrpf = numbers[4];
-      ssTci = numbers[6];
+      ssEmpresa = numbers[5];
       especie = numbers.length > 7 ? numbers[7] : 0;
       
       if (Math.abs(devengado - (neto + irpf + ssTrab)) > 1.0) {
@@ -241,7 +251,7 @@ function parseCostesIO(text: string): ParseSummary {
         neto = numbers[1];
         devengado = numbers[2];
         baseIrpf = numbers[3];
-        ssTci = numbers[5];
+        ssEmpresa = numbers[4];
         especie = numbers.length > 6 ? numbers[6] : 0;
       }
     } else if (numbers.length >= 6) {
@@ -250,7 +260,7 @@ function parseCostesIO(text: string): ParseSummary {
       neto = numbers[1];
       devengado = numbers[2];
       baseIrpf = numbers[3];
-      ssTci = numbers[5];
+      ssEmpresa = numbers[4];
       especie = numbers.length > 6 ? numbers[6] : 0;
       
       if (Math.abs(devengado - (neto + ssTrab)) > 1.0) {
@@ -259,7 +269,7 @@ function parseCostesIO(text: string): ParseSummary {
         neto = numbers[2];
         devengado = numbers[3];
         baseIrpf = numbers[4];
-        ssTci = 0;
+        ssEmpresa = numbers[5];
         especie = 0;
       }
     } else {
@@ -268,16 +278,17 @@ function parseCostesIO(text: string): ParseSummary {
       neto = numbers[2];
       devengado = numbers[3];
       baseIrpf = numbers.length > 4 ? numbers[4] : 0;
-      ssTci = 0;
+      ssEmpresa = 0;
       especie = 0;
     }
     
-    const costeTotalEmpresa = devengado + ssTci;
+    // S.S. TCI = SS empresa + SS trabajador; usar TCI duplicaría la cuota del trabajador.
+    const costeTotalEmpresa = devengado + ssEmpresa;
     
     nominas.push({
       nombre: empEntry.name, nif: nifEntry.nif, tipo: isFiniquito ? 'LIQUIDACION' : 'NOMINA', mes, anio, fechaCobro,
       devengadoTotal: devengado, netoPercibir: neto, irpf,
-      ssTrabajador: ssTrab, ssEmpresa: ssTci, baseIrpf,
+      ssTrabajador: ssTrab, ssEmpresa, baseIrpf,
       costeTotalEmpresa, complementoEspecie: especie,
     });
   }
@@ -288,7 +299,13 @@ function parseCostesIO(text: string): ParseSummary {
   const totalSSTrabajador = nominas.reduce((sum, n) => sum + n.ssTrabajador, 0);
   const totalSSEmpresa = nominas.reduce((sum, n) => sum + n.ssEmpresa, 0);
   const totalCosteEmpresa = nominas.reduce((sum, n) => sum + n.costeTotalEmpresa, 0);
-  const verificado = nominas.length > 0 && Math.abs(totalBruto - (totalNeto + totalIRPF + totalSSTrabajador)) < 5.0;
+  const cuadrePorConcepto = nominas.every(n =>
+    Math.abs(Math.round(n.devengadoTotal * 100) - Math.round((n.netoPercibir + n.irpf + n.ssTrabajador) * 100)) <= 1 &&
+    Math.abs(Math.round(n.costeTotalEmpresa * 100) - Math.round((n.devengadoTotal + n.ssEmpresa) * 100)) <= 1
+  );
+  const verificado = mes >= 1 && mes <= 12 && anio >= 2024 &&
+    nominas.length > 0 && nominas.length === nifEntries.length && cuadrePorConcepto &&
+    Math.abs(Math.round(totalBruto * 100) - Math.round((totalNeto + totalIRPF + totalSSTrabajador) * 100)) <= 1;
   
   return {
     mes, anio, empleados: nominas.length,
