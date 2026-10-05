@@ -47,9 +47,25 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const incidencias: string[] = [];
   for (const [position, file] of candidates.entries()) {
     try {
-      const buffer = await downloadCostesFile(file.id);
-      if (buffer.subarray(0, 4).toString() !== '%PDF') throw new Error('El archivo no tiene formato PDF');
-      const summary = await parseCostesIOPdf(buffer, file.name);
+      // OneDrive puede servir temporalmente un PDF ilegible aun cuando el mismo
+      // drive item sea correcto en la siguiente lectura. Reintentar SOLO la
+      // descarga/extracción, nunca las discrepancias de importe o identidad.
+      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>>; category: string | null } | undefined;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const buffer = await downloadCostesFile(file.id);
+          if (buffer.subarray(0, 4).toString() !== '%PDF') throw new Error('El archivo no tiene formato PDF');
+          const summary = await parseCostesIOPdf(buffer, file.name);
+          const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
+          read = { summary, category };
+          break;
+        } catch (error) {
+          if (attempt === 2) throw error;
+          await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 350));
+        }
+      }
+      if (!read) throw new Error('El PDF no se ha podido leer');
+      const { summary, category } = read;
       if (!summary.nominas.length) throw new Error('No se han podido leer líneas de nómina');
       if (summary.mes !== month || summary.anio !== year || summary.nominas.some(n => n.mes !== month || n.anio !== year)) {
         throw new Error('El período impreso no coincide con la carpeta');
@@ -63,7 +79,6 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         const suffix = fileName.includes('_') ? fileName.split('_').pop()?.replace(/\.PDF$/, '').trim() || '' : '';
         if (suffix && !nameSuffixMatchesPerson(suffix, summary.nominas[0].nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
       }
-      const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
       parsed.push({ file, records: summary.nominas, verified: summary.verificado, category });
     } catch (error) {
       // Jamás grabar una importación parcial que oculte un documento o duplique importes.
