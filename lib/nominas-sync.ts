@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph';
-import { extractProfessionalCategoryFromPayrollText, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
+import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
 type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null };
 type Result = { mes: number; success: boolean; empleados: number; documentos: number; incidencias: string[]; error?: string };
@@ -29,7 +29,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
 
   const parsed: Pdf[] = [];
   const incidencias: string[] = [];
-  for (const file of candidates) {
+  for (const [position, file] of candidates.entries()) {
     try {
       const buffer = await downloadCostesFile(file.id);
       if (buffer.subarray(0, 4).toString() !== '%PDF') throw new Error('El archivo no tiene formato PDF');
@@ -49,12 +49,15 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         const words = suffix.split(/[\s,]+/).filter(w => w.length > 2);
         if (words.length && !words.every(w => payrollName.includes(w))) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
       }
-      const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText((await (await import('pdf-parse')).default(buffer)).text);
+      const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
       parsed.push({ file, records: summary.nominas, verified: summary.verificado, category });
     } catch (error) {
       // Jamás grabar una importación parcial que oculte un documento o duplique importes.
-      const reason = error instanceof Error ? error.message : 'No se pudo leer el PDF';
-      return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: `No se importó un PDF del mes (tipo ${file.tipo}): ${reason}` };
+      const known = ['El archivo no tiene formato PDF', 'No se han podido leer líneas de nómina', 'El período impreso no coincide con la carpeta',
+        'El resumen de costes no cuadra: verificar con gestoría', 'Se esperaba una única persona en este PDF',
+        'Los importes de la nómina individual no cuadran', 'La persona en el PDF no coincide con el nombre del archivo'];
+      const reason = error instanceof Error && known.includes(error.message) ? error.message : 'El PDF no se ha podido leer; revisa el documento en OneDrive';
+      return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: `No se importó el PDF ${position + 1} de ${candidates.length} (tipo ${file.tipo}): ${reason}` };
     }
   }
 

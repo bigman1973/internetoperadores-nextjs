@@ -11,6 +11,47 @@
 
 import pdf from 'pdf-parse';
 
+export async function extractPayrollPdfText(buffer: Buffer): Promise<string> {
+  try {
+    return (await pdf(buffer)).text;
+  } catch (legacyError) {
+    // pdf-parse 1.x incorpora un PDF.js antiguo que falla con algunos XRef
+    // generados por la gestoría. Nunca aceptar el PDF si tampoco se puede leer
+    // y verificar con el parser financiero habitual.
+    if (!(legacyError instanceof Error) || !/xref|invalid pdf|formaterror/i.test(legacyError.message)) throw legacyError;
+    const modern = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const task = modern.getDocument({ data: new Uint8Array(buffer), disableFontFace: true, useSystemFonts: true });
+    const document = await task.promise;
+    try {
+      if (document.numPages > 80) throw new Error('El PDF tiene demasiadas páginas para una nómina');
+      const lines: string[] = [];
+      for (let n = 1; n <= document.numPages; n++) {
+        const page = await document.getPage(n);
+        const content = await page.getTextContent();
+        let row = '';
+        let prevY: number | null = null;
+        let prevRight: number | null = null;
+        for (const raw of content.items) {
+          if (!('str' in raw)) continue;
+          const item = raw as { str: string; transform: number[]; width: number; hasEOL?: boolean };
+          const x = item.transform[4], y = item.transform[5];
+          if (prevY !== null && Math.abs(prevY - y) > 2) { lines.push(row); row = ''; prevRight = null; }
+          if (row && prevRight !== null && x - prevRight > 2) row += x - prevRight > 20 ? '  ' : ' ';
+          row += item.str;
+          prevY = y; prevRight = x + item.width;
+          if (item.hasEOL) { lines.push(row); row = ''; prevY = null; prevRight = null; }
+        }
+        if (row) lines.push(row);
+        lines.push('');
+      }
+      if (!lines.join('').trim()) throw new Error('El PDF no contiene texto seleccionable');
+      return lines.join('\n');
+    } finally {
+      await task.destroy();
+    }
+  }
+}
+
 export interface NominaParseResult {
   nombre: string;
   nif: string;
@@ -71,8 +112,7 @@ export function extractProfessionalCategoryFromPayrollText(text: string): string
 }
 
 export async function parsePayrollProfessionalCategory(pdfBuffer: Buffer): Promise<string | null> {
-  const data = await pdf(pdfBuffer);
-  return extractProfessionalCategoryFromPayrollText(data.text);
+  return extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(pdfBuffer));
 }
 
 /**
@@ -498,8 +538,7 @@ function parseNominaIndividual(text: string): ParseSummary {
  * Parse any payroll PDF (auto-detects format)
  */
 export async function parseCostesIOPdf(pdfBuffer: Buffer, fileName?: string): Promise<ParseSummary> {
-  const data = await pdf(pdfBuffer);
-  const text = data.text;
+  const text = await extractPayrollPdfText(pdfBuffer);
   
   const format = detectFormat(text);
   
