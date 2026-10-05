@@ -74,13 +74,23 @@ export async function POST(request: NextRequest, { params }: Props) {
     const personPattern = `(?:${personTokens.join('|')})`;
     const related = tipo === 'LIQUIDACION' ? new RegExp(`^(LIQUIDACION|LIQUIDACIÓN|FINIQUITO).*${personPattern}`, 'i') : new RegExp(`^(CARTA|COMUNICACION|COMUNICACIÓN).*${personPattern}`, 'i');
     const item = await savePrivateDriveDocument(folder, name, bytes, tipo === 'LIQUIDACION' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', related, tipo === 'LIQUIDACION');
-    const record = await prisma.documentoEmpleado.create({ data: { empleadoId: employee.id, driveItemId: item.id, nombre: item.name, tipo: String(tipo), anio, mes, sha256, subidoPor: director.email }, select: { id: true } });
-    return NextResponse.json({ ok: true, id: record.id, yaExistia: false }, { status: 201, headers: { 'Cache-Control': 'private, no-store' } });
+    const record = await prisma.documentoEmpleado.upsert({
+      where: { driveItemId: item.id },
+      create: { empleadoId: employee.id, driveItemId: item.id, nombre: item.name, tipo: String(tipo), anio, mes, sha256, subidoPor: director.email },
+      update: {},
+      select: { id: true, empleadoId: true, tipo: true, anio: true, mes: true, sha256: true },
+    });
+    if (record.empleadoId !== employee.id || record.tipo !== tipo || record.anio !== anio || record.mes !== mes) {
+      return NextResponse.json({ error: 'El documento ya está vinculado a otro expediente o período. Revisión manual necesaria.' }, { status: 409 });
+    }
+    return NextResponse.json({ ok: true, id: record.id, yaExistia: record.sha256 !== sha256 }, { status: record.sha256 === sha256 ? 201 : 200, headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('permiso para guardar')) return NextResponse.json({ error: 'Microsoft Graph permite leer, pero todavía no guardar archivos en esta carpeta. No se ha creado un vínculo falso.' }, { status: 503 });
     if (message.includes('mismo nombre')) return NextResponse.json({ error: 'Hay un archivo distinto con el mismo nombre: revisión manual antes de reemplazarlo' }, { status: 409 });
+    if (message.includes('No se ha encontrado una carta relacionada')) return NextResponse.json({ error: 'No se localiza una carta del empleado en la carpeta mensual configurada. Comprueba en OneDrive que el archivo esté en la biblioteca corporativa que lee el panel.' }, { status: 404 });
     if (message.includes('no coincide con ningún archivo')) return NextResponse.json({ error: 'La carta adjunta no es idéntica a la que ya está en la carpeta del mes de OneDrive. No se ha creado otra copia.' }, { status: 409 });
+    if (message.includes('archivo remoto supera') || message.includes('Demasiados documentos coincidentes')) return NextResponse.json({ error: 'Hay demasiados documentos o un archivo demasiado grande para contrastar sin riesgo. Revisa la carpeta antes de vincular.' }, { status: 409 });
     if (message.includes('DOCX sin')) return NextResponse.json({ error: message }, { status: 422 });
     console.error('[empleado_documento] Falló la asociación o subida de un documento laboral', error instanceof Error ? error.name : 'Error');
     return NextResponse.json({ error: 'No se pudo verificar o asociar el documento. Revisa OneDrive antes de reintentar.' }, { status: 500 });

@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { unzipSync } from 'fflate';
+
 /** Acceso a SharePoint/OneDrive del área de nóminas (también reutilizado por finanzas). */
 const BASE_PATH = '4. Recursos Humanos/3. Nóminas';
 const MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
@@ -75,12 +78,33 @@ export async function listFolderByPath(path: string): Promise<DriveItem[]> {
   return files;
 }
 
-export async function downloadFileById(itemId: string): Promise<Buffer> {
+export async function downloadFileById(itemId: string, maxBytes = 50 * 1024 * 1024): Promise<Buffer> {
   if (!/^[A-Za-z0-9!_.~-]{4,220}$/.test(itemId)) throw new Error('Identificador de archivo no válido');
   const response = await graphGet(`https://graph.microsoft.com/v1.0/drives/${driveId()}/items/${encodeURIComponent(itemId)}/content`);
-  const bytes = await response.arrayBuffer();
-  if (bytes.byteLength > 50 * 1024 * 1024) throw new Error('El archivo supera el límite de 50 MB');
-  return Buffer.from(bytes);
+  const declared = Number(response.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    await response.body?.cancel();
+    throw new Error('El archivo remoto supera el límite permitido');
+  }
+  if (!response.body) throw new Error('Microsoft Graph no devolvió contenido descargable');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error('El archivo remoto supera el límite permitido');
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export function payrollMonthFromFolder(folderName: string): number {
@@ -158,6 +182,34 @@ export async function findCostesFiles(year: number, selectedMonths?: number[]): 
     .sort((a, b) => a.monthNum - b.monthNum || order[a.tipo] - order[b.tipo] || a.name.localeCompare(b.name, 'es'));
 }
 
+/** Word puede reempaquetar un DOCX y alterar sus propiedades al subirlo a OneDrive.
+ * Solo consideramos idénticos los documentos que conservan EXACTAMENTE todas las
+ * partes del contenido (incluidas imágenes, firmas y relaciones). Se ignoran
+ * únicamente las propiedades y opciones no documentales del paquete. */
+function substantiveDocxFingerprint(bytes: Buffer): string | null {
+  try {
+    if (bytes.length > 8 * 1024 * 1024 || bytes.subarray(0, 2).toString() !== 'PK') return null;
+    let total = 0;
+    let entries = 0;
+    const parts = unzipSync(new Uint8Array(bytes), {
+      filter: entry => {
+        if (++entries > 300) throw new Error('Documento Word con demasiadas partes');
+        total += entry.originalSize;
+        if (total > 32 * 1024 * 1024 || entry.originalSize > 16 * 1024 * 1024) throw new Error('Documento Word demasiado grande');
+        return !entry.name.startsWith('docProps/');
+      },
+    });
+    if (!parts['word/document.xml']) return null;
+    const hash = createHash('sha256');
+    for (const key of Object.keys(parts).sort()) {
+      hash.update(key).update('\0').update(parts[key]).update('\0');
+    }
+    return hash.digest('hex');
+  } catch {
+    return null;
+  }
+}
+
 /** Sube o reutiliza un documento en un mes existente, sin sobrescribir archivos
  * distintos ni conceder acceso público. La API llamante comprueba autorización. */
 export async function savePrivateDriveDocument(path: string, name: string, bytes: Buffer, mime: string, relatedNames: RegExp, allowCreate = true): Promise<{ id: string; name: string }> {
@@ -165,11 +217,17 @@ export async function savePrivateDriveDocument(path: string, name: string, bytes
     throw new Error('Ruta o archivo privado no válido');
   }
   const existing = (await listFolderByPath(path)).filter(item => item.file && relatedNames.test(item.name));
-  const { createHash } = await import('node:crypto');
+  if (!allowCreate && existing.length === 0) throw new Error('No se ha encontrado una carta relacionada en la carpeta mensual configurada');
+  if (existing.length > 12) throw new Error('Demasiados documentos coincidentes; revisión manual necesaria');
   const fingerprint = createHash('sha256').update(bytes).digest('hex');
+  const docxFingerprint = name.toLowerCase().endsWith('.docx') ? substantiveDocxFingerprint(bytes) : null;
+  let remoteBytes = 0;
   for (const item of existing) {
-    const remote = await downloadFileById(item.id);
-    if (createHash('sha256').update(remote).digest('hex') === fingerprint) return { id: item.id, name: item.name };
+    if (item.size !== undefined && item.size > 8 * 1024 * 1024) throw new Error('El archivo remoto supera el límite permitido');
+    const remote = await downloadFileById(item.id, Math.min(8 * 1024 * 1024, 24 * 1024 * 1024 - remoteBytes));
+    remoteBytes += remote.length;
+    if (createHash('sha256').update(remote).digest('hex') === fingerprint ||
+      (docxFingerprint && docxFingerprint === substantiveDocxFingerprint(remote))) return { id: item.id, name: item.name };
     if (item.name.toLocaleLowerCase('es') === name.toLocaleLowerCase('es')) throw new Error('Ya existe otro documento con el mismo nombre en el mes; revisión necesaria');
   }
   if (!allowCreate) throw new Error('El documento no coincide con ningún archivo existente en la carpeta del mes');
