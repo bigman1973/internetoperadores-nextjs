@@ -5,7 +5,9 @@ import { normalizarNif } from '@/lib/crm-empresas'
 
 const CORE_PROPERTIES = ['name', 'domain', 'phone', 'address', 'city', 'state', 'zip', 'country', 'industry', 'description', 'website']
 const CANDIDATE_TAX_PROPERTIES = ['nif', 'cif', 'vat_number', 'tax_id', 'hs_tax_id', 'numero_identificacion_fiscal']
-const MAX_PAGES_PER_BATCH = 3
+// Una página por invocación: las asociaciones numerosas pueden tardar minutos
+// y tres páginas agotaban el tiempo de función antes de devolver el cursor.
+const MAX_PAGES_PER_BATCH = 1
 
 type CompanyRecord = { id: string; properties: Record<string, string | null>; updatedAt?: string }
 type Page = { results?: CompanyRecord[]; paging?: { next?: { after?: string } } }
