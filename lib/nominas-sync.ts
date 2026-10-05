@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph';
-import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
+import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
-type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null };
+type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
 type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; incidencias: string[]; error?: string };
 
 function normaliseNif(s: string) { return s.replace(/[\s.-]/g, '').toUpperCase(); }
@@ -50,14 +50,16 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       // OneDrive puede servir temporalmente un PDF ilegible aun cuando el mismo
       // drive item sea correcto en la siguiente lectura. Reintentar SOLO la
       // descarga/extracción, nunca las discrepancias de importe o identidad.
-      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>>; category: string | null } | undefined;
+      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>> | null; category: string | null; mixedSettlement: ReturnType<typeof parseCombinedSettlementReceipt> } | undefined;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const buffer = await downloadCostesFile(file.id);
           if (buffer.subarray(0, 4).toString() !== '%PDF') throw new Error('El archivo no tiene formato PDF');
-          const summary = await parseCostesIOPdf(buffer, file.name);
+          const text = file.tipo === 'liquidacion' ? await extractPayrollPdfText(buffer) : null;
+          const mixedSettlement = text ? parseCombinedSettlementReceipt(text) : null;
+          const summary = mixedSettlement ? null : await parseCostesIOPdf(buffer, file.name);
           const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
-          read = { summary, category };
+          read = { summary, category, mixedSettlement };
           break;
         } catch (error) {
           if (attempt === 2) throw error;
@@ -65,7 +67,15 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         }
       }
       if (!read) throw new Error('El PDF no se ha podido leer');
-      const { summary, category } = read;
+      const { summary, category, mixedSettlement } = read;
+      if (mixedSettlement) {
+        if (mixedSettlement.mes !== month || mixedSettlement.anio !== year || mixedSettlement.dia < 1 || mixedSettlement.dia > 31) throw new Error('El período impreso no coincide con la carpeta');
+        const suffix = normaliseName(file.name).split('_').pop()?.replace(/\.PDF$/, '').trim() || '';
+        if (!suffix || !nameSuffixMatchesPerson(suffix, mixedSettlement.nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
+        parsed.push({ file, records: [], verified: true, category, mixedSettlement });
+        continue;
+      }
+      if (!summary) throw new Error('No se han podido leer líneas de nómina');
       if (!summary.nominas.length) throw new Error('No se han podido leer líneas de nómina');
       if (summary.mes !== month || summary.anio !== year || summary.nominas.some(n => n.mes !== month || n.anio !== year)) {
         throw new Error('El período impreso no coincide con la carpeta');
@@ -99,6 +109,24 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const individualSeen = new Set<string>();
 
   for (const pdf of parsed) {
+    if (pdf.mixedSettlement) {
+      const receipt = pdf.mixedSettlement;
+      const employee = employeeByNif.get(normaliseNif(receipt.nif));
+      if (!employee) { incidencias.push('Hay una persona en un PDF de tipo liquidacion que no consta en Personal'); continue; }
+      const components = bulkComponents.get(employee.id);
+      const total = values.get(employee.id);
+      const settlement = components?.get('LIQUIDACION');
+      if (!fromBulk.has(employee.id) || !total || !settlement || cents(total.devengadoTotal) !== receipt.devengado || cents(total.netoPercibir) !== receipt.liquido ||
+          (receipt.indemnizacion !== null && (cents(settlement.devengadoTotal) !== receipt.indemnizacion || cents(settlement.netoPercibir) !== receipt.indemnizacion))) {
+        return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: 'La liquidación conjunta no coincide al céntimo con nómina y finiquito del resumen de costes. No se ha contabilizado.' };
+      }
+      if (individualSeen.has(`${employee.id}:LIQUIDACION`)) {
+        return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: 'Hay dos PDF de liquidación del mismo empleado; revisión necesaria' };
+      }
+      individualSeen.add(`${employee.id}:LIQUIDACION`);
+      linked.set(employee.id, [...(linked.get(employee.id) || []), { file: pdf.file, tipo: 'LIQUIDACION' }]);
+      continue;
+    }
     for (const record of pdf.records) {
       const employee = employeeByNif.get(normaliseNif(record.nif));
       if (!employee) {

@@ -1545,6 +1545,7 @@ model Empleado {
   costeHoraActual   Float?          @map("coste_hora_actual") // Calculado: costeTotalEmpresa / horas_mes
   // Relaciones
   nominas           Nomina[]
+  documentosLaborales DocumentoEmpleado[]
   imputaciones      ImputacionHoras[]
   asignaciones      AsignacionProyecto[]
   calendario        CalendarioPersonal[]
@@ -1771,6 +1772,25 @@ model NominaDocumento {
 
   @@unique([nominaId, tipo])
   @@map("nomina_documentos")
+}
+
+// Solo metadatos. Los bytes permanecen en SharePoint; ningún enlace es público.
+model DocumentoEmpleado {
+  id          String   @id @default(uuid())
+  empleadoId  String   @map("empleado_id")
+  driveItemId String   @unique @map("drive_item_id")
+  nombre      String
+  tipo        String   // LIQUIDACION | CARTA_EXTINCION
+  anio        Int?
+  mes         Int?
+  sha256      String
+  subidoPor   String   @map("subido_por")
+  createdAt   DateTime @default(now()) @map("created_at")
+  empleado    Empleado @relation(fields: [empleadoId], references: [id], onDelete: Restrict)
+
+  @@unique([empleadoId, tipo, sha256])
+  @@index([empleadoId, createdAt])
+  @@map("empleado_documentos")
 }
 
 model PuestoOrganizativo {

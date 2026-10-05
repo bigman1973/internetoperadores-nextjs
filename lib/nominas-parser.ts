@@ -111,6 +111,27 @@ export function extractProfessionalCategoryFromPayrollText(text: string): string
   return null;
 }
 
+/** Algunos finiquitos contienen también la nómina de los últimos días trabajados.
+ * Solo se aceptan como justificante si su total cuadra al céntimo con el resumen
+ * de gestoría (nómina parcial + línea FINIQUITO), nunca se suman otra vez. */
+export function parseCombinedSettlementReceipt(text: string) {
+  const identity = text.match(/Apellidos y Nombre:\s*(.+?)\s*N\.?I\.?F\.?\s*:\s*(\d{8}[A-Z])/i);
+  const date = text.match(/\b(?:En\s+[^\n,]+,?\s*)?a\s+(\d{1,2})\s+de\s+(ENERO|FEBRERO|MARZO|ABRIL|MAYO|JUNIO|JULIO|AGOSTO|SEPTIEMBRE|OCTUBRE|NOVIEMBRE|DICIEMBRE)\s+de\s+(20\d{2})\b/i);
+  const totalsLine = text.split('\n').find(line => /\bTotales\b/i.test(line));
+  const netLine = text.split('\n').find(line => /Importe\s+L[ií]quido\s+a\s+percibir/i.test(line));
+  const indemnityLine = text.split('\n').find(line => /\bIndemnizaci[oó]n\b/i.test(line));
+  const amounts = totalsLine?.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g);
+  const net = netLine?.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g);
+  if (!identity || !date || amounts?.length !== 2 || net?.length !== 1 || !/DOCUMENTO DE LIQUIDACI[OÓ]N Y FINIQUITO/i.test(text)) return null;
+  const money = (value: string) => Math.round(Number(value.replace(/\./g, '').replace(',', '.')) * 100);
+  const [devengado, deducciones] = amounts.map(money);
+  const liquido = money(net[0]);
+  if (devengado <= 0 || deducciones < 0 || devengado - deducciones !== liquido) return null;
+  const months = ['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO','SEPTIEMBRE','OCTUBRE','NOVIEMBRE','DICIEMBRE'];
+  const indemnity = indemnityLine?.match(/\d{1,3}(?:\.\d{3})*,\d{2}/g)?.at(-1);
+  return { nombre: identity[1].trim(), nif: identity[2].toUpperCase(), dia: Number(date[1]), mes: months.indexOf(date[2].toUpperCase()) + 1, anio: Number(date[3]), devengado, deducciones, liquido, indemnizacion: indemnity ? money(indemnity) : null };
+}
+
 export async function parsePayrollProfessionalCategory(pdfBuffer: Buffer): Promise<string | null> {
   return extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(pdfBuffer));
 }

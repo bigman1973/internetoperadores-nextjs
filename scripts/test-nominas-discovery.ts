@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { classifyPayrollFile, findCostesFiles, payrollMonthFromFolder } from '../lib/microsoft-graph';
 import { nameSuffixMatchesPerson, payrollAmountsMatch } from '../lib/nominas-sync';
-import { parseCostesIO } from '../lib/nominas-parser';
+import { parseCombinedSettlementReceipt, parseCostesIO } from '../lib/nominas-parser';
 
 async function main() {
   const synthetic = { nombre: 'Persona de prueba', nif: '00000000T', mes: 9, anio: 2026, fechaCobro: '',
@@ -25,6 +25,18 @@ async function main() {
   assert.equal(settlementSummary.nominas[0].ssEmpresa, 200);
   assert.equal(settlementSummary.nominas[0].costeTotalEmpresa, 1200);
   assert.equal(settlementSummary.verificado, true);
+  const mixedReceipt = [
+    'DOCUMENTO DE LIQUIDACIÓN Y FINIQUITO', 'Apellidos y Nombre: PRUEBA, PERSONA N.I.F.: 00000000T',
+    '33,33 Indemnización 1.560,84', 'Totales 2.560,84 50,00',
+    'Importe Líquido a percibir 2.510,84', 'En LLEIDA, a 21 de SEPTIEMBRE de 2026',
+  ].join('\n');
+  const parsedReceipt = parseCombinedSettlementReceipt(mixedReceipt);
+  assert.equal(parsedReceipt?.mes, 9);
+  assert.equal(parsedReceipt?.anio, 2026);
+  assert.equal(parsedReceipt?.devengado, 256084);
+  assert.equal(parsedReceipt?.liquido, 251084);
+  assert.equal(parsedReceipt?.indemnizacion, 156084);
+  assert.equal(parseCombinedSettlementReceipt(mixedReceipt.replace('2.510,84', '2.509,84')), null);
   const compensatedErrors = parseCostesIO([
     'Resumen de NóminaPAGA TOTAL DEL 01/09/2026 AL 30/09/2026',
     '00000000T', 'MENSUAL', '30/09/2026', '-51,00 950,00 1.000,00 1.000,00 200,00 251,00', '000001 PERSONA UNO',

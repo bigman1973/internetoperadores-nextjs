@@ -158,4 +158,30 @@ export async function findCostesFiles(year: number, selectedMonths?: number[]): 
     .sort((a, b) => a.monthNum - b.monthNum || order[a.tipo] - order[b.tipo] || a.name.localeCompare(b.name, 'es'));
 }
 
+/** Sube o reutiliza un documento en un mes existente, sin sobrescribir archivos
+ * distintos ni conceder acceso público. La API llamante comprueba autorización. */
+export async function savePrivateDriveDocument(path: string, name: string, bytes: Buffer, mime: string, relatedNames: RegExp, allowCreate = true): Promise<{ id: string; name: string }> {
+  if (!path.startsWith(`${BASE_PATH}/`) || !/^[-\wÁÉÍÓÚÜÑáéíóúüñ ().]+\.(pdf|docx)$/i.test(name) || bytes.length > 8 * 1024 * 1024) {
+    throw new Error('Ruta o archivo privado no válido');
+  }
+  const existing = (await listFolderByPath(path)).filter(item => item.file && relatedNames.test(item.name));
+  const { createHash } = await import('node:crypto');
+  const fingerprint = createHash('sha256').update(bytes).digest('hex');
+  for (const item of existing) {
+    const remote = await downloadFileById(item.id);
+    if (createHash('sha256').update(remote).digest('hex') === fingerprint) return { id: item.id, name: item.name };
+    if (item.name.toLocaleLowerCase('es') === name.toLocaleLowerCase('es')) throw new Error('Ya existe otro documento con el mismo nombre en el mes; revisión necesaria');
+  }
+  if (!allowCreate) throw new Error('El documento no coincide con ningún archivo existente en la carpeta del mes');
+  const encoded = [...path.split('/'), name].map(encodeURIComponent).join('/');
+  const response = await fetch(`https://graph.microsoft.com/v1.0/drives/${driveId()}/root:/${encoded}:/content`, {
+    method: 'PUT', headers: { Authorization: `Bearer ${await getAccessToken()}`, 'Content-Type': mime, 'If-None-Match': '*' },
+    body: new Uint8Array(bytes), signal: AbortSignal.timeout(30000), cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(response.status === 403 ? 'La aplicación Microsoft no tiene permiso para guardar documentos en OneDrive (403)' : `No se pudo guardar el documento en OneDrive (${response.status})`);
+  const item = await response.json();
+  if (typeof item.id !== 'string' || !item.id) throw new Error('OneDrive no confirmó el archivo subido');
+  return { id: item.id, name: item.name };
+}
+
 export const downloadCostesFile = downloadFileById;

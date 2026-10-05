@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import EmployeePrivateDocuments from '@/components/admin/EmployeePrivateDocuments';
 import {
   ArrowLeftIcon,
   UserIcon,
@@ -225,6 +226,7 @@ export default function EmpleadoDetallePage() {
       )}
 
       {/* Historial de nóminas */}
+      <EmployeePrivateDocuments employeeId={empleado.id} />
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h2 className="text-lg font-semibold text-gray-900">Historial de Nóminas</h2>
