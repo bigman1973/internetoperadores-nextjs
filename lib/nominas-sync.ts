@@ -23,6 +23,15 @@ export function nameSuffixMatchesPerson(suffix: string, fullName: string) {
   }
   return true;
 }
+export function liquidationFileMatchesPerson(fileName: string, fullName: string) {
+  const normalized = normaliseName(fileName).trim();
+  if (!/^(?:LIQUIDACION|FINIQUITO)[\s_-]/.test(normalized) || !normalized.endsWith('.PDF')) return false;
+  // OneDrive añade «(1)» al guardar una copia. No forma parte del nombre
+  // de la persona ni debe invalidar la comprobación del NIF del PDF.
+  const stem = normalized.replace(/\.PDF$/, '').replace(/\s*\(\d{1,3}\)$/, '');
+  const suffix = stem.includes('_') ? stem.split('_').at(-1)?.trim() || '' : stem.replace(/^(?:LIQUIDACION|FINIQUITO)[\s-]+/, '').trim();
+  return Boolean(suffix) && nameSuffixMatchesPerson(suffix, fullName);
+}
 function cents(n: number) { return Math.round((n + Number.EPSILON) * 100); }
 export function payrollAmountsMatch(summary: NominaParseResult, individual: NominaParseResult) {
   const fields = ['devengadoTotal', 'netoPercibir', 'irpf', 'ssTrabajador', 'ssEmpresa', 'baseIrpf', 'costeTotalEmpresa'] as const;
@@ -70,8 +79,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       const { summary, category, mixedSettlement } = read;
       if (mixedSettlement) {
         if (mixedSettlement.mes !== month || mixedSettlement.anio !== year || mixedSettlement.dia < 1 || mixedSettlement.dia > 31) throw new Error('El período impreso no coincide con la carpeta');
-        const suffix = normaliseName(file.name).split('_').pop()?.replace(/\.PDF$/, '').trim() || '';
-        if (!suffix || !nameSuffixMatchesPerson(suffix, mixedSettlement.nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
+        if (!liquidationFileMatchesPerson(file.name, mixedSettlement.nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
         parsed.push({ file, records: [], verified: true, category, mixedSettlement });
         continue;
       }

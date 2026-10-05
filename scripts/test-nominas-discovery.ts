@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { classifyPayrollFile, findCostesFiles, payrollMonthFromFolder } from '../lib/microsoft-graph';
-import { nameSuffixMatchesPerson, payrollAmountsMatch } from '../lib/nominas-sync';
+import { liquidationFileMatchesPerson, nameSuffixMatchesPerson, payrollAmountsMatch } from '../lib/nominas-sync';
 import { parseCombinedSettlementReceipt, parseCostesIO } from '../lib/nominas-parser';
 
 async function main() {
@@ -12,6 +12,11 @@ async function main() {
   assert.equal(payrollAmountsMatch(synthetic, { ...synthetic, costeTotalEmpresa: 1401 }), false);
   assert(nameSuffixMatchesPerson('DAVIDPEREZ', 'PEREZ MONTANO DAVID JAVIER'));
   assert(!nameSuffixMatchesPerson('OTRA PERSONA', 'PEREZ MONTANO DAVID JAVIER'));
+  assert(liquidationFileMatchesPerson('LIQUIDACION PERSONA PRUEBA (1).pdf', 'PRUEBA, PERSONA'));
+  assert(liquidationFileMatchesPerson('LIQUIDACIÓN INTERNET OPERADORES SEPTIEMBRE 2026_PERSONA PRUEBA (1).pdf', 'PRUEBA, PERSONA'));
+  assert(liquidationFileMatchesPerson('FINIQUITO_PERSONAPRUEBA(2).pdf', 'PRUEBA, PERSONA'));
+  assert(!liquidationFileMatchesPerson('LIQUIDACION OTRA PERSONA (1).pdf', 'PRUEBA, PERSONA'));
+  assert(!liquidationFileMatchesPerson('LIQUIDACION (1).pdf', 'PRUEBA, PERSONA'));
   const settlementSummary = parseCostesIO([
     'Resumen de NóminaPAGA TOTAL DEL 01/09/2026 AL 30/09/2026',
     '00000000T', 'MENSUAL', '21/09/2026', '-50,00 950,00 1.000,00 1.000,00 200,00 250,00',
