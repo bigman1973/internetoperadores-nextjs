@@ -19,6 +19,10 @@ interface OneDriveFile {
   monthNum: number;
   loaded: boolean;
   empleadosEnBD: number;
+  archivosDetectados: number;
+  individuales: number;
+  liquidaciones: number;
+  resumenDisponible: boolean;
 }
 
 interface SyncStatus {
@@ -52,8 +56,8 @@ interface UploadResult {
 interface SyncResult {
   success: boolean;
   anio: number;
-  resultados: { mes: number; success: boolean; summary?: any; error?: string }[];
-  resumen: { totalArchivos: number; exitosos: number; fallidos: number };
+  resultados: { mes: number; success: boolean; summary?: { empleados: number }; error?: string; documentos?: number; incidencias?: string[] }[];
+  resumen: { totalArchivos: number; exitosos: number; fallidos: number; documentosVinculados?: number };
   error?: string;
 }
 
@@ -96,14 +100,26 @@ export default function NominasPage() {
     setSyncResult(null);
     setError(null);
     try {
-      const res = await fetch('/api/admin/nominas/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ anio: 2026, meses }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al sincronizar');
-      setSyncResult(data);
+      const selected = meses || syncStatus?.archivosOneDrive.map(f => f.monthNum) || [];
+      const outcomes: SyncResult['resultados'] = [];
+      let totalFiles = 0;
+      for (const month of selected) {
+        const res = await fetch('/api/admin/nominas/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ anio: 2026, meses: [month] }),
+        });
+        const data = await res.json();
+        if (!res.ok && !data.resultados) {
+          outcomes.push({ mes: month, success: false, error: data.error || 'Error al sincronizar' });
+        } else {
+          outcomes.push(...data.resultados);
+          totalFiles += data.resumen?.totalArchivos || 0;
+        }
+        setSyncResult({ success: outcomes.every(r => r.success), anio: 2026, resultados: [...outcomes], resumen: {
+          totalArchivos: totalFiles, exitosos: outcomes.filter(r => r.success).length, fallidos: outcomes.filter(r => !r.success).length,
+        } });
+      }
       // Refresh status
       await checkSyncStatus();
     } catch (e: any) {
@@ -158,7 +174,7 @@ export default function NominasPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Importar Nóminas</h1>
-            <p className="text-sm text-gray-500 mt-1">Sincronizar con OneDrive o subir archivos COSTES IO</p>
+              <p className="text-sm text-gray-500 mt-1">Sincronizar con OneDrive o subir el resumen de costes de la gestoría</p>
           </div>
         </div>
       </div>
@@ -197,7 +213,7 @@ export default function NominasPage() {
           ) : syncStatus ? (
             <div className="space-y-3">
               <div className="text-sm text-gray-600">
-                <span className="font-medium">{syncStatus.totalMesesDisponibles}</span> archivos disponibles en OneDrive |{' '}
+                <span className="font-medium">{syncStatus.totalMesesDisponibles}</span> meses disponibles en OneDrive |{' '}
                 <span className="font-medium text-green-600">{syncStatus.totalMesesCargados}</span> meses cargados en BD
               </div>
 
@@ -211,20 +227,16 @@ export default function NominasPage() {
                       ) : (
                         <ExclamationTriangleIcon className="h-4 w-4 text-yellow-500" />
                       )}
-                      <span className="text-gray-700">{file.name}</span>
+                          <span className="text-gray-700 break-words">{file.name}</span>
                     </div>
                     <div className="text-xs">
-                      {file.loaded ? (
-                        <span className="text-green-600">{file.empleadosEnBD} empleados</span>
-                      ) : (
-                        <button
-                          onClick={() => handleSync([file.monthNum])}
-                          disabled={syncing}
-                          className="text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Importar
+                      <div className="flex items-center gap-2">
+                        {file.loaded && <span className="text-green-700">{file.empleadosEnBD} empleados</span>}
+                        <button onClick={() => handleSync([file.monthNum])} disabled={syncing || loading}
+                          className="text-blue-700 hover:text-blue-900 font-medium disabled:opacity-50">
+                          {file.loaded ? 'Revisar y actualizar' : 'Importar'}
                         </button>
-                      )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -233,7 +245,7 @@ export default function NominasPage() {
               {/* Sync all button */}
               <button
                 onClick={() => handleSync()}
-                disabled={syncing}
+                disabled={syncing || loading}
                 className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
               >
                 {syncing ? (
@@ -244,7 +256,7 @@ export default function NominasPage() {
                 ) : (
                   <>
                     <ArrowPathIcon className="h-4 w-4" />
-                    Sincronizar todos
+                    Revisar todos los meses
                   </>
                 )}
               </button>
@@ -262,8 +274,8 @@ export default function NominasPage() {
           {/* Sync result */}
           {syncResult && (
             <div className={`p-3 rounded-lg text-sm ${syncResult.resumen.fallidos > 0 ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'}`}>
-              <p className="font-medium">
-                Sincronización completada: {syncResult.resumen.exitosos}/{syncResult.resumen.totalArchivos} exitosos
+                <p className="font-medium">
+                Meses importados: {syncResult.resumen.exitosos}/{syncResult.resultados.length}
               </p>
               {syncResult.resultados.map((r, i) => (
                 <div key={i} className="mt-1 flex items-center gap-1">
@@ -272,8 +284,11 @@ export default function NominasPage() {
                   ) : (
                     <XCircleIcon className="h-3.5 w-3.5 text-red-500" />
                   )}
-                  <span>{MESES[r.mes]}: {r.success ? `${r.summary?.empleados || 0} empleados` : r.error}</span>
+                  <span>{MESES[r.mes]}: {r.success ? `${r.summary?.empleados || 0} empleados; ${r.documentos || 0} documentos vinculados` : r.error}</span>
                 </div>
+              ))}
+              {syncResult.resultados.flatMap(r => r.incidencias || []).map((message, index) => (
+                <p key={index} className="mt-1 text-amber-800">Atención: {message}</p>
               ))}
             </div>
           )}
@@ -293,7 +308,7 @@ export default function NominasPage() {
 
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
-              Sube un archivo PDF de <span className="font-medium">&quot;COSTES IO&quot;</span> generado por la gestoría.
+              Sube un PDF de <span className="font-medium">&quot;COSTES INTERNET OPERADORES&quot;</span> generado por la gestoría.
               El sistema detectará automáticamente el mes/año y cargará los datos de todos los empleados.
             </p>
 
@@ -375,8 +390,8 @@ export default function NominasPage() {
       <div className="bg-gray-50 rounded-xl border p-4 text-sm text-gray-600">
         <h3 className="font-semibold text-gray-800 mb-2">Información</h3>
         <ul className="space-y-1 list-disc list-inside">
-          <li>Los archivos deben ser del formato <span className="font-mono text-xs bg-gray-200 px-1 rounded">COSTES IO [MES] [AÑO].pdf</span> generados por la gestoría.</li>
-          <li>Al importar un mes que ya existe, se reemplazan los datos anteriores (no se duplican).</li>
+          <li>Se reconocen &quot;COSTES INTERNET OPERADORES&quot;, nóminas individuales y liquidaciones del mismo mes; se excluye SOTIC XXI.</li>
+          <li>Se conserva la fila mensual y su conciliación bancaria; el sistema actualiza los importes sin borrar las nóminas de otros empleados.</li>
           <li>El sistema verifica automáticamente que Bruto = Neto + IRPF + SS Trabajador.</li>
           <li>Los empleados se identifican por su NIF. Si un empleado del PDF no está en la BD, se reportará.</li>
         </ul>

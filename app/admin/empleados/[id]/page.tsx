@@ -28,6 +28,7 @@ interface Nomina {
   ssTCI: number | null;
   costeTotalEmpresa: number | null;
   archivoUrl: string | null;
+  documentos: { driveItemId: string; tipo: string }[];
 }
 
 interface Proyecto {
@@ -263,7 +264,16 @@ export default function EmpleadoDetallePage() {
                     <td className="px-4 py-3 text-right text-gray-700">{formatEur(nom.ssEmpresa)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-gray-900">{formatEur(nom.costeTotalEmpresa)}</td>
                     <td className="px-4 py-3 text-center">
-                      {nom.archivoUrl ? (
+                      {nom.documentos?.length ? (
+                        <div className="flex flex-wrap justify-center gap-2">
+                          {nom.documentos.map(doc => (
+                            <a key={doc.driveItemId} href={`/api/admin/nominas/download/${encodeURIComponent(doc.driveItemId)}`}
+                              target="_blank" rel="noopener" className="text-orange-700 hover:underline text-xs">
+                              <DocumentTextIcon className="h-4 w-4 inline" /> {doc.tipo === 'LIQUIDACION' ? 'Liquidación' : 'Nómina'}
+                            </a>
+                          ))}
+                        </div>
+                      ) : nom.archivoUrl ? (
                         <a href={nom.archivoUrl} target="_blank" rel="noopener" className="text-orange-600 hover:underline">
                           <DocumentTextIcon className="h-4 w-4 inline" />
                         </a>

@@ -29,6 +29,7 @@ export async function GET(
       include: {
         nominas: {
           orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+          include: { documentos: { select: { driveItemId: true, tipo: true }, orderBy: { tipo: 'desc' } } },
         },
         asignaciones: {
           include: {

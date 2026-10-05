@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     const nominas = await prisma.nomina.findMany({
       where: { empleadoId: empleado.id },
       orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+      include: { documentos: { select: { driveItemId: true, tipo: true }, orderBy: { tipo: 'desc' } } },
     });
 
     return NextResponse.json({

@@ -13,6 +13,7 @@ interface Nomina {
   irpf: number | null;
   ssTrabajador: number | null;
   archivoUrl: string | null;
+  documentos: { driveItemId: string; tipo: string }[];
 }
 
 const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
@@ -112,7 +113,16 @@ export default function MisNominasPage() {
                   </td>
                   <td className="px-4 py-3 text-right font-semibold text-green-700">{formatEur(nom.netoPercibir)}</td>
                   <td className="px-4 py-3 text-center">
-                    {nom.archivoUrl ? (
+                    {nom.documentos?.length ? (
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {nom.documentos.map(doc => (
+                          <a key={doc.driveItemId} href={`/api/admin/nominas/download/${encodeURIComponent(doc.driveItemId)}`}
+                            target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-orange-700 hover:underline text-xs">
+                            <ArrowDownTrayIcon className="h-4 w-4" />{doc.tipo === 'LIQUIDACION' ? 'Liquidación' : 'Nómina'}
+                          </a>
+                        ))}
+                      </div>
+                    ) : nom.archivoUrl ? (
                       <a
                         href={nom.archivoUrl}
                         target="_blank"

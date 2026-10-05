@@ -1747,12 +1747,26 @@ model Nomina {
   // Relaciones
   empleado                Empleado @relation(fields: [empleadoId], references: [id])
   movimientos             MovimientoBancario[]
+  documentos              NominaDocumento[]
   // Timestamps
   createdAt               DateTime @default(now()) @map("created_at")
 
   @@unique([empleadoId, mes, anio])
   @@index([anio, mes])
   @@map("nominas")
+}
+
+model NominaDocumento {
+  id          String   @id @default(uuid())
+  nominaId    String   @map("nomina_id")
+  driveItemId String   @unique @map("drive_item_id")
+  nombre      String
+  tipo        String   // NOMINA | LIQUIDACION; un documento por item de SharePoint
+  nomina      Nomina   @relation(fields: [nominaId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([nominaId, tipo])
+  @@map("nomina_documentos")
 }
 
 model PuestoOrganizativo {

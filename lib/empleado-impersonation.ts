@@ -30,12 +30,21 @@ export async function resolveEmpleado(req: NextRequest) {
   if (!session?.user?.email) {
     return { empleado: null, isImpersonating: false, error: 'No autenticado', status: 401 };
   }
+  if (session.user.userType !== 'admin') {
+    return { empleado: null, isImpersonating: false, error: 'No autorizado', status: 403 };
+  }
+  const account = await prisma.usuarioAdmin.findUnique({
+    where: { email: session.user.email }, select: { activo: true, rol: true },
+  });
+  if (!account?.activo) {
+    return { empleado: null, isImpersonating: false, error: 'No autorizado', status: 403 };
+  }
 
   const { searchParams } = new URL(req.url);
   const asEmail = searchParams.get('as');
 
   const userEmail = session.user.email.toLowerCase();
-  const userRole = session.user.role || '';
+  const userRole = account.rol;
   const isAdmin = canImpersonate(userEmail, userRole);
 
   let targetEmail = userEmail;

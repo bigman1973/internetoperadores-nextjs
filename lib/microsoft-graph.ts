@@ -1,23 +1,6 @@
-/**
- * Microsoft Graph API client for accessing SharePoint/OneDrive files
- * Used to sync nóminas PDFs from the company SharePoint site
- */
-
-// Environment variables matching Vercel configuration
-const TENANT_ID = process.env.MICROSOFT_GRAPH_TENANT_ID!;
-const CLIENT_ID = process.env.MICROSOFT_GRAPH_CLIENT_ID!;
-const CLIENT_SECRET = process.env.MICROSOFT_GRAPH_CLIENT_SECRET!;
-const SITE_ID = process.env.SHAREPOINT_SITE_ID!;
-const DRIVE_ID = process.env.SHAREPOINT_DRIVE_ID!;
-
-// Path to nóminas folder
-const NOMINAS_BASE_PATH = '4. Recursos Humanos/3. Nóminas';
-
-interface GraphToken {
-  access_token: string;
-  expires_in: number;
-  token_type: string;
-}
+/** Acceso a SharePoint/OneDrive del área de nóminas (también reutilizado por finanzas). */
+const BASE_PATH = '4. Recursos Humanos/3. Nóminas';
+const MONTHS = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
 
 interface DriveItem {
   id: string;
@@ -25,190 +8,154 @@ interface DriveItem {
   folder?: { childCount: number };
   file?: { mimeType: string };
   size?: number;
-  lastModifiedDateTime?: string;
-  '@microsoft.graph.downloadUrl'?: string;
+}
+
+export interface PayrollDriveFile {
+  name: string;
+  id: string;
+  month: string;
+  monthNum: number;
+  tipo: 'costes_io' | 'nomina_individual' | 'liquidacion';
 }
 
 let cachedToken: { token: string; expiresAt: number } | null = null;
 
-/**
- * Get an access token using client credentials flow
- */
+function driveId() {
+  const id = process.env.SHAREPOINT_DRIVE_ID;
+  if (!id) throw new Error('Falta la configuración SHAREPOINT_DRIVE_ID');
+  return encodeURIComponent(id);
+}
+
 async function getAccessToken(): Promise<string> {
-  // Return cached token if still valid
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 60000) {
-    return cachedToken.token;
-  }
-
-  const tokenUrl = `https://login.microsoftonline.com/${TENANT_ID}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    client_id: CLIENT_ID,
-    client_secret: CLIENT_SECRET,
-    scope: 'https://graph.microsoft.com/.default',
-    grant_type: 'client_credentials',
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 60000) return cachedToken.token;
+  const tenant = process.env.MICROSOFT_GRAPH_TENANT_ID;
+  const client = process.env.MICROSOFT_GRAPH_CLIENT_ID;
+  const secret = process.env.MICROSOFT_GRAPH_CLIENT_SECRET;
+  if (!tenant || !client || !secret) throw new Error('Falta la configuración MICROSOFT_GRAPH_*');
+  const response = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`, {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: client, client_secret: secret, scope: 'https://graph.microsoft.com/.default', grant_type: 'client_credentials' }),
+    signal: AbortSignal.timeout(15000), cache: 'no-store',
   });
-
-  const response = await fetch(tokenUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: body.toString(),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to get Graph token: ${response.status} - ${error}`);
-  }
-
-  const data: GraphToken = await response.json();
-  cachedToken = {
-    token: data.access_token,
-    expiresAt: Date.now() + data.expires_in * 1000,
-  };
-
+  if (!response.ok) throw new Error(`Microsoft Graph: error de autenticación (${response.status})`);
+  const data = await response.json();
+  cachedToken = { token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
   return data.access_token;
 }
 
-/**
- * List children of a folder by path
- */
+async function graphGet(url: string): Promise<Response> {
+  if (!url.startsWith('https://graph.microsoft.com/v1.0/')) throw new Error('URL de paginación Graph no válida');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${await getAccessToken()}` },
+      signal: AbortSignal.timeout(30000), cache: 'no-store', redirect: 'follow',
+    });
+    if ([429, 502, 503, 504].includes(response.status) && attempt < 2) {
+      const retrySeconds = Math.min(5, Number(response.headers.get('Retry-After')) || 1);
+      await new Promise(resolve => setTimeout(resolve, retrySeconds * 1000));
+      continue;
+    }
+    if (!response.ok) throw new Error(`Microsoft Graph: error al consultar OneDrive (${response.status})`);
+    return response;
+  }
+  throw new Error('Microsoft Graph no respondió tras los reintentos');
+}
+
+/** Devuelve todas las páginas. Nunca interpreta una página parcial como una carpeta completa. */
 export async function listFolderByPath(path: string): Promise<DriveItem[]> {
-  const token = await getAccessToken();
-  const encodedPath = encodeURIComponent(path).replace(/%2F/g, '/');
-  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/root:/${encodedPath}:/children`;
-
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to list folder: ${response.status} - ${error}`);
+  const encoded = path.split('/').map(encodeURIComponent).join('/');
+  let url: string | undefined = `https://graph.microsoft.com/v1.0/drives/${driveId()}/root:/${encoded}:/children?$top=200`;
+  const files: DriveItem[] = [];
+  while (url) {
+    const response = await graphGet(url);
+    const page = await response.json();
+    files.push(...(page.value || []));
+    url = page['@odata.nextLink'];
   }
-
-  const data = await response.json();
-  return data.value || [];
+  return files;
 }
 
-/**
- * Download a file by its drive item ID
- */
 export async function downloadFileById(itemId: string): Promise<Buffer> {
-  const token = await getAccessToken();
-  const url = `https://graph.microsoft.com/v1.0/drives/${DRIVE_ID}/items/${itemId}/content`;
-
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    redirect: 'follow',
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to download file: ${response.status}`);
-  }
-
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  if (!/^[A-Za-z0-9!_.~-]{4,220}$/.test(itemId)) throw new Error('Identificador de archivo no válido');
+  const response = await graphGet(`https://graph.microsoft.com/v1.0/drives/${driveId()}/items/${encodeURIComponent(itemId)}/content`);
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > 50 * 1024 * 1024) throw new Error('El archivo supera el límite de 50 MB');
+  return Buffer.from(bytes);
 }
 
-/**
- * Get available months for a given year in the nóminas folder
- */
+export function payrollMonthFromFolder(folderName: string): number {
+  const upper = folderName.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+  const named = MONTHS.findIndex(month => new RegExp(`\\b${month}\\b`).test(upper));
+  if (named >= 0) return named + 1;
+  const numbered = upper.match(/^(?:MES\s*)?0?([1-9]|1[0-2])(?:\s|[._-]|$)/);
+  return numbered ? Number(numbered[1]) : 0;
+}
+
+export function classifyPayrollFile(name: string): PayrollDriveFile['tipo'] | null {
+  const upper = name.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim();
+  if (!upper.endsWith('.PDF') || /\bSOTIC\b/.test(upper)) return null;
+  if (/^COSTES\s+(?:INTERNET\s+OPERADORES|IO)\b/.test(upper)) return 'costes_io';
+  if (/^(?:LIQUIDACION|FINIQUITO)(?:\s+|[-_])/.test(upper)) return 'liquidacion';
+  if (/^NOMINA\s+(?:INTERNET\s+OPERADORES|IO)\b/.test(upper)) {
+    return /\b(?:LIQUIDACION|FINIQUITO)\b/.test(upper) ? 'liquidacion' : 'nomina_individual';
+  }
+  return null;
+}
+
 export async function getAvailableMonths(year: number): Promise<{ name: string; id: string }[]> {
-  const path = `${NOMINAS_BASE_PATH}/${year}`;
-  const items = await listFolderByPath(path);
-  return items
-    .filter(item => item.folder)
+  const months = await listFolderByPath(`${BASE_PATH}/${year}`);
+  return months.filter(item => item.folder && payrollMonthFromFolder(item.name) > 0)
     .map(item => ({ name: item.name, id: item.id }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => payrollMonthFromFolder(a.name) - payrollMonthFromFolder(b.name));
 }
 
-/**
- * Find COSTES IO PDF files for a specific year
- * Returns files matching "COSTES IO [MES] [AÑO].pdf" plus individual nómina PDFs
- */
-export async function findCostesFiles(year: number): Promise<{ name: string; id: string; month: string; monthNum: number; tipo: 'costes_io' | 'nomina_individual' }[]> {
-  const months = await getAvailableMonths(year);
-  const costesFiles: { name: string; id: string; month: string; monthNum: number; tipo: 'costes_io' | 'nomina_individual' }[] = [];
-
-  const monthNames: Record<string, number> = {
-    'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4,
-    'MAYO': 5, 'JUNIO': 6, 'JULIO': 7, 'AGOSTO': 8,
-    'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12,
-  };
-
-  // Determine month number from folder name
-  function getMonthNum(folderName: string): number {
-    const upper = folderName.toUpperCase().trim();
-    // Try direct match (folder named "ENERO", "FEBRERO", etc.)
-    if (monthNames[upper]) return monthNames[upper];
-    // Try "01 - Enero", "01. Enero", "01_Enero" patterns
-    const numMatch = upper.match(/^(\d{1,2})/); 
-    if (numMatch) return parseInt(numMatch[1]);
-    // Try partial match
-    for (const [name, num] of Object.entries(monthNames)) {
-      if (upper.includes(name)) return num;
-    }
-    return 0;
-  }
-
-  for (const monthFolder of months) {
-    try {
-      const path = `${NOMINAS_BASE_PATH}/${year}/${monthFolder.name}`;
-      const files = await listFolderByPath(path);
-      const folderMonthNum = getMonthNum(monthFolder.name);
-      
-      // Find COSTES IO file
-      const costesFile = files.find(f => 
-        f.name.toUpperCase().startsWith('COSTES IO') && 
-        f.name.toUpperCase().endsWith('.PDF')
-      );
-
-      if (costesFile) {
-        // Extract month name from file name (e.g., "COSTES IO ENERO 2026.pdf")
-        const match = costesFile.name.toUpperCase().match(/COSTES IO\s+(\w+)\s+\d{4}/);
-        const monthName = match ? match[1] : '';
-        const monthNum = monthNames[monthName] || folderMonthNum;
-
-        costesFiles.push({
-          name: costesFile.name,
-          id: costesFile.id,
-          month: monthName,
-          monthNum,
-          tipo: 'costes_io',
-        });
-      }
-
-      // Find individual nómina PDFs (only "NÓMINA IO" files, not SOTIC)
-      const individualFiles = files.filter(f => 
-        f.name.toUpperCase().endsWith('.PDF') &&
-        f.name.toUpperCase().startsWith('N') && // NÓMINA...
-        f.name.toUpperCase().includes(' IO ') && // Only IO, not SOTIC
-        !f.name.toUpperCase().startsWith('COSTES') &&
-        f.file // is a file, not a folder
-      );
-
-      for (const indFile of individualFiles) {
-        const monthNum = folderMonthNum;
-        const monthName = Object.entries(monthNames).find(([, v]) => v === monthNum)?.[0] || '';
-        costesFiles.push({
-          name: indFile.name,
-          id: indFile.id,
-          month: monthName,
-          monthNum,
-          tipo: 'nomina_individual',
-        });
-      }
-    } catch (e) {
-      // Skip folders that can't be accessed
-      console.warn(`Could not access folder: ${monthFolder.name}`, e);
+async function collectMonthlyFiles(path: string, monthNum: number, maxDepth = 2): Promise<PayrollDriveFile[]> {
+  const found: PayrollDriveFile[] = [];
+  const pending = [{ path, depth: 0 }];
+  while (pending.length) {
+    if (pending.length > 50 || found.length > 500) throw new Error('Demasiados archivos en la carpeta de nóminas; revisión necesaria');
+    const current = pending.shift()!;
+    for (const item of await listFolderByPath(current.path)) {
+      if (item.folder && current.depth < maxDepth) pending.push({ path: `${current.path}/${item.name}`, depth: current.depth + 1 });
+      if (!item.file) continue;
+      const tipo = classifyPayrollFile(item.name);
+      if (!tipo) continue;
+      found.push({ name: item.name, id: item.id, month: MONTHS[monthNum - 1], monthNum, tipo });
     }
   }
-
-  return costesFiles.sort((a, b) => a.monthNum - b.monthNum || a.tipo.localeCompare(b.tipo));
+  return found;
 }
 
-/**
- * Download a COSTES IO PDF file and return its buffer
- */
-export async function downloadCostesFile(fileId: string): Promise<Buffer> {
-  return downloadFileById(fileId);
+/** Busca nóminas de IO en carpetas mensuales; no importa costes ni nóminas de SOTIC XXI. */
+export async function findCostesFiles(year: number, selectedMonths?: number[]): Promise<PayrollDriveFile[]> {
+  if (!Number.isInteger(year) || year < 2024 || year > 2100) throw new Error('Año de nóminas no válido');
+  const allFolders = await listFolderByPath(`${BASE_PATH}/${year}`);
+  const folders = allFolders.filter(f => f.folder && payrollMonthFromFolder(f.name) > 0 && (!selectedMonths || selectedMonths.includes(payrollMonthFromFolder(f.name))));
+  const found: PayrollDriveFile[] = [];
+  for (const folder of folders) {
+    const monthNum = payrollMonthFromFolder(folder.name);
+    found.push(...await collectMonthlyFiles(`${BASE_PATH}/${year}/${folder.name}`, monthNum));
+  }
+  // Gestorías pueden archivar los finiquitos en una carpeta hermana de los meses.
+  for (const extra of allFolders.filter(f => f.folder && /\b(?:LIQUIDACIONES|FINIQUITOS|COMPLEMENTARIAS)\b/i.test(f.name))) {
+    const subfolders = [{ path: `${BASE_PATH}/${year}/${extra.name}`, depth: 0 }];
+    while (subfolders.length) {
+      if (subfolders.length > 40) throw new Error('Demasiadas carpetas de liquidaciones para revisar automáticamente');
+      const current = subfolders.shift()!;
+      for (const item of await listFolderByPath(current.path)) {
+        if (item.folder && current.depth < 1) subfolders.push({ path: `${current.path}/${item.name}`, depth: 1 });
+        if (!item.file) continue;
+        const monthNum = payrollMonthFromFolder(item.name);
+        const tipo = classifyPayrollFile(item.name);
+        if (tipo === 'liquidacion' && monthNum && (!selectedMonths || selectedMonths.includes(monthNum))) {
+          found.push({ name: item.name, id: item.id, month: MONTHS[monthNum - 1], monthNum, tipo });
+        }
+      }
+    }
+  }
+  const order = { costes_io: 0, nomina_individual: 1, liquidacion: 2 };
+  return [...new Map(found.map(file => [`${file.id}:${file.monthNum}`, file])).values()]
+    .sort((a, b) => a.monthNum - b.monthNum || order[a.tipo] - order[b.tipo] || a.name.localeCompare(b.name, 'es'));
 }
+
+export const downloadCostesFile = downloadFileById;

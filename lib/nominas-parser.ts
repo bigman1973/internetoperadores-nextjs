@@ -14,6 +14,7 @@ import pdf from 'pdf-parse';
 export interface NominaParseResult {
   nombre: string;
   nif: string;
+  tipo?: 'NOMINA' | 'LIQUIDACION';
   mes: number;
   anio: number;
   fechaCobro: string;
@@ -234,7 +235,7 @@ function parseCostesIO(text: string): ParseSummary {
     const costeTotalEmpresa = devengado + ssTci;
     
     nominas.push({
-      nombre: empEntry.name, nif: nifEntry.nif, mes, anio, fechaCobro,
+      nombre: empEntry.name, nif: nifEntry.nif, tipo: isFiniquito ? 'LIQUIDACION' : 'NOMINA', mes, anio, fechaCobro,
       devengadoTotal: devengado, netoPercibir: neto, irpf,
       ssTrabajador: ssTrab, ssEmpresa: ssTci, baseIrpf,
       costeTotalEmpresa, complementoEspecie: especie,
@@ -458,7 +459,7 @@ function parseNominaIndividual(text: string): ParseSummary {
     }
     
     nominas.push({
-      nombre, nif, mes, anio, fechaCobro,
+      nombre, nif, tipo: /\b(?:FINIQUITO|LIQUIDACI[ÓO]N)\b/i.test(blockText) ? 'LIQUIDACION' : 'NOMINA', mes, anio, fechaCobro,
       devengadoTotal: devengado,
       netoPercibir: neto,
       irpf,
