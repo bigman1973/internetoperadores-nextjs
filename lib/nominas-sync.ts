@@ -111,7 +111,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
     }
   }
 
-  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true, email: true, antiguedadNomina: true } });
+  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true, email: true, fechaAlta: true, antiguedadNomina: true } });
   const employeeByNif = new Map(empleados.map(e => [normaliseNif(e.nif), e]));
   const values = new Map<string, NominaParseResult>();
   const fromBulk = new Set<string>();
@@ -222,12 +222,28 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const sinReciboIndividual = [...values.keys()].filter(id => !(linked.get(id) || []).some(doc => doc.tipo === 'NOMINA')).length;
   const empleadosFueraResumen = [...values.keys()].filter(id => !fromBulk.has(id)).length;
   const seniorityUpdates = new Map<string, Date>();
+  const hireDateUpdates = new Map<string, Date>();
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
   for (const employee of empleados) {
-    const date = linked.get(employee.id)?.find(doc => doc.tipo === 'NOMINA')?.seniority;
-    if (!date) continue;
-    if (!employee.antiguedadNomina) seniorityUpdates.set(employee.id, new Date(`${date}T00:00:00.000Z`));
+    const individualPayslip = linked.get(employee.id)?.find(doc => doc.tipo === 'NOMINA');
+    const date = individualPayslip?.seniority;
+    if (!date) {
+      if (individualPayslip && !employee.fechaAlta) incidencias.push('Un recibo individual no permite leer la fecha de alta contractual: revisa la ficha de Personal.');
+      continue;
+    }
+    if (date > lastDayOfMonth) {
+      incidencias.push('Una fecha de antigüedad es posterior al período de su nómina y requiere revisión; no se ha usado para el alta.');
+      continue;
+    }
+    const verifiedDate = new Date(`${date}T00:00:00.000Z`);
+    if (!employee.antiguedadNomina) seniorityUpdates.set(employee.id, verifiedDate);
     else if (employee.antiguedadNomina.toISOString().slice(0, 10) !== date) {
       incidencias.push('Una antigüedad del recibo no coincide con la ya registrada en Personal; no se sustituirá automáticamente.');
+      continue;
+    }
+    if (!employee.fechaAlta) hireDateUpdates.set(employee.id, verifiedDate);
+    else if (employee.fechaAlta.toISOString().slice(0, 10) !== date) {
+      incidencias.push('La fecha de alta contractual difiere de la antigüedad de la nómina; no se sustituirá automáticamente.');
     }
   }
   if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };
@@ -268,6 +284,8 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       }
       const seniority = seniorityUpdates.get(employeeId);
       if (seniority) await tx.empleado.updateMany({ where: { id: employeeId, antiguedadNomina: null }, data: { antiguedadNomina: seniority } });
+      const hireDate = hireDateUpdates.get(employeeId);
+      if (hireDate) await tx.empleado.updateMany({ where: { id: employeeId, fechaAlta: null }, data: { fechaAlta: hireDate } });
     }
   }, { timeout: 30000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };

@@ -24,6 +24,13 @@ async function getLogoDataUri() {
   }
 }
 
+function renderEmploymentDate(position: any) {
+  const hire = position.empleado.fechaAlta;
+  const seniority = position.empleado.antiguedadNomina;
+  const verified = Boolean(hire && seniority && hire.getTime() === seniority.getTime());
+  return `Alta contractual: ${hire ? formatOrganizationDate(hire) : 'No consta'}${verified ? ' (nómina contrastada)' : ''}${seniority && !verified ? ` · Antigüedad nómina: ${formatOrganizationDate(seniority)} (revisar)` : ''}${position.empleado.fechaBaja ? ` · Baja: ${formatOrganizationDate(position.empleado.fechaBaja)}` : ''}`;
+}
+
 function renderTree(position: any, all: any[], depth = 0): string {
   const children = all.filter(item => item.superiorId === position.empleadoId);
   return `<div class="branch depth-${depth}">
@@ -31,7 +38,7 @@ function renderTree(position: any, all: any[], depth = 0): string {
       <div class="person-top"><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><span>${escapeHtml(position.empresaGrupo)}</span></div>
       <div class="role">${escapeHtml(position.cargo)}</div>
       <div class="meta">${escapeHtml(position.departamento)} · ${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}</div>
-      <div class="employment">Alta registrada: ${position.empleado.fechaAlta ? formatOrganizationDate(position.empleado.fechaAlta) : 'No consta'}${position.empleado.antiguedadNomina ? ` · Antigüedad nómina: ${formatOrganizationDate(position.empleado.antiguedadNomina)}` : ''}${position.empleado.fechaBaja ? ` · Baja: ${formatOrganizationDate(position.empleado.fechaBaja)}` : ''}</div>
+      <div class="employment">${renderEmploymentDate(position)}</div>
       ${position.empleado.email ? `<div class="email">${escapeHtml(position.empleado.email)}</div>` : ''}
       ${position.dependenciaFuncional ? `<div class="functional">Dependencia funcional: ${escapeHtml(position.dependenciaFuncional.nombreCompleto)}</div>` : ''}
     </article>
@@ -75,7 +82,7 @@ export async function GET(req: NextRequest) {
 
     const body = type === 'organigrama'
       ? `<section class="org">${roots.map(root => renderTree(root, positions)).join('')}</section>`
-      : `<table><thead><tr><th>Empleado</th><th>Empresa</th><th>Departamento</th><th>Cargo</th><th>Categoría profesional</th><th>Alta / baja</th><th>Superior inmediato</th><th>Dependencia funcional</th></tr></thead><tbody>${positions.map(position => `<tr><td><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><br><small>${escapeHtml(position.empleado.email || 'Sin correo')}</small></td><td>${escapeHtml(position.empresaGrupo)}</td><td>${escapeHtml(position.departamento)}</td><td>${escapeHtml(position.cargo)}</td><td>${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}<br><small>${position.categoriaOrigen === 'nomina' ? `Nómina ${String(position.categoriaNominaMes).padStart(2, '0')}/${position.categoriaNominaAnio}` : 'Ficha del empleado'}</small></td><td>Alta: ${position.empleado.fechaAlta ? formatOrganizationDate(position.empleado.fechaAlta) : 'No consta'}${position.empleado.antiguedadNomina ? `<br>Antigüedad nómina: ${formatOrganizationDate(position.empleado.antiguedadNomina)}` : ''}${position.empleado.fechaBaja ? `<br>Baja: ${formatOrganizationDate(position.empleado.fechaBaja)}` : ''}</td><td>${escapeHtml(position.superior?.nombreCompleto || 'Raíz')}</td><td>${escapeHtml(position.dependenciaFuncional?.nombreCompleto || '—')}</td></tr>`).join('')}</tbody></table>`;
+      : `<table><thead><tr><th>Empleado</th><th>Empresa</th><th>Departamento</th><th>Cargo</th><th>Categoría profesional</th><th>Alta / baja</th><th>Superior inmediato</th><th>Dependencia funcional</th></tr></thead><tbody>${positions.map(position => `<tr><td><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><br><small>${escapeHtml(position.empleado.email || 'Sin correo')}</small></td><td>${escapeHtml(position.empresaGrupo)}</td><td>${escapeHtml(position.departamento)}</td><td>${escapeHtml(position.cargo)}</td><td>${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}<br><small>${position.categoriaOrigen === 'nomina' ? `Nómina ${String(position.categoriaNominaMes).padStart(2, '0')}/${position.categoriaNominaAnio}` : 'Ficha del empleado'}</small></td><td>${renderEmploymentDate(position)}</td><td>${escapeHtml(position.superior?.nombreCompleto || 'Raíz')}</td><td>${escapeHtml(position.dependenciaFuncional?.nombreCompleto || '—')}</td></tr>`).join('')}</tbody></table>`;
 
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title}</title><style>
       @page { size: ${type === 'organigrama' ? 'A3 landscape' : 'A4 landscape'}; margin: 12mm; }
@@ -95,7 +102,7 @@ export async function GET(req: NextRequest) {
       @media print { .no-print { display:none; } }
     </style></head><body>
       <header><div>${logo ? `<img class="logo" src="${logo}" alt="Internet Operadores">` : '<strong>Internet Operadores</strong>'}<h1>${title}</h1><div class="subtitle">${escapeHtml(subtitle)}</div></div><div class="conf">CONFIDENCIAL<small>Documento interno</small></div></header>
-      <div class="note">La categoría profesional y la antigüedad proceden de la nómina cuando se han podido extraer. La antigüedad reconocida no sustituye la fecha de alta contractual registrada en Personal, que debe contrastarse con documentación laboral. Cargo, departamento y dependencias reflejan la organización interna.</div>
+      <div class="note">El alta contractual se ha cotejado con la fecha de antigüedad impresa en la nómina individual, cuando está disponible. Una discrepancia se señala y no se sustituye automáticamente. Cargo, departamento y dependencias reflejan la organización interna; la categoría profesional procede de nómina cuando se ha podido extraer.</div>
       ${body}
       <footer><span>Internet Operadores S.L. · Organización y Personal</span><span>Generado por David Pérez · david.perez@internetoperadores.com · ${formatOrganizationDate(new Date())}</span></footer>
       <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>

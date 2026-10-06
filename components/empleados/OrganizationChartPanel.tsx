@@ -115,10 +115,13 @@ function formatDate(value: string | null) {
 }
 
 function EmploymentDates({ position }: { position: Position }) {
+  const verifiedByPayroll = Boolean(position.fechaAltaEmpleado && position.antiguedadNominaEmpleado &&
+    position.fechaAltaEmpleado.slice(0, 10) === position.antiguedadNominaEmpleado.slice(0, 10));
   return (
     <span className="text-xs text-gray-600">
-      Alta registrada: {position.fechaAltaEmpleado ? formatDate(position.fechaAltaEmpleado) : 'No consta'}
-      {position.antiguedadNominaEmpleado && <> · Antigüedad nómina: {formatDate(position.antiguedadNominaEmpleado)}</>}
+      Alta contractual: {position.fechaAltaEmpleado ? formatDate(position.fechaAltaEmpleado) : 'No consta'}
+      {verifiedByPayroll && ' (nómina contrastada)'}
+      {position.antiguedadNominaEmpleado && !verifiedByPayroll && <> · Antigüedad nómina: {formatDate(position.antiguedadNominaEmpleado)} (revisar diferencia)</>}
       {position.fechaBajaEmpleado && <> · Baja: {formatDate(position.fechaBajaEmpleado)}</>}
     </span>
   );
@@ -322,7 +325,7 @@ export default function OrganizationChartPanel({ isSuperAdmin }: { isSuperAdmin:
             <p className="text-sm font-semibold text-orange-600">Personal · Organización</p>
             <h1 className="mt-1 text-2xl font-bold tracking-tight text-gray-950 sm:text-3xl">Organigrama corporativo</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">Estructura jerárquica y funcional del grupo. La categoría profesional procede de nómina cuando está disponible; el cargo y las dependencias reflejan la organización interna.</p>
-            <p className="mt-1 max-w-3xl text-xs text-gray-500">El alta procede de la ficha de Personal; la antigüedad, del recibo de nómina. Son conceptos distintos: contrasta el alta con el contrato cuando esté sin verificar. Las bajas permanecen en el histórico y en consultas anteriores a su fecha efectiva.</p>
+            <p className="mt-1 max-w-3xl text-xs text-gray-500">La fecha de alta se ha cotejado con la antigüedad indicada en cada nómina individual; las discrepancias futuras quedarán señaladas sin sustituir datos automáticamente. Las bajas permanecen en el histórico y en consultas anteriores a su fecha efectiva.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <a href={printUrl('organigrama')} target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-50"><PrinterIcon className="h-5 w-5" /> Imprimir organigrama</a>

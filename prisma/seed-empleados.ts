@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Cargando empleados...');
 
+  // Las altas históricas no se presuponen: el importador coteja la fecha de antigüedad del recibo individual.
   const empleados = [
     {
       codigoNomina: '000004',
@@ -14,7 +15,7 @@ async function main() {
       departamento: 'Comercial',
       categoria: 'COMERCIAL',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000005',
@@ -24,7 +25,7 @@ async function main() {
       departamento: 'Comercial',
       categoria: 'COMERCIAL',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000006',
@@ -34,7 +35,7 @@ async function main() {
       departamento: 'Técnico',
       categoria: 'TÉCNICO',
       estado: 'BAJA' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
       fechaBaja: new Date('2026-07-31'),
     },
     {
@@ -45,7 +46,7 @@ async function main() {
       departamento: 'Técnico',
       categoria: 'TÉCNICO',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000010',
@@ -55,7 +56,7 @@ async function main() {
       departamento: 'Técnico',
       categoria: 'TÉCNICO',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000012',
@@ -65,7 +66,7 @@ async function main() {
       departamento: 'Técnico',
       categoria: 'TÉCNICO',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000013',
@@ -75,7 +76,7 @@ async function main() {
       departamento: 'Administración',
       categoria: 'ADMINISTRATIVO',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000014',
@@ -85,7 +86,7 @@ async function main() {
       departamento: 'Técnico',
       categoria: 'TÉCNICO',
       estado: 'BAJA' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
       fechaBaja: new Date('2026-07-31'),
     },
     {
@@ -96,7 +97,7 @@ async function main() {
       departamento: 'Administración',
       categoria: 'ADMINISTRATIVO',
       estado: 'ACTIVO' as const,
-      fechaAlta: new Date('2023-01-01'),
+      fechaAlta: null,
     },
     {
       codigoNomina: '000016',
