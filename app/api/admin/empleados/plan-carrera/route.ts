@@ -34,7 +34,19 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  return NextResponse.json({ objetivos, evaluaciones, formaciones, condiciones });
+  // Una nómina mensual no acredita por sí sola el bruto anual pactado (pagas extra,
+  // retribución variable, especie). Nunca crear una condición anual calculada.
+  const ultimoBrutoMensual = session.user.role === 'SUPER_ADMIN' && condiciones.length === 0
+    ? await prisma.nomina.findFirst({
+        where: { empleadoId, liquidacionDevengado: null, documentos: { some: { tipo: 'NOMINA' } } },
+        orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
+        select: { devengadoTotal: true, mes: true, anio: true },
+      })
+    : null;
+
+  return NextResponse.json({ objetivos, evaluaciones, formaciones, condiciones, ultimoBrutoMensual }, {
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
 }
 
 // POST: Crear objetivo, evaluación o formación

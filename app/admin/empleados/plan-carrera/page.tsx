@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   AcademicCapIcon,
@@ -75,6 +75,12 @@ interface Condicion {
   notas: string | null;
 }
 
+interface BrutoMensualNomina {
+  devengadoTotal: number;
+  mes: number;
+  anio: number;
+}
+
 const CATEGORIAS_OBJ = [
   { value: 'rendimiento', label: 'Rendimiento' },
   { value: 'desarrollo', label: 'Desarrollo profesional' },
@@ -125,6 +131,8 @@ export default function PlanCarreraPage() {
   const [evaluaciones, setEvaluaciones] = useState<Evaluacion[]>([]);
   const [formaciones, setFormaciones] = useState<Formacion[]>([]);
   const [condiciones, setCondiciones] = useState<Condicion[]>([]);
+  const [ultimoBrutoMensual, setUltimoBrutoMensual] = useState<BrutoMensualNomina | null>(null);
+  const latestRequest = useRef(0);
 
   // Forms
   const [showObjForm, setShowObjForm] = useState(false);
@@ -176,18 +184,22 @@ export default function PlanCarreraPage() {
   }
 
   async function fetchPlanCarrera() {
+    const request = ++latestRequest.current;
     setLoading(true);
     try {
       const res = await fetch(`/api/admin/empleados/plan-carrera?empleadoId=${selectedEmpleado}`);
+      if (!res.ok) throw new Error('No se pudo cargar el plan de carrera');
       const data = await res.json();
+      if (request !== latestRequest.current) return;
       setObjetivos(data.objetivos || []);
       setEvaluaciones(data.evaluaciones || []);
       setFormaciones(data.formaciones || []);
       setCondiciones(data.condiciones || []);
+      setUltimoBrutoMensual(data.ultimoBrutoMensual || null);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (request === latestRequest.current) setLoading(false);
     }
   }
 
@@ -282,6 +294,10 @@ export default function PlanCarreraPage() {
     return v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
 
+  function formatEurMensual(v: number) {
+    return v.toLocaleString('es-ES', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   const empActual = empleados.find(e => e.id === selectedEmpleado);
   const altaContractual = empActual?.fechaAlta?.slice(0, 10) || null;
 
@@ -300,7 +316,7 @@ export default function PlanCarreraPage() {
         </div>
         <select
           value={selectedEmpleado}
-          onChange={(e) => { setSelectedEmpleado(e.target.value); setShowCondForm(false); setConditionError(''); }}
+          onChange={(e) => { latestRequest.current++; setObjetivos([]); setEvaluaciones([]); setFormaciones([]); setCondiciones([]); setUltimoBrutoMensual(null); setSelectedEmpleado(e.target.value); setShowCondForm(false); setConditionError(''); }}
           className="px-4 py-2 border rounded-lg text-sm font-medium"
         >
           {empleados.map(emp => (
@@ -341,13 +357,13 @@ export default function PlanCarreraPage() {
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <CurrencyEuroIcon className="h-5 w-5 text-green-500" />
-              <span className="text-xs text-gray-500">Bruto actual</span>
+              <span className="text-xs text-gray-500">{condiciones.length ? 'Bruto anual pactado' : 'Bruto devengado en nómina'}</span>
             </div>
             <p className="text-2xl font-bold">
-              {condiciones.length > 0 ? formatEur(condiciones[0].brutoAnual) : '—'}
+              {condiciones.length > 0 ? formatEur(condiciones[0].brutoAnual) : ultimoBrutoMensual ? formatEurMensual(ultimoBrutoMensual.devengadoTotal) : '—'}
             </p>
             <p className="text-xs text-gray-400">
-              {condiciones.length > 0 ? `desde ${formatDate(condiciones[0].fechaEfectiva)}` : 'Sin registrar'}
+              {condiciones.length > 0 ? `€/año · desde ${formatDate(condiciones[0].fechaEfectiva)}` : ultimoBrutoMensual ? `€/mes · nómina ${String(ultimoBrutoMensual.mes).padStart(2, '0')}/${ultimoBrutoMensual.anio}` : 'Sin dato acreditado'}
             </p>
           </div>
         </div>
@@ -810,7 +826,13 @@ export default function PlanCarreraPage() {
               )}
 
               {condiciones.length === 0 ? (
-                <p className="text-gray-400 text-sm py-8 text-center">Sin condiciones salariales registradas</p>
+                ultimoBrutoMensual ? (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50 px-5 py-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-900">Referencia actual · última nómina individual</p>
+                    <p className="mt-2 text-xl font-bold text-gray-900">{formatEurMensual(ultimoBrutoMensual.devengadoTotal)}<span className="ml-1 text-sm font-normal text-gray-600">brutos devengados en {String(ultimoBrutoMensual.mes).padStart(2, '0')}/{ultimoBrutoMensual.anio}</span></p>
+                    <p className="mt-2 text-sm text-sky-950">No consta una condición anual pactada ni un cambio salarial registrado. El devengado mensual puede incluir conceptos variables o en especie; no se multiplica para inventar un salario anual.</p>
+                  </div>
+                ) : <p className="text-gray-500 text-sm py-8 text-center">No hay condición salarial ni nómina individual verificada disponible.</p>
               ) : (
                 <div className="space-y-3">
                   {condiciones.map((c, idx) => {
