@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph';
-import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, extractPayrollSeniorityDate, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
+import { extractPayrollReimbursements, extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, extractPayrollSeniorityDate, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
-type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; seniority?: string | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
+type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; seniority?: string | null; reimbursements?: number | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
 type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; empleadosFueraResumen?: number; davidSeparadoVerificado?: boolean; incidencias: string[]; error?: string };
 
 function normaliseNif(s: string) { return s.replace(/[\s.-]/g, '').toUpperCase(); }
@@ -61,7 +61,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       // OneDrive puede servir temporalmente un PDF ilegible aun cuando el mismo
       // drive item sea correcto en la siguiente lectura. Reintentar SOLO la
       // descarga/extracción, nunca las discrepancias de importe o identidad.
-      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>> | null; category: string | null; seniority: string | null; mixedSettlement: ReturnType<typeof parseCombinedSettlementReceipt> } | undefined;
+      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>> | null; category: string | null; seniority: string | null; reimbursements: number | null; mixedSettlement: ReturnType<typeof parseCombinedSettlementReceipt> } | undefined;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const buffer = await downloadCostesFile(file.id);
@@ -71,7 +71,8 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
           const summary = mixedSettlement ? null : await parseCostesIOPdf(buffer, file.name);
           const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(text || await extractPayrollPdfText(buffer));
           const seniority = file.tipo === 'nomina_individual' && text ? extractPayrollSeniorityDate(text) : null;
-          read = { summary, category, seniority, mixedSettlement };
+          const reimbursements = file.tipo === 'nomina_individual' && text ? extractPayrollReimbursements(text) : null;
+          read = { summary, category, seniority, reimbursements, mixedSettlement };
           break;
         } catch (error) {
           if (attempt === 2) throw error;
@@ -79,7 +80,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         }
       }
       if (!read) throw new Error('El PDF no se ha podido leer');
-      const { summary, category, seniority, mixedSettlement } = read;
+      const { summary, category, seniority, reimbursements, mixedSettlement } = read;
       if (mixedSettlement) {
         if (mixedSettlement.mes !== month || mixedSettlement.anio !== year || mixedSettlement.dia < 1 || mixedSettlement.dia > 31) throw new Error('El período impreso no coincide con la carpeta');
         if (!liquidationFileMatchesPerson(file.name, mixedSettlement.nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
@@ -100,7 +101,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         const suffix = fileName.includes('_') ? fileName.split('_').pop()?.replace(/\.PDF$/, '').trim() || '' : '';
         if (suffix && !nameSuffixMatchesPerson(suffix, summary.nominas[0].nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
       }
-      parsed.push({ file, records: summary.nominas, verified: summary.verificado, category, seniority });
+      parsed.push({ file, records: summary.nominas, verified: summary.verificado, category, seniority, reimbursements });
     } catch (error) {
       // Jamás grabar una importación parcial que oculte un documento o duplique importes.
       const known = ['El archivo no tiene formato PDF', 'No se han podido leer líneas de nómina', 'El período impreso no coincide con la carpeta',
@@ -116,7 +117,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const values = new Map<string, NominaParseResult>();
   const fromBulk = new Set<string>();
   const bulkComponents = new Map<string, Map<'NOMINA' | 'LIQUIDACION', NominaParseResult>>();
-  const linked = new Map<string, { file: PayrollDriveFile; tipo: 'NOMINA' | 'LIQUIDACION'; category?: string | null; seniority?: string | null }[]>();
+  const linked = new Map<string, { file: PayrollDriveFile; tipo: 'NOMINA' | 'LIQUIDACION'; category?: string | null; seniority?: string | null; reimbursements?: number | null }[]>();
   const individualSeen = new Set<string>();
 
   for (const pdf of parsed) {
@@ -164,7 +165,10 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         }
         individualSeen.add(key);
         const docs = linked.get(employeeId) || [];
-        docs.push({ file: pdf.file, tipo, category: pdf.category, seniority: pdf.seniority });
+        const reimbursements = tipo === 'NOMINA' && pdf.reimbursements !== null && pdf.reimbursements !== undefined && cents(pdf.reimbursements) < cents(record.devengadoTotal)
+          ? pdf.reimbursements : null;
+        if (tipo === 'NOMINA' && reimbursements === null) incidencias.push('Un recibo individual no permite verificar sus reintegros; su salario anual no se proyectará hasta revisión.');
+        docs.push({ file: pdf.file, tipo, category: pdf.category, seniority: pdf.seniority, reimbursements });
         linked.set(employeeId, docs);
         // La liquidación puede venir ya incluida en el resumen de gestoría. Ese resumen
         // es la única fuente de cifras cuando existe la persona, pero conservamos ambos PDF.
@@ -257,6 +261,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         irpf: record.irpf, ssTrabajador: record.ssTrabajador, ssEmpresa: record.ssEmpresa,
         baseIrpf: record.baseIrpf, costeTotalEmpresa: record.costeTotalEmpresa,
         complementoEspecie: record.complementoEspecie || null,
+        ...(payslip?.reimbursements !== null && payslip?.reimbursements !== undefined ? { gastosNoSalariales: payslip.reimbursements } : {}),
         liquidacionDevengado: settlement?.devengadoTotal ?? null,
         liquidacionNeto: settlement?.netoPercibir ?? null,
         liquidacionCoste: settlement?.costeTotalEmpresa ?? null,

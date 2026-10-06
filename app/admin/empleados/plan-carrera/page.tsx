@@ -76,7 +76,9 @@ interface Condicion {
 }
 
 interface BrutoMensualNomina {
-  devengadoTotal: number;
+  brutoMensualTrabajador?: number;
+  proyeccionDoceMeses?: number;
+  gastosExcluidos?: number;
   mes: number;
   anio: number;
 }
@@ -327,7 +329,7 @@ export default function PlanCarreraPage() {
 
       {/* KPIs */}
       {empActual && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <TrophyIcon className="h-5 w-5 text-amber-500" />
@@ -357,15 +359,30 @@ export default function PlanCarreraPage() {
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <CurrencyEuroIcon className="h-5 w-5 text-green-500" />
-              <span className="text-xs text-gray-500">{condiciones.length ? 'Bruto anual pactado' : 'Bruto devengado en nómina'}</span>
+              <span className="text-xs text-gray-500">Bruto trabajador mensual · sin gastos</span>
             </div>
             <p className="text-2xl font-bold">
-              {condiciones.length > 0 ? formatEur(condiciones[0].brutoAnual) : ultimoBrutoMensual ? formatEurMensual(ultimoBrutoMensual.devengadoTotal) : '—'}
+              {ultimoBrutoMensual?.brutoMensualTrabajador !== undefined ? formatEurMensual(ultimoBrutoMensual.brutoMensualTrabajador) : '—'}
             </p>
             <p className="text-xs text-gray-400">
-              {condiciones.length > 0 ? `€/año · desde ${formatDate(condiciones[0].fechaEfectiva)}` : ultimoBrutoMensual ? `€/mes · nómina ${String(ultimoBrutoMensual.mes).padStart(2, '0')}/${ultimoBrutoMensual.anio}` : 'Sin dato acreditado'}
+              {ultimoBrutoMensual ? `Nómina ${String(ultimoBrutoMensual.mes).padStart(2, '0')}/${ultimoBrutoMensual.anio}` : 'Sin recibo individual'}
             </p>
           </div>
+          <div className="bg-white rounded-xl border p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <CurrencyEuroIcon className="h-5 w-5 text-sky-600" />
+              <span className="text-xs text-gray-500">Proyección a 12 meses · sin gastos</span>
+            </div>
+            <p className="text-2xl font-bold">{ultimoBrutoMensual?.proyeccionDoceMeses !== undefined ? formatEurMensual(ultimoBrutoMensual.proyeccionDoceMeses) : '—'}</p>
+            <p className="text-xs text-gray-500">Estimación, no salario anual pactado</p>
+          </div>
+          {condiciones.length > 0 && (
+            <div className="bg-white rounded-xl border p-4">
+              <div className="flex items-center gap-2 mb-1"><CurrencyEuroIcon className="h-5 w-5 text-orange-600" /><span className="text-xs text-gray-500">Bruto anual pactado</span></div>
+              <p className="text-2xl font-bold">{formatEur(condiciones[0].brutoAnual)}</p>
+              <p className="text-xs text-gray-500">Desde {formatDate(condiciones[0].fechaEfectiva)}</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -786,6 +803,14 @@ export default function PlanCarreraPage() {
                   ? 'Fecha acreditada en la nómina individual; es la referencia de inicio de la trayectoria, no un cambio de salario.'
                   : 'No se crea un hito de incorporación sin una fecha de alta contrastada.'}
               </div>
+              {ultimoBrutoMensual && (
+                <div className="mb-5 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+                  <strong>Última nómina individual: {String(ultimoBrutoMensual.mes).padStart(2, '0')}/{ultimoBrutoMensual.anio}.</strong>{' '}
+                  {ultimoBrutoMensual.brutoMensualTrabajador !== undefined && ultimoBrutoMensual.proyeccionDoceMeses !== undefined
+                    ? <>Bruto mensual del trabajador sin reintegros: <strong>{formatEurMensual(ultimoBrutoMensual.brutoMensualTrabajador)}</strong>. Proyección × 12: <strong>{formatEurMensual(ultimoBrutoMensual.proyeccionDoceMeses)}</strong>. Gastos excluidos del recibo: {formatEurMensual(ultimoBrutoMensual.gastosExcluidos || 0)}. No incluye cuotas empresariales ni equipara esta estimación al salario anual pactado.</>
+                    : 'El desglose de gastos no está verificado; no se proyecta un bruto anual que pudiera incluir dietas o desplazamientos.'}
+                </div>
+              )}
 
               {showCondForm && (
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
@@ -826,13 +851,7 @@ export default function PlanCarreraPage() {
               )}
 
               {condiciones.length === 0 ? (
-                ultimoBrutoMensual ? (
-                  <div className="rounded-xl border border-sky-200 bg-sky-50 px-5 py-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-sky-900">Referencia actual · última nómina individual</p>
-                    <p className="mt-2 text-xl font-bold text-gray-900">{formatEurMensual(ultimoBrutoMensual.devengadoTotal)}<span className="ml-1 text-sm font-normal text-gray-600">brutos devengados en {String(ultimoBrutoMensual.mes).padStart(2, '0')}/{ultimoBrutoMensual.anio}</span></p>
-                    <p className="mt-2 text-sm text-sky-950">No consta una condición anual pactada ni un cambio salarial registrado. El devengado mensual puede incluir conceptos variables o en especie; no se multiplica para inventar un salario anual.</p>
-                  </div>
-                ) : <p className="text-gray-500 text-sm py-8 text-center">No hay condición salarial ni nómina individual verificada disponible.</p>
+                <p className="text-gray-600 text-sm py-4 text-center">Sin condiciones anuales pactadas registradas. La referencia retributiva de la nómina se muestra arriba y no genera un hito ficticio de evolución.</p>
               ) : (
                 <div className="space-y-3">
                   {condiciones.map((c, idx) => {

@@ -1728,6 +1728,7 @@ model Nomina {
   devengadoTotal          Float    @map("devengado_total")
   complementoEspecie      Float?   @map("complemento_especie") // Salario en especie
   gastosDesplazamiento    Float?   @map("gastos_desplazamiento")
+  gastosNoSalariales      Float?   @map("gastos_no_salariales") // Reintegros verificados en el PDF individual; null = sin verificar, 0 = ninguno
   // Deducciones trabajador
   irpf                    Float?   // Retención IRPF (valor absoluto)
   porcentajeIrpf          Float?   @map("porcentaje_irpf") // % IRPF

@@ -126,6 +126,32 @@ export function extractPayrollSeniorityDate(text: string): string | null {
   return date.toISOString().slice(0, 10);
 }
 
+/** Reintegros documentados en las líneas de devengos de la nómina individual.
+ * Solo se toma la columna final de importe; cantidades y precios unitarios
+ * anteriores al código no se suman. null = desglose ambiguo/no verificado. */
+export function extractPayrollReimbursements(text: string): number | null {
+  if (!/LIQUIDO A\s+PERCIBIR/i.test(text) || !/DEVENGADO/i.test(text)) return null;
+  const expense = /\b(?:kilometraje|dietas?|gastos?\s+(?:de\s+)?(?:desplazamiento|viaje|transporte|manutenci[oó]n|estancia)|reintegro\s+de\s+gastos?|locomoci[oó]n|suplidos?|peajes?|aparcamiento|parking)\b/i;
+  const possiblyNonSalary = /\b(?:gastos?|dietas?|kilometraje|desplazamiento|locomoci[oó]n|manutenci[oó]n|estancia|reembolso|reintegro|suplidos?|peajes?|aparcamiento|parking)\b/i;
+  let total = 0;
+  for (const line of text.split('\n')) {
+    const label = line.match(/\b\d{3}\s*-\s*([^\n]+)/);
+    if (!label) continue;
+    if (!expense.test(label[1])) {
+      if (possiblyNonSalary.test(label[1])) return null;
+      continue;
+    }
+    const amounts = label[1].match(/-?\d{1,3}(?:\.\d{3})*,\d{2}/g) || [];
+    // No usar un valor si podría ser un precio unitario, una deducción o
+    // una devolución: la proyección debe permanecer pendiente de revisión.
+    if (amounts.length !== 1 || amounts[0].startsWith('-')) return null;
+    const cents = Math.round(Number(amounts[0].replace(/\./g, '').replace(',', '.')) * 100);
+    if (!Number.isSafeInteger(cents) || cents < 0) return null;
+    total += cents;
+  }
+  return Number.isSafeInteger(total) ? total / 100 : null;
+}
+
 /** Algunos finiquitos contienen también la nómina de los últimos días trabajados.
  * Solo se aceptan como justificante si su total cuadra al céntimo con el resumen
  * de gestoría (nómina parcial + línea FINIQUITO), nunca se suman otra vez. */

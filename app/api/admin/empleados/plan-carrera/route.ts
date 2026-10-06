@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { projectPayrollSalary } from '@/lib/salary-projection';
 
 // GET: Obtener plan de carrera completo de un empleado
 export async function GET(req: NextRequest) {
@@ -34,15 +35,20 @@ export async function GET(req: NextRequest) {
     }),
   ]);
 
-  // Una nómina mensual no acredita por sí sola el bruto anual pactado (pagas extra,
-  // retribución variable, especie). Nunca crear una condición anual calculada.
-  const ultimoBrutoMensual = session.user.role === 'SUPER_ADMIN' && condiciones.length === 0
+  // Proyección únicamente para superadministración, con gasto acreditado en
+  // recibo individual. No se registra como condición anual pactada.
+  const ultimaNomina = session.user.role === 'SUPER_ADMIN'
     ? await prisma.nomina.findFirst({
         where: { empleadoId, liquidacionDevengado: null, documentos: { some: { tipo: 'NOMINA' } } },
         orderBy: [{ anio: 'desc' }, { mes: 'desc' }],
-        select: { devengadoTotal: true, mes: true, anio: true },
+        select: { devengadoTotal: true, gastosNoSalariales: true, mes: true, anio: true },
       })
     : null;
+  const ultimoBrutoMensual = ultimaNomina && {
+    mes: ultimaNomina.mes,
+    anio: ultimaNomina.anio,
+    ...projectPayrollSalary(ultimaNomina.devengadoTotal, ultimaNomina.gastosNoSalariales),
+  };
 
   return NextResponse.json({ objetivos, evaluaciones, formaciones, condiciones, ultimoBrutoMensual }, {
     headers: { 'Cache-Control': 'private, no-store' },
