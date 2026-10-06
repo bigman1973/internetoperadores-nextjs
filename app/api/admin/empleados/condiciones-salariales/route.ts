@@ -2,6 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { checkIncorporationDate } from '@/lib/salary-incorporation-date';
+
+async function validateIncorporationStart(empleadoId: string, value: string | Date) {
+  const employee = await prisma.empleado.findUnique({
+    where: { id: empleadoId },
+    select: { fechaAlta: true, antiguedadNomina: true },
+  });
+  if (!employee) return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 });
+  const check = checkIncorporationDate(employee.fechaAlta, employee.antiguedadNomina, value);
+  if (check === 'hire-unverified') {
+    return NextResponse.json({ error: 'No consta un alta contractual contrastada en nómina para esta incorporación' }, { status: 409 });
+  }
+  if (check === 'date-mismatch') {
+    return NextResponse.json({ error: 'La fecha de incorporación debe coincidir con el alta contractual acreditada en nómina' }, { status: 400 });
+  }
+  return null;
+}
 
 // GET: Listar condiciones salariales (por empleado o todas)
 export async function GET(req: NextRequest) {
@@ -43,6 +60,10 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  if (motivo === 'incorporacion') {
+    const denied = await validateIncorporationStart(empleadoId, fechaEfectiva);
+    if (denied) return denied;
+  }
 
   const condicion = await prisma.condicionSalarial.create({
     data: {
@@ -76,6 +97,12 @@ export async function PUT(req: NextRequest) {
 
   if (!id) {
     return NextResponse.json({ error: 'id es obligatorio' }, { status: 400 });
+  }
+  const current = await prisma.condicionSalarial.findUnique({ where: { id }, select: { empleadoId: true, fechaEfectiva: true, motivo: true } });
+  if (!current) return NextResponse.json({ error: 'Condición salarial no encontrada' }, { status: 404 });
+  if ((motivo ?? current.motivo) === 'incorporacion' && (fechaEfectiva !== undefined || motivo === 'incorporacion')) {
+    const denied = await validateIncorporationStart(current.empleadoId, fechaEfectiva || current.fechaEfectiva);
+    if (denied) return denied;
   }
 
   const condicion = await prisma.condicionSalarial.update({

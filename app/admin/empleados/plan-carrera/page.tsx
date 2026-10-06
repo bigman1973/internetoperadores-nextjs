@@ -132,6 +132,7 @@ export default function PlanCarreraPage() {
   const [showFormForm, setShowFormForm] = useState(false);
   const [showCondForm, setShowCondForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [conditionError, setConditionError] = useState('');
 
   // Objetivo form
   const [objForm, setObjForm] = useState({
@@ -243,15 +244,22 @@ export default function PlanCarreraPage() {
 
   async function guardarCondicion() {
     setSaving(true);
+    setConditionError('');
     try {
-      await fetch('/api/admin/empleados/condiciones-salariales', {
+      const response = await fetch('/api/admin/empleados/condiciones-salariales', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ empleadoId: selectedEmpleado, ...condForm }),
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'No se pudo registrar la condición salarial');
+      }
       setShowCondForm(false);
       setCondForm({ fechaEfectiva: '', brutoAnual: '', motivo: 'subida_anual', notas: '' });
       await fetchPlanCarrera();
+    } catch (error) {
+      setConditionError(error instanceof Error ? error.message : 'No se pudo registrar la condición salarial');
     } finally { setSaving(false); }
   }
 
@@ -292,7 +300,7 @@ export default function PlanCarreraPage() {
         </div>
         <select
           value={selectedEmpleado}
-          onChange={(e) => setSelectedEmpleado(e.target.value)}
+          onChange={(e) => { setSelectedEmpleado(e.target.value); setShowCondForm(false); setConditionError(''); }}
           className="px-4 py-2 border rounded-lg text-sm font-medium"
         >
           {empleados.map(emp => (
@@ -768,8 +776,9 @@ export default function PlanCarreraPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs text-gray-500">Fecha efectiva *</label>
-                      <input type="date" value={condForm.fechaEfectiva} onChange={e => setCondForm({...condForm, fechaEfectiva: e.target.value})}
+                      <input type="date" value={condForm.fechaEfectiva} readOnly={condForm.motivo === 'incorporacion' && Boolean(altaContractual)} onChange={e => setCondForm({...condForm, fechaEfectiva: e.target.value})}
                         className="w-full px-3 py-1.5 border rounded text-sm" />
+                      {condForm.motivo === 'incorporacion' && <p className="mt-1 text-xs text-blue-800">Debe coincidir con el alta contractual contrastada en nómina.</p>}
                     </div>
                     <div>
                       <label className="text-xs text-gray-500">Bruto anual (€) *</label>
@@ -778,7 +787,7 @@ export default function PlanCarreraPage() {
                     </div>
                     <div>
                       <label className="text-xs text-gray-500">Motivo</label>
-                      <select value={condForm.motivo} onChange={e => setCondForm({...condForm, motivo: e.target.value})}
+                      <select value={condForm.motivo} onChange={e => setCondForm(current => ({...current, motivo: e.target.value, fechaEfectiva: e.target.value === 'incorporacion' ? altaContractual || '' : current.fechaEfectiva }))}
                         className="w-full px-3 py-1.5 border rounded text-sm">
                         {MOTIVOS_SALARIAL.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                       </select>
@@ -789,6 +798,7 @@ export default function PlanCarreraPage() {
                         className="w-full px-3 py-1.5 border rounded text-sm" placeholder="Opcional" />
                     </div>
                   </div>
+                  {conditionError && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{conditionError}</p>}
                   <div className="flex gap-2 mt-3">
                     <button onClick={guardarCondicion} disabled={saving || !condForm.fechaEfectiva || !condForm.brutoAnual}
                       className="px-4 py-2 bg-orange-600 text-white rounded-lg text-sm font-medium hover:bg-orange-700 disabled:opacity-50">
