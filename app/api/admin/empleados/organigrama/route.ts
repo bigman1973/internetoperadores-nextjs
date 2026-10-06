@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
       }),
       prisma.empleado.findMany({
         where: { estado: 'ACTIVO' },
-        select: { id: true, nombreCompleto: true, email: true, categoria: true, departamento: true },
+        select: { id: true, nombreCompleto: true, email: true, categoria: true, departamento: true, fechaAlta: true },
         orderBy: { nombreCompleto: 'asc' },
       }),
       includeHistory
@@ -261,6 +261,9 @@ export async function POST(req: NextRequest) {
       where: { empleadoId, fechaFin: null },
       orderBy: { fechaInicio: 'desc' },
     });
+    if (current && preservarHistorico && fechaInicio.getTime() <= current.fechaInicio.getTime()) {
+      return NextResponse.json({ error: 'Para conservar el histórico, la fecha efectiva debe ser posterior al inicio del puesto vigente. Si corriges un dato inicial erróneo, desmarca «Conservar la etapa anterior».' }, { status: 400 });
+    }
     const latestPayroll = employee.nominas[0];
     const categoryData = {
       categoriaNomina: latestPayroll?.categoriaProfesional || current?.categoriaNomina || employee.categoria,
