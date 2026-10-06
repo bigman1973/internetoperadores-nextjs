@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     // Descubrir únicamente el mes solicitado. El botón general del cliente lo procesa mes a mes.
     const files = await findCostesFiles(anio, meses);
     const result = await syncPayrollMonth(anio, meses[0], files, dryRun);
-    return NextResponse.json({ success: result.success, dryRun, anio, resultados: [{ mes: result.mes, success: result.success, summary: { empleados: result.empleados }, error: result.error, documentos: result.documentos, liquidacionesEnResumen: result.liquidacionesEnResumen, sinReciboIndividual: result.sinReciboIndividual, incidencias: result.incidencias }], resumen: { totalArchivos: files.length, exitosos: result.success ? 1 : 0, fallidos: result.success ? 0 : 1, documentosVinculados: result.documentos } }, { status: result.success ? 200 : 422 });
+    return NextResponse.json({ success: result.success, dryRun, anio, resultados: [{ mes: result.mes, success: result.success, summary: { empleados: result.empleados }, error: result.error, documentos: result.documentos, liquidacionesEnResumen: result.liquidacionesEnResumen, sinReciboIndividual: result.sinReciboIndividual, empleadosFueraResumen: result.empleadosFueraResumen, davidSeparadoVerificado: result.davidSeparadoVerificado, incidencias: result.incidencias }], resumen: { totalArchivos: files.length, exitosos: result.success ? 1 : 0, fallidos: result.success ? 0 : 1, documentosVinculados: result.documentos } }, { status: result.success ? 200 : 422 });
   } catch (e) {
     console.error('Error de sincronización de nóminas', e);
     if (e instanceof Error && e.message.startsWith('El PDF vigente fue sustituido en OneDrive')) {

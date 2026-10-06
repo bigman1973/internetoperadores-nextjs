@@ -4,10 +4,11 @@ import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph
 import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
 type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
-type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; incidencias: string[]; error?: string };
+type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; empleadosFueraResumen?: number; davidSeparadoVerificado?: boolean; incidencias: string[]; error?: string };
 
 function normaliseNif(s: string) { return s.replace(/[\s.-]/g, '').toUpperCase(); }
 function normaliseName(s: string) { return s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+export function requiresDavidSeparatePayslip(year: number, month: number) { return year > 2026 || (year === 2026 && month >= 9); }
 export function nameSuffixMatchesPerson(suffix: string, fullName: string) {
   const parts = normaliseName(fullName).split(/[^A-Z]+/).filter(part => part.length > 2);
   // La gestoría usa tanto _DAVID PÉREZ como _DAVIDPÉREZ; comprobar que
@@ -51,6 +52,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const bulk = candidates.filter(f => f.tipo === 'costes_io');
   if (bulk.length > 1) return { mes: month, success: false, empleados: 0, documentos: 0, incidencias: [], error: 'Hay más de un resumen de costes: revisar manualmente' };
   if (!candidates.length) return { mes: month, success: false, empleados: 0, documentos: 0, incidencias: [], error: 'No hay PDF reconocibles para este mes' };
+  if (requiresDavidSeparatePayslip(year, month) && !bulk.length) return { mes: month, success: false, empleados: 0, documentos: 0, incidencias: [], error: 'Falta el resumen de costes de la gestoría; no se importará solo la nómina separada de David.' };
 
   const parsed: Pdf[] = [];
   const incidencias: string[] = [];
@@ -108,7 +110,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
     }
   }
 
-  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true } });
+  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true, email: true } });
   const employeeByNif = new Map(empleados.map(e => [normaliseNif(e.nif), e]));
   const values = new Map<string, NominaParseResult>();
   const fromBulk = new Set<string>();
@@ -196,6 +198,16 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   }
   if (!values.size) return { mes: month, success: false, empleados: 0, documentos: 0, incidencias, error: 'No se extrajeron importes válidos' };
 
+  // El director general recibe un PDF separado y no consta en el resumen de
+  // gestoría. Su NIF se verifica contra la ficha de Personal como los demás.
+  // A partir de septiembre de 2026 no aceptar un mes que lo omita por error.
+  const david = empleados.find(e => e.email?.toLowerCase() === 'david.perez@internetoperadores.com');
+  const davidSeparadoVerificado = Boolean(david && linked.get(david.id)?.some(doc => doc.tipo === 'NOMINA') && values.has(david.id));
+  if (requiresDavidSeparatePayslip(year, month) && !davidSeparadoVerificado) {
+    return { mes: month, success: false, empleados: 0, documentos: 0, incidencias,
+      error: 'Falta el recibo individual separado de David en OneDrive o no coincide con su ficha de Personal. No se ha importado el mes.' };
+  }
+
   if (bulk.length) {
     const previouslyLoaded = await prisma.nomina.findMany({ where: { mes: month, anio: year }, select: { empleadoId: true } });
     if (previouslyLoaded.some(n => !values.has(n.empleadoId))) {
@@ -207,7 +219,8 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const linkedCount = [...linked.values()].reduce((count, docs) => count + docs.length, 0);
   const liquidacionesEnResumen = [...bulkComponents.values()].filter(components => components.has('LIQUIDACION')).length;
   const sinReciboIndividual = [...values.keys()].filter(id => !(linked.get(id) || []).some(doc => doc.tipo === 'NOMINA')).length;
-  if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, incidencias };
+  const empleadosFueraResumen = [...values.keys()].filter(id => !fromBulk.has(id)).length;
+  if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };
   await prisma.$transaction(async tx => {
     for (const [employeeId, record] of values) {
       const docs = linked.get(employeeId) || [];
@@ -245,5 +258,5 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       }
     }
   }, { timeout: 30000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, incidencias };
+  return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };
 }

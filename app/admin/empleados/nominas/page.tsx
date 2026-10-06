@@ -57,7 +57,7 @@ interface SyncResult {
   success: boolean;
   dryRun?: boolean;
   anio: number;
-  resultados: { mes: number; success: boolean; summary?: { empleados: number }; error?: string; documentos?: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; incidencias?: string[] }[];
+  resultados: { mes: number; success: boolean; summary?: { empleados: number }; error?: string; documentos?: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; empleadosFueraResumen?: number; davidSeparadoVerificado?: boolean; incidencias?: string[] }[];
   resumen: { totalArchivos: number; exitosos: number; fallidos: number; documentosVinculados?: number };
   error?: string;
 }
@@ -65,6 +65,7 @@ interface SyncResult {
 const MESES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 export default function NominasPage() {
+  const [year, setYear] = useState(new Date().getFullYear());
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -74,26 +75,31 @@ export default function NominasPage() {
   const [previewedMonths, setPreviewedMonths] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentYearRef = useRef(year);
 
   useEffect(() => {
-    checkSyncStatus();
-  }, []);
+    currentYearRef.current = year;
+    setSyncStatus(null);
+    setPreviewedMonths([]);
+    setSyncResult(null);
+    checkSyncStatus(year);
+  }, [year]);
 
-  async function checkSyncStatus() {
+  async function checkSyncStatus(selectedYear = year) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/admin/nominas/sync?anio=2026');
+      const res = await fetch(`/api/admin/nominas/sync?anio=${selectedYear}`);
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Error al consultar estado');
       }
       const data = await res.json();
-      setSyncStatus(data);
+      if (currentYearRef.current === selectedYear) setSyncStatus(data);
     } catch (e: any) {
-      setError(e.message);
+      if (currentYearRef.current === selectedYear) setError(e.message);
     } finally {
-      setLoading(false);
+      if (currentYearRef.current === selectedYear) setLoading(false);
     }
   }
 
@@ -102,14 +108,18 @@ export default function NominasPage() {
     setSyncResult(null);
     setError(null);
     try {
-      const selected = meses || syncStatus?.archivosOneDrive.map(f => f.monthNum) || [];
+      const selected = meses || syncStatus?.archivosOneDrive.filter(f => !f.loaded).map(f => f.monthNum) || [];
+      if (!selected.length) {
+        setError('No hay meses pendientes de importar. Para revisar uno ya cargado, pulsa Comprobar en su fila.');
+        return;
+      }
       const outcomes: SyncResult['resultados'] = [];
       let totalFiles = 0;
       for (const month of selected) {
         const res = await fetch('/api/admin/nominas/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ anio: 2026, meses: [month], dryRun }),
+          body: JSON.stringify({ anio: year, meses: [month], dryRun }),
         });
         const data = await res.json();
         if (!res.ok && !data.resultados) {
@@ -122,12 +132,12 @@ export default function NominasPage() {
           if (dryRun && !data.resultados?.[0]?.success) setPreviewedMonths(previous => previous.filter(value => value !== month));
           if (!dryRun) setPreviewedMonths(previous => previous.filter(value => value !== month));
         }
-        setSyncResult({ success: outcomes.every(r => r.success), dryRun, anio: 2026, resultados: [...outcomes], resumen: {
+        setSyncResult({ success: outcomes.every(r => r.success), dryRun, anio: year, resultados: [...outcomes], resumen: {
           totalArchivos: totalFiles, exitosos: outcomes.filter(r => r.success).length, fallidos: outcomes.filter(r => !r.success).length,
         } });
       }
       // Refresh status
-      await checkSyncStatus();
+      await checkSyncStatus(year);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -155,7 +165,7 @@ export default function NominasPage() {
       setUploadResult(data);
       if (data.success) {
         // Refresh status
-        await checkSyncStatus();
+        await checkSyncStatus(year);
       }
     } catch (e: any) {
       setError(e.message);
@@ -173,7 +183,7 @@ export default function NominasPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Link href="/admin/empleados" className="p-2 hover:bg-gray-100 rounded-lg">
             <ArrowLeftIcon className="h-5 w-5 text-gray-600" />
@@ -183,6 +193,14 @@ export default function NominasPage() {
               <p className="text-sm text-gray-500 mt-1">Sincronizar con OneDrive o subir el resumen de costes de la gestoría</p>
           </div>
         </div>
+        <label className="flex items-center gap-2 text-sm font-medium text-gray-700" htmlFor="payroll-year">
+          Año
+          <select id="payroll-year" value={year} onChange={event => setYear(Number(event.target.value))}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {Array.from({ length: new Date().getFullYear() - 2023 }, (_, index) => 2024 + index).map(value =>
+              <option key={value} value={value}>{value}</option>)}
+          </select>
+        </label>
       </div>
 
       {/* Error global */}
@@ -211,29 +229,33 @@ export default function NominasPage() {
           </div>
 
           {/* Status */}
-          {loading ? (
+          {loading && (
             <div className="flex items-center gap-2 text-gray-500 text-sm py-4">
               <ArrowPathIcon className="h-4 w-4 animate-spin" />
               Consultando OneDrive...
             </div>
-          ) : syncStatus ? (
+          )}
+          {syncStatus && (
             <div className="space-y-3">
               <div className="text-sm text-gray-600">
                 <span className="font-medium">{syncStatus.totalMesesDisponibles}</span> meses disponibles en OneDrive |{' '}
                 <span className="font-medium text-green-600">{syncStatus.totalMesesCargados}</span> meses cargados en BD
               </div>
+              <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                <strong>Comprobar</strong> solo lee y concilia los PDF: no guarda nóminas. Si el mes está correcto, pulsa después <strong>Importar</strong> en su misma fila. La nómina separada de David se valida aunque no figure en el resumen.
+              </p>
 
               {/* File list */}
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {syncStatus.archivosOneDrive.map((file) => (
-                  <div key={file.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-lg text-sm">
-                    <div className="flex items-center gap-2">
+                  <div key={file.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-gray-50 rounded-lg text-sm">
+                    <div className="flex min-w-0 items-center gap-2">
                       {file.loaded ? (
                         <CheckCircleIcon className="h-4 w-4 text-green-500" />
                       ) : (
                         <ExclamationTriangleIcon className="h-4 w-4 text-yellow-500" />
                       )}
-                          <span className="text-gray-700 break-words">{file.name}</span>
+                          <span className="text-gray-700 break-words">{file.name} · <strong className={file.loaded ? 'text-green-700' : 'text-amber-800'}>{file.loaded ? 'Cargado' : 'Pendiente de importar'}</strong></span>
                     </div>
                     <div className="text-xs">
                       <div className="flex items-center gap-2">
@@ -242,8 +264,9 @@ export default function NominasPage() {
                           className="text-blue-700 hover:text-blue-900 font-medium disabled:opacity-50">
                           Comprobar
                         </button>
-                        {previewedMonths.includes(file.monthNum) && <button onClick={() => handleSync([file.monthNum], false)} disabled={syncing || loading}
-                          className="rounded-md bg-blue-600 px-2 py-1 font-medium text-white hover:bg-blue-700 disabled:opacity-50">{file.loaded ? 'Actualizar' : 'Importar'}</button>}
+                        <button onClick={() => handleSync([file.monthNum], false)} disabled={syncing || loading || !previewedMonths.includes(file.monthNum)}
+                          title={previewedMonths.includes(file.monthNum) ? 'Registrar el mes tras comprobarlo' : 'Primero pulsa Comprobar para conciliar el mes'}
+                          className="rounded-md bg-blue-600 px-2 py-1 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">{file.loaded ? 'Actualizar' : 'Importar'}</button>
                       </div>
                     </div>
                   </div>
@@ -264,20 +287,20 @@ export default function NominasPage() {
                 ) : (
                   <>
                     <ArrowPathIcon className="h-4 w-4" />
-                    Comprobar todos los meses
+                    Comprobar meses pendientes
                   </>
                 )}
               </button>
 
               <button
-                onClick={checkSyncStatus}
+                onClick={() => checkSyncStatus(year)}
                 disabled={loading}
                 className="w-full text-center text-sm text-gray-500 hover:text-gray-700"
               >
                 Refrescar estado
               </button>
             </div>
-          ) : null}
+          )}
 
           {/* Sync result */}
           {syncResult && (
@@ -292,15 +315,17 @@ export default function NominasPage() {
                   ) : (
                     <XCircleIcon className="h-3.5 w-3.5 text-red-500" />
                   )}
-                  <span>{MESES[r.mes]}: {r.success ? `${r.summary?.empleados || 0} empleados; ${r.documentos || 0} documentos vinculados` : r.error}</span>
+                  <span>{MESES[r.mes]}: {r.success ? `${r.summary?.empleados || 0} empleados; ${r.documentos || 0} documentos ${syncResult.dryRun ? 'previstos' : 'vinculados'}` : r.error}</span>
                   {r.success && (r.liquidacionesEnResumen || r.sinReciboIndividual) ? <span className="text-xs text-amber-800">
                     {r.liquidacionesEnResumen || 0} liquidaciones incluidas en resumen; {r.sinReciboIndividual || 0} personas sin recibo individual.
                   </span> : null}
+                  {r.success && r.davidSeparadoVerificado && <span className="text-xs font-medium text-green-800">David: recibo separado verificado{r.empleadosFueraResumen ? ` · ${r.empleadosFueraResumen} empleado(s) fuera del resumen` : ''}.</span>}
                 </div>
               ))}
               {syncResult.resultados.flatMap(r => r.incidencias || []).map((message, index) => (
                 <p key={index} className="mt-1 text-amber-800">Atención: {message}</p>
               ))}
+              {!syncResult.dryRun && syncResult.success && <Link href="/admin/empleados" className="mt-2 inline-block font-medium text-blue-800 underline">Ver costes de personal</Link>}
             </div>
           )}
         </div>
@@ -320,7 +345,7 @@ export default function NominasPage() {
           <div className="space-y-3">
             <p className="text-sm text-gray-600">
               Sube un PDF de <span className="font-medium">&quot;COSTES INTERNET OPERADORES&quot;</span> generado por la gestoría.
-              El sistema detectará automáticamente el mes/año y cargará los datos de todos los empleados.
+              Solo disponible para meses anteriores a septiembre de 2026. Para septiembre y meses posteriores usa OneDrive: el resumen manual no contiene la nómina independiente de David.
             </p>
 
             <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-orange-300 transition-colors">

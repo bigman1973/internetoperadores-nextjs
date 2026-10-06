@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { classifyPayrollFile, findCostesFiles, payrollMonthFromFolder } from '../lib/microsoft-graph';
-import { liquidationFileMatchesPerson, nameSuffixMatchesPerson, payrollAmountsMatch } from '../lib/nominas-sync';
+import { liquidationFileMatchesPerson, nameSuffixMatchesPerson, payrollAmountsMatch, requiresDavidSeparatePayslip, syncPayrollMonth } from '../lib/nominas-sync';
 import { parseCombinedSettlementReceipt, parseCostesIO } from '../lib/nominas-parser';
 
 async function main() {
@@ -17,6 +17,13 @@ async function main() {
   assert(liquidationFileMatchesPerson('FINIQUITO_PERSONAPRUEBA(2).pdf', 'PRUEBA, PERSONA'));
   assert(!liquidationFileMatchesPerson('LIQUIDACION OTRA PERSONA (1).pdf', 'PRUEBA, PERSONA'));
   assert(!liquidationFileMatchesPerson('LIQUIDACION (1).pdf', 'PRUEBA, PERSONA'));
+  assert.equal(requiresDavidSeparatePayslip(2026, 8), false);
+  assert.equal(requiresDavidSeparatePayslip(2026, 9), true);
+  assert.equal(requiresDavidSeparatePayslip(2026, 10), true);
+  assert.equal(requiresDavidSeparatePayslip(2027, 1), true);
+  const incompleteOctober = await syncPayrollMonth(2026, 10, [{ id: 'test-david-oct', name: 'NÓMINA INTERNET OPERADORES OCTUBRE 2026_DAVIDPÉREZ.pdf', month: 'OCTUBRE', monthNum: 10, tipo: 'nomina_individual' }], true);
+  assert.equal(incompleteOctober.success, false);
+  assert.match(incompleteOctober.error || '', /Falta el resumen de costes/);
   const settlementSummary = parseCostesIO([
     'Resumen de NóminaPAGA TOTAL DEL 01/09/2026 AL 30/09/2026',
     '00000000T', 'MENSUAL', '21/09/2026', '-50,00 950,00 1.000,00 1.000,00 200,00 250,00',
@@ -51,8 +58,10 @@ async function main() {
   assert.equal(compensatedErrors.verificado, false);
   assert.equal(payrollMonthFromFolder('SEPTIEMBRE 2026'), 9);
   assert.equal(payrollMonthFromFolder('09 - SEPTIEMBRE'), 9);
+  assert.equal(payrollMonthFromFolder('OCTUBRE 2026'), 10);
   assert.equal(classifyPayrollFile('COSTES INTERNET OPERADORES SEPTIEMBRE 2026.pdf'), 'costes_io');
   assert.equal(classifyPayrollFile('NÓMINA INTERNET OPERADORES SEPTIEMBRE 2026_DAVID PEREZ.pdf'), 'nomina_individual');
+  assert.equal(classifyPayrollFile('NÓMINA INTERNET OPERADORES OCTUBRE 2026_DAVIDPÉREZ.pdf'), 'nomina_individual');
   assert.equal(classifyPayrollFile('NÓMINA INTERNET OPERADORES SEPTIEMBRE 2026_IVAN PEREZ.pdf'), 'nomina_individual');
   assert.equal(classifyPayrollFile('LIQUIDACIÓN INTERNET OPERADORES SEPTIEMBRE 2026_IVAN PEREZ.pdf'), 'liquidacion');
   assert.equal(classifyPayrollFile('COSTES SOTIC XXI SEPTIEMBRE 2026.pdf'), null);
@@ -73,6 +82,10 @@ async function main() {
     ] }), { status: 200 });
     if (url.includes('3.%20N%C3%B3minas/2026:/children')) return new Response(JSON.stringify({ value: [
       { id: 'sep-folder', name: 'SEPTIEMBRE 2026', folder: { childCount: 5 } },
+      { id: 'oct-folder', name: 'OCTUBRE 2026', folder: { childCount: 1 } },
+    ] }), { status: 200 });
+    if (url.includes('OCTUBRE%202026:/children')) return new Response(JSON.stringify({ value: [
+      { id: 'david-oct', name: 'NÓMINA INTERNET OPERADORES OCTUBRE 2026_DAVIDPÉREZ.pdf', file: { mimeType: 'application/pdf' } },
     ] }), { status: 200 });
     if (url.includes('SEPTIEMBRE%202026:/children')) return new Response(JSON.stringify({ value: [
       { id: 'bulk', name: 'COSTES INTERNET OPERADORES SEPTIEMBRE 2026.pdf', file: { mimeType: 'application/pdf' } },
@@ -88,6 +101,10 @@ async function main() {
     assert.equal(results.length, 4);
     assert.equal(results.every(f => f.monthNum === 9), true);
     assert.equal(calls, 4);
+    const october = await findCostesFiles(2026, [10]);
+    assert.deepEqual(october.map(f => f.tipo), ['nomina_individual']);
+    assert.equal(october[0].monthNum, 10);
+    assert.equal(calls, 6);
     console.log('Nóminas: filtros de septiembre, David, Iván y paginación Graph correctos');
   } finally { global.fetch = originalFetch; }
 }

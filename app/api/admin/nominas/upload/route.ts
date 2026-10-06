@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { classifyPayrollFile } from '@/lib/microsoft-graph';
 import { parseCostesIOPdf } from '@/lib/nominas-parser';
+import { requiresDavidSeparatePayslip } from '@/lib/nominas-sync';
 
 const ROLES = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD', 'RRHH'];
 
@@ -23,6 +24,9 @@ export async function POST(req: NextRequest) {
     const summary = await parseCostesIOPdf(buffer, file.name);
     if (summary.formato !== 'costes_io' || !summary.nominas.length || !summary.verificado || summary.mes < 1 || summary.mes > 12 || summary.anio < 2024 || summary.nominas.some(n => n.mes !== summary.mes || n.anio !== summary.anio)) {
       return NextResponse.json({ error: 'Resumen no verificable o período inconsistente. No se ha modificado ninguna nómina.' }, { status: 422 });
+    }
+    if (requiresDavidSeparatePayslip(summary.anio, summary.mes)) {
+      return NextResponse.json({ error: 'Desde septiembre de 2026 usa la sincronización con OneDrive: el resumen aislado no incluye la nómina separada de David. No se ha importado nada.' }, { status: 422 });
     }
     const employees = await prisma.empleado.findMany({ select: { id: true, nif: true } });
     const byNif = new Map(employees.map(e => [e.nif.replace(/[\s.-]/g, '').toUpperCase(), e.id]));
