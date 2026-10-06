@@ -319,10 +319,12 @@ export default function PlanCarreraPage() {
         <select
           value={selectedEmpleado}
           onChange={(e) => { latestRequest.current++; setObjetivos([]); setEvaluaciones([]); setFormaciones([]); setCondiciones([]); setUltimoBrutoMensual(null); setSelectedEmpleado(e.target.value); setShowCondForm(false); setConditionError(''); }}
-          className="px-4 py-2 border rounded-lg text-sm font-medium"
+          aria-label="Seleccionar empleado"
+          className="max-w-full min-h-10 px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
+          style={{ colorScheme: 'light', WebkitTextFillColor: '#0f172a' }}
         >
           {empleados.map(emp => (
-            <option key={emp.id} value={emp.id}>{emp.nombreCompleto}</option>
+            <option key={emp.id} value={emp.id} className="bg-white text-slate-900">{emp.nombreCompleto}</option>
           ))}
         </select>
       </div>
@@ -333,54 +335,54 @@ export default function PlanCarreraPage() {
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <TrophyIcon className="h-5 w-5 text-amber-500" />
-              <span className="text-xs text-gray-500">Objetivos activos</span>
+              <span className="text-xs text-slate-700">Objetivos activos</span>
             </div>
-            <p className="text-2xl font-bold">{objetivos.filter(o => o.estado === 'pendiente' || o.estado === 'en_progreso').length}</p>
-            <p className="text-xs text-green-600">{objetivos.filter(o => o.estado === 'cumplido').length} cumplidos</p>
+            <p className="text-2xl font-bold text-slate-900">{objetivos.filter(o => o.estado === 'pendiente' || o.estado === 'en_progreso').length}</p>
+            <p className="text-xs text-green-800">{objetivos.filter(o => o.estado === 'cumplido').length} cumplidos</p>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <ChartBarIcon className="h-5 w-5 text-blue-500" />
-              <span className="text-xs text-gray-500">Última evaluación</span>
+              <span className="text-xs text-slate-700">Última evaluación</span>
             </div>
-            <p className="text-2xl font-bold">
+            <p className="text-2xl font-bold text-slate-900">
               {evaluaciones.length > 0 && evaluaciones[0].puntuacion ? `${evaluaciones[0].puntuacion}/5` : '—'}
             </p>
-            <p className="text-xs text-gray-400">{evaluaciones.length > 0 ? evaluaciones[0].periodo : 'Sin evaluaciones'}</p>
+            <p className="text-xs text-slate-600">{evaluaciones.length > 0 ? evaluaciones[0].periodo : 'Sin evaluaciones'}</p>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <AcademicCapIcon className="h-5 w-5 text-purple-500" />
-              <span className="text-xs text-gray-500">Formación</span>
+              <span className="text-xs text-slate-700">Formación</span>
             </div>
-            <p className="text-2xl font-bold">{formaciones.filter(f => f.estado === 'completado').length}</p>
-            <p className="text-xs text-blue-600">{formaciones.filter(f => f.estado === 'en_curso' || f.estado === 'planificado').length} pendientes</p>
+            <p className="text-2xl font-bold text-slate-900">{formaciones.filter(f => f.estado === 'completado').length}</p>
+            <p className="text-xs text-blue-800">{formaciones.filter(f => f.estado === 'en_curso' || f.estado === 'planificado').length} pendientes</p>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <CurrencyEuroIcon className="h-5 w-5 text-green-500" />
-              <span className="text-xs text-gray-500">Bruto trabajador mensual · sin gastos</span>
+              <span className="text-xs text-slate-700">Bruto trabajador mensual · sin gastos</span>
             </div>
-            <p className="text-2xl font-bold">
+            <p className="text-2xl font-bold text-slate-900">
               {ultimoBrutoMensual?.brutoMensualTrabajador !== undefined ? formatEurMensual(ultimoBrutoMensual.brutoMensualTrabajador) : '—'}
             </p>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-slate-600">
               {ultimoBrutoMensual ? `Nómina ${String(ultimoBrutoMensual.mes).padStart(2, '0')}/${ultimoBrutoMensual.anio}` : 'Sin recibo individual'}
             </p>
           </div>
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
               <CurrencyEuroIcon className="h-5 w-5 text-sky-600" />
-              <span className="text-xs text-gray-500">Proyección a 12 meses · sin gastos</span>
+              <span className="text-xs text-slate-700">Proyección a 12 meses · sin gastos</span>
             </div>
-            <p className="text-2xl font-bold">{ultimoBrutoMensual?.proyeccionDoceMeses !== undefined ? formatEurMensual(ultimoBrutoMensual.proyeccionDoceMeses) : '—'}</p>
-            <p className="text-xs text-gray-500">Estimación, no salario anual pactado</p>
+            <p className="text-2xl font-bold text-slate-900">{ultimoBrutoMensual?.proyeccionDoceMeses !== undefined ? formatEurMensual(ultimoBrutoMensual.proyeccionDoceMeses) : '—'}</p>
+            <p className="text-xs text-slate-600">Estimación, no salario anual pactado</p>
           </div>
           {condiciones.length > 0 && (
             <div className="bg-white rounded-xl border p-4">
-              <div className="flex items-center gap-2 mb-1"><CurrencyEuroIcon className="h-5 w-5 text-orange-600" /><span className="text-xs text-gray-500">Bruto anual pactado</span></div>
-              <p className="text-2xl font-bold">{formatEur(condiciones[0].brutoAnual)}</p>
-              <p className="text-xs text-gray-500">Desde {formatDate(condiciones[0].fechaEfectiva)}</p>
+              <div className="flex items-center gap-2 mb-1"><CurrencyEuroIcon className="h-5 w-5 text-orange-600" /><span className="text-xs text-slate-700">Bruto anual pactado</span></div>
+              <p className="text-2xl font-bold text-slate-900">{formatEur(condiciones[0].brutoAnual)}</p>
+              <p className="text-xs text-slate-600">Desde {formatDate(condiciones[0].fechaEfectiva)}</p>
             </div>
           )}
         </div>
