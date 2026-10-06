@@ -7,6 +7,7 @@ import { parsePayrollProfessionalCategory } from '@/lib/nominas-parser';
 import {
   EMPRESAS_GRUPO,
   activePositionWhere,
+  employeeVisibleOnDateWhere,
   endOfPreviousDay,
   normalizeOrganizationText,
   parseOrganizationDate,
@@ -24,6 +25,8 @@ function serializePosition(position: any) {
     email: position.empleado.email,
     estadoEmpleado: position.empleado.estado,
     fechaAltaEmpleado: position.empleado.fechaAlta,
+    antiguedadNominaEmpleado: position.empleado.antiguedadNomina,
+    fechaBajaEmpleado: position.empleado.fechaBaja,
     empresaGrupo: position.empresaGrupo,
     departamento: position.departamento,
     cargo: position.cargo,
@@ -113,9 +116,9 @@ export async function GET(req: NextRequest) {
 
     const [positions, employees, history] = await Promise.all([
       prisma.puestoOrganizativo.findMany({
-        where: activePositionWhere(fecha),
+        where: { ...activePositionWhere(fecha), empleado: { is: employeeVisibleOnDateWhere(fecha) } },
         include: {
-          empleado: { select: { id: true, nombreCompleto: true, email: true, categoria: true, estado: true, fechaAlta: true } },
+          empleado: { select: { id: true, nombreCompleto: true, email: true, categoria: true, estado: true, fechaAlta: true, antiguedadNomina: true, fechaBaja: true } },
           superior: { select: { id: true, nombreCompleto: true } },
           dependenciaFuncional: { select: { id: true, nombreCompleto: true } },
         },
@@ -129,7 +132,7 @@ export async function GET(req: NextRequest) {
       includeHistory
         ? prisma.puestoOrganizativo.findMany({
             include: {
-              empleado: { select: { nombreCompleto: true, email: true, categoria: true, estado: true, fechaAlta: true } },
+              empleado: { select: { nombreCompleto: true, email: true, categoria: true, estado: true, fechaAlta: true, antiguedadNomina: true, fechaBaja: true } },
               superior: { select: { nombreCompleto: true } },
               dependenciaFuncional: { select: { nombreCompleto: true } },
             },

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { classifyPayrollFile, findCostesFiles, payrollMonthFromFolder } from '../lib/microsoft-graph';
 import { liquidationFileMatchesPerson, nameSuffixMatchesPerson, payrollAmountsMatch, requiresDavidSeparatePayslip, syncPayrollMonth } from '../lib/nominas-sync';
-import { parseCombinedSettlementReceipt, parseCostesIO } from '../lib/nominas-parser';
+import { extractPayrollSeniorityDate, parseCombinedSettlementReceipt, parseCostesIO } from '../lib/nominas-parser';
 
 async function main() {
   const synthetic = { nombre: 'Persona de prueba', nif: '00000000T', mes: 9, anio: 2026, fechaCobro: '',
@@ -21,6 +21,11 @@ async function main() {
   assert.equal(requiresDavidSeparatePayslip(2026, 9), true);
   assert.equal(requiresDavidSeparatePayslip(2026, 10), true);
   assert.equal(requiresDavidSeparatePayslip(2027, 1), true);
+  assert.equal(extractPayrollSeniorityDate('ANTIGUEDAD\nNOMBRE CATEGORIA\n  10 MAR 25   DNI'), '2025-03-10');
+  assert.equal(extractPayrollSeniorityDate('ANTIGÜEDAD\n  2 SEP 2025'), '2025-09-02');
+  assert.equal(extractPayrollSeniorityDate('ANTIGUEDAD\n  31 FEB 25'), null);
+  assert.equal(extractPayrollSeniorityDate('ANTIGUEDAD' + ' '.repeat(150) + '01 SEP 26'), null);
+  assert.equal(extractPayrollSeniorityDate('PERIODO: 01 SEP 26 - 30 SEP 26'), null);
   const incompleteOctober = await syncPayrollMonth(2026, 10, [{ id: 'test-david-oct', name: 'NÓMINA INTERNET OPERADORES OCTUBRE 2026_DAVIDPÉREZ.pdf', month: 'OCTUBRE', monthNum: 10, tipo: 'nomina_individual' }], true);
   assert.equal(incompleteOctober.success, false);
   assert.match(incompleteOctober.error || '', /Falta el resumen de costes/);

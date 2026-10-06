@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { downloadCostesFile, type PayrollDriveFile } from '@/lib/microsoft-graph';
-import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
+import { extractProfessionalCategoryFromPayrollText, extractPayrollPdfText, extractPayrollSeniorityDate, parseCombinedSettlementReceipt, parseCostesIOPdf, type NominaParseResult } from '@/lib/nominas-parser';
 
-type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
+type Pdf = { file: PayrollDriveFile; records: NominaParseResult[]; verified: boolean; category?: string | null; seniority?: string | null; mixedSettlement?: NonNullable<ReturnType<typeof parseCombinedSettlementReceipt>> };
 type Result = { mes: number; success: boolean; empleados: number; documentos: number; liquidacionesEnResumen?: number; sinReciboIndividual?: number; empleadosFueraResumen?: number; davidSeparadoVerificado?: boolean; incidencias: string[]; error?: string };
 
 function normaliseNif(s: string) { return s.replace(/[\s.-]/g, '').toUpperCase(); }
@@ -61,16 +61,17 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
       // OneDrive puede servir temporalmente un PDF ilegible aun cuando el mismo
       // drive item sea correcto en la siguiente lectura. Reintentar SOLO la
       // descarga/extracción, nunca las discrepancias de importe o identidad.
-      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>> | null; category: string | null; mixedSettlement: ReturnType<typeof parseCombinedSettlementReceipt> } | undefined;
+      let read: { summary: Awaited<ReturnType<typeof parseCostesIOPdf>> | null; category: string | null; seniority: string | null; mixedSettlement: ReturnType<typeof parseCombinedSettlementReceipt> } | undefined;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const buffer = await downloadCostesFile(file.id);
           if (buffer.subarray(0, 4).toString() !== '%PDF') throw new Error('El archivo no tiene formato PDF');
-          const text = file.tipo === 'liquidacion' ? await extractPayrollPdfText(buffer) : null;
-          const mixedSettlement = text ? parseCombinedSettlementReceipt(text) : null;
+          const text = file.tipo === 'liquidacion' || file.tipo === 'nomina_individual' ? await extractPayrollPdfText(buffer) : null;
+          const mixedSettlement = file.tipo === 'liquidacion' && text ? parseCombinedSettlementReceipt(text) : null;
           const summary = mixedSettlement ? null : await parseCostesIOPdf(buffer, file.name);
-          const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(await extractPayrollPdfText(buffer));
-          read = { summary, category, mixedSettlement };
+          const category = file.tipo === 'liquidacion' ? null : extractProfessionalCategoryFromPayrollText(text || await extractPayrollPdfText(buffer));
+          const seniority = file.tipo === 'nomina_individual' && text ? extractPayrollSeniorityDate(text) : null;
+          read = { summary, category, seniority, mixedSettlement };
           break;
         } catch (error) {
           if (attempt === 2) throw error;
@@ -78,7 +79,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         }
       }
       if (!read) throw new Error('El PDF no se ha podido leer');
-      const { summary, category, mixedSettlement } = read;
+      const { summary, category, seniority, mixedSettlement } = read;
       if (mixedSettlement) {
         if (mixedSettlement.mes !== month || mixedSettlement.anio !== year || mixedSettlement.dia < 1 || mixedSettlement.dia > 31) throw new Error('El período impreso no coincide con la carpeta');
         if (!liquidationFileMatchesPerson(file.name, mixedSettlement.nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
@@ -99,7 +100,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         const suffix = fileName.includes('_') ? fileName.split('_').pop()?.replace(/\.PDF$/, '').trim() || '' : '';
         if (suffix && !nameSuffixMatchesPerson(suffix, summary.nominas[0].nombre)) throw new Error('La persona en el PDF no coincide con el nombre del archivo');
       }
-      parsed.push({ file, records: summary.nominas, verified: summary.verificado, category });
+      parsed.push({ file, records: summary.nominas, verified: summary.verificado, category, seniority });
     } catch (error) {
       // Jamás grabar una importación parcial que oculte un documento o duplique importes.
       const known = ['El archivo no tiene formato PDF', 'No se han podido leer líneas de nómina', 'El período impreso no coincide con la carpeta',
@@ -110,12 +111,12 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
     }
   }
 
-  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true, email: true } });
+  const empleados = await prisma.empleado.findMany({ select: { id: true, nif: true, nombreCompleto: true, email: true, antiguedadNomina: true } });
   const employeeByNif = new Map(empleados.map(e => [normaliseNif(e.nif), e]));
   const values = new Map<string, NominaParseResult>();
   const fromBulk = new Set<string>();
   const bulkComponents = new Map<string, Map<'NOMINA' | 'LIQUIDACION', NominaParseResult>>();
-  const linked = new Map<string, { file: PayrollDriveFile; tipo: 'NOMINA' | 'LIQUIDACION'; category?: string | null }[]>();
+  const linked = new Map<string, { file: PayrollDriveFile; tipo: 'NOMINA' | 'LIQUIDACION'; category?: string | null; seniority?: string | null }[]>();
   const individualSeen = new Set<string>();
 
   for (const pdf of parsed) {
@@ -163,7 +164,7 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
         }
         individualSeen.add(key);
         const docs = linked.get(employeeId) || [];
-        docs.push({ file: pdf.file, tipo, category: pdf.category });
+        docs.push({ file: pdf.file, tipo, category: pdf.category, seniority: pdf.seniority });
         linked.set(employeeId, docs);
         // La liquidación puede venir ya incluida en el resumen de gestoría. Ese resumen
         // es la única fuente de cifras cuando existe la persona, pero conservamos ambos PDF.
@@ -220,6 +221,15 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
   const liquidacionesEnResumen = [...bulkComponents.values()].filter(components => components.has('LIQUIDACION')).length;
   const sinReciboIndividual = [...values.keys()].filter(id => !(linked.get(id) || []).some(doc => doc.tipo === 'NOMINA')).length;
   const empleadosFueraResumen = [...values.keys()].filter(id => !fromBulk.has(id)).length;
+  const seniorityUpdates = new Map<string, Date>();
+  for (const employee of empleados) {
+    const date = linked.get(employee.id)?.find(doc => doc.tipo === 'NOMINA')?.seniority;
+    if (!date) continue;
+    if (!employee.antiguedadNomina) seniorityUpdates.set(employee.id, new Date(`${date}T00:00:00.000Z`));
+    else if (employee.antiguedadNomina.toISOString().slice(0, 10) !== date) {
+      incidencias.push('Una antigüedad del recibo no coincide con la ya registrada en Personal; no se sustituirá automáticamente.');
+    }
+  }
   if (dryRun) return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };
   await prisma.$transaction(async tx => {
     for (const [employeeId, record] of values) {
@@ -256,6 +266,8 @@ export async function syncPayrollMonth(year: number, month: number, files: Payro
           update: { nombre: file.name, tipo },
         });
       }
+      const seniority = seniorityUpdates.get(employeeId);
+      if (seniority) await tx.empleado.updateMany({ where: { id: employeeId, antiguedadNomina: null }, data: { antiguedadNomina: seniority } });
     }
   }, { timeout: 30000, isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   return { mes: month, success: true, empleados: values.size, documentos: linkedCount, liquidacionesEnResumen, sinReciboIndividual, empleadosFueraResumen, davidSeparadoVerificado, incidencias };

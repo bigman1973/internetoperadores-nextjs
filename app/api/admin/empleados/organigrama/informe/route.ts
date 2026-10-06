@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
-import { activePositionWhere, formatOrganizationDate, parseOrganizationDate } from '@/lib/organigrama';
+import { activePositionWhere, employeeVisibleOnDateWhere, formatOrganizationDate, parseOrganizationDate } from '@/lib/organigrama';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
@@ -31,6 +31,7 @@ function renderTree(position: any, all: any[], depth = 0): string {
       <div class="person-top"><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><span>${escapeHtml(position.empresaGrupo)}</span></div>
       <div class="role">${escapeHtml(position.cargo)}</div>
       <div class="meta">${escapeHtml(position.departamento)} · ${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}</div>
+      <div class="employment">Alta registrada: ${position.empleado.fechaAlta ? formatOrganizationDate(position.empleado.fechaAlta) : 'No consta'}${position.empleado.antiguedadNomina ? ` · Antigüedad nómina: ${formatOrganizationDate(position.empleado.antiguedadNomina)}` : ''}${position.empleado.fechaBaja ? ` · Baja: ${formatOrganizationDate(position.empleado.fechaBaja)}` : ''}</div>
       ${position.empleado.email ? `<div class="email">${escapeHtml(position.empleado.email)}</div>` : ''}
       ${position.dependenciaFuncional ? `<div class="functional">Dependencia funcional: ${escapeHtml(position.dependenciaFuncional.nombreCompleto)}</div>` : ''}
     </article>
@@ -54,12 +55,13 @@ export async function GET(req: NextRequest) {
     const positions = await prisma.puestoOrganizativo.findMany({
       where: {
         ...activePositionWhere(date),
+        empleado: { is: employeeVisibleOnDateWhere(date) },
         mostrarEnOrganigrama: type === 'organigrama' ? true : undefined,
         ...(company !== 'todos' ? { empresaGrupo: company } : {}),
         ...(department !== 'todos' ? { departamento: department } : {}),
       },
       include: {
-        empleado: { select: { nombreCompleto: true, email: true, categoria: true } },
+        empleado: { select: { nombreCompleto: true, email: true, categoria: true, fechaAlta: true, antiguedadNomina: true, fechaBaja: true } },
         superior: { select: { nombreCompleto: true } },
         dependenciaFuncional: { select: { nombreCompleto: true } },
       },
@@ -73,7 +75,7 @@ export async function GET(req: NextRequest) {
 
     const body = type === 'organigrama'
       ? `<section class="org">${roots.map(root => renderTree(root, positions)).join('')}</section>`
-      : `<table><thead><tr><th>Empleado</th><th>Empresa</th><th>Departamento</th><th>Cargo</th><th>Categoría profesional</th><th>Superior inmediato</th><th>Dependencia funcional</th></tr></thead><tbody>${positions.map(position => `<tr><td><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><br><small>${escapeHtml(position.empleado.email || 'Sin correo')}</small></td><td>${escapeHtml(position.empresaGrupo)}</td><td>${escapeHtml(position.departamento)}</td><td>${escapeHtml(position.cargo)}</td><td>${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}<br><small>${position.categoriaOrigen === 'nomina' ? `Nómina ${String(position.categoriaNominaMes).padStart(2, '0')}/${position.categoriaNominaAnio}` : 'Ficha del empleado'}</small></td><td>${escapeHtml(position.superior?.nombreCompleto || 'Raíz')}</td><td>${escapeHtml(position.dependenciaFuncional?.nombreCompleto || '—')}</td></tr>`).join('')}</tbody></table>`;
+      : `<table><thead><tr><th>Empleado</th><th>Empresa</th><th>Departamento</th><th>Cargo</th><th>Categoría profesional</th><th>Alta / baja</th><th>Superior inmediato</th><th>Dependencia funcional</th></tr></thead><tbody>${positions.map(position => `<tr><td><strong>${escapeHtml(position.empleado.nombreCompleto)}</strong><br><small>${escapeHtml(position.empleado.email || 'Sin correo')}</small></td><td>${escapeHtml(position.empresaGrupo)}</td><td>${escapeHtml(position.departamento)}</td><td>${escapeHtml(position.cargo)}</td><td>${escapeHtml(position.categoriaNomina || position.empleado.categoria || 'Sin categoría')}<br><small>${position.categoriaOrigen === 'nomina' ? `Nómina ${String(position.categoriaNominaMes).padStart(2, '0')}/${position.categoriaNominaAnio}` : 'Ficha del empleado'}</small></td><td>Alta: ${position.empleado.fechaAlta ? formatOrganizationDate(position.empleado.fechaAlta) : 'No consta'}${position.empleado.antiguedadNomina ? `<br>Antigüedad nómina: ${formatOrganizationDate(position.empleado.antiguedadNomina)}` : ''}${position.empleado.fechaBaja ? `<br>Baja: ${formatOrganizationDate(position.empleado.fechaBaja)}` : ''}</td><td>${escapeHtml(position.superior?.nombreCompleto || 'Raíz')}</td><td>${escapeHtml(position.dependenciaFuncional?.nombreCompleto || '—')}</td></tr>`).join('')}</tbody></table>`;
 
     const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${title}</title><style>
       @page { size: ${type === 'organigrama' ? 'A3 landscape' : 'A4 landscape'}; margin: 12mm; }
@@ -85,7 +87,7 @@ export async function GET(req: NextRequest) {
       .note { border:1px solid #fed7aa; background:#fff7ed; color:#9a3412; padding:7px 9px; margin-bottom:12px; font-size:9px; }
       .org { display:flex; gap:14px; align-items:flex-start; justify-content:center; } .branch { min-width:190px; flex:1; position:relative; } .person { border:1px solid #d9dee8; border-top:4px solid #ea580c; border-radius:8px; padding:10px; background:white; break-inside:avoid; }
       .person-top { display:flex; gap:8px; justify-content:space-between; align-items:flex-start; } .person-top strong { font-size:11px; } .person-top span { border-radius:12px; background:#f5f3ff; color:#6d28d9; padding:3px 6px; font-size:7px; font-weight:bold; white-space:nowrap; }
-      .role { color:#ea580c; font-weight:bold; margin-top:5px; font-size:10px; } .meta,.email,.functional { color:#667085; margin-top:4px; font-size:8px; } .functional { color:#4f46e5; }
+      .role { color:#ea580c; font-weight:bold; margin-top:5px; font-size:10px; } .meta,.email,.functional,.employment { color:#667085; margin-top:4px; font-size:8px; } .functional { color:#4f46e5; }
       .children { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px; margin-top:12px; padding-top:12px; border-top:1px solid #d9dee8; }
       table { width:100%; border-collapse:collapse; table-layout:fixed; } th { text-align:left; background:#f2f4f7; color:#475467; padding:7px; font-size:8px; text-transform:uppercase; } td { border-bottom:1px solid #e4e7ec; padding:7px; vertical-align:top; font-size:8.5px; overflow-wrap:anywhere; } td small { color:#667085; }
       footer { margin-top:14px; border-top:1px solid #d9dee8; padding-top:6px; display:flex; justify-content:space-between; color:#667085; font-size:7px; }
@@ -93,7 +95,7 @@ export async function GET(req: NextRequest) {
       @media print { .no-print { display:none; } }
     </style></head><body>
       <header><div>${logo ? `<img class="logo" src="${logo}" alt="Internet Operadores">` : '<strong>Internet Operadores</strong>'}<h1>${title}</h1><div class="subtitle">${escapeHtml(subtitle)}</div></div><div class="conf">CONFIDENCIAL<small>Documento interno</small></div></header>
-      <div class="note">La categoría profesional procede de la nómina cuando ha podido extraerse. El cargo, departamento y dependencias reflejan la estructura organizativa interna registrada.</div>
+      <div class="note">La categoría profesional y la antigüedad proceden de la nómina cuando se han podido extraer. La antigüedad reconocida no sustituye la fecha de alta contractual registrada en Personal, que debe contrastarse con documentación laboral. Cargo, departamento y dependencias reflejan la organización interna.</div>
       ${body}
       <footer><span>Internet Operadores S.L. · Organización y Personal</span><span>Generado por David Pérez · david.perez@internetoperadores.com · ${formatOrganizationDate(new Date())}</span></footer>
       <script>window.addEventListener('load',()=>setTimeout(()=>window.print(),250));</script>

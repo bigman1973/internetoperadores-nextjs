@@ -51,6 +51,16 @@ export function activePositionWhere(referenceDate: Date) {
   };
 }
 
+/** Mantiene las bajas visibles hasta su último día y en las consultas históricas. */
+export function employeeVisibleOnDateWhere(referenceDate: Date) {
+  return {
+    OR: [
+      { estado: { not: 'BAJA' as const } },
+      { fechaBaja: { gte: referenceDate } },
+    ],
+  };
+}
+
 export function categorySourceLabel(source: string) {
   return source === 'nomina' ? 'Nómina' : 'Ficha del empleado';
 }

@@ -111,6 +111,21 @@ export function extractProfessionalCategoryFromPayrollText(text: string): string
   return null;
 }
 
+/** ANTIGÜEDAD del recibo individual: no equivale necesariamente al alta contractual.
+ * Se limita al encabezado inmediato para no confundirla con el período pagado. */
+export function extractPayrollSeniorityDate(text: string): string | null {
+  const match = text.match(/ANTIG[ÜU]EDAD[\s\S]{0,110}?\b(\d{1,2})\s+(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\s+(\d{2}|20\d{2})\b/i);
+  if (!match) return null;
+  const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+  const month = months.indexOf(match[2].toUpperCase());
+  const day = Number(match[1]);
+  const shortYear = Number(match[3]);
+  const year = match[3].length === 2 ? (shortYear >= 70 ? 1900 : 2000) + shortYear : shortYear;
+  const date = new Date(Date.UTC(year, month, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day || date > new Date()) return null;
+  return date.toISOString().slice(0, 10);
+}
+
 /** Algunos finiquitos contienen también la nómina de los últimos días trabajados.
  * Solo se aceptan como justificante si su total cuadra al céntimo con el resumen
  * de gestoría (nómina parcial + línea FINIQUITO), nunca se suman otra vez. */
