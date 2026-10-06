@@ -30,6 +30,16 @@ export async function GET(req: NextRequest) {
       });
       return NextResponse.json({ empleados });
     }
+    if (searchParams.get('view') === 'career-select') {
+      const denied = await checkAdminAreaRead('admin.personal.empleados', ['CONTABILIDAD', 'RRHH'], session);
+      if (denied) return denied;
+      const empleados = await prisma.empleado.findMany({
+        where: { estado: 'ACTIVO' },
+        select: { id: true, nombreCompleto: true, categoria: true, estado: true, fechaAlta: true },
+        orderBy: { nombreCompleto: 'asc' },
+      });
+      return NextResponse.json({ empleados });
+    }
     const denied = await checkAdminAreaRead('admin.personal.empleados', ['CONTABILIDAD', 'RRHH'], session);
     if (denied) return denied;
     const estado = searchParams.get('estado') || 'todos';

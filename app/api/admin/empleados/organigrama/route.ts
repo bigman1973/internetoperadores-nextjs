@@ -114,7 +114,7 @@ export async function GET(req: NextRequest) {
     const fecha = parseOrganizationDate(fechaTexto, 'La fecha de consulta');
     const includeHistory = searchParams.get('historial') === '1';
 
-    const [positions, employees, history] = await Promise.all([
+    const [positions, employees, history, formerEmployeesWithoutPosition] = await Promise.all([
       prisma.puestoOrganizativo.findMany({
         where: { ...activePositionWhere(fecha), empleado: { is: employeeVisibleOnDateWhere(fecha) } },
         include: {
@@ -139,6 +139,13 @@ export async function GET(req: NextRequest) {
             orderBy: [{ empleado: { nombreCompleto: 'asc' } }, { fechaInicio: 'desc' }],
           })
         : Promise.resolve([]),
+      includeHistory
+        ? prisma.empleado.findMany({
+            where: { estado: 'BAJA', puestosOrganizativos: { none: {} } },
+            select: { id: true, nombreCompleto: true, departamento: true, categoria: true, fechaAlta: true, antiguedadNomina: true, fechaBaja: true },
+            orderBy: { nombreCompleto: 'asc' },
+          })
+        : Promise.resolve([]),
     ]);
 
     const serialized = positions.map(serializePosition);
@@ -148,6 +155,7 @@ export async function GET(req: NextRequest) {
       fecha: fechaTexto,
       puestos: serialized,
       historial: history.map(serializePosition),
+      historialSinPuesto: formerEmployeesWithoutPosition,
       empleados: employees,
       empleadosSinPuesto: employees.filter(employee => !assignedIds.has(employee.id)),
       empresasGrupo: EMPRESAS_GRUPO,

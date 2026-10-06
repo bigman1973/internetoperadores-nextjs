@@ -21,6 +21,7 @@ interface Empleado {
   nombreCompleto: string;
   categoria: string | null;
   estado: string;
+  fechaAlta: string | null;
 }
 
 interface Objetivo {
@@ -164,10 +165,10 @@ export default function PlanCarreraPage() {
   }, [selectedEmpleado]);
 
   async function fetchEmpleados() {
-    const res = await fetch('/api/admin/empleados?estado=ACTIVO&anio=2026&periodo=mes&mes=6');
+    const res = await fetch('/api/admin/empleados?view=career-select');
     const data = await res.json();
     const emps = (data.empleados || []).map((e: any) => ({
-      id: e.id, nombreCompleto: e.nombreCompleto, categoria: e.categoria, estado: e.estado,
+      id: e.id, nombreCompleto: e.nombreCompleto, categoria: e.categoria, estado: e.estado, fechaAlta: e.fechaAlta,
     }));
     setEmpleados(emps);
     if (emps.length > 0 && !selectedEmpleado) setSelectedEmpleado(emps[0].id);
@@ -274,6 +275,7 @@ export default function PlanCarreraPage() {
   }
 
   const empActual = empleados.find(e => e.id === selectedEmpleado);
+  const altaContractual = empActual?.fechaAlta?.slice(0, 10) || null;
 
   return (
     <div className="space-y-6">
@@ -754,6 +756,12 @@ export default function PlanCarreraPage() {
                   <PlusIcon className="h-4 w-4" /> Nueva condición
                 </button>
               </div>
+              <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+                <strong>Alta contractual: {altaContractual ? formatDate(empActual!.fechaAlta) : 'No consta'}.</strong>{' '}
+                {altaContractual
+                  ? 'Fecha acreditada en la nómina individual; es la referencia de inicio de la trayectoria, no un cambio de salario.'
+                  : 'No se crea un hito de incorporación sin una fecha de alta contrastada.'}
+              </div>
 
               {showCondForm && (
                 <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
@@ -798,6 +806,9 @@ export default function PlanCarreraPage() {
                   {condiciones.map((c, idx) => {
                     const prevCond = condiciones[idx + 1];
                     const incremento = prevCond ? ((c.brutoAnual - prevCond.brutoAnual) / prevCond.brutoAnual * 100) : null;
+                    const fechaCondicion = c.fechaEfectiva.slice(0, 10);
+                    const anteriorAlAlta = Boolean(altaContractual && fechaCondicion < altaContractual);
+                    const incorporacionDescuadrada = Boolean(altaContractual && c.motivo === 'incorporacion' && fechaCondicion !== altaContractual);
                     return (
                       <div key={c.id} className={`p-4 border rounded-lg ${idx === 0 ? 'bg-orange-50 border-orange-200' : ''}`}>
                         <div className="flex items-center justify-between">
@@ -816,6 +827,7 @@ export default function PlanCarreraPage() {
                               {c.motivo && <span className="px-1.5 py-0.5 bg-gray-100 rounded">{MOTIVOS_SALARIAL.find(m => m.value === c.motivo)?.label || c.motivo}</span>}
                               {c.notas && <span>{c.notas}</span>}
                             </div>
+                            {(anteriorAlAlta || incorporacionDescuadrada) && <p className="mt-2 text-xs font-semibold text-amber-800">{anteriorAlAlta ? 'Fecha salarial anterior al alta contractual: revisar el documento de origen.' : 'La fecha de «Incorporación» difiere del alta contractual: revisar antes de corregirla.'}</p>}
                           </div>
                           <button onClick={() => eliminar('condicion', c.id)} className="text-red-400 hover:text-red-600 p-1">
                             <TrashIcon className="h-4 w-4" />
