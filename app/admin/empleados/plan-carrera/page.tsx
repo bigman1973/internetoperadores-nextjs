@@ -851,7 +851,27 @@ export default function PlanCarreraPage() {
               )}
 
               {condiciones.length === 0 ? (
-                <p className="text-gray-600 text-sm py-4 text-center">Sin condiciones anuales pactadas registradas. La referencia retributiva de la nómina se muestra arriba y no genera un hito ficticio de evolución.</p>
+                <div className="p-4 border rounded-lg bg-orange-50 border-orange-200" aria-label="Referencia salarial sin revisiones registradas">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xl font-bold text-gray-900">
+                      {ultimoBrutoMensual?.proyeccionDoceMeses !== undefined ? formatEurMensual(ultimoBrutoMensual.proyeccionDoceMeses) : '—'}
+                      {ultimoBrutoMensual?.proyeccionDoceMeses !== undefined && <span className="text-sm font-normal text-gray-500">/año</span>}
+                    </span>
+                    <span className="px-2 py-0.5 bg-orange-100 text-orange-800 rounded-full text-xs font-medium">Referencia actual · sin revisiones registradas</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-600">
+                    <span>Trayectoria desde el alta: {altaContractual ? formatDate(empActual!.fechaAlta) : 'fecha de alta pendiente'}</span>
+                    <span className="px-1.5 py-0.5 bg-white border border-orange-100 rounded">Incorporación</span>
+                  </div>
+                  {ultimoBrutoMensual?.brutoMensualTrabajador !== undefined ? (
+                    <p className="mt-2 text-sm text-gray-700">
+                      Bruto mensual sin gastos: <strong>{formatEurMensual(ultimoBrutoMensual.brutoMensualTrabajador)}</strong> · Última nómina individual: {String(ultimoBrutoMensual.mes).padStart(2, '0')}/{ultimoBrutoMensual.anio}.
+                      <span className="block mt-1 text-xs text-gray-600">La cifra anual es una proyección de la última nómina, no un salario inicial acreditado ni prueba de que el importe fuera igual desde el alta.</span>
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-amber-800">No consta una nómina individual con gastos verificados para calcular una referencia salarial. No se crea un salario inicial supuesto.</p>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {condiciones.map((c, idx) => {
