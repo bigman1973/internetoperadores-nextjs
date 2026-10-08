@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import FacturaComentarios from '@/components/finanzas/FacturaComentarios';
 import { 
   ArrowLeftIcon, PencilIcon, DocumentTextIcon, DocumentDuplicateIcon,
   MagnifyingGlassIcon, CheckIcon, XMarkIcon,
@@ -916,6 +917,8 @@ export default function FacturaDetallePage() {
           <span className="text-green-600"><CheckIcon className="h-5 w-5" /></span>
         </div>
       )}
+
+      <FacturaComentarios facturaId={factura.id} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Columna izquierda: Datos */}

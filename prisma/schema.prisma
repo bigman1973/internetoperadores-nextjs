@@ -26,6 +26,7 @@ model UsuarioAdmin {
   permisos         PermisoUsuario[]
   perfilAsignado   String?           @map("perfil_asignado") // Nombre del perfil de permisos asignado
   outlookConexion  OutlookConexion?
+  comentariosFactura ComentarioFacturaRecibida[]
 
   @@map("usuarios_admin")
 }
@@ -1210,12 +1211,29 @@ model FacturaRecibida {
 
   movimientos     MovimientoBancario[]
   confirmingLineas ConfirmingLinea[]
+  comentarios     ComentarioFacturaRecibida[]
 
   @@index([estado])
   @@index([proveedor])
   @@index([fecha])
   @@index([imputacion])
   @@map("facturas_recibidas")
+}
+
+// Notas internas auditables: no modifican clasificaciones ni crean reglas automáticas.
+model ComentarioFacturaRecibida {
+  id          String   @id @default(uuid())
+  facturaId   String   @map("factura_id")
+  autorId     Int      @map("autor_id")
+  texto       String   @db.Text
+  solicitudId String   @map("solicitud_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  factura     FacturaRecibida @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+  autor       UsuarioAdmin @relation(fields: [autorId], references: [id], onDelete: Restrict)
+
+  @@unique([facturaId, solicitudId])
+  @@index([facturaId, createdAt])
+  @@map("comentarios_facturas_recibidas")
 }
 
 model ConfirmingLinea {
