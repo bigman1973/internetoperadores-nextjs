@@ -151,16 +151,16 @@ export default function KpisDraxtonPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <select value={planta} onChange={e => setPlanta(e.target.value)} className="px-3 py-1.5 border rounded-lg text-sm">
+          <select value={planta} onChange={e => setPlanta(e.target.value)} className="px-3 py-1.5 border rounded-lg text-sm bg-white text-gray-900" style={{ colorScheme: 'light' }}>
             <option value="LLEIDA">Lleida</option>
             <option value="BCN">Barcelona</option>
             <option value="TODAS">Todas</option>
           </select>
-          <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="px-3 py-1.5 border rounded-lg text-sm">
+          <select value={anio} onChange={e => setAnio(Number(e.target.value))} className="px-3 py-1.5 border rounded-lg text-sm bg-white text-gray-900" style={{ colorScheme: 'light' }}>
             <option value={2025}>2025</option>
             <option value={2026}>2026</option>
           </select>
-          <select value={mes || ''} onChange={e => setMes(e.target.value ? Number(e.target.value) : null)} className="px-3 py-1.5 border rounded-lg text-sm">
+          <select value={mes || ''} onChange={e => setMes(e.target.value ? Number(e.target.value) : null)} className="px-3 py-1.5 border rounded-lg text-sm bg-white text-gray-900" style={{ colorScheme: 'light' }}>
             <option value="">Todo el año</option>
             {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
           </select>
@@ -270,7 +270,7 @@ export default function KpisDraxtonPage() {
                 <div className="grid grid-cols-2 gap-3">
                   {b1.ticketsPorSla.map(t => (
                     <div key={t.sla} className={`p-3 rounded-lg border text-center ${t.sla === 'Met' ? 'bg-green-50 border-green-200' : t.sla === 'Breached' ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-                      <p className="text-lg font-bold">{t.total}</p>
+                      <p className={`text-lg font-bold ${t.sla === 'Met' ? 'text-green-700' : t.sla === 'Breached' ? 'text-red-700' : 'text-gray-900'}`}>{t.total}</p>
                       <p className="text-xs text-gray-600">{t.sla}</p>
                     </div>
                   ))}
@@ -440,7 +440,7 @@ export default function KpisDraxtonPage() {
                     <th className="text-center px-4 py-2 font-medium text-gray-600">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody className="divide-y text-gray-900">
                   {MESES.map((m, i) => {
                     const mesNum = i + 1;
                     const ticketsMes = b1.ticketsPorMes.find(t => t.mes === mesNum);
@@ -472,7 +472,7 @@ export default function KpisDraxtonPage() {
       {/* Modal KPIs manuales */}
       {showKpiForm && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowKpiForm(false)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-white text-gray-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto" style={{ colorScheme: 'light' }} onClick={e => e.stopPropagation()}>
             <div className="p-6 border-b">
               <h3 className="text-lg font-bold text-gray-900">
                 Registrar KPIs · {MESES[kpiMes - 1]} {anio} · {planta}
@@ -554,7 +554,7 @@ export default function KpisDraxtonPage() {
               </div>
             </div>
             <div className="p-6 border-t bg-gray-50 flex justify-between">
-              <select value={kpiMes} onChange={e => setKpiMes(Number(e.target.value))} className="px-3 py-1.5 border rounded text-sm">
+              <select value={kpiMes} onChange={e => setKpiMes(Number(e.target.value))} className="px-3 py-1.5 border rounded text-sm bg-white text-gray-900">
                 {MESES.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
               </select>
               <div className="flex gap-2">

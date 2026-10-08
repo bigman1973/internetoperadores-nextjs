@@ -212,7 +212,7 @@ export default function DraxtonPersonalPage() {
       {contratoGroups.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-4">
           <p className="text-xs text-gray-500 mb-2 font-medium">Leyenda de niveles:</p>
-          <div className="flex flex-wrap gap-4 text-xs">
+          <div className="flex flex-wrap gap-4 text-xs text-gray-700">
             <span className="inline-flex items-center gap-1.5">
               <span className="w-3 h-3 rounded bg-blue-100 border border-blue-300"></span>
               N1 (×1) — Soporte básico

@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
+import { filtrarPeticiones } from '@/lib/peticiones-filtros'
 
 interface PeticionMensaje {
   id: number
@@ -65,6 +67,8 @@ export default function PeticionesPage() {
   const [error, setError] = useState('')
   const [isImpersonating, setIsImpersonating] = useState(false)
   const [viewedEmail, setViewedEmail] = useState('')
+  const [filtroEstado, setFiltroEstado] = useState('')
+  const [filtroTipo, setFiltroTipo] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function fetchData() {
@@ -202,6 +206,7 @@ export default function PeticionesPage() {
   }
 
   const viewedName = peticiones[0]?.usuarioNombre || viewedEmail
+  const peticionesFiltradas = filtrarPeticiones(peticiones, filtroEstado, filtroTipo)
 
   const seccionLabel = (seccion: string) => ({
     panel_admin: 'Panel Admin',
@@ -210,7 +215,11 @@ export default function PeticionesPage() {
   }[seccion] || seccion)
 
   return (
+    <div className="min-h-screen bg-gray-50 text-gray-900" style={{ colorScheme: 'light' }}>
     <div className="mx-auto max-w-5xl p-4 sm:p-6">
+      <Link href="/empleado" className="mb-5 inline-flex min-h-10 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-800 hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">
+        <span aria-hidden="true">←</span> Volver al Portal Empleado
+      </Link>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{isImpersonating ? `Peticiones de ${viewedName}` : 'Mis Peticiones'}</h1>
@@ -240,6 +249,29 @@ export default function PeticionesPage() {
       )}
 
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
+
+      <div className="mb-5 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="flex-1">
+            <label htmlFor="peticiones-estado" className="mb-1 block text-sm font-semibold text-gray-700">Estado</label>
+            <select id="peticiones-estado" value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 focus:ring-2 focus:ring-orange-500">
+              <option value="">Todos los estados</option>
+              {Object.entries(ESTADOS).map(([value, estado]) => <option key={value} value={value}>{estado.label}</option>)}
+            </select>
+          </div>
+          <div className="flex-1">
+            <label htmlFor="peticiones-tipo" className="mb-1 block text-sm font-semibold text-gray-700">Tipo</label>
+            <select id="peticiones-tipo" value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="min-h-10 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 focus:ring-2 focus:ring-orange-500">
+              <option value="">Todos los tipos</option>
+              <option value="mejora">Mejora</option>
+              <option value="error">Error / Incidencia</option>
+              <option value="sugerencia">Sugerencia</option>
+            </select>
+          </div>
+          <button type="button" onClick={() => { setFiltroEstado(''); setFiltroTipo('') }} disabled={!filtroEstado && !filtroTipo} className="min-h-10 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-default disabled:text-gray-500">Limpiar filtros</button>
+        </div>
+        <p className="mt-3 text-xs text-gray-600" aria-live="polite">{loading ? 'Cargando peticiones…' : `${peticionesFiltradas.length} de ${peticiones.length} peticiones`}</p>
+      </div>
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -351,9 +383,14 @@ export default function PeticionesPage() {
           <p className="mt-3 text-gray-500">{isImpersonating ? 'Este usuario no tiene peticiones' : 'No tienes peticiones todavía'}</p>
           <p className="mt-1 text-sm text-gray-400">{isImpersonating ? 'No hay solicitudes asociadas al correo seleccionado.' : 'Pulsa “Nueva petición” para reportar un error o solicitar una mejora.'}</p>
         </div>
+      ) : peticionesFiltradas.length === 0 ? (
+        <div className="rounded-xl border bg-white px-4 py-12 text-center text-gray-700">
+          <p className="font-semibold">No hay peticiones con estos filtros.</p>
+          <button type="button" onClick={() => { setFiltroEstado(''); setFiltroTipo('') }} className="mt-3 text-sm font-semibold text-orange-700 hover:text-orange-800">Mostrar todas mis peticiones</button>
+        </div>
       ) : (
         <div className="space-y-4">
-          {peticiones.map(peticion => {
+          {peticionesFiltradas.map(peticion => {
             const hasConversation = peticion.mensajes?.length > 0
             const expanded = expandedId === peticion.id || peticion.estado === 'pendiente_validacion' || peticion.estado === 'ajustes_solicitados'
             return (
@@ -475,6 +512,7 @@ export default function PeticionesPage() {
           })}
         </div>
       )}
+    </div>
     </div>
   )
 }

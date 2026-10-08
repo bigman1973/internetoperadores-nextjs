@@ -151,7 +151,8 @@ export default function DraxtonInformesPage() {
             <select
               value={anioFiltro}
               onChange={(e) => setAnioFiltro(parseInt(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
+              style={{ colorScheme: 'light' }}
             >
               <option value={2026}>2026</option>
               <option value={2025}>2025</option>
@@ -289,7 +290,7 @@ export default function DraxtonInformesPage() {
       {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl">
+          <div className="bg-white text-gray-900 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl" style={{ colorScheme: 'light' }}>
             <div className="p-6 border-b border-gray-100">
               <h3 className="text-lg font-semibold text-gray-900">
                 {editingInforme ? 'Editar Informe' : 'Generar Nuevo Informe'}

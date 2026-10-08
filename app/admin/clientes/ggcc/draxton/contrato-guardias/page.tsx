@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { ShieldCheckIcon, PlusIcon, PencilIcon, TrashIcon, UserIcon, ArrowUpTrayIcon, DocumentTextIcon, InformationCircleIcon, PrinterIcon, FunnelIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import { normalizeGuardiasArray, normalizeTecnicosDisponibles, type TecnicoDisponible } from '@/lib/draxton-guardias-validation'
 
 interface HistoricoNivel {
   id: string
@@ -125,7 +126,12 @@ export default function DraxtonContratoGuardiasPage() {
   const [showIncidenciaForm, setShowIncidenciaForm] = useState(false)
   const [editingIncidencia, setEditingIncidencia] = useState<Incidencia | null>(null)
   const [editingTecnico, setEditingTecnico] = useState<Tecnico | null>(null)
-  const [empleadosDisponibles, setEmpleadosDisponibles] = useState<any[]>([])
+  const [empleadosDisponibles, setEmpleadosDisponibles] = useState<TecnicoDisponible[]>([])
+  const [empleadosLoading, setEmpleadosLoading] = useState(false)
+  const [empleadosError, setEmpleadosError] = useState<string | null>(null)
+  const [dataError, setDataError] = useState<string | null>(null)
+  const [tecnicoError, setTecnicoError] = useState<string | null>(null)
+  const [tecnicoSaving, setTecnicoSaving] = useState(false)
   const [showDetalleIncidencia, setShowDetalleIncidencia] = useState<Incidencia | null>(null)
 
   // Import EML
@@ -151,25 +157,50 @@ export default function DraxtonContratoGuardiasPage() {
 
   const fetchData = async () => {
     setLoading(true)
+    setDataError(null)
     try {
       const res = await fetch(`/api/admin/clientes/ggcc/draxton/guardias?anio=${anio}`)
-      const data = await res.json()
-      setConfig(data.config)
-      setContrato(data.contrato)
-      setTecnicos(data.tecnicos || [])
-      setTarifas(data.tarifas || [])
-      setAsignaciones(data.asignaciones || [])
-      setIncidencias(data.incidencias || [])
-    } catch (e) { console.error(e) }
-    setLoading(false)
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'No se pudo cargar el contrato de guardias')
+
+      setConfig(data?.config || null)
+      setContrato(data?.contrato || null)
+      setTecnicos(normalizeGuardiasArray<Tecnico>(data?.tecnicos))
+      setTarifas(normalizeGuardiasArray<Tarifa>(data?.tarifas))
+      setAsignaciones(normalizeGuardiasArray<Asignacion>(data?.asignaciones))
+      setIncidencias(normalizeGuardiasArray<Incidencia>(data?.incidencias))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'No se pudo cargar el contrato de guardias'
+      console.error(e)
+      setDataError(message)
+      setConfig(null)
+      setContrato(null)
+      setTecnicos([])
+      setTarifas([])
+      setAsignaciones([])
+      setIncidencias([])
+    } finally {
+      setLoading(false)
+    }
   }
 
   const fetchEmpleados = async () => {
+    setEmpleadosLoading(true)
+    setEmpleadosError(null)
+    setEmpleadosDisponibles([])
     try {
-      const res = await fetch('/api/admin/empleados?estado=todos')
-      const data = await res.json()
-      setEmpleadosDisponibles(data.empleados || data || [])
-    } catch (e) { console.error(e) }
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/guardias?section=tecnicos-disponibles')
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'No se pudieron cargar los técnicos disponibles')
+      setEmpleadosDisponibles(normalizeTecnicosDisponibles(data))
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'No se pudieron cargar los técnicos disponibles'
+      console.error(e)
+      setEmpleadosDisponibles([])
+      setEmpleadosError(message)
+    } finally {
+      setEmpleadosLoading(false)
+    }
   }
 
   useEffect(() => { fetchData() }, [anio])
@@ -288,9 +319,34 @@ export default function DraxtonContratoGuardiasPage() {
   }
 
   const handleAddTecnico = async () => {
-    if (!formTecnico.empleadoId) return
-    await fetch('/api/admin/clientes/ggcc/draxton/guardias', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'addTecnico', ...formTecnico }) })
-    setShowAddTecnico(false); setFormTecnico({ empleadoId: '', nivel: 1, fechaAlta: '' }); fetchData()
+    if (tecnicoSaving) return
+    if (!formTecnico.empleadoId) {
+      setTecnicoError('Selecciona un empleado para añadirlo a guardias')
+      return
+    }
+    if (!formTecnico.fechaAlta) {
+      setTecnicoError('Indica la fecha de alta')
+      return
+    }
+
+    setTecnicoError(null)
+    setTecnicoSaving(true)
+    try {
+      const res = await fetch('/api/admin/clientes/ggcc/draxton/guardias', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'addTecnico', ...formTecnico })
+      })
+      const data = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(data?.error || 'No se pudo añadir el técnico')
+
+      setShowAddTecnico(false)
+      setFormTecnico({ empleadoId: '', nivel: 1, fechaAlta: '' })
+      fetchData()
+    } catch (e) {
+      setTecnicoError(e instanceof Error ? e.message : 'No se pudo añadir el técnico')
+    } finally {
+      setTecnicoSaving(false)
+    }
   }
 
   const handleEditTecnico = async () => {
@@ -411,6 +467,12 @@ export default function DraxtonContratoGuardiasPage() {
 
   return (
     <div className="space-y-6">
+      {dataError && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <span>{dataError}</span>
+          <button onClick={fetchData} className="shrink-0 font-medium underline">Reintentar</button>
+        </div>
+      )}
       {/* Header */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="flex items-center justify-between">
@@ -622,7 +684,7 @@ export default function DraxtonContratoGuardiasPage() {
               <div>
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-700">Tecnicos Asignados</h3>
-                  <button onClick={() => { fetchEmpleados(); setShowAddTecnico(true) }} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><PlusIcon className="w-3 h-3" /> Anadir</button>
+                  <button onClick={() => { setEditingTecnico(null); setTecnicoError(null); setShowAddTecnico(true); fetchEmpleados() }} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><PlusIcon className="w-3 h-3" /> Anadir</button>
                 </div>
                 <div className="space-y-2">
                   {tecnicos.length === 0 ? <p className="text-sm text-gray-400">No hay tecnicos asignados</p> : tecnicos.map(t => (
@@ -845,17 +907,23 @@ export default function DraxtonContratoGuardiasPage() {
 
       {/* MODAL: Anadir/Editar Tecnico */}
       {showAddTecnico && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }}>
-          <div className="bg-white rounded-xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => { setShowAddTecnico(false); setEditingTecnico(null); setTecnicoError(null) }}>
+          <div className="bg-white text-gray-900 rounded-xl p-6 w-full max-w-md" style={{ colorScheme: 'light' }} onClick={e => e.stopPropagation()}>
             <h3 className="text-lg font-semibold mb-4">{editingTecnico ? 'Editar Tecnico' : 'Anadir Tecnico a Guardias'}</h3>
             <div className="space-y-3">
               {!editingTecnico && (
                 <div>
                   <label className="text-xs font-medium text-gray-600">Empleado</label>
-                  <select value={formTecnico.empleadoId} onChange={e => setFormTecnico({ ...formTecnico, empleadoId: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900">
+                  <select value={formTecnico.empleadoId} disabled={empleadosLoading || !!empleadosError} onChange={e => { setFormTecnico({ ...formTecnico, empleadoId: e.target.value }); setTecnicoError(null) }} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900 disabled:bg-gray-100 disabled:text-gray-500">
                     <option value="">- Seleccionar -</option>
-                    {empleadosDisponibles.filter((e: any) => !tecnicos.find(t => t.empleadoId === e.id)).map((e: any) => <option key={e.id} value={e.id}>{e.nombreCompleto} - {e.categoria || 'Sin categoria'}</option>)}
+                    {empleadosDisponibles.filter(e => !tecnicos.some(t => t.empleadoId === e.id)).map(e => <option key={e.id} value={e.id}>{e.nombreCompleto} - {e.categoria || 'Sin categoria'}</option>)}
                   </select>
+                  {empleadosLoading && <p className="mt-1 text-xs text-gray-500">Cargando técnicos disponibles…</p>}
+                  {empleadosError && (
+                    <p className="mt-1 text-xs text-red-600">
+                      {empleadosError} <button onClick={fetchEmpleados} className="font-medium underline">Reintentar</button>
+                    </p>
+                  )}
                 </div>
               )}
               {editingTecnico && (
@@ -878,10 +946,11 @@ export default function DraxtonContratoGuardiasPage() {
                   <input type="date" value={formTecnico.fechaAlta} onChange={e => setFormTecnico({ ...formTecnico, fechaAlta: e.target.value })} className="w-full border rounded px-3 py-2 text-sm mt-1 text-gray-900" />
                 </div>
               )}
+              {tecnicoError && <p className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">{tecnicoError}</p>}
             </div>
             <div className="flex justify-end gap-2 mt-4">
-              <button onClick={() => { setShowAddTecnico(false); setEditingTecnico(null) }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-              <button onClick={editingTecnico ? handleEditTecnico : handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{editingTecnico ? 'Guardar cambios' : 'Anadir'}</button>
+              <button onClick={() => { setShowAddTecnico(false); setEditingTecnico(null); setTecnicoError(null) }} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+              <button disabled={tecnicoSaving || (!editingTecnico && (empleadosLoading || !!empleadosError))} onClick={editingTecnico ? handleEditTecnico : handleAddTecnico} className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50">{tecnicoSaving ? 'Añadiendo…' : editingTecnico ? 'Guardar cambios' : 'Añadir'}</button>
             </div>
           </div>
         </div>

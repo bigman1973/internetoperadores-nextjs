@@ -1,18 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
 import { prisma } from '@/lib/prisma'
+import { authOptions } from '@/lib/auth'
+import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read'
+import { validateAddTecnicoInput } from '@/lib/draxton-guardias-validation'
 
 // ID del contrato de guardias de Draxton
 const CONTRATO_GUARDIAS_ID = '8d5e4790-cf71-4047-a286-9b0d6e6e8cef'
+const AREA_CONTRATO_GUARDIAS = 'admin.clientes.ggcc.draxton.contrato_guardias'
 
 // GET: Obtener toda la configuración de guardias
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const section = searchParams.get('section') || 'all'
+    const session = await getServerSession(authOptions)
+    // El selector pertenece a Guardias y no expone el listado global de personal.
+    const denied = await checkAdminAreaRead(AREA_CONTRATO_GUARDIAS, [], session)
+    if (denied) return denied
+
+    if (section === 'tecnicos-disponibles') {
+      const configActual = await prisma.guardiaConfig.findUnique({
+        where: { contratoId: CONTRATO_GUARDIAS_ID },
+        select: { tecnicos: { select: { empleadoId: true } } },
+      })
+      const empleadosAsignados = configActual?.tecnicos.map(tecnico => tecnico.empleadoId) || []
+      const tecnicos = await prisma.empleado.findMany({
+        where: {
+          estado: 'ACTIVO',
+          ...(empleadosAsignados.length > 0 ? { id: { notIn: empleadosAsignados } } : {}),
+        },
+        select: { id: true, nombreCompleto: true, categoria: true, estado: true },
+        orderBy: { nombreCompleto: 'asc' },
+      })
+      return NextResponse.json({ tecnicos })
+    }
+
     const anio = parseInt(searchParams.get('anio') || new Date().getFullYear().toString())
 
-    // Obtener o crear config
-    let config = await prisma.guardiaConfig.findUnique({
+    // La lectura no debe inicializar configuración: esa mutación pertenece a POST.
+    const config = await prisma.guardiaConfig.findUnique({
       where: { contratoId: CONTRATO_GUARDIAS_ID },
       include: {
         tecnicos: {
@@ -28,20 +55,18 @@ export async function GET(req: NextRequest) {
     })
 
     if (!config) {
-      // Crear config inicial
-      config = await prisma.guardiaConfig.create({
-        data: { contratoId: CONTRATO_GUARDIAS_ID },
-        include: {
-          tecnicos: {
-            include: {
-              empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } },
-              historicoNiveles: { orderBy: { fechaCambio: 'asc' } }
-            },
-            orderBy: { fechaAlta: 'asc' }
-          },
-          tarifas: { orderBy: [{ nivel: 'asc' }, { fechaDesde: 'desc' }] },
-          tarifasGenerales: { orderBy: [{ concepto: 'asc' }, { fechaDesde: 'desc' }] },
-        }
+      const contrato = await prisma.contratoDraxton.findUnique({
+        where: { id: CONTRATO_GUARDIAS_ID },
+        select: { titulo: true, fechaInicio: true, fechaInicioServicio: true, fechaFin: true, importeMensual: true, estado: true }
+      })
+      return NextResponse.json({
+        config: null,
+        contrato,
+        tecnicos: [],
+        tarifas: [],
+        tarifasGenerales: [],
+        asignaciones: [],
+        incidencias: [],
       })
     }
 
@@ -113,8 +138,24 @@ export async function GET(req: NextRequest) {
 // POST: Crear/actualizar configuración, técnicos, tarifas, asignaciones o incidencias
 export async function POST(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    const denied = await checkAdminAreaWrite(AREA_CONTRATO_GUARDIAS, [], session)
+    if (denied) return denied
+
     const body = await req.json()
     const { action } = body
+    const addTecnicoValidation = action === 'addTecnico' ? validateAddTecnicoInput(body) : null
+    if (addTecnicoValidation && 'error' in addTecnicoValidation) {
+      return NextResponse.json({ error: addTecnicoValidation.error }, { status: 400 })
+    }
+    if (addTecnicoValidation?.ok) {
+      const empleado = await prisma.empleado.findUnique({
+        where: { id: addTecnicoValidation.value.empleadoId },
+        select: { estado: true },
+      })
+      if (!empleado) return NextResponse.json({ error: 'Empleado no encontrado' }, { status: 404 })
+      if (empleado.estado !== 'ACTIVO') return NextResponse.json({ error: 'Solo se pueden añadir empleados activos' }, { status: 409 })
+    }
 
     // Obtener config
     let config = await prisma.guardiaConfig.findUnique({ where: { contratoId: CONTRATO_GUARDIAS_ID } })
@@ -139,16 +180,36 @@ export async function POST(req: NextRequest) {
       }
 
       case 'addTecnico': {
-        const tecnico = await prisma.guardiaTecnico.create({
-          data: {
-            configId: config.id,
-            empleadoId: body.empleadoId,
-            nivel: body.nivel || 1,
-            fechaAlta: new Date(body.fechaAlta || new Date()),
-          },
-          include: { empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } } }
+        if (!addTecnicoValidation?.ok) {
+          return NextResponse.json({ error: 'Datos de técnico no válidos' }, { status: 400 })
+        }
+        const { empleadoId, nivel, fechaAlta } = addTecnicoValidation!.value
+        const existente = await prisma.guardiaTecnico.findUnique({
+          where: { configId_empleadoId: { configId: config.id, empleadoId } },
+          select: { id: true },
         })
-        return NextResponse.json({ success: true, tecnico })
+        if (existente) {
+          return NextResponse.json({ error: 'El empleado ya está asignado al contrato de guardias' }, { status: 409 })
+        }
+
+        try {
+          const tecnico = await prisma.guardiaTecnico.create({
+            data: {
+              configId: config.id,
+              empleadoId,
+              nivel,
+              fechaAlta: new Date(`${fechaAlta}T00:00:00.000Z`),
+            },
+            include: { empleado: { select: { id: true, nombreCompleto: true, categoria: true, estado: true } } }
+          })
+          // Añadir un técnico no crea ni modifica asignaciones semanales.
+          return NextResponse.json({ success: true, tecnico })
+        } catch (error: any) {
+          if (error?.code === 'P2002') {
+            return NextResponse.json({ error: 'El empleado ya está asignado al contrato de guardias' }, { status: 409 })
+          }
+          throw error
+        }
       }
 
       case 'updateTecnico': {
@@ -431,6 +492,10 @@ function getMonday(date: Date): Date {
 // DELETE: Eliminar asignación o incidencia
 export async function DELETE(req: NextRequest) {
   try {
+    const session = await getServerSession(authOptions)
+    const denied = await checkAdminAreaWrite(AREA_CONTRATO_GUARDIAS, [], session)
+    if (denied) return denied
+
     const { searchParams } = new URL(req.url)
     const type = searchParams.get('type')
     const id = searchParams.get('id')

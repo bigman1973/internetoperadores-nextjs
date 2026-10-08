@@ -357,16 +357,16 @@ export default function ActualizacionesPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b">
                   <tr>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Fecha</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Tecnico</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Horas</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">H. Contrato</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Tipo</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Plantas</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Descripcion</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Coste</th>
-                    <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Imputado</th>
-                    <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Acciones</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Fecha</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Tecnico</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Horas</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">H. Contrato</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Tipo</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Plantas</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Descripcion</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Coste</th>
+                    <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Imputado</th>
+                    <th className="text-right px-3 py-2 text-[10px] text-gray-700 uppercase">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -509,7 +509,7 @@ export default function ActualizacionesPage() {
             <div className="bg-white border rounded-lg p-4 mb-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Balance de Contratos de Horas ({anio})</h3>
               <table className="w-full text-sm">
-                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-500 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Saldo actual</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Actualiz. imputadas</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Saldo neto</th><th className="text-right py-1 text-[10px] text-gray-500 uppercase">Prevision fin {anio}</th></tr></thead>
+                <thead className="border-b"><tr><th className="text-left py-1 text-[10px] text-gray-700 uppercase">Contrato</th><th className="text-right py-1 text-[10px] text-gray-700 uppercase">Horas/mes</th><th className="text-right py-1 text-[10px] text-gray-700 uppercase">Saldo actual</th><th className="text-right py-1 text-[10px] text-gray-700 uppercase">Actualiz. imputadas</th><th className="text-right py-1 text-[10px] text-gray-700 uppercase">Saldo neto</th><th className="text-right py-1 text-[10px] text-gray-700 uppercase">Prevision fin {anio}</th></tr></thead>
                 <tbody>
                   {contratos.map(c => (
                     <tr key={c.id} className="border-b">
@@ -644,12 +644,12 @@ export default function ActualizacionesPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Concepto</th>
-                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Neto tecnico (EUR/h)</th>
-                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Coste bruto empresa (EUR/h)</th>
-                        <th className="text-center px-3 py-2 text-[10px] text-gray-500 uppercase">Factor conversion</th>
-                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Desde</th>
-                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase"></th>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Concepto</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-700 uppercase">Neto tecnico (EUR/h)</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-700 uppercase">Coste bruto empresa (EUR/h)</th>
+                        <th className="text-center px-3 py-2 text-[10px] text-gray-700 uppercase">Factor conversion</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Desde</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-700 uppercase"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -674,10 +674,10 @@ export default function ActualizacionesPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b">
                       <tr>
-                        <th className="text-left px-3 py-2 text-[10px] text-gray-500 uppercase">Contrato</th>
-                        <th className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">Precio/h contrato</th>
+                        <th className="text-left px-3 py-2 text-[10px] text-gray-700 uppercase">Contrato</th>
+                        <th className="text-right px-3 py-2 text-[10px] text-gray-700 uppercase">Precio/h contrato</th>
                         {tarifasConversion.filter(t => t.vigente).map(t => (
-                          <th key={t.id} className="text-right px-3 py-2 text-[10px] text-gray-500 uppercase">{conceptoLabels[t.concepto]} (x{t.factorConversion})</th>
+                          <th key={t.id} className="text-right px-3 py-2 text-[10px] text-gray-700 uppercase">{conceptoLabels[t.concepto]} (x{t.factorConversion})</th>
                         ))}
                       </tr>
                     </thead>

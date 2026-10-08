@@ -19,6 +19,7 @@ import {
 import { useImpersonation } from './ImpersonationContext';
 
 interface EmpleadoSidebarProps {
+  canAccessAdmin: boolean;
   user: {
     name?: string | null;
     email?: string | null;
@@ -43,7 +44,7 @@ function esEmpleadoAprobador(email?: string | null, categoria?: string | null): 
   return false;
 }
 
-export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
+export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { impersonatedEmail, impersonatedEmpleado, getQueryParam } = useImpersonation();
@@ -51,8 +52,6 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
   const esAprobador = ROLES_APROBADOR.includes(user.role || '') ||
     EMAILS_APROBADOR.includes(user.email?.toLowerCase() || '');
   
-  const esSuperAdmin = user.role === 'SUPER_ADMIN';
-
   // Cuando se impersona, verificar si el empleado impersonado tiene permisos de aprobador
   const isImpersonating = !!impersonatedEmail;
   const impersonadoEsAprobador = isImpersonating && impersonatedEmpleado
@@ -130,14 +129,15 @@ export default function EmpleadoSidebar({ user }: EmpleadoSidebarProps) {
               );
             })}
 
-            {/* Link al panel admin si tiene acceso (SUPER_ADMIN, GERENTE, o permisos granulares) */}
-            {(esSuperAdmin || user.role === 'GERENTE' || (user as any).permisos?.length > 0 || (user as any).perfilAsignado) && (
+            {/* Acceso de la sesión real comprobado en servidor; no concede permisos. */}
+            {canAccessAdmin && (
               <div className="pt-4 mt-4 border-t">
                 <Link
                   href="/admin"
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-slate-50 text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                 >
-                  <ShieldCheckIcon className="h-5 w-5 text-gray-400" />
+                  <ShieldCheckIcon className="h-5 w-5 text-slate-600" />
                   Panel Admin
                 </Link>
               </div>

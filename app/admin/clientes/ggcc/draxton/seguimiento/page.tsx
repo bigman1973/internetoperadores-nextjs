@@ -91,7 +91,8 @@ export default function DraxtonSeguimientoPage() {
             <select
               value={anio}
               onChange={e => setAnio(Number(e.target.value))}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900"
+              style={{ colorScheme: 'light' }}
             >
               <option value={2026}>2026</option>
               <option value={2025}>2025</option>

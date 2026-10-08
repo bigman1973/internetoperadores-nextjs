@@ -8,6 +8,7 @@ import SessionProvider from '../../components/SessionProvider'
 import { RoleProvider } from '../../components/admin/RoleContext'
 import ProtectedRoute from '../../components/admin/ProtectedRoute'
 import prisma from '../../lib/prisma'
+import { canAccessAdminPanel } from '../../lib/admin-panel-access'
 
 export default async function AdminLayout({
   children,
@@ -15,23 +16,11 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth('admin')
-  
-  // Usuarios sin roles asignados → verificar si tienen permisos granulares antes de redirigir
-  const userRoles = session.user.roles || []
-  if (userRoles.length === 0 && session.user.role !== 'SUPER_ADMIN' && session.user.role !== 'GERENTE') {
-    // Verificar si tiene permisos granulares (perfil asignado)
-    const userId = session.user.id ? parseInt(session.user.id as string) : null
-    if (userId) {
-      const tienePermisos = await prisma.permisoUsuario.count({
-        where: { usuarioId: userId, lectura: true }
-      })
-      // Si no tiene permisos granulares, redirigir al portal empleado
-      if (tienePermisos === 0) {
-        redirect('/empleado')
-      }
-    } else {
-      redirect('/empleado')
-    }
+  const canAccessAdmin = await canAccessAdminPanel(session.user, usuarioId =>
+    prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
+  )
+  if (!canAccessAdmin) {
+    redirect('/empleado')
   }
   
   return (
@@ -42,7 +31,7 @@ export default async function AdminLayout({
         userId={session.user.id ? parseInt(session.user.id as string) : undefined}
       >
         <SidebarProvider>
-          <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50">
+          <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
             <AdminSidebar user={session.user} />
             <div className="min-w-0 lg:pl-64">
               <AdminHeader />
