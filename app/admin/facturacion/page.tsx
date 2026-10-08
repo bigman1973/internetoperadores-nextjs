@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import { invoicePage } from '@/lib/finanzas/invoice-pagination'
 import { InformationCircleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 
 interface FacturaResumen {
@@ -67,9 +68,11 @@ export default function FacturacionPage() {
   const searchParams = useSearchParams()
   const [searchTerm, setSearchTerm] = useState(searchParams.get('buscar') || '')
   const [serieFilter, setSerieFilter] = useState('')
-  const [mesFilter, setMesFilter] = useState('')
+  const [mesFilter, setMesFilter] = useState(/^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.get('mes') || '') ? searchParams.get('mes')! : '')
   const [serieMesFilter, setSerieMesFilter] = useState('')
   const [mostrarInfoSync, setMostrarInfoSync] = useState(false)
+  const [facturaPage, setFacturaPage] = useState(1)
+  useEffect(() => { setFacturaPage(1) }, [searchTerm, serieFilter, mesFilter, facturasFilter])
 
   useEffect(() => {
     fetchData()
@@ -134,6 +137,8 @@ export default function FacturacionPage() {
     if (mesFilter && !f.fecha.startsWith(mesFilter)) return false
     return true
   })
+
+  const paginacion = invoicePage(filteredFacturas, facturaPage)
 
   // Calcular totales del resumen
   const totalAnualFacturado = resumenMensual.reduce((s, m) => s + m.totalFacturado, 0)
@@ -697,7 +702,7 @@ export default function FacturacionPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {filteredFacturas.slice(0, 200).map((f) => (
+                {paginacion.items.map((f) => (
                   <tr key={f.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">{f.documento || f.numeroDocumento}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{new Date(f.fecha).toLocaleDateString('es-ES')}</td>
@@ -729,12 +734,12 @@ export default function FacturacionPage() {
                 ))}
               </tbody>
             </table>
-            {filteredFacturas.length > 200 && (
-              <div className="px-4 py-3 bg-gray-50 text-sm text-gray-500 text-center">
-                Mostrando 200 de {filteredFacturas.length} facturas. Usa los filtros para acotar la búsqueda.
-              </div>
-            )}
+
           </div>
+          <nav aria-label="Paginación de todas las facturas" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900">
+            <span>{paginacion.from}–{paginacion.to} de {paginacion.total} facturas · Página {paginacion.page} de {paginacion.totalPages}</span>
+            <div className="flex gap-2"><button type="button" onClick={() => setFacturaPage(paginacion.page - 1)} disabled={paginacion.page <= 1} className="rounded-md border border-slate-300 px-3 py-2 font-semibold disabled:opacity-50">Anterior</button><button type="button" onClick={() => setFacturaPage(paginacion.page + 1)} disabled={paginacion.page >= paginacion.totalPages} className="rounded-md border border-slate-300 px-3 py-2 font-semibold disabled:opacity-50">Siguiente</button></div>
+          </nav>
         </div>
       )}
 

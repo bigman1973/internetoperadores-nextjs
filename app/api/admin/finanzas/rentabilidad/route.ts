@@ -160,7 +160,9 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
     OR v.porcentaje <= 0 OR v.porcentaje > 100 OR ROUND(v.porcentaje::numeric, 2) <> v.porcentaje::numeric`;
 
   if (filters.nivel === 'compras') {
-    const purchaseWhere = q ? Prisma.sql`AND (fr.proveedor ILIKE ${q} OR COALESCE(fr.num_factura, '') ILIKE ${q} OR COALESCE(fr.concepto, '') ILIKE ${q})` : Prisma.empty;
+    const purchaseWhere = Prisma.sql`
+      ${filters.proveedor ? Prisma.sql`AND LOWER(BTRIM(fr.proveedor)) = ${filters.proveedor}` : Prisma.empty}
+      ${q ? Prisma.sql`AND (fr.proveedor ILIKE ${q} OR COALESCE(fr.num_factura, '') ILIKE ${q} OR COALESCE(fr.concepto, '') ILIKE ${q})` : Prisma.empty}`;
     const [count, purchases] = await Promise.all([
       tx.$queryRaw<{ total: number }[]>(Prisma.sql`${saleIdentityCTE(filters.facturaId)}
         SELECT COUNT(*)::int AS total FROM facturas_recibidas fr
@@ -243,11 +245,12 @@ async function readProfitability(filters: ProfitFilters, canWrite: boolean): Pro
       const end = endOfProfitDay(filters.hasta);
       const search = filters.buscar ? literalLike(filters.buscar) : null;
       const where = Prisma.sql`WHERE fe.estado::text NOT IN ('ANULADA', 'BORRADOR')
-        AND fe.fecha >= ${start} AND fe.fecha < ${end}
+        ${filters.todasFechas ? Prisma.empty : Prisma.sql`AND fe.fecha >= ${start} AND fe.fecha < ${end}`}
         ${search ? Prisma.sql`AND (fe.cliente ILIKE ${search} OR fe.num_factura ILIKE ${search} OR COALESCE(fe.concepto, '') ILIKE ${search})` : Prisma.empty}`;
       const [count, rows] = await Promise.all([
         tx.$queryRaw<{total:number}[]>(Prisma.sql`SELECT COUNT(*)::int AS total FROM facturas_emitidas fe ${where}`),
         tx.$queryRaw<any[]>(Prisma.sql`SELECT fe.id, fe.num_factura AS "numFactura", fe.cliente, fe.fecha, fe.concepto, fe.base::float8 AS ventas
+          , COALESCE((SELECT jsonb_agg(r.nombre ORDER BY r.nombre) FROM proveedores_venta_referencia r WHERE r.factura_emitida_id=fe.id), '[]'::jsonb) AS proveedores
           FROM facturas_emitidas fe ${where} ORDER BY fe.fecha DESC, fe.id DESC LIMIT ${filters.limit} OFFSET ${(filters.page - 1) * filters.limit}`),
       ]);
       const total = count[0]?.total || 0;

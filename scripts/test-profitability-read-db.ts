@@ -70,6 +70,25 @@ async function main() {
   assert.equal(purchases.personal.length, 0);
   assert.equal(staff.compras.length, 0);
   assert.ok(purchases.compras.every((row: any) => row.porcentajeDisponible >= 0 && row.porcentajeDisponible <= 100));
+  const supplier = purchases.compras[0]?.proveedor;
+  assert.ok(supplier);
+  const supplierPurchases = await get(`nivel=compras&facturaId=${id}&proveedor=${encodeURIComponent(supplier.trim().toLowerCase())}`);
+  assert.ok(supplierPurchases.compras.length > 0);
+  assert.ok(supplierPurchases.compras.every((row:any) => row.proveedor.trim().toLowerCase() === supplier.trim().toLowerCase()));
+  const expected = await client.$queryRaw<{count:number}[]>(Prisma.sql`SELECT COUNT(*)::int AS count FROM facturas_emitidas WHERE fecha >= '2026-10-01' AND fecha < '2026-11-01' AND estado::text NOT IN ('ANULADA','BORRADOR')`);
+  const seen = new Set<string>();
+  let pages = 1;
+  for (let page = 1; page <= pages; page++) {
+    const response = await module.exports.GET(new NextRequest(`https://panel.test/api/admin/finanzas/rentabilidad?nivel=seleccionar&desde=2026-10-01&hasta=2026-10-31&page=${page}&limit=50`));
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    pages = body.totalPages;
+    assert.equal(body.total, expected[0].count);
+    for (const invoice of body.facturas) { assert.ok(!seen.has(invoice.id)); seen.add(invoice.id); assert.ok(Array.isArray(invoice.proveedores)); }
+  }
+  assert.equal(seen.size, expected[0].count, 'Todas las ventas de octubre sin pérdidas ni duplicados');
+  const allDates = await get('nivel=seleccionar&todasFechas=1');
+  assert.ok(allDates.total >= seen.size);
   const annualRoot = await get('nivel=servicios', true);
   assert.equal(annualRoot.servicios.length, 4);
   for (const key of ['ventas', 'comprasDirectas', 'comprasCliente', 'personalDirecto', 'personalCliente', 'margenConocido']) assert.equal(Math.round(annualRoot.servicios.reduce((sum: number, row: any) => sum + row[key], 0) * 100), Math.round(annualRoot.kpis[key] * 100), `Conciliación anual ${key}`);

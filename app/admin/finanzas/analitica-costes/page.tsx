@@ -254,17 +254,19 @@ export default function AnaliticaCostesPage() {
   const searchParams = useSearchParams();
   const currentYear = new Date().getFullYear();
   const today = localIsoDate(new Date());
-  const initialFrom = `${currentYear}-01-01`;
-  const initialTo = `${currentYear}-12-31`;
+  const requestedMonth = searchParams.get('mes') || '';
+  const validMonth = /^(20\d{2})-(0[1-9]|1[0-2])$/.test(requestedMonth);
+  const initialFrom = validMonth ? `${requestedMonth}-01` : `${currentYear}-01-01`;
+  const initialTo = validMonth ? new Date(Date.UTC(Number(requestedMonth.slice(0, 4)), Number(requestedMonth.slice(5, 7)), 0)).toISOString().slice(0, 10) : `${currentYear}-12-31`;
 
   const ventaIdUrl = searchParams.get('ventaId');
   const facturaIspIdUrl = searchParams.get('facturaIspId');
   const deepLinkWorkspace = Boolean(ventaIdUrl || facturaIspIdUrl);
-  const [pestana, setPestana] = useState<Pestana>(deepLinkWorkspace ? 'rentabilidad' : 'costes');
+  const [pestana, setPestana] = useState<Pestana>(deepLinkWorkspace || searchParams.get('vista') === 'rentabilidad' ? 'rentabilidad' : 'costes');
   const [pendienteTipo, setPendienteTipo] = useState<PendienteTipo>('clasificacion');
-  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('anio');
-  const [year, setYear] = useState(String(currentYear));
-  const [month, setMonth] = useState(String(new Date().getMonth() + 1));
+  const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>(validMonth ? 'mes' : 'anio');
+  const [year, setYear] = useState(validMonth ? requestedMonth.slice(0, 4) : String(currentYear));
+  const [month, setMonth] = useState(validMonth ? String(Number(requestedMonth.slice(5, 7))) : String(new Date().getMonth() + 1));
   const [quarter, setQuarter] = useState('1');
   const [fechaDesde, setFechaDesde] = useState(initialFrom);
   const [fechaHasta, setFechaHasta] = useState(initialTo);

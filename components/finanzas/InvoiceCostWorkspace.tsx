@@ -7,6 +7,7 @@ import {
   PlusIcon,
   TrashIcon,
 } from "@heroicons/react/24/outline";
+import VentaProveedores from "@/components/finanzas/VentaProveedores";
 import type {
   ProfitCandidates,
   ProfitDetail,
@@ -41,8 +42,10 @@ async function getProfit<T>(params: URLSearchParams, signal: AbortSignal): Promi
   if (!response.ok) throw new Error(typeof body?.error === "string" ? body.error : `Error ${response.status} al cargar la rentabilidad.`);
   return body as T;
 }
-function candidateParams({ nivel, buscar, page, facturaId, desde, hasta }: { nivel: EditorTab; buscar: string; page: number; facturaId: string; desde: string; hasta: string }) {
+function candidateParams({ nivel, buscar, page, facturaId, desde, hasta, proveedor }: { nivel: EditorTab; buscar: string; page: number; facturaId: string; desde: string; hasta: string; proveedor?: string }) {
   const params = new URLSearchParams({ nivel, buscar, page: String(page), limit: "25", facturaId, desde, hasta });
+  // The supplier key is an exact catalogue filter, never a text guess.
+  if (nivel === "compras" && proveedor) params.set("proveedor", proveedor);
   return params;
 }
 type PurchaseCandidateWithConcept = PurchaseCandidate & { concepto?: string | null };
@@ -130,7 +133,7 @@ export function AssignedPurchases({
                 <p className="mt-0.5 text-xs text-slate-700">
                   {item.proveedor}
                 </p>
-                <a href={`/admin/finanzas/facturas/${encodeURIComponent(item.fuenteId)}`} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-semibold text-blue-800 underline focus:outline-none focus:ring-2 focus:ring-blue-700">Abrir factura de compra</a>
+                <a href={`/admin/finanzas/facturas/${encodeURIComponent(item.fuenteId)}`} className="mt-1 inline-block text-xs font-semibold text-blue-800 underline focus:outline-none focus:ring-2 focus:ring-blue-700">Abrir factura de compra</a>
                 {item.notas && (
                   <p className="mt-1 max-w-md text-xs text-slate-700">
                     {item.notas}
@@ -277,6 +280,9 @@ export function CostEditor({
   hasta,
   compras,
   personal,
+  proveedorKey,
+  proveedorNombre,
+  onClearProveedor,
   onChanged,
 }: {
   facturaId: string;
@@ -284,6 +290,9 @@ export function CostEditor({
   hasta: string;
   compras: ProfitPurchaseLink[];
   personal: ProfitStaffLink[];
+  proveedorKey?: string;
+  proveedorNombre?: string;
+  onClearProveedor?: () => void;
   onChanged: () => void;
 }) {
   const [tab, setTab] = useState<EditorTab>("compras");
@@ -312,12 +321,24 @@ export function CostEditor({
   }, [searchDraft]);
 
   useEffect(() => {
+    if (tab !== "compras") return;
+    // A selection made in another supplier's result set must not be linked by mistake.
+    setPage(1);
+    setSearchDraft("");
+    setSearch("");
+    setSourceId("");
+    setAmount("");
+    setNotes("");
+    setMutationError("");
+  }, [proveedorKey, tab]);
+
+  useEffect(() => {
     aborter.current?.abort();
     const controller = new AbortController();
     aborter.current = controller;
     setCandidates({ status: "loading" });
     getProfit<ProfitCandidates>(
-      candidateParams({ nivel: tab, desde, hasta, buscar: search, page, facturaId }),
+      candidateParams({ nivel: tab, desde, hasta, buscar: search, page, facturaId, proveedor: tab === "compras" ? proveedorKey : undefined }),
       controller.signal,
     )
       .then((data) => {
@@ -333,7 +354,7 @@ export function CostEditor({
           }));
       });
     return () => controller.abort();
-  }, [tab, desde, hasta, search, page, facturaId, candidateRetry]);
+  }, [tab, desde, hasta, search, page, facturaId, proveedorKey, candidateRetry]);
 
   function switchTab(next: EditorTab) {
     setTab(next);
@@ -549,6 +570,22 @@ export function CostEditor({
             </span>
           </div>
         )}
+        {tab === "compras" && proveedorKey && (
+          <div className="flex flex-col gap-2 rounded-md border border-violet-200 bg-violet-50 p-3 text-sm text-violet-950 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Mostrando compras del proveedor identificado: <strong>{proveedorNombre || "Proveedor seleccionado"}</strong>.
+            </span>
+            {onClearProveedor && (
+              <button
+                type="button"
+                onClick={onClearProveedor}
+                className="w-fit rounded border border-violet-300 bg-white px-2.5 py-1.5 text-xs font-bold text-violet-950 hover:bg-violet-100 focus:outline-none focus:ring-2 focus:ring-blue-700"
+              >
+                Ver todos los proveedores
+              </button>
+            )}
+          </div>
+        )}
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
           <div>
             <label
@@ -575,8 +612,7 @@ export function CostEditor({
             </div>
           </div>
           <p className="self-end pb-2 text-xs leading-4 text-slate-700">
-            Las fuentes se consultan completas; el período de venta no limita su
-            fecha.
+            Fechas del catálogo: <strong>TODO</strong>. Las compras pueden ser de otro mes; el período de venta no limita su fecha.
           </p>
         </div>
         <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
@@ -635,7 +671,7 @@ export function CostEditor({
                         {item.proveedor}
                       </p>
                       {item.concepto && <p className="mt-1 text-xs text-slate-700">{item.concepto}</p>}
-                      <a href={`/admin/finanzas/facturas/${encodeURIComponent(item.id)}`} target="_blank" rel="noopener noreferrer" className="mt-1 inline-block text-xs font-semibold text-blue-800 underline focus:outline-none focus:ring-2 focus:ring-blue-700">
+                      <a href={`/admin/finanzas/facturas/${encodeURIComponent(item.id)}`} className="mt-1 inline-block text-xs font-semibold text-blue-800 underline focus:outline-none focus:ring-2 focus:ring-blue-700">
                         Abrir compra antes de seleccionar
                       </a>
                       {item.bloqueado && (
@@ -860,6 +896,7 @@ type InvoiceCostWorkspaceProps = {
   ventaId?: string | null;
   facturaIspId?: string | number | null;
   onClose?: () => void;
+  initialSupplierKey?: string;
 };
 
 /**
@@ -870,9 +907,11 @@ export default function InvoiceCostWorkspace({
   ventaId,
   facturaIspId,
   onClose,
+  initialSupplierKey,
 }: InvoiceCostWorkspaceProps) {
   const [detail, setDetail] = useState<LoadState<ProfitDetail>>({ status: "loading" });
   const [reload, setReload] = useState(0);
+  const [supplierKey, setSupplierKey] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
   const loadedIdentity = useRef("");
   const identity = ventaId ? `venta:${ventaId}` : `isp:${facturaIspId ?? ""}`;
@@ -889,6 +928,7 @@ export default function InvoiceCostWorkspace({
       return () => controller.abort();
     }
     const sameSale = loadedIdentity.current === identity;
+    if (!sameSale) setSupplierKey(initialSupplierKey || "");
     loadedIdentity.current = identity;
     setDetail((previous) => ({ status: sameSale && previous.data ? "refreshing" : "loading", data: sameSale ? previous.data : undefined }));
     getProfit<ProfitDetail>(params, controller.signal)
@@ -900,6 +940,8 @@ export default function InvoiceCostWorkspace({
       });
     return () => controller.abort();
   }, [ventaId, facturaIspId, reload, identity]);
+
+  useEffect(() => { if (initialSupplierKey) setSupplierKey(initialSupplierKey); }, [initialSupplierKey]);
 
   const visibleDetail = loadedIdentity.current === identity ? detail.data : undefined;
   const invoice = visibleDetail?.factura;
@@ -937,7 +979,13 @@ export default function InvoiceCostWorkspace({
             <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-800">
               Coste actualmente vinculado: <strong>{money(linkedCost)}</strong> ({money(purchaseCost)} compras y {money(staffCost)} personal). El margen es provisional y no clasifica ni crea relaciones automáticas.
             </p>
-            {detail.data.avisos.map((notice, index) => <p key={`${notice}-${index}`} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">{notice}</p>)}
+            <details className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><summary className="cursor-pointer font-semibold">Criterios de cálculo y costes pendientes (margen provisional)</summary><div className="mt-2 space-y-2">{detail.data.avisos.map((notice, index) => <p key={index}>{notice}</p>)}</div></details>
+            <VentaProveedores
+              facturaId={invoice.id}
+              canWrite={detail.data.canWrite && detail.status !== "error"}
+              onSelectSupplier={setSupplierKey}
+              autoSelectFirst={!initialSupplierKey}
+            />
             {detail.data.canWrite && detail.status !== "error" ? (
               <CostEditor
                 key={invoice.id}
@@ -946,6 +994,8 @@ export default function InvoiceCostWorkspace({
                 hasta={invoice.fecha}
                 compras={detail.data.compras}
                 personal={detail.data.personal}
+                proveedorKey={supplierKey || undefined}
+                onClearProveedor={() => setSupplierKey("")}
                 onChanged={() => setReload((value) => value + 1)}
               />
             ) : (

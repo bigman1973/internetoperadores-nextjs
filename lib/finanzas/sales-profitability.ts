@@ -13,6 +13,8 @@ export type ProfitFilters = {
   facturaId: string;
   page: number;
   limit: number;
+  proveedor?: string;
+  todasFechas?: boolean;
 };
 
 const MAX_TEXT = 200;
@@ -64,6 +66,8 @@ export function parseProfitFilters(params: URLSearchParams): ProfitFilters {
     facturaId: textParam(params, 'facturaId', MAX_ID),
     page: positiveInteger(params, 'page', 1, 100000),
     limit: positiveInteger(params, 'limit', 25, 50),
+    proveedor: textParam(params, 'proveedor', 160).toLowerCase(),
+    todasFechas: params.get('todasFechas') === '1',
   };
 }
 

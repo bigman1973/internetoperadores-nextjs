@@ -20,6 +20,7 @@ import {
 } from "@heroicons/react/24/outline";
 import VentaServicios from "@/components/finanzas/VentaServicios";
 import InvoiceCostWorkspace, { CostEditor } from "@/components/finanzas/InvoiceCostWorkspace";
+import VentaProveedores from "@/components/finanzas/VentaProveedores";
 import type {
   ProfitCandidates,
   ProfitClient,
@@ -52,7 +53,7 @@ type SalesProfitabilityProps = {
 };
 
 type SaleSelectionResponse = {
-  facturas: Array<Pick<ProfitInvoice, "id" | "numFactura" | "cliente" | "fecha" | "concepto" | "ventas">>;
+  facturas: Array<Pick<ProfitInvoice, "id" | "numFactura" | "cliente" | "fecha" | "concepto" | "ventas"> & { proveedores: string[] }>;
   total: number;
   page: number;
   totalPages: number;
@@ -512,6 +513,9 @@ export default function SalesProfitability({
   const [salePage, setSalePage] = useState(1);
   const [saleRetry, setSaleRetry] = useState(0);
   const [workspaceDismissed, setWorkspaceDismissed] = useState(false);
+  const [saleAllDates, setSaleAllDates] = useState(false);
+  const [preferredSupplier, setPreferredSupplier] = useState<{ facturaId: string; key: string } | null>(null);
+  const [supplierSaleId, setSupplierSaleId] = useState<string | null>(null);
   const [saleSelector, setSaleSelector] = useState<LoadState<SaleSelectionResponse>>({ status: "loading" });
   const saleAborter = useRef<AbortController | null>(null);
   const controllers = useRef(new Set<AbortController>());
@@ -527,6 +531,7 @@ export default function SalesProfitability({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setSaleSearch(saleSearchDraft);
+      setSupplierSaleId(null);
       setSalePage(1);
     }, 350);
     return () => window.clearTimeout(timer);
@@ -540,13 +545,17 @@ export default function SalesProfitability({
     setWorkspaceDismissed(false);
   }, [ventaId, facturaIspId]);
 
+  useEffect(() => { setSalePage(1); setSupplierSaleId(null); }, [desde, hasta, saleAllDates]);
+
   useEffect(() => {
     saleAborter.current?.abort();
     const controller = new AbortController();
     saleAborter.current = controller;
-    setSaleSelector((previous) => ({ status: previous.data ? "refreshing" : "loading", data: previous.data }));
+    setSaleSelector({ status: "loading" });
+    const selectorParams = baseParams({ nivel: "seleccionar", desde, hasta, buscar: saleSearch, page: salePage });
+    if (saleAllDates) selectorParams.set("todasFechas", "1");
     getProfit<SaleSelectionResponse>(
-      baseParams({ nivel: "seleccionar", desde, hasta, buscar: saleSearch, page: salePage }),
+      selectorParams,
       controller.signal,
     )
       .then((data) => {
@@ -556,7 +565,7 @@ export default function SalesProfitability({
         if (!controller.signal.aborted) setSaleSelector((previous) => ({ status: "error", data: previous.data, error: errorMessage(error) }));
       });
     return () => controller.abort();
-  }, [desde, hasta, saleSearch, salePage, reloadToken, saleRetry]);
+  }, [desde, hasta, saleSearch, salePage, reloadToken, saleRetry, saleAllDates]);
 
   const addController = useCallback(() => {
     const controller = new AbortController();
@@ -992,16 +1001,16 @@ export default function SalesProfitability({
         </section>
       )}
 
-      {!workspaceDismissed && (selectedSaleId || facturaIspId !== null && facturaIspId !== undefined) && <div id="gestor-venta-directo" tabIndex={-1} className="scroll-mt-24 focus:outline-none"><InvoiceCostWorkspace ventaId={selectedSaleId} facturaIspId={selectedSaleId ? undefined : facturaIspId} onClose={() => { setWorkspaceDismissed(true); setSelectedSaleId(null); }} /></div>}
+      {!workspaceDismissed && (selectedSaleId || facturaIspId !== null && facturaIspId !== undefined) && <div id="gestor-venta-directo" tabIndex={-1} className="scroll-mt-24 focus:outline-none"><InvoiceCostWorkspace initialSupplierKey={preferredSupplier?.facturaId === selectedSaleId ? preferredSupplier.key : undefined} ventaId={selectedSaleId} facturaIspId={selectedSaleId ? undefined : facturaIspId} onClose={() => { setWorkspaceDismissed(true); setSelectedSaleId(null); }} /></div>}
 
       <section className="overflow-hidden rounded-xl border-2 border-blue-300 bg-white shadow-sm" aria-labelledby="relacionar-compras-heading">
         <div className="flex flex-col gap-3 border-b border-blue-200 bg-blue-50 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-blue-900">Acceso directo</p>
-            <h3 id="relacionar-compras-heading" className="mt-1 text-lg font-bold text-slate-950">Relacionar una venta con sus compras</h3>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">Busca por cliente, número o concepto dentro del período aplicado y abre el gestor sin expandir el árbol de servicios.</p>
+            <h3 id="relacionar-compras-heading" className="mt-1 text-lg font-bold text-slate-950">1. Identificar proveedor · 2. Asignar facturas de compra</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">Marca el proveedor directamente en cada fila. Después verás solo sus compras para concretar el coste. Identificar proveedor no imputa ningún importe.</p>
           </div>
-          <p className="text-xs font-semibold text-slate-700">Período: {date(desde)} — {date(hasta)}</p>
+          <p className="text-xs font-semibold text-slate-700">{saleAllDates ? "Búsqueda: todos los períodos" : `Período: ${date(desde)} — ${date(hasta)}`}</p>
         </div>
         <div className="space-y-3 p-4 sm:p-5">
           <div className="max-w-2xl">
@@ -1010,29 +1019,31 @@ export default function SalesProfitability({
               <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-5 w-5 text-slate-700" aria-hidden="true" />
               <input id="buscar-venta-relacionar" value={saleSearchDraft} onChange={(event) => setSaleSearchDraft(event.target.value)} placeholder="Cliente, número de factura o concepto" className="w-full rounded-md border border-slate-400 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-950 placeholder:text-slate-500 focus:border-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-700" />
             </div>
-            <p className="mt-1 text-xs text-slate-700">Puedes buscar una factura de cliente y relacionar varias compras; no necesitas clasificar el servicio para empezar.</p>
+            <p className="mt-1 text-xs text-slate-700">Todas las ventas del alcance elegido están disponibles por páginas; las anuladas y borradores no participan en rentabilidad.</p>
           </div>
 
+          <label className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={saleAllDates} onChange={event => setSaleAllDates(event.target.checked)} /> Buscar ventas en todos los períodos (los indicadores conservan su período)</label>
           {saleSelector.error && <div role="alert" className="flex flex-col gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-950 sm:flex-row sm:items-center sm:justify-between"><span><strong>No se pudieron cargar las ventas.</strong> {saleSelector.error}</span><button type="button" onClick={() => setSaleRetry((value) => value + 1)} className="rounded border border-red-400 bg-white px-3 py-1.5 text-xs font-bold text-red-900 focus:outline-none focus:ring-2 focus:ring-red-700">Reintentar</button></div>}
           <div className="overflow-x-auto rounded-md border border-slate-300">
             <table className="min-w-[760px] w-full text-left">
               <caption className="sr-only">Ventas disponibles para relacionar compras</caption>
               <thead className="bg-slate-100 text-xs font-bold uppercase tracking-wide text-slate-800">
-                <tr><th className="px-3 py-2.5">Venta</th><th className="px-3 py-2.5">Cliente</th><th className="px-3 py-2.5">Concepto</th><th className="px-3 py-2.5 text-right">Ingreso sin IVA</th><th className="px-3 py-2.5">Acción</th></tr>
+                <tr><th className="px-3 py-2.5">Venta</th><th className="px-3 py-2.5">Cliente</th><th className="px-3 py-2.5">Concepto</th><th className="px-3 py-2.5 text-right">Ingreso sin IVA</th><th className="px-3 py-2.5">Proveedor del servicio</th><th className="px-3 py-2.5">Compras</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {saleSelector.status === "loading" && !saleSelector.data ? (
-                  <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-700" aria-live="polite">Cargando ventas del período…</td></tr>
+                  <tr><td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-700" aria-live="polite">Cargando ventas del período…</td></tr>
                 ) : (saleSelector.data?.facturas || []).length === 0 ? (
-                  <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-700">No hay ventas que coincidan con esta búsqueda y período.</td></tr>
+                  <tr><td colSpan={6} className="px-3 py-6 text-center text-sm text-slate-700">No hay ventas que coincidan con esta búsqueda y período.</td></tr>
                 ) : saleSelector.data?.facturas.map((sale) => (
-                  <tr key={sale.id} className={selectedSaleId === sale.id ? "bg-blue-50" : ""}>
+                  <React.Fragment key={sale.id}><tr className={selectedSaleId === sale.id ? "bg-blue-50" : ""}>
                     <td className="px-3 py-3 text-sm text-slate-950"><strong>{sale.numFactura || "Venta sin número"}</strong><span className="mt-1 block text-xs text-slate-700">{date(sale.fecha)}</span></td>
                     <td className="px-3 py-3 text-sm font-semibold text-slate-900">{sale.cliente}</td>
                     <td className="max-w-xs px-3 py-3 text-sm text-slate-700">{sale.concepto || "—"}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold tabular-nums text-slate-950">{money(sale.ventas)}</td>
+                    <td className="px-3 py-3"><p className="mb-1 max-w-xs text-xs font-semibold text-slate-800">{sale.proveedores?.join(" · ") || "Sin informar"}</p><button type="button" onClick={() => setSupplierSaleId(supplierSaleId === sale.id ? null : sale.id)} aria-expanded={supplierSaleId === sale.id} className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100">{sale.proveedores?.length ? "Editar proveedor" : "Asignar proveedor"}</button></td>
                     <td className="px-3 py-3"><button type="button" onClick={() => { setWorkspaceDismissed(false); setSelectedSaleId(sale.id); window.setTimeout(() => { const panel=document.getElementById("gestor-venta-directo"); panel?.scrollIntoView({ block: "start" }); panel?.focus({ preventScroll: true }); }, 0); }} className="rounded-md bg-blue-800 px-3 py-2 text-xs font-bold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2" title={!saleSelector.data?.canWrite ? "Se abrirá en modo consulta: no tienes permiso para modificar vinculaciones" : undefined}>{saleSelector.data?.canWrite ? "Relacionar compras" : "Ver vínculos"}</button></td>
-                  </tr>
+                  </tr>{supplierSaleId === sale.id && <tr><td colSpan={6} className="bg-blue-50 p-3"><VentaProveedores facturaId={sale.id} autoSelectFirst={false} onSaved={() => setSaleRetry(value => value + 1)} onSelectSupplier={key => { setPreferredSupplier({ facturaId: sale.id, key }); setSelectedSaleId(sale.id); setWorkspaceDismissed(false); setSupplierSaleId(null); window.setTimeout(() => document.getElementById("gestor-venta-directo")?.scrollIntoView({ block: "start" }), 0); }} /></td></tr>}</React.Fragment>
                 ))}
               </tbody>
             </table>

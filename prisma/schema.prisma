@@ -1456,6 +1456,7 @@ model FacturaEmitida {
   personalRentabilidad VinculacionPersonalFactura[]
   rentabilidadAuditoria RentabilidadAuditoria[]
   serviciosRentabilidad ComponenteVentaServicio[]
+  proveedoresVentaReferencia ProveedorVentaReferencia[]
   @@index([cliente])
   @@index([estado])
   @@index([fecha])
@@ -1544,6 +1545,20 @@ model ComponenteVentaServicio {
   @@index([facturaEmitidaId])
   @@index([tipo])
   @@map("componentes_venta_servicio")
+}
+
+// Referencias declarativas de proveedor para una venta. No son costes ni reparten importes.
+model ProveedorVentaReferencia {
+  id                String   @id @default(cuid())
+  facturaEmitidaId  String   @map("factura_emitida_id")
+  nombre            String   @db.VarChar(160)
+  proveedorKey      String   @map("proveedor_key") @db.VarChar(160) // lower(trim(nombre)), sin matching difuso ni CIF
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  factura           FacturaEmitida @relation(fields: [facturaEmitidaId], references: [id], onDelete: Restrict)
+
+  @@unique([facturaEmitidaId, proveedorKey])
+  @@map("proveedores_venta_referencia")
 }
 
 // Reglas de imputación automática por proveedor (para auto-clasificar futuras facturas)
