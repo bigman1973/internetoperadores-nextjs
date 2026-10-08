@@ -5,6 +5,7 @@ function financeAreas(pathname) {
   const aliases = {
     dashboard: ['admin.finanzas'],
     'analitica-costes': ['admin.finanzas.analitica_costes'],
+    rentabilidad: ['admin.finanzas.analitica_costes'],
     clientes: pathname.startsWith('/api/admin/finanzas/clientes/ggcc-draxton')
       ? ['admin.finanzas.ggcc_draxton'] : [],
     'cobros-pendientes': ['admin.finanzas.cobros_pendientes'],
