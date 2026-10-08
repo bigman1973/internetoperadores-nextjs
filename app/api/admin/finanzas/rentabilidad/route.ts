@@ -162,7 +162,7 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
         CROSS JOIN target_sale sale
         WHERE fr.estado::text <> 'RECHAZADA' ${purchaseWhere}`),
       tx.$queryRaw<any[]>(Prisma.sql`${saleIdentityCTE(filters.facturaId)}
-        SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base,
+        SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base, fr.concepto,
           LEAST(100, GREATEST(0, 100 - COALESCE(alloc.otros, 0)))::float8 AS "porcentajeDisponible",
           (fr.base = 0 OR EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true)
             OR COALESCE(alloc.invalido, false) OR COALESCE(alloc.total, 0) > 100.000001 OR COALESCE(alloc.otros, 0) >= 99.999999) AS bloqueado,
@@ -229,9 +229,24 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
   return { compras: [], personal, total, page: filters.page, totalPages: Math.max(1, Math.ceil(total / 25)) };
 }
 
-async function readProfitability(filters: ProfitFilters, canWrite: boolean): Promise<ProfitResponse | ProfitDetail | ProfitCandidates> {
+async function readProfitability(filters: ProfitFilters, canWrite: boolean): Promise<ProfitResponse | ProfitDetail | ProfitCandidates | { facturas: ProfitInvoice[]; total: number; page: number; totalPages: number; canWrite: boolean }> {
   return prisma.$transaction(async tx => {
     if (filters.nivel === 'compras' || filters.nivel === 'personal') return readCandidates(tx, filters);
+    if (filters.nivel === 'seleccionar') {
+      const start = new Date(`${filters.desde}T00:00:00.000Z`);
+      const end = endOfProfitDay(filters.hasta);
+      const search = filters.buscar ? literalLike(filters.buscar) : null;
+      const where = Prisma.sql`WHERE fe.estado::text NOT IN ('ANULADA', 'BORRADOR')
+        AND fe.fecha >= ${start} AND fe.fecha < ${end}
+        ${search ? Prisma.sql`AND (fe.cliente ILIKE ${search} OR fe.num_factura ILIKE ${search} OR COALESCE(fe.concepto, '') ILIKE ${search})` : Prisma.empty}`;
+      const [count, rows] = await Promise.all([
+        tx.$queryRaw<{total:number}[]>(Prisma.sql`SELECT COUNT(*)::int AS total FROM facturas_emitidas fe ${where}`),
+        tx.$queryRaw<any[]>(Prisma.sql`SELECT fe.id, fe.num_factura AS "numFactura", fe.cliente, fe.fecha, fe.concepto, fe.base::float8 AS ventas
+          FROM facturas_emitidas fe ${where} ORDER BY fe.fecha DESC, fe.id DESC LIMIT ${filters.limit} OFFSET ${(filters.page - 1) * filters.limit}`),
+      ]);
+      const total = count[0]?.total || 0;
+      return { facturas: rows.map(invoiceRecord), total, page: filters.page, totalPages: Math.max(1, Math.ceil(total / filters.limit)), canWrite };
+    }
     if ((filters.nivel === 'facturas' && !filters.clienteKey) || (filters.nivel === 'detalle' && !filters.facturaId)) {
       throw new SafeError('Falta la selección de cliente o factura.');
     }
@@ -318,6 +333,29 @@ async function readProfitability(filters: ProfitFilters, canWrite: boolean): Pro
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, timeout: 15_000 });
 }
 
+/** Resolve the accounting identity, never a name/amount match or a newly-created sale. */
+async function directSaleFilters(params: URLSearchParams): Promise<ProfitFilters | null> {
+  const saleId = params.get('ventaId');
+  const ispId = params.get('facturaIspId');
+  if (saleId === null && ispId === null) return null;
+  if (saleId !== null && ispId !== null) throw new SafeError('Selecciona una única factura.');
+  let rows: {id:string; fecha:Date}[];
+  if (saleId !== null) {
+    if (!SOURCE_ID.test(saleId)) throw new SafeError('Factura de venta no válida.');
+    rows = await prisma.$queryRaw(Prisma.sql`SELECT id, fecha FROM facturas_emitidas WHERE id = ${saleId} LIMIT 1`);
+  } else {
+    if (!ispId || !/^[1-9]\d{0,9}$/.test(ispId)) throw new SafeError('Factura ISPgestion no válida.');
+    rows = await prisma.$queryRaw(Prisma.sql`SELECT fe.id, fe.fecha FROM facturas f
+      JOIN facturas_emitidas fe ON fe.id_externo = f.isp_gestion_id::text
+        AND LOWER(BTRIM(COALESCE(fe.origen_sistema, ''))) = 'ispgestion'
+      WHERE f.id = ${Number(ispId)} LIMIT 2`);
+  }
+  if (!rows.length) throw new SafeError('Esta factura no está disponible en ventas financieras. Revisa su sincronización con ISPgestion; no se ha creado ninguna copia.', 404);
+  if (rows.length !== 1) throw new SafeError('La factura tiene más de una referencia financiera. Revisa su identidad antes de vincular costes.', 409);
+  const fecha = day(rows[0].fecha);
+  return parseProfitFilters(new URLSearchParams({ nivel: 'detalle', facturaId: rows[0].id, desde: fecha, hasta: fecha }));
+}
+
 export async function GET(req: NextRequest) {
   try {
     const auth = await getActiveAdmin();
@@ -326,8 +364,8 @@ export async function GET(req: NextRequest) {
     if (denied) return withNoStore(denied);
     const writeDenied = await checkAdminAreaWrite(AREA, LEGACY_ROLES, auth.session);
     let filters: ProfitFilters;
-    try { filters = parseProfitFilters(req.nextUrl.searchParams); }
-    catch { return json({ error: 'Revisa el período, filtros y paginación.' }, { status: 400 }); }
+    try { filters = await directSaleFilters(req.nextUrl.searchParams) ?? parseProfitFilters(req.nextUrl.searchParams); }
+    catch (error) { if (error instanceof SafeError) throw error; return json({ error: 'Revisa el período, filtros y paginación.' }, { status: 400 }); }
     return json(await readProfitability(filters, !writeDenied));
   } catch (error) {
     if (error instanceof SafeError) return json({ error: error.message }, { status: error.status });

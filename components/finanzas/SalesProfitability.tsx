@@ -19,6 +19,7 @@ import {
   TrashIcon,
 } from "@heroicons/react/24/outline";
 import VentaServicios from "@/components/finanzas/VentaServicios";
+import InvoiceCostWorkspace, { CostEditor } from "@/components/finanzas/InvoiceCostWorkspace";
 import type {
   ProfitCandidates,
   ProfitClient,
@@ -46,6 +47,16 @@ type SalesProfitabilityProps = {
   buscar: string;
   actividad?: string;
   reloadToken: number;
+  ventaId?: string | null;
+  facturaIspId?: string | number | null;
+};
+
+type SaleSelectionResponse = {
+  facturas: Array<Pick<ProfitInvoice, "id" | "numFactura" | "cliente" | "fecha" | "concepto" | "ventas">>;
+  total: number;
+  page: number;
+  totalPages: number;
+  canWrite: boolean;
 };
 
 const euros = new Intl.NumberFormat("es-ES", {
@@ -113,7 +124,7 @@ function baseParams({
   facturaId,
 }: {
   nivel:
-    "servicios" | "clientes" | "facturas" | "detalle" | "compras" | "personal";
+    "servicios" | "clientes" | "facturas" | "detalle" | "compras" | "personal" | "seleccionar";
   desde: string;
   hasta: string;
   buscar?: string;
@@ -420,544 +431,6 @@ function AssignedStaff({
   );
 }
 
-function CostEditor({
-  facturaId,
-  desde,
-  hasta,
-  compras,
-  personal,
-  onChanged,
-}: {
-  facturaId: string;
-  desde: string;
-  hasta: string;
-  compras: ProfitPurchaseLink[];
-  personal: ProfitStaffLink[];
-  onChanged: () => void;
-}) {
-  const [tab, setTab] = useState<EditorTab>("compras");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [candidates, setCandidates] = useState<LoadState<ProfitCandidates>>({
-    status: "loading",
-  });
-  const [sourceId, setSourceId] = useState("");
-  const [amount, setAmount] = useState("");
-  const [notes, setNotes] = useState("");
-  const [mutationError, setMutationError] = useState("");
-  const [mutating, setMutating] = useState(false);
-  const [removeSource, setRemoveSource] = useState<string | null>(null);
-  const aborter = useRef<AbortController | null>(null);
-  const [candidateRetry, setCandidateRetry] = useState(0);
-
-  useEffect(() => {
-    aborter.current?.abort();
-    const controller = new AbortController();
-    aborter.current = controller;
-    setCandidates({ status: "loading" });
-    getProfit<ProfitCandidates>(
-      baseParams({ nivel: tab, desde, hasta, buscar: search, page, facturaId }),
-      controller.signal,
-    )
-      .then((data) => {
-        if (!controller.signal.aborted)
-          setCandidates({ status: "ready", data });
-      })
-      .catch((error: unknown) => {
-        if (!controller.signal.aborted)
-          setCandidates((previous) => ({
-            status: "error",
-            data: previous.data,
-            error: errorMessage(error),
-          }));
-      });
-    return () => controller.abort();
-  }, [tab, desde, hasta, search, page, facturaId, candidateRetry]);
-
-  function switchTab(next: EditorTab) {
-    setTab(next);
-    setPage(1);
-    setSearch("");
-    setSourceId("");
-    setAmount("");
-    setNotes("");
-    setMutationError("");
-    setRemoveSource(null);
-  }
-
-  function editPurchase(item: ProfitPurchaseLink) {
-    if (tab !== "compras") switchTab("compras");
-    setSourceId(item.fuenteId);
-    setAmount(String(item.porcentaje));
-    setNotes(item.notas || "");
-    setMutationError("");
-  }
-  function editStaff(item: ProfitStaffLink) {
-    if (tab !== "personal") switchTab("personal");
-    setSourceId(item.fuenteId);
-    setAmount(String(item.porcentaje));
-    setNotes(item.notas || "");
-    setMutationError("");
-  }
-
-  async function saveLink() {
-    if (mutating) return;
-    const parsed = Number(amount.replace(",", "."));
-    if (!sourceId)
-      return setMutationError(
-        "Selecciona una fuente antes de vincular el coste.",
-      );
-    if (
-      !Number.isFinite(parsed) ||
-      parsed <= 0 ||
-      parsed > 100 ||
-      !/^\d{1,3}([.,]\d{1,2})?$/.test(amount.trim())
-    )
-      return setMutationError(
-        "El porcentaje debe estar entre 0,01 y 100 y tener un máximo de dos decimales.",
-      );
-    if (notes.length > 2000)
-      return setMutationError("Las notas no pueden superar 2.000 caracteres.");
-    setMutating(true);
-    setMutationError("");
-    try {
-      const response = await fetch("/api/admin/finanzas/rentabilidad", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: tab === "compras" ? "vincular_compra" : "vincular_personal",
-          facturaId,
-          fuenteId: sourceId,
-          porcentaje: parsed,
-          notas: notes.trim(),
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok)
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : "No se ha podido guardar la vinculación.",
-        );
-      setSourceId("");
-      setAmount("");
-      setNotes("");
-      onChanged();
-    } catch (error) {
-      setMutationError(errorMessage(error));
-    } finally {
-      setMutating(false);
-    }
-  }
-
-  async function removeLink() {
-    if (!removeSource || mutating) return;
-    setMutating(true);
-    setMutationError("");
-    try {
-      const response = await fetch("/api/admin/finanzas/rentabilidad", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: tab === "compras" ? "quitar_compra" : "quitar_personal",
-          facturaId,
-          fuenteId: removeSource,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok)
-        throw new Error(
-          typeof body?.error === "string"
-            ? body.error
-            : "No se ha podido desvincular el coste.",
-        );
-      setRemoveSource(null);
-      if (sourceId === removeSource) {
-        setSourceId("");
-        setAmount("");
-        setNotes("");
-      }
-      onChanged();
-    } catch (error) {
-      setMutationError(errorMessage(error));
-    } finally {
-      setMutating(false);
-    }
-  }
-
-  const items =
-    tab === "compras"
-      ? candidates.data?.compras || []
-      : candidates.data?.personal || [];
-  const selectedExisting =
-    tab === "compras"
-      ? compras.find((item) => item.fuenteId === sourceId)
-      : personal.find((item) => item.fuenteId === sourceId);
-
-  return (
-    <section
-      className="mt-4 rounded-lg border border-blue-200 bg-blue-50/50"
-      aria-label="Editor de costes asignados"
-    >
-      <div className="flex flex-col gap-3 border-b border-blue-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h4 className="font-bold text-slate-950">
-            Asignar costes a esta venta
-          </h4>
-          <p className="mt-1 text-xs leading-5 text-slate-700">
-            Solo se crea o actualiza una relación al pulsar el botón. No elimina
-            ni modifica la fuente original.
-          </p>
-        </div>
-        <div className="flex rounded-lg border border-slate-300 bg-white p-1">
-          <button
-            type="button"
-            onClick={() => switchTab("compras")}
-            className={`rounded px-3 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-700 ${tab === "compras" ? "bg-blue-800 text-white" : "text-slate-800 hover:bg-slate-100"}`}
-          >
-            Compra
-          </button>
-          <button
-            type="button"
-            onClick={() => switchTab("personal")}
-            className={`rounded px-3 py-1.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-700 ${tab === "personal" ? "bg-blue-800 text-white" : "text-slate-800 hover:bg-slate-100"}`}
-          >
-            Personal
-          </button>
-        </div>
-      </div>
-      <div className="space-y-4 p-4">
-        {mutationError && (
-          <p
-            role="alert"
-            className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm font-semibold text-red-950"
-          >
-            {mutationError}
-          </p>
-        )}
-        {removeSource && (
-          <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              <strong>¿Desvincular coste?</strong> No elimina la fuente.
-            </span>
-            <span className="flex gap-2">
-              <button
-                type="button"
-                onClick={removeLink}
-                disabled={mutating}
-                className="rounded bg-red-800 px-3 py-1.5 text-xs font-bold text-white hover:bg-red-900 disabled:opacity-60"
-              >
-                Desvincular
-              </button>
-              <button
-                type="button"
-                onClick={() => setRemoveSource(null)}
-                disabled={mutating}
-                className="rounded border border-amber-400 bg-white px-3 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-100"
-              >
-                Cancelar
-              </button>
-            </span>
-          </div>
-        )}
-        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
-          <div>
-            <label
-              htmlFor={`candidate-search-${facturaId}`}
-              className="mb-1 block text-xs font-bold text-slate-900"
-            >
-              Buscar fuente
-            </label>
-            <div className="relative">
-              <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600" />
-              <input
-                id={`candidate-search-${facturaId}`}
-                value={search}
-                onChange={(event) => {
-                  setSearch(event.target.value);
-                  setPage(1);
-                }}
-                placeholder={
-                  tab === "compras"
-                    ? "Factura o proveedor"
-                    : "Nombre de personal"
-                }
-                className="w-full rounded-md border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-950 placeholder:text-slate-500 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700"
-              />
-            </div>
-          </div>
-          <p className="self-end pb-2 text-xs leading-4 text-slate-700">
-            Las fuentes se consultan completas; el período de venta no limita su
-            fecha.
-          </p>
-        </div>
-        <div className="overflow-x-auto rounded-md border border-slate-200 bg-white">
-          <table className="min-w-[690px] w-full text-left">
-            <thead className="bg-slate-100 text-xs font-bold uppercase tracking-wide text-slate-800">
-              <tr>
-                <th className="px-3 py-2.5">
-                  {tab === "compras" ? "Factura / proveedor" : "Persona"}
-                </th>
-                <th className="px-3 py-2.5">Fecha</th>
-                <th className="px-3 py-2.5 text-right">
-                  {tab === "compras" ? "Base sin IVA" : "Horas"}
-                </th>
-                <th className="px-3 py-2.5 text-right">
-                  {tab === "compras" ? "Disponible" : "Coste registrado"}
-                </th>
-                <th className="px-3 py-2.5 text-right">Seleccionar</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {candidates.status === "loading" && !candidates.data ? (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-3 py-5 text-center text-sm text-slate-700"
-                  >
-                    Cargando fuentes…
-                  </td>
-                </tr>
-              ) : items.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={5}
-                    className="px-3 py-5 text-center text-sm text-slate-700"
-                  >
-                    No hay fuentes disponibles con esta búsqueda.
-                  </td>
-                </tr>
-              ) : tab === "compras" ? (
-                (items as PurchaseCandidate[]).map((item) => (
-                  <tr
-                    key={item.id}
-                    className={
-                      item.bloqueado
-                        ? "bg-slate-50 text-slate-600"
-                        : sourceId === item.id
-                          ? "bg-blue-50"
-                          : ""
-                    }
-                  >
-                    <td className="px-3 py-3 text-sm">
-                      <p className="font-bold text-slate-950">
-                        {item.numFactura || "Compra sin número"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-slate-700">
-                        {item.proveedor}
-                      </p>
-                      {item.bloqueado && (
-                        <p className="mt-1 text-xs font-semibold text-red-900">
-                          {item.motivo || "Fuente no disponible para asignar."}
-                        </p>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-sm text-slate-900">
-                      {date(item.fecha)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-slate-900">
-                      {money(item.base)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-slate-900">
-                      {item.porcentajeDisponible.toLocaleString("es-ES", {
-                        maximumFractionDigits: 2,
-                      })}{" "}
-                      %
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <button
-                        type="button"
-                        disabled={item.bloqueado || item.porcentajeDisponible <= 0 || mutating || candidates.status !== "ready"}
-                        onClick={() => {
-                          setSourceId(item.id);
-                          setAmount(
-                            String(Math.min(100, item.porcentajeDisponible)),
-                          );
-                          setMutationError("");
-                        }}
-                        className="rounded border border-blue-300 bg-white px-2.5 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {sourceId === item.id ? "Seleccionada" : "Seleccionar"}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                (items as StaffCandidate[]).map((item) => (
-                  <tr
-                    key={item.id}
-                    className={
-                      item.bloqueado
-                        ? "bg-slate-50 text-slate-600"
-                        : sourceId === item.id
-                          ? "bg-blue-50"
-                          : ""
-                    }
-                  >
-                    <td className="px-3 py-3 text-sm">
-                      <p className="font-bold text-slate-950">
-                        {item.empleado}
-                      </p>
-                      {item.bloqueado && (
-                        <p className="mt-1 text-xs font-semibold text-red-900">
-                          {item.motivo || "Fuente no disponible para asignar."}
-                        </p>
-                      )}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-sm text-slate-900">
-                      {date(item.fecha)}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-slate-900">
-                      {item.horas.toLocaleString("es-ES", {
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm tabular-nums text-slate-900">
-                      {item.coste === null ? "Pendiente" : money(item.coste)}
-                      <span className="ml-1 text-xs">
-                        ·{" "}
-                        {item.porcentajeDisponible.toLocaleString("es-ES", {
-                          maximumFractionDigits: 2,
-                        })}{" "}
-                        % disp.
-                      </span>
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <button
-                        type="button"
-                        disabled={item.bloqueado || item.porcentajeDisponible <= 0 || mutating || candidates.status !== "ready"}
-                        onClick={() => {
-                          setSourceId(item.id);
-                          setAmount(
-                            String(Math.min(100, item.porcentajeDisponible)),
-                          );
-                          setMutationError("");
-                        }}
-                        className="rounded border border-blue-300 bg-white px-2.5 py-1.5 text-xs font-bold text-blue-900 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {sourceId === item.id ? "Seleccionada" : "Seleccionar"}
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-        {candidates.error && (
-          <p
-            role="alert"
-            className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-950"
-          >
-            <strong>No se pudieron cargar las fuentes.</strong>{" "}
-            {candidates.error}
-            <button type="button" onClick={() => setCandidateRetry(value => value + 1)} className="ml-3 font-bold underline">Reintentar</button>
-          </p>
-        )}
-        {candidates.data && (
-          <Pager
-            page={candidates.data.page}
-            total={candidates.data.total}
-            totalPages={candidates.data.totalPages}
-            loading={
-              candidates.status === "loading" ||
-              candidates.status === "refreshing"
-            }
-            onPage={setPage}
-            label="Paginación de fuentes candidatas"
-          />
-        )}
-        <div className="grid gap-3 rounded-md border border-slate-200 bg-white p-3 md:grid-cols-[170px_minmax(0,1fr)_auto]">
-          <div>
-            <label
-              htmlFor={`pct-${facturaId}`}
-              className="mb-1 block text-xs font-bold text-slate-900"
-            >
-              Porcentaje
-            </label>
-            <input
-              id={`pct-${facturaId}`}
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-              placeholder="0,00"
-              aria-describedby={`pct-help-${facturaId}`}
-              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-950 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700"
-            />
-            <p
-              id={`pct-help-${facturaId}`}
-              className="mt-1 text-[11px] text-slate-700"
-            >
-              0,01–100; máximo 2 decimales.
-            </p>
-          </div>
-          <div>
-            <label
-              htmlFor={`notes-${facturaId}`}
-              className="mb-1 block text-xs font-bold text-slate-900"
-            >
-              Notas de la vinculación
-            </label>
-            <textarea
-              id={`notes-${facturaId}`}
-              value={notes}
-              maxLength={2000}
-              onChange={(event) => setNotes(event.target.value)}
-              rows={2}
-              placeholder="Opcional, máximo 2.000 caracteres"
-              className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-950 placeholder:text-slate-500 focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={saveLink}
-            disabled={!sourceId || !amount || mutating}
-            className="self-end inline-flex items-center justify-center gap-1.5 rounded-md bg-blue-800 px-3 py-2 text-sm font-bold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <PlusIcon className="h-4 w-4" />
-            {selectedExisting ? "Actualizar coste" : "Vincular coste"}
-          </button>
-        </div>
-        <div className="rounded-md border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-3 py-2">
-            <h5 className="text-sm font-bold text-slate-950">
-              {tab === "compras" ? "Compras asignadas" : "Personal asignado"}
-            </h5>
-          </div>
-          {tab === "compras" ? (
-            compras.length ? (
-              <AssignedPurchases
-                items={compras}
-                onEdit={editPurchase}
-                onRemove={(item) => {
-                  setRemoveSource(item.fuenteId);
-                  setMutationError("");
-                }}
-              />
-            ) : (
-              <p className="px-3 py-4 text-sm text-slate-700">
-                Aún no hay compras asignadas.
-              </p>
-            )
-          ) : personal.length ? (
-            <AssignedStaff
-              items={personal}
-              onEdit={editStaff}
-              onRemove={(item) => {
-                setRemoveSource(item.fuenteId);
-                setMutationError("");
-              }}
-            />
-          ) : (
-            <p className="px-3 py-4 text-sm text-slate-700">
-              Aún no hay personal asignado.
-            </p>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 const serviceGuidance: Record<
   string,
@@ -1003,6 +476,8 @@ export default function SalesProfitability({
   buscar,
   actividad,
   reloadToken,
+  ventaId,
+  facturaIspId,
 }: SalesProfitabilityProps) {
   const [activityDraft, setActivityDraft] = useState(actividad || "");
   const [activityApplied, setActivityApplied] = useState(actividad || "");
@@ -1031,6 +506,14 @@ export default function SalesProfitability({
     Record<string, LoadState<ProfitDetail>>
   >({});
   const [editingInvoice, setEditingInvoice] = useState<string | null>(null);
+  const [selectedSaleId, setSelectedSaleId] = useState<string | null>(ventaId || null);
+  const [saleSearchDraft, setSaleSearchDraft] = useState("");
+  const [saleSearch, setSaleSearch] = useState("");
+  const [salePage, setSalePage] = useState(1);
+  const [saleRetry, setSaleRetry] = useState(0);
+  const [workspaceDismissed, setWorkspaceDismissed] = useState(false);
+  const [saleSelector, setSaleSelector] = useState<LoadState<SaleSelectionResponse>>({ status: "loading" });
+  const saleAborter = useRef<AbortController | null>(null);
   const controllers = useRef(new Set<AbortController>());
   const generation = useRef(0);
   const priorFilterKey = useRef("");
@@ -1040,6 +523,40 @@ export default function SalesProfitability({
     [desde, hasta, buscar, activityApplied],
   );
   const isRefreshing = root.status === "refreshing";
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSaleSearch(saleSearchDraft);
+      setSalePage(1);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [saleSearchDraft]);
+
+  useEffect(() => {
+    if (ventaId) setSelectedSaleId(ventaId);
+  }, [ventaId]);
+
+  useEffect(() => {
+    setWorkspaceDismissed(false);
+  }, [ventaId, facturaIspId]);
+
+  useEffect(() => {
+    saleAborter.current?.abort();
+    const controller = new AbortController();
+    saleAborter.current = controller;
+    setSaleSelector((previous) => ({ status: previous.data ? "refreshing" : "loading", data: previous.data }));
+    getProfit<SaleSelectionResponse>(
+      baseParams({ nivel: "seleccionar", desde, hasta, buscar: saleSearch, page: salePage }),
+      controller.signal,
+    )
+      .then((data) => {
+        if (!controller.signal.aborted) setSaleSelector({ status: "ready", data });
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setSaleSelector((previous) => ({ status: "error", data: previous.data, error: errorMessage(error) }));
+      });
+    return () => controller.abort();
+  }, [desde, hasta, saleSearch, salePage, reloadToken, saleRetry]);
 
   const addController = useCallback(() => {
     const controller = new AbortController();
@@ -1474,6 +991,56 @@ export default function SalesProfitability({
           Cargando indicadores de rentabilidad…
         </section>
       )}
+
+      {!workspaceDismissed && (selectedSaleId || facturaIspId !== null && facturaIspId !== undefined) && <div id="gestor-venta-directo" tabIndex={-1} className="scroll-mt-24 focus:outline-none"><InvoiceCostWorkspace ventaId={selectedSaleId} facturaIspId={selectedSaleId ? undefined : facturaIspId} onClose={() => { setWorkspaceDismissed(true); setSelectedSaleId(null); }} /></div>}
+
+      <section className="overflow-hidden rounded-xl border-2 border-blue-300 bg-white shadow-sm" aria-labelledby="relacionar-compras-heading">
+        <div className="flex flex-col gap-3 border-b border-blue-200 bg-blue-50 px-4 py-4 sm:flex-row sm:items-end sm:justify-between sm:px-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-blue-900">Acceso directo</p>
+            <h3 id="relacionar-compras-heading" className="mt-1 text-lg font-bold text-slate-950">Relacionar una venta con sus compras</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">Busca por cliente, número o concepto dentro del período aplicado y abre el gestor sin expandir el árbol de servicios.</p>
+          </div>
+          <p className="text-xs font-semibold text-slate-700">Período: {date(desde)} — {date(hasta)}</p>
+        </div>
+        <div className="space-y-3 p-4 sm:p-5">
+          <div className="max-w-2xl">
+            <label htmlFor="buscar-venta-relacionar" className="mb-1 block text-sm font-bold text-slate-900">Buscar venta</label>
+            <div className="relative">
+              <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-5 w-5 text-slate-700" aria-hidden="true" />
+              <input id="buscar-venta-relacionar" value={saleSearchDraft} onChange={(event) => setSaleSearchDraft(event.target.value)} placeholder="Cliente, número de factura o concepto" className="w-full rounded-md border border-slate-400 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-950 placeholder:text-slate-500 focus:border-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-700" />
+            </div>
+            <p className="mt-1 text-xs text-slate-700">Puedes buscar una factura de cliente y relacionar varias compras; no necesitas clasificar el servicio para empezar.</p>
+          </div>
+
+          {saleSelector.error && <div role="alert" className="flex flex-col gap-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-950 sm:flex-row sm:items-center sm:justify-between"><span><strong>No se pudieron cargar las ventas.</strong> {saleSelector.error}</span><button type="button" onClick={() => setSaleRetry((value) => value + 1)} className="rounded border border-red-400 bg-white px-3 py-1.5 text-xs font-bold text-red-900 focus:outline-none focus:ring-2 focus:ring-red-700">Reintentar</button></div>}
+          <div className="overflow-x-auto rounded-md border border-slate-300">
+            <table className="min-w-[760px] w-full text-left">
+              <caption className="sr-only">Ventas disponibles para relacionar compras</caption>
+              <thead className="bg-slate-100 text-xs font-bold uppercase tracking-wide text-slate-800">
+                <tr><th className="px-3 py-2.5">Venta</th><th className="px-3 py-2.5">Cliente</th><th className="px-3 py-2.5">Concepto</th><th className="px-3 py-2.5 text-right">Ingreso sin IVA</th><th className="px-3 py-2.5">Acción</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {saleSelector.status === "loading" && !saleSelector.data ? (
+                  <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-700" aria-live="polite">Cargando ventas del período…</td></tr>
+                ) : (saleSelector.data?.facturas || []).length === 0 ? (
+                  <tr><td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-700">No hay ventas que coincidan con esta búsqueda y período.</td></tr>
+                ) : saleSelector.data?.facturas.map((sale) => (
+                  <tr key={sale.id} className={selectedSaleId === sale.id ? "bg-blue-50" : ""}>
+                    <td className="px-3 py-3 text-sm text-slate-950"><strong>{sale.numFactura || "Venta sin número"}</strong><span className="mt-1 block text-xs text-slate-700">{date(sale.fecha)}</span></td>
+                    <td className="px-3 py-3 text-sm font-semibold text-slate-900">{sale.cliente}</td>
+                    <td className="max-w-xs px-3 py-3 text-sm text-slate-700">{sale.concepto || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold tabular-nums text-slate-950">{money(sale.ventas)}</td>
+                    <td className="px-3 py-3"><button type="button" onClick={() => { setWorkspaceDismissed(false); setSelectedSaleId(sale.id); window.setTimeout(() => { const panel=document.getElementById("gestor-venta-directo"); panel?.scrollIntoView({ block: "start" }); panel?.focus({ preventScroll: true }); }, 0); }} className="rounded-md bg-blue-800 px-3 py-2 text-xs font-bold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2" title={!saleSelector.data?.canWrite ? "Se abrirá en modo consulta: no tienes permiso para modificar vinculaciones" : undefined}>{saleSelector.data?.canWrite ? "Relacionar compras" : "Ver vínculos"}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {saleSelector.data && <Pager page={saleSelector.data.page} total={saleSelector.data.total} totalPages={saleSelector.data.totalPages} loading={saleSelector.status === "loading" || saleSelector.status === "refreshing"} onPage={setSalePage} label="Paginación de ventas para relacionar compras" />}
+        </div>
+      </section>
+
 
       <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
         <div className="flex gap-3">
@@ -2108,7 +1675,7 @@ export default function SalesProfitability({
                                                                             {editingInvoice ===
                                                                             invoiceScope
                                                                               ? "Cerrar editor"
-                                                                              : "Gestionar costes"}
+                                                                              : "Relacionar compras y personal"}
                                                                           </button>
                                                                         )}
                                                                       </div>

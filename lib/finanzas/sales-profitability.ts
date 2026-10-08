@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 
-export type ProfitLevel = 'servicios' | 'clientes' | 'facturas' | 'detalle' | 'compras' | 'personal';
+export type ProfitLevel = 'servicios' | 'clientes' | 'facturas' | 'detalle' | 'compras' | 'personal' | 'seleccionar';
 
 export type ProfitFilters = {
   desde: string;
@@ -17,7 +17,7 @@ export type ProfitFilters = {
 
 const MAX_TEXT = 200;
 const MAX_ID = 200;
-const LEVELS: readonly ProfitLevel[] = ['servicios', 'clientes', 'facturas', 'detalle', 'compras', 'personal'];
+const LEVELS: readonly ProfitLevel[] = ['servicios', 'clientes', 'facturas', 'detalle', 'compras', 'personal', 'seleccionar'];
 export const SERVICE_KEYS = ['PROYECTO', 'TELECO_INTERMEDIACION', 'TELECO_RED_PROPIA', '__SIN_DESGLOSE__'] as const;
 
 /** Calendar-day validation avoids JavaScript's permissive Date rollover behaviour. */

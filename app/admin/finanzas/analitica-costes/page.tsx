@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import SalesProfitability from '@/components/finanzas/SalesProfitability';
 import {
@@ -250,12 +251,16 @@ function EstadoFactura({ factura }: { factura: FacturaAnalitica }) {
 }
 
 export default function AnaliticaCostesPage() {
+  const searchParams = useSearchParams();
   const currentYear = new Date().getFullYear();
   const today = localIsoDate(new Date());
   const initialFrom = `${currentYear}-01-01`;
   const initialTo = `${currentYear}-12-31`;
 
-  const [pestana, setPestana] = useState<Pestana>('costes');
+  const ventaIdUrl = searchParams.get('ventaId');
+  const facturaIspIdUrl = searchParams.get('facturaIspId');
+  const deepLinkWorkspace = Boolean(ventaIdUrl || facturaIspIdUrl);
+  const [pestana, setPestana] = useState<Pestana>(deepLinkWorkspace ? 'rentabilidad' : 'costes');
   const [pendienteTipo, setPendienteTipo] = useState<PendienteTipo>('clasificacion');
   const [periodoTipo, setPeriodoTipo] = useState<PeriodoTipo>('anio');
   const [year, setYear] = useState(String(currentYear));
@@ -286,6 +291,10 @@ export default function AnaliticaCostesPage() {
 
   const controllers = useRef(new Set<AbortController>());
   const activeKey = useRef(consulta.key);
+
+  useEffect(() => {
+    if (deepLinkWorkspace) setPestana('rentabilidad');
+  }, [deepLinkWorkspace]);
 
   const years = useMemo(() => {
     const first = currentYear - 5;
@@ -961,6 +970,8 @@ export default function AnaliticaCostesPage() {
         hasta={consulta.hasta}
         buscar={consulta.buscar}
         reloadToken={reloadToken}
+        ventaId={ventaIdUrl}
+        facturaIspId={facturaIspIdUrl}
       />}
     </main>
   );

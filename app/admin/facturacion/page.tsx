@@ -693,6 +693,7 @@ export default function FacturacionPage() {
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Pendiente</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-700">Rentabilidad</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -720,6 +721,9 @@ export default function FacturacionPage() {
                       ) : (
                         <span className="text-gray-400">0,00&euro;</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link href={`/admin/finanzas/analitica-costes?facturaIspId=${f.id}`} className="inline-flex whitespace-nowrap rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-700">Relacionar compras</Link>
                     </td>
                   </tr>
                 ))}

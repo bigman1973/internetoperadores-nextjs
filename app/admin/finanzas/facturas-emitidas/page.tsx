@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { MagnifyingGlassIcon, DocumentTextIcon, CheckBadgeIcon, ClockIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline';
 
 interface FacturaEmitida {
@@ -169,13 +170,14 @@ export default function FacturasEmitidasPage() {
                 <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Total</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Estado</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Cobro</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase text-slate-700">Rentabilidad</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-400">
                   <DocumentTextIcon className="h-8 w-8 mx-auto text-gray-300 mb-2" />
                   No hay facturas emitidas. Importa desde ISP Gestión o crea manualmente.
                 </td></tr>
@@ -211,6 +213,9 @@ export default function FacturasEmitidasPage() {
                         {f.importeCobrado > 0 && f.importeCobrado < f.total && (
                           <p className="text-xs text-amber-600">{formatEUR(f.importeCobrado)} cobrado</p>
                         )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {f.estado === 'ANULADA' ? <span className="text-xs text-slate-600">Anulada</span> : <Link href={`/admin/finanzas/analitica-costes?ventaId=${encodeURIComponent(f.id)}`} className="inline-flex whitespace-nowrap rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-700">Relacionar compras</Link>}
                       </td>
                     </tr>
                   );

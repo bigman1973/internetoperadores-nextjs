@@ -45,6 +45,9 @@ function queryRaw(query: any) {
   const tag = sqlText(query).replace(/\s+/g, ' ').trim();
   // Every response is selected by an SQL tag: no database client is available.
   readQueries.push(tag);
+  if (tag.includes('SELECT COUNT(*)::int AS total FROM facturas_emitidas fe')) return [{total:1}];
+  if (tag.includes('SELECT fe.id, fe.num_factura AS "numFactura", fe.cliente, fe.fecha')) return [{id:saleId,numFactura:'V-1',cliente:'Cliente test',fecha:new Date('2026-10-01'),concepto:'Material test',ventas:200}];
+  if (tag.includes('SELECT id, fecha FROM facturas_emitidas')) return [];
   if (tag.includes('SELECT COUNT(*)::int AS total FROM facturas_recibidas fr')) return [{ total: 1 }];
   if (tag.includes('SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor')) {
     return [{ id: purchaseId, numFactura: 'R-1', proveedor: 'Proveedor test', fecha: new Date('2026-10-01'), base: 100, porcentajeDisponible: 140, bloqueado: false, motivo: null }];
@@ -95,6 +98,7 @@ function executeRaw(query: any) {
 
 const tx = { $queryRaw: async (query: any) => queryRaw(query), $executeRaw: async (query: any) => executeRaw(query) };
 const prisma = {
+  $queryRaw: async (query:any) => queryRaw(query),
   usuarioAdmin: {
     findUnique: async () => {
       if (adminFails) throw new Error('database unavailable');
@@ -121,6 +125,8 @@ vm.runInNewContext(code, {
   module,
   exports: module.exports,
   Buffer,
+  Date,
+  URLSearchParams,
   TextEncoder,
   console,
   require: (name: string) => {
@@ -188,6 +194,20 @@ async function main() {
   assert.equal(await status(POST(request('POST', link))), 403, 'write permission is required');
   writable = true;
 
+  const flat = await (await GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?desde=2026-10-01&hasta=2026-10-31&nivel=seleccionar`))).json();
+  assert.equal(flat.facturas.length,1);
+  assert.equal(flat.facturas[0].numFactura,'V-1');
+  assert.equal(flat.canWrite,true);
+  authenticated=false;
+  assert.equal(await status(GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?ventaId=${saleId}`))),401);
+  authenticated=true;
+  readable=false;
+  assert.equal(await status(GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?ventaId=${saleId}`))),403);
+  readable=true;
+  assert.equal(await status(GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?ventaId=invalid!`))),400);
+  assert.equal(await status(GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?ventaId=${saleId}&facturaIspId=1`))),400);
+  assert.equal(await status(GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?ventaId=not-found`))),404);
+  assert.equal(writeQueries.length,0);
   const candidates = await (await GET(new NextRequest(`${BASE}/api/admin/finanzas/rentabilidad?desde=2026-10-01&hasta=2026-10-31&nivel=compras&facturaId=${saleId}`))).json();
   assert.equal(candidates.total, 1, 'candidate total comes from the selected purchase family');
   assert.equal(candidates.compras.length, 1);

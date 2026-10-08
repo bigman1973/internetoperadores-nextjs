@@ -88,6 +88,7 @@ export interface PurchaseCandidate {
   fecha: string;
   base: number;
   porcentajeDisponible: number;
+  concepto: string | null;
   bloqueado: boolean;
   motivo: string | null;
 }
