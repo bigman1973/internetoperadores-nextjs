@@ -27,6 +27,7 @@ model UsuarioAdmin {
   perfilAsignado   String?           @map("perfil_asignado") // Nombre del perfil de permisos asignado
   outlookConexion  OutlookConexion?
   comentariosFactura ComentarioFacturaRecibida[]
+  rentabilidadAuditoria RentabilidadAuditoria[]
 
   @@map("usuarios_admin")
 }
@@ -1452,6 +1453,9 @@ model FacturaEmitida {
   proyectoSingular   ProyectoContratoDraxton? @relation(fields: [proyectoSingularId], references: [id])
   // Vinculación con Exagrid
   exagridProyecto    ExagridProyecto?
+  personalRentabilidad VinculacionPersonalFactura[]
+  rentabilidadAuditoria RentabilidadAuditoria[]
+  serviciosRentabilidad ComponenteVentaServicio[]
   @@index([cliente])
   @@index([estado])
   @@index([fecha])
@@ -1488,6 +1492,58 @@ model VinculacionFactura {
   @@index([facturaRecibidaId])
   @@index([facturaEmitidaId])
   @@map("vinculaciones_facturas")
+}
+
+// Distribución explícita de horas ejecutadas entre ventas; nunca se duplica la nómina.
+model VinculacionPersonalFactura {
+  id                String   @id @default(cuid())
+  facturaEmitidaId   String   @map("factura_emitida_id")
+  imputacionHorasId  String   @map("imputacion_horas_id")
+  porcentaje        Float
+  notas             String?  @db.Text
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  factura           FacturaEmitida @relation(fields: [facturaEmitidaId], references: [id], onDelete: Restrict)
+  imputacion        ImputacionHoras @relation(fields: [imputacionHorasId], references: [id], onDelete: Restrict)
+
+  @@unique([facturaEmitidaId, imputacionHorasId])
+  @@index([imputacionHorasId])
+  @@map("vinculaciones_personal_facturas")
+}
+
+// Historial append-only de cambios de relaciones, separado de los documentos contables.
+model RentabilidadAuditoria {
+  id                String   @id @default(cuid())
+  usuarioId         Int      @map("usuario_id")
+  accion            String
+  facturaEmitidaId   String   @map("factura_emitida_id")
+  fuenteId          String   @map("fuente_id")
+  tipoFuente        String   @map("tipo_fuente")
+  datos             Json     @db.JsonB
+  createdAt         DateTime @default(now()) @map("created_at")
+  usuario           UsuarioAdmin @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+  factura           FacturaEmitida @relation(fields: [facturaEmitidaId], references: [id], onDelete: Restrict)
+
+  @@index([facturaEmitidaId, createdAt])
+  @@index([tipoFuente, fuenteId])
+  @@map("rentabilidad_auditoria")
+}
+
+// Componentes de una venta/pack: una factura puede combinar los tres modelos.
+// Clasificar ingreso no distribuye automáticamente sus compras ni el coste de red.
+model ComponenteVentaServicio {
+  id                String   @id @default(cuid())
+  facturaEmitidaId   String   @map("factura_emitida_id")
+  nombre            String   @db.VarChar(160)
+  tipo              String   @db.VarChar(40) // PROYECTO, TELECO_INTERMEDIACION, TELECO_RED_PROPIA
+  base              Decimal  @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  factura           FacturaEmitida @relation(fields: [facturaEmitidaId], references: [id], onDelete: Restrict)
+
+  @@index([facturaEmitidaId])
+  @@index([tipo])
+  @@map("componentes_venta_servicio")
 }
 
 // Reglas de imputación automática por proveedor (para auto-clasificar futuras facturas)
@@ -1929,6 +1985,7 @@ model ImputacionHoras {
   // Relaciones
   empleado        Empleado @relation(fields: [empleadoId], references: [id])
   proyecto        Proyecto? @relation(fields: [proyectoId], references: [id])
+  ventasRentabilidad VinculacionPersonalFactura[]
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")

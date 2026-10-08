@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import SalesProfitability from '@/components/finanzas/SalesProfitability';
 import {
   ArrowPathIcon,
   BuildingOffice2Icon,
@@ -20,7 +21,7 @@ import {
 
 type EstadoAnalitica = '' | 'pendiente' | 'clasificada' | 'sin_asignar' | 'parcial' | 'imputada' | 'incidencia';
 type PeriodoTipo = 'anio' | 'mes' | 'trimestre' | 'acumulado' | 'intervalo';
-type Pestana = 'costes' | 'pendientes';
+type Pestana = 'costes' | 'pendientes' | 'rentabilidad';
 type PendienteTipo = 'clasificacion' | 'destino';
 type LoadStatus = 'idle' | 'loading' | 'refreshing' | 'ready' | 'error';
 
@@ -310,6 +311,7 @@ export default function AnaliticaCostesPage() {
   }, [consulta, reloadToken]);
 
   useEffect(() => {
+    if (pestana === 'rentabilidad') return;
     const controller = new AbortController();
     controllers.current.add(controller);
 
@@ -330,7 +332,7 @@ export default function AnaliticaCostesPage() {
       .finally(() => controllers.current.delete(controller));
 
     return () => controller.abort();
-  }, [consulta, reloadToken]);
+  }, [consulta, reloadToken, pestana]);
 
   useEffect(() => () => {
     controllers.current.forEach((controller) => controller.abort());
@@ -386,7 +388,7 @@ export default function AnaliticaCostesPage() {
     const selectedPendingType = overrides.pendienteTipo ?? pendienteTipo;
     const selectedEstado: EstadoAnalitica = selectedTab === 'pendientes'
       ? (selectedPendingType === 'clasificacion' ? 'pendiente' : 'sin_asignar')
-      : estado;
+      : selectedTab === 'rentabilidad' ? '' : estado;
     const term = buscar.trim();
 
     setPeriodError('');
@@ -503,24 +505,26 @@ export default function AnaliticaCostesPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-blue-800">Finanzas · analítica</p>
-            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Árbol de costes</h1>
+            <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Analítica de costes y rentabilidad</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
-              Coste <strong>BASE sin IVA</strong> por categoría, proveedor y factura. Esta vista no mezcla pagos ni muestra rentabilidad.
+              {pestana === 'rentabilidad'
+                ? 'Ventas sin IVA, costes conocidos vinculados y margen provisional. No es beneficio neto.'
+                : 'Coste BASE sin IVA por categoría, proveedor y factura. Esta vista no mezcla pagos ni muestra rentabilidad.'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => setReloadToken((value) => value + 1)}
-            disabled={root.status === 'loading' || isRefreshing}
+            disabled={pestana !== 'rentabilidad' && (root.status === 'loading' || isRefreshing)}
             className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <ArrowPathIcon className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
+            <ArrowPathIcon className={`h-4 w-4 ${pestana !== 'rentabilidad' && isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
             Actualizar
           </button>
         </div>
       </header>
 
-      <section aria-label="Indicadores del filtro aplicado">
+      {pestana !== 'rentabilidad' && <section aria-label="Indicadores del filtro aplicado">
         {kpis ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <MetricCard label="Facturas" value={kpis.totalFacturas.toLocaleString('es-ES')} detail="En el filtro aplicado" />
@@ -543,7 +547,7 @@ export default function AnaliticaCostesPage() {
             Cargando indicadores del filtro aplicado…
           </div>
         )}
-      </section>
+      </section>}
 
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="filtros-heading">
         <div className="border-b border-slate-200 px-4 pt-4 sm:px-5">
@@ -570,10 +574,21 @@ export default function AnaliticaCostesPage() {
             >
               Pendientes
             </button>
+            <button
+              id="tab-rentabilidad"
+              type="button"
+              role="tab"
+              aria-selected={pestana === 'rentabilidad'}
+              aria-controls="panel-filtros"
+              onClick={() => changeTab('rentabilidad')}
+              className={`rounded-t-lg px-4 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 ${pestana === 'rentabilidad' ? 'border-b-2 border-blue-700 bg-blue-50 text-blue-900' : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'}`}
+            >
+              Rentabilidad
+            </button>
           </div>
         </div>
 
-        <div id="panel-filtros" role="tabpanel" aria-labelledby={pestana === 'costes' ? 'tab-costes' : 'tab-pendientes'} className="p-4 sm:p-5">
+        <div id="panel-filtros" role="tabpanel" aria-labelledby={pestana === 'costes' ? 'tab-costes' : pestana === 'pendientes' ? 'tab-pendientes' : 'tab-rentabilidad'} className="p-4 sm:p-5">
           <div className="flex flex-col gap-4">
             <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
               <div>
@@ -581,7 +596,9 @@ export default function AnaliticaCostesPage() {
                 <p className="mt-1 text-sm text-slate-700">
                   {pestana === 'pendientes'
                     ? 'Revisa por separado lo pendiente de clasificar y lo pendiente de asignar a un destino. Pendiente no implica automáticamente que requiera cliente.'
-                    : 'Aplica período, texto, estado y categoría antes de explorar el árbol.'}
+                    : pestana === 'rentabilidad'
+                      ? 'Filtra ventas por período y texto. La actividad se selecciona con los valores devueltos por la consulta de rentabilidad.'
+                      : 'Aplica período, texto, estado y categoría antes de explorar el árbol.'}
                 </p>
               </div>
               {pestana === 'pendientes' && (
@@ -656,15 +673,15 @@ export default function AnaliticaCostesPage() {
                 </>
               )}
 
-              <div>
-                <label htmlFor="filtro-categoria" className="mb-1.5 block text-sm font-semibold text-slate-900">Categoría</label>
+              {pestana !== 'rentabilidad' && <div>
+                <label htmlFor="filtro-categoria" className="mb-1.5 block text-sm font-semibold text-slate-900">Categoría de factura (clasificación actual)</label>
                 <select id="filtro-categoria" value={categoria} onChange={(event) => setCategoria(event.target.value)} style={{ colorScheme: 'light' }} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700">
                   <option value="">Todas las categorías</option>
                   {categoryOptions.map((option) => (
                     <option key={option} value={option}>{option === '__SIN_CATEGORIA__' ? 'Sin clasificar' : option}</option>
                   ))}
                 </select>
-              </div>
+              </div>}
 
               {pestana === 'costes' && (
                 <div>
@@ -681,7 +698,7 @@ export default function AnaliticaCostesPage() {
                 </div>
               )}
 
-              <div className={pestana === 'pendientes' ? 'md:col-span-2 xl:col-span-2' : ''}>
+              <div className={pestana === 'pendientes' || pestana === 'rentabilidad' ? 'md:col-span-2 xl:col-span-2' : ''}>
                 <label htmlFor="buscar-costes" className="mb-1.5 block text-sm font-semibold text-slate-900">Buscar</label>
                 <div className="relative">
                   <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-700" aria-hidden="true" />
@@ -690,7 +707,7 @@ export default function AnaliticaCostesPage() {
                     value={buscar}
                     onChange={(event) => setBuscar(event.target.value)}
                     onKeyDown={(event) => { if (event.key === 'Enter') applyFilters(); }}
-                    placeholder="Proveedor, CIF, concepto, número o comentarios"
+                    placeholder={pestana === 'rentabilidad' ? 'Venta, cliente, número o concepto' : 'Proveedor, CIF, concepto, número o comentarios'}
                     className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-500 shadow-sm focus:border-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-700"
                   />
                   {buscar && (
@@ -715,7 +732,7 @@ export default function AnaliticaCostesPage() {
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="arbol-heading">
+      {pestana !== 'rentabilidad' && <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="arbol-heading">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
             <h2 id="arbol-heading" className="text-lg font-bold text-slate-900">Desglose de costes</h2>
@@ -932,12 +949,19 @@ export default function AnaliticaCostesPage() {
             })}
           </ul>
         )}
-      </section>
+      </section>}
 
-      <aside className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-slate-900" aria-label="Nota de alcance">
+      {pestana !== 'rentabilidad' && <aside className="flex gap-3 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-slate-900" aria-label="Nota de alcance">
         <InformationCircleIcon className="mt-0.5 h-5 w-5 shrink-0 text-blue-800" aria-hidden="true" />
         <p><strong>Alcance actual:</strong> las categorías se muestran en un único nivel porque el catálogo todavía no dispone de subcategorías. Esta pantalla es de consulta: no modifica categorías ni imputaciones.</p>
-      </aside>
+      </aside>}
+
+      {pestana === 'rentabilidad' && <SalesProfitability
+        desde={consulta.desde}
+        hasta={consulta.hasta}
+        buscar={consulta.buscar}
+        reloadToken={reloadToken}
+      />}
     </main>
   );
 }
