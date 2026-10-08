@@ -30,6 +30,7 @@ let readable = true;
 let writable = true;
 let adminFails = false;
 let writeCheckFails = false;
+let invalidPurchase = false;
 let purchaseLinks: Array<{ id: string; facturaId: string; porcentaje: number; notas: string | null }> = [];
 let auditRows: unknown[] = [];
 let writeQueries: string[] = [];
@@ -59,7 +60,7 @@ function queryRaw(query: any) {
     return [{ clienteWebId: 7 }];
   }
   if (tag.includes('SELECT fr.id, fr.base::float8 AS base, fr.estado::text AS estado')) {
-    return [{ id: purchaseId, base: 100, estado: 'RECIBIDA', tiene_cliente: false }];
+    return [{ id: purchaseId, base: 100, estado: 'RECIBIDA', tiene_cliente: false, documento_invalido: invalidPurchase }];
   }
   if (tag.includes('SELECT id, factura_emitida_id AS "facturaId", porcentaje::float8 AS porcentaje, notas FROM vinculaciones_facturas')) {
     return purchaseLinks.map(link => ({ ...link }));
@@ -223,6 +224,10 @@ async function main() {
   assert.equal(await status(POST(request('POST', { ...link, porcentaje: Number.POSITIVE_INFINITY }))), 400, 'non-finite percentage is rejected');
   assert.equal(writeQueries.length, 0, 'validation and method errors do not write');
 
+  invalidPurchase = true;
+  assert.equal(await status(POST(request('POST', link))), 409, 'non-invoice documents cannot become purchase costs');
+  assert.equal(writeQueries.length, 0, 'invalid document writes nothing');
+  invalidPurchase = false;
   purchaseLinks = [{ id: 'other-link', facturaId: 'sale-2', porcentaje: 90, notas: null }];
   assert.equal(await status(POST(request('POST', link))), 409, 'over-allocation is rejected');
   assert.equal(writeQueries.length, 0, 'over-allocation rolls back with no writes');

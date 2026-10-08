@@ -924,7 +924,7 @@ export default function InvoiceCostWorkspace({
           <div className="mt-4 grid gap-2 sm:grid-cols-3" aria-label="Resumen provisional de la venta">
             <p className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800"><span className="block text-xs font-bold uppercase tracking-wide text-slate-700">1 · Venta sin IVA</span><strong className="tabular-nums text-slate-950">{money(invoice.ventas)}</strong></p>
             <p className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800"><span className="block text-xs font-bold uppercase tracking-wide text-slate-700">Compras vinculadas</span><strong className="tabular-nums text-slate-950">{detail.data?.compras.length || 0} · {money(purchaseCost)}</strong></p>
-            <p className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800"><span className="block text-xs font-bold uppercase tracking-wide text-slate-700">Margen provisional</span><strong className="tabular-nums text-slate-950">{money(invoice.margenConocido)}</strong></p>
+            <p className="rounded-md border border-blue-200 bg-white px-3 py-2 text-sm text-slate-800"><span className="block text-xs font-bold uppercase tracking-wide text-slate-700">Margen provisional</span><strong className="tabular-nums text-slate-950">{invoice.calidad === "sin_costes" ? "Pendiente de asignar costes" : money(invoice.margenConocido)}</strong></p>
           </div>
         )}
       </header>

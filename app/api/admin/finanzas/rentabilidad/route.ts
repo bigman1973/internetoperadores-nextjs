@@ -146,6 +146,11 @@ function candidateAvailability(value: unknown): number {
   return availablePercentage(10_000 - Math.round(bounded * 100)) / 100;
 }
 
+function invalidPurchaseDocument() {
+  // Solo evidencia explícita; una comisión bancaria real sigue siendo una compra.
+  return Prisma.sql`(LOWER(COALESCE(fr.concepto, '')) ~ '(error_ocr|no es una factura|cesi[oó]n de cr[eé]dit|documento de confirming)'
+    OR LOWER(TRIM(fr.proveedor)) IN ('desconocido', 'error_ocr'))`;
+}
 async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilters): Promise<ProfitCandidates> {
   if (!filters.facturaId) throw new SafeError('Selecciona una factura para consultar candidatos.');
   const q = filters.buscar ? literalLike(filters.buscar) : null;
@@ -162,11 +167,12 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
         CROSS JOIN target_sale sale
         WHERE fr.estado::text <> 'RECHAZADA' ${purchaseWhere}`),
       tx.$queryRaw<any[]>(Prisma.sql`${saleIdentityCTE(filters.facturaId)}
-        SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base, fr.concepto,
+        SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base, CASE WHEN LOWER(COALESCE(fr.concepto, '')) LIKE 'error_ocr%' THEN 'Extracción pendiente de revisión' ELSE fr.concepto END AS concepto,
           LEAST(100, GREATEST(0, 100 - COALESCE(alloc.otros, 0)))::float8 AS "porcentajeDisponible",
-          (fr.base = 0 OR EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true)
+          (fr.base = 0 OR ${invalidPurchaseDocument()} OR EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true)
             OR COALESCE(alloc.invalido, false) OR COALESCE(alloc.total, 0) > 100.000001 OR COALESCE(alloc.otros, 0) >= 99.999999) AS bloqueado,
-          CASE WHEN fr.base = 0 THEN 'La factura no tiene base asignable'
+          CASE WHEN ${invalidPurchaseDocument()} THEN 'Documento no factura o extracción pendiente de revisión; comprueba la fuente antes de vincular'
+            WHEN fr.base = 0 THEN 'La factura no tiene base asignable'
             WHEN EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true) THEN 'Edita antes la imputación confirmada a cliente'
             WHEN COALESCE(alloc.invalido, false) OR COALESCE(alloc.total, 0) > 100.000001 THEN 'La fuente tiene vínculos globales no válidos'
             WHEN COALESCE(alloc.otros, 0) >= 99.999999 THEN 'La fuente ya está asignada al 100%'
@@ -181,7 +187,7 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
         ) alloc ON TRUE
         CROSS JOIN target_sale sale
         WHERE fr.estado::text <> 'RECHAZADA' ${purchaseWhere}
-        ORDER BY fr.fecha DESC, fr.id DESC LIMIT 25 OFFSET ${offset}`),
+        ORDER BY bloqueado ASC, fr.fecha DESC, fr.id DESC LIMIT 25 OFFSET ${offset}`),
     ]);
     const compras = purchases.map(row => moneyRecord({ ...row, fecha: day(row.fecha), porcentajeDisponible: candidateAvailability(row.porcentajeDisponible) })) as PurchaseCandidate[];
     const total = count[0]?.total || 0;
@@ -436,11 +442,12 @@ function auditSnapshot(link: any | undefined) {
 
 async function linkPurchase(tx: Prisma.TransactionClient, mutation: Mutation, userId: number) {
   await lockedSale(tx, mutation.facturaId);
-  const source = await tx.$queryRaw<any[]>(Prisma.sql`SELECT fr.id, fr.base::float8 AS base, fr.estado::text AS estado,
+  const source = await tx.$queryRaw<any[]>(Prisma.sql`SELECT fr.id, fr.base::float8 AS base, fr.estado::text AS estado, ${invalidPurchaseDocument()} AS documento_invalido,
     EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true) AS tiene_cliente
     FROM facturas_recibidas fr WHERE fr.id = ${mutation.fuenteId} FOR UPDATE`);
   if (source.length !== 1) throw new SafeError('Compra no encontrada.', 404);
   if (source[0].estado === 'RECHAZADA' || !Number.isFinite(source[0].base) || source[0].base === 0) throw new SafeError('La compra no tiene una base válida para vincular.', 409);
+  if (source[0].documento_invalido) throw new SafeError('El documento no es una factura de compra válida o tiene extracción pendiente de revisión.', 409);
   if (source[0].tiene_cliente) throw new SafeError('La compra ya tiene imputación confirmada a cliente. Edita primero la fuente.', 409);
   const links = await tx.$queryRaw<any[]>(Prisma.sql`SELECT id, factura_emitida_id AS "facturaId", porcentaje::float8 AS porcentaje, notas
     FROM vinculaciones_facturas WHERE factura_recibida_id = ${mutation.fuenteId} FOR UPDATE`);
