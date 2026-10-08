@@ -246,13 +246,22 @@ export default function ImportarPage() {
           <select
             value={banco}
             onChange={(e) => setBanco(e.target.value)}
-            className="w-full border rounded-lg px-4 py-2.5"
+            className="w-full border rounded-lg px-4 py-2.5 bg-white text-gray-900"
+            style={{ colorScheme: 'light' }}
           >
             <option value="">Selecciona un banco...</option>
             {BANCOS.map(b => (
               <option key={b.id} value={b.id}>{b.nombre} ({b.formatos})</option>
             ))}
           </select>
+          {banco === 'vivid' && (
+            <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              Vivid: descarga el <strong>extracto CSV de movimientos de la cuenta bancaria</strong>,
+              con operaciones debajo de la cabecera. El informe de cobros de comercios
+              «MerchantAccountStatement» no equivale a movimientos bancarios y no se importa aquí.
+              Comprueba el período y la cuenta antes de descargarlo.
+            </p>
+          )}
         </div>
 
         {/* Selección de archivo */}

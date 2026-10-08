@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { put } from '@vercel/blob';
 import * as XLSX from 'xlsx';
+import { validateVividStatement } from '@/lib/finanzas/vivid-statement-validation';
 import {
   parseSantanderXLSX,
   parseSantanderTXT,
@@ -74,6 +75,10 @@ export async function POST(req: NextRequest) {
       }
       case 'vivid': {
         const content = buffer.toString('utf-8');
+        const validation = validateVividStatement(content);
+        if (!validation.ok) {
+          return NextResponse.json({ error: validation.error, codigo: validation.code }, { status: 400 });
+        }
         movimientos = parseVividCSV(content);
         break;
       }
