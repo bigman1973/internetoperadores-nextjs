@@ -101,25 +101,26 @@ const clientIdentity = Prisma.sql`
     COALESCE(isp_match.id, nif_match.id) AS cliente_web_id,
     COALESCE(isp_match.nombre, nif_match.nombre) AS cliente_web_nombre
   FROM facturas_emitidas fe
-  LEFT JOIN LATERAL (
-    SELECT MIN(cw.id) AS id, MIN(cw.nombre) AS nombre
+  LEFT JOIN (
+    SELECT f.isp_gestion_id::text AS external_id, MIN(cw.id) AS id, MIN(cw.nombre) AS nombre
     FROM facturas f
     JOIN clientes_web cw ON cw.cliente_id_isp = f.id_cliente::text
-    WHERE LOWER(BTRIM(COALESCE(fe.origen_sistema, ''))) = 'ispgestion'
-      AND fe.id_externo IS NOT NULL
-      AND fe.id_externo = f.isp_gestion_id::text
+    GROUP BY f.isp_gestion_id::text
     HAVING COUNT(DISTINCT cw.id) = 1
-  ) isp_match ON TRUE
-  LEFT JOIN LATERAL (
-    SELECT MIN(cw.id) AS id, MIN(cw.nombre) AS nombre
-    FROM clientes_web cw
-    WHERE REGEXP_REPLACE(UPPER(COALESCE(fe.cif, '')), '[^A-Z0-9]', '', 'g') <> ''
-      AND (REGEXP_REPLACE(UPPER(COALESCE(cw.nif, '')), '[^A-Z0-9]', '', 'g') =
-            REGEXP_REPLACE(UPPER(COALESCE(fe.cif, '')), '[^A-Z0-9]', '', 'g')
-        OR REGEXP_REPLACE(UPPER(COALESCE(cw.cif, '')), '[^A-Z0-9]', '', 'g') =
-            REGEXP_REPLACE(UPPER(COALESCE(fe.cif, '')), '[^A-Z0-9]', '', 'g'))
-    HAVING COUNT(DISTINCT cw.id) = 1
-  ) nif_match ON TRUE`;
+  ) isp_match ON LOWER(BTRIM(COALESCE(fe.origen_sistema, ''))) = 'ispgestion'
+    AND fe.id_externo = isp_match.external_id
+  LEFT JOIN (
+    SELECT normalized_tax_id, MIN(id) AS id, MIN(nombre) AS nombre
+    FROM (
+      SELECT cw.id, cw.nombre,
+        REGEXP_REPLACE(UPPER(COALESCE(tax.value, '')), '[^A-Z0-9]', '', 'g') AS normalized_tax_id
+      FROM clientes_web cw
+      CROSS JOIN LATERAL (VALUES (cw.nif), (cw.cif)) AS tax(value)
+    ) tax_ids
+    WHERE normalized_tax_id <> ''
+    GROUP BY normalized_tax_id
+    HAVING COUNT(DISTINCT id) = 1
+  ) nif_match ON nif_match.normalized_tax_id = REGEXP_REPLACE(UPPER(COALESCE(fe.cif, '')), '[^A-Z0-9]', '', 'g')`;
 
 /**
  * Shared CTE graph for every read view. The graph is intentionally source-centric:

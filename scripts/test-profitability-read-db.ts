@@ -28,8 +28,9 @@ vm.runInNewContext(code, { module, exports: module.exports, Buffer, TextEncoder,
   if (name === 'node:crypto') return require('node:crypto');
   throw new Error('Módulo inesperado');
 }});
-async function get(params: string) {
-  const res = await module.exports.GET(new NextRequest(`https://panel.test/api/admin/finanzas/rentabilidad?desde=2026-09-01&hasta=2026-09-30&${params}`));
+async function get(params: string, annual = false) {
+  const period = annual ? 'desde=2026-01-01&hasta=2026-12-31' : 'desde=2026-09-01&hasta=2026-09-30';
+  const res = await module.exports.GET(new NextRequest(`https://panel.test/api/admin/finanzas/rentabilidad?${period}&${params}`));
   assert.equal(res.status, 200, `GET ${params.split('&')[0]} debe devolver 200`);
   return res.json();
 }
@@ -49,6 +50,10 @@ async function main() {
   assert.equal(purchases.personal.length, 0);
   assert.equal(staff.compras.length, 0);
   assert.ok(purchases.compras.every((row: any) => row.porcentajeDisponible >= 0 && row.porcentajeDisponible <= 100));
-  console.log(JSON.stringify({ apiSQLRealCorrecta: true, cuatroModelosVisibles: true, serviciosConciliados: true, nivelesYFuentesCorrectos: true, escriturasReales: 0 }));
+  const annualRoot = await get('nivel=servicios', true);
+  assert.equal(annualRoot.servicios.length, 4);
+  for (const key of ['ventas', 'comprasDirectas', 'comprasCliente', 'personalDirecto', 'personalCliente', 'margenConocido']) assert.equal(Math.round(annualRoot.servicios.reduce((sum: number, row: any) => sum + row[key], 0) * 100), Math.round(annualRoot.kpis[key] * 100), `Conciliación anual ${key}`);
+  assert.ok((await get('nivel=clientes&servicioKey=__SIN_DESGLOSE__', true)).clientes.length > 0);
+  console.log(JSON.stringify({ apiSQLRealCorrecta: true, cuatroModelosVisibles: true, serviciosConciliados: true, nivelesYFuentesCorrectos: true, anioCompletoCorrecto: true, escriturasReales: 0 }));
 }
 main().catch(error => { console.error(error instanceof Error ? error.message : 'Prueba no superada'); process.exitCode = 1; }).finally(() => client.$disconnect());
