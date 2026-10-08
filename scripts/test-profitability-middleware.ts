@@ -24,7 +24,7 @@ async function status(path: string, method = 'GET') {
   return (await module.exports.middleware(new NextRequest(`https://panel.test${path}`, { method }))).status;
 }
 async function main() {
-  for (const path of ['/api/admin/finanzas/rentabilidad', '/api/admin/finanzas/rentabilidad/servicios', '/api/admin/finanzas/rentabilidad/proveedores']) {
+  for (const path of ['/api/admin/finanzas/rentabilidad', '/api/admin/finanzas/rentabilidad/servicios', '/api/admin/finanzas/rentabilidad/proveedores', '/api/admin/finanzas/rentabilidad/lineas']) {
     assert.equal(await status(path), 200);
     assert.equal(await status(path, 'POST'), 403);
     write = true;

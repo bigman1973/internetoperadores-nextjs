@@ -108,7 +108,7 @@ const clientIdentity = Prisma.sql`
   LEFT JOIN (
     SELECT f.isp_gestion_id::text AS external_id, MIN(cw.id) AS id, MIN(cw.nombre) AS nombre
     FROM facturas f
-    JOIN clientes_web cw ON cw.cliente_id_isp = f.id_cliente::text
+    JOIN clientes_web cw ON cw.isp_gestion_id = f.id_cliente::text OR cw.cliente_id_isp = f.id_cliente::text
     GROUP BY f.isp_gestion_id::text
     HAVING COUNT(DISTINCT cw.id) = 1
   ) isp_match ON LOWER(BTRIM(COALESCE(fe.origen_sistema, ''))) = 'ispgestion'

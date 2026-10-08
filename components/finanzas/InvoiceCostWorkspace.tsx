@@ -8,6 +8,7 @@ import {
   TrashIcon,
 } from "@heroicons/react/24/outline";
 import VentaProveedores from "@/components/finanzas/VentaProveedores";
+import VentaDetalleLineas from "@/components/finanzas/VentaDetalleLineas";
 import type {
   ProfitCandidates,
   ProfitDetail,
@@ -980,6 +981,7 @@ export default function InvoiceCostWorkspace({
               Coste actualmente vinculado: <strong>{money(linkedCost)}</strong> ({money(purchaseCost)} compras y {money(staffCost)} personal). El margen es provisional y no clasifica ni crea relaciones automáticas.
             </p>
             <details className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><summary className="cursor-pointer font-semibold">Criterios de cálculo y costes pendientes (margen provisional)</summary><div className="mt-2 space-y-2">{detail.data.avisos.map((notice, index) => <p key={index}>{notice}</p>)}</div></details>
+            <VentaDetalleLineas facturaId={invoice.id} />
             <VentaProveedores
               facturaId={invoice.id}
               canWrite={detail.data.canWrite && detail.status !== "error"}

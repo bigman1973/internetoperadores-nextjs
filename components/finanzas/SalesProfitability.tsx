@@ -21,6 +21,7 @@ import {
 import VentaServicios from "@/components/finanzas/VentaServicios";
 import InvoiceCostWorkspace, { CostEditor } from "@/components/finanzas/InvoiceCostWorkspace";
 import VentaProveedores from "@/components/finanzas/VentaProveedores";
+import VentaDetalleLineas from "@/components/finanzas/VentaDetalleLineas";
 import type {
   ProfitCandidates,
   ProfitClient,
@@ -515,7 +516,7 @@ export default function SalesProfitability({
   const [workspaceDismissed, setWorkspaceDismissed] = useState(false);
   const [saleAllDates, setSaleAllDates] = useState(false);
   const [preferredSupplier, setPreferredSupplier] = useState<{ facturaId: string; key: string } | null>(null);
-  const [supplierSaleId, setSupplierSaleId] = useState<string | null>(null);
+  const [expandedQuickSaleId, setExpandedQuickSaleId] = useState<string | null>(null);
   const [saleSelector, setSaleSelector] = useState<LoadState<SaleSelectionResponse>>({ status: "loading" });
   const saleAborter = useRef<AbortController | null>(null);
   const controllers = useRef(new Set<AbortController>());
@@ -531,7 +532,7 @@ export default function SalesProfitability({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setSaleSearch(saleSearchDraft);
-      setSupplierSaleId(null);
+      setExpandedQuickSaleId(null);
       setSalePage(1);
     }, 350);
     return () => window.clearTimeout(timer);
@@ -545,7 +546,7 @@ export default function SalesProfitability({
     setWorkspaceDismissed(false);
   }, [ventaId, facturaIspId]);
 
-  useEffect(() => { setSalePage(1); setSupplierSaleId(null); }, [desde, hasta, saleAllDates]);
+  useEffect(() => { setSalePage(1); setExpandedQuickSaleId(null); }, [desde, hasta, saleAllDates]);
 
   useEffect(() => {
     saleAborter.current?.abort();
@@ -1028,7 +1029,7 @@ export default function SalesProfitability({
             <table className="min-w-[760px] w-full text-left">
               <caption className="sr-only">Ventas disponibles para relacionar compras</caption>
               <thead className="bg-slate-100 text-xs font-bold uppercase tracking-wide text-slate-800">
-                <tr><th className="px-3 py-2.5">Venta</th><th className="px-3 py-2.5">Cliente</th><th className="px-3 py-2.5">Concepto</th><th className="px-3 py-2.5 text-right">Ingreso sin IVA</th><th className="px-3 py-2.5">Proveedor del servicio</th><th className="px-3 py-2.5">Compras</th></tr>
+                <tr><th className="px-3 py-2.5">Venta</th><th className="px-3 py-2.5">Cliente</th><th className="px-3 py-2.5">Concepto</th><th className="px-3 py-2.5 text-right">Ingreso sin IVA</th><th className="px-3 py-2.5">Proveedor del servicio</th><th className="px-3 py-2.5">Acciones</th></tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {saleSelector.status === "loading" && !saleSelector.data ? (
@@ -1041,9 +1042,9 @@ export default function SalesProfitability({
                     <td className="px-3 py-3 text-sm font-semibold text-slate-900">{sale.cliente}</td>
                     <td className="max-w-xs px-3 py-3 text-sm text-slate-700">{sale.concepto || "—"}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right text-sm font-bold tabular-nums text-slate-950">{money(sale.ventas)}</td>
-                    <td className="px-3 py-3"><p className="mb-1 max-w-xs text-xs font-semibold text-slate-800">{sale.proveedores?.join(" · ") || "Sin informar"}</p><button type="button" onClick={() => setSupplierSaleId(supplierSaleId === sale.id ? null : sale.id)} aria-expanded={supplierSaleId === sale.id} className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-900 hover:bg-blue-100">{sale.proveedores?.length ? "Editar proveedor" : "Asignar proveedor"}</button></td>
-                    <td className="px-3 py-3"><button type="button" onClick={() => { setWorkspaceDismissed(false); setSelectedSaleId(sale.id); window.setTimeout(() => { const panel=document.getElementById("gestor-venta-directo"); panel?.scrollIntoView({ block: "start" }); panel?.focus({ preventScroll: true }); }, 0); }} className="rounded-md bg-blue-800 px-3 py-2 text-xs font-bold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2" title={!saleSelector.data?.canWrite ? "Se abrirá en modo consulta: no tienes permiso para modificar vinculaciones" : undefined}>{saleSelector.data?.canWrite ? "Relacionar compras" : "Ver vínculos"}</button></td>
-                  </tr>{supplierSaleId === sale.id && <tr><td colSpan={6} className="bg-blue-50 p-3"><VentaProveedores facturaId={sale.id} autoSelectFirst={false} onSaved={() => setSaleRetry(value => value + 1)} onSelectSupplier={key => { setPreferredSupplier({ facturaId: sale.id, key }); setSelectedSaleId(sale.id); setWorkspaceDismissed(false); setSupplierSaleId(null); window.setTimeout(() => document.getElementById("gestor-venta-directo")?.scrollIntoView({ block: "start" }), 0); }} /></td></tr>}</React.Fragment>
+                    <td className="px-3 py-3"><p className="max-w-xs text-xs font-semibold text-slate-800">{sale.proveedores?.join(" · ") || "Sin informar"}</p></td>
+                    <td className="px-3 py-3"><div className="flex flex-col items-start gap-2"><button type="button" onClick={() => setExpandedQuickSaleId(expandedQuickSaleId === sale.id ? null : sale.id)} aria-expanded={expandedQuickSaleId === sale.id} aria-controls={`servicios-venta-rapida-${sale.id}`} className="rounded-md border border-blue-300 bg-white px-2.5 py-1.5 text-xs font-bold text-blue-950 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-700">{expandedQuickSaleId === sale.id ? "Ocultar servicios" : "Ver servicios"}</button><button type="button" onClick={() => { setWorkspaceDismissed(false); setSelectedSaleId(sale.id); window.setTimeout(() => { const panel=document.getElementById("gestor-venta-directo"); panel?.scrollIntoView({ block: "start" }); panel?.focus({ preventScroll: true }); }, 0); }} className="rounded-md bg-blue-800 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2" title={!saleSelector.data?.canWrite ? "Se abrirá en modo consulta: no tienes permiso para modificar vinculaciones" : undefined}>{saleSelector.data?.canWrite ? "Relacionar costes" : "Ver vínculos"}</button></div></td>
+                  </tr>{expandedQuickSaleId === sale.id && <tr id={`servicios-venta-rapida-${sale.id}`}><td colSpan={6} className="bg-blue-50 p-3 sm:p-4"><div className="grid gap-4 xl:grid-cols-2"><VentaDetalleLineas facturaId={sale.id} /><VentaProveedores facturaId={sale.id} autoSelectFirst={false} onSaved={() => setSaleRetry(value => value + 1)} onSelectSupplier={key => setPreferredSupplier({ facturaId: sale.id, key })} /></div></td></tr>}</React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -1713,6 +1714,14 @@ export default function SalesProfitability({
                                                                             invoice.id,
                                                                             invoiceScope,
                                                                           )
+                                                                        }
+                                                                      />
+                                                                      <VentaDetalleLineas
+                                                                        facturaId={
+                                                                          detail
+                                                                            .data
+                                                                            .factura
+                                                                            .id
                                                                         }
                                                                       />
                                                                       {detail.data.avisos.map(

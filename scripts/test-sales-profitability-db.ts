@@ -19,7 +19,7 @@ async function main() {
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas_emitidas (id text, num_factura text, cliente text, cif text, fecha timestamp, concepto text, imputacion text, base numeric, estado text, origen_sistema text, id_externo text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE componentes_venta_servicio (factura_emitida_id text, tipo text, base numeric) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas (isp_gestion_id int, id_cliente int) ON COMMIT DROP`);
-    await tx.$executeRawUnsafe(`CREATE TEMP TABLE clientes_web (id int, cliente_id_isp text, nombre text, nif text, cif text) ON COMMIT DROP`);
+    await tx.$executeRawUnsafe(`CREATE TEMP TABLE clientes_web (id int, cliente_id_isp text, nombre text, nif text, cif text, isp_gestion_id text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas_recibidas (id text, num_factura text, proveedor text, fecha timestamp, base numeric, concepto text, estado text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE vinculaciones_facturas (id text, factura_recibida_id text, factura_emitida_id text, porcentaje numeric, notas text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE imputaciones_coste_cliente (id text, factura_id text, cliente_id int, importe numeric, confirmado boolean) ON COMMIT DROP`);
@@ -28,7 +28,7 @@ async function main() {
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE imputaciones_horas (id text, empleado_id text, proyecto_id text, fecha timestamp, horas numeric, coste_imputado numeric, empresa_grupo text, cliente_id_imp int, descripcion text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE vinculaciones_personal_facturas (id text, factura_emitida_id text, imputacion_horas_id text, porcentaje numeric, notas text) ON COMMIT DROP`);
 
-    await tx.$executeRawUnsafe(`INSERT INTO clientes_web VALUES (1, '11', 'Cliente Uno', 'A-1', null), (2, '22', 'Cliente Dos', 'B-2', null)`);
+    await tx.$executeRawUnsafe(`INSERT INTO clientes_web VALUES (1, '00000011', 'Cliente Uno', 'A-1', null, '11'), (2, '22', 'Cliente Dos', 'B-2', null, '222')`);
     await tx.$executeRawUnsafe(`INSERT INTO facturas VALUES (10, 11), (20, 22)`);
     await tx.$executeRawUnsafe(`INSERT INTO facturas_emitidas VALUES
       ('s1','V-1','Cliente Uno','A-1','2026-01-10','red propia','TELECO',100,'EMITIDA','ISPGestion','10'),
