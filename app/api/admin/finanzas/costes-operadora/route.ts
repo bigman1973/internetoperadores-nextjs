@@ -95,7 +95,9 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) throw new Invalid(parsed.error.issues[0]?.message || 'Fuente no válida.');
     const v = parsed.data;
     const result = await prisma.$transaction(async tx => {
-      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${v.id}))`);
+      // pg_advisory_xact_lock devuelve void, que Prisma 5 no puede deserializar.
+      // Conservamos el mismo bloqueo y proyectamos únicamente un entero compatible.
+      await tx.$queryRaw(Prisma.sql`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${v.id}))`);
       const previous = await tx.fuenteCosteOperadora.findUnique({ where: { id: v.id }, include });
       if (!previous && v.version) throw new Conflict('La fuente ya no existe. Recarga.');
       if (!previous && v.estado === 'ARCHIVADO') throw new Invalid('Guarda primero la fuente antes de archivarla.');

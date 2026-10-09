@@ -58,7 +58,14 @@ function sourceFromWhere(where: any): Source | null {
 }
 
 const tx: any = {
-  $queryRaw: async () => [],
+  $queryRaw: async (sql: Prisma.Sql) => {
+    const query = sql.strings.join('?');
+    if (query.includes('pg_advisory_xact_lock')) {
+      assert.match(query, /SELECT 1::int AS locked FROM pg_advisory_xact_lock/, 'no devolver void a Prisma');
+      return [{ locked: 1 }];
+    }
+    return [];
+  },
   facturaRecibida: {
     findUnique: async ({ where }: any) => state.invoices[where.id] || null,
     create: async () => forbidden('facturaRecibida', 'create'), update: async () => forbidden('facturaRecibida', 'update'),
