@@ -7,12 +7,12 @@ import { OPERATOR_AREA, ID, PERIOD, digest, normalize, groupInput, sourceInput, 
 export const dynamic = 'force-dynamic';
 const LIMIT = 25;
 const invoiceSelect = { id: true, proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true, estado: true, imputadoAVentas: true } as const;
-const include = { documentos: { include: { factura: { select: invoiceSelect } } }, asignaciones: { include: { grupo: true }, orderBy: { indice: 'asc' as const } } };
+const include = { documentoPendiente: { select: { id: true, version: true, estado: true } }, documentos: { include: { factura: { select: invoiceSelect } } }, asignaciones: { include: { grupo: true }, orderBy: { indice: 'asc' as const } } };
 
 function publicSource(row: any) {
-  const changed = row.documentos.some((d: any) => digest(invoiceSnapshot(d.factura)) !== d.version);
+  const changed = Boolean(row.documentoPendiente && row.documentoPendiente.estado !== 'LISTO') || row.documentos.some((d: any) => digest(invoiceSnapshot(d.factura)) !== d.version);
   return { ...row, creadoPor: undefined, claveOrigen: undefined, fuenteVersion: undefined, documentoDrive: undefined, documentoItem: undefined, documentoHash: undefined,
-    documentoCambiado: changed, tienePdf: Boolean(row.documentoItem),
+    documentoCambiado: changed, tienePdf: Boolean(row.documentoItem), situacionRefacturacion: row.origen === 'TERCERO' ? (row.documentos.some((d: any) => d.rol === 'REFACTURA') ? 'REFACTURA_RECIBIDA' : 'PENDIENTE_REFACTURACION') : 'NO_APLICA',
     documentos: row.documentos.map((d: any) => ({ facturaId: d.facturaId, rol: d.rol, factura: { id: d.factura.id, proveedor: d.factura.proveedor, numFactura: d.factura.numFactura } })),
     asignaciones: row.asignaciones.map((a: any) => ({ ...a, importe: Number(a.importe) })),
   };
@@ -61,15 +61,17 @@ export async function GET(req: NextRequest) {
       asignaciones: grupoId ? { some: { grupoId } } : undefined,
       OR: buscar ? [{ empresaPagadora: { contains: buscar, mode: 'insensitive' } }, { notas: { contains: buscar, mode: 'insensitive' } }, { snapshot: { path: ['proveedor'], string_contains: buscar } }, { snapshot: { path: ['numFactura'], string_contains: buscar } }, { asignaciones: { some: { descripcion: { contains: buscar, mode: 'insensitive' } } } }] : undefined,
     };
-    const [rows, total, totals, states] = await Promise.all([
+    const [rows, total, totals, states, pendientes, propias] = await Promise.all([
       prisma.fuenteCosteOperadora.findMany({ where, include, orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * LIMIT, take: LIMIT }),
       prisma.fuenteCosteOperadora.count({ where }),
       prisma.articuloCosteOperadora.aggregate({ where: { fuente: { ...where, AND: [{ estado: { not: 'ARCHIVADO' } }] }, grupoId: grupoId || undefined }, _sum: { importe: true } }),
       prisma.fuenteCosteOperadora.groupBy({ by: ['origen', 'estado'], where, _count: { _all: true } }),
+      prisma.articuloCosteOperadora.aggregate({ where: { fuente: { AND: [where, { estado: { not: 'ARCHIVADO' }, origen: 'TERCERO', documentos: { none: { rol: 'REFACTURA' } } }] }, grupoId: grupoId || undefined }, _sum: { importe: true } }),
+      prisma.articuloCosteOperadora.aggregate({ where: { fuente: { AND: [where, { estado: { not: 'ARCHIVADO' }, origen: 'PROPIA' }] }, grupoId: grupoId || undefined }, _sum: { importe: true } }),
     ]);
     const count = (key: 'origen' | 'estado', value: string) => states.filter(s => s[key] === value).reduce((n, s) => n + s._count._all, 0);
     return operatorJson({ fuentes: rows.map(publicSource), grupos, total, totalPages: Math.max(1, Math.ceil(total / LIMIT)), page, canWrite: auth.canWrite,
-      resumen: { baseSeleccionada: Number(totals._sum.importe || 0), propias: count('origen', 'PROPIA'), terceros: count('origen', 'TERCERO'), borradores: count('estado', 'BORRADOR'), revisadas: count('estado', 'REVISADO') } });
+      resumen: { baseSeleccionada: Number(totals._sum.importe || 0), basePendienteRefacturacion: Number(pendientes._sum.importe || 0), basePropia: Number(propias._sum.importe || 0), propias: count('origen', 'PROPIA'), terceros: count('origen', 'TERCERO'), borradores: count('estado', 'BORRADOR'), revisadas: count('estado', 'REVISADO') } });
   } catch (error) { return operatorJson({ error: error instanceof Invalid ? error.message : 'No se pudieron cargar los costes de operadora.' }, error instanceof Invalid ? 400 : 500); }
 }
 
@@ -105,7 +107,16 @@ export async function POST(req: NextRequest) {
       if (v.facturaId) await tx.$queryRaw(Prisma.sql`SELECT id FROM facturas_recibidas WHERE id = ${v.facturaId} FOR UPDATE`);
       const original = v.facturaId ? await tx.facturaRecibida.findUnique({ where: { id: v.facturaId }, select: invoiceSelect }) : null;
       let snapshot: OperatorSnapshot;
+      let pendiente: any = null;
+      if (v.documentoPendienteId) {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM documentos_refacturacion_pendiente WHERE id = ${v.documentoPendienteId} FOR UPDATE`);
+        pendiente = await tx.documentoRefacturacionPendiente.findUnique({ where: { id: v.documentoPendienteId } });
+        if (!pendiente || pendiente.estado !== 'LISTO' || !pendiente.resultado || (pendiente.version !== v.documentoPendienteVersion && pendiente.fuenteId !== v.id)) throw new Conflict('El documento pendiente no está verificado o ha cambiado. Vuelve a seleccionarlo.');
+        if (pendiente.fuenteId && pendiente.fuenteId !== v.id) throw new Conflict('Este documento ya está asignado a un centro de coste. No se puede duplicar.');
+        if (v.origen !== 'TERCERO') throw new Invalid('Una factura de otra empresa no es una factura recibida por Internet Operadores.');
+      }
       if (previous) {
+        if (pendiente && previous.documentoPendiente?.id !== pendiente.id) throw new Conflict('El original de una fuente guardada no se puede sustituir por otro documento pendiente.');
         if (previous.origen !== v.origen || previous.empresaPagadora !== empresa || (v.origen === 'PROPIA' && previous.documentos.find(d => d.rol === 'ORIGINAL')?.facturaId !== v.facturaId)) throw new Conflict('La identidad y el período de una fuente guardada no se pueden sustituir.');
         snapshot = previous.snapshot as unknown as OperatorSnapshot;
         if (v.facturaVersion && v.facturaVersion !== previous.fuenteVersion) throw new Conflict('La versión enviada no coincide con la factura original guardada.');
@@ -115,6 +126,12 @@ export async function POST(req: NextRequest) {
           if (!original || original.estado === 'RECHAZADA') throw new Invalid('Factura original no válida.');
           snapshot = invoiceSnapshot(original);
           if (digest(snapshot) !== v.facturaVersion) throw new Conflict('La factura ha cambiado. Vuelve a seleccionarla.');
+         } else if (pendiente) {
+          const r = pendiente.resultado as any;
+          if (normalize(r.destinatario || '') !== normalize(empresa)) throw new Invalid('La empresa destinataria debe coincidir con el documento analizado.');
+          const verified = sourceInput.safeParse({ action: 'guardar', id: v.id, origen: 'TERCERO', empresaPagadora: empresa, tercero: { proveedor: r.proveedor, numFactura: r.numFactura, fecha: r.fecha, base: r.base, concepto: r.concepto || undefined, lineas: r.lineas }, asignaciones: [], estado: 'BORRADOR' });
+          if (!verified.success || !verified.data.tercero) throw new Conflict('El resultado OCR no permite una fuente válida. Revisa el documento.');
+          snapshot = externalSnapshot(verified.data.tercero);
         } else snapshot = externalSnapshot(v.tercero!);
       }
       const periodo = previous?.periodo || snapshot.fecha.slice(0, 7);
@@ -124,6 +141,7 @@ export async function POST(req: NextRequest) {
       if (previous) {
         const oldState = { estado: previous.estado, notas: previous.notas, asignaciones: previous.asignaciones.map(a => ({ indice: a.indice, grupoId: a.grupoId })).sort((a,b) => a.indice - b.indice), refacturaId: previous.documentos.find(d => d.rol === 'REFACTURA')?.facturaId || null };
         if (digest(oldState) === digest(desired)) return previous;
+        if (pendiente && pendiente.version !== v.documentoPendienteVersion) throw new Conflict('El documento pendiente ha cambiado. Recarga antes de editar su fuente.');
         if (previous.estado === 'ARCHIVADO') throw new Conflict('La fuente archivada conserva sus documentos y no puede modificarse ni reactivarse.');
         if (v.version !== previous.version) throw new Conflict('Otra sesión ha cambiado esta fuente. Recarga antes de guardar.');
       }
@@ -149,6 +167,7 @@ export async function POST(req: NextRequest) {
         const invo = doc.rol === 'ORIGINAL' ? original : await tx.facturaRecibida.findUnique({ where: { id: doc.facturaId }, select: { imputadoAVentas: true } });
         if (linked || allocated || invo?.imputadoAVentas) throw new Conflict('Esta factura ya está imputada a ventas. Revisa sus relaciones antes de registrarla como coste compartido.');
       }
+      if (previous && v.estado === 'REVISADO' && previous.documentoPendiente && previous.documentoPendiente.estado !== 'LISTO') throw new Conflict('El original de tercero ha cambiado en OneDrive. Conservamos el coste guardado, pendiente de revisión documental.');
       if (previous && v.estado === 'REVISADO' && previous.documentos.some(d => digest(invoiceSnapshot(d.factura)) !== d.version)) throw new Conflict('El documento original o refacturado ha cambiado. Conservamos el snapshot; revisa la diferencia antes de validarlo.');
       const claveOrigen = sourceKey(v.origen, v.facturaId, empresa, snapshot);
       const duplicate = await tx.fuenteCosteOperadora.findUnique({ where: { claveOrigen }, select: { id: true } });
@@ -158,10 +177,11 @@ export async function POST(req: NextRequest) {
         await tx.fuenteCosteOperadora.update({ where: { id: v.id }, data });
         await tx.articuloCosteOperadora.deleteMany({ where: { fuenteId: v.id } });
         await tx.documentoCosteOperadora.deleteMany({ where: { fuenteId: v.id } });
-      } else await tx.fuenteCosteOperadora.create({ data: { id: v.id, claveOrigen, origen: v.origen, empresaPagadora: empresa, periodo, snapshot: snapshot as unknown as Prisma.InputJsonValue, fuenteVersion: digest(snapshot), creadoPor: auth.userId, ...data } });
+      } else await tx.fuenteCosteOperadora.create({ data: { id: v.id, claveOrigen, origen: v.origen, empresaPagadora: empresa, periodo, snapshot: snapshot as unknown as Prisma.InputJsonValue, fuenteVersion: digest(snapshot), creadoPor: auth.userId, ...(pendiente ? { documentoDrive: pendiente.drive, documentoItem: pendiente.item, documentoHash: pendiente.hash, documentoNombre: pendiente.nombre } : {}), ...data } });
+      if (pendiente && !pendiente.fuenteId) await tx.documentoRefacturacionPendiente.update({ where: { id: pendiente.id }, data: { fuenteId: v.id, version: { increment: 1 } } });
       if (assignments.length) await tx.articuloCosteOperadora.createMany({ data: assignments.map(a => ({ fuenteId: v.id, grupoId: a.grupoId, indice: a.indice, descripcion: a.descripcion, importe: a.importe })) });
       if (documents.length) await tx.documentoCosteOperadora.createMany({ data: documents.map(d => ({ fuenteId: v.id, ...d })) });
-      await tx.auditoriaCosteOperadora.create({ data: { fuenteId: v.id, usuarioId: auth.userId, accion: previous ? 'EDITAR_FUENTE' : 'CREAR_FUENTE', datos: { antes: previous ? { version: previous.version, estado: previous.estado, notas: previous.notas, asignaciones: previous.asignaciones.map(a => ({ indice: a.indice, grupoId: a.grupoId })), documentos: previous.documentos.map(d => ({ facturaId: d.facturaId, rol: d.rol })) } : null, despues: desired } } });
+      await tx.auditoriaCosteOperadora.create({ data: { fuenteId: v.id, usuarioId: auth.userId, accion: previous ? 'EDITAR_FUENTE' : 'CREAR_FUENTE', datos: { documentoPendienteId: pendiente?.id || previous?.documentoPendiente?.id || null, antes: previous ? { version: previous.version, estado: previous.estado, notas: previous.notas, asignaciones: previous.asignaciones.map(a => ({ indice: a.indice, grupoId: a.grupoId })), documentos: previous.documentos.map(d => ({ facturaId: d.facturaId, rol: d.rol })) } : null, despues: desired } } });
       return tx.fuenteCosteOperadora.findUniqueOrThrow({ where: { id: v.id }, include });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15000 });
     return operatorJson({ success: true, fuente: publicSource(result) });

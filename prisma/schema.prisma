@@ -3611,6 +3611,7 @@ model FuenteCosteOperadora {
   documentos      DocumentoCosteOperadora[]
   asignaciones    ArticuloCosteOperadora[]
   auditoria       AuditoriaCosteOperadora[]
+  documentoPendiente DocumentoRefacturacionPendiente?
   @@index([periodo, estado])
   @@index([origen, periodo])
   @@map("fuentes_coste_operadora")
@@ -3653,4 +3654,30 @@ model AuditoriaCosteOperadora {
   fuente    FuenteCosteOperadora @relation(fields: [fuenteId], references: [id], onDelete: Restrict)
   @@index([fuenteId, createdAt])
   @@map("auditoria_coste_operadora")
+}
+
+// Documentos a nombre de otra empresa: nunca son facturas recibidas por Internet Operadores.
+model DocumentoRefacturacionPendiente {
+  id           String @id @default(uuid())
+  drive        String
+  item         String
+  ruta         String @db.Text
+  nombre       String @db.VarChar(240)
+  mime         String? @db.VarChar(100)
+  etag         String?
+  size         Int
+  modificadoAt DateTime? @map("modificado_at")
+  hash         String? @unique @db.VarChar(64)
+  estado       String @default("DETECTADO") @db.VarChar(30)
+  resultado    Json? @db.JsonB
+  textoBusqueda String? @map("texto_busqueda") @db.Text
+  incidencia   String? @db.Text
+  version      Int @default(1)
+  fuenteId     String? @unique @map("fuente_id")
+  fuente       FuenteCosteOperadora? @relation(fields: [fuenteId], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  @@unique([drive, item])
+  @@index([estado, createdAt])
+  @@map("documentos_refacturacion_pendiente")
 }

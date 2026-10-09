@@ -46,6 +46,7 @@ function forbidden(model: string, operation: string): never { throw new Error(`G
 function sourceWithRelations(source: Source) {
   return {
     ...source,
+    documentoPendiente: pendingDoc.fuenteId === source.id ? {id:pendingDoc.id,version:pendingDoc.version,estado:pendingDoc.estado} : null,
     documentos: source.documentos.map(d => ({ ...d, factura: state.invoices[d.facturaId] })),
     asignaciones: source.asignaciones.map(a => ({ ...a, grupo: groups.find(g => g.id === a.grupoId) || { id: a.grupoId, nombre: 'desconocido' } })),
   };
@@ -57,7 +58,13 @@ function sourceFromWhere(where: any): Source | null {
   return null;
 }
 
+const pendingDocumentId = '12345678-1234-4234-8234-123456789012';
+const pendingDoc: any = { id: pendingDocumentId, estado: 'LISTO', version: 1, fuenteId: null, drive: 'synthetic-drive', item: 'synthetic-item', hash: 'e'.repeat(64), nombre: 'original-synthetic.pdf', resultado: { proveedor: 'Proveedor externo', destinatario: 'Empresa externa', numFactura: 'DOC-12', fecha: '2026-04-20', base: 100, concepto: 'Red compartida', lineas: [{descripcion: 'Troncal externa', importe: 100}] } };
 const tx: any = {
+  documentoRefacturacionPendiente: {
+    findUnique: async ({ where }: any) => where.id === pendingDoc.id ? structuredClone(pendingDoc) : null,
+    update: async ({ data }: any) => { pendingDoc.fuenteId = data.fuenteId; pendingDoc.version += data.version?.increment || 0; return pendingDoc; },
+  },
   $queryRaw: async (sql: Prisma.Sql) => {
     const query = sql.strings.join('?');
     if (query.includes('pg_advisory_xact_lock')) {
@@ -300,6 +307,18 @@ async function main() {
   delete (legacyEdit as any).periodo;
   await expectStatus(post(legacyEdit), 200);
   assert.equal(state.sources[sourceId('7')].periodo, state.invoices['inv-ref'].fecha.toISOString().slice(0, 7), 'alta deriva fecha aunque cliente envíe mes manual');
+
+  // Un documento de otra empresa se transforma en fuente solo con selección explícita, sin crear facturas recibidas.
+  const pendingBody = { action: 'guardar', id: sourceId('8'), origen: 'TERCERO', empresaPagadora: 'Empresa externa', documentoPendienteId: pendingDoc.id, documentoPendienteVersion: 1, asignaciones: [{ indice: 0, grupoId: groupId }], estado: 'BORRADOR' };
+  const pendingSaved = await expectStatus(post(pendingBody), 200);
+  const pendingSource = (await pendingSaved.json()).fuente;
+  assert.equal(pendingSource.periodo, '2026-04');
+  assert.equal(pendingSource.situacionRefacturacion, 'PENDIENTE_REFACTURACION');
+  assert.equal(pendingSource.documentos.length, 0);
+  assert.equal(pendingDoc.fuenteId, pendingBody.id);
+  await expectStatus(post(pendingBody), 200);
+  await expectStatus(post({...pendingBody,version:1,notas:'Cambio con versión documental antigua'}),409);
+  await expectStatus(post({ ...pendingBody, id: sourceId('9'), documentoPendienteVersion: pendingDoc.version }), 409);
 
   // A failure after creating the parent row rolls the entire transaction back and emits no audit.
   faultAssignments = true;

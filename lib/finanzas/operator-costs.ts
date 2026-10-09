@@ -26,13 +26,15 @@ export const sourceInput = z.object({
   tercero: z.object({ proveedor: text(160), numFactura: text(100), fecha: date, base: money,
     concepto: z.string().trim().max(2000).optional(), lineas: z.array(z.object({ descripcion: text(2000), importe: money }).strict()).min(1).max(200),
   }).strict().optional(),
+  documentoPendienteId: uuid.optional(), documentoPendienteVersion: z.number().int().min(1).optional(),
   refacturaId: z.string().regex(ID).nullable().optional(), refacturaVersion: z.string().regex(HASH).optional(),
   asignaciones: z.array(z.object({ indice: z.number().int().min(-1).max(199), grupoId: z.string().regex(ID) }).strict()).max(200),
   estado: z.enum(['BORRADOR', 'REVISADO', 'ARCHIVADO']), notas: z.string().trim().max(4000).optional(),
 }).strict().superRefine((v, ctx) => {
-  if (v.origen === 'PROPIA' && (!v.facturaId || (!v.version && !v.facturaVersion) || v.tercero)) ctx.addIssue({ code: 'custom', message: 'Selecciona una factura propia y su versión.' });
-  if (v.origen === 'TERCERO' && ((!v.version && !v.tercero) || !v.empresaPagadora || v.facturaId)) ctx.addIssue({ code: 'custom', message: 'Indica la empresa pagadora y la factura original de tercero.' });
+  if (v.origen === 'PROPIA' && (!v.facturaId || (!v.version && !v.facturaVersion) || v.tercero || v.documentoPendienteId)) ctx.addIssue({ code: 'custom', message: 'Selecciona una factura propia y su versión.' });
+  if (v.origen === 'TERCERO' && ((!v.version && !v.tercero && !v.documentoPendienteId) || !v.empresaPagadora || v.facturaId)) ctx.addIssue({ code: 'custom', message: 'Indica la empresa pagadora y la factura original de tercero.' });
   if (v.refacturaId && v.refacturaId === v.facturaId) ctx.addIssue({ code: 'custom', message: 'La factura original y la refacturada no pueden ser la misma.' });
+  if (v.documentoPendienteId && (!v.documentoPendienteVersion || v.tercero)) ctx.addIssue({ code: 'custom', message: 'Selecciona el documento analizado y su versión, sin sustituir su original.' });
   const indices = v.asignaciones.map(a => a.indice);
   if (new Set(indices).size !== indices.length || (indices.includes(-1) && indices.length > 1)) ctx.addIssue({ code: 'custom', message: 'No se puede contar dos veces un artículo o combinar la factura completa con artículos.' });
   if (v.estado === 'REVISADO' && !indices.length) ctx.addIssue({ code: 'custom', message: 'Selecciona al menos un artículo antes de marcar revisado.' });

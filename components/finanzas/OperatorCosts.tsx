@@ -2,6 +2,9 @@
 
 import Link from "next/link";
 import OperatorCostBatch from "./OperatorCostBatch";
+import PendingRefactoringDocuments, {
+  type PendingDocument,
+} from "./PendingRefactoringDocuments";
 import {
   OPERATOR_INVOICE_ALL_HISTORY_DEFAULT,
   operatorInvoiceParams,
@@ -84,6 +87,11 @@ type Fuente = {
   documentoNombre?: string | null;
   tienePdf: boolean;
   documentoCambiado: boolean;
+  situacionRefacturacion?:
+    | "PENDIENTE_REFACTURACION"
+    | "REFACTURA_RECIBIDA"
+    | "NO_APLICA";
+  documentoPendiente?: { id: string; version: number } | null;
 };
 type ListResponse = {
   fuentes: Fuente[];
@@ -92,6 +100,8 @@ type ListResponse = {
   totalPages: number;
   resumen: {
     baseSeleccionada: number;
+    basePendienteRefacturacion?: number;
+    basePropia?: number;
     propias: number;
     terceros: number;
     borradores: number;
@@ -475,12 +485,14 @@ function GroupPanel({
 
 function CostEditor({
   source,
+  pendingDocument,
   initialGroups,
   canWrite,
   onClose,
   onSaved,
 }: {
   source?: Fuente | null;
+  pendingDocument?: PendingDocument;
   initialGroups: Grupo[];
   canWrite: boolean;
   onClose: () => void;
@@ -488,7 +500,9 @@ function CostEditor({
 }) {
   const editing = Boolean(source);
   const [id] = useState(() => source?.id || newId());
-  const [origin, setOrigin] = useState<Origen>(source?.origen || "PROPIA");
+  const [origin, setOrigin] = useState<Origen>(
+    source?.origen || (pendingDocument ? "TERCERO" : "PROPIA"),
+  );
   const [invoiceMonth, setInvoiceMonth] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [allHistory, setAllHistory] = useState(
@@ -518,12 +532,26 @@ function CostEditor({
     },
   );
   const [third, setThird] = useState({
-    empresaPagadora: source?.empresaPagadora || "",
-    proveedor: source?.snapshot.proveedor || "",
-    numFactura: source?.snapshot.numFactura || "",
-    fecha: source?.snapshot.fecha?.slice(0, 10) || "",
-    base: source ? String(source.snapshot.base) : "",
-    concepto: source?.snapshot.concepto || "",
+    empresaPagadora:
+      source?.empresaPagadora || pendingDocument?.resultado?.destinatario || "",
+    proveedor:
+      source?.snapshot.proveedor || pendingDocument?.resultado?.proveedor || "",
+    numFactura:
+      source?.snapshot.numFactura ||
+      pendingDocument?.resultado?.numFactura ||
+      "",
+    fecha:
+      source?.snapshot.fecha?.slice(0, 10) ||
+      pendingDocument?.resultado?.fecha ||
+      "",
+    base: source
+      ? String(source.snapshot.base)
+      : pendingDocument?.resultado?.base !== null &&
+          pendingDocument?.resultado?.base !== undefined
+        ? String(pendingDocument.resultado.base)
+        : "",
+    concepto:
+      source?.snapshot.concepto || pendingDocument?.resultado?.concepto || "",
   });
   const [manualLines, setManualLines] = useState<ManualLine[]>(
     () =>
@@ -531,7 +559,13 @@ function CostEditor({
         key: String(line.index),
         descripcion: line.descripcion,
         importe: line.importe === null ? "" : String(line.importe),
-      })) || [],
+      })) ||
+      pendingDocument?.resultado?.lineas?.map((line, index) => ({
+        key: String(index),
+        descripcion: line.descripcion || "",
+        importe: line.importe === null ? "" : String(line.importe),
+      })) ||
+      [],
   );
   const [assigned, setAssigned] = useState<Record<number, string>>(() =>
     Object.fromEntries(
@@ -694,7 +728,7 @@ function CostEditor({
       );
     if (!editing && origin === "PROPIA" && !selectedInvoice)
       return setError("Selecciona una factura de Internet Operadores.");
-    if (!editing && origin === "TERCERO") {
+    if (!editing && origin === "TERCERO" && !pendingDocument) {
       if (
         !third.empresaPagadora.trim() ||
         !third.proveedor.trim() ||
@@ -763,7 +797,7 @@ function CostEditor({
             facturaVersion:
               origin === "PROPIA" ? selectedInvoice?.version : undefined,
             tercero:
-              origin === "TERCERO"
+              origin === "TERCERO" && !pendingDocument
                 ? {
                     proveedor: third.proveedor.trim(),
                     numFactura: third.numFactura.trim(),
@@ -776,6 +810,8 @@ function CostEditor({
                     })),
                   }
                 : undefined,
+            documentoPendienteId: pendingDocument?.id,
+            documentoPendienteVersion: pendingDocument?.version,
             refacturaId: refacturaInvoice?.id || null,
             refacturaVersion: refacturaInvoice?.version || undefined,
             asignaciones: assignments,
@@ -897,7 +933,7 @@ function CostEditor({
           </div>
         )}
         <fieldset
-          disabled={editing || !canWrite}
+          disabled={editing || !canWrite || Boolean(pendingDocument)}
           className="grid gap-3 rounded-lg border border-slate-200 p-4 md:grid-cols-2"
         >
           <legend className="px-1 text-sm font-extrabold text-slate-950">
@@ -912,6 +948,7 @@ function CostEditor({
                 <input
                   type="radio"
                   checked={origin === "PROPIA"}
+                  disabled={Boolean(pendingDocument)}
                   onChange={() => setOrigin("PROPIA")}
                 />
                 Factura de Internet Operadores
@@ -1030,7 +1067,7 @@ function CostEditor({
             )}
           </div>
         )}
-        {!editing && origin === "TERCERO" && (
+        {!editing && origin === "TERCERO" && !pendingDocument && (
           <div className="rounded-lg border border-slate-200 p-4">
             <h3 className="text-base font-extrabold text-slate-950">
               2. Registrar factura de otra empresa
@@ -1042,7 +1079,7 @@ function CostEditor({
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div>
                 <label className={labelClass} htmlFor="third-payer">
-                  Empresa pagadora
+                  Empresa destinataria del original
                 </label>
                 <input
                   id="third-payer"
@@ -1418,13 +1455,23 @@ function CostEditor({
             </p>
           )}
         </section>
+        {pendingDocument && (
+          <p className="rounded-lg border border-violet-300 bg-violet-50 p-3 text-sm font-bold text-violet-950">
+            Original analizado en OneDrive, a nombre de{" "}
+            {pendingDocument.resultado?.destinatario}. Se conservan los datos
+            del documento: selecciona los artículos y su centro de coste. No se
+            registra como factura recibida propia.
+          </p>
+        )}
         <section className="rounded-lg border border-slate-200 p-4">
           <h3 className="text-base font-extrabold text-slate-950">
-            4. Refactura (opcional)
+            4. Refactura recibida de la otra empresa (cuando exista)
           </h3>
           <p className="mt-1 text-sm text-slate-700">
-            Busca una factura existente para vincularla como refactura. Su base
-            no se vuelve a sumar al coste.
+            Mientras la otra empresa no os facture, deja este campo vacío: el
+            coste queda pendiente de recibir por refacturación. Cuando llegue la
+            factura a Internet Operadores, vincúlala aquí. No se sumará el coste
+            dos veces.
           </p>
           <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
             <div className="relative">
@@ -1681,7 +1728,7 @@ function CandidateTable({
                       >
                         {invoice.id === selected
                           ? "Original elegida"
-                          : "Elegir original"}
+                          : "Usar como factura propia"}
                       </button>
                     )}
                     <button
@@ -1692,7 +1739,7 @@ function CandidateTable({
                     >
                       {invoice.id === refactura
                         ? "Refactura elegida"
-                        : "Elegir refactura"}
+                        : "Vincular refactura recibida"}
                     </button>
                   </div>
                 </td>
@@ -1737,6 +1784,13 @@ function Snapshot({ source }: { source: Fuente }) {
           </span>
         )}
       </div>
+      {source.origen === "TERCERO" && (
+        <p className="mt-2 rounded-md border border-violet-300 bg-violet-50 p-2 text-sm font-bold text-violet-950">
+          {refacturaDoc
+            ? "Refactura recibida y vinculada · coste no duplicado"
+            : "Pendiente de recibir por refacturación · coste económico, no factura recibida de Internet Operadores"}
+        </p>
+      )}
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div className="rounded-md border border-slate-300 bg-white p-3">
           <p className="font-extrabold text-slate-950">
@@ -1772,7 +1826,11 @@ function Snapshot({ source }: { source: Fuente }) {
           )}
           {source.tienePdf && (
             <a
-              href={`${API}/${encodeURIComponent(source.id)}/pdf`}
+              href={
+                source.documentoPendiente
+                  ? `${API}/pendientes/${encodeURIComponent(source.documentoPendiente.id)}/pdf`
+                  : `${API}/${encodeURIComponent(source.id)}/pdf`
+              }
               target="_blank"
               className="mt-2 flex items-center gap-1 text-sm font-bold text-blue-900 underline focus:outline-none focus:ring-2 focus:ring-blue-700"
             >
@@ -1899,7 +1957,11 @@ function SourceDetail({ source }: { source: Fuente }) {
             )}
             {source.tienePdf && (
               <a
-                href={`${API}/${encodeURIComponent(source.id)}/pdf`}
+                href={
+                  source.documentoPendiente
+                    ? `${API}/pendientes/${encodeURIComponent(source.documentoPendiente.id)}/pdf`
+                    : `${API}/${encodeURIComponent(source.id)}/pdf`
+                }
                 target="_blank"
                 className="mt-2 flex items-center gap-1 font-bold text-blue-900 underline focus:outline-none focus:ring-2 focus:ring-blue-700"
               >
@@ -2076,6 +2138,10 @@ export default function OperatorCosts() {
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
   const [editor, setEditor] = useState<Fuente | null | "new">(null);
   const [editorRevision, setEditorRevision] = useState(0);
+  const [pendingDocument, setPendingDocument] = useState<
+    PendingDocument | undefined
+  >();
+  const [pendingBusy, setPendingBusy] = useState(false);
   const active = useRef("");
   const controller = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
@@ -2165,7 +2231,7 @@ export default function OperatorCosts() {
     }
   }
   async function edit(source: Fuente) {
-    if (batchBusy) return;
+    if (batchBusy || pendingBusy) return;
     detailController.current?.abort();
     const currentRequest = new AbortController();
     detailController.current = currentRequest;
@@ -2188,6 +2254,7 @@ export default function OperatorCosts() {
             }
           : previous,
       );
+      setPendingDocument(undefined);
       setEditor(detail.fuente);
     } catch (cause) {
       setError(message(cause));
@@ -2196,8 +2263,9 @@ export default function OperatorCosts() {
     }
   }
   function openReceivedInvoicePicker() {
-    if (batchBusy) return;
+    if (batchBusy || pendingBusy) return;
     setBatch(false);
+    setPendingDocument(undefined);
     setEditorRevision((value) => value + 1);
     setEditor("new");
     window.requestAnimationFrame(() => {
@@ -2242,10 +2310,11 @@ export default function OperatorCosts() {
             {canWrite && (
               <button
                 type="button"
-                disabled={batchBusy}
+                disabled={batchBusy || pendingBusy}
                 onClick={() => {
-                  if (batchBusy) return;
+                  if (batchBusy || pendingBusy) return;
                   setEditor(null);
+                  setPendingDocument(undefined);
                   setBatchGroupId(grupoId);
                   setBatch(true);
                 }}
@@ -2258,7 +2327,7 @@ export default function OperatorCosts() {
               <button
                 type="button"
                 onClick={openReceivedInvoicePicker}
-                disabled={batchBusy}
+                disabled={batchBusy || pendingBusy}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
               >
                 <PlusIcon className="h-4 w-4" />
@@ -2294,6 +2363,15 @@ export default function OperatorCosts() {
             label="Base seleccionada"
             value={money(data.resumen.baseSeleccionada)}
             tone="blue"
+          />
+          <Metric
+            label="Coste propio seleccionado"
+            value={money(data.resumen.basePropia)}
+          />
+          <Metric
+            label="Coste pendiente de refactura"
+            value={money(data.resumen.basePendienteRefacturacion)}
+            tone="amber"
           />
           <Metric
             label="Internet Operadores"
@@ -2501,6 +2579,24 @@ export default function OperatorCosts() {
           </button>
         </section>
       )}
+      <PendingRefactoringDocuments
+        refreshToken={refresh}
+        canWrite={canWrite && !batchBusy}
+        onBusyChange={setPendingBusy}
+        onRefresh={() => setRefresh((v) => v + 1)}
+        onUseDocument={(doc) => {
+          if (batchBusy || pendingBusy) return;
+          setPendingDocument(doc);
+          setBatch(false);
+          setEditorRevision((v) => v + 1);
+          setEditor("new");
+          window.requestAnimationFrame(() =>
+            document
+              .getElementById("editor-heading")
+              ?.scrollIntoView({ block: "start" }),
+          );
+        }}
+      />
       {batch && (
         <OperatorCostBatch
           grupos={data?.grupos || []}
@@ -2514,6 +2610,7 @@ export default function OperatorCosts() {
         <CostEditor
           key={editor === "new" ? `new-${editorRevision}` : editor.id}
           source={editor === "new" ? undefined : editor}
+          pendingDocument={editor === "new" ? pendingDocument : undefined}
           initialGroups={data?.grupos || []}
           canWrite={canWrite}
           onClose={() => setEditor(null)}
@@ -2551,7 +2648,7 @@ export default function OperatorCosts() {
               <button
                 type="button"
                 onClick={openReceivedInvoicePicker}
-                disabled={batchBusy}
+                disabled={batchBusy || pendingBusy}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
@@ -2595,11 +2692,13 @@ export default function OperatorCosts() {
               id="third-heading"
               className="text-lg font-extrabold text-slate-950"
             >
-              Facturas de otras empresas y refacturación
+              Costes de terceros · pendientes de recibir por refacturación
             </h2>
             <p className="mt-1 text-sm text-slate-700">
-              Fuentes registradas manualmente y vínculos de refactura. La
-              refactura nunca suma una segunda vez.
+              Servicios utilizados por Internet Operadores con documentos a
+              nombre de otra empresa. No son facturas recibidas propias ni pagos
+              pendientes. Su coste se conserva para el análisis económico; la
+              futura refactura no lo duplica.
             </p>
           </div>
           <span className="text-sm font-bold text-slate-800">
