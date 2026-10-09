@@ -219,18 +219,25 @@ export function accountingSiteNameMatches(value: unknown) {
 }
 async function graphCredentials() {
   const token = await getAccessToken();
+  const configuredDrive = process.env.SHAREPOINT_DRIVE_ID;
+  if (configuredDrive) return { token, drive: configuredDrive, scopeId: await resolveScopeFolder(token, configuredDrive) };
   const result = await graphJson(token, graphUrl('/sites?search=Accounting'));
-  if (!Array.isArray(result.value)) throw new PendingRefactoringError('No se pudo resolver el sitio documental configurado.', 502);
-  const sites = (result.value as any[]).filter(site => accountingSiteNameMatches(site.displayName) || accountingSiteNameMatches(site.name));
-  if (sites.length !== 1 || typeof sites[0].id !== 'string') throw new PendingRefactoringError('No se pudo identificar de forma única el sitio de contabilidad.', 502);
-  const drive = process.env.SHAREPOINT_DRIVE_ID || await getSiteDrive(sites[0].id);
-  if (!drive) throw new PendingRefactoringError('No se pudo resolver el repositorio documental privado.', 502);
-  return { token, drive };
+  if (!Array.isArray(result.value) || result.value.length > 12) throw new PendingRefactoringError('No se pudo resolver el repositorio documental privado.', 502);
+  // La identidad autorizada es la biblioteca que contiene la ruta completa de la captura.
+  // Los títulos técnicos/visibles del sitio no son fiables ni amplían el ámbito de documentos.
+  const matches: { drive: string; scopeId: string }[] = [];
+  for (const site of result.value as any[]) {
+    if (typeof site.id !== 'string') continue;
+    const drive = await getSiteDrive(site.id);
+    try { matches.push({ drive, scopeId: await resolveScopeFolder(token, drive) }); }
+    catch (error) { if (!(error instanceof PendingRefactoringError) || error.message !== 'No se pudo resolver el ámbito documental configurado.') throw error; }
+  }
+  if (matches.length !== 1) throw new PendingRefactoringError('No se pudo identificar una única biblioteca con la carpeta autorizada de Vola.', 502);
+  return { token, ...matches[0] };
 }
 
 export async function discoverScopeDocuments(): Promise<{ documents: DiscoveredDocument[]; skippedUnsupported: number; incomplete: boolean }> {
-  const { token, drive } = await graphCredentials();
-  const scopeId = await resolveScopeFolder(token, drive);
+  const { token, drive, scopeId } = await graphCredentials();
   const queue: Array<{ id: string; ruta: string; depth: number }> = [{ id: scopeId, ruta: PENDING_REFACTORING_SCOPE, depth: 0 }];
   const visited = new Set<string>([scopeId]);
   const documents: DiscoveredDocument[] = [];
