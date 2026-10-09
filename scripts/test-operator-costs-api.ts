@@ -286,6 +286,21 @@ async function main() {
   assert.equal(state.audits.length, 2);
   assert.equal(state.sources[savedId].notas, null);
 
+  // Un centro no pertenece a un mes: se deriva de la fecha del documento si no se pide período.
+  const automaticBody = ownBody(sourceId('6'), 'inv-secondary');
+  delete (automaticBody as any).periodo;
+  const automaticSaved = await expectStatus(post(automaticBody), 200);
+  const automaticSource = (await automaticSaved.json()).fuente;
+  assert.equal(automaticSource.periodo, '2026-02');
+  await expectStatus(post({ ...automaticBody, version: automaticSource.version, notas: 'Centro multimes' }), 200);
+  assert.equal(state.sources[sourceId('6')].periodo, '2026-02');
+  const legacyBody = ownBody(sourceId('7'), 'inv-ref', { periodo: '2026-10' });
+  await expectStatus(post(legacyBody), 200);
+  const legacyEdit = { ...legacyBody, version: 1, notas: 'Conservar período anterior' };
+  delete (legacyEdit as any).periodo;
+  await expectStatus(post(legacyEdit), 200);
+  assert.equal(state.sources[sourceId('7')].periodo, state.invoices['inv-ref'].fecha.toISOString().slice(0, 7), 'alta deriva fecha aunque cliente envíe mes manual');
+
   // A failure after creating the parent row rolls the entire transaction back and emits no audit.
   faultAssignments = true;
   const beforeRollbackAudits = state.audits.length;

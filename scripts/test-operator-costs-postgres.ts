@@ -39,11 +39,12 @@ async function main() {
         throw new Error('Módulo no permitido: ' + name);
       } });
       const send = (body: any) => module.exports.POST(new NextRequest('https://panel.example/api/admin/finanzas/costes-operadora', { method: 'POST', headers: { origin: 'https://panel.example', 'content-type': 'application/json' }, body: JSON.stringify(body) }));
-      const body = { action: 'guardar', id, origen: 'PROPIA', periodo: '2026-10', facturaId: invoice.id, facturaVersion: costs.digest(snapshot), asignaciones: assignments, estado: 'BORRADOR' };
+      const body = { action: 'guardar', id, origen: 'PROPIA', facturaId: invoice.id, facturaVersion: costs.digest(snapshot), asignaciones: assignments, estado: 'BORRADOR' };
       const created = await send(body);
       assert.equal(created.status, 200, 'el guardado completo debe funcionar con PostgreSQL real');
       const data = await created.json();
       assert.equal(data.success, true);
+      assert.equal(data.fuente.periodo, snapshot.fecha.slice(0, 7), 'mes derivado de la factura, no del filtro de pantalla');
       assert.equal(data.fuente.documentos.length, 1);
       assert.equal(data.fuente.asignaciones.length, assignments.length);
       assert.equal(await tx.auditoriaCosteOperadora.count({ where: { fuenteId: id } }), 1);

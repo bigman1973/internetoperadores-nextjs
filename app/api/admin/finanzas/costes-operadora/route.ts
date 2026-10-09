@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
       const original = v.facturaId ? await tx.facturaRecibida.findUnique({ where: { id: v.facturaId }, select: invoiceSelect }) : null;
       let snapshot: OperatorSnapshot;
       if (previous) {
-        if (previous.origen !== v.origen || previous.empresaPagadora !== empresa || previous.periodo !== v.periodo || (v.origen === 'PROPIA' && previous.documentos.find(d => d.rol === 'ORIGINAL')?.facturaId !== v.facturaId)) throw new Conflict('La identidad y el período de una fuente guardada no se pueden sustituir.');
+        if (previous.origen !== v.origen || previous.empresaPagadora !== empresa || (v.origen === 'PROPIA' && previous.documentos.find(d => d.rol === 'ORIGINAL')?.facturaId !== v.facturaId)) throw new Conflict('La identidad y el período de una fuente guardada no se pueden sustituir.');
         snapshot = previous.snapshot as unknown as OperatorSnapshot;
         if (v.facturaVersion && v.facturaVersion !== previous.fuenteVersion) throw new Conflict('La versión enviada no coincide con la factura original guardada.');
         if (v.tercero && digest(externalSnapshot(v.tercero)) !== previous.fuenteVersion) throw new Conflict('El original de tercero es inmutable; conserva su trazabilidad.');
@@ -117,6 +117,8 @@ export async function POST(req: NextRequest) {
           if (digest(snapshot) !== v.facturaVersion) throw new Conflict('La factura ha cambiado. Vuelve a seleccionarla.');
         } else snapshot = externalSnapshot(v.tercero!);
       }
+      const periodo = previous?.periodo || snapshot.fecha.slice(0, 7);
+      if (!PERIOD.test(periodo)) throw new Invalid('La fecha de factura no permite identificar su mes.');
       const assignments = validateAssignments(snapshot, v.asignaciones as { indice: number; grupoId: string }[], v.estado);
       const desired = { estado: v.estado, notas: v.notas || null, asignaciones: assignments.map(a => ({ indice: a.indice, grupoId: a.grupoId })).sort((a,b) => a.indice - b.indice), refacturaId: v.refacturaId === undefined ? previous?.documentos.find(d => d.rol === 'REFACTURA')?.facturaId || null : v.refacturaId };
       if (previous) {
@@ -156,7 +158,7 @@ export async function POST(req: NextRequest) {
         await tx.fuenteCosteOperadora.update({ where: { id: v.id }, data });
         await tx.articuloCosteOperadora.deleteMany({ where: { fuenteId: v.id } });
         await tx.documentoCosteOperadora.deleteMany({ where: { fuenteId: v.id } });
-      } else await tx.fuenteCosteOperadora.create({ data: { id: v.id, claveOrigen, origen: v.origen, empresaPagadora: empresa, periodo: v.periodo, snapshot: snapshot as unknown as Prisma.InputJsonValue, fuenteVersion: digest(snapshot), creadoPor: auth.userId, ...data } });
+      } else await tx.fuenteCosteOperadora.create({ data: { id: v.id, claveOrigen, origen: v.origen, empresaPagadora: empresa, periodo, snapshot: snapshot as unknown as Prisma.InputJsonValue, fuenteVersion: digest(snapshot), creadoPor: auth.userId, ...data } });
       if (assignments.length) await tx.articuloCosteOperadora.createMany({ data: assignments.map(a => ({ fuenteId: v.id, grupoId: a.grupoId, indice: a.indice, descripcion: a.descripcion, importe: a.importe })) });
       if (documents.length) await tx.documentoCosteOperadora.createMany({ data: documents.map(d => ({ fuenteId: v.id, ...d })) });
       await tx.auditoriaCosteOperadora.create({ data: { fuenteId: v.id, usuarioId: auth.userId, accion: previous ? 'EDITAR_FUENTE' : 'CREAR_FUENTE', datos: { antes: previous ? { version: previous.version, estado: previous.estado, notas: previous.notas, asignaciones: previous.asignaciones.map(a => ({ indice: a.indice, grupoId: a.grupoId })), documentos: previous.documentos.map(d => ({ facturaId: d.facturaId, rol: d.rol })) } : null, despues: desired } } });

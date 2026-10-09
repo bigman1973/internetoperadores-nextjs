@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import OperatorCostBatch from "./OperatorCostBatch";
 import {
   OPERATOR_INVOICE_ALL_HISTORY_DEFAULT,
   operatorInvoiceParams,
@@ -334,11 +335,12 @@ function GroupPanel({
             id="grupos-heading"
             className="text-lg font-extrabold text-slate-950"
           >
-            Grupos de coste
+            Centros de coste
           </h2>
           <p className="mt-1 text-sm text-slate-700">
-            Destino analítico de cada artículo. No se crean grupos de ejemplo
-            automáticamente.
+            El centro reúne artículos de facturas de cualquier mes. Su ámbito
+            global o por zona define a qué red corresponde, sin aplicar
+            repartos.
           </p>
         </div>
         {canWrite && (
@@ -348,7 +350,7 @@ function GroupPanel({
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-950 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-700"
           >
             <FolderPlusIcon className="h-4 w-4" />
-            {open ? "Cerrar formulario" : "Crear grupo"}
+            {open ? "Cerrar formulario" : "Crear centro de coste"}
           </button>
         )}
       </div>
@@ -462,7 +464,7 @@ function GroupPanel({
               className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2 disabled:opacity-60"
             >
               <PlusIcon className="h-4 w-4" />
-              {busy ? "Creando…" : "Crear grupo"}
+              {busy ? "Creando…" : "Crear centro de coste"}
             </button>
           </div>
         )}
@@ -487,7 +489,7 @@ function CostEditor({
   const editing = Boolean(source);
   const [id] = useState(() => source?.id || newId());
   const [origin, setOrigin] = useState<Origen>(source?.origen || "PROPIA");
-  const [periodo, setPeriodo] = useState(source?.periodo || nowPeriod());
+  const [invoiceMonth, setInvoiceMonth] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
   const [allHistory, setAllHistory] = useState(
     OPERATOR_INVOICE_ALL_HISTORY_DEFAULT,
@@ -594,7 +596,7 @@ function CostEditor({
         buscar: invoiceSearch,
         page: invoicePage,
         allHistory,
-        periodo,
+        periodo: invoiceMonth,
       });
       setInvoicesBusy(true);
       setInvoiceError("");
@@ -613,7 +615,7 @@ function CostEditor({
       window.clearTimeout(timer);
       request.current?.abort();
     };
-  }, [invoiceSearch, invoicePage, allHistory, periodo]);
+  }, [invoiceSearch, invoicePage, allHistory, invoiceMonth]);
   useEffect(() => () => request.current?.abort(), []);
   useEffect(() => {
     if (!editing) {
@@ -624,7 +626,7 @@ function CostEditor({
   }, [origin, editing]);
   useEffect(() => {
     setInvoicePage(1);
-  }, [invoiceSearch, allHistory, periodo, editing]);
+  }, [invoiceSearch, allHistory, invoiceMonth, editing]);
   function chooseInvoice(invoice: Factura, role: "original" | "refactura") {
     if (role === "original") {
       setSelectedInvoice(invoice);
@@ -690,8 +692,6 @@ function CostEditor({
       return setError(
         "Una nueva fuente debe guardarse como borrador o revisada; el archivado se realiza al editar.",
       );
-    if (!editing && !/^20\d{2}-(0[1-9]|1[0-2])$/.test(periodo))
-      return setError("Indica un período válido (AAAA-MM).");
     if (!editing && origin === "PROPIA" && !selectedInvoice)
       return setError("Selecciona una factura de Internet Operadores.");
     if (!editing && origin === "TERCERO") {
@@ -759,7 +759,6 @@ function CostEditor({
               origin === "PROPIA"
                 ? "Internet Operadores"
                 : third.empresaPagadora.trim(),
-            periodo,
             facturaId: origin === "PROPIA" ? selectedInvoice?.id : undefined,
             facturaVersion:
               origin === "PROPIA" ? selectedInvoice?.version : undefined,
@@ -848,7 +847,7 @@ function CostEditor({
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-5 text-slate-700">
             {editing
-              ? "La identidad, empresa pagadora, período y copia de la factura no se modifican. Solo puedes ajustar artículos, notas, estado y refactura."
+              ? "La identidad, empresa pagadora y copia de la factura se conservan. Solo puedes ajustar artículos, notas, estado y refactura."
               : "Selecciona o registra la factura y asigna cada artículo a un grupo. No se infieren clientes ni se aplica ninguna distribución futura."}
           </p>
         </div>
@@ -929,18 +928,11 @@ function CostEditor({
               </label>
             </div>
           </div>
-          <div>
-            <label htmlFor="cost-period" className={labelClass}>
-              Período de coste
-            </label>
-            <input
-              id="cost-period"
-              type="month"
-              value={periodo}
-              onChange={(event) => setPeriodo(event.target.value)}
-              className={inputClass}
-            />
-          </div>
+          <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+            Asigna los artículos a un centro de coste, no a un mes. La fecha de
+            cada factura se conserva para consultar su evolución; no se reparte
+            ningún coste entre clientes.
+          </p>
           {editing && (
             <p className="md:col-span-2 text-xs font-semibold text-slate-700">
               Datos bloqueados para preservar el snapshot original de esta
@@ -956,7 +948,7 @@ function CostEditor({
             <p className="mt-1 text-sm text-slate-700">
               Busca entre las facturas de proveedores ya recibidas por Internet
               Operadores, de cualquier mes. Por ejemplo, escribe Cogent. El
-              período de coste no limita esta búsqueda.
+              centro de coste puede reunir facturas de meses distintos.
             </p>
             <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
@@ -984,8 +976,8 @@ function CostEditor({
             </div>
             <p className="mt-2 text-xs text-slate-700">
               {allHistory
-                ? "Buscando en todo el histórico. El mes de la factura puede ser distinto del período de coste."
-                : `Filtro de fecha de factura activo: ${periodo || "seleccionado"}. Activa «Buscar en todo el histórico» si falta un proveedor.`}
+                ? "Buscando en todo el histórico. Cada factura conserva su fecha y puede pertenecer al mismo centro de coste."
+                : `Filtro de fecha de factura activo: ${invoiceMonth || "todos los meses"}. No cambia la asignación al centro de coste.`}
               {invoices && !invoicesBusy && (
                 <strong className="ml-2">
                   {integer.format(invoices.total)} facturas encontradas.
@@ -999,6 +991,20 @@ function CostEditor({
               >
                 {invoiceError}
               </p>
+            )}
+            {!allHistory && (
+              <div className="mt-3">
+                <label htmlFor="invoice-month" className={labelClass}>
+                  Filtrar fecha de factura (opcional)
+                </label>
+                <input
+                  id="invoice-month"
+                  type="month"
+                  value={invoiceMonth}
+                  onChange={(e) => setInvoiceMonth(e.target.value)}
+                  className={inputClass}
+                />
+              </div>
             )}
             <CandidateTable
               rows={candidateRows}
@@ -1220,7 +1226,7 @@ function CostEditor({
                 id="assignment-heading"
                 className="text-base font-extrabold text-slate-950"
               >
-                3. Asignar artículos a grupos
+                3. Asignar artículos a centros de coste
               </h3>
               <p className="mt-1 text-sm text-slate-700">
                 Cada artículo se selecciona de forma explícita. La factura
@@ -1721,7 +1727,7 @@ function Snapshot({ source }: { source: Fuente }) {
             {source.origen === "PROPIA"
               ? "Factura de Internet Operadores"
               : `Factura de otra empresa: ${source.empresaPagadora}`}{" "}
-            · Período {source.periodo}
+            · Mes de referencia {source.periodo}
           </p>
         </div>
         {source.documentoCambiado && (
@@ -2052,7 +2058,11 @@ function SourceRow({
 }
 
 export default function OperatorCosts() {
-  const [periodo, setPeriodo] = useState(nowPeriod);
+  const [periodo, setPeriodo] = useState("");
+  const [filterByMonth, setFilterByMonth] = useState(false);
+  const [batch, setBatch] = useState(false);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchGroupId, setBatchGroupId] = useState("");
   const [buscar, setBuscar] = useState("");
   const [origen, setOrigen] = useState<"" | Origen>("");
   const [estado, setEstado] = useState<"" | Estado>("");
@@ -2084,10 +2094,10 @@ export default function OperatorCosts() {
     controller.current = next;
     active.current = key;
     const params = new URLSearchParams({
-      periodo,
       page: String(page),
       buscar: buscar.trim(),
     });
+    if (periodo) params.set("periodo", periodo);
     if (origen) params.set("origen", origen);
     if (estado) params.set("estado", estado);
     if (grupoId) params.set("grupoId", grupoId);
@@ -2155,6 +2165,7 @@ export default function OperatorCosts() {
     }
   }
   async function edit(source: Fuente) {
+    if (batchBusy) return;
     detailController.current?.abort();
     const currentRequest = new AbortController();
     detailController.current = currentRequest;
@@ -2185,6 +2196,8 @@ export default function OperatorCosts() {
     }
   }
   function openReceivedInvoicePicker() {
+    if (batchBusy) return;
+    setBatch(false);
     setEditorRevision((value) => value + 1);
     setEditor("new");
     window.requestAnimationFrame(() => {
@@ -2207,26 +2220,49 @@ export default function OperatorCosts() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-sm font-extrabold text-blue-900">
-              Finanzas · operadora
+              <Link
+                href="/admin/finanzas/analitica-costes"
+                className="hover:underline"
+              >
+                Finanzas · Analítica de costes
+              </Link>{" "}
+              · Operadora
             </p>
             <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
               Costes de operadora
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
-              Registra el coste base sin IVA de las facturas que soportan la
-              red, con un snapshot y asignación explícita por artículo. Las
-              refacturas se vinculan, pero no duplican el coste.
+              Organiza las facturas y sus artículos por centro de coste,
+              independientemente del mes. Un mismo centro puede reunir todas las
+              facturas que selecciones. Las fechas solo sirven para consultar su
+              evolución; las refacturas no duplican el coste.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {canWrite && (
               <button
                 type="button"
+                disabled={batchBusy}
+                onClick={() => {
+                  if (batchBusy) return;
+                  setEditor(null);
+                  setBatchGroupId(grupoId);
+                  setBatch(true);
+                }}
+                className="rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700"
+              >
+                Asignar varias facturas a un centro
+              </button>
+            )}
+            {canWrite && (
+              <button
+                type="button"
                 onClick={openReceivedInvoicePicker}
+                disabled={batchBusy}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
               >
                 <PlusIcon className="h-4 w-4" />
-                Nueva fuente
+                Añadir una factura
               </button>
             )}
             <button
@@ -2251,7 +2287,7 @@ export default function OperatorCosts() {
       </header>
       {data?.resumen ? (
         <section
-          aria-label="Resumen del período"
+          aria-label="Resumen de centros de coste"
           className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
         >
           <Metric
@@ -2261,9 +2297,12 @@ export default function OperatorCosts() {
           />
           <Metric
             label="Internet Operadores"
-            value={money(data.resumen.propias)}
+            value={integer.format(data.resumen.propias)}
           />
-          <Metric label="Otras empresas" value={money(data.resumen.terceros)} />
+          <Metric
+            label="Otras empresas"
+            value={integer.format(data.resumen.terceros)}
+          />
           <Metric
             label="Borradores"
             value={integer.format(data.resumen.borradores)}
@@ -2311,16 +2350,38 @@ export default function OperatorCosts() {
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div>
-            <label htmlFor="filter-period" className={labelClass}>
-              Período
-            </label>
-            <input
-              id="filter-period"
-              type="month"
-              value={periodo}
-              onChange={(event) => setPeriodo(event.target.value)}
+            <label className={labelClass}>Fechas de consulta</label>
+            <select
+              id="filter-date-mode"
+              aria-label="Fechas de consulta"
+              value={filterByMonth ? "month" : "all"}
+              onChange={(e) => {
+                const limited = e.target.value === "month";
+                setFilterByMonth(limited);
+                setPeriodo(limited ? nowPeriod() : "");
+                setPage(1);
+              }}
               className={inputClass}
-            />
+            >
+              <option value="all">Todo el histórico</option>
+              <option value="month">Consultar un mes</option>
+            </select>
+            {filterByMonth && (
+              <input
+                id="filter-period"
+                aria-label="Mes de consulta"
+                type="month"
+                value={periodo}
+                onChange={(e) => {
+                  setPeriodo(e.target.value);
+                  setPage(1);
+                }}
+                className={`${inputClass} mt-2`}
+              />
+            )}
+            <p className="mt-1 text-xs text-slate-700">
+              Solo filtra lo que ves. No asigna ni mueve facturas.
+            </p>
           </div>
           <div>
             <label htmlFor="filter-origin" className={labelClass}>
@@ -2329,7 +2390,10 @@ export default function OperatorCosts() {
             <select
               id="filter-origin"
               value={origen}
-              onChange={(event) => setOrigen(event.target.value as "" | Origen)}
+              onChange={(event) => {
+                setOrigen(event.target.value as "" | Origen);
+                setPage(1);
+              }}
               className={inputClass}
             >
               <option value="">Todos los orígenes</option>
@@ -2344,7 +2408,10 @@ export default function OperatorCosts() {
             <select
               id="filter-state"
               value={estado}
-              onChange={(event) => setEstado(event.target.value as "" | Estado)}
+              onChange={(event) => {
+                setEstado(event.target.value as "" | Estado);
+                setPage(1);
+              }}
               className={inputClass}
             >
               <option value="">Todos los estados</option>
@@ -2355,15 +2422,18 @@ export default function OperatorCosts() {
           </div>
           <div>
             <label htmlFor="filter-group" className={labelClass}>
-              Grupo
+              Centro de coste
             </label>
             <select
               id="filter-group"
               value={grupoId}
-              onChange={(event) => setGrupoId(event.target.value)}
+              onChange={(event) => {
+                setGrupoId(event.target.value);
+                setPage(1);
+              }}
               className={inputClass}
             >
-              <option value="">Todos los grupos</option>
+              <option value="">Todos los centros</option>
               {(data?.grupos || []).map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.nombre}
@@ -2380,7 +2450,10 @@ export default function OperatorCosts() {
               <input
                 id="filter-search"
                 value={buscar}
-                onChange={(event) => setBuscar(event.target.value)}
+                onChange={(event) => {
+                  setBuscar(event.target.value);
+                  setPage(1);
+                }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") apply();
                 }}
@@ -2428,6 +2501,15 @@ export default function OperatorCosts() {
           </button>
         </section>
       )}
+      {batch && (
+        <OperatorCostBatch
+          grupos={data?.grupos || []}
+          initialGroupId={batchGroupId}
+          onBusyChange={setBatchBusy}
+          onSaved={() => setRefresh((v) => v + 1)}
+          onClose={() => setBatch(false)}
+        />
+      )}
       {editor && (
         <CostEditor
           key={editor === "new" ? `new-${editorRevision}` : editor.id}
@@ -2469,6 +2551,7 @@ export default function OperatorCosts() {
               <button
                 type="button"
                 onClick={openReceivedInvoicePicker}
+                disabled={batchBusy}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
               >
                 <MagnifyingGlassIcon className="h-4 w-4" />
@@ -2487,7 +2570,7 @@ export default function OperatorCosts() {
               <SourceRow
                 key={source.id}
                 source={source}
-                canWrite={canWrite}
+                canWrite={canWrite && !batchBusy}
                 open={expanded.has(source.id)}
                 loadingDetail={detailLoading === source.id}
                 onToggle={() => toggle(source)}
@@ -2529,7 +2612,7 @@ export default function OperatorCosts() {
               <SourceRow
                 key={source.id}
                 source={source}
-                canWrite={canWrite}
+                canWrite={canWrite && !batchBusy}
                 open={expanded.has(source.id)}
                 loadingDetail={detailLoading === source.id}
                 onToggle={() => toggle(source)}

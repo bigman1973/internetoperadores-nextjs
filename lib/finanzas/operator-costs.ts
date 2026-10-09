@@ -21,7 +21,7 @@ const date = z.string().regex(/^20\d{2}-\d{2}-\d{2}$/).refine(v => {
 }, 'Fecha no válida');
 export const sourceInput = z.object({
   action: z.literal('guardar'), id: uuid, version: z.number().int().min(1).optional(),
-  origen: z.enum(['PROPIA', 'TERCERO']), empresaPagadora: text(160).optional(), periodo: z.string().regex(PERIOD),
+  origen: z.enum(['PROPIA', 'TERCERO']), empresaPagadora: text(160).optional(), periodo: z.string().regex(PERIOD).optional(),
   facturaId: z.string().regex(ID).optional(), facturaVersion: z.string().regex(HASH).optional(),
   tercero: z.object({ proveedor: text(160), numFactura: text(100), fecha: date, base: money,
     concepto: z.string().trim().max(2000).optional(), lineas: z.array(z.object({ descripcion: text(2000), importe: money }).strict()).min(1).max(200),

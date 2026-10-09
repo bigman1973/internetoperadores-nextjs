@@ -535,6 +535,12 @@ export default function AnaliticaCostesPage() {
         </div>
       </header>
 
+      <section aria-label="Módulos de analítica de costes" className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <h2 className="text-base font-bold text-slate-950">Centros de coste y análisis específicos</h2>
+        <p className="mt-1 text-sm text-slate-700">Organiza fuentes y artículos por ámbito de negocio. Cada módulo conserva sus documentos, sin duplicar costes ni aplicar repartos automáticos.</p>
+        <Link href="/admin/finanzas/analitica-costes/costes-operadora" className="mt-3 inline-flex rounded-lg border border-blue-300 bg-white px-4 py-2.5 text-sm font-bold text-blue-950 hover:bg-blue-100">Costes de operadora</Link>
+      </section>
+
       {pestana !== 'rentabilidad' && <section aria-label="Indicadores del filtro aplicado">
         {kpis ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

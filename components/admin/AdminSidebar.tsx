@@ -80,6 +80,7 @@ interface NavItem {
   href: string
   icon: any
   section?: string // Sección para verificar permisos
+  subitems?: NavItem[] // Subapartados de una sección con página propia
 }
 
 interface NavGroup {
@@ -147,8 +148,9 @@ const navigation: NavEntry[] = [
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion', icon: LinkIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
-      { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas' },
-      { name: 'Costes de operadora', href: '/admin/finanzas/costes-operadora', icon: SignalIcon, section: 'finanzas.analitica_costes' },
+      { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas.analitica_costes', subitems: [
+        { name: 'Costes de operadora', href: '/admin/finanzas/analitica-costes/costes-operadora', icon: SignalIcon, section: 'finanzas.analitica_costes' },
+      ] },
       { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon, section: 'finanzas-tickets' },
       { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon, section: 'finanzas' },
       { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: DocumentTextIcon, section: 'finanzas' },
@@ -232,7 +234,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
     return hasAccess(section)
   }
 
-  const renderNavItem = (item: NavItem, isChild = false) => {
+  const renderNavItem = (item: NavItem, isChild = false, depth = 0): React.ReactNode => {
     // Verificar permisos del item hijo
     if (item.section && !hasAccess(item.section)) return null
 
@@ -248,7 +250,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
           onClick={onNavigate}
           className={`
             group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6
-            ${isChild ? 'pl-10' : ''}
+            ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''}
             ${isActive
               ? 'bg-orange-50 text-orange-600'
               : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
@@ -256,11 +258,12 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
           `}
         >
           <item.icon
-            className={`h-6 w-6 shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
+            className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
             aria-hidden="true"
           />
           {item.name}
         </Link>
+        {item.subitems && <ul className="mt-1 border-l border-slate-200 ml-5 space-y-1" aria-label={`Subapartados de ${item.name}`}>{item.subitems.map(child=>renderNavItem(child,true,depth+1))}</ul>}
       </li>
     )
   }
