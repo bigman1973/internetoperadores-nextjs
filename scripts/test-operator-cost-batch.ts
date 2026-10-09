@@ -3,6 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import OperatorCostBatch, {
   createOperatorCostBatchSelection,
+  isOperatorCostBatchSelectionFrozen,
   validateOperatorCostBatchSelection,
   type OperatorCostBatchInvoice,
 } from "../components/finanzas/OperatorCostBatch";
@@ -40,31 +41,53 @@ const credit: OperatorCostBatchInvoice = {
 const fresh = createOperatorCostBatchSelection(positive, "stable-request-id");
 assert.deepEqual(fresh.assignments, {});
 assert.equal(fresh.status, "idle");
+assert.equal(
+  isOperatorCostBatchSelectionFrozen(undefined),
+  false,
+  "una factura todavía no seleccionada debe poder seleccionarse",
+);
+assert.equal(isOperatorCostBatchSelectionFrozen(fresh), false);
+for (const status of ["pending", "success", "error"] as const)
+  assert.equal(isOperatorCostBatchSelectionFrozen({ status }), true);
 assert.equal(fresh.requestId, "stable-request-id");
 
 // Partial positive and credit allocations are valid, but an excess or inverse sign is not.
 assert.equal(
-  validateOperatorCostBatchSelection(positive, { 0: "grupo-red" }, ["grupo-red"]).valid,
+  validateOperatorCostBatchSelection(positive, { 0: "grupo-red" }, [
+    "grupo-red",
+  ]).valid,
   true,
 );
 assert.equal(
-  validateOperatorCostBatchSelection(positive, { 0: "grupo-red", 1: "grupo-red" }, ["grupo-red"]).valid,
+  validateOperatorCostBatchSelection(
+    positive,
+    { 0: "grupo-red", 1: "grupo-red" },
+    ["grupo-red"],
+  ).valid,
   true,
 );
 assert.equal(
-  validateOperatorCostBatchSelection(positive, { 0: "grupo-red", 1: "grupo-red", [-1]: "grupo-red" }, ["grupo-red"]).code,
+  validateOperatorCostBatchSelection(
+    positive,
+    { 0: "grupo-red", 1: "grupo-red", [-1]: "grupo-red" },
+    ["grupo-red"],
+  ).code,
   "indice_invalido",
 );
 assert.equal(
-  validateOperatorCostBatchSelection(credit, { 0: "grupo-red" }, ["grupo-red"]).valid,
+  validateOperatorCostBatchSelection(credit, { 0: "grupo-red" }, ["grupo-red"])
+    .valid,
   true,
 );
 assert.equal(
-  validateOperatorCostBatchSelection(credit, { [-1]: "grupo-red" }, ["grupo-red"]).code,
+  validateOperatorCostBatchSelection(credit, { [-1]: "grupo-red" }, [
+    "grupo-red",
+  ]).code,
   "indice_invalido",
 );
 assert.equal(
-  validateOperatorCostBatchSelection(positive, { 0: "otro" }, ["grupo-red"]).code,
+  validateOperatorCostBatchSelection(positive, { 0: "otro" }, ["grupo-red"])
+    .code,
   "grupo_invalido",
 );
 

@@ -139,6 +139,12 @@ export function createOperatorCostBatchSelection(
   };
 }
 
+export function isOperatorCostBatchSelectionFrozen(selection?: {
+  status: SelectionStatus;
+}) {
+  return Boolean(selection && selection.status !== "idle");
+}
+
 function assignmentAmount(selection: InvoiceSelection, index: number) {
   if (index === -1) return selection.invoice.base;
   return selection.invoice.lineas.find((line) => line.index === index)?.importe;
@@ -947,7 +953,7 @@ export default function OperatorCostBatch({
               currentRows.map((invoice) => {
                 const selection = selections.get(invoice.id);
                 const isSelected = Boolean(selection);
-                const immutable = selection?.status !== "idle";
+                const immutable = isOperatorCostBatchSelectionFrozen(selection);
                 const open = expanded.has(invoice.id);
                 const selectable = isInvoiceSelectable(invoice);
                 const selectedTotal = selection ? assignedTotal(selection) : 0;
