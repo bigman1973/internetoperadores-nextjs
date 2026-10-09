@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import OpenAI from 'openai';
 import { z } from 'zod';
-import { findSharePointSite, getAccessToken, getSiteDrive } from './microsoft-graph';
+import { getAccessToken, getSiteDrive } from './microsoft-graph';
 
 /** This scope is deliberately fixed: callers can never supply a SharePoint path. */
 export const PENDING_REFACTORING_SCOPE = '2. Contabilidad y finanzas/2. Facturas recibidas/2. Facturas recibidas- Vola/2026';
@@ -211,13 +211,19 @@ async function resolveScopeFolder(token: string, drive: string) {
   return parent!;
 }
 
+/** SharePoint may return a technical name rather than the title shown in the library. */
+export function accountingSiteNameMatches(value: unknown) {
+  if (typeof value !== 'string') return false;
+  const key = value.normalize('NFKC').replace(/&amp;/gi, '&').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return ['ioaccountingfinances', 'ioaccountingfinance', 'accountingfinances', 'accountingfinance'].includes(key);
+}
 async function graphCredentials() {
   const token = await getAccessToken();
-  const site = await findSharePointSite();
-  if (normalizeScopeFolderName(site.siteName) !== normalizeScopeFolderName('IO: Accounting & Finances')) {
-    throw new PendingRefactoringError('No se pudo resolver el sitio documental configurado.', 502);
-  }
-  const drive = process.env.SHAREPOINT_DRIVE_ID || await getSiteDrive(site.siteId);
+  const result = await graphJson(token, graphUrl('/sites?search=Accounting'));
+  if (!Array.isArray(result.value)) throw new PendingRefactoringError('No se pudo resolver el sitio documental configurado.', 502);
+  const sites = (result.value as any[]).filter(site => accountingSiteNameMatches(site.displayName) || accountingSiteNameMatches(site.name));
+  if (sites.length !== 1 || typeof sites[0].id !== 'string') throw new PendingRefactoringError('No se pudo identificar de forma única el sitio de contabilidad.', 502);
+  const drive = process.env.SHAREPOINT_DRIVE_ID || await getSiteDrive(sites[0].id);
   if (!drive) throw new PendingRefactoringError('No se pudo resolver el repositorio documental privado.', 502);
   return { token, drive };
 }

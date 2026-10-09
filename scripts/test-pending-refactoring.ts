@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {
   assessPendingInvoice,
+  accountingSiteNameMatches,
   normalizeScopeFolderName,
   parsePendingInvoiceResult,
   PENDING_REFACTORING_SCOPE,
@@ -31,6 +32,9 @@ function main() {
   assert.equal(normalizeScopeFolderName(' 2. Facturas recibidas - VOLA '), normalizeScopeFolderName('2. Facturas recibidas‐Vola'));
   assert.notEqual(normalizeScopeFolderName('2. Facturas recibidas-Vola'), normalizeScopeFolderName('2. Facturas recibidas-Internet Operadores'));
 
+  assert.equal(accountingSiteNameMatches('IO: Accounting & Finances'), true);
+  assert.equal(accountingSiteNameMatches('IO_AccountingFinances'), true);
+  assert.equal(accountingSiteNameMatches('Other Accounting'), false);
   const parsed = parsePendingInvoiceResult('```json\n' + JSON.stringify(valid) + '\n```');
   assert.deepEqual(parsed, valid);
   assert.deepEqual(assessPendingInvoice(parsed), { estado: 'LISTO', incidencia: null });
