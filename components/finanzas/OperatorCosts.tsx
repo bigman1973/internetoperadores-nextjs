@@ -1,6 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import {
+  OPERATOR_INVOICE_ALL_HISTORY_DEFAULT,
+  operatorInvoiceParams,
+} from "@/lib/finanzas/operator-invoice-picker";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowPathIcon,
@@ -485,10 +489,12 @@ function CostEditor({
   const [origin, setOrigin] = useState<Origen>(source?.origen || "PROPIA");
   const [periodo, setPeriodo] = useState(source?.periodo || nowPeriod());
   const [invoiceSearch, setInvoiceSearch] = useState("");
-  const [allHistory, setAllHistory] = useState(false);
+  const [allHistory, setAllHistory] = useState(
+    OPERATOR_INVOICE_ALL_HISTORY_DEFAULT,
+  );
   const [invoicePage, setInvoicePage] = useState(1);
   const [invoices, setInvoices] = useState<FacturasResponse | null>(null);
-  const [invoicesBusy, setInvoicesBusy] = useState(false);
+  const [invoicesBusy, setInvoicesBusy] = useState(true);
   const [invoiceError, setInvoiceError] = useState("");
   const request = useRef<AbortController | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<Factura | null>(null);
@@ -550,13 +556,11 @@ function CostEditor({
         ? immutableSnapshot?.lineas || []
         : origin === "PROPIA"
           ? selectedInvoice?.lineas || []
-          : manualLines
-              .map((line, index) => ({
-                index,
-                descripcion: line.descripcion,
-                importe: parseAmount(line.importe),
-              }))
-,
+          : manualLines.map((line, index) => ({
+              index,
+              descripcion: line.descripcion,
+              importe: parseAmount(line.importe),
+            })),
     [
       editing,
       immutableSnapshot?.lineas,
@@ -580,15 +584,18 @@ function CostEditor({
     );
   useEffect(() => {
     request.current?.abort();
+    setInvoicesBusy(true);
+    setInvoices(null);
+    setInvoiceError("");
     const timer = window.setTimeout(() => {
       const controller = new AbortController();
       request.current = controller;
-      const params = new URLSearchParams({
-        action: "facturas",
-        buscar: invoiceSearch.trim(),
-        page: String(invoicePage),
+      const params = operatorInvoiceParams({
+        buscar: invoiceSearch,
+        page: invoicePage,
+        allHistory,
+        periodo,
       });
-      if (!allHistory && periodo) params.set("periodo", periodo);
       setInvoicesBusy(true);
       setInvoiceError("");
       json<FacturasResponse>(`${API}?${params}`, { signal: controller.signal })
@@ -616,7 +623,7 @@ function CostEditor({
     }
   }, [origin, editing]);
   useEffect(() => {
-    if (!editing) setInvoicePage(1);
+    setInvoicePage(1);
   }, [invoiceSearch, allHistory, periodo, editing]);
   function chooseInvoice(invoice: Factura, role: "original" | "refactura") {
     if (role === "original") {
@@ -947,16 +954,22 @@ function CostEditor({
               2. Seleccionar factura de Internet Operadores
             </h3>
             <p className="mt-1 text-sm text-slate-700">
-              La búsqueda se actualiza tras 250 ms. Seleccionar la factura no
-              asigna artículos automáticamente.
+              Busca entre las facturas de proveedores ya recibidas por Internet
+              Operadores, de cualquier mes. Por ejemplo, escribe Cogent. El
+              período de coste no limita esta búsqueda.
             </p>
             <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
               <div className="relative">
                 <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-700" />
                 <input
                   value={invoiceSearch}
-                  onChange={(event) => setInvoiceSearch(event.target.value)}
-                  placeholder="Proveedor, número o concepto"
+                  onChange={(event) => {
+                    setInvoicePage(1);
+                    setInvoiceSearch(event.target.value);
+                  }}
+                  id="operator-invoice-search"
+                  aria-label="Buscar factura recibida por proveedor, número o concepto"
+                  placeholder="Buscar proveedor: Cogent, Templus, XOC…"
                   className={`${inputClass} pl-9`}
                 />
               </div>
@@ -971,8 +984,13 @@ function CostEditor({
             </div>
             <p className="mt-2 text-xs text-slate-700">
               {allHistory
-                ? "Se consulta todo el histórico de facturas."
-                : `Se limita al período ${periodo || "seleccionado"}.`}
+                ? "Buscando en todo el histórico. El mes de la factura puede ser distinto del período de coste."
+                : `Filtro de fecha de factura activo: ${periodo || "seleccionado"}. Activa «Buscar en todo el histórico» si falta un proveedor.`}
+              {invoices && !invoicesBusy && (
+                <strong className="ml-2">
+                  {integer.format(invoices.total)} facturas encontradas.
+                </strong>
+              )}
             </p>
             {invoiceError && (
               <p
@@ -1169,9 +1187,13 @@ function CostEditor({
                       />
                       <button
                         type="button"
-                        onClick={() =>
-                          { setManualLines((lines) => lines.filter((item) => item.key !== line.key)); setIncluded(new Set()); setAssigned({}); }
-                        }
+                        onClick={() => {
+                          setManualLines((lines) =>
+                            lines.filter((item) => item.key !== line.key),
+                          );
+                          setIncluded(new Set());
+                          setAssigned({});
+                        }}
                         className="rounded border border-red-300 bg-white px-2 text-sm font-bold text-red-900 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-700"
                       >
                         Quitar
@@ -2043,6 +2065,7 @@ export default function OperatorCosts() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detailLoading, setDetailLoading] = useState<string | null>(null);
   const [editor, setEditor] = useState<Fuente | null | "new">(null);
+  const [editorRevision, setEditorRevision] = useState(0);
   const active = useRef("");
   const controller = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
@@ -2161,6 +2184,18 @@ export default function OperatorCosts() {
       if (!currentRequest.signal.aborted) setDetailLoading(null);
     }
   }
+  function openReceivedInvoicePicker() {
+    setEditorRevision((value) => value + 1);
+    setEditor("new");
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById("editor-heading")
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
+      document
+        .getElementById("operator-invoice-search")
+        ?.focus({ preventScroll: true });
+    });
+  }
   const own =
     data?.fuentes.filter((source) => source.origen === "PROPIA") || [];
   const third =
@@ -2187,7 +2222,7 @@ export default function OperatorCosts() {
             {canWrite && (
               <button
                 type="button"
-                onClick={() => setEditor("new")}
+                onClick={openReceivedInvoicePicker}
                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
               >
                 <PlusIcon className="h-4 w-4" />
@@ -2263,8 +2298,9 @@ export default function OperatorCosts() {
               Filtros
             </h2>
             <p className="mt-1 text-sm text-slate-700">
-              El período se aplica a las fuentes guardadas. La búsqueda consulta
-              proveedor, factura y concepto.
+              Estos filtros buscan solo costes ya registrados en este apartado.
+              Para localizar una factura recibida existente, pulsa «Seleccionar
+              factura recibida».
             </p>
           </div>
           {data && (
@@ -2337,7 +2373,7 @@ export default function OperatorCosts() {
           </div>
           <div>
             <label htmlFor="filter-search" className={labelClass}>
-              Buscar
+              Buscar costes registrados
             </label>
             <div className="relative">
               <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-700" />
@@ -2394,6 +2430,7 @@ export default function OperatorCosts() {
       )}
       {editor && (
         <CostEditor
+          key={editor === "new" ? `new-${editorRevision}` : editor.id}
           source={editor === "new" ? undefined : editor}
           initialGroups={data?.grupos || []}
           canWrite={canWrite}
@@ -2419,13 +2456,26 @@ export default function OperatorCosts() {
               Facturas de Internet Operadores
             </h2>
             <p className="mt-1 text-sm text-slate-700">
-              Facturas existentes seleccionadas como origen. El PDF original se
-              consulta desde la factura.
+              Aquí aparecen las facturas que hayas añadido como coste de
+              operadora, no todas las recibidas. El selector consulta las
+              facturas existentes de proveedores en todo el histórico.
             </p>
           </div>
-          <span className="text-sm font-bold text-slate-800">
-            {own.length} en esta página
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="text-sm font-bold text-slate-800">
+              {own.length} registradas en esta página
+            </span>
+            {canWrite && (
+              <button
+                type="button"
+                onClick={openReceivedInvoicePicker}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
+              >
+                <MagnifyingGlassIcon className="h-4 w-4" />
+                Seleccionar factura recibida
+              </button>
+            )}
+          </div>
         </div>
         {loading && !data ? (
           <p className="px-5 py-10 text-center text-sm font-bold text-slate-700">
@@ -2446,7 +2496,10 @@ export default function OperatorCosts() {
             ))}
           </ul>
         ) : (
-          <EmptySection label="No hay facturas de Internet Operadores para estos filtros." />
+          <EmptySection
+            label="No hay facturas añadidas como coste de operadora para estos filtros."
+            hint="Esto no significa que falten facturas recibidas. Usa «Seleccionar factura recibida» para buscar Cogent u otro proveedor, elegir la factura y revisar sus artículos."
+          />
         )}
       </section>
       <section
@@ -2504,13 +2557,14 @@ export default function OperatorCosts() {
     </div>
   );
 }
-function EmptySection({ label }: { label: string }) {
+function EmptySection({ label, hint }: { label: string; hint?: string }) {
   return (
     <div className="px-5 py-10 text-center">
       <DocumentTextIcon className="mx-auto h-9 w-9 text-slate-500" />
       <p className="mt-3 text-sm font-bold text-slate-900">{label}</p>
       <p className="mt-1 text-sm text-slate-700">
-        Cambia los filtros o registra una nueva fuente cuando corresponda.
+        {hint ||
+          "Cambia los filtros o registra una nueva fuente cuando corresponda."}
       </p>
     </div>
   );
