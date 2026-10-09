@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { SERVICE_TYPES, SaleService, ServiceType } from '@/lib/finanzas/sale-services';
 
 interface ServicesResponse {
@@ -65,6 +66,7 @@ export default function VentaServicios({ facturaId, base, canWrite, onChange }: 
         {data.componentes.length ? <ul className="mt-3 divide-y divide-slate-200">{data.componentes.map(item => <li key={item.id} className="flex flex-col gap-1 py-2 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-semibold text-slate-900">{item.nombre}</p><p className="text-xs text-slate-700">{SERVICE_TYPES[item.tipo]}</p></div><strong className="text-sm tabular-nums text-slate-900">{money(item.base)}</strong></li>)}</ul> : <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-950">Todavía no se han identificado los servicios de esta factura. No se deducen por su serie ni por el nombre del cliente.</p>}
         {data.referenciaAnterior && canWrite && data.canWrite && <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-950"><p className="font-semibold">Referencia compatible del mes anterior: {data.referenciaAnterior.numFactura}</p><p className="mt-1 text-xs leading-5">Coinciden cliente identificado, serie, concepto, líneas y base. Puedes reutilizar el desglose como borrador; revísalo antes de guardarlo. No copia compras, horas ni costes del mes anterior.</p><button type="button" onClick={() => { setDraft(toDraft(data.referenciaAnterior!.componentes)); setEditing(true); setError(''); }} className="mt-2 rounded-lg border border-emerald-700 bg-white px-3 py-2 text-sm font-semibold text-emerald-900 focus:ring-2 focus:ring-emerald-700">Usar referencia mensual</button></div>}
         <p className="mt-3 text-xs leading-5 text-slate-700">{data.aviso} Los componentes de un pack mixto siguen pendientes de reparto de costes; tampoco se reparte automáticamente el coste común de la red.</p>
+        {data.componentes.some(item => item.tipo === 'TELECO_RED_PROPIA') && <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-950"><p className="font-semibold">Este servicio utiliza nuestra red: sus costes están en Costes de operadora.</p><p className="mt-1 text-xs leading-5">Identifica los artículos del proveedor directo o de la empresa que nos refactura y su ámbito global o zona/conexión. No elijas un único proveedor por cliente ni vincules íntegramente una factura compartida. El reparto entre servicios queda pendiente.</p><Link href="/admin/finanzas/costes-operadora" className="mt-2 inline-block font-semibold underline focus:ring-2 focus:ring-indigo-700">Consultar fuentes y artículos de operadora</Link></div>}
       </>}
       {data && editing && <form className="mt-4 space-y-3" onSubmit={event => { event.preventDefault(); void save(); }}>
         <p className="text-xs leading-5 text-slate-700">Introduce cada servicio y su base sin IVA. Ejemplo: internet por radio/red propia y líneas móviles de intermediación como componentes distintos. El remanente queda pendiente; no hay que inventar su reparto.</p>

@@ -155,6 +155,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action } = body;
 
+    // Las fuentes reservadas conservan sus artículos y ámbito en Costes de operadora.
+    // No se copian sus imputaciones ni se convierten en costes directos de un cliente.
+    const ids = action === 'aplicar-similares'
+      ? [body.facturaOrigenId, ...(Array.isArray(body.facturaDestinoIds) ? body.facturaDestinoIds : [])]
+      : ['imputar', 'imputar-a-ventas'].includes(action) ? [body.facturaRecibidaId] : [];
+    if (ids.length && await prisma.documentoCosteOperadora.findFirst({ where: { facturaId: { in: ids.filter((id: unknown): id is string => typeof id === 'string') } }, select: { id: true } })) {
+      return NextResponse.json({ error: 'Esta factura está registrada en Costes de operadora. Gestiona allí sus artículos y ámbito; no se ha creado una imputación a ventas.' }, { status: 409, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+
     // Imputar una factura recibida (actualizar categoría + crear regla automática)
     if (action === 'imputar') {
       const { facturaRecibidaId, categoria, clienteNombre, facturaEmitidaIds } = body;
@@ -248,6 +257,7 @@ export async function POST(req: NextRequest) {
       // Buscar todas las facturas del proveedor sin imputar (o con imputación diferente)
       const whereCondition: any = {
         imputacion: null,
+        documentosOperadora: { none: {} },
       };
       if (cif) {
         whereCondition.cif = cif;

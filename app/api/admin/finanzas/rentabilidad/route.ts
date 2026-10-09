@@ -172,8 +172,10 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
         SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base, CASE WHEN LOWER(COALESCE(fr.concepto, '')) LIKE 'error_ocr%' THEN 'Extracción pendiente de revisión' ELSE fr.concepto END AS concepto,
           LEAST(100, GREATEST(0, 100 - COALESCE(alloc.otros, 0)))::float8 AS "porcentajeDisponible",
           (fr.base = 0 OR ${invalidPurchaseDocument()} OR EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true)
+            OR EXISTS(SELECT 1 FROM documentos_coste_operadora d WHERE d.factura_id = fr.id)
             OR COALESCE(alloc.invalido, false) OR COALESCE(alloc.total, 0) > 100.000001 OR COALESCE(alloc.otros, 0) >= 99.999999) AS bloqueado,
           CASE WHEN ${invalidPurchaseDocument()} THEN 'Documento no factura o extracción pendiente de revisión; comprueba la fuente antes de vincular'
+            WHEN EXISTS(SELECT 1 FROM documentos_coste_operadora d WHERE d.factura_id = fr.id) THEN 'Coste de operadora compartido: consulta sus artículos y ámbito; no lo asignes íntegro a esta venta'
             WHEN fr.base = 0 THEN 'La factura no tiene base asignable'
             WHEN EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true) THEN 'Edita antes la imputación confirmada a cliente'
             WHEN COALESCE(alloc.invalido, false) OR COALESCE(alloc.total, 0) > 100.000001 THEN 'La fuente tiene vínculos globales no válidos'
@@ -446,9 +448,11 @@ function auditSnapshot(link: any | undefined) {
 async function linkPurchase(tx: Prisma.TransactionClient, mutation: Mutation, userId: number) {
   await lockedSale(tx, mutation.facturaId);
   const source = await tx.$queryRaw<any[]>(Prisma.sql`SELECT fr.id, fr.base::float8 AS base, fr.estado::text AS estado, ${invalidPurchaseDocument()} AS documento_invalido,
+    EXISTS(SELECT 1 FROM documentos_coste_operadora d WHERE d.factura_id = fr.id) AS coste_operadora,
     EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true) AS tiene_cliente
     FROM facturas_recibidas fr WHERE fr.id = ${mutation.fuenteId} FOR UPDATE`);
   if (source.length !== 1) throw new SafeError('Compra no encontrada.', 404);
+  if (source[0].coste_operadora) throw new SafeError('Esta factura pertenece a Costes de operadora. Identifica su artículo y ámbito; no la asignes íntegra a una venta.', 409);
   if (source[0].estado === 'RECHAZADA' || !Number.isFinite(source[0].base) || source[0].base === 0) throw new SafeError('La compra no tiene una base válida para vincular.', 409);
   if (source[0].documento_invalido) throw new SafeError('El documento no es una factura de compra válida o tiene extracción pendiente de revisión.', 409);
   if (source[0].tiene_cliente) throw new SafeError('La compra ya tiene imputación confirmada a cliente. Edita primero la fuente.', 409);

@@ -18,6 +18,8 @@ const ROUTE_PARENT_MAP: Record<string, string> = {
   'admin.altas_pendientes': 'admin.altas_pendientes',
   // Subida de precios
   'admin.subida_precios': 'admin.subida_precios',
+  // Costes compartidos usa el mismo permiso que la analítica financiera.
+  'admin.finanzas.costes_operadora': 'admin.finanzas.analitica_costes',
 }
 
 const recentlyRegistered = new Map<string, number>()

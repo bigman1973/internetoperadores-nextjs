@@ -62,6 +62,7 @@ const SECTION_TO_AREA: Record<string, string> = {
   'contratos': 'admin.contratos',
   'facturacion': 'admin.facturacion',
   'finanzas': 'admin.finanzas',
+  'finanzas.analitica_costes': 'admin.finanzas.analitica_costes',
   'finanzas-tickets': 'admin.finanzas.tickets',
   'estadisticas': 'admin.estadisticas',
   'usuarios': 'admin.usuarios',
@@ -206,6 +207,8 @@ export function RoleProvider({
     
     // Portal empleado siempre accesible
     if (section === 'portal-empleado') return true
+
+    if (section === 'finanzas.analitica_costes' && !tienePermisosGranulares) section = 'finanzas'
 
     // Si está simulando un usuario específico
     if (isViewingAsUser && viewingUser) {

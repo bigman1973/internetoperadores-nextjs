@@ -148,6 +148,7 @@ const navigation: NavEntry[] = [
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
       { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas' },
+      { name: 'Costes de operadora', href: '/admin/finanzas/costes-operadora', icon: SignalIcon, section: 'finanzas.analitica_costes' },
       { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon, section: 'finanzas-tickets' },
       { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon, section: 'finanzas' },
       { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: DocumentTextIcon, section: 'finanzas' },
