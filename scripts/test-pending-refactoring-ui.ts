@@ -46,24 +46,30 @@ const html = renderToStaticMarkup(
 );
 
 assert.match(html, /Pendientes de recibir por refacturación/);
-assert.match(html, /No son todavía una factura recibida de IO/);
-assert.match(html, /no registra IVA, pagos ni modifica el margen de una venta/);
+assert.match(html, /aún no recibidos por IO: no registran pagos ni IVA/);
 assert.match(html, /Buscar en Vola\/2026/);
 assert.match(html, /id="pending-refactoring-search"/);
 assert.match(html, /Proveedor, número o artículo/);
 assert.match(html, /Analizar documentos seleccionados/);
-assert.match(html, /documentos verificados aún sin asignar a centros/);
-assert.match(html, /No incluye los documentos pendientes de revisión/);
+assert.match(html, /<details/);
+assert.match(html, /Cómo se calcula y estado del archivo/);
+assert.match(html, /Base verificada sin asignar/);
+assert.doesNotMatch(html, /<details[^>]*\sopen(?:=|\s|>)/);
 assert.match(html, /Cargando documentos pendientes/);
 
 // Los controles de cada fila requieren datos de API y no existen en el primer
 // SSR. Se comprueban estáticamente para conservar el test sin red ni efectos.
-assert.match(source, /PDF\s+protegido/);
-assert.match(source, /Asignar a un centro/);
+assert.match(source, /max-h-\[60vh\].*overflow-y-auto/);
+assert.match(source, /document\.resultado\?\.proveedor/);
+assert.match(source, /document\.resultado\?\.numFactura/);
+assert.match(source, /title=\{document\.nombre\}/);
+assert.match(source, /Ruta completa/);
+assert.match(source, /DocumentArrowDownIcon className=.*PDF/);
+assert.match(source, /<PlusIcon className=.*Asignar/);
 assert.match(source, /onUseDocument\(document\)/);
 assert.match(source, /action: "analizar"/);
 assert.doesNotMatch(source, /action:\s*"guardar"/);
 
 console.log(
-  "UI pendientes de refacturación: SSR aislado, mensaje contable, búsqueda, análisis explícito, PDF protegido y asignación manual comprobados sin API ni BD.",
+  "UI pendientes de refacturación: SSR aislado, resumen plegable, bandeja compacta, análisis explícito y asignación manual comprobados sin API ni BD.",
 );

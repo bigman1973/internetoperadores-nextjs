@@ -26,7 +26,7 @@ const source = fs.readFileSync('components/finanzas/OperatorCosts.tsx', 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText + '\nexports.__testCostEditor = CostEditor;';
 const module = { exports: {} as any };
 const require = createRequire(import.meta.url);
-vm.runInNewContext(code, { module, exports: module.exports, URLSearchParams, Intl, Date, Set, Map, AbortController, console, require: (name: string) => ['./OperatorCostBatch', './PendingRefactoringDocuments'].includes(name) ? { __esModule: true, default: () => null } : name === '@/lib/finanzas/operator-invoice-picker' ? { OPERATOR_INVOICE_ALL_HISTORY_DEFAULT, operatorInvoiceParams } : require(name) });
+vm.runInNewContext(code, { module, exports: module.exports, URLSearchParams, Intl, Date, Set, Map, AbortController, console, require: (name: string) => ['./OperatorCostBatch', './PendingRefactoringDocuments', './OperatorCostDrawer'].includes(name) ? { __esModule: true, default: () => null } : name === '@/lib/finanzas/operator-invoice-picker' ? { OPERATOR_INVOICE_ALL_HISTORY_DEFAULT, operatorInvoiceParams } : require(name) });
 const html = renderToStaticMarkup(React.createElement(module.exports.__testCostEditor, { initialGroups: [], canWrite: true, onClose() {}, onSaved() {} }));
 assert.match(html, /id="operator-invoice-search"/);
 assert.match(html, /type="checkbox" checked=""/);

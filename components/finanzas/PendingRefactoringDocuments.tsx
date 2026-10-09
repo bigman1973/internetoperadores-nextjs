@@ -293,118 +293,147 @@ function Pager({
 
 function DocumentDetails({ document }: { document: PendingDocument }) {
   const result = document.resultado;
-  if (!result) {
-    return (
-      <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
-        <p className="text-sm text-slate-800">
+  const lines = Array.isArray(result?.lineas) ? result.lineas : [];
+  const size = formatBytes(document.size);
+  return (
+    <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
+      <section aria-label="Archivo original">
+        <h4 className="text-sm font-extrabold text-slate-950">
+          Archivo original
+        </h4>
+        <dl className="mt-2 grid gap-x-4 gap-y-3 rounded-lg border border-slate-300 bg-white p-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+              Nombre de archivo
+            </dt>
+            <dd className="font-bold text-slate-950">{document.nombre}</dd>
+          </div>
+          <div>
+            <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+              Tipo / tamaño
+            </dt>
+            <dd className="font-bold text-slate-950">
+              {[document.mime, size].filter(Boolean).join(" · ") ||
+                "No disponible"}
+            </dd>
+          </div>
+          <div className="sm:col-span-2">
+            <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+              Ruta completa
+            </dt>
+            <dd className="break-all font-bold text-slate-950">
+              {document.ruta}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      {!result ? (
+        <p className="mt-4 text-sm text-slate-800">
           Aún no hay datos extraídos. Analiza el documento para revisar
           proveedor, factura, importes y artículos.
         </p>
-      </div>
-    );
-  }
-  const lines = Array.isArray(result.lineas) ? result.lineas : [];
-  return (
-    <div className="border-t border-slate-200 bg-slate-50 px-4 py-4 sm:px-5">
-      <div className="grid gap-4 lg:grid-cols-2">
-        <section aria-label="Datos extraídos">
-          <h4 className="text-sm font-extrabold text-slate-950">
-            Datos extraídos
-          </h4>
-          <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-300 bg-white p-3 text-sm">
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Proveedor
-              </dt>
-              <dd className="font-bold text-slate-950">
-                {result.proveedor || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Destinatario
-              </dt>
-              <dd className="font-bold text-slate-950">
-                {result.destinatario || "—"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Número / fecha
-              </dt>
-              <dd className="font-bold text-slate-950">
-                {result.numFactura || "Sin número"} · {formatDate(result.fecha)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Confianza OCR
-              </dt>
-              <dd className="font-bold tabular-nums text-slate-950">
-                {isFiniteAmount(result.confianza)
-                  ? `${Math.round(result.confianza * (result.confianza <= 1 ? 100 : 1))} %`
-                  : "No disponible"}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Base
-              </dt>
-              <dd className="font-bold tabular-nums text-slate-950">
-                {money(result.base)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                IVA
-              </dt>
-              <dd className="font-bold tabular-nums text-slate-950">
-                {money(result.iva)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Total documento
-              </dt>
-              <dd className="font-bold tabular-nums text-slate-950">
-                {money(result.total)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
-                Concepto
-              </dt>
-              <dd className="text-slate-950">{result.concepto || "—"}</dd>
-            </div>
-          </dl>
-        </section>
-        <section aria-label="Artículos extraídos">
-          <h4 className="text-sm font-extrabold text-slate-950">
-            Artículos extraídos
-          </h4>
-          {lines.length ? (
-            <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-300 bg-white">
-              {lines.map((line, index) => (
-                <li
-                  key={`${line.descripcion}-${index}`}
-                  className="flex justify-between gap-4 px-3 py-2 text-sm"
-                >
-                  <span className="min-w-0 text-slate-950">
-                    {line.descripcion || `Artículo ${index + 1}`}
-                  </span>
-                  <span className="shrink-0 font-bold tabular-nums text-slate-950">
-                    {money(line.importe)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-2 rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-800">
-              El análisis no ha devuelto artículos verificables.
-            </p>
-          )}
-        </section>
-      </div>
+      ) : (
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <section aria-label="Datos extraídos">
+            <h4 className="text-sm font-extrabold text-slate-950">
+              Datos extraídos
+            </h4>
+            <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-300 bg-white p-3 text-sm">
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Proveedor
+                </dt>
+                <dd className="font-bold text-slate-950">
+                  {result.proveedor || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Destinatario
+                </dt>
+                <dd className="font-bold text-slate-950">
+                  {result.destinatario || "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Número / fecha
+                </dt>
+                <dd className="font-bold text-slate-950">
+                  {result.numFactura || "Sin número"} · {formatDate(result.fecha)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Confianza OCR
+                </dt>
+                <dd className="font-bold tabular-nums text-slate-950">
+                  {isFiniteAmount(result.confianza)
+                    ? `${Math.round(result.confianza * (result.confianza <= 1 ? 100 : 1))} %`
+                    : "No disponible"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Base
+                </dt>
+                <dd className="font-bold tabular-nums text-slate-950">
+                  {money(result.base)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  IVA
+                </dt>
+                <dd className="font-bold tabular-nums text-slate-950">
+                  {money(result.iva)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Total documento
+                </dt>
+                <dd className="font-bold tabular-nums text-slate-950">
+                  {money(result.total)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs font-extrabold uppercase tracking-wide text-slate-700">
+                  Concepto
+                </dt>
+                <dd className="text-slate-950">{result.concepto || "—"}</dd>
+              </div>
+            </dl>
+          </section>
+          <section aria-label="Artículos extraídos">
+            <h4 className="text-sm font-extrabold text-slate-950">
+              Artículos extraídos
+            </h4>
+            {lines.length ? (
+              <ul className="mt-2 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-300 bg-white">
+                {lines.map((line, index) => (
+                  <li
+                    key={`${line.descripcion}-${index}`}
+                    className="flex justify-between gap-4 px-3 py-2 text-sm"
+                  >
+                    <span className="min-w-0 text-slate-950">
+                      {line.descripcion || `Artículo ${index + 1}`}
+                    </span>
+                    <span className="shrink-0 font-bold tabular-nums text-slate-950">
+                      {money(line.importe)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-800">
+                El análisis no ha devuelto artículos verificables.
+              </p>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -441,13 +470,9 @@ export default function PendingRefactoringDocuments({
 
   const busy = discovering || queueBusy;
   const documents = data?.documentos || [];
-  const selected = useMemo(() => Array.from(queue.values()), [queue]);
-  const selectedCount = selected.length;
-  const successfulCount = selected.filter(
-    (item) => item.status === "success",
-  ).length;
-  const failedItems = selected.filter((item) => item.status === "error");
-  const waitingCount = selected.filter(
+  const queueItems = useMemo(() => Array.from(queue.values()), [queue]);
+  const failedItems = queueItems.filter((item) => item.status === "error");
+  const waitingCount = queueItems.filter(
     (item) => item.status === "idle" || item.status === "error",
   ).length;
 
@@ -747,10 +772,8 @@ export default function PendingRefactoringDocuments({
             Pendientes de recibir por refacturación
           </h2>
           <p className="mt-2 text-sm leading-5 text-slate-800">
-            Son originales recibidos por otra empresa por servicios que usa
-            Internet Operadores. No son todavía una factura recibida de IO:
-            analizarlos aquí no registra IVA, pagos ni modifica el margen de una
-            venta.
+            Son originales de terceros aún no recibidos por IO: no registran
+            pagos ni IVA.
           </p>
         </div>
         <button
@@ -784,37 +807,8 @@ export default function PendingRefactoringDocuments({
           </p>
         )}
 
-        <section aria-label="Resumen anual verificado del archivo">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h3 className="text-base font-extrabold text-slate-950">
-                Resumen anual verificado
-              </h3>
-              <p className="mt-1 max-w-4xl text-sm leading-5 text-slate-700">
-                Los importes de estos documentos permanecen separados de las
-                fuentes ya asignadas. El acumulado incluye solo documentos
-                verificados aún sin asignar a centros. No incluye los documentos
-                pendientes de revisión ni añade otra vez costes ya asignados. La
-                base sin IVA se usa como referencia económica; el total
-                documental no es una previsión de pago.
-              </p>
-            </div>
-            {data && (
-              <p className="text-xs font-semibold text-slate-700">
-                {integer.format(data.total)} documentos encontrados
-              </p>
-            )}
-          </div>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric
-              label="Detectados"
-              value={integer.format(summary?.detectados || 0)}
-            />
-            <Metric
-              label="Analizados"
-              value={integer.format(summary?.analizados || 0)}
-              tone="blue"
-            />
+        <section aria-label="Resumen de pendientes por refacturación">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             <Metric
               label="Listos"
               value={integer.format(summary?.listos || 0)}
@@ -826,20 +820,48 @@ export default function PendingRefactoringDocuments({
               tone="amber"
             />
             <Metric
-              label="Ya en una fuente"
-              value={integer.format(summary?.asignados || 0)}
-            />
-            <Metric
-              label="Base pendiente"
+              label="Base verificada sin asignar"
               value={money(summary?.basePendiente)}
               tone="amber"
             />
-            <Metric
-              label="Total documental pendiente"
-              value={money(summary?.totalPendiente)}
-              tone="amber"
-            />
           </div>
+          <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <summary className="cursor-pointer text-sm font-extrabold text-slate-950">
+              Cómo se calcula y estado del archivo
+            </summary>
+            <div className="mt-3 space-y-3 text-sm text-slate-700">
+              <p>
+                La base verificada incluye solo documentos listos aún sin
+                asignar a centros; excluye revisión y costes ya asignados. Es
+                una referencia sin IVA, no una previsión de pago.
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <Metric
+                  label="Detectados"
+                  value={integer.format(summary?.detectados || 0)}
+                />
+                <Metric
+                  label="Analizados"
+                  value={integer.format(summary?.analizados || 0)}
+                  tone="blue"
+                />
+                <Metric
+                  label="Ya en una fuente"
+                  value={integer.format(summary?.asignados || 0)}
+                />
+                <Metric
+                  label="Total documental pendiente"
+                  value={money(summary?.totalPendiente)}
+                  tone="amber"
+                />
+              </div>
+              {data && (
+                <p className="text-xs font-semibold text-slate-700">
+                  {integer.format(data.total)} documentos encontrados
+                </p>
+              )}
+            </div>
+          </details>
         </section>
 
         {notice && (
@@ -882,26 +904,11 @@ export default function PendingRefactoringDocuments({
           className="rounded-lg border border-slate-200"
           aria-labelledby="pending-search-heading"
         >
-          <div className="border-b border-slate-200 px-4 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <h3
-                  id="pending-search-heading"
-                  className="text-base font-extrabold text-slate-950"
-                >
-                  Localizar originales y revisar rentabilidad
-                </h3>
-                <p className="mt-1 text-sm text-slate-700">
-                  Busca por proveedor, número de factura o artículo extraído. El
-                  análisis no crea fuentes ni asigna artículos a un centro.
-                </p>
-              </div>
-              <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-950">
-                <strong>{selectedCount}</strong> seleccionados ·{" "}
-                <strong>{successfulCount}</strong> analizados en esta sesión
-              </div>
-            </div>
-            <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <h3 id="pending-search-heading" className="sr-only">
+              Filtros de documentos pendientes
+            </h3>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:items-center">
               <div className="relative">
                 <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-700" />
                 <input
@@ -963,7 +970,7 @@ export default function PendingRefactoringDocuments({
             </div>
           )}
 
-          <div className="divide-y divide-slate-200">
+          <div className="max-h-[60vh] divide-y divide-slate-200 overflow-y-auto">
             {loading && !data ? (
               <p className="px-4 py-7 text-center text-sm text-slate-700">
                 Cargando documentos pendientes…
@@ -982,13 +989,23 @@ export default function PendingRefactoringDocuments({
                   document.estado === "LISTO" &&
                   !assigned &&
                   !busy;
-                const size = formatBytes(document.size);
+                const hasOcrIdentity = Boolean(
+                  document.resultado?.proveedor || document.resultado?.numFactura,
+                );
+                const primaryText = hasOcrIdentity
+                  ? [
+                      document.resultado?.proveedor,
+                      document.resultado?.numFactura,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : document.nombre;
                 return (
                   <article
                     key={document.id}
                     className={assigned ? "bg-slate-50" : "bg-white"}
                   >
-                    <div className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-start">
+                    <div className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center">
                       <label
                         className={`flex min-w-0 flex-1 items-start gap-3 ${assigned || busy ? "cursor-not-allowed" : "cursor-pointer"}`}
                       >
@@ -1003,35 +1020,32 @@ export default function PendingRefactoringDocuments({
                           aria-label={`Seleccionar ${document.nombre} para analizar`}
                         />
                         <span className="min-w-0">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="break-all font-extrabold text-slate-950">
-                              {document.nombre}
+                          <span className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="font-extrabold text-slate-950">
+                              {primaryText}
+                            </span>
+                            <span className="font-bold tabular-nums text-slate-950">
+                              Base {money(document.resultado?.base)}
                             </span>
                             <StatusBadge status={document.estado} />
                             <QueueBadge item={item} />
                           </span>
-                          <span className="mt-1 block break-all text-sm text-slate-800">
-                            {document.ruta}
-                          </span>
-                          <span className="mt-1 block text-xs text-slate-700">
-                            {[document.mime, size]
-                              .filter(Boolean)
-                              .join(" · ") || "Tipo o tamaño no disponible"}
-                            {document.resultado?.proveedor
-                              ? ` · ${document.resultado.proveedor}`
-                              : ""}
-                            {document.resultado?.numFactura
-                              ? ` · ${document.resultado.numFactura}`
-                              : ""}
-                          </span>
+                          {hasOcrIdentity && (
+                            <span
+                              title={document.nombre}
+                              className="mt-0.5 block truncate text-xs text-slate-700"
+                            >
+                              {document.nombre}
+                            </span>
+                          )}
                           {document.incidencia && (
-                            <span className="mt-2 block rounded-md border border-amber-400 bg-amber-50 p-2 text-xs font-bold text-amber-950">
+                            <span className="mt-1 block rounded-md border border-amber-400 bg-amber-50 p-2 text-xs font-bold text-amber-950">
                               <ExclamationTriangleIcon className="mr-1 inline h-4 w-4" />
                               {document.incidencia}
                             </span>
                           )}
                           {assigned && (
-                            <span className="mt-2 block text-xs font-bold text-slate-800">
+                            <span className="mt-1 block text-xs font-bold text-slate-800">
                               Ya incorporado a una fuente de coste. El vínculo
                               es inmutable y no se puede volver a analizar ni
                               asignar desde esta lista.
@@ -1047,7 +1061,6 @@ export default function PendingRefactoringDocuments({
                           className={`${actionClass} border-slate-300 bg-white text-slate-900 hover:bg-slate-100`}
                         >
                           <DocumentArrowDownIcon className="h-4 w-4" /> PDF
-                          protegido
                         </a>
                         <button
                           type="button"
@@ -1081,7 +1094,7 @@ export default function PendingRefactoringDocuments({
                             disabled={!canUse}
                             className={`${actionClass} border-emerald-700 bg-emerald-800 text-white hover:bg-emerald-900`}
                           >
-                            <PlusIcon className="h-4 w-4" /> Asignar a un centro
+                            <PlusIcon className="h-4 w-4" /> Asignar
                           </button>
                         )}
                       </div>

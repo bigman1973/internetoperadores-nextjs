@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import prisma from '@/lib/prisma';
 import { operatorAuth, operatorJson } from '@/lib/finanzas/operator-costs-auth';
+import { readOperatorCentres } from '@/lib/finanzas/operator-centres';
 import { OPERATOR_AREA, ID, PERIOD, digest, normalize, groupInput, sourceInput, invoiceSnapshot, externalSnapshot, validateAssignments, sourceKey, OperatorSnapshot } from '@/lib/finanzas/operator-costs';
 
 export const dynamic = 'force-dynamic';
@@ -46,6 +47,7 @@ export async function GET(req: NextRequest) {
       return operatorJson({ facturas: rows.map(f => ({ id: f.id, ...invoiceSnapshot(f), version: digest(invoiceSnapshot(f)), reservada: f.documentosOperadora.length > 0, asignadaAVentas: f.imputadoAVentas })), total, totalPages: Math.max(1, Math.ceil(total / LIMIT)), page });
     }
     const grupos = await prisma.grupoCosteOperadora.findMany({ take: 500, orderBy: [{ nombre: 'asc' }, { id: 'asc' }] });
+    if (action === 'centros') return operatorJson({ centros: await readOperatorCentres(prisma, grupos, periodo), grupos, canWrite: auth.canWrite });
     if (action === 'detalle') {
       const id = params.get('id') || '';
       if (!ID.test(id)) throw new Invalid('Fuente no válida.');

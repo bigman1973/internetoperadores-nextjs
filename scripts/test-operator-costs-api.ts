@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as centres from '../lib/finanzas/operator-centres';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import ts from 'typescript';
@@ -125,6 +126,7 @@ const tx: any = {
     },
   },
   articuloCosteOperadora: {
+    groupBy: async () => [],
     deleteMany: async ({ where }: any) => { state.sources[where.fuenteId].asignaciones = []; return { count: 1 }; },
     createMany: async ({ data }: any) => {
       if (faultAssignments) throw new Error('simulated assignment persistence failure');
@@ -177,6 +179,7 @@ const commonRequire = (name: string): any => {
   if (name === '@/lib/auth') return { authOptions: {} };
   if (name === '@/lib/prisma') return { __esModule: true, default: prisma, prisma };
   if (name === '@/lib/finanzas/operator-costs') return operatorCosts;
+  if (name === '@/lib/finanzas/operator-centres') return centres;
   if (name === './operator-costs') return operatorCosts;
   if (name === '@/lib/api-admin-area-read') return { checkAdminAreaRead: check(false), checkAdminAreaWrite: check(true) };
   throw new Error(`Unexpected module ${name}`);
@@ -229,6 +232,7 @@ async function main() {
   await expectStatus(get('?page=0'), 400);
   await expectStatus(get('?page=100001'), 400);
   await expectStatus(get('?action=desconocida'), 400);
+  const centreResult = await expectStatus(get('?action=centros'),200); assert.equal((await centreResult.json()).centros.length, groups.length);
   const list = await expectStatus(get('?page=1'), 200); assert.equal((await list.json()).page, 1);
   const catalog = await expectStatus(get('?action=facturas&periodo=2026-02&page=1'), 200); assert.equal((await catalog.json()).page, 1);
 

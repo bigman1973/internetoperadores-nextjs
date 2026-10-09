@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import OperatorCostBatch from "./OperatorCostBatch";
+import OperatorCostDrawer from "./OperatorCostDrawer";
 import PendingRefactoringDocuments, {
   type PendingDocument,
 } from "./PendingRefactoringDocuments";
@@ -288,12 +289,16 @@ function GroupPanel({
   grupos,
   canWrite,
   onCreated,
+  initialOpen = false,
+  onBusyChange,
 }: {
   grupos: Grupo[];
   canWrite: boolean;
   onCreated: () => void;
+  initialOpen?: boolean;
+  onBusyChange?: (busy: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [nombre, setNombre] = useState("");
   const [ambito, setAmbito] = useState<GrupoAmbito>("GLOBAL_RED_PROPIA");
   const [zona, setZona] = useState("");
@@ -301,7 +306,12 @@ function GroupPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
   async function create() {
+    if (busy) return;
     if (!nombre.trim()) return setError("Indica el nombre del grupo.");
     if (ambito === "ZONA" && (!zona.trim() || !conexion.trim()))
       return setError("Para un grupo de zona indica tanto zona como conexión.");
@@ -353,7 +363,7 @@ function GroupPanel({
             repartos.
           </p>
         </div>
-        {canWrite && (
+        {canWrite && !initialOpen && (
           <button
             type="button"
             onClick={() => setOpen((value) => !value)}
@@ -490,6 +500,8 @@ function CostEditor({
   canWrite,
   onClose,
   onSaved,
+  onBusyChange,
+  hideClose = false,
 }: {
   source?: Fuente | null;
   pendingDocument?: PendingDocument;
@@ -497,6 +509,8 @@ function CostEditor({
   canWrite: boolean;
   onClose: () => void;
   onSaved: () => void;
+  onBusyChange?: (busy: boolean) => void;
+  hideClose?: boolean;
 }) {
   const editing = Boolean(source);
   const [id] = useState(() => source?.id || newId());
@@ -584,6 +598,10 @@ function CostEditor({
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [partial, setPartial] = useState("");
+  useEffect(() => {
+    onBusyChange?.(saveBusy);
+  }, [saveBusy, onBusyChange]);
+  useEffect(() => () => onBusyChange?.(false), [onBusyChange]);
   const groups = initialGroups;
   const immutableSnapshot = source?.snapshot;
   const articles = useMemo<Linea[]>(
@@ -887,16 +905,19 @@ function CostEditor({
               : "Selecciona o registra la factura y asigna cada artículo a un grupo. No se infieren clientes ni se aplica ninguna distribución futura."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-700"
-        >
-          <XMarkIcon className="h-4 w-4" />
-          Cerrar
-        </button>
+        {!hideClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saveBusy}
+            className="inline-flex items-center gap-1 self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-700"
+          >
+            <XMarkIcon className="h-4 w-4" />
+            Cerrar
+          </button>
+        )}
       </div>
-      <div className="space-y-5 p-4 sm:p-5">
+      <fieldset disabled={saveBusy} className="space-y-5 min-w-0 p-4 sm:p-5">
         {error && (
           <p
             role="alert"
@@ -1633,7 +1654,7 @@ function CostEditor({
             </button>
           </div>
         </section>
-      </div>
+      </fieldset>
     </section>
   );
 }
@@ -1877,7 +1898,16 @@ function Snapshot({ source }: { source: Fuente }) {
     </section>
   );
 }
-function SourceDetail({ source }: { source: Fuente }) {
+function SourceDetail({
+  source,
+  groupId,
+}: {
+  source: Fuente;
+  groupId?: string;
+}) {
+  const assignments = groupId
+    ? source.asignaciones.filter((a) => a.grupoId === groupId)
+    : source.asignaciones;
   const originalDoc = original(source);
   const refacturaDoc = refactura(source);
   return (
@@ -1985,8 +2015,8 @@ function SourceDetail({ source }: { source: Fuente }) {
               <p className="text-slate-700">No hay documento disponible.</p>
             )}
             <ul className="mt-3 space-y-1 border-t border-slate-200 pt-3">
-              {source.asignaciones.length ? (
-                source.asignaciones.map((item) => (
+              {assignments.length ? (
+                assignments.map((item) => (
                   <li
                     key={`${item.indice}-${item.grupoId}`}
                     className="flex justify-between gap-3 text-xs"
@@ -2020,16 +2050,26 @@ function SourceDetail({ source }: { source: Fuente }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {source.snapshot.lineas.map((line) => (
-                <tr key={line.index}>
-                  <td className="px-3 py-2 text-slate-900">
-                    {line.descripcion || `Artículo ${line.index + 1}`}
-                  </td>
-                  <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-950">
-                    {line.importe === null ? "No válido" : money(line.importe)}
-                  </td>
-                </tr>
-              ))}
+              {source.snapshot.lineas
+                .filter(
+                  (line) =>
+                    !groupId ||
+                    assignments.some(
+                      (a) => a.indice === -1 || a.indice === line.index,
+                    ),
+                )
+                .map((line) => (
+                  <tr key={line.index}>
+                    <td className="px-3 py-2 text-slate-900">
+                      {line.descripcion || `Artículo ${line.index + 1}`}
+                    </td>
+                    <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-950">
+                      {line.importe === null
+                        ? "No válido"
+                        : money(line.importe)}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -2044,6 +2084,7 @@ function SourceRow({
   loadingDetail,
   onToggle,
   onEdit,
+  groupId,
 }: {
   source: Fuente;
   canWrite: boolean;
@@ -2051,7 +2092,11 @@ function SourceRow({
   loadingDetail: boolean;
   onToggle: () => void;
   onEdit: () => void;
+  groupId?: string;
 }) {
+  const assigned = groupId
+    ? source.asignaciones.filter((a) => a.grupoId === groupId)
+    : source.asignaciones;
   return (
     <li className="bg-white">
       <div className="flex flex-col gap-3 px-4 py-4 sm:px-5 lg:flex-row lg:items-center">
@@ -2076,7 +2121,7 @@ function SourceRow({
               {badge(source.estado)}
               {source.documentoCambiado && (
                 <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-bold text-amber-950">
-                  Snapshot editado
+                  Documento de origen cambiado
                 </span>
               )}
             </span>
@@ -2085,15 +2130,18 @@ function SourceRow({
               · {source.periodo}
             </span>
             <span className="mt-1 block truncate text-xs text-slate-700">
-              {source.snapshot.concepto || "Sin concepto"} ·{" "}
-              {source.asignaciones.length} asignación
-              {source.asignaciones.length === 1 ? "" : "es"}
+              {source.snapshot.concepto || "Sin concepto"} · {assigned.length}{" "}
+              asignación
+              {assigned.length === 1 ? "" : "es"}
             </span>
           </span>
         </button>
         <div className="flex flex-wrap items-center gap-3 lg:justify-end">
           <span className="text-base font-extrabold tabular-nums text-slate-950">
-            {money(source.snapshot.base)}
+            {money(assigned.reduce((n, a) => n + Number(a.importe || 0), 0))}
+            <span className="block text-right text-xs font-normal text-slate-600">
+              Coste seleccionado
+            </span>
           </span>
           {canWrite && source.estado !== "ARCHIVADO" && (
             <button
@@ -2113,20 +2161,28 @@ function SourceRow({
             Cargando detalle…
           </p>
         ) : (
-          <SourceDetail source={source} />
+          <SourceDetail source={source} groupId={groupId} />
         ))}
     </li>
   );
 }
 
 export default function OperatorCosts() {
+  const [tab, setTab] = useState<"centros" | "propias" | "terceros">("centros");
+  const [thirdView, setThirdView] = useState<"archivo" | "asignados">(
+    "archivo",
+  );
+  const [centros, setCentros] = useState<Centre[]>([]);
+  const [groupForm, setGroupForm] = useState(false);
+  const [editorBusy, setEditorBusy] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
   const [periodo, setPeriodo] = useState("");
-  const [filterByMonth, setFilterByMonth] = useState(false);
   const [batch, setBatch] = useState(false);
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchGroupId, setBatchGroupId] = useState("");
   const [buscar, setBuscar] = useState("");
-  const [origen, setOrigen] = useState<"" | Origen>("");
+  const origen =
+    tab === "propias" ? "PROPIA" : tab === "terceros" ? "TERCERO" : "";
   const [estado, setEstado] = useState<"" | Estado>("");
   const [grupoId, setGrupoId] = useState("");
   const [page, setPage] = useState(1);
@@ -2146,6 +2202,7 @@ export default function OperatorCosts() {
   const controller = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
   const key = [
+    tab,
     periodo,
     buscar.trim(),
     origen,
@@ -2167,7 +2224,7 @@ export default function OperatorCosts() {
     if (origen) params.set("origen", origen);
     if (estado) params.set("estado", estado);
     if (grupoId) params.set("grupoId", grupoId);
-    setLoading((value) => !data || value);
+    setLoading(true);
     setError("");
     json<ListResponse>(`${API}?${params}`, { signal: next.signal })
       .then((result) => {
@@ -2189,6 +2246,51 @@ export default function OperatorCosts() {
     },
     [],
   );
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setBuscar(searchDraft.trim());
+      setPage(1);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchDraft]);
+  useEffect(() => {
+    const abort = new AbortController();
+    const params = new URLSearchParams({ action: "centros" });
+    if (periodo) params.set("periodo", periodo);
+    json<{ centros: Centre[] }>(`${API}?${params}`, { signal: abort.signal })
+      .then((r) => {
+        if (!abort.signal.aborted) setCentros(r.centros);
+      })
+      .catch((e) => {
+        if (!abort.signal.aborted) setError(message(e));
+      });
+    return () => abort.abort();
+  }, [periodo, refresh]);
+  function switchTab(next: typeof tab) {
+    if (batchBusy || pendingBusy || editorBusy) return;
+    if (next === tab) return;
+    detailController.current?.abort();
+    setDetailLoading(null);
+    setTab(next);
+    setGrupoId("");
+    setEstado("");
+    setSearchDraft("");
+    setBuscar("");
+    setPage(1);
+    setExpanded(new Set());
+    setData(null);
+    setLoading(true);
+  }
+  function selectCentre(id: string) {
+    if (id === grupoId) return;
+    detailController.current?.abort();
+    setDetailLoading(null);
+    setGrupoId(id);
+    setPage(1);
+    setExpanded(new Set());
+    setData(null);
+    setLoading(true);
+  }
   function apply() {
     setPage(1);
     setRefresh((value) => value + 1);
@@ -2225,13 +2327,13 @@ export default function OperatorCosts() {
           : previous,
       );
     } catch (cause) {
-      setError(message(cause));
+      if (!currentRequest.signal.aborted) setError(message(cause));
     } finally {
       if (!currentRequest.signal.aborted) setDetailLoading(null);
     }
   }
   async function edit(source: Fuente) {
-    if (batchBusy || pendingBusy) return;
+    if (batchBusy || pendingBusy || editorBusy) return;
     detailController.current?.abort();
     const currentRequest = new AbortController();
     detailController.current = currentRequest;
@@ -2257,497 +2359,587 @@ export default function OperatorCosts() {
       setPendingDocument(undefined);
       setEditor(detail.fuente);
     } catch (cause) {
-      setError(message(cause));
+      if (!currentRequest.signal.aborted) setError(message(cause));
     } finally {
       if (!currentRequest.signal.aborted) setDetailLoading(null);
     }
   }
   function openReceivedInvoicePicker() {
-    if (batchBusy || pendingBusy) return;
+    if (batchBusy || pendingBusy || editorBusy) return;
     setBatch(false);
     setPendingDocument(undefined);
     setEditorRevision((value) => value + 1);
     setEditor("new");
-    window.requestAnimationFrame(() => {
-      document
-        .getElementById("editor-heading")
-        ?.scrollIntoView({ block: "start", behavior: "auto" });
-      document
-        .getElementById("operator-invoice-search")
-        ?.focus({ preventScroll: true });
-    });
   }
   const own =
     data?.fuentes.filter((source) => source.origen === "PROPIA") || [];
   const third =
     data?.fuentes.filter((source) => source.origen === "TERCERO") || [];
   const canWrite = Boolean(data?.canWrite);
-  return (
-    <div className="mx-auto max-w-7xl space-y-6 pb-10 text-slate-900">
-      <header className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-sm font-extrabold text-blue-900">
-              <Link
-                href="/admin/finanzas/analitica-costes"
-                className="hover:underline"
-              >
-                Finanzas · Analítica de costes
-              </Link>{" "}
-              · Operadora
-            </p>
-            <h1 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-950">
-              Costes de operadora
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">
-              Organiza las facturas y sus artículos por centro de coste,
-              independientemente del mes. Un mismo centro puede reunir todas las
-              facturas que selecciones. Las fechas solo sirven para consultar su
-              evolución; las refacturas no duplican el coste.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canWrite && (
-              <button
-                type="button"
-                disabled={batchBusy || pendingBusy}
-                onClick={() => {
-                  if (batchBusy || pendingBusy) return;
-                  setEditor(null);
-                  setPendingDocument(undefined);
-                  setBatchGroupId(grupoId);
-                  setBatch(true);
-                }}
-                className="rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700"
-              >
-                Asignar varias facturas a un centro
-              </button>
-            )}
-            {canWrite && (
-              <button
-                type="button"
-                onClick={openReceivedInvoicePicker}
-                disabled={batchBusy || pendingBusy}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
-              >
-                <PlusIcon className="h-4 w-4" />
-                Añadir una factura
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setRefresh((value) => value + 1)}
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-extrabold text-slate-950 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-700 disabled:opacity-60"
-            >
-              <ArrowPathIcon
-                className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
-              />
-              Actualizar
-            </button>
-          </div>
-        </div>
-        {data && !canWrite && (
-          <p className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-950">
-            Tienes acceso de consulta. No puedes crear, editar ni archivar
-            fuentes.
-          </p>
-        )}
-      </header>
-      {data?.resumen ? (
-        <section
-          aria-label="Resumen de centros de coste"
-          className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
-        >
-          <Metric
-            label="Base seleccionada"
-            value={money(data.resumen.baseSeleccionada)}
-            tone="blue"
-          />
-          <Metric
-            label="Coste propio seleccionado"
-            value={money(data.resumen.basePropia)}
-          />
-          <Metric
-            label="Coste pendiente de refactura"
-            value={money(data.resumen.basePendienteRefacturacion)}
-            tone="amber"
-          />
-          <Metric
-            label="Internet Operadores"
-            value={integer.format(data.resumen.propias)}
-          />
-          <Metric
-            label="Otras empresas"
-            value={integer.format(data.resumen.terceros)}
-          />
-          <Metric
-            label="Borradores"
-            value={integer.format(data.resumen.borradores)}
-            tone="amber"
-          />
-          <Metric
-            label="Revisadas"
-            value={integer.format(data.resumen.revisadas)}
-            tone="green"
-          />
-        </section>
-      ) : (
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {Array.from({ length: 5 }, (_, index) => (
-            <div
-              key={index}
-              className="h-24 animate-pulse rounded-xl border border-slate-200 bg-slate-100"
-            />
-          ))}
-        </section>
-      )}
+
+  const blocked = batchBusy || pendingBusy || editorBusy;
+  const centre = centros.find((c) => c.id === grupoId);
+  const rows =
+    tab === "propias" ? own : tab === "terceros" ? third : data?.fuentes || [];
+  function openBatch() {
+    if (blocked) return;
+    setEditor(null);
+    setPendingDocument(undefined);
+    setBatchGroupId(grupoId);
+    setBatch(true);
+  }
+  function closeForms() {
+    if (batchBusy || editorBusy) return;
+    setEditor(null);
+    setBatch(false);
+    setGroupForm(false);
+  }
+  function sourceList() {
+    return (
       <section
-        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"
-        aria-labelledby="filters-heading"
+        className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+        aria-labelledby="sources-heading"
       >
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2
-              id="filters-heading"
-              className="text-lg font-extrabold text-slate-950"
-            >
-              Filtros
-            </h2>
-            <p className="mt-1 text-sm text-slate-700">
-              Estos filtros buscan solo costes ya registrados en este apartado.
-              Para localizar una factura recibida existente, pulsa «Seleccionar
-              factura recibida».
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+          <h2 id="sources-heading" className="text-base font-extrabold">
+            {tab === "centros"
+              ? `Facturas del centro · ${centre?.nombre || ""}`
+              : tab === "propias"
+                ? "Facturas de Internet Operadores asignadas"
+                : "Costes de terceros asignados"}
+          </h2>
+          <span className="text-xs font-bold text-slate-700">
+            {loading
+              ? "Actualizando…"
+              : `${integer.format(data?.total || 0)} fuentes`}
+          </span>
+        </header>
+        <div
+          className="max-h-[60vh] overflow-y-auto overscroll-contain"
+          aria-busy={loading}
+        >
+          {loading ? (
+            <p className="p-8 text-center text-sm text-slate-700">
+              Cargando fuentes…
             </p>
-          </div>
-          {data && (
-            <p className="text-sm font-bold text-slate-800">
-              {integer.format(data.total)} fuente{data.total === 1 ? "" : "s"}
-            </p>
+          ) : rows.length ? (
+            <ul className="divide-y divide-slate-200">
+              {rows.map((source) => (
+                <SourceRow
+                  key={source.id}
+                  source={source}
+                  groupId={tab === "centros" ? grupoId : undefined}
+                  canWrite={canWrite && !blocked}
+                  open={expanded.has(source.id)}
+                  loadingDetail={detailLoading === source.id}
+                  onToggle={() => toggle(source)}
+                  onEdit={() => edit(source)}
+                />
+              ))}
+            </ul>
+          ) : (
+            <EmptySection
+              label="No hay costes asignados para esta consulta."
+              hint={
+                tab === "propias"
+                  ? "Selecciona facturas recibidas para incorporarlas a un centro; no faltan del catálogo original."
+                  : "Solo aparecen las fuentes y artículos que hayas seleccionado explícitamente."
+              }
+            />
           )}
         </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <div>
-            <label className={labelClass}>Fechas de consulta</label>
-            <select
-              id="filter-date-mode"
-              aria-label="Fechas de consulta"
-              value={filterByMonth ? "month" : "all"}
-              onChange={(e) => {
-                const limited = e.target.value === "month";
-                setFilterByMonth(limited);
-                setPeriodo(limited ? nowPeriod() : "");
-                setPage(1);
-              }}
-              className={inputClass}
-            >
-              <option value="all">Todo el histórico</option>
-              <option value="month">Consultar un mes</option>
-            </select>
-            {filterByMonth && (
-              <input
-                id="filter-period"
-                aria-label="Mes de consulta"
-                type="month"
-                value={periodo}
-                onChange={(e) => {
-                  setPeriodo(e.target.value);
-                  setPage(1);
-                }}
-                className={`${inputClass} mt-2`}
-              />
-            )}
-            <p className="mt-1 text-xs text-slate-700">
-              Solo filtra lo que ves. No asigna ni mueve facturas.
-            </p>
-          </div>
-          <div>
-            <label htmlFor="filter-origin" className={labelClass}>
-              Origen
-            </label>
-            <select
-              id="filter-origin"
-              value={origen}
-              onChange={(event) => {
-                setOrigen(event.target.value as "" | Origen);
-                setPage(1);
-              }}
-              className={inputClass}
-            >
-              <option value="">Todos los orígenes</option>
-              <option value="PROPIA">Internet Operadores</option>
-              <option value="TERCERO">Otra empresa</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="filter-state" className={labelClass}>
-              Estado
-            </label>
-            <select
-              id="filter-state"
-              value={estado}
-              onChange={(event) => {
-                setEstado(event.target.value as "" | Estado);
-                setPage(1);
-              }}
-              className={inputClass}
-            >
-              <option value="">Todos los estados</option>
-              <option value="BORRADOR">Borrador</option>
-              <option value="REVISADO">Revisado</option>
-              <option value="ARCHIVADO">Archivado</option>
-            </select>
-          </div>
-          <div>
-            <label htmlFor="filter-group" className={labelClass}>
-              Centro de coste
-            </label>
-            <select
-              id="filter-group"
-              value={grupoId}
-              onChange={(event) => {
-                setGrupoId(event.target.value);
-                setPage(1);
-              }}
-              className={inputClass}
-            >
-              <option value="">Todos los centros</option>
-              {(data?.grupos || []).map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.nombre}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="filter-search" className={labelClass}>
-              Buscar costes registrados
-            </label>
-            <div className="relative">
-              <MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-700" />
-              <input
-                id="filter-search"
-                value={buscar}
-                onChange={(event) => {
-                  setBuscar(event.target.value);
-                  setPage(1);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") apply();
-                }}
-                placeholder="Proveedor, número o concepto"
-                className={`${inputClass} pl-9 pr-9`}
-              />
-              {buscar && (
-                <button
-                  type="button"
-                  onClick={() => setBuscar("")}
-                  className="absolute right-2 top-2 rounded p-1 text-slate-700 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-700"
-                  aria-label="Borrar búsqueda"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="mt-4 flex justify-end">
-          <button
-            type="button"
-            onClick={apply}
-            className="inline-flex items-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
-          >
-            <MagnifyingGlassIcon className="h-4 w-4" />
-            Aplicar filtros
-          </button>
-        </div>
-      </section>
-      {error && (
-        <section
-          role="alert"
-          className="flex flex-col gap-3 rounded-xl border border-red-300 bg-red-50 p-4 text-sm text-red-950 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <span>
-            <strong>No se ha podido cargar la información.</strong> {error}
-          </span>
-          <button
-            type="button"
-            onClick={() => setRefresh((value) => value + 1)}
-            className="rounded-lg border border-red-400 bg-white px-3 py-2 text-sm font-extrabold text-red-950 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-700"
-          >
-            Reintentar
-          </button>
-        </section>
-      )}
-      <PendingRefactoringDocuments
-        refreshToken={refresh}
-        canWrite={canWrite && !batchBusy}
-        onBusyChange={setPendingBusy}
-        onRefresh={() => setRefresh((v) => v + 1)}
-        onUseDocument={(doc) => {
-          if (batchBusy || pendingBusy) return;
-          setPendingDocument(doc);
-          setBatch(false);
-          setEditorRevision((v) => v + 1);
-          setEditor("new");
-          window.requestAnimationFrame(() =>
-            document
-              .getElementById("editor-heading")
-              ?.scrollIntoView({ block: "start" }),
-          );
-        }}
-      />
-      {batch && (
-        <OperatorCostBatch
-          grupos={data?.grupos || []}
-          initialGroupId={batchGroupId}
-          onBusyChange={setBatchBusy}
-          onSaved={() => setRefresh((v) => v + 1)}
-          onClose={() => setBatch(false)}
-        />
-      )}
-      {editor && (
-        <CostEditor
-          key={editor === "new" ? `new-${editorRevision}` : editor.id}
-          source={editor === "new" ? undefined : editor}
-          pendingDocument={editor === "new" ? pendingDocument : undefined}
-          initialGroups={data?.grupos || []}
-          canWrite={canWrite}
-          onClose={() => setEditor(null)}
-          onSaved={() => setRefresh((value) => value + 1)}
-        />
-      )}
-      <GroupPanel
-        grupos={data?.grupos || []}
-        canWrite={canWrite}
-        onCreated={() => setRefresh((value) => value + 1)}
-      />
-      <section
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-        aria-labelledby="own-heading"
-      >
-        <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <h2
-              id="own-heading"
-              className="text-lg font-extrabold text-slate-950"
-            >
-              Facturas de Internet Operadores
-            </h2>
-            <p className="mt-1 text-sm text-slate-700">
-              Aquí aparecen las facturas que hayas añadido como coste de
-              operadora, no todas las recibidas. El selector consulta las
-              facturas existentes de proveedores en todo el histórico.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm font-bold text-slate-800">
-              {own.length} registradas en esta página
-            </span>
-            {canWrite && (
-              <button
-                type="button"
-                onClick={openReceivedInvoicePicker}
-                disabled={batchBusy || pendingBusy}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-900 focus:ring-2 focus:ring-blue-700 focus:ring-offset-2"
-              >
-                <MagnifyingGlassIcon className="h-4 w-4" />
-                Seleccionar factura recibida
-              </button>
-            )}
-          </div>
-        </div>
-        {loading && !data ? (
-          <p className="px-5 py-10 text-center text-sm font-bold text-slate-700">
-            Cargando fuentes…
-          </p>
-        ) : own.length ? (
-          <ul className="divide-y divide-slate-200">
-            {own.map((source) => (
-              <SourceRow
-                key={source.id}
-                source={source}
-                canWrite={canWrite && !batchBusy}
-                open={expanded.has(source.id)}
-                loadingDetail={detailLoading === source.id}
-                onToggle={() => toggle(source)}
-                onEdit={() => edit(source)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <EmptySection
-            label="No hay facturas añadidas como coste de operadora para estos filtros."
-            hint="Esto no significa que falten facturas recibidas. Usa «Seleccionar factura recibida» para buscar Cogent u otro proveedor, elegir la factura y revisar sus artículos."
-          />
-        )}
-      </section>
-      <section
-        className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
-        aria-labelledby="third-heading"
-      >
-        <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <h2
-              id="third-heading"
-              className="text-lg font-extrabold text-slate-950"
-            >
-              Costes de terceros · pendientes de recibir por refacturación
-            </h2>
-            <p className="mt-1 text-sm text-slate-700">
-              Servicios utilizados por Internet Operadores con documentos a
-              nombre de otra empresa. No son facturas recibidas propias ni pagos
-              pendientes. Su coste se conserva para el análisis económico; la
-              futura refactura no lo duplica.
-            </p>
-          </div>
-          <span className="text-sm font-bold text-slate-800">
-            {third.length} en esta página
-          </span>
-        </div>
-        {third.length ? (
-          <ul className="divide-y divide-slate-200">
-            {third.map((source) => (
-              <SourceRow
-                key={source.id}
-                source={source}
-                canWrite={canWrite && !batchBusy}
-                open={expanded.has(source.id)}
-                loadingDetail={detailLoading === source.id}
-                onToggle={() => toggle(source)}
-                onEdit={() => edit(source)}
-              />
-            ))}
-          </ul>
-        ) : (
-          <EmptySection label="No hay facturas de otras empresas ni refacturas para estos filtros." />
-        )}
         {data && (
           <Pager
             page={page}
             total={data.total}
             totalPages={data.totalPages}
-            busy={loading}
-            onPage={(next) => {
-              setPage(next);
-              setRefresh((value) => value + 1);
-            }}
+            busy={loading || blocked}
+            onPage={setPage}
             label="Paginación de fuentes de coste"
           />
         )}
       </section>
+    );
+  }
+  function filters() {
+    return (
+      <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row">
+        <div className="relative min-w-0 flex-1">
+          <MagnifyingGlassIcon className="absolute left-3 top-3 h-4 w-4 text-slate-600" />
+          <input
+            id="filter-search"
+            aria-label="Buscar costes registrados"
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Proveedor, factura o artículo"
+            className={`${inputClass} pl-9`}
+          />
+        </div>
+        <select
+          id="filter-state"
+          aria-label="Estado de la fuente"
+          className={`${inputClass} sm:w-44`}
+          value={estado}
+          onChange={(e) => {
+            setEstado(e.target.value as typeof estado);
+            setPage(1);
+          }}
+        >
+          <option value="">Todos los estados</option>
+          <option value="BORRADOR">Borrador</option>
+          <option value="REVISADO">Revisado</option>
+          <option value="ARCHIVADO">Archivado</option>
+        </select>
+        {tab !== "centros" && (
+          <select
+            id="filter-group"
+            aria-label="Centro de coste"
+            className={`${inputClass} sm:w-56`}
+            value={grupoId}
+            onChange={(e) => selectCentre(e.target.value)}
+          >
+            <option value="">Todos los centros</option>
+            {(data?.grupos || []).map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.nombre}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="mx-auto max-w-7xl space-y-4 pb-6 text-slate-950">
+      <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <Link
+            href="/admin/finanzas/analitica-costes"
+            className="text-xs font-bold text-blue-900 hover:underline"
+          >
+            Finanzas · Analítica de costes
+          </Link>
+          <h1 className="mt-1 text-2xl font-extrabold">Costes de operadora</h1>
+          <p className="mt-1 text-sm text-slate-700">
+            Centros, facturas propias y originales de terceros, en vistas
+            separadas.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRefresh((v) => v + 1)}
+          disabled={loading || blocked}
+          className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold focus:ring-2 focus:ring-blue-700 disabled:opacity-50"
+        >
+          <ArrowPathIcon
+            className={`h-4 w-4 ${loading ? "animate-spin" : ""}`}
+          />
+          Actualizar
+        </button>
+      </header>
+      <div
+        role="tablist"
+        aria-label="Vistas de costes de operadora"
+        className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1"
+      >
+        {(
+          [
+            ["centros", "Centros de coste"],
+            ["propias", "Facturas de Internet Operadores"],
+            ["terceros", "Terceros · pendientes de refacturación"],
+          ] as const
+        ).map(([id, label], index) => (
+          <button
+            key={id}
+            id={`tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls={`panel-${id}`}
+            tabIndex={tab === id ? 0 : -1}
+            disabled={blocked}
+            onClick={() => switchTab(id)}
+            onKeyDown={(e) => {
+              const tabs = ["centros", "propias", "terceros"] as const;
+              let n = index;
+              if (e.key === "ArrowRight") n = (index + 1) % 3;
+              else if (e.key === "ArrowLeft") n = (index + 2) % 3;
+              else if (e.key === "Home") n = 0;
+              else if (e.key === "End") n = 2;
+              else return;
+              e.preventDefault();
+              switchTab(tabs[n]);
+              document.getElementById(`tab-${tabs[n]}`)?.focus();
+            }}
+            className={`rounded-lg px-2 py-3 text-xs font-extrabold focus:ring-2 focus:ring-blue-700 sm:px-4 sm:text-sm ${tab === id ? "bg-white text-blue-950 shadow-sm" : "text-slate-700 hover:bg-white/70"} disabled:opacity-50`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <div
+          role="alert"
+          className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-bold text-red-950"
+        >
+          {error}
+          <button type="button" onClick={apply} className="ml-3 underline">
+            Reintentar
+          </button>
+        </div>
+      )}
+      <section
+        id={`panel-${tab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${tab}`}
+        className="space-y-4"
+      >
+        {tab === "centros" && (
+          <>
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="text-lg font-extrabold">Centros de coste</h2>
+                <p className="text-xs text-slate-700">
+                  Artículos seleccionados, sin IVA. Excluye fuentes archivadas;
+                  no aplica repartos.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <DateFilter
+                  periodo={periodo}
+                  onChange={(v) => {
+                    setPeriodo(v);
+                    setPage(1);
+                  }}
+                />
+                {canWrite && (
+                  <button
+                    type="button"
+                    onClick={() => setGroupForm(true)}
+                    className="shrink-0 rounded-lg bg-blue-800 px-3 py-2 text-sm font-bold text-white focus:ring-2 focus:ring-blue-700"
+                  >
+                    Crear centro
+                  </button>
+                )}
+              </div>
+            </div>
+            <section
+              className="overflow-hidden rounded-xl border border-slate-200 bg-white"
+              aria-label="Resumen por centro"
+            >
+              <div className="max-h-[48vh] overflow-auto">
+                <table className="w-full min-w-[720px] text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-100 text-xs text-slate-800">
+                    <tr>
+                      <th className="px-4 py-3">Centro y ámbito</th>
+                      <th className="px-4 py-3 text-right">Coste propio</th>
+                      <th className="px-4 py-3 text-right">
+                        Coste de terceros
+                      </th>
+                      <th className="px-4 py-3 text-right">
+                        Pendiente de refactura
+                      </th>
+                      <th className="px-4 py-3 text-right">
+                        Total seleccionado
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200">
+                    {centros.map((c) => (
+                      <tr
+                        key={c.id}
+                        className={
+                          grupoId === c.id ? "bg-blue-50" : "hover:bg-slate-50"
+                        }
+                      >
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => selectCentre(c.id)}
+                            className="text-left font-extrabold text-blue-950 underline decoration-blue-200 underline-offset-4 focus:ring-2 focus:ring-blue-700"
+                          >
+                            {c.nombre}
+                          </button>
+                          <span className="mt-1 block text-xs text-slate-600">
+                            {c.ambito === "GLOBAL_RED_PROPIA"
+                              ? "Global · red propia"
+                              : `${c.zona} · ${c.conexion}`}{" "}
+                            · {c.articulos} artículos
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {money(c.basePropia)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {money(c.baseTerceros)}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums text-amber-950">
+                          {money(c.basePendienteRefacturacion)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-extrabold tabular-nums">
+                          {money(c.baseSeleccionada)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!centros.length && (
+                <p className="p-5 text-sm text-slate-700">
+                  {loading
+                    ? "Cargando centros…"
+                    : "No hay centros de coste configurados."}
+                </p>
+              )}
+            </section>
+            {grupoId && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => selectCentre("")}
+                    className="text-sm font-bold text-blue-900 underline"
+                  >
+                    Cerrar detalle del centro
+                  </button>
+                  {canWrite && (
+                    <button
+                      type="button"
+                      onClick={openBatch}
+                      className="rounded-lg bg-blue-800 px-3 py-2 text-sm font-bold text-white"
+                    >
+                      Asignar varias facturas a este centro
+                    </button>
+                  )}
+                </div>
+                {filters()}
+                {sourceList()}
+              </>
+            )}
+            <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+              <summary className="cursor-pointer font-bold text-slate-700">
+                Cómo interpretar los costes
+              </summary>
+              <p className="mt-2 text-slate-700">
+                El total seleccionado suma coste propio y coste de terceros una
+                sola vez. La columna pendiente de refactura es parte del coste
+                de terceros, no un importe adicional. Los originales sin asignar
+                de la bandeja de terceros no entran en estos totales. Las fechas
+                filtran la consulta, nunca cambian asignaciones ni crean
+                repartos.
+              </p>
+            </details>
+          </>
+        )}
+        {tab === "propias" && (
+          <>
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <h2 className="text-lg font-extrabold">
+                  Facturas de Internet Operadores
+                </h2>
+                <p className="text-xs text-slate-700">
+                  Solo costes incorporados a operadora; el selector permite
+                  buscar entre todas las facturas recibidas.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <DateFilter
+                  periodo={periodo}
+                  onChange={(v) => {
+                    setPeriodo(v);
+                    setPage(1);
+                  }}
+                />
+                {canWrite && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={openReceivedInvoicePicker}
+                      className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-950"
+                    >
+                      Seleccionar factura recibida
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openBatch}
+                      className="rounded-lg bg-blue-800 px-3 py-2 text-sm font-bold text-white"
+                    >
+                      Asignar varias facturas
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {filters()}
+            {sourceList()}
+          </>
+        )}
+        {tab === "terceros" && (
+          <>
+            <div className="flex gap-2" aria-label="Bandejas de terceros">
+              <button
+                type="button"
+                aria-pressed={thirdView === "archivo"}
+                onClick={() => setThirdView("archivo")}
+                disabled={blocked}
+                className={`rounded-lg border px-3 py-2 text-sm font-bold ${thirdView === "archivo" ? "border-blue-700 bg-blue-50 text-blue-950" : "border-slate-300 bg-white"}`}
+              >
+                Originales de Vola · revisar y asignar
+              </button>
+              <button
+                type="button"
+                aria-pressed={thirdView === "asignados"}
+                onClick={() => setThirdView("asignados")}
+                disabled={blocked}
+                className={`rounded-lg border px-3 py-2 text-sm font-bold ${thirdView === "asignados" ? "border-blue-700 bg-blue-50 text-blue-950" : "border-slate-300 bg-white"}`}
+              >
+                Costes ya asignados
+              </button>
+            </div>
+            {thirdView === "archivo" ? (
+              <PendingRefactoringDocuments
+                refreshToken={refresh}
+                canWrite={canWrite && !batchBusy && !editorBusy}
+                onBusyChange={setPendingBusy}
+                onRefresh={() => setRefresh((v) => v + 1)}
+                onUseDocument={(doc) => {
+                  if (blocked) return;
+                  setPendingDocument(doc);
+                  setBatch(false);
+                  setEditorRevision((v) => v + 1);
+                  setEditor("new");
+                }}
+              />
+            ) : (
+              <>
+                <div className="flex justify-end">
+                  <DateFilter
+                    periodo={periodo}
+                    onChange={(v) => {
+                      setPeriodo(v);
+                      setPage(1);
+                    }}
+                  />
+                </div>
+                {filters()}
+                {sourceList()}
+              </>
+            )}
+          </>
+        )}
+      </section>
+      {(editor || batch || groupForm) && (
+        <OperatorCostDrawer
+          title={
+            groupForm
+              ? "Crear centro de coste"
+              : batch
+                ? "Asignar varias facturas"
+                : editor === "new"
+                  ? "Añadir coste de operadora"
+                  : "Editar coste de operadora"
+          }
+          busy={editorBusy || batchBusy}
+          onClose={closeForms}
+        >
+          {groupForm ? (
+            <GroupPanel
+              initialOpen
+              onBusyChange={setEditorBusy}
+              grupos={data?.grupos || []}
+              canWrite={canWrite}
+              onCreated={() => {
+                setRefresh((v) => v + 1);
+                setGroupForm(false);
+              }}
+            />
+          ) : batch ? (
+            <OperatorCostBatch
+              grupos={data?.grupos || []}
+              initialGroupId={batchGroupId}
+              onBusyChange={setBatchBusy}
+              onSaved={() => setRefresh((v) => v + 1)}
+              onClose={() =>
+                document
+                  .getElementById("operator-cost-drawer")
+                  ?.dispatchEvent(new Event("request-close"))
+              }
+            />
+          ) : (
+            editor && (
+              <CostEditor
+                key={editor === "new" ? `new-${editorRevision}` : editor.id}
+                source={editor === "new" ? undefined : editor}
+                pendingDocument={editor === "new" ? pendingDocument : undefined}
+                initialGroups={data?.grupos || []}
+                canWrite={canWrite}
+                hideClose
+                onBusyChange={setEditorBusy}
+                onClose={() => setEditor(null)}
+                onSaved={() => setRefresh((v) => v + 1)}
+              />
+            )
+          )}
+        </OperatorCostDrawer>
+      )}
     </div>
+  );
+}
+type Centre = Grupo & {
+  basePropia: number;
+  baseTerceros: number;
+  basePendienteRefacturacion: number;
+  baseSeleccionada: number;
+  articulos: number;
+};
+function DateFilter({
+  periodo,
+  onChange,
+}: {
+  periodo: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <details className="relative">
+      <summary className="cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800">
+        {periodo ? `Mes: ${periodo}` : "Todo el histórico"}
+      </summary>
+      <div className="absolute right-0 z-10 mt-1 w-56 rounded-lg border border-slate-300 bg-white p-3 shadow-lg">
+        <label
+          className="text-xs font-bold text-slate-700"
+          htmlFor="query-month"
+        >
+          Mes de consulta (opcional)
+        </label>
+        <input
+          id="query-month"
+          aria-label="Mes de consulta"
+          type="month"
+          value={periodo}
+          onChange={(e) => onChange(e.target.value)}
+          className={`${inputClass} mt-1`}
+        />
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="mt-2 text-sm font-bold text-blue-900 underline"
+        >
+          Ver todo el histórico
+        </button>
+        <p className="mt-2 text-xs text-slate-600">
+          Solo filtra la vista. No mueve facturas.
+        </p>
+      </div>
+    </details>
   );
 }
 function EmptySection({ label, hint }: { label: string; hint?: string }) {
   return (
-    <div className="px-5 py-10 text-center">
-      <DocumentTextIcon className="mx-auto h-9 w-9 text-slate-500" />
-      <p className="mt-3 text-sm font-bold text-slate-900">{label}</p>
-      <p className="mt-1 text-sm text-slate-700">
-        {hint ||
-          "Cambia los filtros o registra una nueva fuente cuando corresponda."}
-      </p>
+    <div className="px-5 py-8 text-center">
+      <DocumentTextIcon className="mx-auto h-7 w-7 text-slate-500" />
+      <p className="mt-2 text-sm font-bold text-slate-900">{label}</p>
+      {hint && <p className="mt-1 text-xs text-slate-700">{hint}</p>}
     </div>
   );
 }
