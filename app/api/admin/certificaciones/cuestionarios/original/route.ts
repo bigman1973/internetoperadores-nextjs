@@ -49,7 +49,19 @@ export async function GET() {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    const known = ["El documento original ha cambiado; revisión necesaria", "Referencia privada no válida", "No se pudo recuperar el documento privado", "Documento demasiado grande"];
-    return noStoreJson({ error: known.includes(message) ? message : "No se pudo recuperar el original protegido" }, 502);
+    const known = [
+      "El documento original ha cambiado; revisión necesaria",
+      "Referencia privada no válida",
+      "No se pudo recuperar el documento privado",
+      "Documento demasiado grande",
+    ];
+    return noStoreJson(
+      {
+        error: known.includes(message)
+          ? message
+          : "No se pudo recuperar el original protegido",
+      },
+      502,
+    );
   }
 }

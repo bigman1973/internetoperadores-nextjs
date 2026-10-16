@@ -333,6 +333,52 @@ async function run() {
     }),
   );
   assert.throws(() => docs.validateDocument(macro, "test.docx"));
+  const immutableDocs = load("lib/certificaciones/documents.ts", {
+    "@/lib/finanzas/microsoft-graph": {
+      getAccessToken: async () => "SYNTHETIC_TOKEN",
+      findSharePointSite: async () => ({ siteId: "SITE_TEST" }),
+      getSiteDrive: async () => "DRIVE_TEST",
+    },
+    "./core": core,
+  });
+  const originalFetch = globalThis.fetch;
+  let storedBytes: Uint8Array | null = null;
+  try {
+    globalThis.fetch = (async (url: any, options: any = {}) => {
+      const target = String(url);
+      if (options.method === "PUT") {
+        assert(
+          target.endsWith(".bin:/content"),
+          "El original debe almacenarse como binario, no Word modificable",
+        );
+        assert.equal(
+          options.headers["Content-Type"],
+          "application/octet-stream",
+        );
+        storedBytes = options.body;
+        return new Response(JSON.stringify({ id: "ITEM_TEST" }), {
+          status: 200,
+        });
+      }
+      if (target.includes("/items/ITEM_TEST/content"))
+        return new Response(storedBytes as any);
+      if (target.endsWith(".bin")) return new Response(null, { status: 404 });
+      return new Response(JSON.stringify({ folder: {} }), { status: 200 });
+    }) as typeof fetch;
+    const sealed = await immutableDocs.uploadCertificationDocument(
+      "ISO27001",
+      word,
+      "sintetico.docx",
+    );
+    const downloaded = await immutableDocs.downloadCertificationDocument(
+      sealed.drive,
+      sealed.item,
+      sealed.hash,
+    );
+    assert.deepEqual(downloaded, word);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
   console.log(
     "Certificaciones API: sesión activa/rol actual, mismo origen, tamaño, permisos, conflictos, evidencia y archivos correctos. Sin datos reales.",
   );

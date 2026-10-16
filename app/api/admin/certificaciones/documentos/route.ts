@@ -17,6 +17,7 @@ import {
   MAX_DOCUMENT,
   validateDocument,
   uploadCertificationDocument,
+  downloadCertificationDocument,
 } from "@/lib/certificaciones/documents";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -103,11 +104,62 @@ export async function POST(request: NextRequest) {
       where: {
         programaId_sha256_tipo: { programaId: p.id, sha256: hash, tipo },
       },
-      select: { id: true },
+      select: { id: true, driveId: true, itemId: true, sha256: true },
     });
-    if (existing)
-      return noStoreJson({ ok: true, id: existing.id, reutilizado: true });
+    if (existing) {
+      try {
+        await downloadCertificationDocument(
+          existing.driveId,
+          existing.itemId,
+          existing.sha256,
+        );
+        return noStoreJson({ ok: true, id: existing.id, reutilizado: true });
+      } catch (error) {
+        // Never bypass a permission or transport failure. Only restore an exact original
+        // whose supplied bytes match the persisted SHA-256; leave the older item intact.
+        if (
+          !(error instanceof Error) ||
+          error.message !==
+            "El documento original ha cambiado; revisión necesaria"
+        )
+          throw error;
+      }
+      const immutable = await uploadCertificationDocument(n, bytes, filename);
+      await prisma.$transaction(async (tx) => {
+        const changed = await tx.documentoCertificacion.updateMany({
+          where: {
+            id: existing.id,
+            sha256: hash,
+            driveId: existing.driveId,
+            itemId: existing.itemId,
+          },
+          data: { driveId: immutable.drive, itemId: immutable.item },
+        });
+        if (changed.count !== 1)
+          throw new Error("Puntero documental actualizado por otra sesión");
+        await tx.auditoriaCertificacion.create({
+          data: {
+            recurso: "DOCUMENTO",
+            recursoId: existing.id,
+            norma: n,
+            actorId: auth.actorId,
+            accion: "CONSERVAR_ORIGINAL",
+            detalle: {
+              sha256: hash,
+              itemAnteriorConservado: existing.itemId,
+              copiaBinariaInmutable: true,
+            },
+          },
+        });
+      });
+      return noStoreJson({
+        ok: true,
+        id: existing.id,
+        originalVerificado: true,
+      });
+    }
     const stored = await uploadCertificationDocument(n, bytes, filename);
+    await downloadCertificationDocument(stored.drive, stored.item, stored.hash);
     const doc = await prisma.$transaction(async (tx) => {
       const concurrent = await tx.documentoCertificacion.findUnique({
         where: {

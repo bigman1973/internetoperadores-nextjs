@@ -143,7 +143,7 @@ export async function uploadCertificationDocument(
   const { drive, token } = await credentials();
   await folder(drive, token, "Certificaciones", null, "Certificaciones");
   await folder(drive, token, `Certificaciones/${n}`, "Certificaciones", n);
-  const url = `${base(drive)}/root:/Certificaciones/${n}/${hash}.${extension}`;
+  const url = `${base(drive)}/root:/Certificaciones/${n}/${hash}.bin`;
   const existing = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
@@ -164,7 +164,7 @@ export async function uploadCertificationDocument(
     method: "PUT",
     headers: {
       Authorization: `Bearer ${token}`,
-      "Content-Type": mime,
+      "Content-Type": "application/octet-stream",
       "If-None-Match": "*",
     },
     body: new Uint8Array(bytes),
