@@ -192,6 +192,9 @@ export async function uploadCertificationDocument(
   const data = await r.json();
   if (typeof data.id !== "string" || !data.id)
     throw new Error("OneDrive no confirmó el archivo");
+  const verified = await download(drive, data.id, token);
+  if (createHash("sha256").update(verified).digest("hex") !== hash)
+    throw new Error("No se ha podido conservar el original; la referencia no se ha modificado");
   return { drive, item: data.id, hash, mime };
 }
 export async function downloadCertificationDocument(
