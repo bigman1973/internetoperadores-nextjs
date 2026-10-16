@@ -3681,3 +3681,91 @@ model DocumentoRefacturacionPendiente {
   @@index([estado, createdAt])
   @@map("documentos_refacturacion_pendiente")
 }
+
+// Seguimiento interno: ningún hito o cuestionario equivale a certificación.
+model ProgramaCertificacion {
+  id String @id @default(uuid())
+  norma String @unique
+  estado String @default("POR_DEFINIR")
+  consultora String?
+  responsable String?
+  aprobador String?
+  alcance String?
+  notas String?
+  entidad String?
+  referencia String?
+  fechaEmision DateTime? @db.Date
+  fechaCaducidad DateTime? @db.Date
+  documentoAcreditacionId String?
+  version Int @default(1)
+  hitos HitoCertificacion[]
+  documentos DocumentoCertificacion[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@map("programas_certificacion")
+}
+model HitoCertificacion {
+  id String @id @default(uuid())
+  programaId String @map("programa_id")
+  programa ProgramaCertificacion @relation(fields: [programaId], references: [id], onDelete: Restrict)
+  clave String
+  titulo String
+  descripcion String
+  orden Int
+  estado String @default("PENDIENTE")
+  responsable String?
+  fechaObjetivo DateTime? @db.Date
+  evidencia String?
+  notas String?
+  version Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([programaId, clave])
+  @@index([programaId, orden])
+  @@map("hitos_certificacion")
+}
+model DocumentoCertificacion {
+  id String @id @default(uuid())
+  programaId String @map("programa_id")
+  programa ProgramaCertificacion @relation(fields: [programaId], references: [id], onDelete: Restrict)
+  titulo String
+  tipo String @default("BORRADOR")
+  nombreArchivo String @map("nombre_archivo")
+  mime String
+  driveId String @map("drive_id")
+  itemId String @map("item_id")
+  sha256 String
+  bytes Int
+  creadoPor Int @map("creado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@unique([programaId, sha256, tipo])
+  @@index([programaId, createdAt])
+  @@map("documentos_certificacion")
+}
+model CuestionarioSeguridad {
+  id String @id @default(uuid())
+  empresa String
+  titulo String
+  contacto String?
+  emailContacto String? @map("email_contacto")
+  fechaLimite DateTime? @db.Date
+  estado String @default("BORRADOR")
+  respuestas Json
+  version Int @default(1)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@index([updatedAt])
+  @@map("cuestionarios_seguridad")
+}
+model AuditoriaCertificacion {
+  id String @id @default(uuid())
+  recurso String
+  recursoId String @map("recurso_id")
+  norma String?
+  actorId Int @map("actor_id")
+  accion String
+  detalle Json
+  createdAt DateTime @default(now()) @map("created_at")
+  @@index([recurso, recursoId, createdAt])
+  @@map("auditoria_certificacion")
+}

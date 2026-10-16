@@ -40,7 +40,8 @@ import {
   AcademicCapIcon,
   ChatBubbleLeftEllipsisIcon,
   BuildingLibraryIcon,
-  CircleStackIcon
+  CircleStackIcon,
+  ShieldCheckIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
 
@@ -186,6 +187,15 @@ const navigation: NavEntry[] = [
       { name: 'CNMC', href: '/admin/aapp/cnmc', icon: BuildingLibraryIcon, section: 'aapp' },
       { name: 'Hacienda', href: '/admin/aapp/hacienda', icon: BuildingLibraryIcon, section: 'aapp' },
       { name: 'Seguridad Social', href: '/admin/aapp/seguridad-social', icon: BuildingLibraryIcon, section: 'aapp' },
+    ],
+  },
+  {
+    name: 'Certificaciones', icon: ShieldCheckIcon, section: 'certificaciones',
+    children: [
+      { name: 'Resumen', href: '/admin/certificaciones', icon: ChartBarIcon, section: 'certificaciones' },
+      { name: 'ISO 27001', href: '/admin/certificaciones/iso-27001', icon: ShieldCheckIcon, section: 'certificaciones.iso_27001' },
+      { name: 'TISAX', href: '/admin/certificaciones/tisax', icon: ShieldCheckIcon, section: 'certificaciones.tisax' },
+      { name: 'Cuestionarios de seguridad', href: '/admin/certificaciones/cuestionarios', icon: ClipboardDocumentListIcon, section: 'certificaciones.cuestionarios' },
     ],
   },
   { name: 'Peticiones', href: '/admin/peticiones', icon: ChatBubbleLeftEllipsisIcon, section: 'peticiones' },

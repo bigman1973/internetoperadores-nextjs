@@ -22,7 +22,7 @@ export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
     'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
     'estadisticas', 'usuarios', 'subida-precios', 'personal',
-    'proyectos', 'historial', 'configuracion'
+    'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios'
   ],
   MARKETING: [
     'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'
@@ -69,6 +69,10 @@ const SECTION_TO_AREA: Record<string, string> = {
   'subida-precios': 'admin.subida_precios',
   'personal': 'admin.empleados',
   'proyectos': 'admin.proyectos',
+  'certificaciones': 'admin.certificaciones',
+  'certificaciones.iso_27001': 'admin.certificaciones.iso_27001',
+  'certificaciones.tisax': 'admin.certificaciones.tisax',
+  'certificaciones.cuestionarios': 'admin.certificaciones.cuestionarios',
   'historial': 'admin.historial',
   'configuracion': 'admin.configuracion',
   'portal-empleado': 'admin',
