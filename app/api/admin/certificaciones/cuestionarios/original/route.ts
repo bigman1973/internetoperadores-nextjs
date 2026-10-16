@@ -47,10 +47,9 @@ export async function GET() {
         "Content-Security-Policy": "default-src 'none'; sandbox",
       },
     });
-  } catch {
-    return noStoreJson(
-      { error: "No se pudo recuperar el original protegido" },
-      502,
-    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const known = ["El documento original ha cambiado; revisión necesaria", "Referencia privada no válida", "No se pudo recuperar el documento privado", "Documento demasiado grande"];
+    return noStoreJson({ error: known.includes(message) ? message : "No se pudo recuperar el original protegido" }, 502);
   }
 }
