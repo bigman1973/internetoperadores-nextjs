@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
 import { CalidadFacturaRecibida, EstadoFactura, Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { auditarCambioB2, buscarIdentidadBloqueada, facturaEconomicaWhere, jsonPrivado, readBoundedJsonB2, requireFacturaAccess, serializeFacturaCalidad } from '@/lib/finanzas/invoice-quality-db'
+import { auditarCambioB2, buscarIdentidadBloqueada, jsonPrivado, readBoundedJsonB2, requireFacturaAccess, serializeFacturaCalidad } from '@/lib/finanzas/invoice-quality-db'
+import { facturaEconomicaWhere, facturaNoConfirmingDraxtonWhere } from '@/lib/finanzas/invoice-economic-filter'
 import { claveCanonicaFactura, esFechaDocumentoIso, esImporteCentimosFinito, esImporteFinito, fechaDocumentoUtc, totalCuadraEnCentimos } from '@/lib/finanzas/invoice-quality'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +36,8 @@ export async function GET(req: NextRequest) {
     const incluirCalidad = query.get('incluirCalidad') === 'true'
     const estado = query.get('estado')
     const calidad = query.get('calidad')
-    const conditions: Prisma.FacturaRecibidaWhereInput[] = [{ NOT: { carpetaOrigen: { contains: 'Confirming', mode: 'insensitive' } } }]
+    // C9 centraliza la exclusión por naturaleza; nunca depende de un texto de carpeta mutable.
+    const conditions: Prisma.FacturaRecibidaWhereInput[] = [facturaNoConfirmingDraxtonWhere, { naturalezaDocumento: 'FACTURA_RECIBIDA' }]
     if (!incluirCalidad) conditions.push(facturaEconomicaWhere)
     const where: Prisma.FacturaRecibidaWhereInput = { AND: conditions }
     if (calidad && ['VALIDA', 'REVISAR_LECTURA', 'COPIA'].includes(calidad)) where.calidad = calidad as CalidadFacturaRecibida

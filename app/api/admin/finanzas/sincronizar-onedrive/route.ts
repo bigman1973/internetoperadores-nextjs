@@ -152,7 +152,13 @@ export async function POST(req: NextRequest) {
   try {
     await isolationCheck();
     const data = await inventory();
-    const keys: InvoiceFolderKey[] = carpeta === 'todas' ? Object.keys(INVOICE_FOLDERS) as InvoiceFolderKey[] : carpeta === 'ambas' ? ['pendiente', 'materiales'] : [carpeta as InvoiceFolderKey];
+    // C9: confirming Draxton es comunicación de cliente, no factura recibida. Esta
+    // ruta no la descarga ni crea FacturaRecibida/OCR; el integrador usará el flujo
+    // documental seguro y con confirmación humana descrito en CONTRATO.md.
+    if (carpeta === 'confirming_draxton') return json({ error: 'Confirming Draxton no se importa como factura recibida. Requiere clasificación documental y confirmación humana.' }, 422);
+    const keys: InvoiceFolderKey[] = carpeta === 'todas'
+      ? (Object.keys(INVOICE_FOLDERS).filter((key) => key !== 'confirming_draxton') as InvoiceFolderKey[])
+      : carpeta === 'ambas' ? ['pendiente', 'materiales'] : [carpeta as InvoiceFolderKey];
     // Inventario parcial: no normalizar ni registrar una ubicación posiblemente incompleta.
     const failed = keys.filter(key => data.folders[key].items === null);
     if (failed.length) return json({ error: 'Lectura incompleta: no se han modificado facturas. Revisa las carpetas indicadas.', carpetasError: failed, procesados: 0, ubicacionesActualizadas: 0, normalizadas: 0, inventarioCompleto: false }, 503);
@@ -213,6 +219,7 @@ export async function POST(req: NextRequest) {
     }
     if (!soloUbicaciones) for (const key of keys) for (const item of data.folders[key].items!) {
       if (!invoiceFile(item) || existing.has(item.id) || revisiones.has(item.id) || procesados + errores >= limite) continue;
+      if (key === 'confirming_draxton') throw new Error('C9_CONFIRMING_IMPORT_BLOCKED');
       try {
         const buffer = await downloadFile(data.ubicacion.driveId, item.id);
         const ext = item.name.toLowerCase().split('.').pop();

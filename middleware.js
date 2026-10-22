@@ -15,6 +15,7 @@ function financeAreas(pathname) {
     'conciliacion-propuestas': ['admin.finanzas.conciliacion'],
     pendientes: ['admin.finanzas.conciliacion'],
     'centros-coste': ['admin.finanzas.conciliacion'],
+    'confirming-draxton': ['admin.finanzas.conciliacion'],
     'conciliacion-remesas': ['admin.finanzas.conciliacion_remesas'],
     remesas: pathname === '/api/admin/finanzas/remesas/b6' ? ['admin.finanzas.conciliacion'] : [],
     cuentas: ['admin.finanzas.movimientos', 'admin.finanzas.conciliacion'],
@@ -28,6 +29,7 @@ function financeAreas(pathname) {
     imputacion: ['admin.finanzas.facturas'],
     movimientos: ['admin.finanzas.movimientos'],
     nominas: ['admin.finanzas.conciliacion'],
+    'nominas-propuestas': ['admin.finanzas.conciliacion'],
     tickets: ['admin.finanzas.tickets'],
   };
   return aliases[section] || [];
@@ -46,6 +48,7 @@ export async function middleware(request) {
       || (path === '/api/admin/finanzas/pendientes' && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/pendientes/documento' && request.method === 'POST')
       || (path === '/api/admin/finanzas/remesas/b6' && request.method === 'POST')
+      || (path === '/api/admin/finanzas/confirming-draxton' && request.method === 'POST')
       || (path === '/api/admin/finanzas/centros-coste' && ['POST','PATCH'].includes(request.method))
       || (path === '/api/admin/finanzas/centros-coste/asignar' && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/exportar-a3' && request.method === 'POST')

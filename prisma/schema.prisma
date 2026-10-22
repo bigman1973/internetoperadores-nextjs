@@ -14,6 +14,10 @@ model UsuarioAdmin {
   centrosCosteFinanzasActualizadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Actualizador")
   auditoriasCentroCosteFinanzasB8 AuditoriaCentroCosteFinanzasB8[] @relation("AuditoriaCentroCosteFinanzasB8Actor")
   recibosEleccionCentroB8 ReciboEleccionCentroB8[] @relation("ReciboEleccionCentroB8Actor")
+  soportesConfirmingDraxtonConfirmados SoporteConfirmingDraxton[] @relation("SoporteConfirmingDraxtonConfirmador")
+  soportesConfirmingDraxtonRevocados SoporteConfirmingDraxton[] @relation("SoporteConfirmingDraxtonRevocador")
+  auditoriasSoportesConfirmingDraxton AuditoriaSoporteConfirmingDraxton[] @relation("AuditoriaSoporteConfirmingDraxtonActor")
+  auditoriasClasificacionConfirmingDraxton AuditoriaClasificacionConfirmingDraxton[] @relation("AuditoriaClasificacionConfirmingDraxtonActor")
   identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Actor")
   asignacionesDevolucionConfirmadasB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Confirmador")
@@ -1141,6 +1145,7 @@ model MovimientoBancario {
   asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Movimiento")
 
   adjuntosPendientesB5 AdjuntoPendienteB5[] @relation("AdjuntoPendienteB5Movimiento")
+  soportesConfirmingDraxton SoporteConfirmingDraxton[] @relation("SoporteConfirmingDraxtonMovimiento")
   auditoriasGestionPendienteB5 AuditoriaGestionPendienteB5[]
   gestionPendienteB5 GestionPendienteMovimientoB5? @relation("MovimientoB5GestionPendiente")
   id              String   @id @default(uuid())
@@ -1265,12 +1270,18 @@ model FacturaRecibida {
   conflictoIdentidad Boolean @default(false) @map("conflicto_identidad")
   duplicadoExterno Boolean @default(false) @map("duplicado_externo")
   versionCalidad   Int      @default(1) @map("version_calidad")
+  // C9: identifica la naturaleza sin reescribir OCR/importes/origen OneDrive.
+  naturalezaDocumento NaturalezaDocumentoFinanciero @default(FACTURA_RECIBIDA) @map("naturaleza_documento")
+  tipoSoporteFinanciero TipoSoporteFinanciero? @map("tipo_soporte_financiero")
+  versionNaturalezaDocumento Int @default(1) @map("version_naturaleza_documento")
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   movimientos     MovimientoBancario[]
   confirmingLineas ConfirmingLinea[]
+  soportesConfirmingDraxton SoporteConfirmingDraxton[] @relation("SoporteConfirmingDraxtonFuente")
+  auditoriasClasificacionConfirmingDraxton AuditoriaClasificacionConfirmingDraxton[] @relation("AuditoriaClasificacionConfirmingDraxtonFuente")
   comentarios     ComentarioFacturaRecibida[]
   documentosOperadora DocumentoCosteOperadora[]
   historialUbicaciones HistorialUbicacionFacturaRecibida[]
@@ -1377,6 +1388,70 @@ model AuditoriaCalidadFactura {
   @@map("auditoria_calidad_facturas")
 }
 
+// C9: evidencia documental adicional de un abono/cesión confirming Draxton.
+// No es DocumentoConciliable B4, no tiene importe y no cambia ningún cobro/pago.
+model SoporteConfirmingDraxton {
+  id                    String @id @default(uuid()) @db.Uuid
+  facturaRecibidaId      String @map("factura_recibida_id")
+  movimientoId           String @map("movimiento_id")
+  tipo                   TipoSoporteFinanciero @default(CONFIRMING_CESION_DRAXTON)
+  estado                 EstadoSoporteConfirmingDraxton @default(CONFIRMADO)
+  referenciaDocumental   String @map("referencia_documental")
+  fuenteHash             String @db.Char(64) @map("fuente_hash")
+  fuenteSnapshot         Json @map("fuente_snapshot")
+  confirmadoPorId        Int @map("confirmado_por_id")
+  confirmadoAt           DateTime @default(now()) @map("confirmado_at")
+  revocadoPorId          Int? @map("revocado_por_id")
+  revocadoAt             DateTime? @map("revocado_at")
+  motivoRevocacion       String? @map("motivo_revocacion")
+  version                Int @default(1)
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  facturaRecibida        FacturaRecibida @relation("SoporteConfirmingDraxtonFuente", fields: [facturaRecibidaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento             MovimientoBancario @relation("SoporteConfirmingDraxtonMovimiento", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  confirmadoPor          UsuarioAdmin @relation("SoporteConfirmingDraxtonConfirmador", fields: [confirmadoPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  revocadoPor            UsuarioAdmin? @relation("SoporteConfirmingDraxtonRevocador", fields: [revocadoPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  auditorias             AuditoriaSoporteConfirmingDraxton[]
+  @@unique([facturaRecibidaId, movimientoId])
+  @@index([movimientoId, estado])
+  @@index([facturaRecibidaId, estado])
+  @@map("soportes_confirming_draxton")
+}
+// Auditoría independiente de la clasificación de fuente. La aplicación C9 la
+// escribe en la misma transacción serializable de cada confirmación humana.
+model AuditoriaClasificacionConfirmingDraxton {
+  id                    String @id @default(uuid()) @db.Uuid
+  facturaRecibidaId      String @map("factura_recibida_id")
+  actorId               Int @map("actor_id")
+  accion                AccionAuditoriaClasificacionConfirmingDraxton
+  idempotencyKey        String @map("idempotency_key")
+  payloadHash           String @db.Char(64) @map("payload_hash")
+  versionAnterior       Int @map("version_anterior")
+  versionResultante     Int @map("version_resultante")
+  snapshotAnterior      Json @map("snapshot_anterior")
+  snapshotResultado     Json @map("snapshot_resultado")
+  createdAt             DateTime @default(now()) @map("created_at")
+  facturaRecibida       FacturaRecibida @relation("AuditoriaClasificacionConfirmingDraxtonFuente", fields: [facturaRecibidaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor                 UsuarioAdmin @relation("AuditoriaClasificacionConfirmingDraxtonActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([actorId, idempotencyKey])
+  @@index([facturaRecibidaId, createdAt])
+  @@map("auditorias_clasificacion_confirming_draxton")
+}
+model AuditoriaSoporteConfirmingDraxton {
+  id                    String @id @default(uuid()) @db.Uuid
+  soporteId             String @db.Uuid @map("soporte_id")
+  actorId               Int @map("actor_id")
+  accion                AccionAuditoriaSoporteConfirmingDraxton
+  idempotencyKey        String @map("idempotency_key")
+  payloadHash           String @db.Char(64) @map("payload_hash")
+  snapshot              Json
+  createdAt             DateTime @default(now()) @map("created_at")
+  soporte               SoporteConfirmingDraxton @relation(fields: [soporteId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor                 UsuarioAdmin @relation("AuditoriaSoporteConfirmingDraxtonActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([actorId, idempotencyKey])
+  @@index([soporteId, createdAt])
+  @@map("auditorias_soportes_confirming_draxton")
+}
 model ConfirmingLinea {
   id               String   @id @default(uuid())
   confirmingId     String   @map("confirming_id")
@@ -1512,6 +1587,25 @@ enum CalidadFacturaRecibida {
   VALIDA
   REVISAR_LECTURA
   COPIA
+}
+enum NaturalezaDocumentoFinanciero {
+  FACTURA_RECIBIDA
+  SOPORTE_CONFIRMING_CLIENTE
+}
+enum TipoSoporteFinanciero {
+  CONFIRMING_CESION_DRAXTON
+}
+enum EstadoSoporteConfirmingDraxton {
+  CONFIRMADO
+  REVOCADO
+}
+enum AccionAuditoriaSoporteConfirmingDraxton {
+  CONFIRMACION
+  REVOCACION
+}
+enum AccionAuditoriaClasificacionConfirmingDraxton {
+  CLASIFICACION
+  DESCLASIFICACION
 }
 
 // Sólo DOCUMENTO permite alta automática; el resto se conserva para diagnóstico y revisión.

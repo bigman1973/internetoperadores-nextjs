@@ -1,5 +1,7 @@
-import { createHash } from 'crypto'
-import { Prisma, PrismaClient } from '@prisma/client'
+import { assertArchivosFinancierosParaNuevoCargoJustificadoTx, ArchivoFinancieroAssertError } from '@/lib/finanzas/archivo-financiero-assert'
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter'
+import { createHash, randomUUID } from 'node:crypto'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
 import {
@@ -209,6 +211,7 @@ async function sourceEvidence(tx: Tx, tipo: TipoDocumentoConciliable, sourceId: 
         // a copy nor an unresolved identity/duplicate conflict is evidence.
         where: {
           id: sourceId, calidad: 'VALIDA', copiaDeId: null,
+          AND: [facturaEconomicaWhere],
           conflictoIdentidad: false, duplicadoExterno: false,
           NOT: [{ proveedor: { equals: 'ERROR_OCR', mode: 'insensitive' } }, { proveedor: { equals: 'DESCONOCIDO', mode: 'insensitive' } }],
         },
@@ -476,6 +479,7 @@ export async function confirmarB4(actorId: number, input: unknown) {
       fail(409, 'DESHACER_REQUERIDO', 'Un JUSTIFICADO o NO_REQUIERE existente debe deshacerse totalmente antes de reemplazarse.')
     }
     const plan = validation.value
+    try { await assertArchivosFinancierosParaNuevoCargoJustificadoTx(tx, { movimientoId, estado: plan.borrador.estado, documentoConciliableIds: docIds }) } catch (error) { if (error instanceof ArchivoFinancieroAssertError) fail(error.status,error.code,error.message); throw error }
     const resultState = { estado: plan.borrador.estado, motivoNoRequiere: plan.borrador.motivoNoRequiere ?? null, version: previousVersion + 1 }
     const operation = await b4(tx).operacionJustificacionB4.create({
       data: {
@@ -675,7 +679,7 @@ async function inspectDocumentsBatch(docs: any[], client: Tx = prisma as unknown
     if (!group.length) return
     const ids = [...new Set(group.map(doc=>doc[config.pointer]))]
     const [sources, decimals] = await Promise.all([
-      (client as any)[config.model].findMany({where:{id:{in:ids}},select:config.select}),
+      (client as any)[config.model].findMany({where:{id:{in:ids},...(tipo==='FACTURA_RECIBIDA'?{AND:[facturaEconomicaWhere]}:{})},select:config.select}),
       client.$queryRaw<Array<{id:string;decimal:string}>>(Prisma.sql`
         SELECT id::text AS id, ${Prisma.raw('"'+config.column+'"')}::text AS decimal
         FROM ${Prisma.raw('"'+config.table+'"')} WHERE id::text IN (${Prisma.join(ids.map(String))}) LIMIT ${ids.length}

@@ -327,7 +327,15 @@ function invoiceRowsQuery(options: ReadPendientesB5Options, emitted: boolean, ta
     ? Prisma.sql`TRUE`
     : Prisma.sql`f.calidad = 'VALIDA'::"CalidadFacturaRecibida"
         AND f.copia_de_id IS NULL AND f.conflicto_identidad = false AND f.duplicado_externo = false
-        AND lower(f.proveedor) NOT IN ('error_ocr', 'desconocido')`;
+        AND f.naturaleza_documento = 'FACTURA_RECIBIDA'::"NaturalezaDocumentoFinanciero"
+        AND lower(f.proveedor) NOT IN ('error_ocr', 'desconocido')
+        AND NOT (
+          COALESCE(f.carpeta_origen, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR COALESCE(f.archivo_onedrive, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR COALESCE(f.onedrive_ruta_actual, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR EXISTS (SELECT 1 FROM historial_ubicaciones_facturas_recibidas c9h
+            WHERE c9h.factura_id=f.id AND (c9h.anterior::text ILIKE '%3. Confirming Draxton 2026%' OR c9h.actual::text ILIKE '%3. Confirming Draxton 2026%'))
+        )`;
   const partyColumn = emitted ? Prisma.raw("f.cliente") : Prisma.raw("f.proveedor");
   return Prisma.sql`
     WITH allocations AS (
@@ -383,7 +391,15 @@ function invoiceCountQuery(options: ReadPendientesB5Options, emitted: boolean): 
     ? Prisma.sql`TRUE`
     : Prisma.sql`f.calidad = 'VALIDA'::"CalidadFacturaRecibida"
         AND f.copia_de_id IS NULL AND f.conflicto_identidad = false AND f.duplicado_externo = false
-        AND lower(f.proveedor) NOT IN ('error_ocr', 'desconocido')`;
+        AND f.naturaleza_documento = 'FACTURA_RECIBIDA'::"NaturalezaDocumentoFinanciero"
+        AND lower(f.proveedor) NOT IN ('error_ocr', 'desconocido')
+        AND NOT (
+          COALESCE(f.carpeta_origen, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR COALESCE(f.archivo_onedrive, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR COALESCE(f.onedrive_ruta_actual, '') ILIKE '%3. Confirming Draxton 2026%'
+          OR EXISTS (SELECT 1 FROM historial_ubicaciones_facturas_recibidas c9h
+            WHERE c9h.factura_id=f.id AND (c9h.anterior::text ILIKE '%3. Confirming Draxton 2026%' OR c9h.actual::text ILIKE '%3. Confirming Draxton 2026%'))
+        )`;
   return Prisma.sql`
     WITH allocations AS (
       SELECT v.documento_conciliable_id, COALESCE(SUM(v.importe_centimos), 0)::bigint AS asignado_centimos

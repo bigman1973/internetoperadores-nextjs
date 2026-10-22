@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { Prisma, type FacturaRecibida, type RevisionLecturaFacturaRecibida } from '@prisma/client'
+import { facturaNoConfirmingDraxtonWhere } from '@/lib/finanzas/invoice-economic-filter'
 import { prisma } from '@/lib/prisma'
 import { facturaEconomicaWhere, jsonPrivado, requireFacturaAccess, serializeFacturaCalidad } from '@/lib/finanzas/invoice-quality-db'
 
@@ -28,8 +29,13 @@ async function paginaCuarentena(skip: number, take: number) {
       WHERE "resuelta_at" IS NULL
       UNION ALL
       SELECT 'HISTORICA'::text AS origen, "id", "created_at" AS "createdAt"
-      FROM "facturas_recibidas"
+      FROM "facturas_recibidas" fr
       WHERE "calidad" = 'REVISAR_LECTURA'
+        AND fr.naturaleza_documento = 'FACTURA_RECIBIDA'::"NaturalezaDocumentoFinanciero"
+        AND COALESCE(fr.carpeta_origen,'') NOT ILIKE '%3. Confirming Draxton 2026%'
+        AND COALESCE(fr.archivo_onedrive,'') NOT ILIKE '%3. Confirming Draxton 2026%'
+        AND COALESCE(fr.onedrive_ruta_actual,'') NOT ILIKE '%3. Confirming Draxton 2026%'
+        AND NOT EXISTS (SELECT 1 FROM historial_ubicaciones_facturas_recibidas h WHERE h.factura_id=fr.id AND (h.anterior::text ILIKE '%3. Confirming Draxton 2026%' OR h.actual::text ILIKE '%3. Confirming Draxton 2026%'))
     ) cola
     ORDER BY "createdAt" DESC, id DESC
     OFFSET ${skip} LIMIT ${take}
@@ -68,13 +74,13 @@ export async function GET(req: NextRequest) {
     const skip = (current - 1) * limit
     const [totalRevisiones, totalHistoricas, totalCopias, sumaCopias, activas, colaItems, copias] = await Promise.all([
       prisma.revisionLecturaFacturaRecibida.count({ where: { resueltaAt: null } }),
-      prisma.facturaRecibida.count({ where: { calidad: 'REVISAR_LECTURA' } }),
-      prisma.facturaRecibida.count({ where: { calidad: 'COPIA', copiaDeId: { not: null } } }),
-      prisma.facturaRecibida.aggregate({ where: { calidad: 'COPIA' }, _sum: { total: true } }),
+      prisma.facturaRecibida.count({ where: { calidad: 'REVISAR_LECTURA', naturalezaDocumento: 'FACTURA_RECIBIDA', AND: [facturaNoConfirmingDraxtonWhere] } }),
+      prisma.facturaRecibida.count({ where: { calidad: 'COPIA', copiaDeId: { not: null }, naturalezaDocumento: 'FACTURA_RECIBIDA', AND: [facturaNoConfirmingDraxtonWhere] } }),
+      prisma.facturaRecibida.aggregate({ where: { calidad: 'COPIA', naturalezaDocumento: 'FACTURA_RECIBIDA', AND: [facturaNoConfirmingDraxtonWhere] }, _sum: { total: true } }),
       prisma.facturaRecibida.count({ where: facturaEconomicaWhere }),
       tipo === 'copias' ? Promise.resolve([]) : paginaCuarentena(skip, limit),
       tipo === 'cuarentena' ? Promise.resolve([]) : prisma.facturaRecibida.findMany({
-        where: { calidad: 'COPIA', copiaDeId: { not: null } }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take: limit,
+        where: { calidad: 'COPIA', copiaDeId: { not: null }, naturalezaDocumento: 'FACTURA_RECIBIDA', AND: [facturaNoConfirmingDraxtonWhere] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip, take: limit,
         include: { copiaDe: { select: { id: true, proveedor: true, cif: true, numFactura: true, fecha: true, total: true } } },
       }),
     ])

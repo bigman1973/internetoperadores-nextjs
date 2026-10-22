@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import PrivateMovementFiles from '@/components/finanzas/reconciliation-v2/PrivateMovementFiles';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { FunnelIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import { CATEGORIAS_MOVIMIENTO, TIPOS_MOVIMIENTO } from '@/lib/finanzas/movement-catalog';
 import BankImportWarnings, { type ContinuidadSaldo } from '@/components/finanzas/BankImportWarnings';
@@ -61,6 +62,7 @@ export default function MovimientosPage() {
   const [error, setError] = useState('');
   const [filtros, setFiltros] = useState({ cuentaId: '', categoria: '', conciliado: '', desde: '', hasta: '' });
   const [cuentas, setCuentas] = useState<CuentaResumen[]>([]);
+  const [archivosAbiertos,setArchivosAbiertos]=useState<string|null>(null);
   const [editando, setEditando] = useState<string | null>(null);
 
   const selectedAccount = useMemo(
@@ -208,10 +210,10 @@ export default function MovimientosPage() {
                 const categoria = legacyLabel(movimiento.categoria, movimiento.catalogo?.categoriaOriginal ?? movimiento.categoriaOriginal, movimiento.catalogo?.categoriaEsLegacy === undefined ? movimiento.categoriaNormalizada : !movimiento.catalogo.categoriaEsLegacy);
                 const tipo = legacyLabel(movimiento.tipoPago, movimiento.catalogo?.tipoPagoOriginal ?? movimiento.tipoPagoOriginal, movimiento.catalogo?.tipoPagoEsLegacy === undefined ? movimiento.tipoPagoNormalizado : !movimiento.catalogo.tipoPagoEsLegacy);
                 return (
-                  <tr key={movimiento.id} className="align-top hover:bg-slate-50">
+                  <Fragment key={movimiento.id}><tr className="align-top hover:bg-slate-50">
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-800">{formatFecha(movimiento.fechaOperacion)}</td>
                     <td className="px-4 py-3"><span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-950">{movimiento.cuenta?.banco || 'Cuenta no disponible'}</span></td>
-                    <td className="max-w-sm px-4 py-3 text-slate-950" title={movimiento.concepto}>{movimiento.concepto}</td>
+                    <td className="max-w-sm px-4 py-3 text-slate-950" title={movimiento.concepto}>{movimiento.concepto}<button type="button" aria-expanded={archivosAbiertos===movimiento.id} onClick={()=>setArchivosAbiertos(archivosAbiertos===movimiento.id?null:movimiento.id)} className="mt-2 block text-xs font-semibold text-orange-800 underline">Archivos y justificantes</button></td>
                     <td className={`whitespace-nowrap px-4 py-3 text-right font-bold ${movimiento.importe >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>{formatEUR(movimiento.importe)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-slate-900">{movimiento.saldo === null || movimiento.saldo === undefined ? 'Sin saldo' : formatEUR(movimiento.saldo)}</td>
                     <td className="px-4 py-3">
@@ -229,7 +231,7 @@ export default function MovimientosPage() {
                       )}
                     </td>
                     <td className="px-4 py-3">{tipo.isUnknown ? <span data-testid="b3-tipo-historico" className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-950">Histórico sin normalizar: {tipo.raw || 'Sin tipo'}</span> : <span className="text-xs text-slate-900">{movimiento.tipoPago || 'Sin tipo'}</span>}</td>
-                  </tr>
+                  </tr>{archivosAbiertos===movimiento.id && <tr><td colSpan={7} className="p-3"><PrivateMovementFiles movimientoId={movimiento.id} compact /><a href={`/admin/finanzas/conciliacion-v2?movimientoId=${encodeURIComponent(movimiento.id)}`} className="mt-2 inline-block text-sm font-semibold text-orange-800 underline">Abrir conciliación de este movimiento</a></td></tr>}</Fragment>
                 );
               })}
             </tbody>
