@@ -9,6 +9,7 @@ import { RoleProvider } from '../../components/admin/RoleContext'
 import ProtectedRoute from '../../components/admin/ProtectedRoute'
 import prisma from '../../lib/prisma'
 import { canAccessAdminPanel } from '../../lib/admin-panel-access'
+import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
 
 export default async function AdminLayout({
   children,
@@ -37,6 +38,7 @@ export default async function AdminLayout({
               <AdminHeader />
               <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">
                 <ProtectedRoute>
+                  {process.env.FINANCE_STAGING_SANDBOX === '1' && <PendingTicketsNotice />}
                   {children}
                 </ProtectedRoute>
               </main>

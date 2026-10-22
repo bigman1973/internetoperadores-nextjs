@@ -10,6 +10,11 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  adjuntosPendientesB5 AdjuntoPendienteB5[] @relation("AdjuntoPendienteB5Actor")
+  tarjetasFinancierasB5 TarjetaFinancieraB5[] @relation("TitularTarjetaB5")
+  tarjetasRegistradasB5 TarjetaFinancieraB5[] @relation("RegistradorTarjetaB5")
+  gestionesPendientesAsignadasB5 GestionPendienteMovimientoB5[] @relation("GestionPendienteB5Responsable")
+  auditoriasGestionPendienteB5 AuditoriaGestionPendienteB5[] @relation("AuditoriaGestionPendienteB5Actor")
   id               Int               @id @default(autoincrement())
   email            String            @unique
   passwordHash     String            @map("password_hash")
@@ -1114,6 +1119,9 @@ model CuentaBancaria {
 }
 
 model MovimientoBancario {
+  adjuntosPendientesB5 AdjuntoPendienteB5[] @relation("AdjuntoPendienteB5Movimiento")
+  auditoriasGestionPendienteB5 AuditoriaGestionPendienteB5[]
+  gestionPendienteB5 GestionPendienteMovimientoB5? @relation("MovimientoB5GestionPendiente")
   id              String   @id @default(uuid())
   cuentaId        String   @map("cuenta_id")
   cuenta          CuentaBancaria @relation(fields: [cuentaId], references: [id])
@@ -1372,6 +1380,7 @@ model ConfirmingLinea {
 }
 
 model Gasto {
+  adjuntoPendienteB5 AdjuntoPendienteB5? @relation("AdjuntoPendienteB5Gasto")
   id              String   @id @default(uuid())
   concepto        String
   importe         Float
@@ -3984,6 +3993,7 @@ model EstadoJustificacionMovimientoB4 {
 // Canonical wrapper. The SQL guard file enforces the type-to-target matrix, exactly
 // one non-null target, partial uniqueness, signed INT-cent bounds, and non-zero known targets.
 model DocumentoConciliable {
+  adjuntoPendienteB5 AdjuntoPendienteB5? @relation("AdjuntoPendienteB5Documento")
   id                       String                    @id @default(uuid()) @db.Uuid
   tipo                     TipoDocumentoConciliable
   importeObjetivoCentimos  Int?                      @map("importe_objetivo_centimos")
@@ -4138,4 +4148,117 @@ model EventoJustificacionB4 {
   @@index([movimientoId, createdAt])
   @@index([operacionId, createdAt])
   @@map("eventos_justificacion_b4")
+}
+
+enum EstadoGestionPendienteB5 {
+  PENDIENTE
+  PEDIDO
+  RECIBIDO
+  // Sólo estados efectivos derivados de EstadoJustificacionMovimiento B4.
+  // No se aceptan como estado manual en PATCH ni se persisten por B5.
+  VINCULADO
+  NO_REQUIERE
+}
+
+enum AccionAuditoriaGestionPendienteB5 {
+  CREACION
+  ACTUALIZACION
+}
+
+// Una única gestión humana por movimiento. Su ausencia equivale a la gestión
+// virtual { estado: PENDIENTE, responsable: null, nota: null, version: 1 }.
+// El B4 sigue siendo la única autoridad del vínculo y de NO_REQUIERE.
+model GestionPendienteMovimientoB5 {
+  id                  String                         @id @default(uuid()) @db.Uuid
+  movimientoId        String                         @unique @map("movimiento_id")
+  responsableAdminId  Int?                           @map("responsable_admin_id")
+  nota                String?                        @db.Text
+  estado              EstadoGestionPendienteB5       @default(PENDIENTE)
+  version             Int                            @default(1)
+  createdAt           DateTime                       @default(now()) @map("created_at")
+  updatedAt           DateTime                       @default(now()) @updatedAt @map("updated_at")
+
+  movimiento          MovimientoBancario             @relation("MovimientoB5GestionPendiente", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  responsable         UsuarioAdmin?                  @relation("GestionPendienteB5Responsable", fields: [responsableAdminId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  auditorias          AuditoriaGestionPendienteB5[]
+
+  @@index([responsableAdminId, updatedAt])
+  @@index([estado, updatedAt])
+  @@map("gestiones_pendientes_movimiento_b5")
+}
+
+// Auditoría append-only de cada cambio B5. snapshotAnterior no es nulo para
+// actualizar; en la primera escritura conserva el estado virtual versionado.
+model AuditoriaGestionPendienteB5 {
+  id                 String                         @id @default(uuid()) @db.Uuid
+  gestionId          String                         @db.Uuid @map("gestion_id")
+  movimientoId       String                         @map("movimiento_id")
+  actorId            Int                            @map("actor_id")
+  accion             AccionAuditoriaGestionPendienteB5
+  versionAnterior    Int                            @map("version_anterior")
+  versionResultante  Int                            @map("version_resultante")
+  snapshotAnterior   Json                           @map("snapshot_anterior")
+  snapshotResultado  Json                           @map("snapshot_resultado")
+  createdAt          DateTime                       @default(now()) @map("created_at")
+
+  gestion            GestionPendienteMovimientoB5  @relation(fields: [gestionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento         MovimientoBancario             @relation(fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor              UsuarioAdmin                   @relation("AuditoriaGestionPendienteB5Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([movimientoId, createdAt])
+  @@index([gestionId, createdAt])
+  @@map("auditorias_gestiones_pendientes_b5")
+}
+
+model TarjetaFinancieraB5 {
+  last4 String @id @db.VarChar(4)
+  titularAdminId Int? @map("titular_admin_id")
+  registradaPorId Int @map("registrada_por_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  titular UsuarioAdmin? @relation("TitularTarjetaB5",fields:[titularAdminId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  registradaPor UsuarioAdmin @relation("RegistradorTarjetaB5",fields:[registradaPorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@map("tarjetas_financieras_b5")
+}
+
+enum EstadoAdjuntoPendienteB5 {
+  // Reserva antes del único PUT externo. No equivale a un gasto/documento B4.
+  RESERVADO
+  // Sólo tras la transacción que creó Gasto + wrapper B4 + gestión/auditoría.
+  UPLOAD_COMPLETO
+}
+
+model AdjuntoPendienteB5 {
+  nombreTercero String? @map("nombre_tercero")
+  concepto String?
+  mimeType String? @map("mime_type")
+  id                       String                    @id @default(uuid()) @db.Uuid
+  actorId                  Int                       @map("actor_id")
+  idempotencyKey           String                    @map("idempotency_key") @db.Uuid
+  payloadHash              String                    @map("payload_hash") @db.Char(64)
+  movimientoId             String                    @map("movimiento_id")
+  // Closed by migration CHECK to TICKET|SOPORTE. SOPORTE is the safe default:
+  // it is retained evidence only, never a synthetic invoice or expense.
+  tipoDocumento            String                    @default("SOPORTE") @map("tipo_documento") @db.VarChar(16)
+  fechaDocumento           DateTime?                 @db.Date @map("fecha_documento")
+  importeDocumentoCentimos Int?                      @map("importe_documento_centimos")
+  estado                   EstadoAdjuntoPendienteB5  @default(RESERVADO)
+  fileSha256               String                    @map("file_sha256") @db.Char(64)
+  storageName              String                    @map("storage_name")
+  gastoId                  String?                   @unique @map("gasto_id")
+  documentoConciliableId   String?                   @unique @db.Uuid @map("documento_conciliable_id")
+  driveId                  String?                   @map("drive_id")
+  oneDriveItemId           String?                   @unique @map("onedrive_item_id")
+  authenticatedWebUrl      String?                   @map("authenticated_web_url") @db.Text
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+
+  actor                    UsuarioAdmin              @relation("AdjuntoPendienteB5Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento               MovimientoBancario         @relation("AdjuntoPendienteB5Movimiento", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gasto                    Gasto?                    @relation("AdjuntoPendienteB5Gasto", fields: [gastoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  documentoConciliable     DocumentoConciliable?     @relation("AdjuntoPendienteB5Documento", fields: [documentoConciliableId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([movimientoId, createdAt])
+  @@index([estado, updatedAt])
+  @@map("adjuntos_pendientes_b5")
 }

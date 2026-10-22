@@ -33,6 +33,12 @@ export async function requireB4FinanceAccess(
     return { ok: false, response: privateJson({ error: 'No autorizado' }, 401) }
   }
 
+  return requireB4ActorAccess(userId, required)
+}
+
+/** Sólo para servicios server-side llamados tras autenticar la solicitud. */
+export async function requireB4ActorAccess(userId:number,required:'lectura'|'escritura'):Promise<{ok:true;actor:B4Actor}|{ok:false;response:NextResponse}> {
+  if(!Number.isInteger(userId)||userId<=0)return {ok:false,response:privateJson({error:'No autorizado'},401)}
   const admin = await prisma.usuarioAdmin.findUnique({
     where: { id: userId },
     select: { id: true, activo: true, rol: true, roles: true },

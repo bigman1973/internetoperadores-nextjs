@@ -119,6 +119,7 @@ export default function ReconciliationWorkspace() {
   const inFlight = useRef(false);
   const selectionSequence = useRef(0);
   const dialogConfirmButton = useRef<HTMLButtonElement>(null);
+  const initialMovementOpened = useRef(false);
 
   const buildReadUrl = useCallback((options?: {
     onlyDocuments?: boolean;
@@ -205,12 +206,32 @@ export default function ReconciliationWorkspace() {
       const detail = asResponse(json).movimientos.find((item) => item.id === movement.id);
       if (sequence !== selectionSequence.current) return;
       if (detail) { setSelected(detail); resetDraft(detail); }
+      else {setSelected(null);resetDraft(null);throw new Error('El movimiento no está disponible en la lectura autorizada.');}
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo cargar el detalle del movimiento.' });
     } finally {
       if (sequence === selectionSequence.current) setSelectedLoading(false);
     }
   }, [buildReadUrl, resetDraft]);
+
+  // B5 abre por ID bancario exacto; nunca se selecciona una factura ni se aplica una propuesta.
+  useEffect(() => {
+    if (!data || initialMovementOpened.current) return
+    const id = new URLSearchParams(window.location.search).get('movimientoId')
+    initialMovementOpened.current = true
+    if (!id || id.length > 160) return
+    const controller = new AbortController()
+    const sequence = ++selectionSequence.current
+    setSelectedLoading(true)
+    void fetch(buildReadUrl({movementId:id}),{cache:'no-store',signal:controller.signal}).then(async response=>{
+      const json=await response.json().catch(()=>null)
+      if(!response.ok)throw new Error(backendMessage(json,'No se pudo leer el movimiento solicitado.'))
+      const detail=asResponse(json).movimientos.find(item=>item.id===id)
+      if(!detail)throw new Error('El movimiento solicitado no está disponible en la lectura autorizada.')
+      if(sequence===selectionSequence.current){setSelected(detail);resetDraft(detail)}
+    }).catch(error=>{if(!controller.signal.aborted)setNotice({kind:'error',text:error instanceof Error?error.message:'No se pudo abrir el movimiento.'})}).finally(()=>{if(sequence===selectionSequence.current)setSelectedLoading(false)})
+    return()=>controller.abort()
+  },[data,buildReadUrl,resetDraft])
 
   const effectiveDocuments = documentSearch ? documentResults : (data?.documentos || documentResults);
   const selectedDocument = useMemo(
