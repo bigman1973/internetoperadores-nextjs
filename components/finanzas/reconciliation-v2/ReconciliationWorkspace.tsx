@@ -146,7 +146,7 @@ export default function ReconciliationWorkspace() {
       if (!response.ok) throw new Error(backendMessage(json, 'No se pudo leer la conciliación B4.'));
       const next = asResponse(json);
       setData(next);
-      setNotice(null);
+      if (!options?.silent) setNotice(null);
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo leer la conciliación B4.' });
     } finally {
@@ -468,6 +468,7 @@ export default function ReconciliationWorkspace() {
       {selected && <MovementDrawer
         movement={selected}
         selectedLoading={selectedLoading}
+        errorText={notice?.kind === 'error' ? notice.text : null}
         canWrite={canWrite}
         documents={effectiveDocuments}
         documentSearch={documentSearch}
@@ -522,6 +523,7 @@ export default function ReconciliationWorkspace() {
 function MovementDrawer(props: {
   movement: MovimientoB4;
   selectedLoading: boolean;
+  errorText: string | null;
   canWrite: boolean;
   documents: DocumentoB4[];
   documentSearch: string;
@@ -576,6 +578,7 @@ function MovementDrawer(props: {
       </header>
 
       <div className="space-y-5 p-4 sm:p-6">
+        {props.errorText && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-950">{props.errorText}</p>}
         {selectedLoading && <p role="status" className="text-sm text-slate-500">Actualizando detalle…</p>}
         {changingAppliedOperation && <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm text-orange-950"><p className="font-bold">Operación aplicada con auditoría visible</p><p className="mt-1">Para cambiar este movimiento debe deshacer primero la operación completa. La reversión conserva las líneas y el historial; no realiza un borrado.</p><button type="button" data-testid="b4-undo" onClick={onUndo} disabled={!canWrite || undoing} className="mt-3 inline-flex items-center rounded-lg border border-orange-400 bg-white px-3 py-2 text-sm font-bold text-orange-900 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60">{undoing ? 'Deshaciendo…' : 'Deshacer operación completa'}</button></div>}
         {bankCents === null && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-900"><strong>Importe bancario desconocido.</strong> No se pueden crear líneas ni confirmar, y no se sustituye por cero.</div>}
