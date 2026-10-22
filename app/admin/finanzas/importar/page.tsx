@@ -474,7 +474,7 @@ export default function ImportarPage() {
             </div>
             <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm ${resultadoProblematico ? 'text-red-950' : 'text-green-950'}`}>
               <div>Movimientos importados: <strong>{resultado.insertados ?? resultado.importados ?? 0}</strong></div>
-              <div>Duplicados omitidos: <strong>{(resultado.duplicados ?? 0) + (resultado.duplicadosPorContenido ?? 0)}</strong></div>
+              <div>Duplicados omitidos: <strong>{resultado.duplicadosHash ?? ((resultado.duplicados ?? 0) + (resultado.duplicadosPorContenido ?? 0))}</strong></div>
               {resultado.reglasAplicadas !== undefined && (
                 <div>Reglas aplicadas: <strong>{resultado.reglasAplicadas}</strong></div>
               )}

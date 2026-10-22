@@ -162,17 +162,17 @@ export default function MovimientosPage() {
       <section aria-label="Filtros de movimientos" className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
         <FunnelIcon className="h-5 w-5 text-slate-700" aria-hidden="true" />
         <label className="sr-only" htmlFor="cuenta">Cuenta</label>
-        <select id="cuenta" data-testid="b3-filter-cuenta" value={filtros.cuentaId} onChange={event => { setFiltros({ ...filtros, cuentaId: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="cuenta" data-testid="b3-filter-cuenta" value={filtros.cuentaId} onChange={event => { setFiltros({ ...filtros, cuentaId: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todas las cuentas</option>
           {cuentas.map(cuenta => <option key={cuenta.id || cuenta.banco} value={cuenta.id || ''}>{cuenta.banco}{cuenta.alias ? ` (${cuenta.alias})` : ''}</option>)}
         </select>
         <label className="sr-only" htmlFor="categoria">Categoría</label>
-        <select id="categoria" data-testid="b3-filter-categoria" value={filtros.categoria} onChange={event => { setFiltros({ ...filtros, categoria: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="categoria" data-testid="b3-filter-categoria" value={filtros.categoria} onChange={event => { setFiltros({ ...filtros, categoria: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todas las categorías</option>
           {CATEGORIAS.map(categoria => <option key={categoria} value={categoria}>{categoria}</option>)}
         </select>
         <label className="sr-only" htmlFor="conciliado">Estado de conciliación</label>
-        <select id="conciliado" value={filtros.conciliado} onChange={event => { setFiltros({ ...filtros, conciliado: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="conciliado" value={filtros.conciliado} onChange={event => { setFiltros({ ...filtros, conciliado: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todos los estados</option>
           <option value="true">Conciliados existentes</option>
           <option value="false">Pendientes existentes</option>
