@@ -89,7 +89,7 @@ function payrollFile(
   origen: 'NOMINA_DOCUMENTO' | 'NOMINA_ARCHIVO_URL_RELATIVA', entidadId: string, vinculo: VinculoArchivoMovimiento,
   itemId: string, filename: unknown, documentoId: string | null,
 ): ArchivoDisponibleInterno | null {
-  if (!bibliotecaFinancieraConfigurada() || !isUuid(entidadId) || !ID.test(itemId)) return null;
+  if (!bibliotecaFinancieraConfigurada() || !ID.test(entidadId) || !ID.test(itemId)) return null;
   return {
     archivoId: fileId(origen, entidadId), origen, vinculo, estado: 'DISPONIBLE', nombre: name(filename, 'nomina.pdf'), mimeType: 'application/pdf',
     tipoDocumentoB4: 'NOMINA', documentoConciliableId: documentoId, noMonetario: false,
@@ -142,14 +142,14 @@ async function confirmadosB4(movimientoId: string): Promise<Array<ArchivoDisponi
     if (doc.tipo === 'FACTURA_RECIBIDA') {
       const source = doc.facturaRecibida;
       const location=archivoRecibidaControlado(source);
-      if (source && isUuid(source.id) && location) {
+      if (source && ID.test(String(source.id)) && location) {
         files.push({ archivoId: fileId('FACTURA_RECIBIDA_ONEDRIVE', source.id), origen: 'FACTURA_RECIBIDA_ONEDRIVE', vinculo: 'CONFIRMADO_B4', estado: 'DISPONIBLE', nombre: name(source.archivoOneDrive?.split(/[\\/]/).pop(), 'factura.pdf'), mimeType: 'application/pdf', tipoDocumentoB4: doc.tipo, documentoConciliableId: doc.id, noMonetario: false, locator: { tipo: 'DRIVE_EXPLICITO', driveId: location.driveId, itemId: location.itemId } });
       } else files.push(missing(doc.tipo, doc.id, 'La factura recibida confirmada no tiene drive/item interno verificable.'));
       continue;
     }
     if (doc.tipo === 'TICKET') {
       const source = doc.gasto;
-      if (source && isUuid(source.id) && ID.test(String(source.oneDriveItemId ?? ''))) {
+      if (source && ID.test(String(source.id)) && ID.test(String(source.oneDriveItemId ?? ''))) {
         files.push({ archivoId: fileId('GASTO_TICKET_ONEDRIVE', source.id), origen: 'GASTO_TICKET_ONEDRIVE', vinculo: 'CONFIRMADO_B4', estado: 'DISPONIBLE', nombre: name(source.archivoNombre, 'ticket'), mimeType: 'application/octet-stream', tipoDocumentoB4: doc.tipo, documentoConciliableId: doc.id, noMonetario: false, locator: { tipo: 'DRIVE_CONFIGURADO', itemId: source.oneDriveItemId } });
       } else files.push(missing(doc.tipo, doc.id, 'El gasto/ticket confirmado no tiene item interno descargable.'));
       continue;
@@ -176,7 +176,7 @@ async function soportesB5(movimientoId: string): Promise<Array<ArchivoDisponible
   });
   if (rows.length === MAX) fail(409, 'LISTA_B5_TRUNCADA', 'Demasiados soportes B5 para una lista documental completa.');
   return rows.map((row: any) => {
-    if (!isUuid(row.id) || !ID.test(String(row.driveId ?? '')) || !ID.test(String(row.oneDriveItemId ?? ''))) {
+    if (!ID.test(String(row.id)) || !ID.test(String(row.driveId ?? '')) || !ID.test(String(row.oneDriveItemId ?? ''))) {
       return missing(null, null, 'El soporte B5 completo no conserva drive/item interno verificable.', 'ADJUNTO_B5', 'SOPORTE_B5', row.tipoDocumento === 'SOPORTE');
     }
     return {

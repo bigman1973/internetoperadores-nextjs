@@ -41,3 +41,7 @@ La migración C9 es aditiva y se validó con rollback y snapshots de conservaci�
 Se requiere el nuevo OK explícito de Víctor sobre el commit de estas correcciones. Después: copia completa consistente de la BD de producción, restauración real en una BD temporal aislada y comparación; revisión y prueba del SQL aditivo sobre la copia; migración de producción conservando datos; despliegue del SHA aprobado; prueba sin escrituras de login, Pendientes, Conciliación, Facturación, Facturas recibidas y Movimientos. No se ejecutan inicializadores de vínculos ni se trasladan datos de staging a producción.
 
 Si falla una puerta previa, no se despliega. Si falla el smoke test, deshabilitar las nuevas mutaciones y volver al despliegue/commit previamente congelado, dejando las tablas y columnas aditivas. Restaurar la BD completa no es automático: requiere revisar operaciones posteriores, una nueva copia del estado actual y autorización explícita, ya que puede perder datos posteriores al snapshot.
+
+## Regresión final de archivo de nómina
+
+El test PostgreSQL real comprueba lectura source-only, rechazo de una justificación sin archivo sin DML, confirmación de neto, descarga privada por pertenencia, reversión completa y grupo explícito de dos nóminas. Todos los fixtures terminan en rollback y se contrastan los hashes originales. El resolver de nóminas admite IDs Prisma CUID y UUID persistidos: no presupone UUID para una nómina cuya PK es CUID.
