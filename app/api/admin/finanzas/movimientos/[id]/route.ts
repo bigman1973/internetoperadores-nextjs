@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { checkAdminAreaWrite } from '@/lib/api-admin-area-read'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import {
   presentarCategoriaHistorica,
   presentarTipoMovimientoHistorico,
@@ -117,7 +117,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
   }
 
   try {
-    await assertFinanceStagingIsolated()
+    await assertFinanceRuntimeReady()
     const movimiento = await prisma.movimientoBancario.update({
       where: { id },
       data,

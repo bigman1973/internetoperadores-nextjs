@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readMonthlyInvoicing } from '@/lib/finanzas/monthly-invoicing-db'
 
 export const dynamic = 'force-dynamic'
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const userId = Number(session!.user.id); const actor = await prisma.usuarioAdmin.findUnique({ where: { id: userId }, select: { activo: true } })
     if (!actor?.activo) return NextResponse.json({ error: 'Usuario no activo.' }, { status: 403, headers: PRIVATE })
     const mes = strictMonth(request.nextUrl.searchParams)
-    await assertFinanceStagingIsolated()
+    await assertFinanceRuntimeReady()
     const data = await readMonthlyInvoicing(prisma, { mes })
     return NextResponse.json({ recurso: 'resumenFacturacionIspHistorico', query: { mes }, ...data }, { headers: PRIVATE })
   } catch (error) {

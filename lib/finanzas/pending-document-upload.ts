@@ -7,7 +7,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {requireB4ActorAccess} from "@/lib/finanzas/reconciliation-auth";
-import { assertFinanceStagingIsolated } from "@/lib/finanzas/staging-safety";
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { findSharePointSite, getAccessToken, getSiteDrive } from "@/lib/finanzas/microsoft-graph";
 import {
   type PendingDocumentInput,
@@ -139,7 +139,7 @@ async function resolveExclusiveStagingFolder(driveId: string, token: string): Pr
 export async function uploadPendingDocumentToStaging(input: PendingDocumentInput, payloadHash: string): Promise<StoredGraphEvidence> {
   // This exported provider boundary can be called independently of the service;
   // it must not rely on the caller having asserted staging isolation already.
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
   assertProviderExecutionAllowed();
   const storageName = storageNameForPayload(payloadHash, input.extension);
   // B1 helper path only: site then drive selection stays centralized/pinned by
@@ -333,18 +333,18 @@ export async function createPendingDocument(actorId: number, input: PendingDocum
   const payloadHash = requestPayloadHash(actorId, input);
   // Before every provider action and every service DML. The assertion itself does
   // a SELECT only; failed isolation is a closed 503, not a partial upload.
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
   const reservation = await reserveUpload(actorId, input, payloadHash);
   if (reservation.kind === "complete") return completedResponse(reservation.row, true);
   // The reservation committed DML. Re-attest the isolated copy immediately
   // before the only external/provider action, rather than assuming it remains
   // true across a transaction boundary.
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
   const graph = await store(input, payloadHash);
   try {
     // The provider boundary has elapsed: assert isolation again immediately
     // before the final Gasto/wrapper/gestión/auditoría DML transaction.
-    await assertFinanceStagingIsolated();
+    await assertFinanceRuntimeReady();
     const accessAfter=await requireB4ActorAccess(actorId,'escritura')
     if(accessAfter.ok===false)fail(accessAfter.response.status,'ACCESS_REVOKED','El permiso cambió durante la subida; el archivo se conserva para revisión.')
     return await finalizeUpload(actorId, input, payloadHash, graph);

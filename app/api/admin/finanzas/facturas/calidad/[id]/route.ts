@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { esFechaDocumentoIso, esImporteCentimosFinito, fechaDocumentoUtc, claveCanonicaFactura, totalCuadraEnCentimos } from '@/lib/finanzas/invoice-quality'
 import { UUID_V4_RE, auditarCambioB2, buscarIdentidadBloqueada, huellaSolicitud, jsonPrivado, planDeduplicacion, readBoundedJsonB2, requireFacturaAccess, serializeFacturaCalidad } from '@/lib/finanzas/invoice-quality-db'
 
@@ -49,7 +49,7 @@ export async function PATCH(req: NextRequest, context: { params: Promise<{ id: s
     if (!correction) return jsonPrivado({ error: 'Corrección inválida; se requieren campos completos y un total exacto en céntimos' }, 400)
     const canonKey = claveCanonicaFactura(correction.cif, correction.numFactura)
     if (!canonKey) return jsonPrivado({ error: 'IDENTIDAD_INCOMPLETA' }, 400)
-    await assertFinanceStagingIsolated()
+    await assertFinanceRuntimeReady()
     const fingerprint = huellaSolicitud({ revisionId: id, correction })
     const response = await prisma.$transaction(async tx => {
       const prior = await tx.auditoriaCalidadFactura.findFirst({ where: { actorId: access.userId, solicitudId: correction.solicitudId }, orderBy: { createdAt: 'desc' } })

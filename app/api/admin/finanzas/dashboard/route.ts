@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
-import {assertFinanceStagingIsolated} from '@/lib/finanzas/staging-safety';
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import {readBankInvoicingPopulation} from '@/lib/finanzas/bank-invoicing-db';
 import {summarizeBankInvoicing} from '@/lib/finanzas/bank-invoicing-core';
 import {readContadoresPendientesB5} from '@/lib/finanzas/pending-db';
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       : Array.from({ length: 12 }, (_, i) => i + 1);
 
     // Lecturas independientes; los cálculos y criterios contables permanecen idénticos.
-    await assertFinanceStagingIsolated();
+    await assertFinanceRuntimeReady();
     const [cuentas, facturasRecibidas, facturasISP, movimientos, facturasPendientes, nominasPeriodo, bankPopulation] = await prisma.$transaction(async tx=>Promise.all([
       tx.cuentaBancaria.findMany({
         where: { activa: true }, orderBy: { banco: 'asc' },

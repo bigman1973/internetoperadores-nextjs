@@ -3,7 +3,7 @@ import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter'
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import {
   catalogoB4,
   convertirImporteBancarioACentimos,
@@ -400,7 +400,7 @@ export async function createDocumentoB4(actorId: number, input: unknown) {
   const tipos = catalogoB4().tiposDocumento as readonly string[]
   if (typeof raw.tipoDocumento !== 'string' || !tipos.includes(raw.tipoDocumento)) fail(400, 'VALIDATION_ERROR', 'tipoDocumento B4 inválido.')
   const sourceId = stringId(raw.sourceId, 'sourceId')
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     const tipo = raw.tipoDocumento as TipoDocumentoConciliable
@@ -433,7 +433,7 @@ export async function confirmarB4(actorId: number, input: unknown) {
   const hash = payloadHash(solicitudB4)
   const draftProbe = raw.borrador as any
   const movimientoId = stringId(draftProbe?.movimientoId, 'borrador.movimientoId')
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     await advisoryAndMovementLock(tx, movimientoId)
@@ -543,7 +543,7 @@ export async function deshacerB4(actorId: number, input: unknown) {
   const operationId = stringId(raw.operacionId, 'operacionId', true)
   if (!Number.isInteger(raw.version) || (raw.version as number) < 0 || !Array.isArray(raw.lineas)) fail(400, 'VALIDATION_ERROR', 'version o lineas inválidas.')
   const hash = payloadHash(raw)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     const original = await b4(tx).operacionJustificacionB4.findUnique({ where: { id: operationId } })

@@ -9,7 +9,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {cardFromBankText,FINANCE_CARD_HOLDERS} from "@/lib/finanzas/card-holders";
-import { assertFinanceStagingIsolated } from "@/lib/finanzas/staging-safety";
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readBankInvoicingPopulation, type B7ReadDatabase } from "@/lib/finanzas/bank-invoicing-db";
 import type { InvoiceSettlement } from "@/lib/finanzas/bank-invoicing-core";
 
@@ -522,7 +522,7 @@ export async function readPendientesB5(options: ReadPendientesB5Options) {
   }
   // También en GET: no se lee ni se expone una proyección financiera antes de
   // acreditar la copia io_staging_finanzas; assert realiza únicamente SELECT.
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
 
   if (options.vista === "FACTURAS_EMITIDAS_SIN_COBRO") {
     const emitted = await readFacturasEmitidasPendientesB5(options, limit, offset);
@@ -569,7 +569,7 @@ export async function readPendientesB5(options: ReadPendientesB5Options) {
 
 /** Counters by operation month/account: exact known cents only, explicit B4 transfer exclusion only. */
 export async function readContadoresPendientesB5(options: Omit<ReadPendientesB5Options, "vista" | "limit" | "offset">) {
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
   const where = movementFilter({ ...options, vista: "CARGOS_SIN_DOCUMENTO" });
   const rows = await asDb().$queryRaw<SqlRow[]>(Prisma.sql`
     WITH x AS (
@@ -646,7 +646,7 @@ export async function patchGestionPendienteB5(actorId: number, raw: unknown) {
   const parsed = validarPatchGestionB5(raw);
   if (parsed.ok === false) fail(400, parsed.code, parsed.message);
   const input = parsed.value;
-  await assertFinanceStagingIsolated();
+  await assertFinanceRuntimeReady();
   try {
     return await asDb().$transaction(async (base) => {
       const tx = asTx(base);
@@ -683,7 +683,7 @@ export async function patchGestionPendienteB5(actorId: number, raw: unknown) {
 
 /** Configuración privada: IDs activos reales, sin asignación por nombre en GET. */
 export async function readConfiguracionPendientesB5() {
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   const [cuentas,responsables,registradas] = await Promise.all([
     prisma.cuentaBancaria.findMany({where:{activa:true},select:{id:true,banco:true,alias:true,fechaCorteExtracto:true},orderBy:{banco:'asc'},take:100}),
     prisma.usuarioAdmin.findMany({where:{activo:true},select:{id:true,nombre:true},orderBy:{nombre:'asc'},take:200}),
@@ -693,7 +693,7 @@ export async function readConfiguracionPendientesB5() {
 }
 
 export async function readAvisoTarjetasB5(actorId:number) {
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   const cards = await asDb().tarjetaFinancieraB5.findMany({where:{titularAdminId:actorId},select:{last4:true},take:4})
   const counts = await Promise.all(cards.map(async (card:any)=>{
     const result=await readPendientesB5({vista:'CARGOS_SIN_DOCUMENTO',tarjeta:card.last4,limit:1})

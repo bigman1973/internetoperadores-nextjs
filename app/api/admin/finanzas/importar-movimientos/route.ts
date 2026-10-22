@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 import { prisma } from '@/lib/prisma'
 import { authOptions } from '@/lib/auth'
 import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { validateVividStatement } from '@/lib/finanzas/vivid-statement-validation'
 import {
   parseSantanderXLSX,
@@ -309,7 +309,7 @@ export async function POST(req: NextRequest) {
 
   try {
     // La verificación fail-closed ocurre antes de cualquier create/update de B3.
-    await assertFinanceStagingIsolated()
+    await assertFinanceRuntimeReady()
 
     const buffer = Buffer.from(await formulario.file.arrayBuffer())
     if (buffer.byteLength > MAX_ARCHIVO_BYTES) return jsonPrivado({ error: 'El archivo supera el límite permitido' }, 413)

@@ -10,7 +10,7 @@ import {verificarPermisoServer} from '@/lib/permisos'
 import {B4_CONCILIACION_AREA} from '@/lib/finanzas/reconciliation-auth'
 import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { convertirImporteUiACentimos } from '@/lib/finanzas/reconciliation-core'
 import {
   B6_AUDIT_SCHEMA_VERSION,
@@ -289,7 +289,7 @@ async function insertAudit(
 export async function confirmarAsociacionFacturasRemesaB6(actorId: number, raw: unknown) {
   const input = parseAsociarFacturasInput(raw)
   const stableRequestHash = requestHash(input)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     await requireTransactionActor(tx,actorId)
@@ -435,7 +435,7 @@ async function existingRefundState(tx: Tx, facturaISPId: number, vinculoId: stri
 export async function confirmarAsociacionDevolucionRemesaB6(actorId: number, raw: unknown) {
   const input = parseAsociarDevolucionInput(raw)
   const stableRequestHash = requestHash(input)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     await requireTransactionActor(tx,actorId)
@@ -533,7 +533,7 @@ export async function confirmarAsociacionDevolucionRemesaB6(actorId: number, raw
 
 /** Read-only, paginated remittance picker. Monetary sources are read only as ::text. */
 export async function readRemesasListaB6(raw: Readonly<{ limit?: number; offset?: number; q?: string }>) {
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   const { limit, offset } = requirePage(raw.limit ?? 50, raw.offset ?? 0)
   const q = readQuery(raw.q)
   const pattern = q ? `%${q}%` : null
@@ -570,7 +570,7 @@ export async function readRemesasListaB6(raw: Readonly<{ limit?: number; offset?
 
 /** Read-only invoice picker; it exposes the real Factura.nombreCompleto, never guessed customer relation names. */
 export async function readFacturasISPChoicesB6(raw: Readonly<{ remesaId?: number; onlyMembers?:boolean; limit?: number; offset?: number; q?: string }>) {
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   const { limit, offset } = requirePage(raw.limit ?? 50, raw.offset ?? 0)
   const q = readQuery(raw.q)
   const remesaId = raw.remesaId === undefined ? undefined : (() => {
@@ -637,7 +637,7 @@ export async function readFacturasISPChoicesB6(raw: Readonly<{ remesaId?: number
 
 /** Sólo evidencia negativa B4 actual, sin asignar; las diferencias explícitas se conservan separadas. */
 export async function readDevolucionesB4B6(raw:Readonly<{remesaId?:number;limit?:number;offset?:number;q?:string}>){
- await assertFinanceStagingIsolated()
+ await assertFinanceRuntimeReady()
  const {limit,offset}=requirePage(raw.limit??50,raw.offset??0)
  const q=readQuery(raw.q)
  if(raw.remesaId!==undefined&&(!Number.isSafeInteger(raw.remesaId)||raw.remesaId<1))b6Fail(400,'VALIDATION_ERROR','remesaId no válido.')

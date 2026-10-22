@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { jsonPrivado, requireFacturaAccess } from '@/lib/finanzas/invoice-quality-db'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { parseFiscalPeriod } from '@/lib/finanzas/fiscal-estimate-core'
 import { readFiscalEstimate } from '@/lib/finanzas/fiscal-estimate-db'
 
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     const access = await requireFacturaAccess(false)
     if ('error' in access) return access.error
     const period = queryPeriod(request.nextUrl.searchParams)
-    await assertFinanceStagingIsolated()
+    await assertFinanceRuntimeReady()
     const estimate = await readFiscalEstimate(prisma, period)
     return jsonPrivado({ recurso: 'estimacionFiscalDocumental', estimacion: estimate })
   } catch (error) {

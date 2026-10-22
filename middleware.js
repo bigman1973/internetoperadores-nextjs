@@ -1,5 +1,47 @@
 import { NextResponse } from 'next/server';
 
+const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const ALWAYS_BLOCKED_AUTOMATIC_RECONCILIATION_POSTS = new Set([
+  '/api/admin/finanzas/conciliacion/auto',
+  // La ruta raíz heredada ya rechaza el POST; el borde lo mantiene bloqueado
+  // incluso si un handler futuro se modificara por error.
+  '/api/admin/finanzas/conciliacion',
+  // La ruta heredada descargaba Graph y auto-vinculaba/cobraba confirmings.
+  '/api/admin/finanzas/clientes/ggcc-draxton/sync-confirmings',
+  '/api/admin/finanzas/conciliacion-remesas',
+  '/api/admin/finanzas/conciliacion-remesas/importar-pdf',
+  '/api/admin/finanzas/conciliacion-remesas/importar-devoluciones',
+  '/api/admin/finanzas/clientes/ggcc-draxton',
+]);
+
+function blockedBoundary(error, codigo) {
+  return NextResponse.json({ error, codigo }, {
+    status: 403,
+    headers: { 'Cache-Control': 'private, no-store' },
+  });
+}
+
+function isNextAuthOrLoginPath(pathname) {
+  return pathname.startsWith('/api/auth/')
+    || pathname === '/api/login'
+    || pathname.startsWith('/api/login/');
+}
+
+function isSyncImportOrGraphPath(pathname) {
+  return pathname.toLowerCase().split('/').some(segment =>
+    segment.startsWith('sync')
+    || segment.startsWith('sincroniz')
+    || segment.startsWith('import')
+    || segment.startsWith('graph')
+  );
+}
+
+function isOutboundMailOrCommunicationPath(pathname) {
+  return pathname.toLowerCase().split('/').some(segment =>
+    /^(mail|email|correo|notific|comunic|enviar)/.test(segment)
+  );
+}
+
 function financeAreas(pathname) {
   const section = pathname.slice('/api/admin/finanzas/'.length).split('/')[0];
   const aliases = {
@@ -57,6 +99,57 @@ export async function middleware(request) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
+  const path = request.nextUrl.pathname;
+  const isMutatingApiMethod = !SAFE_API_METHODS.has(request.method);
+
+  // Bloqueo externo independiente: no impide confirmar documentación manual.
+  if (process.env.FINANCE_EXTERNAL_ACTIONS_DISABLED === '1' && path.startsWith('/api/') && !isNextAuthOrLoginPath(path)) {
+    const externalPath = path.startsWith('/api/cron/')
+      || path.toLowerCase().split('/').some(segment => segment.startsWith('sync') || segment.startsWith('sincroniz'))
+      || isOutboundMailOrCommunicationPath(path);
+    if (externalPath) return blockedBoundary(
+      'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
+      'FINANCE_EXTERNAL_ACTIONS_DISABLED',
+    );
+  }
+
+  // No feature flag can re-enable automatic linking.  Keep this boundary ahead
+  // of the financial authorization (and therefore ahead of its database I/O).
+  if (request.method === 'POST' && (ALWAYS_BLOCKED_AUTOMATIC_RECONCILIATION_POSTS.has(path)
+    || /^\/api\/admin\/finanzas\/tickets\/[^/]+\/conciliar$/.test(path))) {
+    return NextResponse.json({
+      error: 'Los vínculos automáticos de conciliación están desactivados; revise propuestas y confirme manualmente.',
+      codigo: 'FINANCE_AUTOMATIC_LINKS_DISABLED',
+    }, {
+      status: 409,
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
+  }
+
+  // Production deployment window: normal API reads remain available, including
+  // document downloads.  Cron, import/sync/Graph and outbound communication
+  // endpoints are denied even on GET so they cannot perform hidden I/O.
+  if (process.env.FINANCE_DEPLOYMENT_READ_ONLY === '1' && path.startsWith('/api/') && !isNextAuthOrLoginPath(path)) {
+    const blockedReadPath = path.startsWith('/api/cron/')
+      || isSyncImportOrGraphPath(path)
+      || isOutboundMailOrCommunicationPath(path);
+    if (blockedReadPath) {
+      return blockedBoundary(
+        'Operación externa bloqueada durante la ventana de solo lectura financiera.',
+        'FINANCE_DEPLOYMENT_READ_ONLY',
+      );
+    }
+    // The narrowly approved permissions POST remains reachable.  All other
+    // writes are stopped before their route handlers can authenticate, mutate,
+    // send mail, or call external providers.
+    if (isMutatingApiMethod && !(path === '/api/admin/permisos' && request.method === 'POST')) {
+      return blockedBoundary(
+        'Las escrituras API están bloqueadas durante la ventana de solo lectura financiera.',
+        'FINANCE_DEPLOYMENT_READ_ONLY',
+      );
+    }
+  }
+
   // Las APIs financieras heredadas se comprueban aquí mientras se llevan
   // progresivamente las autorizaciones al interior de cada handler.
   if (request.nextUrl.pathname.startsWith('/api/admin/finanzas/')) {

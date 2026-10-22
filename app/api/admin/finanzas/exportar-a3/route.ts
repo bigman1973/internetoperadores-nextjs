@@ -5,7 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { verificarPermisoServer } from "@/lib/permisos";
 import { checkAdminAreaRead, checkAdminAreaWrite } from "@/lib/api-admin-area-read";
-import { assertFinanceStagingIsolated } from "@/lib/finanzas/staging-safety";
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { prepareA3ParallelDraft, type A3AccountConfig, type A3ExportInput, type A3Incidence, type A3Line, type A3Scope } from "@/lib/finanzas/a3-parallel-core";
 import { A3ReadLimitError, buildA3AccountConfig, computeA3DataHash, parseA3Month, parseA3Scope, readA3ConfigMetadata, readA3ParallelInput, type A3ConfigRequest, type A3ReviewMappings } from "@/lib/finanzas/a3-parallel-db";
 
@@ -165,7 +165,7 @@ function previewResponse(period: string, scope: A3Scope, config: A3AccountConfig
 export async function GET(req: NextRequest) {
   try {
     const denied = await authorize(req, false); if (denied) return denied;
-    await assertFinanceStagingIsolated();
+    await assertFinanceRuntimeReady();
     const actorId = Number((await getServerSession(authOptions))?.user?.id);
     const metadata = await prisma.$transaction(async (tx) => {
       await requireSnapshotActor(actorId, false, tx);
@@ -185,7 +185,7 @@ export async function POST(req: NextRequest) {
     const parsed = await parseBoundedJson(req); if ("response" in parsed) return parsed.response;
     const payload = payloadFrom(parsed.value);
     const denied = await authorize(req, payload.action === "download"); if (denied) return denied;
-    await assertFinanceStagingIsolated();
+    await assertFinanceRuntimeReady();
     const period = parseA3Month(payload.mes);
     const actorId = Number((await getServerSession(authOptions))?.user?.id);
     const { config, input, dataHash } = await readSnapshot(payload, actorId);

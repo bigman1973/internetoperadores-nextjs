@@ -9,7 +9,7 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import {
   B8_AREA_FINANZAS,
   B8_AUDIT_SCHEMA_VERSION,
@@ -305,7 +305,7 @@ async function insertAudit(tx: Tx, value: {
 }
 
 export async function readCentrosCosteFinanzas(options: Readonly<{ actorId: number; incluirInactivos?: boolean }>) {
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     await requireActualActorPermissionB8Tx(tx, options.actorId, 'lectura')
@@ -317,7 +317,7 @@ export async function readCentrosCosteFinanzas(options: Readonly<{ actorId: numb
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 export async function crearCentroCosteFinanzas(actorId: number, raw: unknown) {
-  const input = fromPure(parseCrearCentroCoste(raw)); await assertFinanceStagingIsolated()
+  const input = fromPure(parseCrearCentroCoste(raw)); await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx; await requireLiveSuperAdmin(tx, actorId)
     const centro = await b8(tx).centroCosteFinanzas.create({ data: { codigo: input.codigo, nombre: input.nombre, creadoPorId: actorId, actualizadoPorId: actorId } })
@@ -327,7 +327,7 @@ export async function crearCentroCosteFinanzas(actorId: number, raw: unknown) {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 export async function editarCentroCosteFinanzas(actorId: number, raw: unknown) {
-  const input = fromPure(parseEditarCentroCoste(raw)); await assertFinanceStagingIsolated()
+  const input = fromPure(parseEditarCentroCoste(raw)); await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx; await requireLiveSuperAdmin(tx, actorId)
     const centro = await lockCentro(tx, input.id)
@@ -342,7 +342,7 @@ export async function editarCentroCosteFinanzas(actorId: number, raw: unknown) {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 }
 export async function desactivarCentroCosteFinanzas(actorId: number, raw: unknown) {
-  const input = fromPure(parseDesactivarCentroCoste(raw)); await assertFinanceStagingIsolated()
+  const input = fromPure(parseDesactivarCentroCoste(raw)); await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx; await requireLiveSuperAdmin(tx, actorId)
     const centro = await lockCentro(tx, input.id)
@@ -360,7 +360,7 @@ export async function desactivarCentroCosteFinanzas(actorId: number, raw: unknow
 /** Explicit PATCH: immutable replay is checked after B4's advisory/bank lock but before fresh source/version work. */
 export async function asignarCentroCosteFinanzas(actorId: number, raw: unknown, currentSourceValidator: CurrentSourceValidatorB8) {
   const input = fromPure(parseAsignacionCentroCoste(raw)); const requestHash = hashSolicitudAsignacion(input); const validator = requireSourceValidator(currentSourceValidator)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
     await requireActualActorPermissionB8Tx(tx, actorId, 'escritura')
@@ -644,7 +644,7 @@ async function filterCurrentSource(
  */
 export async function leerAnaliticaCentrosCoste(input: Readonly<{ actorId: number; fechaCorte?: string | null; requiredCurrentSourceValidator: CurrentSourceValidatorB8 }>) {
   const corte = input.fechaCorte === undefined || input.fechaCorte === null ? null : isoDate(input.fechaCorte, 'fechaCorte'); const validator = requireSourceValidator(input.requiredCurrentSourceValidator)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx; await requireActualActorPermissionB8Tx(tx, input.actorId, 'lectura')
     const filtered = await filterCurrentSource(tx, await currentCandidates(tx, corte === null ? undefined : nextCalendarDate(corte)), validator)
@@ -668,7 +668,7 @@ export async function leerAnaliticaCentrosCoste(input: Readonly<{ actorId: numbe
 /** Bounded work-list for explicit PATCH. No amount field and no inferred status/source. */
 export async function leerLineasConfirmadasCentroCoste(input: Readonly<{ actorId: number; limit?: unknown; pagina?: unknown; requiredCurrentSourceValidator: CurrentSourceValidatorB8 }>) {
   const limit = boundedLimit(input.limit); const pagina = boundedPage(input.pagina); const validator = requireSourceValidator(input.requiredCurrentSourceValidator)
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx; await requireActualActorPermissionB8Tx(tx, input.actorId, 'lectura')
     const candidates = await currentCandidates(tx, undefined, limit + 1, (pagina - 1) * limit)

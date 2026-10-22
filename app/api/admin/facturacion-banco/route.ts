@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read'
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readBankInvoicing } from '@/lib/finanzas/bank-invoicing-db'
 import { B7QueryError } from '@/lib/finanzas/bank-invoicing-contract'
 
@@ -16,7 +16,7 @@ export async function GET(request:NextRequest){
   if(denied){denied.headers.set('Cache-Control',headers['Cache-Control']);return denied}
   const actor=await prisma.usuarioAdmin.findUnique({where:{id:Number(session!.user.id)},select:{activo:true}})
   if(!actor?.activo)return NextResponse.json({error:'Usuario no activo.'},{status:403,headers})
-  await assertFinanceStagingIsolated()
+  await assertFinanceRuntimeReady()
   const data=await prisma.$transaction(tx=>readBankInvoicing(tx,{enabled:true,assertIsolatedStaging:async()=>{}},request.nextUrl.searchParams),{isolationLevel:'RepeatableRead',maxWait:10000,timeout:60000})
   return NextResponse.json(data,{headers})
  }catch(error){

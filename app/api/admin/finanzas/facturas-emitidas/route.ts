@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import prisma from '@/lib/prisma';
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
-import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety';
+import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db';
 import { summarizeBankInvoicing, type BankInvoicingSummary, type InvoiceSettlement } from '@/lib/finanzas/bank-invoicing-core';
 
@@ -123,7 +123,7 @@ export async function GET(req: NextRequest) {
 
     // Staging is checked before the readonly REPEATABLE READ snapshot.  The
     // population helper receives this transaction and cannot open/commit/mutate one.
-    await assertFinanceStagingIsolated();
+    await assertFinanceRuntimeReady();
     const data = await prisma.$transaction(async (tx) => {
       const actor = await tx.usuarioAdmin.findUnique({
         where: { id: Number(session!.user.id) }, select: { activo: true },
