@@ -10,6 +10,8 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  financeSyncP2Requested FinanceSyncJobP2[] @relation("FinanceSyncP2RequestedBy")
+  financeSyncP2Cancelled FinanceSyncJobP2[] @relation("FinanceSyncP2CancelledBy")
   centrosCosteFinanzasCreadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Creador")
   centrosCosteFinanzasActualizadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Actualizador")
   auditoriasCentroCosteFinanzasB8 AuditoriaCentroCosteFinanzasB8[] @relation("AuditoriaCentroCosteFinanzasB8Actor")
@@ -4536,3 +4538,168 @@ model ReciboEleccionCentroB8 {
   @@index([metadataHash])
   @@map("recibos_eleccion_centro_b8")
 }
+
+// APPEND-ONLY P2 fragment. Append the two UsuarioAdmin inverse relations manually;
+// do not alter current Finance/Invoice/B4 tables. All new FK actions are RESTRICT.
+
+enum FinanceSyncSourceP2 {
+  ONEDRIVE
+  ISP
+}
+enum FinanceSyncTriggerP2 {
+  MANUAL
+  DAILY_UTC
+  LEGACY_BRIDGE
+}
+enum FinanceSyncJobStatusP2 {
+  QUEUED
+  RUNNING
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+  CANCEL_REQUESTED
+  CANCELLED
+}
+enum FinanceSyncJobPhaseP2 {
+  INVENTORY
+  PROCESSING
+  FINALIZING
+}
+enum FinanceSyncItemTypeP2 {
+  ONEDRIVE_FACTURA
+  ONEDRIVE_CONFIRMING_SOPORTE
+  ISP_FACTURA
+}
+enum FinanceSyncItemStatusP2 {
+  QUEUED
+  PROCESSING
+  RETRY
+  COMPLETED
+  CANCELLED
+  FINAL_ERROR
+}
+enum FinanceSyncOutcomeP2 {
+  NUEVA
+  ACTUALIZADA
+  SIN_CAMBIOS
+  REVISAR
+  ERROR
+}
+enum FinanceSyncRequestKindP2 {
+  MANUAL
+  DAILY_UTC
+}
+enum FinanceSyncReceiptResultP2 {
+  CREATED
+  REPLAY
+  COALESCED
+  ACTIVE_REJECTED
+  COLLISION
+}
+
+model FinanceSyncJobP2 {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  source             FinanceSyncSourceP2
+  trigger            FinanceSyncTriggerP2
+  status             FinanceSyncJobStatusP2 @default(QUEUED)
+  phase              FinanceSyncJobPhaseP2  @default(INVENTORY)
+  scope              Json                   @default("{}")
+  checkpoint         Json                   @default("{}")
+  inventoryCompleteAt DateTime?             @map("inventory_complete_at")
+  total              Int?                   // null until inventory barrier is complete
+  processed          Int                    @default(0)
+  nuevas             Int                    @default(0)
+  actualizadas       Int                    @default(0)
+  errores            Int                    @default(0)
+  unchanged          Int                    @default(0)
+  cancelled          Int                    @default(0)
+  requestedById      Int?                   @map("requested_by_id")
+  cancelRequestedAt  DateTime?              @map("cancel_requested_at")
+  cancelRequestedById Int?                  @map("cancel_requested_by_id")
+  leaseToken         String?                @map("lease_token")
+  leaseUntil         DateTime?              @map("lease_until")
+  recoveries         Int                    @default(0)
+  lastError          String?                @map("last_error") @db.VarChar(128)
+  startedAt          DateTime?              @map("started_at")
+  finishedAt         DateTime?              @map("finished_at")
+  createdAt          DateTime               @default(now()) @map("created_at")
+  updatedAt          DateTime               @updatedAt @map("updated_at")
+
+  requestedBy        UsuarioAdmin?          @relation("FinanceSyncP2RequestedBy", fields: [requestedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  cancelRequestedBy  UsuarioAdmin?          @relation("FinanceSyncP2CancelledBy", fields: [cancelRequestedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  items              FinanceSyncItemP2[]
+  requests           FinanceSyncRequestP2[]
+  dailyReceipts      FinanceSyncDailyReceiptP2[]
+
+  @@index([source, status, createdAt])
+  @@index([status, createdAt])
+  @@map("finance_sync_jobs_p2")
+}
+
+model FinanceSyncItemP2 {
+  id                String                 @id @default(uuid()) @db.Uuid
+  jobId             String                 @db.Uuid @map("job_id")
+  sourceKey         String                 @map("source_key") @db.VarChar(512)
+  type              FinanceSyncItemTypeP2
+  sourceData        Json                   @map("source_data")
+  sequence          Int
+  status            FinanceSyncItemStatusP2 @default(QUEUED)
+  outcome           FinanceSyncOutcomeP2?
+  attempts          Int                    @default(0)
+  retryAt           DateTime?              @map("retry_at")
+  leaseToken        String?                @map("lease_token")
+  leaseUntil        DateTime?              @map("lease_until")
+  confirmedAt       DateTime?              @map("confirmed_at")
+  lastError         String?                @map("last_error") @db.VarChar(128)
+  processedAt       DateTime?              @map("processed_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+
+  job               FinanceSyncJobP2       @relation(fields: [jobId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([jobId, sourceKey])
+  @@unique([jobId, sequence])
+  @@index([jobId, status, retryAt, sequence])
+  @@index([leaseUntil])
+  @@map("finance_sync_items_p2")
+}
+
+// Append-only receipt: durable exact-idempotency record. A conflicting request is
+// persisted only when policy asks for auditable collision receipts; the HTTP P2
+// policy instead returns 409 ACTIVE_JOB without pretending it is idempotent.
+model FinanceSyncRequestP2 {
+  id              String                    @id @default(uuid()) @db.Uuid
+  source          FinanceSyncSourceP2
+  kind            FinanceSyncRequestKindP2
+  idempotencyKey  String                    @unique @map("idempotency_key") @db.VarChar(200)
+  requestHash     String                    @map("request_hash") @db.VarChar(64)
+  actorId         Int?                      @map("actor_id")
+  scope           Json                      @default("{}")
+  result          FinanceSyncReceiptResultP2
+  jobId           String?                   @db.Uuid @map("job_id")
+  createdAt       DateTime                  @default(now()) @map("created_at")
+
+  job             FinanceSyncJobP2?         @relation(fields: [jobId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@index([source, createdAt])
+  @@map("finance_sync_requests_p2")
+}
+
+// The daily key is unique independently of job status. If a run is active, the
+// row records COALESCED and points to it, so a retry later cannot enqueue a surplus job.
+model FinanceSyncDailyReceiptP2 {
+  id         String                    @id @default(uuid()) @db.Uuid
+  dateUtc    String                    @map("date_utc") @db.VarChar(10)
+  source     FinanceSyncSourceP2
+  result     FinanceSyncReceiptResultP2
+  jobId      String?                   @db.Uuid @map("job_id")
+  createdAt  DateTime                  @default(now()) @map("created_at")
+
+  job        FinanceSyncJobP2?         @relation(fields: [jobId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([dateUtc, source])
+  @@map("finance_sync_daily_receipts_p2")
+}
+
+// Add only these inverse fields to the existing UsuarioAdmin model:
+// financeSyncP2Requested       FinanceSyncJobP2[]          @relation("FinanceSyncP2RequestedBy")
+// financeSyncP2Cancelled       FinanceSyncJobP2[]          @relation("FinanceSyncP2CancelledBy")

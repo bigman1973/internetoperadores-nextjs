@@ -14,6 +14,14 @@
     {
       "path": "/api/cron/keep-supabase-alive",
       "schedule": "0 8 */3 * *"
+    },
+    {
+      "path": "/api/cron/finance-sync-worker",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/finance-sync-daily",
+      "schedule": "0 1 * * *"
     }
   ]
 }

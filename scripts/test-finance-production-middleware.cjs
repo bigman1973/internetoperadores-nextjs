@@ -6,6 +6,15 @@ for(const [path,method] of [['/api/cron/recordatorio-wizard','GET'],['/api/sync-
 assert.equal((await check(flags,'/api/admin/finanzas/conciliacion/auto','POST')).status,409);
 for(const path of ['/api/admin/finanzas/conciliacion-remesas','/api/admin/finanzas/conciliacion-remesas/importar-pdf','/api/admin/finanzas/conciliacion-remesas/importar-devoluciones','/api/admin/finanzas/clientes/ggcc-draxton','/api/admin/finanzas/tickets/fixture-id/conciliar'])assert.equal((await check(flags,path,'POST')).status,409);
 
+const p2={...flags,FINANCE_BACKGROUND_SYNC_ENABLED:'1',FINANCE_ONEDRIVE_SYNC_ENABLED:'1',FINANCE_ISP_SYNC_ENABLED:'1'};
+for(const path of ['/api/cron/finance-sync-worker','/api/cron/finance-sync-daily']){
+ assert.equal((await check(flags,path,'GET')).status,403);
+ assert.equal((await check(p2,path,'GET')).status,200);
+ assert.equal((await check({...p2,VERCEL_ENV:'preview',FINANCE_STAGING_SANDBOX:'1'},path,'GET')).status,403);
+ assert.equal((await check({...p2,FINANCE_DEPLOYMENT_READ_ONLY:'1'},path,'GET')).status,403);
+}
+for(const method of ['GET','POST','PATCH'])await assert.rejects(check(p2,'/api/admin/finanzas/sync-jobs',method),e=>e.code==='ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING');
+for(const path of ['/api/admin/finanzas/sincronizar-onedrive','/api/sync-facturas','/api/cron/recordatorio-wizard','/api/admin/peticiones/enviar-email'])assert.equal((await check(p2,path,'GET')).status,403);
 assert.equal((await check(flags,'/api/auth/session','GET')).status,200);
 assert.equal((await check(flags,'/api/admin/permisos','POST')).status,200);
 // No hay bloqueo financiero manual en el borde: llegaría a autorización viva.

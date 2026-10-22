@@ -42,6 +42,14 @@ function isOutboundMailOrCommunicationPath(pathname) {
   );
 }
 
+function isAuthorizedP2Path(pathname) {
+  return process.env.FINANCE_BACKGROUND_SYNC_ENABLED === '1'
+    && (process.env.FINANCE_ONEDRIVE_SYNC_ENABLED === '1' || process.env.FINANCE_ISP_SYNC_ENABLED === '1')
+    && (pathname === '/api/admin/finanzas/sync-jobs'
+      || (process.env.VERCEL_ENV === 'production' && process.env.FINANCE_STAGING_SANDBOX !== '1'
+        && (pathname === '/api/cron/finance-sync-worker' || pathname === '/api/cron/finance-sync-daily')));
+}
+
 function financeAreas(pathname) {
   const section = pathname.slice('/api/admin/finanzas/'.length).split('/')[0];
   const aliases = {
@@ -68,6 +76,8 @@ function financeAreas(pathname) {
     'facturas-emitidas': ['admin.finanzas.facturas_emitidas'],
     'importar-movimientos': ['admin.finanzas.importar'],
     'sincronizar-onedrive': ['admin.finanzas.facturas'],
+    // El handler vuelve a comprobar exactamente el permiso de la fuente elegida.
+    'sync-jobs': ['admin.finanzas.facturas', 'admin.facturacion'],
     imputacion: ['admin.finanzas.facturas'],
     movimientos: ['admin.finanzas.movimientos'],
     nominas: ['admin.finanzas.conciliacion'],
@@ -94,6 +104,7 @@ export async function middleware(request) {
       || (path === '/api/admin/finanzas/centros-coste' && ['POST','PATCH'].includes(request.method))
       || (path === '/api/admin/finanzas/centros-coste/asignar' && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/exportar-a3' && request.method === 'POST')
+      || (path === '/api/admin/finanzas/sync-jobs' && ['POST','PATCH'].includes(request.method) && isAuthorizedP2Path(path))
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
@@ -107,7 +118,7 @@ export async function middleware(request) {
     const externalPath = path.startsWith('/api/cron/')
       || path.toLowerCase().split('/').some(segment => segment.startsWith('sync') || segment.startsWith('sincroniz'))
       || isOutboundMailOrCommunicationPath(path);
-    if (externalPath) return blockedBoundary(
+    if (externalPath && !isAuthorizedP2Path(path)) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',
     );

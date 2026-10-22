@@ -4,13 +4,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   DocumentTextIcon, CheckCircleIcon, ClockIcon, XCircleIcon, 
-  ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon,
+  ArrowUpTrayIcon, EyeIcon,
   MagnifyingGlassIcon, XMarkIcon, CalendarDaysIcon, ChevronDownIcon
 } from '@heroicons/react/24/outline';
 import { useRole } from '@/components/admin/RoleContext';
 import InvoiceLocationHistory from '@/components/finanzas/InvoiceLocationHistory';
 import InvoiceQualityWorkspace from '@/components/finanzas/InvoiceQualityWorkspace';
 import FiscalEstimatePanel from '@/components/finanzas/fiscal-estimate/FiscalEstimatePanel';
+import SyncJobPanel from '@/components/finanzas/sync-jobs/SyncJobPanel';
 
 interface Factura {
   id: string;
@@ -39,119 +40,6 @@ interface Factura {
   estadoCarpeta?: string;
   etiquetaMateriales?: boolean;
   movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
-}
-
-type EstadoCarpeta = 'VACIA' | 'SIN_NOVEDADES' | 'CON_NOVEDADES' | 'ERROR';
-
-interface CarpetaStatus {
-  estado?: EstadoCarpeta;
-  total: number | null;
-  nuevos: number | null;
-  yaImportados: number | null;
-  admitidos: number | null;
-  error?: string;
-}
-
-interface SyncError {
-  carpeta: string;
-  error: string;
-}
-
-interface SyncStatus {
-  [key: string]: unknown;
-  pendientes?: unknown;
-  pendiente?: unknown;
-  materiales?: unknown;
-  trimestre1?: unknown;
-  trimestre2?: unknown;
-  trimestre3?: unknown;
-  trimestre4?: unknown;
-  confirming_draxton?: unknown;
-  raiz?: unknown;
-  totalNuevos?: number | null;
-  totalArchivos?: number | null;
-  totalImportados?: number | null;
-  inventarioCompleto?: boolean;
-  sandbox?: boolean;
-  canWrite?: boolean;
-  ubicacion?: {
-    siteId?: string;
-    siteName?: string;
-    driveId?: string;
-    driveName?: string;
-    rootPath?: string;
-  };
-  errores?: unknown;
-  errors?: unknown;
-  error?: string;
-}
-
-const SIN_DATO = 'No disponible';
-
-function numeroNullable(valor: unknown): number | null {
-  return typeof valor === 'number' && Number.isFinite(valor) ? valor : null;
-}
-
-/** Accepts the B1 contract and the old numeric/object response while never turning failures into zeroes. */
-function normalizarCarpeta(valor: unknown): CarpetaStatus {
-  if (typeof valor === 'number') {
-    return { estado: valor > 0 ? 'CON_NOVEDADES' : 'VACIA', total: null, nuevos: valor, yaImportados: null, admitidos: null };
-  }
-  if (!valor || typeof valor !== 'object') {
-    return { total: null, nuevos: null, yaImportados: null, admitidos: null };
-  }
-
-  const datos = valor as Record<string, unknown>;
-  const estado = ['VACIA', 'SIN_NOVEDADES', 'CON_NOVEDADES', 'ERROR'].includes(String(datos.estado))
-    ? datos.estado as EstadoCarpeta
-    : undefined;
-  const error = typeof datos.error === 'string' ? datos.error : undefined;
-  return {
-    estado: estado || (error ? 'ERROR' : undefined),
-    total: numeroNullable(datos.total),
-    nuevos: numeroNullable(datos.nuevos),
-    yaImportados: numeroNullable(datos.yaImportados),
-    admitidos: numeroNullable(datos.admitidos),
-    error,
-  };
-}
-
-function normalizarErrores(valor: unknown): SyncError[] {
-  if (typeof valor === 'number') {
-    return valor > 0 ? [{ carpeta: 'Sincronización', error: `${valor} error${valor === 1 ? '' : 'es'} comunicado${valor === 1 ? '' : 's'}` }] : [];
-  }
-  if (typeof valor === 'string' && valor) return [{ carpeta: 'Sincronización', error: valor }];
-  if (!Array.isArray(valor)) return [];
-  return valor.flatMap((item, indice) => {
-    if (typeof item === 'string') return [{ carpeta: 'Sincronización', error: item }];
-    if (!item || typeof item !== 'object') return [];
-    const error = typeof (item as Record<string, unknown>).error === 'string' ? (item as Record<string, unknown>).error as string : null;
-    if (!error) return [];
-    const carpeta = typeof (item as Record<string, unknown>).carpeta === 'string'
-      ? (item as Record<string, unknown>).carpeta as string
-      : `Elemento ${indice + 1}`;
-    return [{ carpeta, error }];
-  });
-}
-
-function contador(valor: number | null | undefined): string {
-  return valor === null || valor === undefined ? SIN_DATO : String(valor);
-}
-
-function sumarSiDisponibles(valores: Array<number | null | undefined>): number | null {
-  return valores.every((valor) => valor !== null && valor !== undefined)
-    ? valores.reduce((suma, valor) => suma + (valor as number), 0)
-    : null;
-}
-
-function etiquetaEstado(carpeta: CarpetaStatus): string {
-  if (carpeta.error || carpeta.estado === 'ERROR') return 'Error';
-  if (carpeta.estado === 'VACIA') return 'Vacía';
-  if (carpeta.estado === 'CON_NOVEDADES') return 'Con novedades';
-  if (carpeta.estado === 'SIN_NOVEDADES') return 'Sin novedades';
-  if (carpeta.nuevos !== null && carpeta.nuevos > 0) return 'Con novedades';
-  if (carpeta.total === 0) return 'Vacía';
-  return SIN_DATO;
 }
 
 const ESTADOS = {
@@ -197,20 +85,12 @@ export default function FacturasPage() {
   const [showFechaDropdown, setShowFechaDropdown] = useState(false);
   const fechaRef = useRef<HTMLDivElement>(null);
 
-  // Sincronización OneDrive
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState<any>(null);
-  const [checkingSync, setCheckingSync] = useState(false);
-  const canWrite = hasAreaAccess('admin.finanzas.facturas', 'escritura') && syncStatus?.canWrite !== false;
-  const canSync = canWrite && syncStatus?.canWrite === true && syncStatus?.inventarioCompleto === true;
-
+  const canWrite = hasAreaAccess('admin.finanzas.facturas', 'escritura');
   useEffect(() => {
     fetchFacturas();
   }, [page, filtroEstado, filtroOcr, filtroProveedor, fechaDesde, fechaHasta, filtroConciliada]);
 
   useEffect(() => {
-    checkSyncStatus();
     fetchProveedores();
   }, []);
 
@@ -316,51 +196,6 @@ export default function FacturasPage() {
     setLoading(false);
   }
 
-  async function checkSyncStatus() {
-    setCheckingSync(true);
-    try {
-      const res = await fetch('/api/admin/finanzas/sincronizar-onedrive');
-      const data = await res.json();
-      if (res.ok) setSyncStatus(data);
-      else setSyncStatus({ error: data.error || 'No se pudo leer el inventario de OneDrive' });
-    } catch (e) {
-      console.error('Error checking sync status:', e);
-      setSyncStatus({ error: 'No se pudo leer el inventario de OneDrive' });
-    }
-    setCheckingSync(false);
-  }
-
-  async function sincronizarOneDrive(carpeta: string = 'todas', soloUbicaciones = false) {
-    if (!canSync) return;
-    setSyncing(true);
-    setSyncResult(null);
-    try {
-      const body: Record<string, unknown> = soloUbicaciones
-        ? { carpeta: 'todas', soloUbicaciones: true }
-        : { carpeta, limite: 10 };
-      for (let intento = 0; intento < 2; intento++) {
-        const res = await fetch('/api/admin/finanzas/sincronizar-onedrive', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (intento === 0 && res.status === 409 && data.requiereConfirmarBiblioteca) {
-          const ruta = `${data.ubicacion?.siteName || ''} / ${data.ubicacion?.driveName || ''} / ${data.ubicacion?.rootPath || ''}`;
-          if (window.confirm(`${data.cantidad} documentos históricos no conservan el ID de su biblioteca. ¿Confirmas que proceden de esta biblioteca de Internet Operadores?\n\n${ruta}\n\nLa confirmación se registrará con tu usuario. Si no estás seguro, cancela: no se ha modificado ningún dato.`)) {
-            body.bibliotecaHistoricaConfirmada = data.driveId;
-            continue;
-          }
-        }
-        setSyncResult(res.ok ? data : { ...data, error: data.error || 'No se pudo completar la operación' });
-        if (res.ok) fetchFacturas();
-        break;
-      }
-      checkSyncStatus();
-    } catch (e: any) {
-      setSyncResult({ error: e.message });
-    }
-    setSyncing(false);
-  }
-
   async function actualizarEstado(id: string, estado: string) {
     if (!canWrite) return;
     await fetch(`/api/admin/finanzas/facturas/${id}`, {
@@ -410,26 +245,6 @@ export default function FacturasPage() {
     return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
   }
 
-  const carpetasOneDrive = syncStatus ? [
-    { clave: 'pendiente', nombre: 'Pendiente de contabilizar', estilo: 'text-blue-700', datos: normalizarCarpeta(syncStatus.pendiente ?? syncStatus.pendientes) },
-    { clave: 'materiales', nombre: 'Compra de materiales', estilo: 'text-amber-700', datos: normalizarCarpeta(syncStatus.materiales) },
-    { clave: 'trimestre1', nombre: 'Trimestre 1', estilo: 'text-emerald-700', datos: normalizarCarpeta(syncStatus.trimestre1) },
-    { clave: 'trimestre2', nombre: 'Trimestre 2', estilo: 'text-emerald-700', datos: normalizarCarpeta(syncStatus.trimestre2) },
-    { clave: 'trimestre3', nombre: 'Trimestre 3', estilo: 'text-teal-700', datos: normalizarCarpeta(syncStatus.trimestre3) },
-    { clave: 'trimestre4', nombre: 'Trimestre 4', estilo: 'text-teal-700', datos: normalizarCarpeta(syncStatus.trimestre4) },
-    { clave: 'confirming_draxton', nombre: 'Confirming Draxton', estilo: 'text-purple-700', datos: normalizarCarpeta(syncStatus.confirming_draxton) },
-    { clave: 'raiz', nombre: 'Raíz (archivos sueltos)', estilo: 'text-slate-700', datos: normalizarCarpeta(syncStatus.raiz) },
-  ] : [];
-  const totalDocumentos = syncStatus ? numeroNullable(syncStatus.totalArchivos) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.total)) : null;
-  const totalAdmitidos = syncStatus ? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.admitidos)) : null;
-  const totalImportados = syncStatus ? numeroNullable(syncStatus.totalImportados) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.yaImportados)) : null;
-  const totalNuevos = syncStatus ? numeroNullable(syncStatus.totalNuevos) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.nuevos)) : null;
-  const erroresInventario = syncStatus ? [
-    ...normalizarErrores(syncStatus.errores ?? syncStatus.errors),
-    ...carpetasOneDrive.flatMap(({ nombre, datos }) => datos.error ? [{ carpeta: nombre, error: datos.error }] : []),
-    ...(syncStatus.error ? [{ carpeta: 'Inventario OneDrive', error: syncStatus.error }] : []),
-  ].filter((error, indice, lista) => lista.findIndex((otra) => otra.carpeta === error.carpeta && otra.error === error.error) === indice) : [];
-
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -438,15 +253,6 @@ export default function FacturasPage() {
           <p className="text-sm text-gray-500 mt-1">{total} facturas registradas</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => sincronizarOneDrive('todas')}
-            disabled={syncing || !canSync}
-            title={!canSync ? 'Se requiere permiso de escritura y un inventario completo verificado' : 'Procesa documentos nuevos con OCR'}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {syncing ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <CloudArrowDownIcon className="h-4 w-4" />}
-            {syncing ? 'Procesando...' : 'Sincronizar nuevos'}
-          </button>
           <button disabled={!canWrite} title={!canWrite ? 'No tienes permiso de escritura en Finanzas' : undefined} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <ArrowUpTrayIcon className="h-4 w-4" />
             Subir Factura
@@ -460,119 +266,13 @@ export default function FacturasPage() {
       {/* Sólo lectura: recibe el período documental que el usuario ya ha seleccionado. */}
       <FiscalEstimatePanel period={fechaDesde && fechaHasta ? { desde: fechaDesde, hasta: fechaHasta } : null} />
 
-      {/* Inventario OneDrive B1: no transforma errores ni datos no disponibles en ceros. */}
-      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-3" aria-label="Estado de OneDrive">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div className="flex items-center gap-2">
-              <CloudArrowDownIcon className="h-5 w-5 text-blue-600" />
-              <h2 className="text-sm font-semibold text-gray-900">Inventario OneDrive</h2>
-              {syncStatus?.inventarioCompleto === false && <span className="text-xs rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Inventario parcial</span>}
-            </div>
-            <p className="mt-1 text-xs text-gray-500">Documentos encontrados, admitidos (PDF/imágenes), ya importados por ID y documentos nuevos.</p>
-          </div>
-          <button
-            onClick={() => sincronizarOneDrive('todas', true)}
-            disabled={syncing || !canSync}
-            title={!canSync ? 'Se requiere permiso de escritura y un inventario completo verificado' : 'Actualiza ubicaciones en staging; no ejecuta OCR'}
-            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <ArrowPathIcon className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
-            Releer ubicación
-          </button>
-        </div>
-
-        {syncStatus?.sandbox === true && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            <strong>Staging sandbox:</strong> la respuesta procede del entorno de pruebas. No se han enviado notificaciones.
-          </div>
-        )}
-
-        {erroresInventario.length > 0 && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
-            <p className="text-xs font-medium text-red-800">No se pudo leer parte del inventario</p>
-            <ul className="mt-1 space-y-0.5 text-xs text-red-700">
-              {erroresInventario.map((error, indice) => <li key={`${error.carpeta}-${indice}`}><strong>{error.carpeta}:</strong> {error.error}</li>)}
-            </ul>
-          </div>
-        )}
-
-        {syncStatus ? (
-          <>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-              {[
-                ['Documentos', totalDocumentos, 'Todos los archivos'],
-                ['Admitidos', totalAdmitidos, 'PDF e imágenes'],
-                ['Importados', totalImportados, 'IDs ya registrados'],
-                ['Nuevos', totalNuevos, 'Admitidos sin importar'],
-              ].map(([etiqueta, valor, ayuda]) => (
-                <div key={etiqueta as string} className="rounded-lg border bg-gray-50 p-3 text-center">
-                  <p className="text-[11px] uppercase font-medium text-gray-500">{etiqueta}</p>
-                  <p className={`text-xl font-bold ${etiqueta === 'Nuevos' && typeof valor === 'number' && valor > 0 ? 'text-orange-600' : 'text-gray-900'}`}>{contador(valor as number | null)}</p>
-                  <p className="text-[11px] text-gray-400">{ayuda}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
-              {carpetasOneDrive.map(({ clave, nombre, estilo, datos }) => (
-                <div key={clave} className={`rounded-lg border p-3 ${datos.error || datos.estado === 'ERROR' ? 'border-red-200 bg-red-50' : 'bg-gray-50'}`}>
-                  <div className="flex items-start justify-between gap-2">
-                    <p className={`text-xs font-semibold ${estilo}`}>{nombre}</p>
-                    <span className={`shrink-0 text-[10px] rounded-full px-1.5 py-0.5 ${datos.error || datos.estado === 'ERROR' ? 'bg-red-100 text-red-700' : datos.estado === 'CON_NOVEDADES' || (datos.nuevos !== null && datos.nuevos > 0) ? 'bg-orange-100 text-orange-700' : 'bg-gray-200 text-gray-600'}`}>{etiquetaEstado(datos)}</span>
-                  </div>
-                  <p className="mt-2 text-xs text-gray-600"><strong className="text-gray-900">{contador(datos.total)}</strong> documentos · <strong className="text-gray-900">{contador(datos.admitidos)}</strong> admitidos</p>
-                  <p className="mt-0.5 text-xs text-gray-600"><strong className="text-gray-900">{contador(datos.yaImportados)}</strong> importados · <strong className={datos.nuevos !== null && datos.nuevos > 0 ? 'text-orange-700' : 'text-gray-900'}>{contador(datos.nuevos)}</strong> nuevos</p>
-                  {datos.error && <p className="mt-1 text-xs text-red-700 line-clamp-2" title={datos.error}>{datos.error}</p>}
-                </div>
-              ))}
-            </div>
-
-            {syncStatus.ubicacion && (
-              <details className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
-                <summary className="cursor-pointer font-medium text-gray-700">Ruta resuelta de OneDrive</summary>
-                <div className="mt-2 space-y-1">
-                  <p><strong>Sitio:</strong> {syncStatus.ubicacion.siteName || SIN_DATO}</p>
-                  <p><strong>Biblioteca:</strong> {syncStatus.ubicacion.driveName || SIN_DATO}</p>
-                  <p><strong>Ruta:</strong> {syncStatus.ubicacion.rootPath || SIN_DATO}</p>
-                  <p className="break-all text-gray-400">IDs: sitio {syncStatus.ubicacion.siteId || SIN_DATO} · biblioteca {syncStatus.ubicacion.driveId || SIN_DATO}</p>
-                </div>
-              </details>
-            )}
-          </>
-        ) : checkingSync ? (
-          <p className="text-sm text-gray-500">Leyendo inventario de OneDrive…</p>
-        ) : (
-          <p className="text-sm text-gray-500">El inventario no está disponible.</p>
-        )}
-      </section>
-
-      {/* Resultado de sincronización o de relectura de ubicación */}
-      {syncResult && (
-        <div className={`rounded-lg p-4 border ${syncResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-          {syncResult.error ? <p className="text-sm text-red-700">Error: {syncResult.error}</p> : (
-            <div>
-              <p className="text-sm font-medium text-green-800">{syncResult.mensaje || 'Operación completada'}</p>
-              <p className="mt-1 text-xs text-green-700">
-                Procesados: {contador(numeroNullable(syncResult.procesados))} · Errores: {Array.isArray(syncResult.errores) ? syncResult.errores.length : contador(numeroNullable(syncResult.errores))} · Ubicaciones actualizadas: {contador(numeroNullable(syncResult.ubicacionesActualizadas))} · Normalizadas: {contador(numeroNullable(syncResult.normalizadas))}
-                {typeof syncResult.inventarioCompleto === 'boolean' && ` · Inventario ${syncResult.inventarioCompleto ? 'completo' : 'parcial'}`}
-              </p>
-              {Array.isArray(syncResult.resultados) && syncResult.resultados.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {syncResult.resultados.slice(0, 5).map((resultado: any, indice: number) => <p key={indice} className="text-xs text-green-700">{resultado.estado === 'ok' ? 'Correcto' : 'Revisar'}: {resultado.archivo || resultado.carpeta || 'Elemento'}{resultado.error ? ` — ${resultado.error}` : ''}</p>)}
-                  {syncResult.resultados.length > 5 && <p className="text-xs text-green-600">… y {syncResult.resultados.length - 5} más</p>}
-                </div>
-              )}
-              {normalizarErrores(syncResult.errores ?? syncResult.errors).length > 0 && (
-                <ul className="mt-2 space-y-0.5 text-xs text-red-700">
-                  {normalizarErrores(syncResult.errores ?? syncResult.errors).map((error, indice) => <li key={`${error.carpeta}-${indice}`}><strong>{error.carpeta}:</strong> {error.error}</li>)}
-                </ul>
-              )}
-              <button onClick={() => setSyncResult(null)} className="mt-2 text-xs text-green-700 underline">Cerrar</button>
-            </div>
-          )}
-        </div>
-      )}
+      {/* Trabajo durable OneDrive: reemplaza GET/POST directo y su lote límite 10. */}
+      <SyncJobPanel
+        source="ONEDRIVE"
+        title="Sincronización OneDrive"
+        description="Crea o recupera un único trabajo durable. El recuento se muestra cuando el servidor termina el inventario."
+        onTerminalJob={() => { void fetchFacturas(); }}
+      />
 
       {/* Resumen fiscal */}
       {resumen && (
