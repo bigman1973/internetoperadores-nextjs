@@ -146,7 +146,7 @@ const navigation: NavEntry[] = [
     children: [
       { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
-      { name: 'Conciliación', href: '/admin/finanzas/conciliacion', icon: LinkIcon, section: 'finanzas' },
+      { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
       { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas.analitica_costes', subitems: [

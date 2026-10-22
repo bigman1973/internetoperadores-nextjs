@@ -29,6 +29,11 @@ model UsuarioAdmin {
   comentariosFactura ComentarioFacturaRecibida[]
   rentabilidadAuditoria RentabilidadAuditoria[]
   auditoriasCalidadFactura AuditoriaCalidadFactura[]
+  // B4: inverse navigation only; actor IDs remain UsuarioAdmin.id (Int).
+  estadosJustificacionActualizadosB4 EstadoJustificacionMovimientoB4[] @relation("EstadoJustificacionB4Actualizador")
+  operacionesJustificacionSolicitadasB4 OperacionJustificacionB4[] @relation("OperacionJustificacionB4Solicitante")
+  operacionesJustificacionAprobadasB4 OperacionJustificacionB4[] @relation("OperacionJustificacionB4Aprobador")
+  eventosJustificacionB4 EventoJustificacionB4[] @relation("EventoJustificacionB4Actor")
 
   @@map("usuarios_admin")
 }
@@ -303,6 +308,8 @@ model Factura {
   // Relaciones conciliación
   devoluciones      DevolucionRemesa[]
   facturasContratoDraxton FacturaContratoDraxton[]
+  // B4: explicit ISP source ↔ financial projection map; not inferred from idExterno.
+  facturaEmitidaB4 FacturaEmitida? @relation("FacturaISPAFacturaEmitida")
 
   @@index([idCliente])
   @@index([codigoCliente])
@@ -332,6 +339,7 @@ model Remesa {
   // Relaciones conciliación
   conciliacion      ConciliacionRemesa?
   devoluciones      DevolucionRemesa[]
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4Remesa")
 
   @@index([fecha])
   @@index([ejercicio])
@@ -1158,6 +1166,13 @@ model MovimientoBancario {
   subRemesasBanco       SubRemesaBanco[]     @relation("SubRemesaMovimiento")
   devolucionesRemesa    DevolucionRemesa[]   @relation("DevolucionMovimiento")
   devolucionesCobro     DevolucionRemesa[]   @relation("DevolucionCobro")
+  // B4: inverse navigation only; legacy reconciliation fields above remain unchanged.
+  estadoJustificacionB4  EstadoJustificacionMovimientoB4?
+  vinculosDocumentoB4    VinculoMovimientoDocumento[] @relation("MovimientoB4Vinculos")
+  operacionesJustificacionB4 OperacionJustificacionB4[] @relation("MovimientoB4Operaciones")
+  eventosJustificacionB4 EventoJustificacionB4[] @relation("MovimientoB4Eventos")
+  traspasoOrigenB4       TraspasoInterno? @relation("TraspasoB4Origen")
+  traspasoDestinoB4      TraspasoInterno? @relation("TraspasoB4Destino")
 
   @@index([cuentaId, fechaOperacion])
   @@index([conciliado])
@@ -1234,6 +1249,7 @@ model FacturaRecibida {
   copias           FacturaRecibida[] @relation("CopiasFacturaRecibida")
   revisionesLecturaResueltas RevisionLecturaFacturaRecibida[]
   auditoriasCalidad AuditoriaCalidadFactura[]
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4FacturaRecibida")
 
   @@index([estado])
   @@index([proveedor])
@@ -1406,6 +1422,7 @@ model Gasto {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   movimientos     MovimientoBancario[]
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4Gasto")
 
   @@index([tipo])
   @@index([fecha])
@@ -1552,6 +1569,9 @@ model FacturaEmitida {
   // Origen
   origenSistema   String?  @map("origen_sistema") // ISPGestion, Manual, etc.
   idExterno       String?  @unique @map("id_externo") // ID en sistema externo
+  // B4: only an unequivocal Factura.ispGestionId map may populate this FK.
+  facturaISPId     Int?     @unique @map("factura_isp_id")
+  facturaISP       Factura? @relation("FacturaISPAFacturaEmitida", fields: [facturaISPId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1567,6 +1587,7 @@ model FacturaEmitida {
   rentabilidadAuditoria RentabilidadAuditoria[]
   serviciosRentabilidad ComponenteVentaServicio[]
   proveedoresVentaReferencia ProveedorVentaReferencia[]
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4FacturaEmitida")
   @@index([cliente])
   @@index([estado])
   @@index([fecha])
@@ -1954,6 +1975,7 @@ model Nomina {
   empleado                Empleado @relation(fields: [empleadoId], references: [id])
   movimientos             MovimientoBancario[]
   documentos              NominaDocumento[]
+  documentoConciliableB4   DocumentoConciliable[] @relation("DocumentoB4Nomina")
   // Timestamps
   createdAt               DateTime @default(now()) @map("created_at")
 
@@ -3256,6 +3278,7 @@ model DocumentoAAPP {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   pagos           PagoFraccionado[]
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4AAPP")
   @@index([organismo])
   @@index([estado])
   @@index([ejercicio])
@@ -3294,6 +3317,7 @@ model PagoFraccionado {
   referencia      String?   // Referencia del pago
   notas           String?
   createdAt       DateTime  @default(now()) @map("created_at")
+  documentoConciliableB4 DocumentoConciliable[] @relation("DocumentoB4PagoFraccionado")
   @@index([documentoId])
   @@index([fechaVencimiento])
   @@index([estado])
@@ -3877,4 +3901,241 @@ model AuditoriaCertificacion {
   createdAt DateTime @default(now()) @map("created_at")
   @@index([recurso, recursoId, createdAt])
   @@map("auditoria_certificacion")
+}
+
+
+// ============================================================
+// B4 — justificación bancaria canónica (aditivo; no legacy field is redefined)
+// All B4 public identifiers below are PostgreSQL UUIDs. Legacy String/Int IDs retain
+// their existing types when they are referenced by a B4 foreign key.
+// ============================================================
+
+enum EstadoJustificacionMovimiento {
+  SIN_DOCUMENTO
+  JUSTIFICADO
+  NO_REQUIERE
+}
+
+enum MotivoNoRequiere {
+  COMISION_BANCARIA
+  INTERES_BANCARIO
+  REDONDEO_BANCARIO
+  TRASPASO_INTERNO_SIN_DOCUMENTO
+  MOVIMIENTO_TECNICO_BANCO
+  CORRECCION_BANCARIA
+}
+
+enum TipoDocumentoConciliable {
+  FACTURA_RECIBIDA
+  FACTURA_EMITIDA
+  REMESA
+  NOMINA
+  IMPUESTO_TGSS
+  PRESTAMO
+  TICKET
+  TRASPASO
+}
+
+enum TipoLineaVinculo {
+  DOCUMENTO
+  DIFERENCIA
+}
+
+enum MotivoDiferencia {
+  COMISION
+  INTERESES
+  REDONDEO
+}
+
+enum EstadoOperacionB4 {
+  PENDIENTE_APROBACION
+  APROBADA
+  RECHAZADA
+  APLICADA
+  REVERTIDA
+}
+
+enum AccionEventoJustificacionB4 {
+  SOLICITUD
+  APROBACION
+  RECHAZO
+  APLICACION
+  REVERSION
+  INICIALIZACION
+  INCIDENCIA_INICIALIZACION
+}
+
+// Exactly one current B4 state row exists per bank movement. Absent legacy rows are
+// interpreted by application reads as SIN_DOCUMENTO until the idempotent initializer runs.
+model EstadoJustificacionMovimientoB4 {
+  movimientoId       String                         @id @map("movimiento_id")
+  estado             EstadoJustificacionMovimiento  @default(SIN_DOCUMENTO)
+  motivoNoRequiere   MotivoNoRequiere?              @map("motivo_no_requiere")
+  version            Int                            @default(1)
+  updatedAt          DateTime                       @updatedAt @map("updated_at")
+  actualizadoPorId   Int?                           @map("actualizado_por_id")
+
+  movimiento         MovimientoBancario             @relation(fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actualizadoPor     UsuarioAdmin?                  @relation("EstadoJustificacionB4Actualizador", fields: [actualizadoPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("estado_justificacion_movimientos")
+}
+
+// Canonical wrapper. The SQL guard file enforces the type-to-target matrix, exactly
+// one non-null target, partial uniqueness, signed INT-cent bounds, and non-zero known targets.
+model DocumentoConciliable {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  tipo                     TipoDocumentoConciliable
+  importeObjetivoCentimos  Int?                      @map("importe_objetivo_centimos")
+  version                  Int                       @default(1)
+  activo                   Boolean                   @default(true)
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+
+  facturaRecibidaId        String?                   @map("factura_recibida_id")
+  facturaEmitidaId         String?                   @map("factura_emitida_id")
+  remesaId                 Int?                      @map("remesa_id")
+  nominaId                 String?                   @map("nomina_id")
+  documentoAappId          Int?                      @map("documento_aapp_id")
+  pagoFraccionadoId        Int?                      @map("pago_fraccionado_id")
+  documentoPrestamoId      String?                   @db.Uuid @map("documento_prestamo_id")
+  gastoId                  String?                   @map("gasto_id")
+  traspasoInternoId        String?                   @db.Uuid @map("traspaso_interno_id")
+
+  facturaRecibida          FacturaRecibida?          @relation("DocumentoB4FacturaRecibida", fields: [facturaRecibidaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  facturaEmitida           FacturaEmitida?           @relation("DocumentoB4FacturaEmitida", fields: [facturaEmitidaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  remesa                   Remesa?                   @relation("DocumentoB4Remesa", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  nomina                   Nomina?                   @relation("DocumentoB4Nomina", fields: [nominaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  documentoAapp            DocumentoAAPP?            @relation("DocumentoB4AAPP", fields: [documentoAappId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  pagoFraccionado          PagoFraccionado?          @relation("DocumentoB4PagoFraccionado", fields: [pagoFraccionadoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  documentoPrestamo        DocumentoPrestamo?        @relation("DocumentoB4Prestamo", fields: [documentoPrestamoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  gasto                    Gasto?                    @relation("DocumentoB4Gasto", fields: [gastoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  traspasoInterno          TraspasoInterno?          @relation("DocumentoB4Traspaso", fields: [traspasoInternoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  vinculos                 VinculoMovimientoDocumento[] @relation("DocumentoB4Vinculos")
+
+  @@index([tipo, activo])
+  @@index([facturaRecibidaId])
+  @@index([facturaEmitidaId])
+  @@index([remesaId])
+  @@index([nominaId])
+  @@index([documentoAappId])
+  @@index([pagoFraccionadoId])
+  @@index([documentoPrestamoId])
+  @@index([gastoId])
+  @@index([traspasoInternoId])
+  @@map("documentos_conciliables")
+}
+
+// New minimal loan evidence record. It intentionally stores only an evidence reference,
+// never file bytes or a repayment schedule.
+model DocumentoPrestamo {
+  id                      String                 @id @default(uuid()) @db.Uuid
+  referencia              String                 @unique
+  descripcion             String?
+  fecha                   DateTime               @db.Date
+  importeObjetivoCentimos Int?                   @map("importe_objetivo_centimos")
+  activo                  Boolean                @default(true)
+  createdAt               DateTime               @default(now()) @map("created_at")
+  updatedAt               DateTime               @updatedAt @map("updated_at")
+
+  documentoConciliable    DocumentoConciliable[] @relation("DocumentoB4Prestamo")
+
+  @@map("documentos_prestamo")
+}
+
+// A transfer is evidence only once both different bank movements are known. Opposite-pair
+// detection remains an API/approval concern; the row-level inequality is guarded in SQL.
+model TraspasoInterno {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  movimientoOrigenId   String                 @unique @map("movimiento_origen_id")
+  movimientoDestinoId  String                 @unique @map("movimiento_destino_id")
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  movimientoOrigen     MovimientoBancario     @relation("TraspasoB4Origen", fields: [movimientoOrigenId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimientoDestino    MovimientoBancario     @relation("TraspasoB4Destino", fields: [movimientoDestinoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  documentoConciliable DocumentoConciliable[] @relation("DocumentoB4Traspaso")
+
+  @@map("traspasos_internos")
+}
+
+// Active and reversed allocations are retained. DOCUMENTO points to exactly one wrapper;
+// DIFERENCIA has no wrapper and a closed motive. The row-local matrix lives in guards.sql.
+model VinculoMovimientoDocumento {
+  id                       String                    @id @default(uuid()) @db.Uuid
+  movimientoId             String                    @map("movimiento_id")
+  documentoConciliableId   String?                   @db.Uuid @map("documento_conciliable_id")
+  tipoLinea                TipoLineaVinculo          @map("tipo_linea")
+  importeCentimos          Int                       @map("importe_centimos")
+  motivoDiferencia         MotivoDiferencia?         @map("motivo_diferencia")
+  activo                   Boolean                   @default(true)
+  operacionCreacionId      String                    @db.Uuid @map("operacion_creacion_id")
+  operacionAnulacionId     String?                   @db.Uuid @map("operacion_anulacion_id")
+  createdAt                DateTime                  @default(now()) @map("created_at")
+  updatedAt                DateTime                  @updatedAt @map("updated_at")
+
+  movimiento               MovimientoBancario        @relation("MovimientoB4Vinculos", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  documentoConciliable     DocumentoConciliable?     @relation("DocumentoB4Vinculos", fields: [documentoConciliableId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operacionCreacion        OperacionJustificacionB4  @relation("OperacionB4LineasCreadas", fields: [operacionCreacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operacionAnulacion       OperacionJustificacionB4? @relation("OperacionB4LineasAnuladas", fields: [operacionAnulacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([movimientoId, activo])
+  @@index([documentoConciliableId, activo])
+  @@map("vinculos_movimiento_documento")
+}
+
+// Idempotency is deliberately scoped to the real UsuarioAdmin Int identity and request key.
+model OperacionJustificacionB4 {
+  id                     String                    @id @default(uuid()) @db.Uuid
+  movimientoId           String                    @map("movimiento_id")
+  estado                 EstadoOperacionB4         @default(PENDIENTE_APROBACION)
+  idempotencyKey         String                    @map("idempotency_key")
+  payloadHash            String                    @map("payload_hash")
+  versionEsperada        Int                       @map("version_esperada")
+  versionResultante      Int?                      @map("version_resultante")
+  solicitadaPorId        Int                       @map("solicitada_por_id")
+  aprobadaPorId          Int?                      @map("aprobada_por_id")
+  revierteOperacionId    String?                   @db.Uuid @map("revierte_operacion_id")
+  snapshotSolicitud      Json                      @map("snapshot_solicitud")
+  snapshotResultado      Json?                     @map("snapshot_resultado")
+  snapshotEstadoPrevio   Json?                     @map("snapshot_estado_previo")
+  createdAt              DateTime                  @default(now()) @map("created_at")
+  aprobadaAt             DateTime?                 @map("aprobada_at")
+  aplicadaAt             DateTime?                 @map("aplicada_at")
+  rechazadaAt            DateTime?                 @map("rechazada_at")
+  revertidaAt            DateTime?                 @map("revertida_at")
+
+  movimiento             MovimientoBancario        @relation("MovimientoB4Operaciones", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  solicitadaPor          UsuarioAdmin              @relation("OperacionJustificacionB4Solicitante", fields: [solicitadaPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  aprobadaPor            UsuarioAdmin?             @relation("OperacionJustificacionB4Aprobador", fields: [aprobadaPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  revierteOperacion      OperacionJustificacionB4? @relation("OperacionB4Reversion", fields: [revierteOperacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  operacionesInversas    OperacionJustificacionB4[] @relation("OperacionB4Reversion")
+  lineasCreadas          VinculoMovimientoDocumento[] @relation("OperacionB4LineasCreadas")
+  lineasAnuladas         VinculoMovimientoDocumento[] @relation("OperacionB4LineasAnuladas")
+  eventos                EventoJustificacionB4[]
+
+  @@unique([solicitadaPorId, idempotencyKey])
+  @@index([movimientoId, estado])
+  @@index([revierteOperacionId])
+  @@map("operaciones_justificacion_b4")
+}
+
+// Append-only audit log: actorId is a nullable FK to UsuarioAdmin.id, never a legacy role
+// string. Immutability (no UPDATE/DELETE) is enforced by a SQL trigger in guards.sql.
+model EventoJustificacionB4 {
+  id            String                   @id @default(uuid()) @db.Uuid
+  operacionId   String                   @db.Uuid @map("operacion_id")
+  movimientoId  String                   @map("movimiento_id")
+  accion        AccionEventoJustificacionB4
+  actorId       Int?                     @map("actor_id")
+  detalle       Json
+  createdAt     DateTime                 @default(now()) @map("created_at")
+
+  operacion     OperacionJustificacionB4 @relation(fields: [operacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento    MovimientoBancario       @relation("MovimientoB4Eventos", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor         UsuarioAdmin?            @relation("EventoJustificacionB4Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([movimientoId, createdAt])
+  @@index([operacionId, createdAt])
+  @@map("eventos_justificacion_b4")
 }

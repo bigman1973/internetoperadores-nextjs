@@ -11,6 +11,7 @@ function financeAreas(pathname) {
       ? ['admin.finanzas.ggcc_draxton'] : [],
     'cobros-pendientes': ['admin.finanzas.cobros_pendientes'],
     conciliacion: ['admin.finanzas.conciliacion'],
+    'conciliacion-v2': ['admin.finanzas.conciliacion'],
     'conciliacion-remesas': ['admin.finanzas.conciliacion_remesas'],
     cuentas: ['admin.finanzas.movimientos', 'admin.finanzas.conciliacion'],
     'datos-fiscales': ['admin.finanzas.datos_fiscales'],
@@ -37,6 +38,7 @@ export async function middleware(request) {
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
       || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
+      || (path === '/api/admin/finanzas/conciliacion-v2' && request.method === 'POST')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
