@@ -1186,6 +1186,10 @@ model FacturaRecibida {
   archivoOneDrive String?  @map("archivo_onedrive") // Ruta en OneDrive
   oneDriveItemId  String?  @unique @map("onedrive_item_id") // ID del item en OneDrive
   carpetaOrigen   String?  @map("carpeta_origen") // Pendiente, Trimestre 1, etc.
+  oneDriveDriveId String?  @map("onedrive_drive_id")
+  oneDriveRutaActual String? @map("onedrive_ruta_actual")
+  estadoCarpeta   String?  @map("estado_carpeta") // Circuito gestoría, independiente de estado validado
+  etiquetaMateriales Boolean? @map("etiqueta_materiales") // Etiqueta documental, no centro de coste
   // OCR
   ocrCompletado   Boolean  @default(false) @map("ocr_completado")
   ocrConfianza    Float?   @map("ocr_confianza") // 0-1 confianza del OCR
@@ -1214,12 +1218,28 @@ model FacturaRecibida {
   confirmingLineas ConfirmingLinea[]
   comentarios     ComentarioFacturaRecibida[]
   documentosOperadora DocumentoCosteOperadora[]
+  historialUbicaciones HistorialUbicacionFacturaRecibida[]
 
   @@index([estado])
   @@index([proveedor])
   @@index([fecha])
   @@index([imputacion])
   @@map("facturas_recibidas")
+}
+
+// B1: trazabilidad aditiva de ubicaciones y normalización, sin borrar fuentes.
+model HistorialUbicacionFacturaRecibida {
+  id            String @id @default(uuid())
+  facturaId     String @map("factura_id")
+  autorId       Int @map("autor_id")
+  motivo        String
+  anterior      Json
+  actual        Json
+  createdAt     DateTime @default(now()) @map("created_at")
+  factura       FacturaRecibida @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+
+  @@index([facturaId, createdAt])
+  @@map("historial_ubicaciones_facturas_recibidas")
 }
 
 // Notas internas auditables: no modifican clasificaciones ni crean reglas automáticas.

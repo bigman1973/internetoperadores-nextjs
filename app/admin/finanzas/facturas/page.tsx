@@ -7,6 +7,8 @@ import {
   ArrowUpTrayIcon, CloudArrowDownIcon, ArrowPathIcon, EyeIcon,
   MagnifyingGlassIcon, XMarkIcon, CalendarDaysIcon, ChevronDownIcon
 } from '@heroicons/react/24/outline';
+import { useRole } from '@/components/admin/RoleContext';
+import InvoiceLocationHistory from '@/components/finanzas/InvoiceLocationHistory';
 
 interface Factura {
   id: string;
@@ -31,24 +33,123 @@ interface Factura {
   ocrConfianza?: number;
   carpetaOrigen?: string;
   archivoOneDrive?: string;
+  oneDriveItemId?: string;
+  estadoCarpeta?: string;
+  etiquetaMateriales?: boolean;
   movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
 }
 
+type EstadoCarpeta = 'VACIA' | 'SIN_NOVEDADES' | 'CON_NOVEDADES' | 'ERROR';
+
 interface CarpetaStatus {
-  total: number;
-  nuevos: number;
-  yaImportados: number;
+  estado?: EstadoCarpeta;
+  total: number | null;
+  nuevos: number | null;
+  yaImportados: number | null;
+  admitidos: number | null;
+  error?: string;
+}
+
+interface SyncError {
+  carpeta: string;
+  error: string;
 }
 
 interface SyncStatus {
-  pendientes: CarpetaStatus;
-  materiales: CarpetaStatus;
-  trimestre1: CarpetaStatus;
-  trimestre2: CarpetaStatus;
-  trimestre3: CarpetaStatus;
-  trimestre4: CarpetaStatus;
-  confirming_draxton: CarpetaStatus;
-  totalNuevos: number;
+  [key: string]: unknown;
+  pendientes?: unknown;
+  pendiente?: unknown;
+  materiales?: unknown;
+  trimestre1?: unknown;
+  trimestre2?: unknown;
+  trimestre3?: unknown;
+  trimestre4?: unknown;
+  confirming_draxton?: unknown;
+  raiz?: unknown;
+  totalNuevos?: number | null;
+  totalArchivos?: number | null;
+  totalImportados?: number | null;
+  inventarioCompleto?: boolean;
+  sandbox?: boolean;
+  canWrite?: boolean;
+  ubicacion?: {
+    siteId?: string;
+    siteName?: string;
+    driveId?: string;
+    driveName?: string;
+    rootPath?: string;
+  };
+  errores?: unknown;
+  errors?: unknown;
+  error?: string;
+}
+
+const SIN_DATO = 'No disponible';
+
+function numeroNullable(valor: unknown): number | null {
+  return typeof valor === 'number' && Number.isFinite(valor) ? valor : null;
+}
+
+/** Accepts the B1 contract and the old numeric/object response while never turning failures into zeroes. */
+function normalizarCarpeta(valor: unknown): CarpetaStatus {
+  if (typeof valor === 'number') {
+    return { estado: valor > 0 ? 'CON_NOVEDADES' : 'VACIA', total: null, nuevos: valor, yaImportados: null, admitidos: null };
+  }
+  if (!valor || typeof valor !== 'object') {
+    return { total: null, nuevos: null, yaImportados: null, admitidos: null };
+  }
+
+  const datos = valor as Record<string, unknown>;
+  const estado = ['VACIA', 'SIN_NOVEDADES', 'CON_NOVEDADES', 'ERROR'].includes(String(datos.estado))
+    ? datos.estado as EstadoCarpeta
+    : undefined;
+  const error = typeof datos.error === 'string' ? datos.error : undefined;
+  return {
+    estado: estado || (error ? 'ERROR' : undefined),
+    total: numeroNullable(datos.total),
+    nuevos: numeroNullable(datos.nuevos),
+    yaImportados: numeroNullable(datos.yaImportados),
+    admitidos: numeroNullable(datos.admitidos),
+    error,
+  };
+}
+
+function normalizarErrores(valor: unknown): SyncError[] {
+  if (typeof valor === 'number') {
+    return valor > 0 ? [{ carpeta: 'Sincronización', error: `${valor} error${valor === 1 ? '' : 'es'} comunicado${valor === 1 ? '' : 's'}` }] : [];
+  }
+  if (typeof valor === 'string' && valor) return [{ carpeta: 'Sincronización', error: valor }];
+  if (!Array.isArray(valor)) return [];
+  return valor.flatMap((item, indice) => {
+    if (typeof item === 'string') return [{ carpeta: 'Sincronización', error: item }];
+    if (!item || typeof item !== 'object') return [];
+    const error = typeof (item as Record<string, unknown>).error === 'string' ? (item as Record<string, unknown>).error as string : null;
+    if (!error) return [];
+    const carpeta = typeof (item as Record<string, unknown>).carpeta === 'string'
+      ? (item as Record<string, unknown>).carpeta as string
+      : `Elemento ${indice + 1}`;
+    return [{ carpeta, error }];
+  });
+}
+
+function contador(valor: number | null | undefined): string {
+  return valor === null || valor === undefined ? SIN_DATO : String(valor);
+}
+
+function sumarSiDisponibles(valores: Array<number | null | undefined>): number | null {
+  return valores.every((valor) => valor !== null && valor !== undefined)
+    ? valores.reduce((suma, valor) => suma + (valor as number), 0)
+    : null;
+}
+
+function etiquetaEstado(carpeta: CarpetaStatus): string {
+  if (carpeta.error || carpeta.estado === 'ERROR') return 'Error';
+  if (carpeta.estado === 'VACIA') return 'Vacía';
+  if (carpeta.estado === 'CON_NOVEDADES') return 'Con novedades';
+  if (carpeta.estado === 'SIN_NOVEDADES') return 'Sin novedades';
+  if (carpeta.nuevos !== null && carpeta.nuevos > 0) return 'Con novedades';
+  if (carpeta.total === 0) return 'Vacía';
+  return SIN_DATO;
 }
 
 const ESTADOS = {
@@ -60,6 +161,7 @@ const ESTADOS = {
 
 export default function FacturasPage() {
   const router = useRouter();
+  const { hasAreaAccess } = useRole();
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -98,6 +200,8 @@ export default function FacturasPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<any>(null);
   const [checkingSync, setCheckingSync] = useState(false);
+  const canWrite = hasAreaAccess('admin.finanzas.facturas', 'escritura') && syncStatus?.canWrite !== false;
+  const canSync = canWrite && syncStatus?.canWrite === true && syncStatus?.inventarioCompleto === true;
 
   useEffect(() => {
     fetchFacturas();
@@ -214,29 +318,40 @@ export default function FacturasPage() {
     setCheckingSync(true);
     try {
       const res = await fetch('/api/admin/finanzas/sincronizar-onedrive');
-      if (res.ok) {
-        const data = await res.json();
-        setSyncStatus(data);
-      }
+      const data = await res.json();
+      if (res.ok) setSyncStatus(data);
+      else setSyncStatus({ error: data.error || 'No se pudo leer el inventario de OneDrive' });
     } catch (e) {
       console.error('Error checking sync status:', e);
+      setSyncStatus({ error: 'No se pudo leer el inventario de OneDrive' });
     }
     setCheckingSync(false);
   }
 
-  async function sincronizarOneDrive(carpeta: string = 'ambas') {
+  async function sincronizarOneDrive(carpeta: string = 'todas', soloUbicaciones = false) {
+    if (!canSync) return;
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch('/api/admin/finanzas/sincronizar-onedrive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carpeta, limite: 10 }),
-      });
-      const data = await res.json();
-      setSyncResult(data);
-      // Refrescar facturas y estado
-      fetchFacturas();
+      const body: Record<string, unknown> = soloUbicaciones
+        ? { carpeta: 'todas', soloUbicaciones: true }
+        : { carpeta, limite: 10 };
+      for (let intento = 0; intento < 2; intento++) {
+        const res = await fetch('/api/admin/finanzas/sincronizar-onedrive', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (intento === 0 && res.status === 409 && data.requiereConfirmarBiblioteca) {
+          const ruta = `${data.ubicacion?.siteName || ''} / ${data.ubicacion?.driveName || ''} / ${data.ubicacion?.rootPath || ''}`;
+          if (window.confirm(`${data.cantidad} documentos históricos no conservan el ID de su biblioteca. ¿Confirmas que proceden de esta biblioteca de Internet Operadores?\n\n${ruta}\n\nLa confirmación se registrará con tu usuario. Si no estás seguro, cancela: no se ha modificado ningún dato.`)) {
+            body.bibliotecaHistoricaConfirmada = data.driveId;
+            continue;
+          }
+        }
+        setSyncResult(res.ok ? data : { ...data, error: data.error || 'No se pudo completar la operación' });
+        if (res.ok) fetchFacturas();
+        break;
+      }
       checkSyncStatus();
     } catch (e: any) {
       setSyncResult({ error: e.message });
@@ -245,6 +360,7 @@ export default function FacturasPage() {
   }
 
   async function actualizarEstado(id: string, estado: string) {
+    if (!canWrite) return;
     await fetch(`/api/admin/finanzas/facturas/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -273,6 +389,7 @@ export default function FacturasPage() {
   }
 
   async function conciliarDesdeFactura(movimientoId: string, facturaId: string) {
+    if (!canWrite) return;
     await fetch(`/api/admin/finanzas/movimientos/${movimientoId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -291,229 +408,161 @@ export default function FacturasPage() {
     return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
   }
 
+  const carpetasOneDrive = syncStatus ? [
+    { clave: 'pendiente', nombre: 'Pendiente de contabilizar', estilo: 'text-blue-700', datos: normalizarCarpeta(syncStatus.pendiente ?? syncStatus.pendientes) },
+    { clave: 'materiales', nombre: 'Compra de materiales', estilo: 'text-amber-700', datos: normalizarCarpeta(syncStatus.materiales) },
+    { clave: 'trimestre1', nombre: 'Trimestre 1', estilo: 'text-emerald-700', datos: normalizarCarpeta(syncStatus.trimestre1) },
+    { clave: 'trimestre2', nombre: 'Trimestre 2', estilo: 'text-emerald-700', datos: normalizarCarpeta(syncStatus.trimestre2) },
+    { clave: 'trimestre3', nombre: 'Trimestre 3', estilo: 'text-teal-700', datos: normalizarCarpeta(syncStatus.trimestre3) },
+    { clave: 'trimestre4', nombre: 'Trimestre 4', estilo: 'text-teal-700', datos: normalizarCarpeta(syncStatus.trimestre4) },
+    { clave: 'confirming_draxton', nombre: 'Confirming Draxton', estilo: 'text-purple-700', datos: normalizarCarpeta(syncStatus.confirming_draxton) },
+    { clave: 'raiz', nombre: 'Raíz (archivos sueltos)', estilo: 'text-slate-700', datos: normalizarCarpeta(syncStatus.raiz) },
+  ] : [];
+  const totalDocumentos = syncStatus ? numeroNullable(syncStatus.totalArchivos) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.total)) : null;
+  const totalAdmitidos = syncStatus ? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.admitidos)) : null;
+  const totalImportados = syncStatus ? numeroNullable(syncStatus.totalImportados) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.yaImportados)) : null;
+  const totalNuevos = syncStatus ? numeroNullable(syncStatus.totalNuevos) ?? sumarSiDisponibles(carpetasOneDrive.map(({ datos }) => datos.nuevos)) : null;
+  const erroresInventario = syncStatus ? [
+    ...normalizarErrores(syncStatus.errores ?? syncStatus.errors),
+    ...carpetasOneDrive.flatMap(({ nombre, datos }) => datos.error ? [{ carpeta: nombre, error: datos.error }] : []),
+    ...(syncStatus.error ? [{ carpeta: 'Inventario OneDrive', error: syncStatus.error }] : []),
+  ].filter((error, indice, lista) => lista.findIndex((otra) => otra.carpeta === error.carpeta && otra.error === error.error) === indice) : [];
+
   return (
     <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Facturas Recibidas</h1>
           <p className="text-sm text-gray-500 mt-1">{total} facturas registradas</p>
         </div>
-        <div className="flex gap-2">
-          <button 
+        <div className="flex gap-2 flex-wrap">
+          <button
             onClick={() => sincronizarOneDrive('todas')}
-            disabled={syncing}
+            disabled={syncing || !canSync}
+            title={!canSync ? 'Se requiere permiso de escritura y un inventario completo verificado' : 'Procesa documentos nuevos con OCR'}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {syncing ? (
-              <ArrowPathIcon className="h-4 w-4 animate-spin" />
-            ) : (
-              <CloudArrowDownIcon className="h-4 w-4" />
-            )}
-            {syncing ? 'Sincronizando...' : 'Sincronizar OneDrive'}
+            {syncing ? <ArrowPathIcon className="h-4 w-4 animate-spin" /> : <CloudArrowDownIcon className="h-4 w-4" />}
+            {syncing ? 'Procesando...' : 'Sincronizar nuevos'}
           </button>
-          <button className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 flex items-center gap-2">
+          <button disabled={!canWrite} title={!canWrite ? 'No tienes permiso de escritura en Finanzas' : undefined} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <ArrowUpTrayIcon className="h-4 w-4" />
             Subir Factura
           </button>
         </div>
       </div>
 
-      {/* Panel de sincronización OneDrive */}
-      {syncStatus && syncStatus.totalNuevos > 0 && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-3">
-              <CloudArrowDownIcon className="h-6 w-6 text-blue-600" />
-              <div>
-                <p className="text-sm font-medium text-blue-900">
-                  {syncStatus.totalNuevos} facturas nuevas en OneDrive
-                </p>
-                <p className="text-xs text-blue-600 mt-0.5">
-                  {[  
-                    syncStatus.pendientes?.nuevos > 0 && `${syncStatus.pendientes.nuevos} Pendientes`,
-                    syncStatus.materiales?.nuevos > 0 && `${syncStatus.materiales.nuevos} Materiales`,
-                    syncStatus.trimestre1?.nuevos > 0 && `${syncStatus.trimestre1.nuevos} T1`,
-                    syncStatus.trimestre2?.nuevos > 0 && `${syncStatus.trimestre2.nuevos} T2`,
-                    syncStatus.trimestre3?.nuevos > 0 && `${syncStatus.trimestre3.nuevos} T3`,
-                    syncStatus.trimestre4?.nuevos > 0 && `${syncStatus.trimestre4.nuevos} T4`,
-                    syncStatus.confirming_draxton?.nuevos > 0 && `${syncStatus.confirming_draxton.nuevos} Confirming`,
-                  ].filter(Boolean).join(' · ')}
-                </p>
-              </div>
+      {/* Inventario OneDrive B1: no transforma errores ni datos no disponibles en ceros. */}
+      <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-3" aria-label="Estado de OneDrive">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2">
+              <CloudArrowDownIcon className="h-5 w-5 text-blue-600" />
+              <h2 className="text-sm font-semibold text-gray-900">Inventario OneDrive</h2>
+              {syncStatus?.inventarioCompleto === false && <span className="text-xs rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">Inventario parcial</span>}
             </div>
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => sincronizarOneDrive('todas')}
-                disabled={syncing}
-                className="text-xs px-3 py-1.5 bg-blue-600 border border-blue-600 rounded-md text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                Todas ({syncStatus.totalNuevos})
-              </button>
-              <button
-                onClick={() => sincronizarOneDrive('pendiente')}
-                disabled={syncing || !syncStatus.pendientes?.nuevos}
-                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-              >
-                Pendientes ({syncStatus.pendientes?.nuevos || 0})
-              </button>
-              <button
-                onClick={() => sincronizarOneDrive('materiales')}
-                disabled={syncing || !syncStatus.materiales?.nuevos}
-                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-              >
-                Materiales ({syncStatus.materiales?.nuevos || 0})
-              </button>
-              <button
-                onClick={() => sincronizarOneDrive('trimestre1')}
-                disabled={syncing || !syncStatus.trimestre1?.nuevos}
-                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-              >
-                T1 ({syncStatus.trimestre1?.nuevos || 0})
-              </button>
-              <button
-                onClick={() => sincronizarOneDrive('trimestre2')}
-                disabled={syncing || !syncStatus.trimestre2?.nuevos}
-                className="text-xs px-3 py-1.5 bg-white border border-blue-200 rounded-md text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-              >
-                T2 ({syncStatus.trimestre2?.nuevos || 0})
-              </button>
-              <button
-                onClick={() => sincronizarOneDrive('confirming_draxton')}
-                disabled={syncing || !syncStatus.confirming_draxton?.nuevos}
-                className="text-xs px-3 py-1.5 bg-white border border-purple-200 rounded-md text-purple-700 hover:bg-purple-100 disabled:opacity-50"
-              >
-                Confirming Draxton ({syncStatus.confirming_draxton?.nuevos || 0})
-              </button>
-            </div>
+            <p className="mt-1 text-xs text-gray-500">Documentos encontrados, admitidos (PDF/imágenes), ya importados por ID y documentos nuevos.</p>
           </div>
+          <button
+            onClick={() => sincronizarOneDrive('todas', true)}
+            disabled={syncing || !canSync}
+            title={!canSync ? 'Se requiere permiso de escritura y un inventario completo verificado' : 'Actualiza ubicaciones en staging; no ejecuta OCR'}
+            className="inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ArrowPathIcon className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            Releer ubicación
+          </button>
         </div>
-      )}
 
-      {/* Resultado de sincronización */}
+        {syncStatus?.sandbox === true && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+            <strong>Staging sandbox:</strong> la respuesta procede del entorno de pruebas. No se han enviado notificaciones.
+          </div>
+        )}
+
+        {erroresInventario.length > 0 && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2">
+            <p className="text-xs font-medium text-red-800">No se pudo leer parte del inventario</p>
+            <ul className="mt-1 space-y-0.5 text-xs text-red-700">
+              {erroresInventario.map((error, indice) => <li key={`${error.carpeta}-${indice}`}><strong>{error.carpeta}:</strong> {error.error}</li>)}
+            </ul>
+          </div>
+        )}
+
+        {syncStatus ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                ['Documentos', totalDocumentos, 'Todos los archivos'],
+                ['Admitidos', totalAdmitidos, 'PDF e imágenes'],
+                ['Importados', totalImportados, 'IDs ya registrados'],
+                ['Nuevos', totalNuevos, 'Admitidos sin importar'],
+              ].map(([etiqueta, valor, ayuda]) => (
+                <div key={etiqueta as string} className="rounded-lg border bg-gray-50 p-3 text-center">
+                  <p className="text-[11px] uppercase font-medium text-gray-500">{etiqueta}</p>
+                  <p className={`text-xl font-bold ${etiqueta === 'Nuevos' && typeof valor === 'number' && valor > 0 ? 'text-orange-600' : 'text-gray-900'}`}>{contador(valor as number | null)}</p>
+                  <p className="text-[11px] text-gray-400">{ayuda}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2">
+              {carpetasOneDrive.map(({ clave, nombre, estilo, datos }) => (
+                <div key={clave} className={`rounded-lg border p-3 ${datos.error || datos.estado === 'ERROR' ? 'border-red-200 bg-red-50' : 'bg-gray-50'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className={`text-xs font-semibold ${estilo}`}>{nombre}</p>
+                    <span className={`shrink-0 text-[10px] rounded-full px-1.5 py-0.5 ${datos.error || datos.estado === 'ERROR' ? 'bg-red-100 text-red-700' : datos.estado === 'CON_NOVEDADES' || (datos.nuevos !== null && datos.nuevos > 0) ? 'bg-orange-100 text-orange-700' : 'bg-gray-200 text-gray-600'}`}>{etiquetaEstado(datos)}</span>
+                  </div>
+                  <p className="mt-2 text-xs text-gray-600"><strong className="text-gray-900">{contador(datos.total)}</strong> documentos · <strong className="text-gray-900">{contador(datos.admitidos)}</strong> admitidos</p>
+                  <p className="mt-0.5 text-xs text-gray-600"><strong className="text-gray-900">{contador(datos.yaImportados)}</strong> importados · <strong className={datos.nuevos !== null && datos.nuevos > 0 ? 'text-orange-700' : 'text-gray-900'}>{contador(datos.nuevos)}</strong> nuevos</p>
+                  {datos.error && <p className="mt-1 text-xs text-red-700 line-clamp-2" title={datos.error}>{datos.error}</p>}
+                </div>
+              ))}
+            </div>
+
+            {syncStatus.ubicacion && (
+              <details className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                <summary className="cursor-pointer font-medium text-gray-700">Ruta resuelta de OneDrive</summary>
+                <div className="mt-2 space-y-1">
+                  <p><strong>Sitio:</strong> {syncStatus.ubicacion.siteName || SIN_DATO}</p>
+                  <p><strong>Biblioteca:</strong> {syncStatus.ubicacion.driveName || SIN_DATO}</p>
+                  <p><strong>Ruta:</strong> {syncStatus.ubicacion.rootPath || SIN_DATO}</p>
+                  <p className="break-all text-gray-400">IDs: sitio {syncStatus.ubicacion.siteId || SIN_DATO} · biblioteca {syncStatus.ubicacion.driveId || SIN_DATO}</p>
+                </div>
+              </details>
+            )}
+          </>
+        ) : checkingSync ? (
+          <p className="text-sm text-gray-500">Leyendo inventario de OneDrive…</p>
+        ) : (
+          <p className="text-sm text-gray-500">El inventario no está disponible.</p>
+        )}
+      </section>
+
+      {/* Resultado de sincronización o de relectura de ubicación */}
       {syncResult && (
         <div className={`rounded-lg p-4 border ${syncResult.error ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-          {syncResult.error ? (
-            <p className="text-sm text-red-700">Error: {syncResult.error}</p>
-          ) : (
+          {syncResult.error ? <p className="text-sm text-red-700">Error: {syncResult.error}</p> : (
             <div>
-              <p className="text-sm font-medium text-green-800">{syncResult.mensaje}</p>
-              {syncResult.resultados && syncResult.resultados.length > 0 && (
+              <p className="text-sm font-medium text-green-800">{syncResult.mensaje || 'Operación completada'}</p>
+              <p className="mt-1 text-xs text-green-700">
+                Procesados: {contador(numeroNullable(syncResult.procesados))} · Errores: {Array.isArray(syncResult.errores) ? syncResult.errores.length : contador(numeroNullable(syncResult.errores))} · Ubicaciones actualizadas: {contador(numeroNullable(syncResult.ubicacionesActualizadas))} · Normalizadas: {contador(numeroNullable(syncResult.normalizadas))}
+                {typeof syncResult.inventarioCompleto === 'boolean' && ` · Inventario ${syncResult.inventarioCompleto ? 'completo' : 'parcial'}`}
+              </p>
+              {Array.isArray(syncResult.resultados) && syncResult.resultados.length > 0 && (
                 <div className="mt-2 space-y-1">
-                  {syncResult.resultados.slice(0, 5).map((r: any, i: number) => (
-                    <p key={i} className="text-xs text-green-700">
-                      {r.estado === 'ok' ? '✅' : '❌'} {r.archivo} 
-                      {r.proveedor && ` → ${r.proveedor}`}
-                      {r.total ? ` (${formatEUR(r.total)})` : ''}
-                      {r.error && ` - ${r.error}`}
-                    </p>
-                  ))}
-                  {syncResult.resultados.length > 5 && (
-                    <p className="text-xs text-green-600">... y {syncResult.resultados.length - 5} más</p>
-                  )}
+                  {syncResult.resultados.slice(0, 5).map((resultado: any, indice: number) => <p key={indice} className="text-xs text-green-700">{resultado.estado === 'ok' ? 'Correcto' : 'Revisar'}: {resultado.archivo || resultado.carpeta || 'Elemento'}{resultado.error ? ` — ${resultado.error}` : ''}</p>)}
+                  {syncResult.resultados.length > 5 && <p className="text-xs text-green-600">… y {syncResult.resultados.length - 5} más</p>}
                 </div>
               )}
-              <button
-                onClick={() => setSyncResult(null)}
-                className="mt-2 text-xs text-green-600 underline"
-              >
-                Cerrar
-              </button>
+              {normalizarErrores(syncResult.errores ?? syncResult.errors).length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-xs text-red-700">
+                  {normalizarErrores(syncResult.errores ?? syncResult.errors).map((error, indice) => <li key={`${error.carpeta}-${indice}`}><strong>{error.carpeta}:</strong> {error.error}</li>)}
+                </ul>
+              )}
+              <button onClick={() => setSyncResult(null)} className="mt-2 text-xs text-green-700 underline">Cerrar</button>
             </div>
           )}
-        </div>
-      )}
-
-      {/* KPI OneDrive: Total archivos vs importados */}
-      {syncStatus && (
-        <div className="space-y-3">
-          {/* Resumen general */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-white rounded-lg border-2 border-gray-200 p-4 text-center">
-              <p className="text-xs text-gray-500 uppercase font-medium">Total en OneDrive</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {(syncStatus.pendientes?.total || 0) + (syncStatus.materiales?.total || 0) + (syncStatus.trimestre1?.total || 0) + (syncStatus.trimestre2?.total || 0) + (syncStatus.trimestre3?.total || 0) + (syncStatus.trimestre4?.total || 0)}
-              </p>
-              <p className="text-xs text-gray-400">archivos</p>
-            </div>
-            <div className="bg-white rounded-lg border-2 border-green-200 p-4 text-center">
-              <p className="text-xs text-gray-500 uppercase font-medium">Importadas</p>
-              <p className="text-2xl font-bold text-green-700">
-                {(syncStatus.pendientes?.yaImportados || 0) + (syncStatus.materiales?.yaImportados || 0) + (syncStatus.trimestre1?.yaImportados || 0) + (syncStatus.trimestre2?.yaImportados || 0) + (syncStatus.trimestre3?.yaImportados || 0) + (syncStatus.trimestre4?.yaImportados || 0)}
-              </p>
-              <p className="text-xs text-gray-400">ya en el sistema</p>
-            </div>
-            <div className={`bg-white rounded-lg border-2 p-4 text-center ${syncStatus.totalNuevos > 0 ? 'border-orange-300' : 'border-green-200'}`}>
-              <p className="text-xs text-gray-500 uppercase font-medium">Pendientes</p>
-              <p className={`text-2xl font-bold ${syncStatus.totalNuevos > 0 ? 'text-orange-600' : 'text-green-700'}`}>
-                {syncStatus.totalNuevos}
-              </p>
-              <p className="text-xs text-gray-400">por importar</p>
-            </div>
-          </div>
-          {/* Desglose por carpeta */}
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-blue-700 truncate">Pdte. Contabilizar</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.pendientes?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.pendientes?.total || 0}</span>
-              </div>
-              {(syncStatus.pendientes?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.pendientes?.nuevos} pendientes</p>
-              )}
-            </div>
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-amber-700 truncate">Materiales</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.materiales?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.materiales?.total || 0}</span>
-              </div>
-              {(syncStatus.materiales?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.materiales?.nuevos} pendientes</p>
-              )}
-            </div>
-
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-green-700 truncate">Trimestre 1</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre1?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.trimestre1?.total || 0}</span>
-              </div>
-              {(syncStatus.trimestre1?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre1?.nuevos} pendientes</p>
-              )}
-            </div>
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-green-700 truncate">Trimestre 2</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre2?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.trimestre2?.total || 0}</span>
-              </div>
-              {(syncStatus.trimestre2?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre2?.nuevos} pendientes</p>
-              )}
-            </div>
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-teal-700 truncate">Trimestre 3</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre3?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.trimestre3?.total || 0}</span>
-              </div>
-              {(syncStatus.trimestre3?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre3?.nuevos} pendientes</p>
-              )}
-            </div>
-            <div className="bg-gray-50 rounded-lg border p-3">
-              <p className="text-xs font-medium text-teal-700 truncate">Trimestre 4</p>
-              <div className="flex items-baseline gap-1 mt-1">
-                <span className="text-lg font-bold text-gray-900">{syncStatus.trimestre4?.yaImportados || 0}</span>
-                <span className="text-xs text-gray-400">/ {syncStatus.trimestre4?.total || 0}</span>
-              </div>
-              {(syncStatus.trimestre4?.nuevos || 0) > 0 && (
-                <p className="text-xs text-orange-600 font-medium mt-0.5">{syncStatus.trimestre4?.nuevos} pendientes</p>
-              )}
-            </div>
-          </div>
         </div>
       )}
 
@@ -833,7 +882,7 @@ export default function FacturasPage() {
                           {f.imputacion || '—'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3 text-center" onClick={e => e.stopPropagation()}>
                         {f.carpetaOrigen && (
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
                             f.carpetaOrigen === 'T1' ? 'bg-emerald-50 text-emerald-700' :
@@ -845,6 +894,9 @@ export default function FacturasPage() {
                             {f.carpetaOrigen}
                           </span>
                         )}
+                        {f.estadoCarpeta && <p className="mt-1 text-xs text-slate-700">{f.estadoCarpeta === 'CONTABILIZADA_GESTORIA' ? 'Circuito gestoría: contabilizada' : f.estadoCarpeta === 'PENDIENTE_CONTABILIZAR' ? 'Circuito gestoría: pendiente' : f.estadoCarpeta === 'CONFIRMING' ? 'Documentación de confirming' : 'Sin clasificar en gestoría'}</p>}
+                        {f.etiquetaMateriales && <p className="mt-1 text-xs font-medium text-amber-800">Etiqueta: materiales</p>}
+                        {f.oneDriveItemId && <InvoiceLocationHistory facturaId={f.id} />}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <span className={`text-xs px-2 py-0.5 rounded-full ${estadoInfo.color}`}>
@@ -860,11 +912,12 @@ export default function FacturasPage() {
                         ) : (
                           <button
                             onClick={() => buscarMovCandidatos(f.id)}
+                            disabled={!canWrite}
                             className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full border transition-colors ${
                               concilFacturaId === f.id
                                 ? 'bg-blue-100 border-blue-300 text-blue-700'
                                 : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600'
-                            }`}
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
                             title="Conciliar — Buscar y vincular movimientos bancarios coincidentes"
                           >
                             <MagnifyingGlassIcon className="h-3.5 w-3.5" />
@@ -889,6 +942,7 @@ export default function FacturasPage() {
                             <>
                               <button
                                 onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'VALIDADA'); }}
+                                disabled={!canWrite}
                                 className="text-green-600 hover:text-green-800"
                                 title="Validar factura — Marcar como revisada y correcta"
                               >
@@ -896,6 +950,7 @@ export default function FacturasPage() {
                               </button>
                               <button
                                 onClick={(e) => { e.stopPropagation(); actualizarEstado(f.id, 'RECHAZADA'); }}
+                                disabled={!canWrite}
                                 className="text-red-400 hover:text-red-600"
                                 title="Rechazar factura — Marcar como incorrecta o no válida"
                               >
@@ -941,7 +996,8 @@ export default function FacturasPage() {
                                       <span className="text-sm font-bold text-red-600 whitespace-nowrap">{formatEUR(mov.importe)}</span>
                                       <button
                                         onClick={() => conciliarDesdeFactura(mov.id, f.id)}
-                                        className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                                        disabled={!canWrite}
+                                        className="px-3 py-1 text-xs font-medium bg-green-600 text-white rounded hover:bg-green-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                       >
                                         Vincular
                                       </button>
