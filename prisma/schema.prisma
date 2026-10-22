@@ -1094,6 +1094,8 @@ model CuentaBancaria {
   activa      Boolean  @default(true)
   saldoActual Float?   @map("saldo_actual")
   fechaSaldo  DateTime? @map("fecha_saldo")
+  // Cobertura del extracto importado, distinta de su fecha de carga y de un cierre contable.
+  fechaCorteExtracto DateTime? @map("fecha_corte_extracto")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 

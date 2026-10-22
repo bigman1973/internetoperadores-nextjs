@@ -4,8 +4,8 @@
  * Cada banco tiene un formato diferente para las transferencias.
  * Esta función analiza el concepto y extrae quién es la otra parte.
  * 
- * Si el tercero es "Internet Operadores" → es un traspaso entre cuentas propias.
- * Si es otra empresa → es un pago a proveedor o cobro de cliente.
+ * Una mención de Internet Operadores o `TRASSPAS` sólo es una pista. La pareja
+ * de cuentas/importe se valida explícitamente en B6; este helper nunca concilia.
  */
 
 export interface InfoTercero {
@@ -354,21 +354,35 @@ const BANCO_POR_CUENTA: Record<string, string> = {
  */
 export function extraerTercero(concepto: string, importe: number, cuentaId: string): InfoTercero {
   const banco = BANCO_POR_CUENTA[cuentaId] || 'desconocido';
-
+  let extraido: InfoTercero;
   switch (banco) {
     case 'santander':
-      return extraerTerceroSantander(concepto, importe);
+      extraido = extraerTerceroSantander(concepto, importe);
+      break;
     case 'bbva':
-      return extraerTerceroBBVA(concepto, importe);
+      extraido = extraerTerceroBBVA(concepto, importe);
+      break;
     case 'guissona':
-      return extraerTerceroCaixaGuissona(concepto, importe);
+      extraido = extraerTerceroCaixaGuissona(concepto, importe);
+      break;
     case 'vivid':
-      return extraerTerceroVivid(concepto, importe);
+      extraido = extraerTerceroVivid(concepto, importe);
+      break;
     case 'caixabank':
-      return extraerTerceroCaixaBank(concepto, importe);
+      extraido = extraerTerceroCaixaBank(concepto, importe);
+      break;
     default:
       return { nombre: null, esInternetOperadores: false, concepto: null, tipo: 'desconocido' };
   }
+
+  // No basta que un parser vea TRASSPAS ni que infiera el banco destino: sin
+  // identidad configurada y pareja opuesta es una pista, no un traspaso marcado.
+  // B3 conserva el nombre extraído, pero no lo entrega a la conciliación legacy
+  // como pago/cobro/traspaso automático.
+  if (extraido.tipo === 'traspaso' || /\bTRAS+P(?:AS|ASS|ASO)?\w*/iu.test(concepto)) {
+    return { ...extraido, esInternetOperadores: false, tipo: 'desconocido' };
+  }
+  return extraido;
 }
 
 /**
@@ -376,6 +390,11 @@ export function extraerTercero(concepto: string, importe: number, cuentaId: stri
  * basándose en el tercero extraído del concepto.
  */
 export function esMovimientoTraspaso(concepto: string, importe: number, cuentaId: string): boolean {
-  const info = extraerTercero(concepto, importe, cuentaId);
-  return info.esInternetOperadores || info.tipo === 'traspaso';
+  // La identidad propia y la pareja compatible se comprueban con
+  // evaluarPistaTraspasoPropio en el flujo B6. Esta función conservada por
+  // compatibilidad ya no concede una autoclasificación por texto.
+  void concepto;
+  void importe;
+  void cuentaId;
+  return false;
 }

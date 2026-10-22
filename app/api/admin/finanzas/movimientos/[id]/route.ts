@@ -1,322 +1,144 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { prisma } from '@/lib/prisma'
+import { authOptions } from '@/lib/auth'
+import { checkAdminAreaWrite } from '@/lib/api-admin-area-read'
+import { assertFinanceStagingIsolated } from '@/lib/finanzas/staging-safety'
+import {
+  presentarCategoriaHistorica,
+  presentarTipoMovimientoHistorico,
+  validarCategoriaNueva,
+  validarTipoMovimientoNuevo,
+} from '@/lib/finanzas/movement-catalog'
 
-// PATCH - Actualizar categoría/imputación de un movimiento
-export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+const AREA_MOVIMIENTOS = 'admin.finanzas.movimientos'
+const ROLES_LEGACY = ['CONTABILIDAD']
+const MAX_JSON_BYTES = 8 * 1024
+const CAMPOS_B3 = new Set(['categoria', 'tipoPago', 'metodoPago'])
+
+function jsonPrivado(body: unknown, status = 200) {
+  return NextResponse.json(body, { status, headers: { 'cache-control': 'private, no-store' } })
+}
+
+async function leerJsonAcotado(req: NextRequest): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: NextResponse }> {
+  const length = req.headers.get('content-length')
+  if (length && (!/^\d+$/.test(length) || Number(length) > MAX_JSON_BYTES)) {
+    return { ok: false, response: jsonPrivado({ error: 'Cuerpo demasiado grande' }, 413) }
+  }
+  if (req.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return { ok: false, response: jsonPrivado({ error: 'Se requiere JSON' }, 415) }
+  let text: string
   try {
-    const { id } = await context.params;
-    const body = await req.json();
-    const { categoria, tipoPago, metodoPago, conciliado, facturaId, gastoId, crearRegla, pendienteFactura, pagoACuentaVola, facturaEmitidaId, notaConciliacion, tipoDocumento, documentoRecibido, entregaACuentaEmpleadoId, tipoEntrega, entidadFiscalId, asignarProveedorASimilares, idsSeleccionados, nominaId, marcarFacturaASimilares } = body;
-
-    const data: any = {};
-    if (categoria !== undefined) data.categoria = categoria;
-    if (tipoPago !== undefined) data.tipoPago = tipoPago;
-    if (metodoPago !== undefined) data.metodoPago = metodoPago;
-    if (conciliado !== undefined) data.conciliado = conciliado;
-    if (facturaId !== undefined) data.facturaId = facturaId;
-    if (gastoId !== undefined) data.gastoId = gastoId;
-    if (pendienteFactura !== undefined) data.pendienteFactura = pendienteFactura;
-    if (pagoACuentaVola !== undefined) {
-      data.pagoACuentaVola = pagoACuentaVola;
-      // Si se marca como pago a cuenta Vola, se concilia automáticamente
-      if (pagoACuentaVola) {
-        data.conciliado = true;
-        data.categoria = 'Vola';
-        data.tipoPago = 'Pago a cuenta';
-        data.tipoDocumento = 'justificante';
-        data.documentoRecibido = true;
-      }
+    if (!req.body) return { ok: false, response: jsonPrivado({ error: 'Cuerpo vacío' }, 400) }
+    const reader = req.body.getReader()
+    const decoder = new TextDecoder('utf-8', { fatal: true })
+    let size = 0
+    text = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > MAX_JSON_BYTES) { await reader.cancel().catch(() => {}); return { ok: false, response: jsonPrivado({ error: 'Cuerpo demasiado grande' }, 413) } }
+      text += decoder.decode(value, { stream: true })
     }
-    if (facturaEmitidaId !== undefined) {
-      data.facturaEmitidaId = facturaEmitidaId;
-      // Si se vincula con factura emitida, se concilia y se marca la factura como cobrada
-      if (facturaEmitidaId) {
-        data.conciliado = true;
-      }
-    }
-    if (notaConciliacion !== undefined) data.notaConciliacion = notaConciliacion;
-    if (tipoDocumento !== undefined) data.tipoDocumento = tipoDocumento;
-    if (documentoRecibido !== undefined) data.documentoRecibido = documentoRecibido;
-    if (tipoEntrega !== undefined && entregaACuentaEmpleadoId === undefined) data.tipoEntrega = tipoEntrega;
-    if (entregaACuentaEmpleadoId !== undefined) {
-      data.entregaACuentaEmpleadoId = entregaACuentaEmpleadoId;
-      if (tipoEntrega !== undefined) data.tipoEntrega = tipoEntrega;
-      // Si se marca como entrega a cuenta, se concilia automáticamente
-      if (entregaACuentaEmpleadoId) {
-        data.conciliado = true;
-        data.tipoDocumento = 'justificante';
-        data.documentoRecibido = true;
-        if (tipoEntrega === 'coste_empresa') {
-          data.categoria = 'Sueldos y Salarios';
-          data.tipoPago = 'Coste empresa';
-        } else {
-          data.categoria = 'Entrega a cuenta';
-          data.tipoPago = 'Anticipo';
-        }
-      }
-    }
-    // Vinculación con nómina
-    if (nominaId !== undefined) {
-      data.nominaId = nominaId;
-      if (nominaId) {
-        // Al vincular nómina, conciliar automáticamente
-        data.conciliado = true;
-        data.tipoDocumento = 'nomina';
-        data.documentoRecibido = true;
-        data.categoria = 'Sueldos y Salarios';
-        data.tipoPago = 'Nómina';
-      }
-    }
-    // Vinculación con entidad fiscal (proveedor/AAPP)
-    if (entidadFiscalId !== undefined) {
-      data.entidadFiscalId = entidadFiscalId;
-      // Si se vincula un tercero, auto-conciliar si ya tiene justificante o si se está marcando justificante
-      if (entidadFiscalId) {
-        // Verificar si el movimiento ya tiene tipoDocumento=justificante
-        const movActual = await prisma.movimientoBancario.findUnique({ where: { id }, select: { tipoDocumento: true } });
-        if (movActual?.tipoDocumento === 'justificante' || data.tipoDocumento === 'justificante') {
-          data.conciliado = true;
-        }
-      }
-    }
-    // Si se marca tipoDocumento=justificante y ya tiene tercero vinculado, auto-conciliar
-    // NOTA: tipoDocumento=factura NO concilia automáticamente (requiere facturaId vinculado)
-    if (tipoDocumento === 'justificante' && !data.conciliado) {
-      const movActual2 = await prisma.movimientoBancario.findUnique({ where: { id }, select: { entidadFiscalId: true } });
-      if (movActual2?.entidadFiscalId || data.entidadFiscalId) {
-        data.conciliado = true;
-      }
-    }
-    // Si se marca tipoDocumento=factura, NO conciliar (queda como 'factura pendiente' hasta vincular facturaId)
-    // Solo marcar documentoRecibido=false para indicar que falta la factura física
-    if (tipoDocumento === 'factura' && !data.conciliado) {
-      data.documentoRecibido = false;
-    }
-
-    // Si se pide marcar como factura a movimientos del mismo tercero
-    if (marcarFacturaASimilares && idsSeleccionados && Array.isArray(idsSeleccionados) && idsSeleccionados.length > 0) {
-      await prisma.movimientoBancario.updateMany({
-        where: {
-          id: { in: idsSeleccionados },
-          tipoDocumento: null,
-        },
-        data: { tipoDocumento: 'factura', documentoRecibido: false },
-      });
-      return NextResponse.json({ ok: true, marcados: idsSeleccionados.length });
-    }
-
-    // Si se pide asignar proveedor a movimientos similares
-    if (asignarProveedorASimilares) {
-      const movActual = await prisma.movimientoBancario.findUnique({ where: { id }, include: { cuenta: true } });
-      if (movActual && movActual.entidadFiscalId) {
-        // Si se pasan IDs específicos, solo asignar a esos
-        if (idsSeleccionados && Array.isArray(idsSeleccionados) && idsSeleccionados.length > 0) {
-          await prisma.movimientoBancario.updateMany({
-            where: {
-              id: { in: idsSeleccionados },
-              entidadFiscalId: null,
-            },
-            data: { entidadFiscalId: movActual.entidadFiscalId },
-          });
-        } else {
-          // Fallback: asignar a todos los similares (comportamiento anterior)
-          const patron = extraerPatron(movActual.concepto);
-          if (patron) {
-            await prisma.movimientoBancario.updateMany({
-              where: {
-                id: { not: id },
-                concepto: { contains: patron, mode: 'insensitive' },
-                entidadFiscalId: null,
-              },
-              data: { entidadFiscalId: movActual.entidadFiscalId },
-            });
-          }
-        }
-      }
-      return NextResponse.json({ ok: true });
-    }
-
-    // Auto-vincular proveedor al vincular factura recibida
-    let autoEntidadFiscalId: string | null = null;
-    if (facturaId && facturaId !== null && !data.entidadFiscalId) {
-      const factura = await prisma.facturaRecibida.findUnique({ where: { id: facturaId }, select: { proveedor: true, cif: true } });
-      if (factura) {
-        // Buscar entidad fiscal por CIF o nombre
-        const entidad = await prisma.entidadFiscal.findFirst({
-          where: {
-            OR: [
-              ...(factura.cif ? [{ nifCif: factura.cif }] : []),
-              { razonSocial: { equals: factura.proveedor, mode: 'insensitive' as const } },
-              { nombreComercial: { equals: factura.proveedor, mode: 'insensitive' as const } },
-            ],
-          },
-        });
-        if (entidad) {
-          data.entidadFiscalId = entidad.id;
-          autoEntidadFiscalId = entidad.id;
-        }
-      }
-    }
-
-    const movimiento = await prisma.movimientoBancario.update({
-      where: { id },
-      data,
-      include: { cuenta: true, entidadFiscal: true },
-    });
-
-    // Si se vincula con factura emitida, marcarla como cobrada
-    if (facturaEmitidaId && facturaEmitidaId !== null) {
-      await prisma.facturaEmitida.update({
-        where: { id: facturaEmitidaId },
-        data: {
-          estado: 'COBRADA',
-          importeCobrado: movimiento.importe,
-          fechaCobro: movimiento.fechaOperacion,
-        },
-      });
-    }
-
-    // Si se pide crear regla de imputación automática
-    if (crearRegla && categoria) {
-      const patron = extraerPatron(movimiento.concepto);
-      if (patron) {
-        await prisma.reglaImputacion.upsert({
-          where: { id: `${patron}-${categoria}` },
-          update: {
-            confianza: { increment: 0.1 },
-            vecesUsada: { increment: 1 },
-          },
-          create: {
-            patron,
-            banco: movimiento.cuenta.banco,
-            imputacion: categoria,
-            tipoPago: tipoPago || null,
-            confianza: 0.7,
-            vecesUsada: 1,
-          },
-        });
-      }
-    }
-
-    // Buscar movimientos similares sin proveedor para sugerir asignación masiva
-    let similares = 0;
-    let movimientosSimilares: any[] = [];
-    let patronUsado = '';
-    let proveedorNombre = '';
-    const entidadVinculada = autoEntidadFiscalId || (entidadFiscalId && entidadFiscalId !== null ? entidadFiscalId : null);
-    if (entidadVinculada) {
-      const patron = extraerPatron(movimiento.concepto);
-      patronUsado = patron || '';
-      if (patron) {
-        movimientosSimilares = await prisma.movimientoBancario.findMany({
-          where: {
-            id: { not: id },
-            concepto: { contains: patron, mode: 'insensitive' },
-            entidadFiscalId: null,
-          },
-          select: {
-            id: true,
-            fechaOperacion: true,
-            concepto: true,
-            importe: true,
-            cuenta: { select: { banco: true } },
-          },
-          orderBy: { fechaOperacion: 'desc' },
-          take: 200,
-        });
-        similares = movimientosSimilares.length;
-      }
-      proveedorNombre = movimiento.entidadFiscal?.razonSocial || '';
-    }
-
-    // Buscar movimientos del mismo tercero sin tipo documento para ofrecer marcar como factura en bloque
-    let similaresTercero: any[] = [];
-    if (tipoDocumento === 'factura' && movimiento.tercero) {
-      similaresTercero = await prisma.movimientoBancario.findMany({
-        where: {
-          id: { not: id },
-          tercero: { equals: movimiento.tercero, mode: 'insensitive' },
-          tipoDocumento: null,
-          importe: { lt: 0 }, // solo gastos
-        },
-        select: {
-          id: true,
-          fechaOperacion: true,
-          concepto: true,
-          importe: true,
-          cuenta: { select: { banco: true } },
-        },
-        orderBy: { fechaOperacion: 'desc' },
-        take: 200,
-      });
-    }
-
-    return NextResponse.json({ movimiento, similares, movimientosSimilares, patronUsado, proveedorNombre, similaresTercero, terceroUsado: movimiento.tercero });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    text += decoder.decode()
+  } catch {
+    return { ok: false, response: jsonPrivado({ error: 'Cuerpo no legible' }, 400) }
+  }
+  if (new TextEncoder().encode(text).byteLength > MAX_JSON_BYTES) {
+    return { ok: false, response: jsonPrivado({ error: 'Cuerpo demasiado grande' }, 413) }
+  }
+  try {
+    const body = JSON.parse(text)
+    if (!body || Array.isArray(body) || typeof body !== 'object') throw new Error('INVALID')
+    return { ok: true, body }
+  } catch {
+    return { ok: false, response: jsonPrivado({ error: 'JSON no válido' }, 400) }
   }
 }
 
-function extraerPatron(concepto: string): string | null {
-  // Palabras genéricas bancarias/fiscales que NO identifican a una entidad
-  const GENERICAS = new Set([
-    'recibo', 'concepto', 'periodo', 'liquidacion', 'pago', 'cobro',
-    'transferencia', 'ingreso', 'cargo', 'abono', 'comision',
-    'domiciliacion', 'adeudo', 'orden', 'mandato', 'nomina',
-    'regimen', 'general', 'autonomos', 'aplazamientos', 'cotizacion', 'cuota',
-    'factura', 'fra', 'ref', 'referencia', 'numero', 'fecha', 'modelo',
-    'impuesto', 'tributo', 'tasa', 'iva',
-    'soluciones', 'informati', 'servicios', 'spain', 'empresa',
-    'telecomunicaciones', 'technologies', 'fibra', 'internet', 'movil', 'fijo',
-    'suministro', 'electrico', 'energia', 'clientes', 'cliente',
-    'favor', 'cuenta', 'mensual', 'mensualidad', 'nif', 'cif',
-    'para', 'por', 'con', 'del', 'los', 'las', 'una', 'uno',
-    // Transferencias bancarias
-    'inmediata', 'immediata', 'traspaso', 'traspas', 'trf',
-    'bizum', 'sepa', 'swift', 'iban', 'bic',
-    'santander', 'bbva', 'caixa', 'caixabank', 'sabadell', 'bankinter',
-    'guissona', 'bankia', 'ibercaja', 'kutxabank', 'abanca',
-    'operadores', 'deuda', 'abogados', 'honorarios',
-    // Preposiciones y conectores
-    'desde', 'hasta', 'entre', 'sobre', 'bajo', 'ante',
-    'que', 'como', 'este', 'esta', 'ese', 'esa',
-    // Tipos de operación
-    'vencimiento', 'venciment', 'prestec', 'amortitzacio', 'amortizacion',
-    'pagament', 'pagamento', 'cobrament', 'cobranza',
-    'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre',
-    'octubre', 'noviembre', 'diciembre', 'enero', 'febrero', 'marzo',
-    'inst26', 'inst', 'presupuesto',
-  ]);
+function normalizarMovimientoLectura(movimiento: any) {
+  const categoria = presentarCategoriaHistorica(movimiento.categoria)
+  const tipoPago = presentarTipoMovimientoHistorico(movimiento.tipoPago)
+  const metodoPago = presentarTipoMovimientoHistorico(movimiento.metodoPago)
+  return {
+    ...movimiento,
+    categoria: categoria.valor,
+    tipoPago: tipoPago.valor,
+    metodoPago: metodoPago.valor,
+    catalogo: {
+      categoriaOriginal: categoria.valorOriginal,
+      categoriaEsLegacy: categoria.esLegacy,
+      tipoPagoOriginal: tipoPago.valorOriginal,
+      tipoPagoEsLegacy: tipoPago.esLegacy,
+      metodoPagoOriginal: metodoPago.valorOriginal,
+      metodoPagoEsLegacy: metodoPago.esLegacy,
+    },
+  }
+}
 
-  // Extraer tokens (split por espacios, puntuación y guiones)
-  const tokens = concepto.split(/[\s,;:()\[\]{}\-\/]+/).filter(t => t.length > 0);
+/**
+ * B3 limita la edición a clasificación bancaria explícita. No acepta vínculos,
+ * conciliación ni actualizaciones masivas: pertenecen al modelo B4/B6 y las
+ * rutas heredadas podían auto-conciliar o marcar facturas cobradas.
+ */
+export async function PATCH(req: NextRequest, context: { params: Promise<{ id: string }> }) {
+  const session = await getServerSession(authOptions)
+  if (!session?.user || session.user.userType !== 'admin') return jsonPrivado({ error: 'No autorizado' }, 401)
+  const denied = await checkAdminAreaWrite(AREA_MOVIMIENTOS, ROLES_LEGACY, session)
+  if (denied) return denied
+  if (req.headers.get('origin') !== req.nextUrl.origin) return jsonPrivado({ error: 'Origen de la solicitud no válido' }, 403)
 
-  // Buscar la PRIMERA palabra significativa no-genérica
-  // En conceptos bancarios, el nombre de la entidad suele aparecer primero
-  // después de las palabras genéricas (Recibo, Pago, Transferencia...)
-  for (const token of tokens) {
-    // Ignorar tokens con puntos internos seguidos de letra (refs: R.e.autonomos, R.Q2827003A, S.A.)
-    if (/\.[a-zA-Z]/.test(token) && token.indexOf('.') < token.length - 1) continue;
-
-    // Limpiar punto final para evaluar
-    const limpio = token.replace(/[.]$/, '');
-    if (/^\d+$/.test(limpio)) continue;
-    if (limpio.length < 3) continue;
-    if (!/[a-zA-ZáéíóúñÁÉÍÓÚÑ]{3,}/.test(limpio)) continue;
-
-    const lower = limpio.toLowerCase();
-    if (GENERICAS.has(lower)) continue;
-
-    // Esta es la primera palabra significativa - probablemente el nombre de la entidad
-    // Devolver el token original en minúsculas (Prisma usa mode: insensitive)
-    return token.toLowerCase();
+  const entrada = await leerJsonAcotado(req)
+  if (entrada.ok === false) return entrada.response
+  const claves = Object.keys(entrada.body)
+  if (claves.length === 0 || claves.some((clave) => !CAMPOS_B3.has(clave))) {
+    return jsonPrivado({ error: 'Sólo se permiten categoria, tipoPago y metodoPago en B3' }, 400)
   }
 
-  // Fallback: tomar la primera palabra con al menos 3 letras
-  for (const token of tokens) {
-    if (token.length >= 3 && /[a-zA-Z]{2,}/.test(token)) {
-      return token.toLowerCase();
+  const { id } = await context.params
+  if (!id || id.length > 128) return jsonPrivado({ error: 'Identificador de movimiento no válido' }, 400)
+  const data: Record<string, string | null> = {}
+
+  for (const campo of claves) {
+    const valor = entrada.body[campo]
+    if (valor !== null && typeof valor !== 'string') return jsonPrivado({ error: `${campo} debe ser un valor de catálogo o null` }, 400)
+    if (typeof valor === 'string' && (valor.length === 0 || valor.length > 100)) return jsonPrivado({ error: `${campo} no es válido` }, 400)
+    if (campo === 'categoria' && valor !== null) {
+      const validacion = validarCategoriaNueva(valor)
+      if (validacion.ok === false) return jsonPrivado({ error: validacion.mensaje, codigo: validacion.codigo }, 400)
+      data.categoria = validacion.valor
     }
+    if ((campo === 'tipoPago' || campo === 'metodoPago') && valor !== null) {
+      const validacion = validarTipoMovimientoNuevo(valor)
+      if (validacion.ok === false) return jsonPrivado({ error: validacion.mensaje, codigo: validacion.codigo }, 400)
+      data[campo] = validacion.valor
+    }
+    if (valor === null) data[campo] = null
   }
-  return null;
+
+  try {
+    await assertFinanceStagingIsolated()
+    const movimiento = await prisma.movimientoBancario.update({
+      where: { id },
+      data,
+      include: { cuenta: { select: { banco: true, alias: true } } },
+    })
+    // HistorialCambio pertenece a tarifas y no referencia movimientos: no se fuerza
+    // una auditoría inconsistente; se conserva el valor histórico en la respuesta.
+    return jsonPrivado({ ok: true, movimiento: normalizarMovimientoLectura(movimiento) })
+  } catch (error: any) {
+    const codigo = error instanceof Error ? error.message : ''
+    if (codigo === 'STAGING_ISOLATION_REQUIRED') return jsonPrivado({ error: 'Staging aislado no verificado' }, 503)
+    if (error?.code === 'P2025') return jsonPrivado({ error: 'Movimiento no encontrado' }, 404)
+    return jsonPrivado({ error: 'No se pudo actualizar la clasificación del movimiento' }, 500)
+  }
+}
+
+// Nunca exponer las mutaciones heredadas de propósito general en B3.
+export async function PUT() {
+  return jsonPrivado({ error: 'Método no permitido' }, 405)
+}
+
+export async function DELETE() {
+  return jsonPrivado({ error: 'Método no permitido' }, 405)
 }

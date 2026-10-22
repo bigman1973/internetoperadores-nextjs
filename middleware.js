@@ -35,6 +35,8 @@ export async function middleware(request) {
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
+      || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
+      || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });

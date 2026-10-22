@@ -1,353 +1,253 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MagnifyingGlassIcon, FunnelIcon, CheckCircleIcon, XCircleIcon, ArrowPathIcon, BoltIcon } from '@heroicons/react/24/outline';
+import { useEffect, useMemo, useState } from 'react';
+import { FunnelIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
+import { CATEGORIAS_MOVIMIENTO, TIPOS_MOVIMIENTO } from '@/lib/finanzas/movement-catalog';
+import BankImportWarnings, { type ContinuidadSaldo } from '@/components/finanzas/BankImportWarnings';
 
 interface Movimiento {
   id: string;
   fechaOperacion: string;
-  fechaValor: string;
+  fechaValor?: string | null;
   concepto: string;
   importe: number;
   saldo: number | null;
   categoria: string | null;
+  categoriaOriginal?: string | null;
+  categoriaNormalizada?: boolean | null;
   tipoPago: string | null;
+  tipoPagoOriginal?: string | null;
+  tipoPagoNormalizado?: boolean | null;
   conciliado: boolean;
-  cuenta: { banco: string; alias: string };
+  catalogo?: { categoriaOriginal?: string | null; categoriaEsLegacy?: boolean; tipoPagoOriginal?: string | null; tipoPagoEsLegacy?: boolean };
+  cuenta: { banco: string; alias?: string | null };
 }
 
-interface EstadoConciliacion {
-  totalMovimientos: number;
-  conciliados: number;
-  sinConciliar: number;
-  sinCategorizar: number;
-  porcentajeConciliado: number;
+interface CuentaResumen {
+  id?: string;
+  banco: string;
+  alias?: string | null;
+  ultimoMovimiento?: string | null;
+  fechaCorteExtracto?: string | null;
+  continuidadSaldo?: ContinuidadSaldo | null;
+  avisosSaldo?: unknown[] | null;
+  cobertura?: { continuidadSaldo?: ContinuidadSaldo | null; avisosSaldo?: unknown[] | null };
 }
 
-const CATEGORIAS = [
-  'Estructura', 'Operadora', 'Draxton', 'Vola', 'Sotic', 'IMPUESTOS',
-  'Sueldos y Salarios', 'Dietas', 'Desplazamientos', 'Gastos Financieros',
-  'Comisiones V-Valley', 'Comisiones Draxton', 'Comisiones Bancos',
-  'Retenciones', 'Tesoreria', 'Traspaso', 'Proyectos Singulares',
-  'ZOOM', 'Hotspot', 'Morosos', 'Otros Gastos', 'Gastos Devoluciones', 'Embargos',
-];
+const CATEGORIAS = CATEGORIAS_MOVIMIENTO;
+const TIPOS_PAGO = TIPOS_MOVIMIENTO;
 
-const TIPOS_PAGO = ['Factura', 'IVA', 'IRPF', 'IS', 'SS', 'Nómina', 'Domiciliación', 'Transferencia', 'Débito', 'Confirming', 'Remesa', 'Préstamo', 'Comisión', 'Suscripción', 'Devolución'];
+function formatEUR(value: number) {
+  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(value);
+}
+
+function formatFecha(value?: string | null) {
+  if (!value) return 'Sin fecha';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Fecha no disponible' : date.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
+}
+
+function legacyLabel(value: string | null, original?: string | null, normalized?: boolean | null) {
+  const raw = original || value;
+  const isUnknown = normalized === false || (!value && Boolean(raw));
+  return { raw, isUnknown };
+}
 
 export default function MovimientosPage() {
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
-  const [total, setTotal] = useState(0);
+  const [total, setTotal] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [filtros, setFiltros] = useState({ cuentaId: '', categoria: '', conciliado: '', buscar: '', desde: '', hasta: '' });
-  const [cuentas, setCuentas] = useState<any[]>([]);
+  const [error, setError] = useState('');
+  const [filtros, setFiltros] = useState({ cuentaId: '', categoria: '', conciliado: '', desde: '', hasta: '' });
+  const [cuentas, setCuentas] = useState<CuentaResumen[]>([]);
   const [editando, setEditando] = useState<string | null>(null);
-  const [estadoConciliacion, setEstadoConciliacion] = useState<EstadoConciliacion | null>(null);
-  const [conciliando, setConciliando] = useState(false);
-  const [resultadoConciliacion, setResultadoConciliacion] = useState<any>(null);
+
+  const selectedAccount = useMemo(
+    () => cuentas.find(cuenta => cuenta.id === filtros.cuentaId) || null,
+    [cuentas, filtros.cuentaId],
+  );
 
   useEffect(() => {
-    fetchCuentas();
-    fetchEstadoConciliacion();
+    void fetchCuentas();
   }, []);
 
   useEffect(() => {
-    fetchMovimientos();
+    void fetchMovimientos();
   }, [page, filtros]);
 
   async function fetchCuentas() {
-    const res = await fetch('/api/admin/finanzas/cuentas');
-    const json = await res.json();
-    setCuentas(json.cuentas || []);
-  }
-
-  async function fetchEstadoConciliacion() {
     try {
-      const res = await fetch('/api/admin/finanzas/conciliacion');
+      const res = await fetch('/api/admin/finanzas/estado-cuentas');
+      if (!res.ok) throw new Error('No se ha podido consultar el estado de los extractos.');
       const json = await res.json();
-      setEstadoConciliacion(json);
-    } catch (e) { /* silencio */ }
+      setCuentas(Array.isArray(json.estadoCuentas) ? json.estadoCuentas : []);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se ha podido consultar el estado de los extractos.');
+    }
   }
 
   async function fetchMovimientos() {
     setLoading(true);
-    const params = new URLSearchParams({ page: page.toString(), limit: '50' });
-    if (filtros.cuentaId) params.set('cuentaId', filtros.cuentaId);
-    if (filtros.categoria) params.set('categoria', filtros.categoria);
-    if (filtros.conciliado) params.set('conciliado', filtros.conciliado);
-    if (filtros.desde) params.set('desde', filtros.desde);
-    if (filtros.hasta) params.set('hasta', filtros.hasta);
-    
-    const res = await fetch(`/api/admin/finanzas/importar-movimientos?${params}`);
-    const json = await res.json();
-    setMovimientos(json.movimientos || []);
-    setTotal(json.total || 0);
-    setLoading(false);
-  }
-
-  async function ejecutarConciliacion(modo: string) {
-    setConciliando(true);
-    setResultadoConciliacion(null);
+    setError('');
     try {
-      const res = await fetch('/api/admin/finanzas/conciliacion', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modo }),
-      });
+      const params = new URLSearchParams({ page: page.toString(), limit: '50' });
+      if (filtros.cuentaId) params.set('cuentaId', filtros.cuentaId);
+      if (filtros.categoria) params.set('categoria', filtros.categoria);
+      if (filtros.conciliado) params.set('conciliado', filtros.conciliado);
+      if (filtros.desde) params.set('desde', filtros.desde);
+      if (filtros.hasta) params.set('hasta', filtros.hasta);
+      const res = await fetch(`/api/admin/finanzas/movimientos?${params}`);
+      if (!res.ok) throw new Error('No se han podido cargar los movimientos.');
       const json = await res.json();
-      setResultadoConciliacion(json.resultados);
-      fetchMovimientos();
-      fetchEstadoConciliacion();
-    } catch (e) {
-      console.error(e);
+      setMovimientos(Array.isArray(json.movimientos) ? json.movimientos : []);
+      setTotal(typeof json.total === 'number' ? json.total : null);
+    } catch (cause) {
+      setMovimientos([]);
+      setTotal(null);
+      setError(cause instanceof Error ? cause.message : 'No se han podido cargar los movimientos.');
+    } finally {
+      setLoading(false);
     }
-    setConciliando(false);
   }
 
-  async function actualizarMovimiento(id: string, data: any) {
-    await fetch(`/api/admin/finanzas/movimientos/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...data, crearRegla: true }),
-    });
-    fetchMovimientos();
-    setEditando(null);
-  }
-
-  function formatEUR(n: number) {
-    return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
-  }
-
-  function formatFecha(str: string) {
-    return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
+  async function actualizarCategoria(id: string, categoria: string) {
+    if (!(CATEGORIAS as readonly string[]).includes(categoria)) return;
+    try {
+      const res = await fetch(`/api/admin/finanzas/movimientos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        // B3: edición explícita únicamente; no crea reglas ni vínculos/conciliaciones automáticos.
+        body: JSON.stringify({ categoria }),
+      });
+      if (!res.ok) throw new Error('No se ha podido guardar la categoría.');
+      await fetchMovimientos();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'No se ha podido guardar la categoría.');
+    } finally {
+      setEditando(null);
+    }
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-4" data-testid="b3-movimientos-page">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Movimientos Bancarios</h1>
-          <p className="text-sm text-gray-500 mt-1">{total} movimientos en total</p>
+          <h1 className="text-2xl font-bold text-gray-950">Movimientos bancarios</h1>
+          <p className="mt-1 text-sm text-gray-700">
+            {total === null ? 'Total no disponible' : `${total.toLocaleString('es-ES')} movimientos`}
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => ejecutarConciliacion('clasificar')}
-            disabled={conciliando}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm bg-amber-50 border border-amber-200 rounded-lg text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-          >
-            <BoltIcon className="h-4 w-4" />
-            Clasificar
-          </button>
-          <button
-            onClick={() => ejecutarConciliacion('todo')}
-            disabled={conciliando}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm bg-green-50 border border-green-200 rounded-lg text-green-700 hover:bg-green-100 disabled:opacity-50"
-          >
-            <ArrowPathIcon className={`h-4 w-4 ${conciliando ? 'animate-spin' : ''}`} />
-            Conciliar Todo
-          </button>
-        </div>
-      </div>
+        <a href="/admin/finanzas/estado-cuentas" className="inline-flex w-fit rounded-lg border-2 border-slate-700 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2">
+          Ver cobertura de extractos
+        </a>
+      </header>
 
-      {/* Panel de estado de conciliación */}
-      {estadoConciliacion && (
-        <div className="bg-white rounded-xl border p-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div>
-              <p className="text-xs text-gray-500">Total</p>
-              <p className="text-lg font-bold text-gray-900">{estadoConciliacion.totalMovimientos}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Conciliados</p>
-              <p className="text-lg font-bold text-green-600">{estadoConciliacion.conciliados}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Pendientes</p>
-              <p className="text-lg font-bold text-amber-600">{estadoConciliacion.sinConciliar}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">Sin categorizar</p>
-              <p className="text-lg font-bold text-red-600">{estadoConciliacion.sinCategorizar}</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-500">% Conciliado</p>
-              <div className="flex items-center gap-2">
-                <p className="text-lg font-bold text-blue-600">{estadoConciliacion.porcentajeConciliado}%</p>
-                <div className="flex-1 bg-gray-200 rounded-full h-2">
-                  <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${estadoConciliacion.porcentajeConciliado}%` }}></div>
-                </div>
-              </div>
-            </div>
-          </div>
+      {selectedAccount && (
+        <BankImportWarnings
+          continuidadSaldo={selectedAccount.continuidadSaldo || selectedAccount.cobertura?.continuidadSaldo}
+          avisosSaldo={(selectedAccount.avisosSaldo || selectedAccount.cobertura?.avisosSaldo) as any}
+          fechaCorteExtracto={selectedAccount.fechaCorteExtracto}
+          cuenta={selectedAccount.alias || selectedAccount.banco}
+          compact
+        />
+      )}
+
+      {error && (
+        <div role="alert" data-testid="b3-movimientos-error" className="rounded-lg border-2 border-red-700 bg-red-50 p-3 text-sm font-semibold text-red-950">
+          {error} Los datos no se sustituyen por ceros.
         </div>
       )}
 
-      {/* Resultado de conciliación */}
-      {resultadoConciliacion && (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-          <p className="text-sm font-medium text-green-800">Conciliación completada:</p>
-          <div className="flex gap-4 mt-1 text-xs text-green-700">
-            <span>{resultadoConciliacion.clasificados} clasificados</span>
-            <span>{resultadoConciliacion.conciliadosFacturasRecibidas} facturas recibidas</span>
-            <span>{resultadoConciliacion.conciliadosFacturasEmitidas} facturas emitidas</span>
-            <span>{resultadoConciliacion.conciliadosConfirming} confirming</span>
-          </div>
-        </div>
-      )}
-
-      {/* Filtros */}
-      <div className="bg-white rounded-xl border p-4 flex flex-wrap gap-3 items-center">
-        <FunnelIcon className="h-4 w-4 text-gray-400" />
-        <select
-          value={filtros.cuentaId}
-          onChange={(e) => { setFiltros({...filtros, cuentaId: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-1.5 text-sm"
-        >
-          <option value="">Todos los bancos</option>
-          {cuentas.map(c => (
-            <option key={c.id} value={c.id}>{c.banco} ({c.alias})</option>
-          ))}
+      <section aria-label="Filtros de movimientos" className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
+        <FunnelIcon className="h-5 w-5 text-slate-700" aria-hidden="true" />
+        <label className="sr-only" htmlFor="cuenta">Cuenta</label>
+        <select id="cuenta" data-testid="b3-filter-cuenta" value={filtros.cuentaId} onChange={event => { setFiltros({ ...filtros, cuentaId: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+          <option value="">Todas las cuentas</option>
+          {cuentas.map(cuenta => <option key={cuenta.id || cuenta.banco} value={cuenta.id || ''}>{cuenta.banco}{cuenta.alias ? ` (${cuenta.alias})` : ''}</option>)}
         </select>
-        <select
-          value={filtros.categoria}
-          onChange={(e) => { setFiltros({...filtros, categoria: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-1.5 text-sm"
-        >
+        <label className="sr-only" htmlFor="categoria">Categoría</label>
+        <select id="categoria" data-testid="b3-filter-categoria" value={filtros.categoria} onChange={event => { setFiltros({ ...filtros, categoria: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todas las categorías</option>
-          {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+          {CATEGORIAS.map(categoria => <option key={categoria} value={categoria}>{categoria}</option>)}
         </select>
-        <select
-          value={filtros.conciliado}
-          onChange={(e) => { setFiltros({...filtros, conciliado: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-1.5 text-sm"
-        >
-          <option value="">Todos</option>
-          <option value="true">Conciliados</option>
-          <option value="false">Pendientes</option>
+        <label className="sr-only" htmlFor="conciliado">Estado de conciliación</label>
+        <select id="conciliado" value={filtros.conciliado} onChange={event => { setFiltros({ ...filtros, conciliado: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+          <option value="">Todos los estados</option>
+          <option value="true">Conciliados existentes</option>
+          <option value="false">Pendientes existentes</option>
         </select>
-        <input
-          type="date"
-          value={filtros.desde}
-          onChange={(e) => { setFiltros({...filtros, desde: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-1.5 text-sm"
-          placeholder="Desde"
-        />
-        <input
-          type="date"
-          value={filtros.hasta}
-          onChange={(e) => { setFiltros({...filtros, hasta: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-1.5 text-sm"
-          placeholder="Hasta"
-        />
-      </div>
+        <label className="text-sm font-medium text-slate-900" htmlFor="desde">Desde</label>
+        <input id="desde" type="date" value={filtros.desde} onChange={event => { setFiltros({ ...filtros, desde: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
+        <label className="text-sm font-medium text-slate-900" htmlFor="hasta">Hasta</label>
+        <input id="hasta" type="date" value={filtros.hasta} onChange={event => { setFiltros({ ...filtros, hasta: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
+      </section>
 
-      {/* Tabla */}
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <section className="overflow-hidden rounded-xl border bg-white" aria-label="Listado de movimientos">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b">
+          <table className="w-full min-w-[860px] text-sm">
+            <thead className="border-b bg-slate-100 text-slate-950">
               <tr>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Banco</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Concepto</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Importe</th>
-                <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 uppercase">Saldo</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Categoría</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo</th>
-                <th className="text-center px-4 py-3 text-xs font-medium text-gray-500 uppercase">✓</th>
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase">Fecha</th>
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase">Cuenta</th>
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase">Concepto</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase">Importe</th>
+                <th className="px-4 py-3 text-right text-xs font-bold uppercase">Saldo</th>
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase">Categoría</th>
+                <th className="px-4 py-3 text-left text-xs font-bold uppercase">Tipo</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-200">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-700">Cargando movimientos…</td></tr>
+              ) : error ? (
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-red-900">No hay datos que mostrar debido al error de carga.</td></tr>
               ) : movimientos.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No hay movimientos. Importa un extracto bancario.</td></tr>
-              ) : (
-                movimientos.map(mov => (
-                  <tr key={mov.id} className={`hover:bg-gray-50 ${!mov.categoria ? 'bg-yellow-50/30' : ''}`}>
-                    <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">{formatFecha(mov.fechaOperacion)}</td>
-                    <td className="px-4 py-2.5">
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{mov.cuenta?.banco}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-sm text-gray-900 max-w-sm truncate" title={mov.concepto}>{mov.concepto}</td>
-                    <td className={`px-4 py-2.5 text-sm font-medium text-right whitespace-nowrap ${mov.importe >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                      {formatEUR(mov.importe)}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-gray-500 text-right whitespace-nowrap">
-                      {mov.saldo !== null ? formatEUR(mov.saldo) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {editando === mov.id ? (
-                        <select
-                          defaultValue={mov.categoria || ''}
-                          onChange={(e) => actualizarMovimiento(mov.id, { categoria: e.target.value || null })}
-                          className="border rounded px-2 py-1 text-xs w-full"
-                          autoFocus
-                          onBlur={() => setEditando(null)}
-                        >
-                          <option value="">Sin categoría</option>
-                          {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
+                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-700">No hay movimientos para este filtro.</td></tr>
+              ) : movimientos.map(movimiento => {
+                const categoria = legacyLabel(movimiento.categoria, movimiento.catalogo?.categoriaOriginal ?? movimiento.categoriaOriginal, movimiento.catalogo?.categoriaEsLegacy === undefined ? movimiento.categoriaNormalizada : !movimiento.catalogo.categoriaEsLegacy);
+                const tipo = legacyLabel(movimiento.tipoPago, movimiento.catalogo?.tipoPagoOriginal ?? movimiento.tipoPagoOriginal, movimiento.catalogo?.tipoPagoEsLegacy === undefined ? movimiento.tipoPagoNormalizado : !movimiento.catalogo.tipoPagoEsLegacy);
+                return (
+                  <tr key={movimiento.id} className="align-top hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-800">{formatFecha(movimiento.fechaOperacion)}</td>
+                    <td className="px-4 py-3"><span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-950">{movimiento.cuenta?.banco || 'Cuenta no disponible'}</span></td>
+                    <td className="max-w-sm px-4 py-3 text-slate-950" title={movimiento.concepto}>{movimiento.concepto}</td>
+                    <td className={`whitespace-nowrap px-4 py-3 text-right font-bold ${movimiento.importe >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>{formatEUR(movimiento.importe)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-slate-900">{movimiento.saldo === null || movimiento.saldo === undefined ? 'Sin saldo' : formatEUR(movimiento.saldo)}</td>
+                    <td className="px-4 py-3">
+                      {categoria.isUnknown ? (
+                        <span data-testid="b3-categoria-historica" className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-950"><InformationCircleIcon className="h-4 w-4" aria-hidden="true" />Histórico sin normalizar: {categoria.raw || 'Sin categoría'}</span>
+                      ) : editando === movimiento.id ? (
+                        <select aria-label="Categoría cerrada" defaultValue={movimiento.categoria || ''} onChange={event => void actualizarCategoria(movimiento.id, event.target.value)} onBlur={() => setEditando(null)} autoFocus className="w-full rounded border-2 border-slate-600 px-2 py-1 text-xs text-slate-950">
+                          <option value="" disabled>Selecciona categoría</option>
+                          {CATEGORIAS.map(item => <option key={item} value={item}>{item}</option>)}
                         </select>
                       ) : (
-                        <button
-                          onClick={() => setEditando(mov.id)}
-                          className={`text-xs px-2 py-0.5 rounded-full ${mov.categoria ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-400 hover:bg-blue-50'}`}
-                        >
-                          {mov.categoria || 'Categorizar'}
+                        <button type="button" onClick={() => setEditando(movimiento.id)} className="rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-950 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2">
+                          {movimiento.categoria || 'Sin categoría'}
                         </button>
                       )}
                     </td>
-                    <td className="px-4 py-2.5">
-                      <span className="text-xs text-gray-500">{mov.tipoPago || '—'}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <button
-                        onClick={() => actualizarMovimiento(mov.id, { conciliado: !mov.conciliado })}
-                        title={mov.conciliado ? 'Clic para marcar como NO conciliado' : 'Clic para marcar como conciliado'}
-                        className="group relative"
-                      >
-                        {mov.conciliado ? (
-                          <CheckCircleIcon className="h-5 w-5 text-green-500" />
-                        ) : (
-                          <XCircleIcon className="h-5 w-5 text-gray-300 hover:text-green-400" />
-                        )}
-                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-[10px] px-2 py-1 rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                          {mov.conciliado ? 'Desconciliar' : 'Conciliar'}
-                        </span>
-                      </button>
-                    </td>
+                    <td className="px-4 py-3">{tipo.isUnknown ? <span data-testid="b3-tipo-historico" className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-950">Histórico sin normalizar: {tipo.raw || 'Sin tipo'}</span> : <span className="text-xs text-slate-900">{movimiento.tipoPago || 'Sin tipo'}</span>}</td>
                   </tr>
-                ))
-              )}
+                );
+              })}
             </tbody>
           </table>
         </div>
-
-        {/* Paginación */}
-        {total > 50 && (
-          <div className="border-t px-4 py-3 flex items-center justify-between">
-            <p className="text-xs text-gray-500">
-              Mostrando {(page - 1) * 50 + 1} - {Math.min(page * 50, total)} de {total}
-            </p>
+        {total !== null && total > 50 && (
+          <nav aria-label="Paginación de movimientos" className="flex items-center justify-between border-t px-4 py-3">
+            <p className="text-xs text-slate-800">Mostrando {(page - 1) * 50 + 1}–{Math.min(page * 50, total)} de {total}</p>
             <div className="flex gap-2">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
-              >
-                Anterior
-              </button>
-              <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={page * 50 >= total}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
-              >
-                Siguiente
-              </button>
+              <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} className="rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Anterior</button>
+              <button type="button" onClick={() => setPage(current => current + 1)} disabled={page * 50 >= total} className="rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Siguiente</button>
             </div>
-          </div>
+          </nav>
         )}
-      </div>
+      </section>
+
+      <p className="text-xs text-slate-700">Catálogo cerrado de categorías y tipos. Los valores históricos desconocidos se muestran tal como existen y no se convierten ni crean automáticamente.</p>
+      <span className="sr-only" data-testid="b3-closed-types">{TIPOS_PAGO.join('|')}</span>
     </div>
   );
 }

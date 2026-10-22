@@ -21,6 +21,8 @@ const ROUTE_PARENT_MAP: Record<string, string> = {
   // Costes compartidos usa el mismo permiso que la analítica financiera.
   'admin.finanzas.costes_operadora': 'admin.finanzas.analitica_costes',
   'admin.finanzas.analitica_costes.costes_operadora': 'admin.finanzas.analitica_costes',
+  // Cobertura bancaria es una consulta del área de importación de extractos.
+  'admin.finanzas.estado_cuentas': 'admin.finanzas.importar',
 }
 
 const recentlyRegistered = new Map<string, number>()
