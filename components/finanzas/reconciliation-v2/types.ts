@@ -15,6 +15,8 @@ export type LineaBorradorB4 =
       tipo: 'DOCUMENTO';
       documentoConciliableId: string;
       importeCentimos: number;
+      /** Elección B8 opcional; no forma parte de la economía B4. */
+      centroCosteFinanzasId?: string | null;
     }
   | {
       tipo: 'DIFERENCIA';
@@ -46,6 +48,10 @@ export type MovimientoB4 = {
     motivoDiferencia: MotivoDiferencia | null;
     importeCentimos: number;
     referencia: string;
+    centroCosteFinanzasId?: string | null;
+    centroCosteCodigo?: string | null;
+    centroCosteNombre?: string | null;
+    versionCentroCoste?: number;
   }>;
 };
 

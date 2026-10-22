@@ -14,6 +14,7 @@ function financeAreas(pathname) {
     'conciliacion-v2': ['admin.finanzas.conciliacion'],
     'conciliacion-propuestas': ['admin.finanzas.conciliacion'],
     pendientes: ['admin.finanzas.conciliacion'],
+    'centros-coste': ['admin.finanzas.conciliacion'],
     'conciliacion-remesas': ['admin.finanzas.conciliacion_remesas'],
     remesas: pathname === '/api/admin/finanzas/remesas/b6' ? ['admin.finanzas.conciliacion'] : [],
     cuentas: ['admin.finanzas.movimientos', 'admin.finanzas.conciliacion'],
@@ -45,6 +46,9 @@ export async function middleware(request) {
       || (path === '/api/admin/finanzas/pendientes' && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/pendientes/documento' && request.method === 'POST')
       || (path === '/api/admin/finanzas/remesas/b6' && request.method === 'POST')
+      || (path === '/api/admin/finanzas/centros-coste' && ['POST','PATCH'].includes(request.method))
+      || (path === '/api/admin/finanzas/centros-coste/asignar' && request.method === 'PATCH')
+      || (path === '/api/admin/finanzas/exportar-a3' && request.method === 'POST')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });

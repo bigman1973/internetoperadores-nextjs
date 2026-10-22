@@ -149,6 +149,7 @@ const navigation: NavEntry[] = [
       { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
+      { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
       { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas.analitica_costes', subitems: [
         { name: 'Costes de operadora', href: '/admin/finanzas/analitica-costes/costes-operadora', icon: SignalIcon, section: 'finanzas.analitica_costes' },

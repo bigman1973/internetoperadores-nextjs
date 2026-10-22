@@ -9,6 +9,8 @@
 
 export const ENTERO_PG_MIN = -2_147_483_648;
 export const ENTERO_PG_MAX = 2_147_483_647;
+/** Límite del metadato separado B8; el cuerpo HTTP sigue teniendo su propio límite. */
+export const MAX_B8_METADATA_JSON_BYTES = 32 * 1024;
 
 /** Un importe canónico B4: entero firmado de céntimos dentro de Int de PostgreSQL. */
 export type Centimos = number & { readonly __centimosB4: unique symbol };
@@ -64,6 +66,8 @@ export interface LineaDocumentoBorrador {
   /** UUID de documentos_conciliables; nunca un ID legacy de factura/remesa. */
   documentoConciliableId: UUID;
   importeCentimos: Centimos;
+  /** Metadato B8 opcional; no integra economía, hash ni snapshots B4. */
+  centroCosteFinanzasId?: UUID | null;
 }
 
 export interface LineaDiferenciaBorrador {
@@ -161,6 +165,39 @@ function esRegistroJson(value: unknown): value is Record<string, unknown> {
 
 function tienePropia(objeto: Record<string, unknown>, clave: string): boolean {
   return Object.prototype.hasOwnProperty.call(objeto, clave);
+}
+
+/**
+ * Proyección inmutable para la economía B4: sólo DOCUMENTO puede llevar el
+ * metadato B8 y éste nunca participa en su hash ni en sus snapshots. Se deja
+ * intacta cualquier propiedad de DIFERENCIA para que el validador B8 la rechace
+ * explícitamente, en vez de ocultarla durante la preparación económica.
+ */
+export function solicitudB4SinCentroCosteFinanzas(rawSolicitud: unknown): unknown {
+  if (!esRegistroJson(rawSolicitud) || !esRegistroJson(rawSolicitud.borrador) || !Array.isArray(rawSolicitud.borrador.lineas)) {
+    return rawSolicitud;
+  }
+  return {
+    ...rawSolicitud,
+    borrador: {
+      ...rawSolicitud.borrador,
+      lineas: rawSolicitud.borrador.lineas.map((linea) => {
+        if (!esRegistroJson(linea) || linea.tipo !== "DOCUMENTO") return linea;
+        const { centroCosteFinanzasId: _centroCosteFinanzasId, ...lineaEconomica } = linea;
+        return lineaEconomica;
+      }),
+    },
+  };
+}
+
+/** JSON B8 debe ser serializable y acotado antes de persistir su recibo separado. */
+export function metadataB8JsonAcotado(value: unknown): boolean {
+  try {
+    const json = JSON.stringify(value);
+    return typeof json === "string" && new TextEncoder().encode(json).byteLength <= MAX_B8_METADATA_JSON_BYTES;
+  } catch {
+    return false;
+  }
 }
 
 function validarClavesExactas(
@@ -425,14 +462,21 @@ function validarLineaBorrador(
 
   const importeCentimos = validarCentimos(raw.importeCentimos, `${ruta}.importeCentimos`, errores, false);
   if (tipoRaw === "DOCUMENTO") {
-    validarClavesExactas(raw, ["tipo", "documentoConciliableId", "importeCentimos"], ruta, errores);
+    const incluyeCentroCoste = tienePropia(raw, "centroCosteFinanzasId");
+    validarClavesExactas(raw, ["tipo", "documentoConciliableId", "importeCentimos", "centroCosteFinanzasId"], ruta, errores);
     const documentoConciliableId = validarUuid(
       raw.documentoConciliableId,
       `${ruta}.documentoConciliableId`,
       errores,
     );
     if (importeCentimos === undefined || documentoConciliableId === undefined) return undefined;
-    return { tipo: "DOCUMENTO", documentoConciliableId, importeCentimos };
+    if (!incluyeCentroCoste) return { tipo: "DOCUMENTO", documentoConciliableId, importeCentimos };
+    if (raw.centroCosteFinanzasId === null) {
+      return { tipo: "DOCUMENTO", documentoConciliableId, importeCentimos, centroCosteFinanzasId: null };
+    }
+    const centroCosteFinanzasId = validarUuid(raw.centroCosteFinanzasId, `${ruta}.centroCosteFinanzasId`, errores);
+    if (centroCosteFinanzasId === undefined) return undefined;
+    return { tipo: "DOCUMENTO", documentoConciliableId, importeCentimos, centroCosteFinanzasId };
   }
 
   validarClavesExactas(raw, ["tipo", "motivoDiferencia", "importeCentimos"], ruta, errores);

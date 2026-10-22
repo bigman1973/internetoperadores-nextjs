@@ -1,427 +1,206 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { Prisma } from "@prisma/client";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { verificarPermisoServer } from "@/lib/permisos";
+import { checkAdminAreaRead, checkAdminAreaWrite } from "@/lib/api-admin-area-read";
+import { assertFinanceStagingIsolated } from "@/lib/finanzas/staging-safety";
+import { prepareA3ParallelDraft, type A3AccountConfig, type A3ExportInput, type A3Incidence, type A3Line, type A3Scope } from "@/lib/finanzas/a3-parallel-core";
+import { A3ReadLimitError, buildA3AccountConfig, computeA3DataHash, parseA3Month, parseA3Scope, readA3ConfigMetadata, readA3ParallelInput, type A3ConfigRequest, type A3ReviewMappings } from "@/lib/finanzas/a3-parallel-db";
 
-export const dynamic = 'force-dynamic'
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+const AREA = "admin.finanzas.exportar_a3";
+const LEGACY_ROLES = ["SUPER_ADMIN", "GERENTE", "CONTABILIDAD"];
+const MAX_BODY_BYTES = 64 * 1024;
+const PAGE_SIZE = 100;
+const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", "Pragma": "no-cache", "Expires": "0", "Vary": "Cookie" };
+const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: privateHeaders });
 
-const ROLES_PERMITIDOS = ['SUPER_ADMIN', 'GERENTE', 'CONTABILIDAD']
-
-// Cuentas contables PGC por defecto
-const CUENTAS = {
-  clientes: '4300000',
-  ventas_servicios: '7050000',
-  iva_repercutido_21: '4770021',
-  iva_repercutido_10: '4770010',
-  iva_repercutido_4: '4770004',
-  proveedores: '4000000',
-  compras_servicios: '6290000',
-  iva_soportado_21: '4720021',
-  iva_soportado_10: '4720010',
-  iva_soportado_4: '4720004',
-  irpf_retenido: '4730000',
-  sueldos_salarios: '6400000',
-  ss_empresa: '6420000',
-  irpf_nominas: '4751000',
-  ss_trabajador: '4760010',
-  ss_empresa_pagar: '4760020',
-  remuneraciones_pendientes: '4650000',
-  bancos: '5720001',
-  gastos_viaje: '6290001',
-  gastos_suministros: '6280000',
-  gastos_varios: '6290000',
+type UnknownRecord = Record<string, unknown>;
+type ReviewSource = Exclude<A3Scope, "todo">;
+type RequestPayload = Readonly<{
+  action: "preview" | "download";
+  mes: string;
+  scope: A3Scope;
+  config: A3ConfigRequest;
+  mappings: A3ReviewMappings;
+  expectedHash: string | null;
+  confirmacion: boolean;
+  page: Readonly<{ source: ReviewSource | null; offset: number; linesOffset: number }>;
+}>;
+function record(value: unknown): UnknownRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as UnknownRecord : {}; }
+function limitedString(value: unknown, length = 200): string | null { return typeof value === "string" && value.length <= length ? value : null; }
+function account(value: unknown): string | null { const output = limitedString(value, 20); return output && /^\d+$/.test(output) ? output : null; }
+function id(value: unknown): string | null { const output = limitedString(value, 36); return output && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(output) ? output : null; }
+function source(value: unknown): ReviewSource | null { return value === "fi" || value === "fr" || value === "gastos" || value === "nominas" || value === "bank" ? value : null; }
+function reviewDate(value: unknown): string | null { const output = limitedString(value, 10); return output && /^\d{4}-\d{2}-\d{2}$/.test(output) ? output : null; }
+function requiredAccount(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = account(value);
+  if (!parsed) throw new Error("A3_INPUT_ACCOUNT_INVALID");
+  return parsed;
+}
+function requiredId(value: unknown): string {
+  const parsed = id(value);
+  if (!parsed) throw new Error("A3_INPUT_ID_INVALID");
+  return parsed;
 }
 
-interface AsientoLinea {
-  asiento: number
-  apunte: number
-  fecha: string
-  cuenta: string
-  concepto: string
-  debe: number
-  haber: number
-  documento: string
-  diario: string
-}
-
-function formatFecha(date: Date): string {
-  const d = date.getDate().toString().padStart(2, '0')
-  const m = (date.getMonth() + 1).toString().padStart(2, '0')
-  const y = date.getFullYear()
-  return `${d}/${m}/${y}`
-}
-
-function getCuentaIVA(tipoIva: number, tipo: 'repercutido' | 'soportado'): string {
-  const prefix = tipo === 'repercutido' ? '4770' : '4720'
-  if (tipoIva === 21) return `${prefix}021`
-  if (tipoIva === 10) return `${prefix}010`
-  if (tipoIva === 4) return `${prefix}004`
-  return `${prefix}021` // Default 21%
-}
-
-// GET - Obtener datos disponibles para exportar (resumen)
-export async function GET(request: NextRequest) {
+/** Counts bytes from the actual stream as Content-Length alone is not authoritative. */
+async function parseBoundedJson(req: NextRequest): Promise<{ value: UnknownRecord } | { response: NextResponse }> {
+  if (req.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') return { response: json({ error: 'Se requiere application/json' }, 415) };
+  const declared = req.headers.get("content-length");
+  if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_BODY_BYTES)) return { response: json({ error: "Solicitud demasiado grande" }, 413) };
+  const reader = req.body?.getReader();
+  if (!reader) return { response: json({ error: "Cuerpo JSON requerido" }, 400) };
+  const chunks: Uint8Array[] = []; let total = 0;
   try {
-    const session = await getServerSession(authOptions)
-    if (!session || session.user?.userType !== 'admin') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!part.value) continue;
+      total += part.value.byteLength;
+      if (total > MAX_BODY_BYTES) { try { await reader.cancel("body limit"); } catch { /* stream already failed */ } return { response: json({ error: "Solicitud demasiado grande" }, 413) }; }
+      chunks.push(part.value);
     }
+  } catch { return { response: json({ error: "No se pudo leer la solicitud" }, 400) }; }
+  finally { try { reader.releaseLock(); } catch { /* no effect */ } }
+  const bytes = new Uint8Array(total); let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("object");
+    return { value: parsed as UnknownRecord };
+  } catch { return { response: json({ error: "JSON no válido" }, 400) }; }
+}
+function mappingsFrom(value: unknown): A3ReviewMappings {
+  const raw = record(value); const gastos: Record<string, { cuentaGasto: string | null; cuentaContrapartida: string | null }> = {}; const movimientos: Record<string, { cuentaContrapartida: string | null; contraparteHumana: string | null }> = {}; const nominas: Record<string, { fechaNominaISO: string | null }> = {};
+  const rawGastos = Object.entries(record(raw.gastoById)); const rawMovimientos = Object.entries(record(raw.movimientoById)); const rawNominas = Object.entries(record(raw.nominaById));
+  if (rawGastos.length > 50_000 || rawMovimientos.length > 50_000 || rawNominas.length > 50_000) throw new Error("A3_INPUT_MAPPING_LIMIT");
+  for (const [key, entry] of rawGastos) { const valid = requiredId(key); const item = record(entry); gastos[valid] = { cuentaGasto: requiredAccount(item.cuentaGasto), cuentaContrapartida: requiredAccount(item.cuentaContrapartida) }; }
+  for (const [key, entry] of rawMovimientos) { const valid = requiredId(key); const item = record(entry); const human = item.contraparteHumana === null || item.contraparteHumana === undefined || item.contraparteHumana === "" ? null : limitedString(item.contraparteHumana, 180); if (item.contraparteHumana !== null && item.contraparteHumana !== undefined && item.contraparteHumana !== "" && human === null) throw new Error("A3_INPUT_COUNTERPARTY_INVALID"); movimientos[valid] = { cuentaContrapartida: requiredAccount(item.cuentaContrapartida), contraparteHumana: human }; }
+  for (const [key, entry] of rawNominas) { const valid = requiredId(key); const date = record(entry).fechaNominaISO; if (date !== null && date !== undefined && date !== "" && !reviewDate(date)) throw new Error("A3_INPUT_DATE_INVALID"); nominas[valid] = { fechaNominaISO: reviewDate(date) }; }
+  return { gastoById: gastos, movimientoById: movimientos, nominaById: nominas };
+}
+function configFrom(value: unknown): A3ConfigRequest {
+  const raw = record(value); const selection = raw.selection === "manual" ? "manual" : "profile";
+  const rawAccounts = record(raw.accounts); const accounts: Record<string, string | null> = {};
+  const accountEntries = Object.entries(rawAccounts); if (accountEntries.length > 30) throw new Error("A3_INPUT_ACCOUNT_LIMIT");
+  for (const [key, accountValue] of accountEntries) { if (!/^[a-zA-Z]+[a-zA-Z0-9]*$/.test(key)) throw new Error("A3_INPUT_ACCOUNT_FIELD_INVALID"); accounts[key] = requiredAccount(accountValue); }
+  const rawBanks = record(raw.bankAccountByCuentaId); const bankAccountByCuentaId: Record<string, string | null> = {};
+  const bankEntries = Object.entries(rawBanks); if (bankEntries.length > 500) throw new Error("A3_INPUT_BANK_LIMIT");
+  for (const [key, accountValue] of bankEntries) bankAccountByCuentaId[requiredId(key)] = requiredAccount(accountValue);
+  return { selection, profileId: limitedString(raw.profileId, 120), explicitlySelected: raw.explicitlySelected === true, accounts, bankAccountByCuentaId };
+}
+function payloadFrom(raw: UnknownRecord): RequestPayload {
+  const action = raw.action === "download" ? "download" : raw.action === "preview" ? "preview" : null;
+  const mes = limitedString(raw.mes, 7); if (!action || !mes) throw new Error("A3_REQUEST_INVALID");
+  const pageRaw = record(raw.page); const rawOffset = pageRaw.offset; const rawLinesOffset = pageRaw.linesOffset;
+  const offset = typeof rawOffset === "number" && Number.isSafeInteger(rawOffset) && rawOffset >= 0 && rawOffset <= 50_000 ? rawOffset : 0;
+  const linesOffset = typeof rawLinesOffset === "number" && Number.isSafeInteger(rawLinesOffset) && rawLinesOffset >= 0 && rawLinesOffset <= 5_000_000 ? rawLinesOffset : 0;
+  return { action, mes, scope: parseA3Scope(raw.scope), config: configFrom(raw.config), mappings: mappingsFrom(raw.mappings), expectedHash: limitedString(raw.expectedHash, 128), confirmacion: raw.confirmacion === true, page: { source: source(pageRaw.source), offset, linesOffset } };
+}
+async function authorize(req: NextRequest, write: boolean): Promise<NextResponse | null> {
+  const session = await getServerSession(authOptions);
+  const denied = write ? await checkAdminAreaWrite(AREA, LEGACY_ROLES, session) : await checkAdminAreaRead(AREA, LEGACY_ROLES, session);
+  if (denied) { denied.headers.set("Cache-Control", "private, no-store"); return denied; }
+  if (!session?.user || !Number.isInteger(Number(session.user.id))) return json({ error: "No autorizado" }, 401);
+  const actor = await prisma.usuarioAdmin.findUnique({ where: { id: Number(session.user.id) }, select: { activo: true } });
+  if (!actor?.activo) return json({ error: "Actor administrativo inactivo" }, 403);
+  return null;
+}
+/** Revalidates the active actor and this exact finance export area inside the data snapshot. */
+async function requireSnapshotActor(actorId: number, write: boolean, tx: Prisma.TransactionClient): Promise<void> {
+  const actor = await tx.usuarioAdmin.findUnique({ where: { id: actorId }, select: { activo: true, rol: true, roles: true } });
+  if (!actor?.activo) throw new Error("A3_ACTOR_INACTIVE");
+  const permission = await verificarPermisoServer(actorId, AREA, actor.rol, tx);
+  if (write ? permission.escritura : permission.lectura) return;
+  const granular = await tx.permisoUsuario.count({ where: { usuarioId: actorId, OR: [{ lectura: true }, { escritura: true }] } });
+  if (granular === 0 && [actor.rol, ...(actor.roles ?? [])].some((role) => LEGACY_ROLES.includes(role))) return;
+  throw new Error("A3_FINANCE_EXPORT_FORBIDDEN");
+}
+async function readSnapshot(payload: RequestPayload, actorId: number): Promise<{ config: A3AccountConfig; input: A3ExportInput; dataHash: string }> {
+  return prisma.$transaction(async (tx) => {
+    await requireSnapshotActor(actorId, payload.action === "download", tx);
+    const config = await buildA3AccountConfig(payload.config, tx);
+    const input = await readA3ParallelInput(payload.scope, parseA3Month(payload.mes), config, payload.mappings, tx);
+    return { config, input, dataHash: await computeA3DataHash(parseA3Month(payload.mes), payload.scope, input) };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+}
+function isSameOrigin(req: NextRequest): boolean { return req.headers.get("origin") === req.nextUrl.origin; }
+function summary(incidences: readonly A3Incidence[]): Readonly<Record<string, Readonly<{ bloqueantes: number; revision: number }>>> {
+  const output: Record<string, { bloqueantes: number; revision: number }> = {};
+  for (const incidence of incidences) { const current = output[incidence.sourceType] ?? { bloqueantes: 0, revision: 0 }; if (incidence.severity === "BLOQUEANTE") current.bloqueantes += 1; else current.revision += 1; output[incidence.sourceType] = current; }
+  return output;
+}
+function missingMappingCount(incidences: readonly A3Incidence[]): number {
+  return incidences.filter((item) => ["CUENTA_CONFIGURACION_FALTANTE", "CUENTA_RETENCION_PROVEEDOR_PENDIENTE", "CUENTA_CONTRAPARTIDA_FALTANTE", "CONTRAPARTE_BANCO_FALTANTE", "PERFIL_NO_SELECCIONADO"].includes(item.code)).length;
+}
+function lineJson(line: A3Line) { return { asiento: line.asiento, apunte: line.apunte, fecha: line.fecha, cuenta: line.cuenta, concepto: line.concepto, debeCentimos: line.debeCentimos.toString(), haberCentimos: line.haberCentimos.toString(), documento: line.documento, diario: line.diario }; }
+function sourceItems(input: A3ExportInput, wanted: ReviewSource | null, offset: number) {
+  const list: Array<{ source: ReviewSource; id: string; fecha: string; label: string }> = [];
+  if (!wanted || wanted === "fi") for (const item of input.facturasEmitidas ?? []) list.push({ source: "fi", id: item.id, fecha: item.fecha, label: `FI ${item.numFactura ?? "sin documento"} · ${item.cliente ?? "sin cliente"}` });
+  if (!wanted || wanted === "fr") for (const item of input.facturasRecibidas ?? []) list.push({ source: "fr", id: item.id, fecha: item.fecha, label: `FR ${item.numFactura ?? "sin documento"} · ${item.proveedor ?? "sin proveedor"}` });
+  if (!wanted || wanted === "gastos") for (const item of input.gastos ?? []) list.push({ source: "gastos", id: item.id, fecha: item.fecha, label: `Gasto · ${item.comercio ?? item.concepto ?? "sin concepto"}` });
+  if (!wanted || wanted === "nominas") for (const item of input.nominas ?? []) list.push({ source: "nominas", id: item.id, fecha: `${item.anio}-${String(item.mes).padStart(2, "0")}`, label: `Nómina · ${item.empleado ?? "sin empleado"}` });
+  if (!wanted || wanted === "bank") for (const item of input.movimientosBancarios ?? []) list.push({ source: "bank", id: item.id, fecha: item.fechaOperacion, label: `Banco · ${item.tercero ?? item.concepto ?? "sin contraparte"}` });
+  return { items: list.slice(offset, offset + PAGE_SIZE), offset, nextOffset: offset + PAGE_SIZE < list.length ? offset + PAGE_SIZE : null, total: list.length };
+}
+function previewResponse(period: string, scope: A3Scope, config: A3AccountConfig, dataHash: string, input: A3ExportInput, page: RequestPayload["page"]) {
+  const draft = prepareA3ParallelDraft(input);
+  return json({
+    kind: "A3_BORRADOR_PARALELO", period, scope, configVersionSHA: config.configVersionSHA, dataHash,
+    readiness: draft.readiness, reviewRequired: true, assertion: "Borrador para prueba externa; no verificado A3, no enviado ni registrado.",
+    counts: { lines: draft.totals.lines, seats: draft.totals.entries, debeCentimos: draft.totals.debeCentimos, haberCentimos: draft.totals.haberCentimos, excludedBySource: draft.totals.excludedBySource, incidences: draft.incidences.length, missingMappings: missingMappingCount(draft.incidences) },
+    incidenceSummary: summary(draft.incidences), incidences: draft.incidences.slice(0, PAGE_SIZE), incidenceNextOffset: draft.incidences.length > PAGE_SIZE ? PAGE_SIZE : null,
+    lines: draft.lines.slice(page.linesOffset, page.linesOffset + PAGE_SIZE).map(lineJson), linesOffset: page.linesOffset, linesNextOffset: page.linesOffset + PAGE_SIZE < draft.lines.length ? page.linesOffset + PAGE_SIZE : null,
+    sourcePage: sourceItems(input, page.source, page.offset),
+    warnings: ["No se guarda perfil, selección, exportación ni marca de origen.", "Los campos de documento/concepto que empiezan por fórmula se protegen con apóstrofo en el CSV; revisar antes de la prueba.", "La aceptación de formato/importación corresponde a la prueba externa con A3."],
+  });
+}
 
-    const userRole = session.user.role
-    if (!ROLES_PERMITIDOS.includes(userRole)) {
-      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
-    }
-
-    // Resumen de datos disponibles
-    const [facturasEmitidas, facturasRecibidas, gastos, nominas, movimientos] = await Promise.all([
-      prisma.facturaEmitida.count(),
-      prisma.facturaRecibida.count({ where: facturaEconomicaWhere }),
-      prisma.gasto.count(),
-      prisma.nomina.count(),
-      prisma.movimientoBancario.count(),
-    ])
-
-    return NextResponse.json({
-      resumen: {
-        facturas_emitidas: facturasEmitidas,
-        facturas_recibidas: facturasRecibidas,
-        gastos,
-        nominas,
-        movimientos_bancarios: movimientos,
-      }
-    })
+/** GET only returns review configuration metadata; it never exposes IBAN, balances or source financial data. */
+export async function GET(req: NextRequest) {
+  try {
+    const denied = await authorize(req, false); if (denied) return denied;
+    await assertFinanceStagingIsolated();
+    const actorId = Number((await getServerSession(authOptions))?.user?.id);
+    const metadata = await prisma.$transaction(async (tx) => {
+      await requireSnapshotActor(actorId, false, tx);
+      return readA3ConfigMetadata(tx);
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+    return json({ kind: "A3_BORRADOR_PARALELO_CONFIG", ...metadata, warning: "Valores actuales, requieren revisión: seleccione explícitamente un perfil o configuración manual." });
   } catch (error) {
-    console.error('Error en exportar-a3 GET:', error)
-    return NextResponse.json({ error: 'Error interno' }, { status: 500 })
+    if (error instanceof Error && error.message === "STAGING_ISOLATION_REQUIRED") return json({ error: "Preparación A3 disponible sólo en staging financiero aislado" }, 503);
+    console.error("No se pudo leer configuración A3 de staging"); return json({ error: "No se pudo leer la configuración A3" }, 500);
   }
 }
 
-// POST - Generar fichero de exportación A3
-export async function POST(request: NextRequest) {
+/** POST has no DML: preview is read-authorized; download requires write permission, confirmation and a fresh input hash. */
+export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session || session.user?.userType !== 'admin') {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    const userRole = session.user.role
-    if (!ROLES_PERMITIDOS.includes(userRole)) {
-      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 })
-    }
-
-    const body = await request.json()
-    const { tipo, periodo, anio, mes, trimestre } = body
-
-    if (!tipo || !periodo || !anio) {
-      return NextResponse.json({ error: 'Faltan parámetros: tipo, periodo, anio' }, { status: 400 })
-    }
-
-    // Calcular rango de fechas según periodo
-    let fechaInicio: Date
-    let fechaFin: Date
-
-    if (periodo === 'mes') {
-      if (!mes) return NextResponse.json({ error: 'Falta el mes' }, { status: 400 })
-      fechaInicio = new Date(anio, mes - 1, 1)
-      fechaFin = new Date(anio, mes, 0, 23, 59, 59)
-    } else if (periodo === 'trimestre') {
-      if (!trimestre) return NextResponse.json({ error: 'Falta el trimestre' }, { status: 400 })
-      const mesInicio = (trimestre - 1) * 3
-      fechaInicio = new Date(anio, mesInicio, 1)
-      fechaFin = new Date(anio, mesInicio + 3, 0, 23, 59, 59)
-    } else if (periodo === 'anual') {
-      fechaInicio = new Date(anio, 0, 1)
-      fechaFin = new Date(anio, 11, 31, 23, 59, 59)
-    } else {
-      return NextResponse.json({ error: 'Periodo inválido' }, { status: 400 })
-    }
-
-    let lineas: AsientoLinea[] = []
-    let numAsiento = 1
-
-    // Generar asientos según el tipo
-    if (tipo === 'facturas_emitidas' || tipo === 'todo') {
-      const facturas = await prisma.facturaEmitida.findMany({
-        where: {
-          fecha: { gte: fechaInicio, lte: fechaFin }
-        },
-        orderBy: { fecha: 'asc' }
-      })
-
-      for (const f of facturas) {
-        const fecha = formatFecha(new Date(f.fecha))
-        const concepto = `FE ${f.numFactura} ${f.cliente || ''}`
-        let apunte = 1
-
-        // Debe: Cliente por el total
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.clientes,
-          concepto, debe: f.total || 0, haber: 0, documento: f.numFactura || '', diario: 'VENTAS'
-        })
-
-        // Haber: Ventas por la base
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.ventas_servicios,
-          concepto, debe: 0, haber: f.base || 0, documento: f.numFactura || '', diario: 'VENTAS'
-        })
-
-        // Haber: IVA repercutido
-        if (f.importeIva && f.importeIva > 0) {
-          const cuentaIva = getCuentaIVA(f.tipoIva || 21, 'repercutido')
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: cuentaIva,
-            concepto, debe: 0, haber: f.importeIva, documento: f.numFactura || '', diario: 'VENTAS'
-          })
-        }
-
-        // Debe: IRPF (si hay retención, reduce el cobro)
-        if (f.importeIrpf && f.importeIrpf > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.irpf_retenido,
-            concepto, debe: 0, haber: f.importeIrpf, documento: f.numFactura || '', diario: 'VENTAS'
-          })
-        }
-
-        numAsiento++
-      }
-    }
-
-    if (tipo === 'facturas_recibidas' || tipo === 'todo') {
-      const facturas = await prisma.facturaRecibida.findMany({
-        where: {
-          ...facturaEconomicaWhere,
-          fecha: { gte: fechaInicio, lte: fechaFin }
-        },
-        orderBy: { fecha: 'asc' }
-      })
-
-      for (const f of facturas) {
-        const fecha = formatFecha(new Date(f.fecha))
-        const concepto = `FR ${f.numFactura || ''} ${f.proveedor || ''}`
-        let apunte = 1
-
-        // Debe: Gasto/Compra por la base
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.compras_servicios,
-          concepto, debe: f.base || 0, haber: 0, documento: f.numFactura || '', diario: 'COMPRAS'
-        })
-
-        // Debe: IVA soportado
-        if (f.importeIva && f.importeIva > 0) {
-          const cuentaIva = getCuentaIVA(f.tipoIva || 21, 'soportado')
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: cuentaIva,
-            concepto, debe: f.importeIva, haber: 0, documento: f.numFactura || '', diario: 'COMPRAS'
-          })
-        }
-
-        // Haber: Proveedor por el total
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.proveedores,
-          concepto, debe: 0, haber: f.total || 0, documento: f.numFactura || '', diario: 'COMPRAS'
-        })
-
-        // Haber: IRPF retenido al proveedor
-        if (f.importeIrpf && f.importeIrpf > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.irpf_retenido,
-            concepto, debe: 0, haber: f.importeIrpf, documento: f.numFactura || '', diario: 'COMPRAS'
-          })
-        }
-
-        numAsiento++
-      }
-    }
-
-    if (tipo === 'gastos' || tipo === 'todo') {
-      const gastosData = await prisma.gasto.findMany({
-        where: {
-          fecha: { gte: fechaInicio, lte: fechaFin }
-        },
-        orderBy: { fecha: 'asc' }
-      })
-
-      for (const g of gastosData) {
-        const fecha = formatFecha(new Date(g.fecha))
-        const concepto = `GASTO ${g.concepto || ''} ${g.comercio || ''}`
-        let apunte = 1
-
-        const baseIva = g.baseIva || g.importe || 0
-        const importeIva = g.importeIva || 0
-
-        // Debe: Gasto por la base
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.gastos_varios,
-          concepto, debe: baseIva, haber: 0, documento: '', diario: 'GASTOS'
-        })
-
-        // Debe: IVA soportado (si es deducible)
-        if (g.deducibleIva && importeIva > 0) {
-          const tipoIva = g.tipoIva || 21
-          const cuentaIva = getCuentaIVA(tipoIva, 'soportado')
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: cuentaIva,
-            concepto, debe: importeIva, haber: 0, documento: '', diario: 'GASTOS'
-          })
-        }
-
-        // Haber: Banco/Caja por el total
-        const total = g.importe || 0
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.bancos,
-          concepto, debe: 0, haber: total, documento: '', diario: 'GASTOS'
-        })
-
-        numAsiento++
-      }
-    }
-
-    if (tipo === 'nominas' || tipo === 'todo') {
-      const nominasData = await prisma.nomina.findMany({
-        where: {
-          anio: anio,
-          ...(periodo === 'mes' ? { mes: mes } : {}),
-          ...(periodo === 'trimestre' ? { mes: { gte: (trimestre - 1) * 3 + 1, lte: trimestre * 3 } } : {}),
-        },
-        include: { empleado: true },
-        orderBy: [{ mes: 'asc' }]
-      })
-
-      for (const n of nominasData) {
-        const fecha = formatFecha(new Date(anio, (n.mes || 1) - 1, 28))
-        const nombreEmpleado = n.empleado?.nombre || 'Empleado'
-        const concepto = `NOMINA ${nombreEmpleado} ${n.mes}/${n.anio}`
-        let apunte = 1
-
-        // Debe: Sueldos y salarios (devengado total)
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.sueldos_salarios,
-          concepto, debe: n.devengadoTotal || 0, haber: 0, documento: '', diario: 'NOMINAS'
-        })
-
-        // Debe: SS empresa
-        if (n.ssEmpresa && n.ssEmpresa > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.ss_empresa,
-            concepto, debe: n.ssEmpresa, haber: 0, documento: '', diario: 'NOMINAS'
-          })
-        }
-
-        // Haber: IRPF retenido
-        if (n.irpf && n.irpf > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.irpf_nominas,
-            concepto, debe: 0, haber: n.irpf, documento: '', diario: 'NOMINAS'
-          })
-        }
-
-        // Haber: SS trabajador
-        if (n.ssTrabajador && n.ssTrabajador > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.ss_trabajador,
-            concepto, debe: 0, haber: n.ssTrabajador, documento: '', diario: 'NOMINAS'
-          })
-        }
-
-        // Haber: SS empresa a pagar
-        if (n.ssEmpresa && n.ssEmpresa > 0) {
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.ss_empresa_pagar,
-            concepto, debe: 0, haber: n.ssEmpresa, documento: '', diario: 'NOMINAS'
-          })
-        }
-
-        // Haber: Neto a pagar (banco)
-        lineas.push({
-          asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.remuneraciones_pendientes,
-          concepto, debe: 0, haber: n.netoPercibir || 0, documento: '', diario: 'NOMINAS'
-        })
-
-        numAsiento++
-      }
-    }
-
-    if (tipo === 'movimientos_bancarios' || tipo === 'todo') {
-      const movimientos = await prisma.movimientoBancario.findMany({
-        where: {
-          fechaOperacion: { gte: fechaInicio, lte: fechaFin }
-        },
-        orderBy: { fechaOperacion: 'asc' }
-      })
-
-      for (const m of movimientos) {
-        const fecha = formatFecha(new Date(m.fechaOperacion))
-        const concepto = `BANCO ${m.concepto || ''}`
-        let apunte = 1
-
-        if (m.importe > 0) {
-          // Cobro: Debe banco, Haber cliente
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.bancos,
-            concepto, debe: m.importe, haber: 0, documento: m.referencia || '', diario: 'BANCO'
-          })
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.clientes,
-            concepto, debe: 0, haber: m.importe, documento: m.referencia || '', diario: 'BANCO'
-          })
-        } else {
-          // Pago: Debe proveedor, Haber banco
-          const importeAbs = Math.abs(m.importe)
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.proveedores,
-            concepto, debe: importeAbs, haber: 0, documento: m.referencia || '', diario: 'BANCO'
-          })
-          lineas.push({
-            asiento: numAsiento, apunte: apunte++, fecha, cuenta: CUENTAS.bancos,
-            concepto, debe: 0, haber: importeAbs, documento: m.referencia || '', diario: 'BANCO'
-          })
-        }
-
-        numAsiento++
-      }
-    }
-
-    if (lineas.length === 0) {
-      return NextResponse.json({ error: 'No hay datos para el periodo seleccionado' }, { status: 404 })
-    }
-
-    // Generar CSV en formato A3
-    const headers = ['Asiento', 'Apunte', 'Fecha', 'Cuenta', 'Concepto', 'Debe', 'Haber', 'Documento', 'Diario']
-    const csvRows = [headers.join(';')]
-
-    for (const l of lineas) {
-      csvRows.push([
-        l.asiento,
-        l.apunte,
-        l.fecha,
-        l.cuenta,
-        `"${(l.concepto || '').replace(/"/g, '""').substring(0, 60)}"`,
-        l.debe > 0 ? l.debe.toFixed(2).replace('.', ',') : '',
-        l.haber > 0 ? l.haber.toFixed(2).replace('.', ',') : '',
-        l.documento || '',
-        l.diario
-      ].join(';'))
-    }
-
-    const csv = csvRows.join('\r\n')
-
-    // Nombre del archivo
-    let nombrePeriodo = ''
-    if (periodo === 'mes') nombrePeriodo = `${anio}-${mes.toString().padStart(2, '0')}`
-    else if (periodo === 'trimestre') nombrePeriodo = `${anio}-T${trimestre}`
-    else nombrePeriodo = `${anio}`
-
-    const filename = `A3_${tipo}_${nombrePeriodo}.csv`
-
-    return new NextResponse(csv, {
-      headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`,
-      }
-    })
+    if (!isSameOrigin(req)) return json({ error: "Origen de la solicitud no válido" }, 403);
+    const parsed = await parseBoundedJson(req); if ("response" in parsed) return parsed.response;
+    const payload = payloadFrom(parsed.value);
+    const denied = await authorize(req, payload.action === "download"); if (denied) return denied;
+    await assertFinanceStagingIsolated();
+    const period = parseA3Month(payload.mes);
+    const actorId = Number((await getServerSession(authOptions))?.user?.id);
+    const { config, input, dataHash } = await readSnapshot(payload, actorId);
+    if (payload.action === "preview") return previewResponse(period.mes, payload.scope, config, dataHash, input, payload.page);
+    if (!payload.confirmacion) return json({ error: "La descarga requiere confirmacion explícita" }, 400);
+    if (!payload.expectedHash || payload.expectedHash !== dataHash) return json({ error: "Los datos o la configuración han cambiado; revise de nuevo antes de descargar", code: "A3_REVIEW_HASH_STALE", currentHash: dataHash }, 409);
+    const draft = prepareA3ParallelDraft(input);
+    if (draft.readiness !== "listo para prueba externa") return json({ error: "El borrador está incompleto; resuelva incidencias bloqueantes antes de descargar", code: "A3_REVIEW_INCOMPLETE", incidenceSummary: summary(draft.incidences) }, 409);
+    const safeScope = payload.scope.toUpperCase(); const filename = `A3_BORRADOR_PARALELO_${period.mes}_${safeScope}.csv`;
+    return new NextResponse(draft.csv, { headers: { ...privateHeaders, "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": `attachment; filename="${filename}"`, "X-A3-Review-Hash": dataHash } });
   } catch (error) {
-    console.error('Error en exportar-a3 POST:', error)
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 })
+    if (error instanceof A3ReadLimitError) return json({ error: "Demasiados registros para una lectura completa; reduzca el periodo. No se ha tratado ninguna lectura parcial como completa.", code: "A3_READ_LIMIT_REQUIRES_NARROWER_PERIOD" }, 429);
+    if (error instanceof Error && error.message === "STAGING_ISOLATION_REQUIRED") return json({ error: "Preparación A3 disponible sólo en staging financiero aislado" }, 503);
+    if (error instanceof Error && ["A3_MONTH_INVALID", "A3_SCOPE_INVALID", "A3_REQUEST_INVALID", "A3_PROFILE_UNKNOWN", "A3_CONFIG_SELECTION_INVALID", "A3_CONFIG_ACCOUNT_INVALID", "A3_BANK_ACCOUNT_ID_INVALID", "A3_BANK_ACCOUNT_ID_UNKNOWN", "A3_BANK_ACCOUNT_METADATA_LIMIT", "A3_INPUT_ACCOUNT_INVALID", "A3_INPUT_ID_INVALID", "A3_INPUT_MAPPING_LIMIT", "A3_INPUT_COUNTERPARTY_INVALID", "A3_INPUT_DATE_INVALID", "A3_INPUT_ACCOUNT_LIMIT", "A3_INPUT_ACCOUNT_FIELD_INVALID", "A3_INPUT_BANK_LIMIT"].includes(error.message)) return json({ error: "Solicitud de revisión A3 no válida", code: error.message }, 400);
+    if (error instanceof Error && ["A3_ACTOR_INACTIVE", "A3_FINANCE_EXPORT_FORBIDDEN"].includes(error.message)) return json({ error: "No autorizado" }, 403);
+    console.error("No se pudo revisar borrador A3 de staging"); return json({ error: "No se pudo preparar el borrador A3" }, 500);
   }
 }

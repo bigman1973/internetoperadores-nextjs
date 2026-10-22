@@ -5,7 +5,7 @@ import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/
 import { B4ServiceError, confirmarB4, createDocumentoB4, deshacerB4, readConciliacionB4 } from '@/lib/finanzas/reconciliation-db'
 
 export const dynamic = 'force-dynamic'
-const MAX_JSON_BYTES = 16 * 1024
+const MAX_JSON_BYTES = 64 * 1024
 
 async function readBoundedJson(req: NextRequest): Promise<{ ok: true; value: unknown } | { ok: false; response: ReturnType<typeof privateJson> }> {
   const contentType = req.headers.get('content-type')?.split(';')[0].trim().toLowerCase()

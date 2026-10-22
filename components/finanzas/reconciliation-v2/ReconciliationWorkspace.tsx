@@ -15,6 +15,12 @@ import {
 } from '@heroicons/react/24/outline';
 import { usePermisoArea } from '@/hooks/usePermisoArea';
 import ProposalsPanel from './standaloneProposalsPanel';
+import CenterChoiceSelector, {
+  etiquetaCentro,
+  parseCentrosCosteCatalogo,
+  problemaSeleccionCentro,
+  type CatalogoCentrosEstado,
+} from './CenterChoiceSelector';
 import type {BorradorPreparadoB6} from './b6-proposal-view';
 import { convertirImporteUiACentimos } from '@/lib/finanzas/reconciliation-core';
 import type {
@@ -46,7 +52,49 @@ const MAX_OFFSET = 100_000;
 const AREA_B4 = 'admin.finanzas.conciliacion';
 
 type Notice = { kind: 'success' | 'error' | 'info'; text: string } | null;
-type PendingConfirmation = { payload: ConfirmarPayloadB4; retriable: boolean } | null;
+type LineaDocumentoConCentro = Extract<LineaBorradorB4, { tipo: 'DOCUMENTO' }> & { centroCosteFinanzasId?: string | null };
+type LineaBorradorConCentro = LineaDocumentoConCentro | Extract<LineaBorradorB4, { tipo: 'DIFERENCIA' }>;
+type ConfirmarPayloadConCentro = Omit<ConfirmarPayloadB4, 'borrador'> & {
+  borrador: Omit<ConfirmarPayloadB4['borrador'], 'lineas'> & { lineas: LineaBorradorConCentro[] };
+};
+type PendingConfirmation = { payload: ConfirmarPayloadConCentro; retriable: boolean } | null;
+type CentroConfirmadoEnVinculo = Readonly<{ id: string; codigo: string | null; nombre: string | null }>;
+
+const EMPTY_CENTER_CATALOG: CatalogoCentrosEstado = { kind: 'idle', items: [], error: null };
+
+function centroConfirmadoEnVinculo(value: unknown): CentroConfirmadoEnVinculo | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  // Sólo tratamos un centro como histórico si B4 lo envía explícitamente en la línea.
+  // Nunca se intenta reconocer o reconstruir un centro heredado desde otro dato.
+  if (typeof raw.centroCosteFinanzasId !== 'string' || raw.centroCosteFinanzasId.length === 0) return null;
+  return {
+    id: raw.centroCosteFinanzasId,
+    codigo: typeof raw.centroCosteCodigo === 'string' && raw.centroCosteCodigo.trim() ? raw.centroCosteCodigo.trim() : null,
+    nombre: typeof raw.centroCosteNombre === 'string' && raw.centroCosteNombre.trim() ? raw.centroCosteNombre.trim() : null,
+  };
+}
+
+function lineaDocumentoConCentro(
+  documentoConciliableId: string,
+  importeCentimos: number,
+  centroCosteFinanzasId: string | null | undefined,
+): LineaDocumentoConCentro {
+  return centroCosteFinanzasId
+    ? { tipo: 'DOCUMENTO', documentoConciliableId, importeCentimos, centroCosteFinanzasId }
+    : { tipo: 'DOCUMENTO', documentoConciliableId, importeCentimos };
+}
+
+function serializarLineasConCentro(lineas: readonly LineaBorradorConCentro[]): LineaBorradorConCentro[] {
+  // La ausencia se mantiene como ausencia: no se manda null por una selección vacía.
+  return lineas.map((linea) => linea.tipo === 'DOCUMENTO'
+    ? lineaDocumentoConCentro(linea.documentoConciliableId, linea.importeCentimos, linea.centroCosteFinanzasId)
+    : { tipo: 'DIFERENCIA', motivoDiferencia: linea.motivoDiferencia, importeCentimos: linea.importeCentimos });
+}
+
+function centroCatalogoError(response: Response, json: unknown): string {
+  return backendMessage(json, response.status === 403 ? 'No tiene permiso de lectura B4 para consultar el catálogo de centros.' : 'No se pudo leer el catálogo de centros de coste.');
+}
 
 function asResponse(value: unknown): ReconciliationReadResponse {
   const raw = value && typeof value === 'object' ? value as Partial<ReconciliationReadResponse> : {};
@@ -92,8 +140,9 @@ function isNetworkFailure(error: unknown): boolean {
 }
 
 export default function ReconciliationWorkspace() {
-  const { canWrite } = usePermisoArea(AREA_B4);
+  const { canRead, canWrite } = usePermisoArea(AREA_B4);
   const [data, setData] = useState<ReconciliationReadResponse | null>(null);
+  const [centerCatalog, setCenterCatalog] = useState<CatalogoCentrosEstado>(EMPTY_CENTER_CATALOG);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
@@ -110,7 +159,7 @@ export default function ReconciliationWorkspace() {
   const [draftState, setDraftState] = useState<'JUSTIFICADO' | 'NO_REQUIERE'>('JUSTIFICADO');
   const [reason, setReason] = useState<MotivoNoRequiere | ''>('');
   const [proposalReferences,setProposalReferences]=useState<Record<string,string>>({});
-  const [lines, setLines] = useState<LineaBorradorB4[]>([]);
+  const [lines, setLines] = useState<LineaBorradorConCentro[]>([]);
   const [documentId, setDocumentId] = useState('');
   const [documentAmount, setDocumentAmount] = useState('');
   const [differenceReason, setDifferenceReason] = useState<MotivoDiferencia>('COMISION');
@@ -121,6 +170,7 @@ export default function ReconciliationWorkspace() {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation>(null);
   const inFlight = useRef(false);
   const selectionSequence = useRef(0);
+  const centerCatalogSequence = useRef(0);
   const dialogConfirmButton = useRef<HTMLButtonElement>(null);
   const initialMovementOpened = useRef(false);
 
@@ -161,6 +211,29 @@ export default function ReconciliationWorkspace() {
 
   useEffect(() => { void loadLists(); }, [loadLists]);
 
+  const loadCenterCatalog = useCallback(async () => {
+    const sequence = ++centerCatalogSequence.current;
+    if (!canRead) {
+      setCenterCatalog({ kind: 'forbidden', items: [], error: 'Su permiso B4 actual no permite leer el catálogo de centros.' });
+      return;
+    }
+    setCenterCatalog((current) => ({ kind: 'loading', items: current.items, error: null }));
+    try {
+      const response = await fetch('/api/admin/finanzas/centros-coste?recurso=centros', { cache: 'no-store' });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(centroCatalogoError(response, json));
+      const parsed = parseCentrosCosteCatalogo(json);
+      if ('error' in parsed) throw new Error(parsed.error);
+      if (sequence === centerCatalogSequence.current) setCenterCatalog({ kind: 'ready', items: parsed.items, error: null });
+    } catch (error) {
+      if (sequence === centerCatalogSequence.current) {
+        setCenterCatalog({ kind: 'error', items: [], error: error instanceof Error ? error.message : 'No se pudo leer el catálogo de centros de coste.' });
+      }
+    }
+  }, [canRead]);
+
+  useEffect(() => { void loadCenterCatalog(); }, [loadCenterCatalog]);
+
   // El buscador documental es deliberadamente una lectura independiente. Su
   // respuesta sólo actualiza documentos, nunca sustituye la lista de movimientos.
   useEffect(() => {
@@ -187,7 +260,13 @@ export default function ReconciliationWorkspace() {
 
   const resetDraft = useCallback((movement: MovimientoB4 | null) => {
     setProposalReferences({});
-    setLines(movement?.operacionAplicada ? movement.vinculos.map(v => v.tipo === 'DOCUMENTO' ? {tipo:'DOCUMENTO' as const,documentoConciliableId:v.documentoConciliableId!,importeCentimos:v.importeCentimos} : {tipo:'DIFERENCIA' as const,motivoDiferencia:v.motivoDiferencia!,importeCentimos:v.importeCentimos}) : []);
+    setLines(movement?.operacionAplicada ? movement.vinculos.map((v) => {
+      if (v.tipo === 'DOCUMENTO') {
+        const centro = centroConfirmadoEnVinculo(v);
+        return lineaDocumentoConCentro(v.documentoConciliableId!, v.importeCentimos, centro?.id);
+      }
+      return { tipo: 'DIFERENCIA' as const, motivoDiferencia: v.motivoDiferencia!, importeCentimos: v.importeCentimos };
+    }) : []);
     setReason(movement?.motivoNoRequiere || '');
     setDocumentId('');
     setDocumentAmount('');
@@ -252,12 +331,12 @@ export default function ReconciliationWorkspace() {
   const bankKnown = bankCents !== null && Number.isSafeInteger(bankCents);
   const exactClose = draftState === 'JUSTIFICADO' && bankKnown && bankCents !== 0 && hasDocumentLine && remainingCents === 0;
   const noRequireReady = draftState === 'NO_REQUIERE' && bankKnown && Boolean(reason);
-  const canReview = Boolean(selected) && !selectedLoading && canWrite && !changingAppliedOperation && (exactClose || noRequireReady);
+  const canReviewBase = Boolean(selected) && !selectedLoading && canWrite && !changingAppliedOperation && (exactClose || noRequireReady);
 
   const prepararBorradorB6=useCallback((draft:BorradorPreparadoB6)=>{
     if(!canWrite||selectedLoading||inFlight.current||!selected||selected.operacionAplicada)return;
     if(selected.id!==draft.movimientoId||selected.estado!=='SIN_DOCUMENTO'||selected.version!==draft.version||selected.importeCentimos===null||selected.importeCentimos!==draft.importeCentimos)return;
-    setDraftState('JUSTIFICADO');setReason('');setLines(draft.lineas.map(line=>({...line})));
+    setDraftState('JUSTIFICADO');setReason('');setLines(draft.lineas.map((line) => line.tipo === 'DOCUMENTO' ? lineaDocumentoConCentro(line.documentoConciliableId, line.importeCentimos, undefined) : ({ ...line })));
     setProposalReferences(Object.fromEntries(draft.documentos.filter(doc=>doc.referencia!==null).map(doc=>[doc.id,doc.referencia!])));
     setPendingConfirmation(null);setShowReview(false);setNotice({kind:'info',text:'Borrador preparado: revise y confirme explícitamente en B4. No se ha guardado ningún vínculo.'});
   },[canWrite,selected,selectedLoading]);
@@ -284,11 +363,8 @@ export default function ReconciliationWorkspace() {
       setNotice({ kind: 'error', text: 'Un documento sólo puede aparecer una vez en el borrador.' });
       return;
     }
-    setLines((current) => [...current, {
-      tipo: 'DOCUMENTO',
-      documentoConciliableId: selectedDocument.id,
-      importeCentimos: result.value,
-    }]);
+    // Una línea nueva empieza sin centro: nunca se deriva de su documento, categoría o proveedor.
+    setLines((current) => [...current, lineaDocumentoConCentro(selectedDocument.id, result.value, undefined)]);
     setDocumentId('');
     setDocumentAmount('');
     setNotice(null);
@@ -310,8 +386,23 @@ export default function ReconciliationWorkspace() {
   };
 
   const removeLine = (index: number) => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index));
+  const setLineCenter = useCallback((index: number, centroCosteFinanzasId: string | undefined) => {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index && line.tipo === 'DOCUMENTO'
+      ? lineaDocumentoConCentro(line.documentoConciliableId, line.importeCentimos, centroCosteFinanzasId)
+      : line));
+    setPendingConfirmation(null);
+    setShowReview(false);
+  }, []);
 
-  const createConfirmPayload = useCallback((idempotencyKey: string): ConfirmarPayloadB4 | null => {
+  const centerSelectionProblems = useMemo(() => lines.flatMap((line, index) => {
+    if (line.tipo !== 'DOCUMENTO') return [];
+    const problem = problemaSeleccionCentro(line.centroCosteFinanzasId, centerCatalog);
+    return problem ? [`Línea documental ${index + 1}: ${problem}`] : [];
+  }), [centerCatalog, lines]);
+  const centersReadyForReview = centerSelectionProblems.length === 0;
+  const canReview = canReviewBase && centersReadyForReview;
+
+  const createConfirmPayload = useCallback((idempotencyKey: string): ConfirmarPayloadConCentro | null => {
     if (!selected || bankCents === null || !bankKnown) return null;
     if (draftState === 'NO_REQUIERE') {
       if (!reason) return null;
@@ -339,7 +430,7 @@ export default function ReconciliationWorkspace() {
         movimientoId: selected.id,
         importeMovimientoCentimos: bankCents,
         estado: 'JUSTIFICADO',
-        lineas: lines,
+        lineas: serializarLineasConCentro(lines),
       },
     };
   }, [bankCents, bankKnown, draftState, exactClose, lines, reason, selected]);
@@ -360,6 +451,10 @@ export default function ReconciliationWorkspace() {
   const submitConfirmation = async () => {
     const pending = pendingConfirmation;
     if (!pending || inFlight.current) return;
+    if (centerSelectionProblems.length > 0) {
+      setNotice({ kind: 'error', text: 'La selección de centro cambió o no puede verificarse. Corrija las líneas antes de confirmar.' });
+      return;
+    }
     inFlight.current = true;
     setConfirming(true);
     try {
@@ -377,7 +472,7 @@ export default function ReconciliationWorkspace() {
           setPendingConfirmation(null);
           setSelected(null);
           resetDraft(null);
-          await loadLists({ silent: true });
+          await Promise.all([loadLists({ silent: true }), loadCenterCatalog()]);
         } else {
           setNotice({ kind: 'error', text: message });
         }
@@ -501,6 +596,10 @@ export default function ReconciliationWorkspace() {
       {selected && <MovementDrawer
         onPrepararBorradorB6={prepararBorradorB6}
         proposalReferences={proposalReferences}
+        centerCatalog={centerCatalog}
+        onReloadCenterCatalog={loadCenterCatalog}
+        centerSelectionProblems={centerSelectionProblems}
+        reviewing={showReview}
         movement={selected}
         selectedLoading={selectedLoading}
         errorText={notice?.kind === 'error' ? notice.text : null}
@@ -520,6 +619,7 @@ export default function ReconciliationWorkspace() {
         onDifferenceAmount={setDifferenceAmount}
         onAddDifference={addDifferenceLine}
         lines={lines}
+        onLineCenter={setLineCenter}
         onRemoveLine={removeLine}
         draftState={draftState}
         onDraftState={(next) => { setDraftState(next); if (next === 'NO_REQUIERE') setLines([]); setPendingConfirmation(null); }}
@@ -542,6 +642,8 @@ export default function ReconciliationWorkspace() {
       {showReview && pendingConfirmation && <ReviewDialog
         payload={pendingConfirmation.payload}
         movement={selected}
+        centerCatalog={centerCatalog}
+        centerSelectionProblems={centerSelectionProblems}
         documentLines={documentLinesCents}
         differenceLines={differenceLinesCents}
         remaining={remainingCents}
@@ -558,6 +660,10 @@ export default function ReconciliationWorkspace() {
 function MovementDrawer(props: {
   onPrepararBorradorB6:(draft:BorradorPreparadoB6)=>void;
   proposalReferences:Record<string,string>;
+  centerCatalog: CatalogoCentrosEstado;
+  onReloadCenterCatalog: () => void;
+  centerSelectionProblems: readonly string[];
+  reviewing: boolean;
   movement: MovimientoB4;
   selectedLoading: boolean;
   errorText: string | null;
@@ -576,7 +682,8 @@ function MovementDrawer(props: {
   differenceAmount: string;
   onDifferenceAmount: (value: string) => void;
   onAddDifference: () => void;
-  lines: LineaBorradorB4[];
+  lines: LineaBorradorConCentro[];
+  onLineCenter: (index: number, centroCosteFinanzasId: string | undefined) => void;
   onRemoveLine: (index: number) => void;
   draftState: 'JUSTIFICADO' | 'NO_REQUIERE';
   onDraftState: (value: 'JUSTIFICADO' | 'NO_REQUIERE') => void;
@@ -598,11 +705,11 @@ function MovementDrawer(props: {
   const {
     movement, selectedLoading, canWrite, documents, documentSearch, onDocumentSearch, documentsLoading,
     documentId, onDocumentId, documentAmount, onDocumentAmount, onAddDocument, differenceReason,
-    onDifferenceReason, differenceAmount, onDifferenceAmount, onAddDifference, lines, onRemoveLine,
+    onDifferenceReason, differenceAmount, onDifferenceAmount, onAddDifference, lines, onLineCenter, onRemoveLine,
     draftState, onDraftState, reason, onReason, bankCents, documentsCents, differencesCents, linesCents,
     remainingCents, exactClose, changingAppliedOperation, canReview, onReview, onUndo, undoing, onClose,
   } = props;
-  const disabled = selectedLoading || !canWrite || changingAppliedOperation || bankCents === null || (bankCents === 0 && draftState === 'JUSTIFICADO');
+  const disabled = props.reviewing || selectedLoading || !canWrite || changingAppliedOperation || bankCents === null || (bankCents === 0 && draftState === 'JUSTIFICADO');
   const reasonOptions: MotivoNoRequiere[] = [
     'COMISION_BANCARIA', 'INTERES_BANCARIO', 'REDONDEO_BANCARIO', 'TRASPASO_INTERNO_SIN_DOCUMENTO', 'MOVIMIENTO_TECNICO_BANCO', 'CORRECCION_BANCARIA',
   ];
@@ -636,7 +743,7 @@ function MovementDrawer(props: {
           <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-bold text-slate-950">Añadir diferencia</h3><p className="mt-0.5 text-xs text-slate-600">Sólo comisión, intereses o redondeo; no existe «Otro».</p><div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-end"><label className="block text-sm font-semibold text-slate-800">Tipo<select value={differenceReason} onChange={(event) => onDifferenceReason(event.target.value as MotivoDiferencia)} disabled={disabled} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed"><option value="COMISION">Comisión</option><option value="INTERESES">Intereses</option><option value="REDONDEO">Redondeo</option></select></label><label className="block text-sm font-semibold text-slate-800">Importe<input value={differenceAmount} onChange={(event) => onDifferenceAmount(event.target.value)} disabled={disabled} inputMode="decimal" placeholder="-1,25" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed" /></label><button type="button" data-testid="b4-add-difference" onClick={onAddDifference} disabled={disabled} className="inline-flex items-center justify-center gap-1 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-900 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60"><PlusIcon className="h-4 w-4" aria-hidden="true" /> Añadir</button></div></section>
         </>}
 
-        <section aria-label="Líneas del borrador" className="rounded-xl border border-slate-200"><div className="border-b border-slate-200 px-4 py-3"><h3 className="font-bold text-slate-950">Líneas del borrador</h3></div>{lines.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">No hay líneas. Un borrador JUSTIFICADO necesita al menos un documento.</p> : <ul className="divide-y divide-slate-100">{lines.map((line, index) => <li key={`${line.tipo}-${index}`} className="flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="text-sm font-bold text-slate-900">{line.tipo === 'DOCUMENTO' ? (movement.vinculos.find(v => v.documentoConciliableId === line.documentoConciliableId)?.referencia || documents.find((document) => document.id === line.documentoConciliableId)?.referencia || props.proposalReferences[line.documentoConciliableId] || `Documento ${line.documentoConciliableId}`) : etiquetaMotivo(line.motivoDiferencia)}</p><p className="truncate text-xs text-slate-500">{line.tipo === 'DOCUMENTO' ? 'Documento conciliable' : 'Diferencia explícita'}</p></div><div className="flex items-center gap-2"><span className="font-mono text-sm font-bold text-slate-950">{formatCentimos(line.importeCentimos)}</span><button type="button" onClick={() => onRemoveLine(index)} disabled={disabled} aria-label="Eliminar línea" className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed"><TrashIcon className="h-4 w-4" aria-hidden="true" /></button></div></li>)}</ul>}</section>
+        <section aria-label="Líneas del borrador" className="rounded-xl border border-slate-200"><div className="border-b border-slate-200 px-4 py-3"><h3 className="font-bold text-slate-950">Líneas del borrador</h3><p className="mt-0.5 text-xs text-slate-600">La imputación es opcional y se decide por cada línea DOCUMENTO.</p></div>{props.centerSelectionProblems.length > 0 && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-950"><p className="font-bold">Revise la selección de centro antes de confirmar.</p><ul className="mt-1 list-disc pl-5">{props.centerSelectionProblems.map((problem) => <li key={problem}>{problem}</li>)}</ul></div>}{lines.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">No hay líneas. Un borrador JUSTIFICADO necesita al menos un documento.</p> : <ul className="divide-y divide-slate-100">{lines.map((line, index) => <li key={`${line.tipo}-${index}`} className="min-w-0 space-y-3 px-4 py-3"><div className="flex min-w-0 items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{line.tipo === 'DOCUMENTO' ? (movement.vinculos.find(v => v.documentoConciliableId === line.documentoConciliableId)?.referencia || documents.find((document) => document.id === line.documentoConciliableId)?.referencia || props.proposalReferences[line.documentoConciliableId] || `Documento ${line.documentoConciliableId}`) : etiquetaMotivo(line.motivoDiferencia)}</p><p className="truncate text-xs text-slate-500">{line.tipo === 'DOCUMENTO' ? 'Documento conciliable' : 'Diferencia explícita'}</p></div><div className="flex shrink-0 items-center gap-2"><span className="font-mono text-sm font-bold text-slate-950">{formatCentimos(line.importeCentimos)}</span><button type="button" onClick={() => onRemoveLine(index)} disabled={disabled} aria-label="Eliminar línea" className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed"><TrashIcon className="h-4 w-4" aria-hidden="true" /></button></div></div>{line.tipo === 'DOCUMENTO' && !changingAppliedOperation && <CenterChoiceSelector inputId={`b4-center-${index}`} value={line.centroCosteFinanzasId} catalogo={props.centerCatalog} disabled={disabled} onChange={(centerId) => onLineCenter(index, centerId)} onReload={props.onReloadCenterCatalog} />}{line.tipo === 'DOCUMENTO' && changingAppliedOperation && (() => { const confirmed = centroConfirmadoEnVinculo(movement.vinculos.find((v) => v.documentoConciliableId === line.documentoConciliableId)); return confirmed ? <p className="text-xs text-slate-600">Centro confirmado histórico: <strong>{confirmed.codigo && confirmed.nombre ? `${confirmed.codigo} · ${confirmed.nombre}` : confirmed.id}</strong></p> : null; })()}</li>)}</ul>}</section>
 
         <ProposalsPanel movimientoId={movement.id} estadoB4={movement.estado} versionMovimiento={movement.version} importeMovimientoCentimos={bankCents} canWrite={canWrite&&!selectedLoading&&!changingAppliedOperation} onPrepararBorrador={props.onPrepararBorradorB6}/>
 
@@ -652,9 +759,11 @@ function SummaryRow({ label, value, testId, emphasis }: { label: string; value: 
   return <><dt className="text-slate-600">{label}</dt><dd data-testid={testId} className={`text-right font-mono font-bold ${emphasis ? 'text-red-700' : 'text-slate-950'}`}>{value}</dd></>;
 }
 
-function ReviewDialog({ payload, movement, documentLines, differenceLines, remaining, confirming, retry, confirmRef, onCancel, onConfirm }: {
-  payload: ConfirmarPayloadB4;
+function ReviewDialog({ payload, movement, centerCatalog, centerSelectionProblems, documentLines, differenceLines, remaining, confirming, retry, confirmRef, onCancel, onConfirm }: {
+  payload: ConfirmarPayloadConCentro;
   movement: MovimientoB4 | null;
+  centerCatalog: CatalogoCentrosEstado;
+  centerSelectionProblems: readonly string[];
   documentLines: number;
   differenceLines: number;
   remaining: number | null;
@@ -664,7 +773,19 @@ function ReviewDialog({ payload, movement, documentLines, differenceLines, remai
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation"><div role="dialog" aria-modal="true" aria-labelledby="b4-dialog-title" onKeyDown={(event) => { if (event.key === 'Escape' && !confirming) onCancel(); }} className="w-full max-w-lg rounded-xl bg-white shadow-2xl"><div className="border-b border-slate-200 px-5 py-4"><div className="flex items-start gap-3"><div className="rounded-full bg-orange-100 p-2 text-orange-700"><ExclamationTriangleIcon className="h-5 w-5" aria-hidden="true" /></div><div><h2 id="b4-dialog-title" className="font-bold text-slate-950">Confirmar conciliación B4</h2><p className="mt-1 text-sm text-slate-600">Revise el cierre antes de registrar la operación.</p></div></div></div><div className="space-y-3 px-5 py-4 text-sm"><p><strong>Movimiento:</strong> {movement?.concepto || 'Sin concepto'}</p><p><strong>Estado:</strong> {etiquetaEstado(payload.borrador.estado)}</p>{payload.borrador.estado === 'NO_REQUIERE' ? <p><strong>Motivo:</strong> {etiquetaMotivo(payload.borrador.motivoNoRequiere || '')}. No se enviarán líneas.</p> : <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg bg-slate-50 p-3"><SummaryRow label="Documentos" value={formatCentimos(documentLines)} /><SummaryRow label="Diferencias" value={formatCentimos(differenceLines)} /><SummaryRow label="Resto" value={remaining === null ? 'No calculable' : formatCentimos(remaining)} emphasis={remaining !== 0} /></dl>}{retry && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">Se reintentará exactamente la misma solicitud, con la misma clave de idempotencia.</p>}<p className="text-xs text-slate-500">Esta acción crea una operación auditable. No se realizan sugerencias ni actualizaciones optimistas.</p></div><div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end"><button type="button" onClick={onCancel} disabled={confirming} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50">Cancelar</button><button ref={confirmRef} data-testid="b4-confirm" type="button" onClick={onConfirm} disabled={confirming} className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">{confirming ? 'Confirmando…' : retry ? 'Reintentar confirmación' : 'Confirmar definitivamente'}</button></div></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" role="presentation"><div role="dialog" aria-modal="true" aria-labelledby="b4-dialog-title" onKeyDown={(event) => { if (event.key === 'Escape' && !confirming) onCancel(); }} className="w-full max-w-lg rounded-xl bg-white shadow-2xl"><div className="border-b border-slate-200 px-5 py-4"><div className="flex items-start gap-3"><div className="rounded-full bg-orange-100 p-2 text-orange-700"><ExclamationTriangleIcon className="h-5 w-5" aria-hidden="true" /></div><div><h2 id="b4-dialog-title" className="font-bold text-slate-950">Confirmar conciliación B4</h2><p className="mt-1 text-sm text-slate-600">Revise el cierre antes de registrar la operación.</p></div></div></div><div className="space-y-3 px-5 py-4 text-sm"><p><strong>Movimiento:</strong> {movement?.concepto || 'Sin concepto'}</p><p><strong>Estado:</strong> {etiquetaEstado(payload.borrador.estado)}</p>{centerSelectionProblems.length > 0 && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-red-950"><strong>No se puede confirmar todavía.</strong><ul className="mt-1 list-disc pl-5">{centerSelectionProblems.map((problem) => <li key={problem}>{problem}</li>)}</ul></div>}{payload.borrador.estado === 'JUSTIFICADO' && <ReviewCenterChoices lines={payload.borrador.lineas} catalogo={centerCatalog} />}{payload.borrador.estado === 'NO_REQUIERE' ? <p><strong>Motivo:</strong> {etiquetaMotivo(payload.borrador.motivoNoRequiere || '')}. No se enviarán líneas.</p> : <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg bg-slate-50 p-3"><SummaryRow label="Documentos" value={formatCentimos(documentLines)} /><SummaryRow label="Diferencias" value={formatCentimos(differenceLines)} /><SummaryRow label="Resto" value={remaining === null ? 'No calculable' : formatCentimos(remaining)} emphasis={remaining !== 0} /></dl>}{retry && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">Se reintentará exactamente la misma solicitud, con la misma clave de idempotencia.</p>}<p className="text-xs text-slate-500">Esta acción crea una operación auditable. No se realizan sugerencias ni actualizaciones optimistas.</p></div><div className="flex flex-col-reverse gap-2 border-t border-slate-200 px-5 py-4 sm:flex-row sm:justify-end"><button type="button" onClick={onCancel} disabled={confirming} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50">Cancelar</button><button ref={confirmRef} data-testid="b4-confirm" type="button" onClick={onConfirm} disabled={confirming || centerSelectionProblems.length > 0} className="rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60">{confirming ? 'Confirmando…' : retry ? 'Reintentar confirmación' : 'Confirmar definitivamente'}</button></div></div></div>;
+}
+
+function ReviewCenterChoices({ lines, catalogo }: { lines: readonly LineaBorradorConCentro[]; catalogo: CatalogoCentrosEstado }) {
+  const documents = lines.filter((line): line is LineaDocumentoConCentro => line.tipo === 'DOCUMENTO');
+  const withCenter = documents.flatMap((line, index) => {
+    if (!line.centroCosteFinanzasId) return [];
+    const center = catalogo.items.find((item) => item.id === line.centroCosteFinanzasId);
+    // El diálogo se abre sólo con catálogo verificable; no se inventa etiqueta de un UUID.
+    return center ? [{ index: index + 1, center }] : [];
+  });
+  const withoutCenter = documents.map((line, index) => ({ line, index: index + 1 })).filter(({ line }) => !line.centroCosteFinanzasId);
+  return <section className="rounded-lg border border-slate-200 bg-slate-50 p-3"><h3 className="font-bold text-slate-950">Imputación por centro de coste</h3>{withCenter.length > 0 ? <ul className="mt-2 space-y-1 text-sm text-slate-800">{withCenter.map(({ index, center }) => <li key={`${index}-${center.id}`}><strong>Línea documental {index}:</strong> {etiquetaCentro(center)}</li>)}</ul> : null}{withoutCenter.length > 0 ? <p className="mt-2 text-sm text-slate-700"><strong>Sin centro de coste:</strong> línea{withoutCenter.length === 1 ? '' : 's'} documental{withoutCenter.length === 1 ? '' : 'es'} {withoutCenter.map(({ index }) => index).join(', ')}.</p> : null}{withCenter.length === 0 && withoutCenter.length === 0 ? <p className="mt-2 text-sm text-slate-600">No hay líneas DOCUMENTO.</p> : null}</section>;
 }
 
 function Pagination({ current, total, onPage }: { current: number; total: number; onPage: (offset: number) => void }) {

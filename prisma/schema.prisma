@@ -10,6 +10,10 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  centrosCosteFinanzasCreadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Creador")
+  centrosCosteFinanzasActualizadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Actualizador")
+  auditoriasCentroCosteFinanzasB8 AuditoriaCentroCosteFinanzasB8[] @relation("AuditoriaCentroCosteFinanzasB8Actor")
+  recibosEleccionCentroB8 ReciboEleccionCentroB8[] @relation("ReciboEleccionCentroB8Actor")
   identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Actor")
   asignacionesDevolucionConfirmadasB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Confirmador")
@@ -4090,6 +4094,11 @@ model TraspasoInterno {
 // Active and reversed allocations are retained. DOCUMENTO points to exactly one wrapper;
 // DIFERENCIA has no wrapper and a closed motive. The row-local matrix lives in guards.sql.
 model VinculoMovimientoDocumento {
+  centroCosteFinanzasId String? @db.Uuid @map("centro_coste_finanzas_id")
+  versionCentroCoste Int @default(0) @map("version_centro_coste")
+  centroCosteFinanzas CentroCosteFinanzas? @relation("CentroCosteFinanzasB8Vinculos", fields:[centroCosteFinanzasId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  auditoriasCentroCosteFinanzasB8 AuditoriaCentroCosteFinanzasB8[] @relation("AuditoriaCentroCosteFinanzasB8Vinculo")
+  @@index([centroCosteFinanzasId,activo])
   asignacionDevolucionRemesaB6 AsignacionDevolucionRemesaB6? @relation("AsignacionDevolucionRemesaB6Vinculo")
 
   id                       String                    @id @default(uuid()) @db.Uuid
@@ -4116,6 +4125,7 @@ model VinculoMovimientoDocumento {
 
 // Idempotency is deliberately scoped to the real UsuarioAdmin Int identity and request key.
 model OperacionJustificacionB4 {
+  reciboEleccionCentroB8 ReciboEleccionCentroB8?
   id                     String                    @id @default(uuid()) @db.Uuid
   movimientoId           String                    @map("movimiento_id")
   estado                 EstadoOperacionB4         @default(PENDIENTE_APROBACION)
@@ -4361,4 +4371,74 @@ model IdentidadFacturaISPEventoB7 {
   actor          UsuarioAdmin @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
   @@index([createdAt])
   @@map("identidad_factura_isp_eventos_b7")
+}
+
+/// Catálogo explícito. código no procede de categoría, operador ni fuente.
+model CentroCosteFinanzas {
+  id               String   @id @default(uuid()) @db.Uuid
+  codigo           String   @unique @db.VarChar(64)
+  nombre           String   @db.VarChar(160)
+  activo           Boolean  @default(true)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  creadoPorId      Int      @map("creado_por_id")
+  actualizadoPorId Int      @map("actualizado_por_id")
+
+  creadoPor      UsuarioAdmin @relation("CentroCosteFinanzasB8Creador", fields: [creadoPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actualizadoPor UsuarioAdmin @relation("CentroCosteFinanzasB8Actualizador", fields: [actualizadoPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  vinculos       VinculoMovimientoDocumento[] @relation("CentroCosteFinanzasB8Vinculos")
+  auditorias     AuditoriaCentroCosteFinanzasB8[] @relation("AuditoriaCentroCosteFinanzasB8Centro")
+
+  @@index([activo, codigo])
+  @@map("centros_coste_finanzas")
+}
+
+/// Bitácora append-only para CRUD/PATCH explícito. No sustituye al recibo de
+/// confirmación: el caso válido sin centro sólo lo acredita ReciboEleccionCentroB8.
+model AuditoriaCentroCosteFinanzasB8 {
+  id                          String   @id @default(uuid()) @db.Uuid
+  centroCosteFinanzasId        String?  @db.Uuid @map("centro_coste_finanzas_id")
+  vinculoMovimientoDocumentoId String?  @db.Uuid @map("vinculo_movimiento_documento_id")
+  actorId                     Int      @map("actor_id")
+  accion                      String   @db.VarChar(48)
+  idempotencyKey              String?  @db.VarChar(160) @map("idempotency_key")
+  payloadHash                 String   @db.Char(64) @map("payload_hash")
+  valueHash                   String   @db.Char(64) @map("value_hash")
+  sourceNoteRule              String   @db.VarChar(64) @map("source_note_rule")
+  snapshotSolicitud           Json     @map("snapshot_solicitud")
+  snapshotResultado           Json     @map("snapshot_resultado")
+  createdAt                   DateTime @default(now()) @map("created_at")
+
+  centroCosteFinanzas CentroCosteFinanzas? @relation("AuditoriaCentroCosteFinanzasB8Centro", fields: [centroCosteFinanzasId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  vinculo             VinculoMovimientoDocumento? @relation("AuditoriaCentroCosteFinanzasB8Vinculo", fields: [vinculoMovimientoDocumentoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor               UsuarioAdmin @relation("AuditoriaCentroCosteFinanzasB8Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([centroCosteFinanzasId, createdAt])
+  @@index([vinculoMovimientoDocumentoId, createdAt])
+  @@map("auditorias_centros_coste_finanzas_b8")
+}
+
+/// Exactamente un recibo inmutable por operación B4 confirmada que entra en el
+/// flujo B8; incluye mapeo vacío para NO_REQUIERE y notselected para DOCUMENTO.
+/// Su hash sólo contiene IDs/índices/centro-null, jamás importes o fuentes.
+model ReciboEleccionCentroB8 {
+  id                  String   @id @default(uuid()) @db.Uuid
+  operacionB4Id       String   @unique @db.Uuid @map("operacion_b4_id")
+  actorId             Int      @map("actor_id")
+  idempotencyKey      String   @db.VarChar(160) @map("idempotency_key")
+  metadataHash        String   @db.Char(64) @map("metadata_hash")
+  relatedSourceHashP2 String   @db.Char(64) @map("related_source_hash_p2")
+  sourceNoteRule      String   @db.VarChar(64) @map("source_note_rule")
+  snapshotSolicitud   Json     @map("snapshot_solicitud")
+  snapshotResultado   Json     @map("snapshot_resultado")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  operacionB4 OperacionJustificacionB4 @relation(fields: [operacionB4Id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor       UsuarioAdmin @relation("ReciboEleccionCentroB8Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([metadataHash])
+  @@map("recibos_eleccion_centro_b8")
 }

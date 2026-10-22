@@ -6,10 +6,25 @@ import {
   catalogoB4,
   convertirImporteBancarioACentimos,
   convertirImporteUiACentimos,
+  metadataB8JsonAcotado,
   prepararCancelacionTotal,
+  solicitudB4SinCentroCosteFinanzas,
   validarBorradorMovimiento,
   type TipoDocumentoConciliable,
 } from '@/lib/finanzas/reconciliation-core'
+import {
+  B8_NOT_SELECTED,
+  eleccionesDesdeLineasB4,
+  metadataHashEleccionesCentro,
+  type ChoiceCanonical,
+  type ChoiceInput,
+} from '@/lib/finanzas/centros-coste-core'
+import {
+  applyChoicesB8,
+  assertB8ChoiceReceiptReplayTx,
+  B8CentroCosteServiceError,
+  type CurrentSourceValidatorB8,
+} from '@/lib/finanzas/centros-coste-db'
 
 /** B4 schema is applied independently. Keeping this tiny adapter avoids lying to a
  * pre-generation client while retaining concrete, reviewed operations below. */
@@ -20,7 +35,7 @@ const MAX_LIMIT = 100
 
 type JsonRecord = Record<string, unknown>
 export type B4Line =
-  | { tipo: 'DOCUMENTO'; documentoConciliableId: string; importeCentimos: number }
+  | { tipo: 'DOCUMENTO'; documentoConciliableId: string; importeCentimos: number; centroCosteFinanzasId?: string | null }
   | { tipo: 'DIFERENCIA'; motivoDiferencia: 'COMISION' | 'INTERESES' | 'REDONDEO'; importeCentimos: number }
 
 export class B4ServiceError extends Error {
@@ -31,6 +46,31 @@ export class B4ServiceError extends Error {
 
 function fail(status: number, code: string, message: string, details?: unknown): never {
   throw new B4ServiceError(status, code, message, details)
+}
+
+/** B4 no expone detalles internos B8; conserva únicamente su error de contrato. */
+function b8FailAsB4(error: unknown): never {
+  if (error instanceof B8CentroCosteServiceError) {
+    fail(error.status, error.code, error.message)
+  }
+  throw error
+}
+
+function eleccionesB8DesdeBorrador(rawLines: unknown): readonly ChoiceCanonical[] {
+  const parsed = eleccionesDesdeLineasB4(rawLines)
+  if (!parsed.ok) {
+    const errors = (parsed as { ok: false; errors: readonly { codigo: string; mensaje: string }[] }).errors
+    fail(400, errors[0]?.codigo ?? 'VALIDATION_ERROR', errors[0]?.mensaje ?? 'Las elecciones B8 no son válidas.', errors)
+  }
+  return parsed.value
+}
+
+function eleccionesB8ParaRecibo(choices: readonly ChoiceCanonical[]): readonly ChoiceInput[] {
+  return choices.map((choice) => ({
+    indiceLinea: choice.indiceLinea,
+    documentoConciliableId: choice.documentoConciliableId,
+    ...(choice.centroCosteFinanzasId === B8_NOT_SELECTED ? {} : { centroCosteFinanzasId: choice.centroCosteFinanzasId }),
+  }))
 }
 
 function exactKeys(value: unknown, keys: readonly string[], label = '$'): asserts value is JsonRecord {
@@ -286,6 +326,50 @@ async function evidenceForWrapper(tx: Tx, doc: any) {
   return evidence
 }
 
+/**
+ * Fuente viva que B8 recibe desde B4, nunca desde cliente ni desde un importe
+ * copiado. Usa el mismo `evidenceForWrapper` que valida capacidad B4: wrapper
+ * activo, único origen legal y objetivo firmado exactamente vigente.
+ */
+export function createB8CurrentSourceValidator(): CurrentSourceValidatorB8 {
+  return {
+    // Only B8 GET calls this method. Mutations retain locking + evidenceForWrapper.
+    // All wrapper/source reads use the caller's same repeatable/serializable snapshot.
+    async inspectCurrentB4DocumentSourcesTx(tx, inputs) {
+      const ids = [...new Set(inputs.map(input => input.documentoConciliableId))]
+      const docs = await b4(tx).documentoConciliable.findMany({where:{id:{in:ids}}})
+      const inspections = await inspectDocumentsBatch(docs, tx)
+      const byId = new Map<string, any>(docs.map((doc:any)=>[doc.id,doc]))
+      const results = new Map<string, {referencia:string} | null>()
+      for (const input of inputs) {
+        const doc = byId.get(input.documentoConciliableId)
+        const inspected = inspections.get(input.documentoConciliableId)
+        if (!doc || !inspected || inspected.stale) { results.set(input.documentoConciliableId,null);continue }
+        const metadata = documentMetadata(doc,inspected.evidence)
+        results.set(input.documentoConciliableId, typeof metadata?.referencia==='string' && metadata.referencia.trim() ? {referencia:metadata.referencia} : null)
+      }
+      return results
+    },
+    async assertCurrentB4DocumentSourceTx(tx, { movimientoId, documentoConciliableId }) {
+      const docs = await b4(tx).documentoConciliable.findMany({
+        where: {
+          id: documentoConciliableId,
+          vinculos: { some: { movimientoId, activo: true, tipoLinea: 'DOCUMENTO' } },
+        },
+      })
+      const doc = docs[0]
+      if (!doc) fail(409, 'B8_DOCUMENT_SOURCE_STALE', 'No existe DOCUMENTO B4 activo actual.')
+      await lockDocuments(tx, [doc.id])
+      const evidence = await evidenceForWrapper(tx, doc)
+      const metadata = documentMetadata(doc, evidence)
+      if (!metadata || typeof metadata.referencia !== 'string' || metadata.referencia.trim().length === 0) {
+        fail(409, 'B8_DOCUMENT_SOURCE_STALE', 'La fuente DOCUMENTO B4 actual no expone referencia válida.')
+      }
+      return { referencia: metadata.referencia }
+    },
+  }
+}
+
 async function currentState(tx: Tx, movimientoId: string) {
   return await b4(tx).estadoJustificacionMovimientoB4.findUnique({ where: { movimientoId } })
 }
@@ -335,7 +419,15 @@ export async function confirmarB4(actorId: number, input: unknown) {
   if (raw.action !== 'confirmar' || raw.confirmacion !== true) fail(400, 'VALIDATION_ERROR', 'confirmar exige confirmacion: true.')
   const idempotencyKey = stringId(raw.idempotencyKey, 'idempotencyKey')
   if (idempotencyKey.length > 128 || !Number.isInteger(raw.version) || (raw.version as number) < 0) fail(400, 'VALIDATION_ERROR', 'version o idempotencyKey inválidos.')
-  const hash = payloadHash(raw)
+  const eleccionesB8 = eleccionesB8DesdeBorrador((raw.borrador as JsonRecord | undefined)?.lineas)
+  if (!metadataB8JsonAcotado({ elecciones: eleccionesB8 })) {
+    fail(400, 'B8_METADATA_TOO_LARGE', 'El metadato de elecciones de centro excede el límite permitido.')
+  }
+  const metadataHashB8 = metadataHashEleccionesCentro(eleccionesB8)
+  // Sólo la solicitud económica B4 se hashea/persiste. El DTO original conserva
+  // centros exclusivamente para construir el recibo B8 separado dentro del tx.
+  const solicitudB4 = solicitudB4SinCentroCosteFinanzas(raw) as JsonRecord
+  const hash = payloadHash(solicitudB4)
   const draftProbe = raw.borrador as any
   const movimientoId = stringId(draftProbe?.movimientoId, 'borrador.movimientoId')
   await assertFinanceStagingIsolated()
@@ -343,13 +435,26 @@ export async function confirmarB4(actorId: number, input: unknown) {
     const tx = base as Tx
     await advisoryAndMovementLock(tx, movimientoId)
     const replay = await checkIdempotency(tx, actorId, idempotencyKey, hash)
-    if (replay) return { idempotente: true, operacion: operationView(replay), estado: replay.snapshotResultado }
+    if (replay) {
+      try {
+        await assertB8ChoiceReceiptReplayTx(tx, {
+          operacionB4Id: replay.id,
+          actorId,
+          idempotencyKey,
+          metadataHash: metadataHashB8,
+          elecciones: eleccionesB8,
+        })
+      } catch (error) {
+        b8FailAsB4(error)
+      }
+      return { idempotente: true, operacion: operationView(replay), estado: replay.snapshotResultado }
+    }
 
     const movement: any = await (tx.movimientoBancario as any).findUnique({ where: { id: movimientoId }, select: { id: true, importe: true } })
     if (!movement) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
     const movementCents = centsFromSource(await exactSourceDecimal(tx,'movimientos_bancarios','importe',movement.id), 'movimiento.importe', false, true)!
-    if (!raw.borrador || typeof raw.borrador !== 'object' || Array.isArray(raw.borrador)) fail(400, 'VALIDATION_ERROR', 'borrador inválido.')
-    const normalizedDraft = { ...(raw.borrador as JsonRecord), importeMovimientoCentimos: movementCents }
+    if (!solicitudB4.borrador || typeof solicitudB4.borrador !== 'object' || Array.isArray(solicitudB4.borrador)) fail(400, 'VALIDATION_ERROR', 'borrador inválido.')
+    const normalizedDraft = { ...(solicitudB4.borrador as JsonRecord), importeMovimientoCentimos: movementCents }
     // Client cannot substitute the bank amount: equality is asserted against source.
     if ((raw.borrador as any).importeMovimientoCentimos !== movementCents) fail(409, 'IMPORTE_MOVIMIENTO_CAMBIADO', 'El importe del borrador no coincide con el banco.')
     const docIds: string[] = Array.isArray((raw.borrador as any).lineas)
@@ -376,7 +481,7 @@ export async function confirmarB4(actorId: number, input: unknown) {
       data: {
         movimientoId, estado: 'APLICADA', idempotencyKey, payloadHash: hash, versionEsperada: previousVersion,
         versionResultante: resultState.version, solicitadaPorId: actorId, aprobadaPorId: actorId,
-        snapshotSolicitud: raw, snapshotEstadoPrevio: previous ? stateView(previous) : { estado: 'SIN_DOCUMENTO', motivoNoRequiere: null, version: 1 },
+        snapshotSolicitud: solicitudB4, snapshotEstadoPrevio: previous ? stateView(previous) : { estado: 'SIN_DOCUMENTO', motivoNoRequiere: null, version: 1 },
         snapshotResultado: resultState, aprobadaAt: new Date(), aplicadaAt: new Date(),
       },
     })
@@ -387,6 +492,38 @@ export async function confirmarB4(actorId: number, input: unknown) {
     })) })
     if (previous) await b4(tx).estadoJustificacionMovimientoB4.update({ where: { movimientoId }, data: { ...resultState, actualizadoPorId: actorId } })
     else await b4(tx).estadoJustificacionMovimientoB4.create({ data: { movimientoId, ...resultState, actualizadoPorId: actorId } })
+    try {
+      const lineasDocumentoCreadas = plan.borrador.estado === 'NO_REQUIERE'
+        ? []
+        : await b4(tx).vinculoMovimientoDocumento.findMany({
+          where: { operacionCreacionId: operation.id, activo: true, tipoLinea: 'DOCUMENTO' },
+          select: { id: true, documentoConciliableId: true },
+        }).then((rows: any[]) => {
+          const indicesPorDocumento = new Map<string, number>()
+          plan.borrador.lineas.forEach((line, indiceLinea) => {
+            if (line.tipo === 'DOCUMENTO') indicesPorDocumento.set(line.documentoConciliableId, indiceLinea)
+          })
+          const mapped = rows.map((row) => ({
+            indiceLinea: indicesPorDocumento.get(row.documentoConciliableId),
+            vinculoMovimientoDocumentoId: row.id,
+            documentoConciliableId: row.documentoConciliableId,
+          }))
+          if (mapped.some((row) => !Number.isSafeInteger(row.indiceLinea))) {
+            fail(409, 'B8_DOCUMENT_MAPPING_INVALID', 'Las líneas DOCUMENTO creadas no corresponden al borrador B4.')
+          }
+          return mapped as Array<{ indiceLinea: number; vinculoMovimientoDocumentoId: string; documentoConciliableId: string }>
+        })
+      await applyChoicesB8(tx, {
+        actorId,
+        operacionB4Id: operation.id,
+        idempotencyKey,
+        elecciones: eleccionesB8ParaRecibo(eleccionesB8),
+        lineasDocumentoCreadas,
+        requiredCurrentSourceValidator: createB8CurrentSourceValidator(),
+      })
+    } catch (error) {
+      b8FailAsB4(error)
+    }
     await b4(tx).eventoJustificacionB4.createMany({ data: ['SOLICITUD', 'APROBACION', 'APLICACION'].map((accion) => ({
       operacionId: operation.id, movimientoId, accion, actorId, detalle: { version: resultState.version },
     })) })
@@ -512,9 +649,9 @@ function documentMetadata(doc: any, evidence: any | null) {
   }
 }
 
-async function inspectDocumentForRead(doc: any) {
+async function inspectDocumentForRead(doc: any, client: Tx = prisma as unknown as Tx) {
   try {
-    const evidence = await evidenceForWrapper(prisma as unknown as Tx, doc)
+    const evidence = await evidenceForWrapper(client, doc)
     return { stale: false, evidence }
   } catch (error) {
     // Evidence errors mean exactly that the historical wrapper is no longer
@@ -524,7 +661,7 @@ async function inspectDocumentForRead(doc: any) {
   }
 }
 
-async function inspectDocumentsBatch(docs: any[]) {
+async function inspectDocumentsBatch(docs: any[], client: Tx = prisma as unknown as Tx) {
   const configs: Record<string, { pointer: string; model: string; table: string; column: string; select: any; negative?: boolean }> = {
     FACTURA_RECIBIDA: {pointer:'facturaRecibidaId',model:'facturaRecibida',table:'facturas_recibidas',column:'total',negative:true,select:{id:true,numFactura:true,proveedor:true,fecha:true,calidad:true,copiaDeId:true,conflictoIdentidad:true,duplicadoExterno:true}},
     FACTURA_EMITIDA: {pointer:'facturaEmitidaId',model:'facturaEmitida',table:'facturas_emitidas',column:'total',select:{id:true,numFactura:true,cliente:true,fecha:true,facturaISPId:true}},
@@ -538,8 +675,8 @@ async function inspectDocumentsBatch(docs: any[]) {
     if (!group.length) return
     const ids = [...new Set(group.map(doc=>doc[config.pointer]))]
     const [sources, decimals] = await Promise.all([
-      (prisma as any)[config.model].findMany({where:{id:{in:ids}},select:config.select}),
-      prisma.$queryRaw<Array<{id:string;decimal:string}>>(Prisma.sql`
+      (client as any)[config.model].findMany({where:{id:{in:ids}},select:config.select}),
+      client.$queryRaw<Array<{id:string;decimal:string}>>(Prisma.sql`
         SELECT id::text AS id, ${Prisma.raw('"'+config.column+'"')}::text AS decimal
         FROM ${Prisma.raw('"'+config.table+'"')} WHERE id::text IN (${Prisma.join(ids.map(String))}) LIMIT ${ids.length}
       `),
@@ -547,7 +684,7 @@ async function inspectDocumentsBatch(docs: any[]) {
     const sourceMap = new Map<string,any>(sources.map((source:any)=>[String(source.id),source]))
     const decimalMap = new Map(decimals.map(row=>[row.id,row.decimal]))
     const ispMapped = sources.filter((source:any)=>source.facturaISPId!==null && source.facturaISPId!==undefined)
-    const ispRows = ispMapped.length ? await prisma.$queryRaw<Array<{id:number;decimal:string}>>(Prisma.sql`
+    const ispRows = ispMapped.length ? await client.$queryRaw<Array<{id:number;decimal:string}>>(Prisma.sql`
       SELECT id,total::text AS decimal FROM facturas WHERE id IN (${Prisma.join(ispMapped.map((source:any)=>source.facturaISPId))}) LIMIT ${ispMapped.length}
     `) : []
     const ispDecimals = new Map(ispRows.map(row=>[row.id,row.decimal]))
@@ -569,7 +706,7 @@ async function inspectDocumentsBatch(docs: any[]) {
       }
     }
   }))
-  await Promise.all(docs.filter(doc=>!results.has(doc.id)).map(async doc=>results.set(doc.id,await inspectDocumentForRead(doc))))
+  await Promise.all(docs.filter(doc=>!results.has(doc.id)).map(async doc=>results.set(doc.id,await inspectDocumentForRead(doc, client))))
   return results
 }
 
@@ -659,7 +796,7 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
   const appliedIds = Array.from(appliedByMovement.values()).map((operation: any) => operation.id)
   const links = appliedIds.length ? await b4(prisma as Tx).vinculoMovimientoDocumento.findMany({
     where: { operacionCreacionId: { in: appliedIds }, activo: true },
-    select: { id: true, movimientoId: true, operacionCreacionId: true, tipoLinea: true, documentoConciliableId: true, motivoDiferencia: true, importeCentimos: true },
+    select: { id: true, movimientoId: true, operacionCreacionId: true, tipoLinea: true, documentoConciliableId: true, motivoDiferencia: true, importeCentimos: true, centroCosteFinanzasId: true, versionCentroCoste: true, centroCosteFinanzas: {select: {codigo:true,nombre:true,activo:true}} },
   }) : []
   const linkedDocIds = links.map((link: any) => link.documentoConciliableId).filter(Boolean)
   const missingLinkedIds = [...new Set(linkedDocIds.filter((id: string) => !documentPage.docs.some((doc: any) => doc.id === id)))]
@@ -705,6 +842,8 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
         id: link.id, tipo: link.tipoLinea, documentoConciliableId: link.documentoConciliableId ?? null,
         motivoDiferencia: link.motivoDiferencia ?? null, importeCentimos: link.importeCentimos,
         referencia: doc?.referencia ?? `Diferencia ${link.motivoDiferencia ?? ''}`.trim(),
+        centroCosteFinanzasId: link.centroCosteFinanzasId ?? null, versionCentroCoste: link.versionCentroCoste,
+        centroCosteCodigo: link.centroCosteFinanzas?.codigo ?? null, centroCosteNombre: link.centroCosteFinanzas?.nombre ?? null,
       }
     }
     return {
