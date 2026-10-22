@@ -1,3 +1,4 @@
+// B7 candidato; SHA-256 base (root actual leído): 02a6491a7a291183f15d25034bdebdcb85d55278c6e4e421d39066f0339fcee1
 export const VISTAS_B5 = [
   'CARGOS_SIN_DOCUMENTO',
   'COBROS_SIN_DOCUMENTO',
@@ -27,16 +28,31 @@ export type MovimientoPendienteB5 = {
   /** Extensión B5 prevista: sólo se filtra por esta metadata realmente devuelta, nunca por texto. */
   tarjeta?: { terminacion: string; titular: string };
 };
+export type EstadoCobroBancoB7 = 'COBRADA_CALCULADA' | 'PENDIENTE_COBRO' | 'PENDIENTE_COBRO_REVISION';
+export type FuenteCobroBancoB7 = 'B4_DIRECTO' | 'B4_REMESA';
+export type CoberturaBancoB7 = {
+  status: 'KNOWN' | 'PARTIAL' | 'UNKNOWN'; asOf: string | null;
+  activeAccountCount: number; accountsWithKnownCutoff: number;
+};
 export type FacturaPendienteB5 = {
-  tipo: 'FACTURA_RECIBIDA' | 'FACTURA_EMITIDA'; id: string; documentoConciliableId: string;
-  referencia: string | null; tercero: string; cliente?: string; cif: string | null; concepto: string | null;
-  fecha: string | null; fechaVencimiento: string | null; importeObjetivoCentimos: number;
-  importeAsignadoActivoCentimos: number; importePendienteCentimos: number;
+  tipo: 'FACTURA_RECIBIDA' | 'FACTURA_EMITIDA'; id: string; documentoConciliableId: string | null;
+  referencia: string | null; tercero: string; cliente?: string | null; cif: string | null; concepto: string | null;
+  fecha: string | null; fechaVencimiento: string | null; importeObjetivoCentimos: number | null;
+  importeAsignadoActivoCentimos: number | null; importePendienteCentimos: number | null;
+  /** Metadata B7 opcional para no inventar estado alguno en fixtures B5 heredados. */
+  documentoConciliableNoInferido?: boolean;
+  importeNoVerificable?: boolean;
+  estadoCobroBanco?: EstadoCobroBancoB7;
+  estadoCobroBancoEtiqueta?: string;
+  fuentesCobroBanco?: FuenteCobroBancoB7[];
+  motivosRevisionBanco?: string[];
 };
 export type ItemPendienteB5 = MovimientoPendienteB5 | FacturaPendienteB5;
 export type ItemsResponseB5 = {
   vista: VistaB5; cobertura: CoberturaB5; items: ItemPendienteB5[]; total: number; limit: number; offset: number;
   coberturaCuentas: CoberturaCuentasB5; criterioBanco: string;
+  /** Raíz B7 opcional: si llega se valida; si no llega no se finge cobertura bancaria. */
+  coberturaBanco?: CoberturaBancoB7; calculoBanco?: string; ambitoCuentaFacturas?: string;
 };
 export type ContadorB5 = {
   mes: string | null; cuenta: Pick<CuentaB5, 'id' | 'banco' | 'alias'>;
@@ -57,6 +73,9 @@ export type DocumentoFuturoB5 = {
 const manual = ['PENDIENTE', 'PEDIDO', 'RECIBIDO'] as const;
 const effective = [...manual, 'VINCULADO', 'NO_REQUIERE'] as const;
 const motivos = ['COMISION_BANCARIA', 'INTERES_BANCARIO', 'REDONDEO_BANCARIO', 'TRASPASO_INTERNO_SIN_DOCUMENTO', 'MOVIMIENTO_TECNICO_BANCO', 'CORRECCION_BANCARIA'] as const;
+const estadosCobroBancoB7 = ['COBRADA_CALCULADA', 'PENDIENTE_COBRO', 'PENDIENTE_COBRO_REVISION'] as const;
+const fuentesCobroBancoB7 = ['B4_DIRECTO', 'B4_REMESA'] as const;
+const coberturaBancoB7 = ['KNOWN', 'PARTIAL', 'UNKNOWN'] as const;
 // Runtime structures are narrowed at every nested boundary below. `any` here
 // only lets TypeScript access a checked JSON record without weakening parser checks.
 const isRecord = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -67,10 +86,23 @@ const nullableString = (value: unknown, field: string): string | null => {
   return typeof value === 'string' ? value : fail(field);
 };
 const safeInt = (value: unknown, field: string): number => typeof value === 'number' && Number.isSafeInteger(value) ? value : fail(field);
+/** Undefined is deliberately invalid: only explicit JSON null represents unknown money. */
+const nullableSafeInt = (value: unknown, field: string): number | null => value === null ? null : safeInt(value, field);
 const positive = (value: unknown, field: string): number => safeInt(value, field) > 0 ? safeInt(value, field) : fail(field);
 const oneOf = <T extends readonly string[]>(value: unknown, values: T, field: string): T[number] => typeof value === 'string' && (values as readonly string[]).includes(value) ? value as T[number] : fail(field);
 export const esIsoDia = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime()) && new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
 const isoOrNull = (value: unknown, field: string): string | null => { const output = nullableString(value, field); return output === null || esIsoDia(output) ? output : fail(field); };
+
+/** Etiqueta exacta para UI: null es desconocido y 0 sigue siendo un importe conocido. */
+export function formatCents(cents: number | null): string {
+  if (cents === null || !Number.isSafeInteger(cents)) return 'Importe no verificable';
+  const value = BigInt(cents);
+  const negative = value < BigInt(0);
+  const absolute = negative ? -value : value;
+  const euros = (absolute / BigInt(100)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const decimals = (absolute % BigInt(100)).toString().padStart(2, '0');
+  return `${negative ? '-' : '+'}${euros},${decimals} €`;
+}
 
 function cuenta(value: unknown, field: string): CuentaB5 {
   if (!isRecord(value)) fail(field);
@@ -107,8 +139,49 @@ function movimiento(value: Record<string, unknown>, field: string): MovimientoPe
 function factura(value: Record<string, unknown>, field: string): FacturaPendienteB5 {
   const tipo = oneOf(value.tipo, ['FACTURA_RECIBIDA', 'FACTURA_EMITIDA'] as const, `${field}.tipo`);
   const client = value.cliente;
-  if (tipo === 'FACTURA_EMITIDA' && typeof client !== 'string') fail(`${field}.cliente`);
-  return { tipo, id: str(value.id, `${field}.id`), documentoConciliableId: str(value.documentoConciliableId, `${field}.documentoConciliableId`), referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), ...(tipo === 'FACTURA_EMITIDA' ? { cliente: str(client, `${field}.cliente`) } : {}), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`), fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos: safeInt(value.importeObjetivoCentimos, `${field}.importeObjetivoCentimos`), importeAsignadoActivoCentimos: safeInt(value.importeAsignadoActivoCentimos, `${field}.importeAsignadoActivoCentimos`), importePendienteCentimos: safeInt(value.importePendienteCentimos, `${field}.importePendienteCentimos`) };
+  const isB7 = tipo === 'FACTURA_EMITIDA' && (
+    value.estadoCobroBanco !== undefined || value.estadoCobroBancoEtiqueta !== undefined
+    || value.importeNoVerificable !== undefined || value.fuentesCobroBanco !== undefined || value.motivosRevisionBanco !== undefined
+  );
+  // FR remains the B5 contract: wrapper and every monetary field are actual integers.
+  if (!isB7) {
+    if (tipo === 'FACTURA_EMITIDA' && typeof client !== 'string') fail(`${field}.cliente`);
+    return { tipo, id: str(value.id, `${field}.id`), documentoConciliableId: str(value.documentoConciliableId, `${field}.documentoConciliableId`), referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), ...(tipo === 'FACTURA_EMITIDA' ? { cliente: str(client, `${field}.cliente`) } : {}), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`), fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos: safeInt(value.importeObjetivoCentimos, `${field}.importeObjetivoCentimos`), importeAsignadoActivoCentimos: safeInt(value.importeAsignadoActivoCentimos, `${field}.importeAsignadoActivoCentimos`), importePendienteCentimos: safeInt(value.importePendienteCentimos, `${field}.importePendienteCentimos`) };
+  }
+  if (value.importeNoVerificable === undefined || typeof value.importeNoVerificable !== 'boolean') fail(`${field}.importeNoVerificable`);
+  const importeNoVerificable = value.importeNoVerificable as boolean;
+  const estadoCobroBanco = oneOf(value.estadoCobroBanco, estadosCobroBancoB7, `${field}.estadoCobroBanco`);
+  const fuentes = value.fuentesCobroBanco as unknown;
+  const motivosRevision = value.motivosRevisionBanco as unknown;
+  if (!Array.isArray(fuentes)) fail(`${field}.fuentesCobroBanco`);
+  if (!Array.isArray(motivosRevision)) fail(`${field}.motivosRevisionBanco`);
+  const fuentesCobroBanco = (fuentes as unknown[]).map((source, index) => oneOf(source, fuentesCobroBancoB7, `${field}.fuentesCobroBanco[${index}]`));
+  if (new Set(fuentesCobroBanco).size !== fuentesCobroBanco.length) fail(`${field}.fuentesCobroBanco duplicadas`);
+  const motivosRevisionBanco = (motivosRevision as unknown[]).map((reason, index) => {
+    const parsed = str(reason, `${field}.motivosRevisionBanco[${index}]`);
+    return parsed ? parsed : fail(`${field}.motivosRevisionBanco[${index}]`);
+  });
+  const importeObjetivoCentimos = nullableSafeInt(value.importeObjetivoCentimos, `${field}.importeObjetivoCentimos`);
+  const importeAsignadoActivoCentimos = nullableSafeInt(value.importeAsignadoActivoCentimos, `${field}.importeAsignadoActivoCentimos`);
+  const importePendienteCentimos = nullableSafeInt(value.importePendienteCentimos, `${field}.importePendienteCentimos`);
+  const anyUnknown = importeObjetivoCentimos === null || importeAsignadoActivoCentimos === null || importePendienteCentimos === null;
+  if (importeNoVerificable !== anyUnknown) fail(`${field}.importeNoVerificable no coincide con los importes B7`);
+  return {
+    tipo, id: str(value.id, `${field}.id`), documentoConciliableId: nullableString(value.documentoConciliableId, `${field}.documentoConciliableId`),
+    referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), cliente: nullableString(client, `${field}.cliente`), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`),
+    fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos, importeAsignadoActivoCentimos, importePendienteCentimos,
+    documentoConciliableNoInferido: value.documentoConciliableNoInferido === undefined ? undefined : (typeof value.documentoConciliableNoInferido === 'boolean' ? value.documentoConciliableNoInferido : fail(`${field}.documentoConciliableNoInferido`)),
+    importeNoVerificable, estadoCobroBanco, estadoCobroBancoEtiqueta: str(value.estadoCobroBancoEtiqueta, `${field}.estadoCobroBancoEtiqueta`), fuentesCobroBanco, motivosRevisionBanco,
+  };
+}
+
+function bancoB7(value: unknown, field: string): CoberturaBancoB7 {
+  if (!isRecord(value)) fail(field);
+  const raw = value as Record<string, unknown>;
+  const activeAccountCount = safeInt(raw.activeAccountCount, `${field}.activeAccountCount`);
+  const accountsWithKnownCutoff = safeInt(raw.accountsWithKnownCutoff, `${field}.accountsWithKnownCutoff`);
+  if (activeAccountCount < 0 || accountsWithKnownCutoff < 0 || accountsWithKnownCutoff > activeAccountCount) fail(`${field}.cuentas`);
+  return { status: oneOf(raw.status, coberturaBancoB7, `${field}.status`), asOf: isoOrNull(raw.asOf, `${field}.asOf`), activeAccountCount, accountsWithKnownCutoff };
 }
 
 export function leerItemsB5(value: unknown): ItemsResponseB5 {
@@ -116,7 +189,12 @@ export function leerItemsB5(value: unknown): ItemsResponseB5 {
   const raw = value as Record<string, unknown>;
   const vista = oneOf(raw.vista, VISTAS_B5, 'vista');
   const items = (raw.items as unknown[]).map((item: unknown, index: number) => { if (!isRecord(item)) fail(`items[${index}]`); const row = item as Record<string, unknown>; return row.tipo === 'MOVIMIENTO' ? movimiento(row, `items[${index}]`) : factura(row, `items[${index}]`); });
-  return { vista, cobertura: oneOf(raw.cobertura, ['CUBIERTA', 'TODAS'] as const, 'cobertura'), items, total: safeInt(raw.total, 'total'), limit: positive(raw.limit, 'limit'), offset: safeInt(raw.offset, 'offset'), coberturaCuentas: cobertura(raw.coberturaCuentas, 'coberturaCuentas'), criterioBanco: str(raw.criterioBanco, 'criterioBanco') };
+  return {
+    vista, cobertura: oneOf(raw.cobertura, ['CUBIERTA', 'TODAS'] as const, 'cobertura'), items, total: safeInt(raw.total, 'total'), limit: positive(raw.limit, 'limit'), offset: safeInt(raw.offset, 'offset'), coberturaCuentas: cobertura(raw.coberturaCuentas, 'coberturaCuentas'), criterioBanco: str(raw.criterioBanco, 'criterioBanco'),
+    ...(raw.coberturaBanco === undefined ? {} : { coberturaBanco: bancoB7(raw.coberturaBanco, 'coberturaBanco') }),
+    ...(raw.calculoBanco === undefined ? {} : { calculoBanco: str(raw.calculoBanco, 'calculoBanco') }),
+    ...(raw.ambitoCuentaFacturas === undefined ? {} : { ambitoCuentaFacturas: str(raw.ambitoCuentaFacturas, 'ambitoCuentaFacturas') }),
+  };
 }
 export function leerConfiguracionB5(value: unknown): ConfiguracionB5 {
   if (!isRecord(value) || !Array.isArray(value.cuentas) || !Array.isArray(value.responsables) || !Array.isArray(value.tarjetas)) fail('configuración');

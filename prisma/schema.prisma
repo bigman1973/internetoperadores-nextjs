@@ -10,6 +10,7 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Actor")
   asignacionesDevolucionConfirmadasB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Confirmador")
 
@@ -295,6 +296,7 @@ model ContratoServicio {
 }
 
 model Factura {
+  identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   remesaId Int? @map("remesa_id")
   remesa Remesa? @relation("FacturasISPRemesadasB6", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6FacturaISP")
@@ -1564,6 +1566,7 @@ enum EstadoFacturaEmitida {
 }
 
 model FacturaEmitida {
+  identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   id              String   @id @default(uuid())
   cliente         String   // Nombre del cliente
   cif             String?  // CIF/NIF del cliente
@@ -4342,4 +4345,20 @@ model AuditoriaRemesaB6 {
   @@index([remesaId, createdAt])
   @@index([movimientoId, createdAt])
   @@map("auditoria_remesa_b6")
+}
+
+// Relación de identidad comprobada; no acredita cobro ni crea vínculos bancarios.
+model IdentidadFacturaISPEventoB7 {
+  id             String @id @default(uuid()) @db.Uuid
+  facturaEmitidaId String @unique @map("factura_emitida_id")
+  facturaISPId   Int @unique @map("factura_isp_id")
+  actorId        Int @map("actor_id")
+  fuenteHash     String @db.VarChar(64) @map("fuente_hash")
+  snapshot       Json
+  createdAt      DateTime @default(now()) @map("created_at")
+  facturaEmitida FacturaEmitida @relation(fields:[facturaEmitidaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  facturaISP     Factura @relation(fields:[facturaISPId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor          UsuarioAdmin @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@index([createdAt])
+  @@map("identidad_factura_isp_eventos_b7")
 }

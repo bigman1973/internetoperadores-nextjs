@@ -7,16 +7,17 @@ interface DashboardData {
   periodo: { year: number; trimestre: number | null; desde: string; hasta: string };
   saldos: { cuentas: any[]; total: number };
   fiscal: { ivaSoportado: number; ivaRepercutido: number; ivaAPagar: number; irpfRetenido: number; irpfNominas: number; irpfTotal: number; ssEmpresaNominas: number; ssTrabajadorNominas: number; mesesConNominas: number; baseImponibleCompras: number; totalCompras: number; baseImponibleVentas: number; totalVentas: number };
-  ventas: { totalFacturado: number; totalCobrado: number; pendienteCobro: number; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
+  ventas: { totalFacturado: number|null; totalCobrado: number|null; pendienteCobro: number|null; bankCoverage?:{status:string;asOf:string|null}; numFacturas: number; porEstado: Record<string, { count: number; total: number }> };
   flujo: { ingresos: number; gastos: number; salidas: number; neto: number; porMes: Record<string, { ingresos: number; gastos: number }>; desgloseSalidas: { gastosOperativos: number; mayoristas: number; vola: number; nominas: number; cotizacionesSS: number; transfNominas: number; impuestos: number; devoluciones: number; transferenciasInternas: number; otros: number } };
   categorias: Record<string, { ingresos: number; gastos: number; count: number }>;
   gastosPorTipo: Record<string, number>;
-  conciliacion: { totalMovimientos: number; conciliados: number; pendientes: number; sinCategorizar: number; porcentajeConciliado: number };
+  conciliacion: { totalMovimientos: number; conciliados: number; pendientes: number; sinCategorizar: number; porcentajeConciliado: number|null };
   alertas: { facturasPendientes: number; facturasImpagadas: number; facturasVencidas: number; movimientosSinCategorizar: number };
   cuentaCorrienteVola?: { pagosACuenta: number; numMovimientos: number };
 }
 
-function formatEUR(n: number) {
+function formatEUR(n: number|null) {
+  if(n===null||!Number.isFinite(n))return 'Sin importe verificable';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(n);
 }
 
@@ -38,9 +39,10 @@ export default function FinanzasDashboard() {
       if (trimestre) params.set('trimestre', trimestre);
       const res = await fetch(`/api/admin/finanzas/dashboard?${params}`);
       const json = await res.json();
+      if(!res.ok||!json?.ventas||!json?.fiscal)throw Error('Dashboard no verificable');
       setData(json);
     } catch (e) {
-      console.error(e);
+      setData(null);
     }
     setLoading(false);
   }
@@ -89,13 +91,14 @@ export default function FinanzasDashboard() {
         </div>
       </div>
 
+      {data.ventas.bankCoverage?.status!=='KNOWN'&&<p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Cobro observado en los extractos disponibles: la cobertura bancaria no permite afirmar que todas las cuentas estén actualizadas.</p>}
       {/* Alertas */}
       {(data.alertas.facturasPendientes > 0 || data.alertas.facturasImpagadas > 0 || data.alertas.facturasVencidas > 0) && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-center gap-3">
           <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0" />
           <div className="flex gap-4 text-sm text-amber-800">
             {data.alertas.facturasPendientes > 0 && <span>{data.alertas.facturasPendientes} facturas pendientes de revisión</span>}
-            {data.alertas.facturasImpagadas > 0 && <span className="text-red-700 font-medium">{data.alertas.facturasImpagadas} facturas impagadas</span>}
+            {data.alertas.facturasImpagadas > 0 && <span className="text-red-700 font-medium">{data.alertas.facturasImpagadas} facturas sin cobro confirmado</span>}
             {data.alertas.facturasVencidas > 0 && <span className="text-red-700">{data.alertas.facturasVencidas} facturas vencidas sin cobrar</span>}
             {data.alertas.movimientosSinCategorizar > 0 && <span>{data.alertas.movimientosSinCategorizar} movimientos sin categorizar</span>}
           </div>
@@ -247,7 +250,7 @@ export default function FinanzasDashboard() {
               <span className="font-medium">{formatEUR(data.ventas.totalFacturado)}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-gray-600">Cobrado</span>
+              <span className="text-gray-600">Cobro documental confirmado</span>
               <span className="font-medium text-green-700">{formatEUR(data.ventas.totalCobrado)}</span>
             </div>
             <div className="flex justify-between text-sm">
@@ -258,7 +261,7 @@ export default function FinanzasDashboard() {
               <div className="border-t pt-2 flex flex-wrap gap-2">
                 {Object.entries(data.ventas.porEstado).map(([estado, info]) => (
                   <span key={estado} className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
-                    {estado}: {info.count}
+                    {estado==='COBRADA_CALCULADA'?'Cobradas (banco)':estado==='PENDIENTE_COBRO'?'Pendientes de cobro':'Revisar evidencia'}: {info.count}
                   </span>
                 ))}
               </div>
@@ -348,26 +351,27 @@ export default function FinanzasDashboard() {
       {/* Conciliación */}
       <div className="bg-white rounded-xl border p-5">
         <h3 className="text-sm font-semibold text-gray-900 mb-3">Estado de Conciliación</h3>
+        <p className="mb-3 text-xs text-slate-600">El porcentaje mide importe con documento B4, sin traspasos explícitos; no es el porcentaje legacy de movimientos.</p>
         <div className="grid grid-cols-4 gap-4">
           <div>
             <p className="text-xs text-gray-500">Total movimientos</p>
             <p className="text-lg font-bold">{data.conciliacion.totalMovimientos}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Conciliados</p>
+            <p className="text-xs text-gray-500">Justificados B4</p>
             <p className="text-lg font-bold text-green-600">{data.conciliacion.conciliados}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Pendientes</p>
+            <p className="text-xs text-gray-500">Sin documento B4</p>
             <p className="text-lg font-bold text-amber-600">{data.conciliacion.pendientes}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">% Conciliado</p>
-            <p className="text-lg font-bold text-blue-600">{data.conciliacion.porcentajeConciliado}%</p>
+            <p className="text-xs text-gray-500">% importe con documento</p>
+            <p className="text-lg font-bold text-blue-600">{data.conciliacion.porcentajeConciliado===null?'Sin porcentaje verificable':data.conciliacion.porcentajeConciliado+'%'}</p>
           </div>
         </div>
         <div className="mt-3 w-full bg-gray-200 rounded-full h-3">
-          <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${data.conciliacion.porcentajeConciliado}%` }}></div>
+          <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${data.conciliacion.porcentajeConciliado===null?'Sin porcentaje verificable':data.conciliacion.porcentajeConciliado+'%'}` }}></div>
         </div>
       </div>
     </div>

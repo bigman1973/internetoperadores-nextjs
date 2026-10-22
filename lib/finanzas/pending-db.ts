@@ -10,6 +10,9 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import prisma from "@/lib/prisma";
 import {cardFromBankText,FINANCE_CARD_HOLDERS} from "@/lib/finanzas/card-holders";
 import { assertFinanceStagingIsolated } from "@/lib/finanzas/staging-safety";
+import { readBankInvoicingPopulation, type B7ReadDatabase } from "@/lib/finanzas/bank-invoicing-db";
+import type { InvoiceSettlement } from "@/lib/finanzas/bank-invoicing-core";
+
 import {
   estadoEfectivoB5,
   pistaB6,
@@ -46,6 +49,100 @@ function fail(status: number, code: string, message: string, details?: unknown):
 }
 function asDb(): PrismaClient & Record<string, any> { return prisma as PrismaClient & Record<string, any>; }
 function asTx(tx: Prisma.TransactionClient): Tx { return tx as Tx; }
+
+type EmittedMetadataB5 = { id: string; cif: string | null; concepto: string | null };
+
+/**
+ * FACTURAS_EMITIDAS is a global FI population.  The B7 calculation only accepts
+ * actual B4/B6 documentary proof; it does not and must not infer a bank account
+ * for an unlinked FI.  Therefore this is deliberately reached only after the
+ * existing cuentaId validation has rejected account-scoped invoice reads.
+ */
+function b7EmittedMatchesB5(invoice: InvoiceSettlement, metadata: EmittedMetadataB5 | undefined, options: ReadPendientesB5Options): boolean {
+  if (invoice.paymentState === "COBRADA_CALCULADA") return false;
+  const fecha = invoice.fechaISO;
+  if (options.desde && (!fecha || fecha < options.desde.toISOString().slice(0, 10))) return false;
+  if (options.hasta && (!fecha || fecha > options.hasta.toISOString().slice(0, 10))) return false;
+  if (!options.q) return true;
+  const needle = options.q.toLocaleLowerCase("es-ES");
+  return [invoice.invoiceId, invoice.numFactura, invoice.cliente, metadata?.cif ?? null, metadata?.concepto ?? null]
+    .some((value) => value !== null && value.toLocaleLowerCase("es-ES").includes(needle));
+}
+
+function b7EmittedOrder(left: InvoiceSettlement, right: InvoiceSettlement): number {
+  // Keep B5's pending-first ordering without using abs() in any financial value.
+  const leftAmount = left.remainingCents === null ? null : Math.abs(left.remainingCents);
+  const rightAmount = right.remainingCents === null ? null : Math.abs(right.remainingCents);
+  if (leftAmount !== null && rightAmount !== null && leftAmount !== rightAmount) return rightAmount - leftAmount;
+  if (leftAmount !== null && rightAmount === null) return -1;
+  if (leftAmount === null && rightAmount !== null) return 1;
+  const leftDate = left.fechaISO ?? "9999-12-31";
+  const rightDate = right.fechaISO ?? "9999-12-31";
+  return leftDate.localeCompare(rightDate) || left.invoiceId.localeCompare(right.invoiceId);
+}
+
+function b7EmittedView(invoice: InvoiceSettlement, metadata: EmittedMetadataB5 | undefined) {
+  const importeNoVerificable = invoice.targetCents === null
+    || invoice.paidDocumentaryCents === null
+    || invoice.remainingCents === null;
+  const estadoCobroBancoEtiqueta = invoice.paymentState === "PENDIENTE_COBRO_REVISION"
+    ? "Pendiente de cobro: requiere revisión bancaria"
+    : invoice.paymentState === "PENDIENTE_COBRO"
+      ? "Pendiente de cobro bancario"
+      : "Cobrada calculada por banco";
+  return {
+    tipo: "FACTURA_EMITIDA" as const,
+    id: invoice.invoiceId,
+    // B7 may be paid by an explicitly audited B6 remittance.  There is then no
+    // FI wrapper to expose as if it were the source document, so it stays null.
+    documentoConciliableId: null as string | null,
+    documentoConciliableNoInferido: true,
+    referencia: invoice.numFactura,
+    tercero: invoice.cliente ?? "SIN_CLIENTE_FUENTE",
+    cliente: invoice.cliente,
+    // Metadata comes only from the exact canonical FI id, never a client/CIF guess.
+    cif: metadata?.cif ?? null,
+    concepto: metadata?.concepto ?? null,
+    fecha: invoice.fechaISO,
+    fechaVencimiento: invoice.fechaVencimientoISO,
+    // All are signed B7 cents.  Null explicitly means unknown/review, never zero.
+    importeObjetivoCentimos: invoice.targetCents,
+    importeAsignadoActivoCentimos: invoice.paidDocumentaryCents,
+    importePendienteCentimos: invoice.remainingCents,
+    importeNoVerificable,
+    estadoCobroBanco: invoice.paymentState,
+    estadoCobroBancoEtiqueta,
+    fuentesCobroBanco: invoice.paymentSources,
+    motivosRevisionBanco: invoice.reasons,
+  };
+}
+
+async function readFacturasEmitidasPendientesB5(options: ReadPendientesB5Options, limit: number, offset: number) {
+  return asDb().$transaction(async (base) => {
+    const tx = asTx(base);
+    // The staging guard was checked immediately before this transaction.  B7 runs
+    // inside this caller-provided REPEATABLE READ snapshot and performs no DML.
+    const population = await readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, {
+      enabled: true,
+      assertIsolatedStaging: async () => undefined,
+    });
+    const ids = population.invoices.map((invoice) => invoice.invoiceId);
+    const metadataRows = ids.length === 0 ? [] : await (tx as any).facturaEmitida.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, cif: true, concepto: true },
+    }) as EmittedMetadataB5[];
+    const metadataById = new Map(metadataRows.map((row) => [row.id, row]));
+    const matching = population.invoices
+      .filter((invoice) => b7EmittedMatchesB5(invoice, metadataById.get(invoice.invoiceId), options))
+      .sort(b7EmittedOrder);
+    return {
+      items: matching.slice(offset, offset + limit).map((invoice) => b7EmittedView(invoice, metadataById.get(invoice.invoiceId))),
+      total: matching.length,
+      bankCoverage: population.bankCoverage,
+      calculationBasis: population.calculationBasis,
+    };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait:10000, timeout:60000 });
+}
 
 export type ReadPendientesB5Options = Readonly<{
   vista: VistaPendientesB5;
@@ -411,6 +508,21 @@ export async function readPendientesB5(options: ReadPendientesB5Options) {
   // acreditar la copia io_staging_finanzas; assert realiza únicamente SELECT.
   await assertFinanceStagingIsolated();
 
+  if (options.vista === "FACTURAS_EMITIDAS_SIN_COBRO") {
+    const emitted = await readFacturasEmitidasPendientesB5(options, limit, offset);
+    return {
+      vista: options.vista, cobertura: options.cobertura ?? "TODAS", items: emitted.items,
+      total: emitted.total, limit, offset,
+      coberturaCuentas: await coberturaCuentasB5(options.cuentaId),
+      // FI has no authoritative single account scope; B7 exposes coverage without
+      // manufacturing a balanced result from UNKNOWN/PARTIAL bank coverage.
+      coberturaBanco: emitted.bankCoverage,
+      calculoBanco: emitted.calculationBasis,
+      ambitoCuentaFacturas: "POBLACION_GLOBAL_FACTURAS_EMITIDAS_SIN_CUENTA_INFERIDA",
+      criterioBanco: "Cobro documental B7: B4 vigente y B6 explícita; los campos ISP/legacy no intervienen.",
+    };
+  }
+
   let rows: SqlRow[];
   let countRows: Array<{ total: bigint | number }>;
   let mapper: (row: SqlRow) => unknown;
@@ -422,7 +534,7 @@ export async function readPendientesB5(options: ReadPendientesB5Options) {
     ]);
     mapper = bankView;
   } else {
-    const emitted = options.vista === "FACTURAS_EMITIDAS_SIN_COBRO";
+    const emitted = false;
     [rows, countRows] = await Promise.all([
       asDb().$queryRaw<SqlRow[]>(invoiceRowsQuery(options, emitted, limit, offset)),
       asDb().$queryRaw<Array<{ total: bigint | number }>>(invoiceCountQuery(options, emitted)),

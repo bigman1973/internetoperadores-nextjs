@@ -1,4 +1,5 @@
 'use client';
+// B7 candidato; SHA-256 base (root actual leído): 5675d6a1518cee2b3f28cf1ae2a65c0f06a881e03ba0f56b69436e97afc6e59f
 
 import { useCallback, useEffect, useMemo, useState, useRef, type FormEvent } from 'react';
 import {
@@ -8,7 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { usePermisoArea } from '@/hooks/usePermisoArea';
 import {
-  VISTAS_B5, esMotivoNoRequiere, leerConfiguracionB5, leerContadoresB5, leerItemsB5,
+  VISTAS_B5, esMotivoNoRequiere, formatCents, leerConfiguracionB5, leerContadoresB5, leerItemsB5,
   type CoberturaB5, type ConfiguracionB5, type ContadorB5, type ConfirmarNoRequiereB4,
   type DocumentoFuturoB5, type EstadoManualB5, type FacturaPendienteB5, type GestionPatchB5,
   type ItemsResponseB5, type MovimientoPendienteB5, type MotivoNoRequiereB4, type VistaB5,
@@ -28,6 +29,23 @@ const NO_REQUIRE_REASONS: Array<{ value: MotivoNoRequiereB4; label: string }> = 
   { value: 'MOVIMIENTO_TECNICO_BANCO', label: 'Movimiento técnico del banco' },
   { value: 'CORRECCION_BANCARIA', label: 'Corrección bancaria' },
 ];
+const B7_REVIEW_REASON_LABELS: Record<string, string> = {
+  FUENTE_B2_NO_ECONOMICA: 'La fuente FacturaEmitida no está acreditada como económica.',
+  IMPORTE_FUENTE_INEXACTO_O_AUSENTE: 'El total de la fuente no es exacto o falta.',
+  TOTAL_CERO_SIN_COBRO_EXIGIBLE: 'Total cero: no existe cobro exigible.',
+  TOTAL_CERO_NOCobro: 'Total cero: no existe cobro exigible.',
+  FECHA_FUENTE_DESCONOCIDA: 'La fecha de FacturaEmitida no está disponible.',
+  ENVOLTORIO_FI_NO_COINCIDE_CON_FUENTE: 'El documento bancario no coincide exactamente con la fuente FacturaEmitida.',
+  EVIDENCIA_B4_DIRECTA_NO_VIGENTE: 'La evidencia B4 directa no está vigente o no cumple el cierre documental.',
+  SOLAPAMIENTO_FI_DIRECTA_Y_REMESA: 'Hay evidencia directa y de remesa solapadas; requiere revisión.',
+  REMESA_FUENTE_O_MAPA_FI_INEXACTO: 'La remesa o su mapa explícito con FacturaEmitida no es exacto.',
+  REMESA_EVIDENCIA_B4_NO_VIGENTE: 'La evidencia bancaria B4 de la remesa no está vigente.',
+  REMESA_SUMA_NO_SEGURA: 'La suma documental de la remesa no es segura.',
+  REMESA_DEVOLUCION_SIN_ATRIBUCION_B6_EXACTA: 'Existe devolución de remesa sin atribución B6 exacta confirmada.',
+  REMESA_DEVOLUCION_FUERA_DE_RANGO: 'La devolución de remesa queda fuera del rango firmado de la factura.',
+  SUMA_NO_SEGURA_O_FUENTE_INEXACTA: 'No se pudo verificar una suma o una fuente exacta.',
+  COBRO_DOCUMENTAL_FUERA_DE_RANGO_FIRMADO: 'El cobro documental queda fuera del rango firmado permitido.',
+};
 const TABS: Array<{ id: VistaB5; label: string; description: string }> = [
   { id: 'CARGOS_SIN_DOCUMENTO', label: 'Cargos sin documento', description: 'Cargos bancarios pendientes de soporte.' },
   { id: 'COBROS_SIN_DOCUMENTO', label: 'Cobros sin documento', description: 'Abonos bancarios pendientes de soporte.' },
@@ -58,9 +76,12 @@ function key(): string {
     ? crypto.randomUUID() : `b5-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 function isBankView(view: VistaB5): boolean { return view === 'CARGOS_SIN_DOCUMENTO' || view === 'COBROS_SIN_DOCUMENTO'; }
-function formatMoney(cents: number | null): string {
-  if (cents === null || !Number.isSafeInteger(cents)) return 'Importe desconocido';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', signDisplay: 'always' }).format(cents / 100);
+function formatMoney(cents: number | null): string { return formatCents(cents); }
+function formatCentsText(cents: string): string {
+  if (!/^-?\d+$/.test(cents)) return 'Importe no verificable';
+  const integer = BigInt(cents);
+  if (integer > BigInt(Number.MAX_SAFE_INTEGER) || integer < BigInt(-Number.MAX_SAFE_INTEGER)) return 'Importe no verificable';
+  return formatCents(Number(integer));
 }
 function formatDate(value: string | null): string { return value ? new Intl.DateTimeFormat('es-ES').format(new Date(`${value}T00:00:00`)) : 'Fecha no disponible'; }
 function ageInCivilDays(value: string | null): number | null {
@@ -74,6 +95,12 @@ function ageInCivilDays(value: string | null): number | null {
 }
 function labelAccount(account: { banco: string; alias: string | null }): string { return `${account.banco}${account.alias ? ` · ${account.alias}` : ''}`; }
 function labelReason(reason: MotivoNoRequiereB4 | ''): string { return NO_REQUIRE_REASONS.find((item) => item.value === reason)?.label || ''; }
+function labelB7ReviewReason(reason: string): string { return B7_REVIEW_REASON_LABELS[reason] || reason; }
+function labelB7Source(source: 'B4_DIRECTO' | 'B4_REMESA'): string { return source === 'B4_DIRECTO' ? 'Cobro documental confirmado · B4 directo' : 'Cobro documental confirmado · B6 remesa'; }
+function labelB7Client(item: FacturaPendienteB5): string {
+  const client = item.cliente || (item.tercero === 'SIN_CLIENTE_FUENTE' ? null : item.tercero);
+  return client || 'Cliente sin dato verificable';
+}
 function statusClass(state: string): string {
   if (state === 'VINCULADO') return 'bg-emerald-50 text-emerald-800 ring-emerald-200';
   if (state === 'NO_REQUIERE') return 'bg-orange-50 text-orange-900 ring-orange-200';
@@ -264,7 +291,7 @@ function Counters({ counters, loading }: { counters: ContadorB5[] | null; loadin
   return <section aria-label="Contadores por mes y cuenta" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{counters.length === 0 ? <p className="text-sm text-slate-600">No hay contadores devueltos para este alcance; no se interpreta como completitud cero.</p> : counters.map((counter) => {
     const known = counter.porcentajeJustificadoBps !== null;
     const percent = known ? `${(counter.porcentajeJustificadoBps! / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })}%` : 'No calculable';
-    return <article key={`${counter.mes}-${counter.cuenta.id}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{counter.mes?.slice(0,7) || 'Mes no disponible'} · {labelAccount(counter.cuenta)}</p><p className="mt-2 text-2xl font-bold text-slate-950">{percent}</p><p className="mt-1 text-xs text-slate-600">Con documento: {formatMoney(Number(counter.importeJustificadoCentimos))} / evaluable: {formatMoney(Number(counter.importeEvaluableCentimos))}</p>{counter.parcial ? <p className="mt-2 text-xs font-bold text-amber-800">Parcial: {counter.movimientosImporteNoExacto > 0 ? `${counter.movimientosImporteNoExacto} importe(s) no exacto(s).` : 'El porcentaje no representa una completitud total.'}</p> : <p className="mt-2 text-xs text-emerald-700">Calculado sobre los movimientos disponibles, sin traspasos.</p>}</article>;
+    return <article key={`${counter.mes}-${counter.cuenta.id}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{counter.mes?.slice(0,7) || 'Mes no disponible'} · {labelAccount(counter.cuenta)}</p><p className="mt-2 text-2xl font-bold text-slate-950">{percent}</p><p className="mt-1 text-xs text-slate-600">Con documento: {formatCentsText(counter.importeJustificadoCentimos)} / evaluable: {formatCentsText(counter.importeEvaluableCentimos)}</p>{counter.parcial ? <p className="mt-2 text-xs font-bold text-amber-800">Parcial: {counter.movimientosImporteNoExacto > 0 ? `${counter.movimientosImporteNoExacto} importe(s) no exacto(s).` : 'El porcentaje no representa una completitud total.'}</p> : <p className="mt-2 text-xs text-emerald-700">Calculado sobre los movimientos disponibles, sin traspasos.</p>}</article>;
   })}</section>;
 }
 function CardFilterBar({ selected, onChange, options }: { selected: CardFilter; onChange: (value: CardFilter) => void; options: Array<{ last4: string; titular: string }> }) {
@@ -279,7 +306,12 @@ function GroupRows({ group, canWrite, onEdit, onNoRequire, onUpload, onAttachmen
 }
 function InvoiceTable({ items }: { items: FacturaPendienteB5[] }) {
   if (items.length === 0) return <Empty title="No hay facturas pendientes" text="No se sustituye una respuesta incompleta por un importe cero." />;
-  return <div className="relative min-w-0 max-w-full overflow-x-auto"><table style={{display:'table'}} className="min-w-[900px] w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Factura / tercero</th><th className="px-4 py-3">Fecha / vencimiento</th><th className="px-4 py-3 text-right">Objetivo firmado</th><th className="px-4 py-3 text-right">Asignado B4</th><th className="px-4 py-3 text-right">Pendiente en banco</th></tr></thead><tbody>{items.map((item) => { const days = ageInCivilDays(item.fecha); return <tr key={item.id} data-testid="b5-invoice-row" className="border-t border-slate-100 align-top"><td className="px-4 py-3"><p className="font-bold text-slate-950">{item.referencia || 'Sin referencia'}</p><p className="mt-1 text-xs text-slate-700">{item.cliente || item.tercero}{item.cif ? ` · ${item.cif}` : ''}</p><p className="mt-1 max-w-sm text-xs text-slate-500">{item.concepto || 'Sin concepto'}</p></td><td className="px-4 py-3"><p>{formatDate(item.fecha)}</p><p className="mt-1 text-xs text-slate-600">Vencimiento: {item.fechaVencimiento ? formatDate(item.fechaVencimiento) : 'No informado'}</p><p className="mt-1 text-xs font-semibold text-orange-800">Antigüedad: {days === null ? 'No calculable' : `${days} días civiles`}</p></td><td className="px-4 py-3 text-right font-mono">{formatMoney(item.importeObjetivoCentimos)}</td><td className="px-4 py-3 text-right font-mono">{formatMoney(item.importeAsignadoActivoCentimos)}</td><td className="px-4 py-3 text-right font-mono font-bold text-slate-950">{formatMoney(item.importePendienteCentimos)}</td></tr>; })}</tbody></table></div>;
+  return <div className="relative min-w-0 max-w-full overflow-x-auto"><table style={{display:'table'}} className="min-w-[900px] w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Factura / tercero</th><th className="px-4 py-3">Fecha / vencimiento</th><th className="px-4 py-3 text-right">Objetivo firmado</th><th className="px-4 py-3 text-right">Asignado B4</th><th className="px-4 py-3 text-right">Pendiente en banco</th></tr></thead><tbody>{items.map((item) => {
+    const days = ageInCivilDays(item.fecha);
+    const b7 = item.estadoCobroBanco !== undefined;
+    const genericReconciliationUrl = item.referencia ? `/admin/finanzas/conciliacion-v2?q=${encodeURIComponent(item.referencia)}` : null;
+    return <tr key={item.id} data-testid="b5-invoice-row" className="border-t border-slate-100 align-top"><td className="px-4 py-3"><p className="font-bold text-slate-950">{item.referencia || 'Sin referencia'}</p><p className="mt-1 text-xs text-slate-700">{b7 ? labelB7Client(item) : (item.cliente || item.tercero)}{item.cif ? ` · ${item.cif}` : ''}</p><p className="mt-1 max-w-sm text-xs text-slate-500">{item.concepto || 'Sin concepto'}</p>{b7 && <div className="mt-2 space-y-1 text-xs"><p className="font-semibold text-slate-800">{item.estadoCobroBancoEtiqueta}</p>{item.fuentesCobroBanco?.map((source) => <p key={source} className="text-emerald-800">{labelB7Source(source)}</p>)}{item.motivosRevisionBanco?.map((reason) => <p key={reason} className="text-amber-900">{labelB7ReviewReason(reason)}</p>)}{item.documentoConciliableId === null && <p className="text-slate-500">Sin envoltorio conciliable inferido.</p>}{genericReconciliationUrl && <a href={genericReconciliationUrl} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500"><ArrowTopRightOnSquareIcon className="h-3.5 w-3.5" aria-hidden="true" /> Buscar referencia en conciliación</a>}</div>}</td><td className="px-4 py-3"><p>{formatDate(item.fecha)}</p><p className="mt-1 text-xs text-slate-600">Vencimiento: {item.fechaVencimiento ? formatDate(item.fechaVencimiento) : 'No informado'}</p><p className="mt-1 text-xs font-semibold text-orange-800">Antigüedad: {days === null ? 'No calculable' : `${days} días civiles`}</p></td><td className="px-4 py-3 text-right font-mono">{formatMoney(item.importeObjetivoCentimos)}</td><td className="px-4 py-3 text-right font-mono">{formatMoney(item.importeAsignadoActivoCentimos)}</td><td className="px-4 py-3 text-right font-mono font-bold text-slate-950">{formatMoney(item.importePendienteCentimos)}</td></tr>;
+  })}</tbody></table></div>;
 }
 function EditDialog({ movement, responsables, canWrite, onClose, onSave }: { movement: MovimientoPendienteB5; responsables: ConfiguracionB5['responsables']; canWrite: boolean; onClose: () => void; onSave: (payload: GestionPatchB5) => Promise<void> }) {
   const [responsable, setResponsable] = useState(String(movement.gestion.responsable?.id || ''));

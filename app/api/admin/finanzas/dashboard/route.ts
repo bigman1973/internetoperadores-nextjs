@@ -2,24 +2,32 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
+import {assertFinanceStagingIsolated} from '@/lib/finanzas/staging-safety';
+import {readBankInvoicingPopulation} from '@/lib/finanzas/bank-invoicing-db';
+import {summarizeBankInvoicing} from '@/lib/finanzas/bank-invoicing-core';
+import {readContadoresPendientesB5} from '@/lib/finanzas/pending-db';
+export const dynamic='force-dynamic';
+const privateHeaders={'Cache-Control':'private, no-store'};
 
 export async function GET(req: NextRequest) {
   try {
     const denied = await checkAdminAreaRead('admin.finanzas', ['CONTABILIDAD']);
-    if (denied) return denied;
+    if (denied) {denied.headers.set('Cache-Control','private, no-store');return denied;}
     const { searchParams } = new URL(req.url);
     const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString());
-    const trimestre = searchParams.get('trimestre'); // 1, 2, 3, 4 o null para todo el año
+    if(!Number.isInteger(year)||year<2000||year>2200)return NextResponse.json({error:'Año inválido.'},{status:400,headers:privateHeaders});
+    const trimestre = searchParams.get('trimestre');
+    if(trimestre&&!/^[1-4]$/.test(trimestre))return NextResponse.json({error:'Trimestre inválido.'},{status:400,headers:privateHeaders}); // 1, 2, 3, 4 o null para todo el año
 
     // Calcular rango de fechas
     let desde: Date, hasta: Date;
     if (trimestre) {
       const t = parseInt(trimestre);
-      desde = new Date(year, (t - 1) * 3, 1);
-      hasta = new Date(year, t * 3, 0, 23, 59, 59);
+      desde = new Date(Date.UTC(year, (t - 1) * 3, 1));
+      hasta = new Date(Date.UTC(year, t * 3, 1)-1);
     } else {
-      desde = new Date(year, 0, 1);
-      hasta = new Date(year, 11, 31, 23, 59, 59);
+      desde = new Date(Date.UTC(year, 0, 1));
+      hasta = new Date(Date.UTC(year+1, 0, 1)-1);
     }
 
     const mesesNominas = trimestre
@@ -27,29 +35,31 @@ export async function GET(req: NextRequest) {
       : Array.from({ length: 12 }, (_, i) => i + 1);
 
     // Lecturas independientes; los cálculos y criterios contables permanecen idénticos.
-    const [cuentas, facturasRecibidas, facturasISP, movimientos, facturasPendientes, nominasPeriodo] = await Promise.all([
-      prisma.cuentaBancaria.findMany({
+    await assertFinanceStagingIsolated();
+    const [cuentas, facturasRecibidas, facturasISP, movimientos, facturasPendientes, nominasPeriodo, bankPopulation] = await prisma.$transaction(async tx=>Promise.all([
+      tx.cuentaBancaria.findMany({
         where: { activa: true }, orderBy: { banco: 'asc' },
         select: { id: true, banco: true, alias: true, saldoActual: true, fechaSaldo: true },
       }),
-      prisma.facturaRecibida.findMany({
+      tx.facturaRecibida.findMany({
         where: { ...facturaEconomicaWhere, fecha: { gte: desde, lte: hasta }, estado: { not: 'RECHAZADA' }, deducibleIva: true },
         select: { importeIva: true, base: true, importeIrpf: true, total: true },
       }),
-      prisma.factura.findMany({
-        where: { ejercicio: year, ...(trimestre ? { fecha: { gte: desde, lte: hasta } } : {}) },
-        select: { total: true, totalImpuesto: true, base: true, situacion: true, totalPendiente: true },
+      tx.facturaEmitida.findMany({
+        where: { fecha: { gte: desde, lte: hasta } },
+        select: { total: true, importeIva: true, base: true },
       }),
-      prisma.movimientoBancario.findMany({
+      tx.movimientoBancario.findMany({
         where: { fechaOperacion: { gte: desde, lte: hasta } },
-        select: { importe: true, categoria: true, concepto: true, fechaOperacion: true, conciliado: true, tipoPago: true, pagoACuentaVola: true },
+        select: { importe: true, categoria: true, concepto: true, fechaOperacion: true, estadoJustificacionB4:{select:{estado:true}}, tipoPago: true, pagoACuentaVola: true },
       }),
-      prisma.facturaRecibida.count({ where: { ...facturaEconomicaWhere, estado: 'PENDIENTE_REVISION' } }),
-      prisma.nomina.findMany({
+      tx.facturaRecibida.count({ where: { ...facturaEconomicaWhere, estado: 'PENDIENTE_REVISION' } }),
+      tx.nomina.findMany({
         where: { anio: year, mes: { in: mesesNominas } },
         select: { irpf: true, ssEmpresa: true, ssTrabajador: true, mes: true },
       }),
-    ]);
+      readBankInvoicingPopulation(tx,{enabled:true,assertIsolatedStaging:async()=>{}}),
+    ]),{isolationLevel:'RepeatableRead',maxWait:10000,timeout:60000});
 
     const ivaSoportado = facturasRecibidas.reduce((sum, f) => sum + f.importeIva, 0);
     const baseImponibleCompras = facturasRecibidas.reduce((sum, f) => sum + f.base, 0);
@@ -58,20 +68,15 @@ export async function GET(req: NextRequest) {
 
     // Facturas emitidas - tabla 'facturas' (ISPGestión).
     const totalVentas = facturasISP.reduce((sum, f) => sum + Number(f.total), 0);
-    const totalImpuestoVentas = facturasISP.reduce((sum, f) => sum + Number(f.totalImpuesto), 0);
+    const totalImpuestoVentas = facturasISP.reduce((sum, f) => sum + Number(f.importeIva), 0);
     const baseImponibleVentas = facturasISP.reduce((sum, f) => sum + Number(f.base), 0);
     const ivaRepercutido = totalImpuestoVentas;
-    const totalCobrado = facturasISP.filter(f => f.situacion === 'COBRADA').reduce((sum, f) => sum + Number(f.total), 0);
-    const pendienteCobro = facturasISP.filter(f => f.situacion === 'PENDIENTE').reduce((sum, f) => sum + Number(f.totalPendiente), 0);
-
-    // Facturas por estado (situacion)
-    const facturasEmitidasPorEstado: Record<string, { count: number; total: number }> = {};
-    for (const f of facturasISP) {
-      const estado = f.situacion;
-      if (!facturasEmitidasPorEstado[estado]) facturasEmitidasPorEstado[estado] = { count: 0, total: 0 };
-      facturasEmitidasPorEstado[estado].count++;
-      facturasEmitidasPorEstado[estado].total += Number(f.total);
-    }
+    const bankInvoices=bankPopulation.invoices.filter(f=>f.fechaISO!==null&&f.fechaISO>=desde.toISOString().slice(0,10)&&f.fechaISO<=hasta.toISOString().slice(0,10));
+    const bankSummary=summarizeBankInvoicing(bankInvoices,null);
+    const totalCobrado=bankSummary.cobroDocumentalConfirmado.cents===null?null:bankSummary.cobroDocumentalConfirmado.cents/100;
+    const pendienteCobro=bankSummary.pendienteNoConfirmado.cents===null?null:bankSummary.pendienteNoConfirmado.cents/100;
+    const facturasEmitidasPorEstado: Record<string,{count:number;total:number|null}>={};
+    for(const f of bankInvoices){const group=facturasEmitidasPorEstado[f.paymentState]??{count:0,total:0};group.count++;group.total=group.total===null||f.targetCents===null?null:group.total+f.targetCents/100;facturasEmitidasPorEstado[f.paymentState]=group;}
 
     // Movimientos por categoría.
     const ingresos = movimientos.filter(m => m.importe > 0).reduce((sum, m) => sum + m.importe, 0);
@@ -79,7 +84,7 @@ export async function GET(req: NextRequest) {
 
     // Desglose de salidas por tipo
     const categoriasNominas = ['Sueldos y Salarios'];
-    const categoriasImpuestos = ['IMPUESTOS'];
+    const categoriasImpuestos = ['IMPUESTOS','Impuestos'];
     const categoriasTransferencias = ['Traspaso'];
     const categoriasDevoluciones = ['Morosos'];
     const categoriasVola = ['Vola'];
@@ -112,7 +117,7 @@ export async function GET(req: NextRequest) {
         }
       }
       // Separar IMPUESTOS en subcategorías
-      if (cat === 'IMPUESTOS' && mov.importe < 0) {
+      if ((cat === 'IMPUESTOS'||cat==='Impuestos') && mov.importe < 0) {
         if (/ret.*ingreso a cuenta|ret.*cta/i.test(mov.concepto)) {
           cat = 'Retenciones';
         } else if (/sociedades.*pago.*cta|imp.*sociedades/i.test(mov.concepto)) {
@@ -136,14 +141,19 @@ export async function GET(req: NextRequest) {
       else porMes[mes].gastos += Math.abs(mov.importe);
     }
 
+    const counterB5=await readContadoresPendientesB5({desde,hasta,cobertura:'TODAS'});
+    const amountJustified=counterB5.contadores.reduce((sum,c)=>sum+BigInt(c.importeJustificadoCentimos),BigInt(0));
+    const amountEvaluable=counterB5.contadores.reduce((sum,c)=>sum+BigInt(c.importeEvaluableCentimos),BigInt(0));
+    const percentageBps=amountEvaluable===BigInt(0)||counterB5.contadores.some(c=>c.movimientosImporteNoExacto>0)?null:Number((amountJustified*BigInt(10000))/amountEvaluable);
     // 6. Estadísticas de conciliación
     const totalMovimientos = movimientos.length;
-    const conciliados = movimientos.filter(m => m.conciliado).length;
+    const conciliados = movimientos.filter(m => m.estadoJustificacionB4?.estado==='JUSTIFICADO').length;
+    const pendientesB4=movimientos.filter(m=>!m.estadoJustificacionB4||m.estadoJustificacionB4.estado==='SIN_DOCUMENTO').length;
     const sinCategorizar = movimientos.filter(m => !m.categoria).length;
 
     // Alertas.
-    const facturasImpagadas = facturasISP.filter(f => f.situacion === 'PENDIENTE').length;
-    const facturasVencidas = 0; // La tabla facturas de ISPGestión no tiene fecha_vencimiento
+    const facturasImpagadas = bankInvoices.filter(f=>f.paymentState!=='COBRADA_CALCULADA').length;
+    const facturasVencidas = bankInvoices.filter(f=>f.remainingCents!==null&&f.remainingCents!==0&&f.fechaVencimientoISO!==null&&f.fechaVencimientoISO<new Date().toISOString().slice(0,10)).length; // La tabla facturas de ISPGestión no tiene fecha_vencimiento
 
     // 8. Top gastos por categoría (para el gráfico de tarjeta/restaurantes/etc.)
     const gastosPorTipo: Record<string, number> = {};
@@ -191,11 +201,12 @@ export async function GET(req: NextRequest) {
         totalVentas: Math.round(totalVentas * 100) / 100,
       },
       ventas: {
-        totalFacturado: Math.round(totalVentas * 100) / 100,
-        totalCobrado: Math.round(totalCobrado * 100) / 100,
-        pendienteCobro: Math.round(pendienteCobro * 100) / 100,
-        numFacturas: facturasISP.length,
+        totalFacturado: bankSummary.facturado.cents===null?null:bankSummary.facturado.cents/100,
+        totalCobrado,
+        pendienteCobro,
+        numFacturas: bankInvoices.length,
         porEstado: facturasEmitidasPorEstado,
+        source:bankPopulation.calculationBasis, bankCoverage:bankPopulation.bankCoverage, summaryExacta:bankSummary,
       },
       flujo: {
         ingresos: Math.round(ingresos * 100) / 100,
@@ -220,9 +231,10 @@ export async function GET(req: NextRequest) {
       conciliacion: {
         totalMovimientos,
         conciliados,
-        pendientes: totalMovimientos - conciliados,
+        pendientes: pendientesB4,
         sinCategorizar,
-        porcentajeConciliado: totalMovimientos > 0 ? Math.round((conciliados / totalMovimientos) * 100) : 0,
+        porcentajeConciliado: percentageBps===null?null:percentageBps/100,
+        importeJustificadoCentimos:amountJustified.toString(),importeEvaluableCentimos:amountEvaluable.toString(), criterioPorcentaje:"Importe con documento B4; excluye traspasos explícitos",
       },
       alertas: {
         facturasPendientes,
@@ -234,9 +246,9 @@ export async function GET(req: NextRequest) {
         pagosACuenta: Math.round(salidasVola * 100) / 100,
         numMovimientos: movSalidas.filter(m => categoriasVola.includes(m.categoria || '') || m.pagoACuentaVola).length,
       },
-    });
+    },{headers:privateHeaders});
   } catch (error: any) {
-    console.error('Error en dashboard financiero:', error);
-    return NextResponse.json({ error: 'No se pudo cargar el dashboard financiero' }, { status: 500 });
+    console.error('Dashboard financiero no completado.');
+    return NextResponse.json({ error: 'No se pudo cargar el dashboard financiero' }, { status: 500,headers:privateHeaders });
   }
 }
