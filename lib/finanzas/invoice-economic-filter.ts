@@ -7,25 +7,40 @@ import { Prisma } from '@prisma/client';
  * excluded by naturalezaDocumento. This is not a name/provider/OCR heuristic.
  */
 const CARPETA_CONFIRMING_DRAXTON_2026 = '3. Confirming Draxton 2026';
-const rutaConfirmingActualOHistorica: Prisma.FacturaRecibidaWhereInput = {
-  OR: [
-    { carpetaOrigen: { contains: CARPETA_CONFIRMING_DRAXTON_2026, mode: 'insensitive' } },
-    { archivoOneDrive: { contains: CARPETA_CONFIRMING_DRAXTON_2026, mode: 'insensitive' } },
-    { oneDriveRutaActual: { contains: CARPETA_CONFIRMING_DRAXTON_2026, mode: 'insensitive' } },
-    { historialUbicaciones: { some: { OR: [
-      { anterior: { path: ['carpetaOrigen'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-      { anterior: { path: ['archivoOneDrive'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-      { anterior: { path: ['oneDriveRutaActual'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-      { actual: { path: ['carpetaOrigen'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-      { actual: { path: ['archivoOneDrive'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-      { actual: { path: ['oneDriveRutaActual'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
-    ] } } },
-  ],
+const filtroCarpetaConfirming = { contains: CARPETA_CONFIRMING_DRAXTON_2026, mode: 'insensitive' as const };
+
+const rutaConfirmingHistorica: Prisma.FacturaRecibidaWhereInput = {
+  historialUbicaciones: { some: { OR: [
+    { anterior: { path: ['carpetaOrigen'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+    { anterior: { path: ['archivoOneDrive'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+    { anterior: { path: ['oneDriveRutaActual'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+    { actual: { path: ['carpetaOrigen'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+    { actual: { path: ['archivoOneDrive'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+    { actual: { path: ['oneDriveRutaActual'], string_contains: CARPETA_CONFIRMING_DRAXTON_2026 } },
+  ] } },
 };
 
-/** Applies to all received-invoice lists, even quality/review screens. */
+/**
+ * SQL NOT(OR(nullable columns)) is UNKNOWN when every source column is NULL.
+ * Keep each nullable source explicitly in the non-confirming branch so the
+ * Prisma predicate has the same two-valued result as SQL COALESCE(..., '').
+ */
 export const facturaNoConfirmingDraxtonWhere: Prisma.FacturaRecibidaWhereInput = {
-  NOT: [rutaConfirmingActualOHistorica],
+  AND: [
+    { OR: [
+      { carpetaOrigen: null },
+      { NOT: [{ carpetaOrigen: filtroCarpetaConfirming }] },
+    ] },
+    { OR: [
+      { archivoOneDrive: null },
+      { NOT: [{ archivoOneDrive: filtroCarpetaConfirming }] },
+    ] },
+    { OR: [
+      { oneDriveRutaActual: null },
+      { NOT: [{ oneDriveRutaActual: filtroCarpetaConfirming }] },
+    ] },
+    { NOT: [rutaConfirmingHistorica] },
+  ],
 };
 
 /** B2/C9: only a canonical purchase invoice is an economic, VAT or payable fact. */
@@ -33,10 +48,10 @@ export const facturaEconomicaWhere: Prisma.FacturaRecibidaWhereInput = {
   calidad: 'VALIDA',
   copiaDeId: null,
   naturalezaDocumento: 'FACTURA_RECIBIDA',
+  AND: [facturaNoConfirmingDraxtonWhere],
   NOT: [
     { proveedor: { equals: 'ERROR_OCR', mode: 'insensitive' } },
     { proveedor: { equals: 'DESCONOCIDO', mode: 'insensitive' } },
-    rutaConfirmingActualOHistorica,
   ],
 };
 

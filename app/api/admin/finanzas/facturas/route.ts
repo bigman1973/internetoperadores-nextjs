@@ -33,12 +33,14 @@ export async function GET(req: NextRequest) {
     if (!page || !limit) return jsonPrivado({ error: 'Paginación inválida' }, 400)
     const desde = query.get('desde'), hasta = query.get('hasta')
     if ((desde && !esFechaDocumentoIso(desde)) || (hasta && !esFechaDocumentoIso(hasta))) return jsonPrivado({ error: 'Fecha de filtro inválida' }, 400)
-    const incluirCalidad = query.get('incluirCalidad') === 'true'
+    // Por defecto se listan todas las facturas recibidas no-confirming y se conserva
+    // su marca de calidad. incluirCalidad=false mantiene el listado económico legado.
+    const soloEconomicas = query.has('incluirCalidad') && query.get('incluirCalidad') !== 'true'
     const estado = query.get('estado')
     const calidad = query.get('calidad')
     // C9 centraliza la exclusión por naturaleza; nunca depende de un texto de carpeta mutable.
     const conditions: Prisma.FacturaRecibidaWhereInput[] = [facturaNoConfirmingDraxtonWhere, { naturalezaDocumento: 'FACTURA_RECIBIDA' }]
-    if (!incluirCalidad) conditions.push(facturaEconomicaWhere)
+    if (soloEconomicas) conditions.push(facturaEconomicaWhere)
     const where: Prisma.FacturaRecibidaWhereInput = { AND: conditions }
     if (calidad && ['VALIDA', 'REVISAR_LECTURA', 'COPIA'].includes(calidad)) where.calidad = calidad as CalidadFacturaRecibida
     else if (calidad) return jsonPrivado({ error: 'Calidad inválida' }, 400)
