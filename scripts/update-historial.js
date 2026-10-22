@@ -72,7 +72,19 @@ async function main() {
 
   console.log(`Procesando ${registros.length} commits para el historial...`);
 
-  const client = new Client({
+  let stagingUrl;
+  if (branch === 'staging') {
+    stagingUrl = process.env.STAGING_DATABASE_URL;
+    if (!stagingUrl) {
+      console.log('Historial automático de staging omitido: falta STAGING_DATABASE_URL exclusivo. Registrar manualmente en staging; nunca usar producción.');
+      return;
+    }
+    const url = new URL(stagingUrl);
+    if (url.pathname !== '/io_staging_finanzas' || url.username !== 'io_staging_finanzas') {
+      throw new Error('Destino del historial de staging no aislado');
+    }
+  }
+  const client = new Client(stagingUrl ? { connectionString: stagingUrl } : {
     host: process.env.DB_HOST,
     port: parseInt(process.env.DB_PORT || '5432'),
     user: process.env.DB_USER,
@@ -81,6 +93,17 @@ async function main() {
     ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
   });
 
+  if (branch === 'staging') {
+    const originalConnect = client.connect.bind(client);
+    client.connect = async () => {
+      await originalConnect();
+      const result = await client.query('SELECT current_database() AS db, current_user AS usuario LIMIT 1');
+      if (result.rows[0]?.db !== 'io_staging_finanzas' || result.rows[0]?.usuario !== 'io_staging_finanzas') {
+        await client.end();
+        throw new Error('Destino del historial de staging no verificado');
+      }
+    };
+  }
   try {
     await client.connect();
     

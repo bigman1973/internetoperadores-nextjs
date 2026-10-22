@@ -29,6 +29,14 @@ function financeAreas(pathname) {
 }
 
 export async function middleware(request) {
+  if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
+    const path = request.nextUrl.pathname;
+    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
+    const allowed = path === '/api/admin/finanzas/sincronizar-onedrive' || path.startsWith('/api/auth/');
+    if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
+      return NextResponse.json({ error: 'Sandbox de Finanzas B1: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan otras sincronizaciones.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+  }
   // Las APIs financieras heredadas se comprueban aquí mientras se llevan
   // progresivamente las autorizaciones al interior de cada handler.
   if (request.nextUrl.pathname.startsWith('/api/admin/finanzas/')) {
@@ -87,6 +95,9 @@ export async function middleware(request) {
     return NextResponse.next();
   }
 
+  // Las APIs no financieras conservan su autenticación propia.
+  if (request.nextUrl.pathname.startsWith('/api/')) return NextResponse.next();
+
   // Solo proteger en entorno de preview/staging (no en producción ni desarrollo local)
   const isPreview = process.env.VERCEL_ENV === 'preview';
   const isStaging = request.nextUrl.hostname.includes('staging');
@@ -139,7 +150,7 @@ export async function middleware(request) {
 export const config = {
   runtime: 'nodejs',
   matcher: [
-    '/api/admin/finanzas/:path*',
+    '/api/:path*',
     /*
      * Proteger todas las rutas excepto:
      * - api (routes)

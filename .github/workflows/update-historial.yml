@@ -35,11 +35,8 @@ jobs:
         env:
           COMMIT_MESSAGES: ${{ steps.commits.outputs.messages }}
           COMMIT_HASH: ${{ github.sha }}
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
+          # Nunca usar secretos compartidos de producción en el push de staging.
+          STAGING_DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           DB_SSL: 'false'
           GITHUB_REF_NAME: ${{ github.ref_name }}
         run: node scripts/update-historial.js
