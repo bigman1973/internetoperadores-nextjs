@@ -14,6 +14,8 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { usePermisoArea } from '@/hooks/usePermisoArea';
+import ProposalsPanel from './standaloneProposalsPanel';
+import type {BorradorPreparadoB6} from './b6-proposal-view';
 import { convertirImporteUiACentimos } from '@/lib/finanzas/reconciliation-core';
 import type {
   ConfirmarPayloadB4,
@@ -107,6 +109,7 @@ export default function ReconciliationWorkspace() {
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [draftState, setDraftState] = useState<'JUSTIFICADO' | 'NO_REQUIERE'>('JUSTIFICADO');
   const [reason, setReason] = useState<MotivoNoRequiere | ''>('');
+  const [proposalReferences,setProposalReferences]=useState<Record<string,string>>({});
   const [lines, setLines] = useState<LineaBorradorB4[]>([]);
   const [documentId, setDocumentId] = useState('');
   const [documentAmount, setDocumentAmount] = useState('');
@@ -183,6 +186,7 @@ export default function ReconciliationWorkspace() {
   }, [buildReadUrl, data, documentSearch]);
 
   const resetDraft = useCallback((movement: MovimientoB4 | null) => {
+    setProposalReferences({});
     setLines(movement?.operacionAplicada ? movement.vinculos.map(v => v.tipo === 'DOCUMENTO' ? {tipo:'DOCUMENTO' as const,documentoConciliableId:v.documentoConciliableId!,importeCentimos:v.importeCentimos} : {tipo:'DIFERENCIA' as const,motivoDiferencia:v.motivoDiferencia!,importeCentimos:v.importeCentimos}) : []);
     setReason(movement?.motivoNoRequiere || '');
     setDocumentId('');
@@ -249,6 +253,14 @@ export default function ReconciliationWorkspace() {
   const exactClose = draftState === 'JUSTIFICADO' && bankKnown && bankCents !== 0 && hasDocumentLine && remainingCents === 0;
   const noRequireReady = draftState === 'NO_REQUIERE' && bankKnown && Boolean(reason);
   const canReview = Boolean(selected) && !selectedLoading && canWrite && !changingAppliedOperation && (exactClose || noRequireReady);
+
+  const prepararBorradorB6=useCallback((draft:BorradorPreparadoB6)=>{
+    if(!canWrite||selectedLoading||inFlight.current||!selected||selected.operacionAplicada)return;
+    if(selected.id!==draft.movimientoId||selected.estado!=='SIN_DOCUMENTO'||selected.version!==draft.version||selected.importeCentimos===null||selected.importeCentimos!==draft.importeCentimos)return;
+    setDraftState('JUSTIFICADO');setReason('');setLines(draft.lineas.map(line=>({...line})));
+    setProposalReferences(Object.fromEntries(draft.documentos.filter(doc=>doc.referencia!==null).map(doc=>[doc.id,doc.referencia!])));
+    setPendingConfirmation(null);setShowReview(false);setNotice({kind:'info',text:'Borrador preparado: revise y confirme explícitamente en B4. No se ha guardado ningún vínculo.'});
+  },[canWrite,selected,selectedLoading]);
 
   const addDocumentLine = () => {
     if (!selectedDocument) {
@@ -487,6 +499,8 @@ export default function ReconciliationWorkspace() {
       </div>
 
       {selected && <MovementDrawer
+        onPrepararBorradorB6={prepararBorradorB6}
+        proposalReferences={proposalReferences}
         movement={selected}
         selectedLoading={selectedLoading}
         errorText={notice?.kind === 'error' ? notice.text : null}
@@ -542,6 +556,8 @@ export default function ReconciliationWorkspace() {
 }
 
 function MovementDrawer(props: {
+  onPrepararBorradorB6:(draft:BorradorPreparadoB6)=>void;
+  proposalReferences:Record<string,string>;
   movement: MovimientoB4;
   selectedLoading: boolean;
   errorText: string | null;
@@ -620,7 +636,9 @@ function MovementDrawer(props: {
           <section className="rounded-xl border border-slate-200 p-4"><h3 className="font-bold text-slate-950">Añadir diferencia</h3><p className="mt-0.5 text-xs text-slate-600">Sólo comisión, intereses o redondeo; no existe «Otro».</p><div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_150px_auto] sm:items-end"><label className="block text-sm font-semibold text-slate-800">Tipo<select value={differenceReason} onChange={(event) => onDifferenceReason(event.target.value as MotivoDiferencia)} disabled={disabled} className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed"><option value="COMISION">Comisión</option><option value="INTERESES">Intereses</option><option value="REDONDEO">Redondeo</option></select></label><label className="block text-sm font-semibold text-slate-800">Importe<input value={differenceAmount} onChange={(event) => onDifferenceAmount(event.target.value)} disabled={disabled} inputMode="decimal" placeholder="-1,25" className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 disabled:cursor-not-allowed" /></label><button type="button" data-testid="b4-add-difference" onClick={onAddDifference} disabled={disabled} className="inline-flex items-center justify-center gap-1 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-900 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60"><PlusIcon className="h-4 w-4" aria-hidden="true" /> Añadir</button></div></section>
         </>}
 
-        <section aria-label="Líneas del borrador" className="rounded-xl border border-slate-200"><div className="border-b border-slate-200 px-4 py-3"><h3 className="font-bold text-slate-950">Líneas del borrador</h3></div>{lines.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">No hay líneas. Un borrador JUSTIFICADO necesita al menos un documento.</p> : <ul className="divide-y divide-slate-100">{lines.map((line, index) => <li key={`${line.tipo}-${index}`} className="flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="text-sm font-bold text-slate-900">{line.tipo === 'DOCUMENTO' ? (movement.vinculos.find(v => v.documentoConciliableId === line.documentoConciliableId)?.referencia || documents.find((document) => document.id === line.documentoConciliableId)?.referencia || `Documento ${line.documentoConciliableId}`) : etiquetaMotivo(line.motivoDiferencia)}</p><p className="truncate text-xs text-slate-500">{line.tipo === 'DOCUMENTO' ? 'Documento conciliable' : 'Diferencia explícita'}</p></div><div className="flex items-center gap-2"><span className="font-mono text-sm font-bold text-slate-950">{formatCentimos(line.importeCentimos)}</span><button type="button" onClick={() => onRemoveLine(index)} disabled={disabled} aria-label="Eliminar línea" className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed"><TrashIcon className="h-4 w-4" aria-hidden="true" /></button></div></li>)}</ul>}</section>
+        <section aria-label="Líneas del borrador" className="rounded-xl border border-slate-200"><div className="border-b border-slate-200 px-4 py-3"><h3 className="font-bold text-slate-950">Líneas del borrador</h3></div>{lines.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">No hay líneas. Un borrador JUSTIFICADO necesita al menos un documento.</p> : <ul className="divide-y divide-slate-100">{lines.map((line, index) => <li key={`${line.tipo}-${index}`} className="flex items-center justify-between gap-3 px-4 py-3"><div className="min-w-0"><p className="text-sm font-bold text-slate-900">{line.tipo === 'DOCUMENTO' ? (movement.vinculos.find(v => v.documentoConciliableId === line.documentoConciliableId)?.referencia || documents.find((document) => document.id === line.documentoConciliableId)?.referencia || props.proposalReferences[line.documentoConciliableId] || `Documento ${line.documentoConciliableId}`) : etiquetaMotivo(line.motivoDiferencia)}</p><p className="truncate text-xs text-slate-500">{line.tipo === 'DOCUMENTO' ? 'Documento conciliable' : 'Diferencia explícita'}</p></div><div className="flex items-center gap-2"><span className="font-mono text-sm font-bold text-slate-950">{formatCentimos(line.importeCentimos)}</span><button type="button" onClick={() => onRemoveLine(index)} disabled={disabled} aria-label="Eliminar línea" className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed"><TrashIcon className="h-4 w-4" aria-hidden="true" /></button></div></li>)}</ul>}</section>
+
+        <ProposalsPanel movimientoId={movement.id} estadoB4={movement.estado} versionMovimiento={movement.version} importeMovimientoCentimos={bankCents} canWrite={canWrite&&!selectedLoading&&!changingAppliedOperation} onPrepararBorrador={props.onPrepararBorradorB6}/>
 
         <section className="rounded-xl border border-slate-200 bg-slate-50 p-4"><h3 className="font-bold text-slate-950">Cierre exacto</h3><dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm"><SummaryRow label="Banco" value={formatCentimos(bankCents)} testId="b4-bank-cents" /><SummaryRow label="Documentos" value={formatCentimos(documentsCents)} /><SummaryRow label="Diferencias" value={formatCentimos(differencesCents)} /><SummaryRow label="Total líneas" value={formatCentimos(linesCents)} testId="b4-lines-cents" /><SummaryRow label="Resto" value={remainingCents === null ? 'No calculable' : formatCentimos(remainingCents)} testId="b4-remaining-cents" emphasis={draftState === 'JUSTIFICADO' && remainingCents !== 0} /></dl>{draftState === 'JUSTIFICADO' && <p className={`mt-3 text-xs font-semibold ${exactClose ? 'text-emerald-700' : 'text-red-700'}`}>{exactClose ? 'Cierre exacto: puede revisar el borrador.' : 'El resto debe ser exactamente 0,00 € y debe existir una línea documental para confirmar.'}</p>}{draftState === 'NO_REQUIERE' && <p className="mt-3 text-xs font-semibold text-orange-800">El motivo cerrado no usa líneas: el resto se muestra como referencia y no se trata como una diferencia documental.</p>}</section>
 

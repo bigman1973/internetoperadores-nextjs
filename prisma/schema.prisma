@@ -10,6 +10,9 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Actor")
+  asignacionesDevolucionConfirmadasB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Confirmador")
+
   adjuntosPendientesB5 AdjuntoPendienteB5[] @relation("AdjuntoPendienteB5Actor")
   tarjetasFinancierasB5 TarjetaFinancieraB5[] @relation("TitularTarjetaB5")
   tarjetasRegistradasB5 TarjetaFinancieraB5[] @relation("RegistradorTarjetaB5")
@@ -292,6 +295,11 @@ model ContratoServicio {
 }
 
 model Factura {
+  remesaId Int? @map("remesa_id")
+  remesa Remesa? @relation("FacturasISPRemesadasB6", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6FacturaISP")
+  @@index([remesaId])
+
   id                Int       @id @default(autoincrement())
   ispGestionId      Int       @unique @map("isp_gestion_id")
   serieFactura      String    @map("serie_factura")
@@ -326,6 +334,10 @@ model Factura {
 }
 
 model Remesa {
+  facturasISPRemesadasB6 Factura[] @relation("FacturasISPRemesadasB6")
+  asignacionesDevolucionB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Remesa")
+  auditoriasB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Remesa")
+
   id                Int       @id @default(autoincrement())
   ispGestionId      Int       @unique @map("isp_gestion_id")
   nombre            String
@@ -1119,6 +1131,9 @@ model CuentaBancaria {
 }
 
 model MovimientoBancario {
+  auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Movimiento")
+  asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Movimiento")
+
   adjuntosPendientesB5 AdjuntoPendienteB5[] @relation("AdjuntoPendienteB5Movimiento")
   auditoriasGestionPendienteB5 AuditoriaGestionPendienteB5[]
   gestionPendienteB5 GestionPendienteMovimientoB5? @relation("MovimientoB5GestionPendiente")
@@ -4072,6 +4087,8 @@ model TraspasoInterno {
 // Active and reversed allocations are retained. DOCUMENTO points to exactly one wrapper;
 // DIFERENCIA has no wrapper and a closed motive. The row-local matrix lives in guards.sql.
 model VinculoMovimientoDocumento {
+  asignacionDevolucionRemesaB6 AsignacionDevolucionRemesaB6? @relation("AsignacionDevolucionRemesaB6Vinculo")
+
   id                       String                    @id @default(uuid()) @db.Uuid
   movimientoId             String                    @map("movimiento_id")
   documentoConciliableId   String?                   @db.Uuid @map("documento_conciliable_id")
@@ -4261,4 +4278,68 @@ model AdjuntoPendienteB5 {
   @@index([movimientoId, createdAt])
   @@index([estado, updatedAt])
   @@map("adjuntos_pendientes_b5")
+}
+
+enum EstadoAsignacionDevolucionRemesaB6 {
+  PROPUESTA
+  CONFIRMADA
+}
+
+enum AccionAuditoriaRemesaB6 {
+  ASOCIACION_FACTURAS_CONFIRMADA
+  DEVOLUCION_ASOCIADA
+}
+
+model AsignacionDevolucionRemesaB6 {
+  id               String                              @id @default(uuid()) @db.Uuid
+  remesaId         Int                                 @map("remesa_id")
+  facturaISPId     Int                                 @map("factura_isp_id")
+  movimientoId     String?                             @map("movimiento_id")
+  // Null is allowed only for a future non-financial PROPUESTA. CONFIRMADA is
+  // guarded in SQL and needs the exact active B4 negative DOCUMENTO line.
+  vinculoId        String?                             @unique @db.Uuid @map("vinculo_id")
+  importeCentimos  Int                                 @map("importe_centimos")
+  estado           EstadoAsignacionDevolucionRemesaB6  @default(PROPUESTA)
+  confirmadaPorId  Int?                                @map("confirmada_por_id")
+  confirmadaAt     DateTime?                           @map("confirmada_at")
+  createdAt        DateTime                            @default(now()) @map("created_at")
+
+  remesa           Remesa                              @relation("AsignacionDevolucionRemesaB6Remesa", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  facturaISP       Factura                             @relation("AsignacionDevolucionRemesaB6FacturaISP", fields: [facturaISPId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento       MovimientoBancario?                 @relation("AsignacionDevolucionRemesaB6Movimiento", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  vinculo          VinculoMovimientoDocumento?         @relation("AsignacionDevolucionRemesaB6Vinculo", fields: [vinculoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  confirmadaPor    UsuarioAdmin?                       @relation("AsignacionDevolucionRemesaB6Confirmador", fields: [confirmadaPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  auditorias       AuditoriaRemesaB6[]
+
+  @@index([remesaId, facturaISPId])
+  @@index([movimientoId])
+  @@index([facturaISPId])
+  @@map("asignaciones_devolucion_remesa_b6")
+}
+
+model AuditoriaRemesaB6 {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  actorId            Int                     @map("actor_id")
+  remesaId           Int                     @map("remesa_id")
+  movimientoId       String?                 @map("movimiento_id")
+  asignacionId       String?                 @db.Uuid @map("asignacion_id")
+  accion             AccionAuditoriaRemesaB6
+  idempotencyKey     String                  @map("idempotency_key")
+  payloadHash        String                  @map("payload_hash")
+  sourceHash         String                  @map("source_hash")
+  // These snapshots contain IDs, ISO dates, signed cents and current source
+  // relations — never legacy Float/Decimal serializations or payment status.
+  snapshotSolicitud  Json                    @map("snapshot_solicitud")
+  snapshotResultado  Json                    @map("snapshot_resultado")
+  createdAt          DateTime                @default(now()) @map("created_at")
+
+  actor              UsuarioAdmin            @relation("AuditoriaRemesaB6Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  remesa             Remesa                  @relation("AuditoriaRemesaB6Remesa", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  movimiento         MovimientoBancario?     @relation("AuditoriaRemesaB6Movimiento", fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  asignacion         AsignacionDevolucionRemesaB6? @relation(fields: [asignacionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([actorId, idempotencyKey])
+  @@index([remesaId, createdAt])
+  @@index([movimientoId, createdAt])
+  @@map("auditoria_remesa_b6")
 }

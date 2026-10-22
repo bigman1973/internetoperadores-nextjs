@@ -1,4 +1,5 @@
 import prisma from '@/lib/prisma'
+import type {Prisma} from '@prisma/client'
 
 // Solo se almacenan códigos de áreas públicas, nunca identidades ni permisos.
 // La TTL permite revalidar un área si la configuración cambia en otra instancia.
@@ -46,7 +47,8 @@ export async function registrarArea(codigo: string, nombre: string, padre?: stri
 export async function verificarPermisoServer(
   usuarioId: number,
   codigoArea: string,
-  rol?: string
+  rol?: string,
+  database: Pick<Prisma.TransactionClient,'permisoArea'|'permisoUsuario'> = prisma,
 ): Promise<{ lectura: boolean; escritura: boolean }> {
   // SUPER_ADMIN y GERENTE siempre tienen acceso total
   if (rol === 'SUPER_ADMIN' || rol === 'GERENTE') {
@@ -62,8 +64,8 @@ export async function verificarPermisoServer(
 
   // Buscar permisos del usuario en cualquiera de los niveles
   const [areaObjetivo, permisos] = await Promise.all([
-    prisma.permisoArea.findUnique({ where: { codigo: codigoArea }, select: { activo: true } }),
-    prisma.permisoUsuario.findMany({
+    database.permisoArea.findUnique({ where: { codigo: codigoArea }, select: { activo: true } }),
+    database.permisoUsuario.findMany({
       where: {
         usuarioId,
         area: {
