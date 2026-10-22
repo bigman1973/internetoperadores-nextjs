@@ -5,6 +5,7 @@ import ts from 'typescript';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import * as inventoryHelpers from '../lib/finanzas/onedrive-inventory';
+import * as qualityHelpers from '../lib/finanzas/invoice-quality';
 import { FACTURAS_BASE_PATH } from '../lib/finanzas/microsoft-graph';
 
 const routeSource = fs.readFileSync('app/api/admin/finanzas/sincronizar-onedrive/route.ts', 'utf8');
@@ -152,6 +153,7 @@ const tx: any = {
 
 const prisma: any = {
   usuarioAdmin: { findUnique: async () => ({ activo: active }) },
+  revisionLecturaFacturaRecibida: { findMany: async () => [] },
   facturaRecibida: {
     findMany: async () => Object.values(state.invoices).filter(row => row.oneDriveItemId !== null).map(cloneInvoice),
     ...tx.facturaRecibida,
@@ -215,6 +217,8 @@ const routeModule = execute(routeCode, (name: string): any => {
   if (name === '@/lib/finanzas/microsoft-graph') return graph;
   if (name === '@/lib/finanzas/ocr-facturas') return { extraerDatosFactura: async () => { ocrCalls += 1; throw new Error('GUARD: OCR forbidden'); } };
   if (name === '@/lib/finanzas/onedrive-inventory') return inventoryHelpers;
+  if (name === '@/lib/finanzas/invoice-quality') return qualityHelpers;
+  if (name === '@/lib/finanzas/invoice-quality-db') return {};
   throw new Error(`Unexpected module ${name}`);
 });
 const { GET, POST } = routeModule;

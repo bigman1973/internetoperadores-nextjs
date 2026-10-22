@@ -4,6 +4,7 @@ import prisma from '@/lib/prisma';
 import { operatorAuth, operatorJson } from '@/lib/finanzas/operator-costs-auth';
 import { readOperatorCentres } from '@/lib/finanzas/operator-centres';
 import { OPERATOR_AREA, ID, PERIOD, digest, normalize, groupInput, sourceInput, invoiceSnapshot, externalSnapshot, validateAssignments, sourceKey, OperatorSnapshot } from '@/lib/finanzas/operator-costs';
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
 
 export const dynamic = 'force-dynamic';
 const LIMIT = 25;
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
     if (periodo && !PERIOD.test(periodo)) throw new Invalid('Período no válido.');
     const action = params.get('action') || '';
     if (action === 'facturas') {
-      const where: Prisma.FacturaRecibidaWhereInput = { estado: { not: 'RECHAZADA' }, OR: buscar ? [{ proveedor: { contains: buscar, mode: 'insensitive' } }, { numFactura: { contains: buscar, mode: 'insensitive' } }, { concepto: { contains: buscar, mode: 'insensitive' } }] : undefined };
+      const where: Prisma.FacturaRecibidaWhereInput = { ...facturaEconomicaWhere, estado: { not: 'RECHAZADA' }, OR: buscar ? [{ proveedor: { contains: buscar, mode: 'insensitive' } }, { numFactura: { contains: buscar, mode: 'insensitive' } }, { concepto: { contains: buscar, mode: 'insensitive' } }] : undefined };
       if (periodo) { const start = new Date(periodo + '-01T00:00:00Z'); const end = new Date(start); end.setUTCMonth(end.getUTCMonth() + 1); where.fecha = { gte: start, lt: end }; }
       const [rows, total] = await Promise.all([
         prisma.facturaRecibida.findMany({ where, select: { ...invoiceSelect, documentosOperadora: { select: { id: true } } }, orderBy: [{ fecha: 'desc' }, { id: 'asc' }], skip: (page - 1) * LIMIT, take: LIMIT }),
@@ -107,7 +108,12 @@ export async function POST(req: NextRequest) {
       if (!previous && v.estado === 'ARCHIVADO') throw new Invalid('Guarda primero la fuente antes de archivarla.');
       const empresa = v.origen === 'PROPIA' ? 'Internet Operadores' : v.empresaPagadora!;
       if (v.facturaId) await tx.$queryRaw(Prisma.sql`SELECT id FROM facturas_recibidas WHERE id = ${v.facturaId} FOR UPDATE`);
-      const original = v.facturaId ? await tx.facturaRecibida.findUnique({ where: { id: v.facturaId }, select: invoiceSelect }) : null;
+      // A new source can reserve only the current valid canonical invoice. Existing
+      // sources retain their persisted document and immutable historical snapshot.
+      const previousOriginal = previous?.documentos.find(d => d.rol === 'ORIGINAL')?.factura || null;
+      const original = previous
+        ? previousOriginal
+        : v.facturaId ? await tx.facturaRecibida.findFirst({ where: { id: v.facturaId, ...facturaEconomicaWhere }, select: invoiceSelect }) : null;
       let snapshot: OperatorSnapshot;
       let pendiente: any = null;
       if (v.documentoPendienteId) {
@@ -153,10 +159,13 @@ export async function POST(req: NextRequest) {
       if (original) documents.push({ facturaId: original.id, rol: 'ORIGINAL', version: previous?.documentos.find(d => d.rol === 'ORIGINAL')?.version || digest(snapshot) });
       if (desired.refacturaId) {
         await tx.$queryRaw(Prisma.sql`SELECT id FROM facturas_recibidas WHERE id = ${desired.refacturaId} FOR UPDATE`);
-        const invoice = await tx.facturaRecibida.findUnique({ where: { id: desired.refacturaId }, select: invoiceSelect });
+        const existingRefactura = previous?.documentos.find(d => d.rol === 'REFACTURA' && d.facturaId === desired.refacturaId);
+        // Historical refacturas stay editable as snapshots; only a newly selected one
+        // must pass B2 economic quality.
+        const invoice = existingRefactura?.factura || await tx.facturaRecibida.findFirst({ where: { id: desired.refacturaId, ...facturaEconomicaWhere }, select: invoiceSelect });
         if (!invoice || invoice.estado === 'RECHAZADA') throw new Invalid('Factura de refacturación no válida.');
         const version = digest(invoiceSnapshot(invoice));
-        const old = previous?.documentos.find(d => d.rol === 'REFACTURA' && d.facturaId === invoice.id);
+        const old = existingRefactura;
         if (!old && version !== v.refacturaVersion) throw new Conflict('La refacturación ha cambiado; vuelve a seleccionarla.');
         documents.push({ facturaId: invoice.id, rol: 'REFACTURA', version: old?.version || version });
       }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
 
 export async function GET(req: NextRequest) {
   try {
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
         select: { id: true, banco: true, alias: true, saldoActual: true, fechaSaldo: true },
       }),
       prisma.facturaRecibida.findMany({
-        where: { fecha: { gte: desde, lte: hasta }, estado: { not: 'RECHAZADA' }, deducibleIva: true },
+        where: { ...facturaEconomicaWhere, fecha: { gte: desde, lte: hasta }, estado: { not: 'RECHAZADA' }, deducibleIva: true },
         select: { importeIva: true, base: true, importeIrpf: true, total: true },
       }),
       prisma.factura.findMany({
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
         where: { fechaOperacion: { gte: desde, lte: hasta } },
         select: { importe: true, categoria: true, concepto: true, fechaOperacion: true, conciliado: true, tipoPago: true, pagoACuentaVola: true },
       }),
-      prisma.facturaRecibida.count({ where: { estado: 'PENDIENTE_REVISION' } }),
+      prisma.facturaRecibida.count({ where: { ...facturaEconomicaWhere, estado: 'PENDIENTE_REVISION' } }),
       prisma.nomina.findMany({
         where: { anio: year, mes: { in: mesesNominas } },
         select: { irpf: true, ssEmpresa: true, ssTrabajador: true, mes: true },

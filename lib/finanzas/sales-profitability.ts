@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { facturaEconomicaSQL } from './invoice-economic-filter';
 
 export type ProfitLevel = 'servicios' | 'clientes' | 'facturas' | 'detalle' | 'compras' | 'personal' | 'seleccionar';
 
@@ -195,12 +196,12 @@ WITH sales_base AS (
     fr.num_factura, fr.proveedor, fr.fecha, fr.base::float8 AS base, v.porcentaje::float8 AS porcentaje, v.notas,
     (COALESCE(pl.porcentaje_invalido, false) OR COALESCE(pl.porcentaje_total, 0) > 100
       OR COALESCE(pl.factura_huerfana, false) OR COALESCE(pc.cantidad, 0) > 0
-      OR fr.id IS NULL OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
+      OR fr.id IS NULL OR NOT (${facturaEconomicaSQL('fr')}) OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
       OR BTRIM(fr.base::text) IN ('NaN', 'Infinity', '-Infinity') OR fr.base = 0
       OR (fr.base <> 0 AND SIGN(fr.base) <> SIGN(fr.base * v.porcentaje))) AS incidencia,
     CASE WHEN COALESCE(pl.porcentaje_invalido, false) OR COALESCE(pl.porcentaje_total, 0) > 100
       OR COALESCE(pl.factura_huerfana, false) OR COALESCE(pc.cantidad, 0) > 0
-      OR fr.id IS NULL OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
+      OR fr.id IS NULL OR NOT (${facturaEconomicaSQL('fr')}) OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
       OR BTRIM(fr.base::text) IN ('NaN', 'Infinity', '-Infinity') OR fr.base = 0
       OR (fr.base <> 0 AND SIGN(fr.base) <> SIGN(fr.base * v.porcentaje))
       THEN 0::bigint ELSE ROUND(fr.base::numeric * 100)::bigint END AS base_centimos,
@@ -243,7 +244,7 @@ WITH sales_base AS (
   GROUP BY factura_emitida_id
 ), purchase_client_rows AS (
   SELECT i.factura_id, i.cliente_id, i.importe,
-    (i.cliente_id IS NULL OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
+    (i.cliente_id IS NULL OR NOT (${facturaEconomicaSQL('fr')}) OR fr.estado::text = 'RECHAZADA' OR fr.base IS NULL
       OR BTRIM(fr.base::text) IN ('NaN', 'Infinity', '-Infinity') OR fr.base = 0
       OR plt.fuente_id IS NOT NULL OR COALESCE(pcv.importe_invalido, false)
       OR COALESCE(pcv.signo_invalido, false) OR COALESCE(pcv.sobreasignado, false)) AS incidencia
@@ -586,7 +587,7 @@ WITH selected_sales AS (
   FROM facturas_recibidas fr
   LEFT JOIN purchase_link_state pls ON pls.fuente_id = fr.id
   LEFT JOIN purchase_client_state pcs ON pcs.fuente_id = fr.id
-  WHERE fr.fecha >= ${start} AND fr.fecha < ${end} AND fr.estado::text <> 'RECHAZADA'
+  WHERE ${facturaEconomicaSQL('fr')} AND fr.fecha >= ${start} AND fr.fecha < ${end} AND fr.estado::text <> 'RECHAZADA'
     AND (COALESCE(pls.porcentaje_invalido, false) OR COALESCE(pls.porcentaje_total, 0) > 100
       OR COALESCE(pls.venta_huerfana, false) OR COALESCE(pcs.importe_invalido, false)
       OR COALESCE(pcs.signo_invalido, false) OR COALESCE(pcs.sobreasignado, false)
@@ -598,7 +599,7 @@ WITH selected_sales AS (
   LEFT JOIN purchase_client_state pcs ON pcs.fuente_id = fr.id
   LEFT JOIN imputaciones_coste_cliente i ON i.factura_id = fr.id AND i.confirmado = true
   LEFT JOIN selected_sales ss ON ss.cliente_web_id = i.cliente_id
-  WHERE fr.fecha >= ${start} AND fr.fecha < ${end} AND fr.estado::text <> 'RECHAZADA'
+  WHERE ${facturaEconomicaSQL('fr')} AND fr.fecha >= ${start} AND fr.fecha < ${end} AND fr.estado::text <> 'RECHAZADA'
   GROUP BY fr.id
   HAVING (MAX(pls.fuente_id) IS NULL AND (COUNT(i.id) = 0 OR BOOL_OR(ss.cliente_web_id IS NULL)))
     OR (MAX(pls.fuente_id) IS NOT NULL AND COALESCE(MAX(pls.porcentaje_total), 0) < 100)

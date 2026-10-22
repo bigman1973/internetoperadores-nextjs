@@ -6,6 +6,7 @@ import ts from 'typescript';
 import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import * as operatorCosts from '../lib/finanzas/operator-costs';
+import * as economicFilter from '../lib/finanzas/invoice-economic-filter';
 
 const routeSource = fs.readFileSync('app/api/admin/finanzas/costes-operadora/route.ts', 'utf8');
 const authSource = fs.readFileSync('lib/finanzas/operator-costs-auth.ts', 'utf8');
@@ -24,7 +25,7 @@ const session = { user: { id: String(userId), userType: 'admin', role: 'SUPER_AD
 
 type Invoice = {
   id: string; proveedor: string; numFactura: string | null; fecha: Date; base: number; concepto: string | null;
-  lineasDetalle: string | null; estado: string; imputadoAVentas: boolean;
+  lineasDetalle: string | null; estado: string; imputadoAVentas: boolean; calidad: string; copiaDeId: string | null;
 };
 type Source = {
   id: string; claveOrigen: string; origen: string; empresaPagadora: string; periodo: string; snapshot: any; fuenteVersion: string;
@@ -33,12 +34,12 @@ type Source = {
 };
 type State = { invoices: Record<string, Invoice>; sources: Record<string, Source>; reserved: Record<string, string>; saleLinks: Set<string>; clientAllocations: Set<string>; audits: any[] };
 
-function invoice(id: string, base = 100, detail = '[{"descripcion":"Troncal","importe":60},{"descripcion":"Acceso","importe":40}]'): Invoice {
-  return { id, proveedor: `Proveedor ${id}`, numFactura: `F-${id}`, fecha: new Date('2026-02-15T00:00:00.000Z'), base, concepto: `Coste ${id}`, lineasDetalle: detail, estado: 'RECIBIDA', imputadoAVentas: false };
+function invoice(id: string, base = 100, detail = '[{"descripcion":"Troncal","importe":60},{"descripcion":"Acceso","importe":40}]', calidad = 'VALIDA', copiaDeId: string | null = null): Invoice {
+  return { id, proveedor: `Proveedor ${id}`, numFactura: `F-${id}`, fecha: new Date('2026-02-15T00:00:00.000Z'), base, concepto: `Coste ${id}`, lineasDetalle: detail, estado: 'RECIBIDA', imputadoAVentas: false, calidad, copiaDeId };
 }
 function initialState(): State {
   const ids = ['inv-original', 'inv-ref', 'inv-secondary', 'inv-ref-reserved', 'inv-success', 'inv-linked', 'inv-rollback'];
-  return { invoices: Object.fromEntries(ids.map(id => [id, invoice(id)])), sources: {}, reserved: {}, saleLinks: new Set(), clientAllocations: new Set(), audits: [] };
+  return { invoices: { ...Object.fromEntries(ids.map(id => [id, invoice(id)])), 'inv-invalid': invoice('inv-invalid', 100, undefined, 'REVISAR') }, sources: {}, reserved: {}, saleLinks: new Set(), clientAllocations: new Set(), audits: [] };
 }
 let state = initialState();
 const groups = [{ id: groupId, nombre: 'Red propia', clave: 'red', ambito: 'GLOBAL_RED_PROPIA', zona: null, conexion: null }];
@@ -58,6 +59,14 @@ function sourceFromWhere(where: any): Source | null {
   if (where?.claveOrigen) return filteredSources().find(row => row.claveOrigen === where.claveOrigen) || null;
   return null;
 }
+function economicInvoice(row: Invoice | undefined, where: any) {
+  if (!row) return false;
+  if (where?.id && row.id !== where.id) return false;
+  if (where?.estado?.not && row.estado === where.estado.not) return false;
+  if (where?.calidad && row.calidad !== where.calidad) return false;
+  if (where?.copiaDeId === null && row.copiaDeId !== null) return false;
+  return true;
+}
 
 const pendingDocumentId = '12345678-1234-4234-8234-123456789012';
 const pendingDoc: any = { id: pendingDocumentId, estado: 'LISTO', version: 1, fuenteId: null, drive: 'synthetic-drive', item: 'synthetic-item', hash: 'e'.repeat(64), nombre: 'original-synthetic.pdf', resultado: { proveedor: 'Proveedor externo', destinatario: 'Empresa externa', numFactura: 'DOC-12', fecha: '2026-04-20', base: 100, concepto: 'Red compartida', lineas: [{descripcion: 'Troncal externa', importe: 100}] } };
@@ -76,6 +85,7 @@ const tx: any = {
   },
   facturaRecibida: {
     findUnique: async ({ where }: any) => state.invoices[where.id] || null,
+    findFirst: async ({ where }: any) => economicInvoice(state.invoices[where.id], where) ? state.invoices[where.id] : null,
     create: async () => forbidden('facturaRecibida', 'create'), update: async () => forbidden('facturaRecibida', 'update'),
     updateMany: async () => forbidden('facturaRecibida', 'updateMany'), delete: async () => forbidden('facturaRecibida', 'delete'), deleteMany: async () => forbidden('facturaRecibida', 'deleteMany'),
   },
@@ -154,8 +164,8 @@ const prisma: any = {
   usuarioAdmin: { findUnique: async () => ({ activo: active }) },
   facturaRecibida: {
     ...tx.facturaRecibida,
-    findMany: async ({ skip = 0, take = 25 }: any) => Object.values(state.invoices).filter(row => row.estado !== 'RECHAZADA').slice(skip, skip + take).map(row => ({ ...row, documentosOperadora: state.reserved[row.id] ? [{ id: state.reserved[row.id] }] : [] })),
-    count: async () => Object.values(state.invoices).filter(row => row.estado !== 'RECHAZADA').length,
+    findMany: async ({ where, skip = 0, take = 25 }: any) => Object.values(state.invoices).filter(row => economicInvoice(row, where)).slice(skip, skip + take).map(row => ({ ...row, documentosOperadora: state.reserved[row.id] ? [{ id: state.reserved[row.id] }] : [] })),
+    count: async ({ where }: any = {}) => Object.values(state.invoices).filter(row => economicInvoice(row, where)).length,
   },
   $transaction: async (fn: any) => {
     const before = structuredClone(state);
@@ -179,6 +189,7 @@ const commonRequire = (name: string): any => {
   if (name === '@/lib/auth') return { authOptions: {} };
   if (name === '@/lib/prisma') return { __esModule: true, default: prisma, prisma };
   if (name === '@/lib/finanzas/operator-costs') return operatorCosts;
+  if (name === '@/lib/finanzas/invoice-economic-filter') return economicFilter;
   if (name === '@/lib/finanzas/operator-centres') return centres;
   if (name === './operator-costs') return operatorCosts;
   if (name === '@/lib/api-admin-area-read') return { checkAdminAreaRead: check(false), checkAdminAreaWrite: check(true) };
@@ -234,7 +245,8 @@ async function main() {
   await expectStatus(get('?action=desconocida'), 400);
   const centreResult = await expectStatus(get('?action=centros'),200); assert.equal((await centreResult.json()).centros.length, groups.length);
   const list = await expectStatus(get('?page=1'), 200); assert.equal((await list.json()).page, 1);
-  const catalog = await expectStatus(get('?action=facturas&periodo=2026-02&page=1'), 200); assert.equal((await catalog.json()).page, 1);
+  const catalog = await expectStatus(get('?action=facturas&periodo=2026-02&page=1'), 200);
+  const catalogBody = await catalog.json(); assert.equal(catalogBody.page, 1); assert.ok(!catalogBody.facturas.some((row: any) => row.id === 'inv-invalid'), 'catálogo B2 excluye originales no válidos');
 
   // Same-origin + JSON + hard byte cap are checked before parsing/persisting.
   await expectStatus(post({}, { origin: 'https://other.example' }), 403);
@@ -244,6 +256,8 @@ async function main() {
 
   // Current invoice snapshot hashes prevent saving an invoice that changed after the picker response.
   const originalAuditCount = state.audits.length;
+  await expectStatus(post(ownBody(sourceId('0'), 'inv-invalid')), 400);
+  assert.equal(Object.keys(state.sources).length, 0, 'un original no canónico no crea una fuente');
   await expectStatus(post(ownBody(sourceId('a'), 'inv-original', { facturaVersion: '0'.repeat(64) })), 409);
   assert.equal(state.audits.length, originalAuditCount);
   assert.equal(Object.keys(state.sources).length, 0);

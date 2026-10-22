@@ -30,6 +30,8 @@ export interface DatosFactura {
   domicilioProveedor: string | null; // Dirección fiscal del proveedor
   numFactura: string | null;
   fecha: string; // YYYY-MM-DD
+  // B2: distingue una fecha realmente leída de cualquier dato auxiliar. Sólo DOCUMENTO permite alta automática.
+  fechaProvenancia: 'DOCUMENTO' | 'NOMBRE_ARCHIVO' | 'SIN_CONFIRMAR';
   fechaVencimiento: string | null; // YYYY-MM-DD - fecha de vencimiento de pago
   base: number;
   tipoIva: number;
@@ -165,16 +167,18 @@ REGLAS IMPORTANTES:
     
     const datos = JSON.parse(jsonStr) as DatosFactura;
     
-    // Validaciones básicas
+    // B2: no rellenar datos contables o fecha con valores de sincronización. Un valor ausente
+    // queda inválido (NaN / SIN_CONFIRMAR) y el flujo de altas lo conserva en cuarentena.
     if (!datos.proveedor) datos.proveedor = 'DESCONOCIDO';
-    if (!datos.fecha) datos.fecha = new Date().toISOString().split('T')[0];
-    if (isNaN(datos.base)) datos.base = 0;
-    if (isNaN(datos.importeIva)) datos.importeIva = 0;
-    if (isNaN(datos.importeIrpf)) datos.importeIrpf = 0;
-    if (isNaN(datos.total)) datos.total = datos.base + datos.importeIva - datos.importeIrpf;
-    if (isNaN(datos.tipoIva)) datos.tipoIva = 21;
-    if (isNaN(datos.tipoIrpf)) datos.tipoIrpf = 0;
-    if (isNaN(datos.confianza)) datos.confianza = 0.5;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(datos.fecha || '')) datos.fechaProvenancia = 'SIN_CONFIRMAR';
+    else datos.fechaProvenancia = 'DOCUMENTO';
+    if (!Number.isFinite(datos.base)) datos.base = Number.NaN;
+    if (!Number.isFinite(datos.importeIva)) datos.importeIva = Number.NaN;
+    if (!Number.isFinite(datos.importeIrpf)) datos.importeIrpf = Number.NaN;
+    if (!Number.isFinite(datos.total)) datos.total = Number.NaN;
+    if (!Number.isFinite(datos.tipoIva)) datos.tipoIva = Number.NaN;
+    if (!Number.isFinite(datos.tipoIrpf)) datos.tipoIrpf = Number.NaN;
+    if (!Number.isFinite(datos.confianza)) datos.confianza = Number.NaN;
     if (!Array.isArray(datos.lineas)) datos.lineas = [];
     if (typeof datos.esInternacional !== 'boolean') datos.esInternacional = false;
     if (!datos.paisOrigen) datos.paisOrigen = null;
@@ -285,14 +289,15 @@ REGLAS IMPORTANTES:
       cif: null,
       domicilioProveedor: null,
       numFactura: null,
-      fecha: new Date().toISOString().split('T')[0],
+      fecha: '',
+      fechaProvenancia: 'SIN_CONFIRMAR',
       fechaVencimiento: null,
-      base: 0,
-      tipoIva: 21,
-      importeIva: 0,
-      tipoIrpf: 0,
-      importeIrpf: 0,
-      total: 0,
+      base: Number.NaN,
+      tipoIva: Number.NaN,
+      importeIva: Number.NaN,
+      tipoIrpf: Number.NaN,
+      importeIrpf: Number.NaN,
+      total: Number.NaN,
       concepto: `ERROR_OCR: ${error.message?.substring(0, 200)}`,
       confianza: 0,
       lineas: [],
@@ -311,7 +316,7 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
   
   // Intentar extraer fecha DD.MM.YYYY
   const fechaMatch = sinExt.match(/(\d{2})\.(\d{2})\.(\d{4})/);
-  let fecha = new Date().toISOString().split('T')[0];
+  let fecha = '';
   if (fechaMatch) {
     fecha = `${fechaMatch[3]}-${fechaMatch[2]}-${fechaMatch[1]}`;
   }
@@ -336,13 +341,14 @@ function extraerDatosDeNombreArchivo(nombre: string): DatosFactura {
     domicilioProveedor: null,
     numFactura,
     fecha,
+    fechaProvenancia: 'NOMBRE_ARCHIVO',
     fechaVencimiento: null,
-    base: 0,
-    tipoIva: 21,
-    importeIva: 0,
-    tipoIrpf: 0,
-    importeIrpf: 0,
-    total: 0,
+    base: Number.NaN,
+    tipoIva: Number.NaN,
+    importeIva: Number.NaN,
+    tipoIrpf: Number.NaN,
+    importeIrpf: Number.NaN,
+    total: Number.NaN,
     concepto: null,
     confianza: 0.2,
     lineas: [],

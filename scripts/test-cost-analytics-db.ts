@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { costCTE, parseCostFilters, totalColumns } from '../lib/finanzas/cost-analytics';
+import { facturaEconomicaSQL } from '../lib/finanzas/invoice-economic-filter';
 const prisma = new PrismaClient();
 async function main() {
   await prisma.$transaction(async tx => {
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas_recibidas (id text, proveedor text, cif text, num_factura text, fecha timestamp, base numeric, concepto text, imputacion text, imputado_a_ventas boolean, cliente_imputado text, estado text) ON COMMIT DROP`);
+    await tx.$executeRawUnsafe(`ALTER TABLE facturas_recibidas ADD COLUMN calidad text NOT NULL DEFAULT 'VALIDA', ADD COLUMN copia_de_id text`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE imputaciones_coste_cliente (factura_id text, importe numeric, confirmado boolean, cliente_nombre text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE comentarios_facturas_recibidas (factura_id text, texto text) ON COMMIT DROP`);
     await tx.$executeRaw`INSERT INTO facturas_recibidas VALUES
@@ -32,9 +34,17 @@ async function main() {
     assert.equal(nodes.reduce((sum, n) => sum + n.costeBase, 0), k.costeBase);
     assert.equal(nodes.reduce((sum, n) => sum + n.asignado, 0), k.asignado);
   }, { timeout: 15000 });
+  const [databaseSchema] = await prisma.$queryRaw<{ hasB2: boolean }[]>(Prisma.sql`
+    SELECT COUNT(*) FILTER (WHERE column_name IN ('calidad', 'copia_de_id')) = 2 AS "hasB2"
+    FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'facturas_recibidas'`);
+  if (!databaseSchema?.hasB2) {
+    console.log(JSON.stringify({sqlTemporalCorrecto:true,periodoInclusivo:true,busquedaComentariosSinDuplicados:true,b2FixtureFiltered:true,baseRealB2Pendiente:true,escriturasProduccion:0}));
+    return;
+  }
   const f = parseCostFilters(new URLSearchParams('desde=2026-01-01&hasta=2026-12-31'));
   const [total] = await prisma.$queryRaw<any[]>(Prisma.sql`${costCTE(f)} SELECT ${totalColumns} FROM filtrados`);
-  const [reference] = await prisma.$queryRaw<any[]>`SELECT COUNT(*)::int AS count, COALESCE(SUM(ROUND(base::numeric,2)),0)::float8 AS base FROM facturas_recibidas WHERE estado <> 'RECHAZADA' AND fecha >= '2026-01-01' AND fecha < '2027-01-01'`;
+  const [reference] = await prisma.$queryRaw<any[]>(Prisma.sql`SELECT COUNT(*)::int AS count, COALESCE(SUM(ROUND(fr.base::numeric,2)),0)::float8 AS base FROM facturas_recibidas fr WHERE fr.estado <> 'RECHAZADA' AND ${facturaEconomicaSQL('fr')} AND fr.fecha >= '2026-01-01' AND fr.fecha < '2027-01-01'`);
   assert.equal(total.totalFacturas, reference.count);
   assert.equal(total.costeBase, reference.base);
   assert.equal(Math.round((total.asignado + total.sinAsignar) * 100), Math.round(total.costeBase * 100));

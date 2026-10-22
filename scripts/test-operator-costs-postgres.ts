@@ -7,6 +7,7 @@ import ts from 'typescript';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import * as costs from '../lib/finanzas/operator-costs';
+import { facturaEconomicaWhere } from '../lib/finanzas/invoice-economic-filter';
 
 // Opt-in: esta prueba usa PostgreSQL configurado, siempre dentro de rollback.
 if (process.env.OPERATOR_POSTGRES_ROLLBACK_TEST !== '1') throw new Error('Activa explícitamente OPERATOR_POSTGRES_ROLLBACK_TEST=1.');
@@ -15,7 +16,7 @@ const rollback = new Error('ROLLBACK_OBLIGATORIO_TEST_OPERADORA');
 const counts = async () => ({ sources: await prisma.fuenteCosteOperadora.count(), articles: await prisma.articuloCosteOperadora.count(), documents: await prisma.documentoCosteOperadora.count(), audits: await prisma.auditoriaCosteOperadora.count(), invoices: await prisma.facturaRecibida.count(), groups: await prisma.grupoCosteOperadora.count(), links: await prisma.vinculacionFactura.count() });
 async function main() {
   const before = await counts();
-  const invoice = await prisma.facturaRecibida.findFirst({ where: { proveedor: { contains: 'Cogent', mode: 'insensitive' }, estado: { not: 'RECHAZADA' }, imputadoAVentas: false, documentosOperadora: { none: {} } }, select: { id: true, proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true }, orderBy: { fecha: 'desc' } });
+  const invoice = await prisma.facturaRecibida.findFirst({ where: { ...facturaEconomicaWhere, proveedor: { contains: 'Cogent', mode: 'insensitive' }, estado: { not: 'RECHAZADA' }, imputadoAVentas: false, documentosOperadora: { none: {} } }, select: { id: true, proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true }, orderBy: { fecha: 'desc' } });
   const group = await prisma.grupoCosteOperadora.findFirst({ select: { id: true } });
   const user = await prisma.usuarioAdmin.findFirst({ where: { activo: true, rol: 'SUPER_ADMIN' }, select: { id: true } });
   assert(invoice && group && user, 'faltan referencias de solo lectura para la prueba');
@@ -35,6 +36,7 @@ async function main() {
         if (name === '@prisma/client') return { Prisma };
         if (name === '@/lib/prisma') return { __esModule: true, default: adapter };
         if (name === '@/lib/finanzas/operator-costs') return costs;
+        if (name === '@/lib/finanzas/invoice-economic-filter') return { facturaEconomicaWhere };
         if (name === '@/lib/finanzas/operator-costs-auth') return { operatorAuth: async () => ({ userId: user.id, canWrite: true }), operatorJson: (data: unknown, status = 200) => NextResponse.json(data, { status, headers: { 'Cache-Control': 'private, no-store' } }) };
         throw new Error('Módulo no permitido: ' + name);
       } });

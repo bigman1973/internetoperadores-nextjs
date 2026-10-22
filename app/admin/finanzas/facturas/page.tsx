@@ -9,6 +9,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { useRole } from '@/components/admin/RoleContext';
 import InvoiceLocationHistory from '@/components/finanzas/InvoiceLocationHistory';
+import InvoiceQualityWorkspace from '@/components/finanzas/InvoiceQualityWorkspace';
 
 interface Factura {
   id: string;
@@ -451,6 +452,9 @@ export default function FacturasPage() {
           </button>
         </div>
       </div>
+
+      {/* B2: la calidad se consulta con sus endpoints paginados; no se carga detalle por fila. */}
+      <InvoiceQualityWorkspace />
 
       {/* Inventario OneDrive B1: no transforma errores ni datos no disponibles en ceros. */}
       <section className="rounded-xl border border-gray-200 bg-white p-4 space-y-3" aria-label="Estado de OneDrive">

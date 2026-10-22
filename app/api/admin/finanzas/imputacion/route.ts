@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
 
 // GET: Obtener categorías de imputación, buscar clientes, o facturas emitidas de un cliente
 export async function GET(req: NextRequest) {
@@ -168,6 +169,12 @@ export async function POST(req: NextRequest) {
     if (action === 'imputar') {
       const { facturaRecibidaId, categoria, clienteNombre, facturaEmitidaIds } = body;
 
+      const factura = await prisma.facturaRecibida.findFirst({
+        where: { id: facturaRecibidaId, ...facturaEconomicaWhere },
+        select: { proveedor: true, cif: true },
+      });
+      if (!factura) return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 });
+
       // Actualizar la factura recibida
       await prisma.facturaRecibida.update({
         where: { id: facturaRecibidaId },
@@ -197,12 +204,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Crear/actualizar regla de imputación automática por proveedor
-      const factura = await prisma.facturaRecibida.findUnique({
-        where: { id: facturaRecibidaId },
-        select: { proveedor: true, cif: true },
-      });
-
-      if (factura) {
+      {
         const categoriaObj = await prisma.categoriaImputacion.findUnique({
           where: { nombre: categoria },
         });
@@ -256,6 +258,7 @@ export async function POST(req: NextRequest) {
 
       // Buscar todas las facturas del proveedor sin imputar (o con imputación diferente)
       const whereCondition: any = {
+        ...facturaEconomicaWhere,
         imputacion: null,
         documentosOperadora: { none: {} },
       };
@@ -329,6 +332,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'facturaRecibidaId y lineas son requeridos' }, { status: 400 });
       }
 
+      const factura = await prisma.facturaRecibida.findFirst({
+        where: { id: facturaRecibidaId, ...facturaEconomicaWhere },
+        select: { id: true },
+      });
+      if (!factura) return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 });
+
       // Actualizar las líneas de detalle con los clientes asignados
       await prisma.facturaRecibida.update({
         where: { id: facturaRecibidaId },
@@ -350,8 +359,8 @@ export async function POST(req: NextRequest) {
       }
 
       // Verificar que la factura existe y no está ya imputada
-      const factura = await prisma.facturaRecibida.findUnique({
-        where: { id: facturaRecibidaId },
+      const factura = await prisma.facturaRecibida.findFirst({
+        where: { id: facturaRecibidaId, ...facturaEconomicaWhere },
       });
       if (!factura) {
         return NextResponse.json({ error: 'Factura no encontrada' }, { status: 404 });
@@ -437,8 +446,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'facturaRecibidaId requerido' }, { status: 400 });
       }
 
-      const origen = await prisma.facturaRecibida.findUnique({
-        where: { id: facturaRecibidaId },
+      const origen = await prisma.facturaRecibida.findFirst({
+        where: { id: facturaRecibidaId, ...facturaEconomicaWhere },
         select: { id: true, proveedor: true, cif: true, lineasDetalle: true, imputadoAVentas: true },
       });
       if (!origen) {
@@ -446,6 +455,7 @@ export async function POST(req: NextRequest) {
       }
 
       const whereCondition: any = {
+        ...facturaEconomicaWhere,
         id: { not: facturaRecibidaId },
         imputadoAVentas: false,
         estado: { not: 'RECHAZADA' },
@@ -512,8 +522,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'facturaOrigenId y facturaDestinoIds son requeridos' }, { status: 400 });
       }
 
-      const origen = await prisma.facturaRecibida.findUnique({
-        where: { id: facturaOrigenId },
+      const origen = await prisma.facturaRecibida.findFirst({
+        where: { id: facturaOrigenId, ...facturaEconomicaWhere },
         select: { id: true, lineasDetalle: true, imputadoAVentas: true, imputacion: true, clienteImputado: true, base: true },
       });
       if (!origen) {
@@ -527,8 +537,8 @@ export async function POST(req: NextRequest) {
       let aplicadas = 0;
 
       for (const destinoId of facturaDestinoIds) {
-        const destino = await prisma.facturaRecibida.findUnique({
-          where: { id: destinoId },
+        const destino = await prisma.facturaRecibida.findFirst({
+          where: { id: destinoId, ...facturaEconomicaWhere },
           select: { id: true, base: true, total: true, lineasDetalle: true },
         });
         if (!destino) continue;

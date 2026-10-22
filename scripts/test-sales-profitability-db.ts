@@ -21,6 +21,7 @@ async function main() {
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas (isp_gestion_id int, id_cliente int) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE clientes_web (id int, cliente_id_isp text, nombre text, nif text, cif text, isp_gestion_id text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE facturas_recibidas (id text, num_factura text, proveedor text, fecha timestamp, base numeric, concepto text, estado text) ON COMMIT DROP`);
+    await tx.$executeRawUnsafe(`ALTER TABLE facturas_recibidas ADD COLUMN calidad text NOT NULL DEFAULT 'VALIDA', ADD COLUMN copia_de_id text`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE vinculaciones_facturas (id text, factura_recibida_id text, factura_emitida_id text, porcentaje numeric, notas text) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE imputaciones_coste_cliente (id text, factura_id text, cliente_id int, importe numeric, confirmado boolean) ON COMMIT DROP`);
     await tx.$executeRawUnsafe(`CREATE TEMP TABLE empleados (id text, nombre_completo text) ON COMMIT DROP`);

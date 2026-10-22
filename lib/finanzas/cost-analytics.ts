@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { facturaEconomicaSQL } from './invoice-economic-filter';
 
 export const SIN_CATEGORIA = '__SIN_CATEGORIA__';
 const STATES = ['', 'pendiente', 'clasificada', 'sin_asignar', 'parcial', 'imputada', 'incidencia'] as const;
@@ -32,7 +33,7 @@ export function allocationCents(base: number, allocated: number, hasFlag: boolea
 // Escape LIKE metacharacters: search is literal, never an SQL expression/wildcard.
 const like = (s: string) => '%' + s.replace(/[\\%_]/g, '\\$&') + '%';
 export function costCTE(f: CostFilters): Prisma.Sql {
-  const conditions: Prisma.Sql[] = [Prisma.sql`f.estado <> 'RECHAZADA'`];
+  const conditions: Prisma.Sql[] = [Prisma.sql`f.estado <> 'RECHAZADA'`, facturaEconomicaSQL('f')];
   if (f.desde) conditions.push(Prisma.sql`f.fecha >= ${new Date(f.desde + 'T00:00:00Z')}`);
   if (f.hasta) { const end = new Date(f.hasta + 'T00:00:00Z'); end.setUTCDate(end.getUTCDate() + 1); conditions.push(Prisma.sql`f.fecha < ${end}`); }
   if (f.proveedor) conditions.push(Prisma.sql`f.proveedor ILIKE ${like(f.proveedor)}`);

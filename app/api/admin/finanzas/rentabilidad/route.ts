@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter';
 import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read';
 import {
   availablePercentage,
@@ -167,7 +168,7 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
       tx.$queryRaw<{ total: number }[]>(Prisma.sql`${saleIdentityCTE(filters.facturaId)}
         SELECT COUNT(*)::int AS total FROM facturas_recibidas fr
         CROSS JOIN target_sale sale
-        WHERE fr.estado::text <> 'RECHAZADA' ${purchaseWhere}`),
+        WHERE ${facturaEconomicaSQL('fr')} AND fr.estado::text <> 'RECHAZADA' ${purchaseWhere}`),
       tx.$queryRaw<any[]>(Prisma.sql`${saleIdentityCTE(filters.facturaId)}
         SELECT fr.id, fr.num_factura AS "numFactura", fr.proveedor, fr.fecha, fr.base::float8 AS base, CASE WHEN LOWER(COALESCE(fr.concepto, '')) LIKE 'error_ocr%' THEN 'Extracción pendiente de revisión' ELSE fr.concepto END AS concepto,
           LEAST(100, GREATEST(0, 100 - COALESCE(alloc.otros, 0)))::float8 AS "porcentajeDisponible",
@@ -190,7 +191,7 @@ async function readCandidates(tx: Prisma.TransactionClient, filters: ProfitFilte
           FROM vinculaciones_facturas v WHERE v.factura_recibida_id = fr.id
         ) alloc ON TRUE
         CROSS JOIN target_sale sale
-        WHERE fr.estado::text <> 'RECHAZADA' ${purchaseWhere}
+        WHERE ${facturaEconomicaSQL('fr')} AND fr.estado::text <> 'RECHAZADA' ${purchaseWhere}
         ORDER BY bloqueado ASC, fr.fecha DESC, fr.id DESC LIMIT 25 OFFSET ${offset}`),
     ]);
     const compras = purchases.map(row => moneyRecord({ ...row, fecha: day(row.fecha), porcentajeDisponible: candidateAvailability(row.porcentajeDisponible) })) as PurchaseCandidate[];
@@ -450,7 +451,7 @@ async function linkPurchase(tx: Prisma.TransactionClient, mutation: Mutation, us
   const source = await tx.$queryRaw<any[]>(Prisma.sql`SELECT fr.id, fr.base::float8 AS base, fr.estado::text AS estado, ${invalidPurchaseDocument()} AS documento_invalido,
     EXISTS(SELECT 1 FROM documentos_coste_operadora d WHERE d.factura_id = fr.id) AS coste_operadora,
     EXISTS(SELECT 1 FROM imputaciones_coste_cliente i WHERE i.factura_id = fr.id AND i.confirmado = true) AS tiene_cliente
-    FROM facturas_recibidas fr WHERE fr.id = ${mutation.fuenteId} FOR UPDATE`);
+    FROM facturas_recibidas fr WHERE fr.id = ${mutation.fuenteId} AND ${facturaEconomicaSQL('fr')} FOR UPDATE`);
   if (source.length !== 1) throw new SafeError('Compra no encontrada.', 404);
   if (source[0].coste_operadora) throw new SafeError('Esta factura pertenece a Costes de operadora. Identifica su artículo y ámbito; no la asignes íntegra a una venta.', 409);
   if (source[0].estado === 'RECHAZADA' || !Number.isFinite(source[0].base) || source[0].base === 0) throw new SafeError('La compra no tiene una base válida para vincular.', 409);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { extraerTercero } from '@/lib/finanzas/extraer-tercero';
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
 
 /**
  * Motor de conciliación automática MEJORADO
@@ -382,6 +383,7 @@ export async function POST(req: NextRequest) {
 
             const facturaMatch = await prisma.facturaRecibida.findFirst({
               where: {
+                ...facturaEconomicaWhere,
                 proveedor: { contains: prov.proveedor, mode: 'insensitive' },
                 total: { gte: importeAbs - 0.05, lte: importeAbs + 0.05 },
                 fecha: { gte: fechaDesde, lte: fechaHasta },
@@ -423,6 +425,7 @@ export async function POST(req: NextRequest) {
           const numFactura = numFacturaMatch[1].replace(/\s+-\s+\d+$/, '').trim(); // Limpiar: quitar " - 1" al final (no tocar Va-999)
           const facturaMatch = await prisma.facturaRecibida.findFirst({
             where: {
+              ...facturaEconomicaWhere,
               numFactura: { contains: numFactura, mode: 'insensitive' },
               movimientos: { none: {} },
             },
@@ -452,6 +455,7 @@ export async function POST(req: NextRequest) {
 
             const facturaMatch = await prisma.facturaRecibida.findFirst({
               where: {
+                ...facturaEconomicaWhere,
                 AND: palabrasClave.map((p: string) => ({ proveedor: { contains: p, mode: 'insensitive' as const } })),
                 total: { gte: importeAbs - 0.10, lte: importeAbs + 0.10 },
                 fecha: { gte: fechaDesde, lte: fechaHasta },
@@ -480,6 +484,7 @@ export async function POST(req: NextRequest) {
 
           const facturasMatch = await prisma.facturaRecibida.findMany({
             where: {
+              ...facturaEconomicaWhere,
               total: { gte: importeAbs - 0.02, lte: importeAbs + 0.02 },
               fecha: { gte: fechaDesde, lte: fechaHasta },
               movimientos: { none: {} },
@@ -957,7 +962,7 @@ export async function GET() {
 
     // Facturas recibidas sin conciliar
     const facturasRecibidasSinConciliar = await prisma.facturaRecibida.count({
-      where: { movimientos: { none: {} }, total: { gt: 0 } },
+      where: { ...facturaEconomicaWhere, movimientos: { none: {} }, total: { gt: 0 } },
     });
 
     // Conteos especiales para KPIs
@@ -972,6 +977,7 @@ export async function GET() {
     // Solo cuenta facturas que tienen movimientos con tipo doc factura o ticket (documento físico)
     const facturasPendientesValidar = await prisma.facturaRecibida.aggregate({
       where: { 
+        ...facturaEconomicaWhere,
         estado: 'PENDIENTE_REVISION',
         movimientos: { some: { tipoDocumento: { in: ['factura', 'ticket'] } } }
       },
@@ -981,6 +987,7 @@ export async function GET() {
     // También contar las que no tienen movimiento vinculado (facturas subidas manualmente)
     const facturasSinVincularPendientes = await prisma.facturaRecibida.aggregate({
       where: { 
+        ...facturaEconomicaWhere,
         estado: 'PENDIENTE_REVISION',
         movimientos: { none: {} }
       },

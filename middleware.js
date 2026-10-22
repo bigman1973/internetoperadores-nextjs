@@ -32,9 +32,12 @@ export async function middleware(request) {
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
-    const allowed = path === '/api/admin/finanzas/sincronizar-onedrive' || path.startsWith('/api/auth/');
+    // Se amplía por bloques validados, nunca por toda el área financiera.
+    const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
+      || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
+      || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
-      return NextResponse.json({ error: 'Sandbox de Finanzas B1: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan otras sincronizaciones.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
+      return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
   // Las APIs financieras heredadas se comprueban aquí mientras se llevan

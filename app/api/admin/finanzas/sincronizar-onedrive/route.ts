@@ -7,6 +7,8 @@ import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-re
 import { resolveInvoiceLibrary, listFolderContents, downloadFile, FACTURAS_BASE_PATH } from '@/lib/finanzas/microsoft-graph';
 import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas';
 import { INVOICE_FOLDERS, InvoiceFolderKey, invoiceFile, invoiceLocation, inventoryStatus, normalizeInvoiceFolder, unavailableFolder } from '@/lib/finanzas/onedrive-inventory';
+import { fechaDocumentoUtc, validarResultadoOcrNuevo } from '@/lib/finanzas/invoice-quality';
+import { auditarCambioB2, buscarIdentidadBloqueada, planDeduplicacion } from '@/lib/finanzas/invoice-quality-db';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -49,7 +51,8 @@ async function inventory() {
   const ubicacion = await resolveInvoiceLibrary();
   const folders = {} as Record<InvoiceFolderKey, { items: any[] | null; status: ReturnType<typeof inventoryStatus> | ReturnType<typeof unavailableFolder> }>;
   const existentes = await prisma.facturaRecibida.findMany({ where: { oneDriveItemId: { not: null } }, select: locationSelect });
-  const ids = new Set(existentes.map(f => f.oneDriveItemId!));
+  const revisiones = await prisma.revisionLecturaFacturaRecibida.findMany({ where: { oneDriveItemId: { not: null } }, select: { id: true, oneDriveItemId: true, oneDriveDriveId: true, oneDriveRutaActual: true, carpetaOrigen: true, archivoOneDrive: true, estadoCarpeta: true, version: true } });
+  const ids = new Set([...existentes.map(f => f.oneDriveItemId!), ...revisiones.map(r => r.oneDriveItemId!)]);
   const seen = new Set<string>();
   for (const [key, config] of Object.entries(INVOICE_FOLDERS) as Array<[InvoiceFolderKey, typeof INVOICE_FOLDERS[InvoiceFolderKey]]>) {
     try {
@@ -65,7 +68,7 @@ async function inventory() {
       folders[key] = { items: null, status: unavailableFolder() };
     }
   }
-  return { ubicacion, folders, existentes };
+  return { ubicacion, folders, existentes, revisiones };
 }
 export async function GET(req: NextRequest) {
   const access = await auth(false);
@@ -155,6 +158,7 @@ export async function POST(req: NextRequest) {
     if (failed.length) return json({ error: 'Lectura incompleta: no se han modificado facturas. Revisa las carpetas indicadas.', carpetasError: failed, procesados: 0, ubicacionesActualizadas: 0, normalizadas: 0, inventarioCompleto: false }, 503);
     let ubicacionesActualizadas = 0, normalizadas = 0, procesados = 0, errores = 0;
     const existing = new Map(data.existentes.map(f => [f.oneDriveItemId!, f]));
+    const revisiones = new Map(data.revisiones.map(r => [r.oneDriveItemId!, r]));
     const resultados: Array<{ archivo: string; carpeta: string; estado: string; error?: string }> = [];
     const preflight = new Set<string>();
     for (const key of keys) for (const item of data.folders[key].items!) {
@@ -163,6 +167,8 @@ export async function POST(req: NextRequest) {
       preflight.add(item.id);
       invoiceLocation(item, key, data.ubicacion.driveId);
       const invoice = existing.get(item.id);
+      const revision = revisiones.get(item.id);
+      if (revision?.oneDriveDriveId && revision.oneDriveDriveId !== data.ubicacion.driveId) throw new Error('DRIVE_MISMATCH');
       if (invoice?.oneDriveDriveId && invoice.oneDriveDriveId !== data.ubicacion.driveId) throw new Error('DRIVE_MISMATCH');
     }
     const legacy = [...preflight].filter(id => existing.has(id) && !existing.get(id)!.oneDriveDriveId);
@@ -179,6 +185,20 @@ export async function POST(req: NextRequest) {
       if (seen.has(item.id)) throw new Error('DUPLICATE_LOCATION');
       seen.add(item.id);
       const invoice = existing.get(item.id);
+      const revision = revisiones.get(item.id);
+      if (revision && !invoice) {
+        const { etiquetaMateriales: _etiqueta, ...nextLocation } = invoiceLocation(item, key, data.ubicacion.driveId);
+        updates.push(async () => { await prisma.$transaction(async tx => {
+          await tx.$queryRaw`SELECT id FROM revisiones_lectura_facturas_recibidas WHERE id = ${revision.id} FOR UPDATE`;
+          const current = await tx.revisionLecturaFacturaRecibida.findUnique({ where: { id: revision.id } });
+          if (!current) return;
+          const anterior = { oneDriveDriveId: current.oneDriveDriveId, oneDriveRutaActual: current.oneDriveRutaActual, carpetaOrigen: current.carpetaOrigen, archivoOneDrive: current.archivoOneDrive, estadoCarpeta: current.estadoCarpeta };
+          if (Object.entries(nextLocation).every(([key, value]) => (current as unknown as Record<string, unknown>)[key] === value)) return;
+          await tx.revisionLecturaFacturaRecibida.update({ where: { id: current.id }, data: { ...nextLocation, version: { increment: 1 } } });
+          await auditarCambioB2(tx, { revisionId: current.id, actorId: access.userId, accion: 'UBICACION_CUARENTENA_B2', detalle: { anterior, actual: nextLocation } });
+          ubicacionesActualizadas++;
+        }, { maxWait: 10000, timeout: 15000 }); });
+      }
       if (invoice) {
         if (invoice.oneDriveDriveId && invoice.oneDriveDriveId !== data.ubicacion.driveId) throw new Error('DRIVE_MISMATCH');
         updates.push(async () => { if (await updateLocation(invoice.id, invoiceLocation(item, key, data.ubicacion.driveId), access.userId, invoice.oneDriveDriveId ? 'LECTURA_ONEDRIVE' : 'VERIFICACION_BIBLIOTECA_HISTORICA')) ubicacionesActualizadas++; });
@@ -192,21 +212,35 @@ export async function POST(req: NextRequest) {
       if (normalized !== invoice.carpetaOrigen && await updateLocation(invoice.id, { carpetaOrigen: normalized }, access.userId, 'NORMALIZACION_ETIQUETA')) normalizadas++;
     }
     if (!soloUbicaciones) for (const key of keys) for (const item of data.folders[key].items!) {
-      if (!invoiceFile(item) || existing.has(item.id) || procesados + errores >= limite) continue;
+      if (!invoiceFile(item) || existing.has(item.id) || revisiones.has(item.id) || procesados + errores >= limite) continue;
       try {
         const buffer = await downloadFile(data.ubicacion.driveId, item.id);
         const ext = item.name.toLowerCase().split('.').pop();
         const mime = ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', tiff: 'image/tiff' } as Record<string,string>)[ext!] || 'application/pdf';
         const datos = await extraerDatosFactura(buffer.toString('base64'), mime, item.name);
-        if (!datos.proveedor || datos.proveedor === 'ERROR_OCR' || !Number.isFinite(datos.total) || !datos.confianza || !Number.isFinite(new Date(datos.fecha).getTime())) throw new Error('OCR_REVIEW');
         const location = invoiceLocation(item, key, data.ubicacion.driveId);
+        const validacion = validarResultadoOcrNuevo(datos);
         await prisma.$transaction(async tx => {
-          const invoice = await tx.facturaRecibida.create({ data: { proveedor: datos.proveedor, cif: datos.cif, numFactura: datos.numFactura, fecha: new Date(datos.fecha), base: datos.base, tipoIva: datos.tipoIva, importeIva: datos.importeIva, tipoIrpf: datos.tipoIrpf, importeIrpf: datos.importeIrpf, total: datos.total, concepto: datos.concepto, estado: 'PENDIENTE_REVISION', ...location, oneDriveItemId: item.id, ocrCompletado: true, ocrConfianza: datos.confianza, datosOcrRaw: JSON.stringify(datos), deducibleIva: true, ...(key === 'confirming_draxton' ? { formaPago: 'confirming', confirmingProveedor: 'Draxton' } : {}) } });
-          await tx.historialUbicacionFacturaRecibida.create({ data: { facturaId: invoice.id, autorId: access.userId, motivo: 'ALTA_ONEDRIVE', anterior: {}, actual: location } });
+          if (validacion.ok === false) {
+            // Conserva exactamente el resultado OCR (incluidos importes leídos
+            // pero inválidos) para revisión; la cola nunca crea una factura 0 €.
+            const motivoRevision = validacion.motivo;
+            await tx.revisionLecturaFacturaRecibida.upsert({
+              where: { oneDriveItemId: item.id },
+              update: { ...location, proveedor: typeof datos.proveedor === 'string' ? datos.proveedor : null, cif: typeof datos.cif === 'string' ? datos.cif : null, numFactura: typeof datos.numFactura === 'string' ? datos.numFactura : null, fecha: typeof datos.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(datos.fecha) ? fechaDocumentoUtc(datos.fecha) : null, base: typeof datos.base === 'number' && Number.isFinite(datos.base) ? datos.base : null, tipoIva: typeof datos.tipoIva === 'number' && Number.isFinite(datos.tipoIva) ? datos.tipoIva : null, importeIva: typeof datos.importeIva === 'number' && Number.isFinite(datos.importeIva) ? datos.importeIva : null, tipoIrpf: typeof datos.tipoIrpf === 'number' && Number.isFinite(datos.tipoIrpf) ? datos.tipoIrpf : null, importeIrpf: typeof datos.importeIrpf === 'number' && Number.isFinite(datos.importeIrpf) ? datos.importeIrpf : null, total: typeof datos.total === 'number' && Number.isFinite(datos.total) ? datos.total : null, concepto: typeof datos.concepto === 'string' ? datos.concepto : null, ocrConfianza: typeof datos.confianza === 'number' && Number.isFinite(datos.confianza) ? datos.confianza : null, datosOcrRaw: JSON.stringify(datos), motivoRevision },
+              create: { oneDriveItemId: item.id, ...location, proveedor: typeof datos.proveedor === 'string' ? datos.proveedor : null, cif: typeof datos.cif === 'string' ? datos.cif : null, numFactura: typeof datos.numFactura === 'string' ? datos.numFactura : null, fecha: typeof datos.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(datos.fecha) ? fechaDocumentoUtc(datos.fecha) : null, base: typeof datos.base === 'number' && Number.isFinite(datos.base) ? datos.base : null, tipoIva: typeof datos.tipoIva === 'number' && Number.isFinite(datos.tipoIva) ? datos.tipoIva : null, importeIva: typeof datos.importeIva === 'number' && Number.isFinite(datos.importeIva) ? datos.importeIva : null, tipoIrpf: typeof datos.tipoIrpf === 'number' && Number.isFinite(datos.tipoIrpf) ? datos.tipoIrpf : null, importeIrpf: typeof datos.importeIrpf === 'number' && Number.isFinite(datos.importeIrpf) ? datos.importeIrpf : null, total: typeof datos.total === 'number' && Number.isFinite(datos.total) ? datos.total : null, concepto: typeof datos.concepto === 'string' ? datos.concepto : null, ocrConfianza: typeof datos.confianza === 'number' && Number.isFinite(datos.confianza) ? datos.confianza : null, datosOcrRaw: JSON.stringify(datos), motivoRevision },
+            });
+            return;
+          }
+          const coincidencias = await buscarIdentidadBloqueada(tx, validacion.identidad);
+          const plan = coincidencias.length ? planDeduplicacion(coincidencias) : null;
+          const invoice = await tx.facturaRecibida.create({ data: { proveedor: datos.proveedor, cif: datos.cif, numFactura: datos.numFactura, fecha: fechaDocumentoUtc(datos.fecha), base: datos.base, tipoIva: datos.tipoIva, importeIva: datos.importeIva, tipoIrpf: datos.tipoIrpf, importeIrpf: datos.importeIrpf, total: datos.total, concepto: datos.concepto, estado: 'PENDIENTE_REVISION', calidad: plan?.canonica ? 'COPIA' : 'VALIDA', canonKey: validacion.identidad, copiaDeId: plan?.canonica?.id || null, fechaProvenancia: 'DOCUMENTO', conflictoIdentidad: plan?.conflicto || false, duplicadoExterno: Boolean(plan?.conflicto), ...location, oneDriveItemId: item.id, ocrCompletado: true, ocrConfianza: datos.confianza, datosOcrRaw: JSON.stringify(datos), deducibleIva: true, ...(key === 'confirming_draxton' ? { formaPago: 'confirming', confirmingProveedor: 'Draxton' } : {}) } });
+          await tx.historialUbicacionFacturaRecibida.create({ data: { facturaId: invoice.id, autorId: access.userId, motivo: plan ? 'ALTA_ONEDRIVE_COPIA_B2' : 'ALTA_ONEDRIVE', anterior: {}, actual: location } });
+          await auditarCambioB2(tx, { facturaId: invoice.id, actorId: access.userId, accion: plan?.canonica ? 'ALTA_ONEDRIVE_COPIA_B2' : 'ALTA_ONEDRIVE_B2', detalle: { canonKey: validacion.identidad, calidad: plan?.canonica ? 'COPIA' : 'VALIDA', copiaDeId: plan?.canonica?.id || null, conflictoIdentidad: Boolean(plan?.conflicto), ocr: { proveedor: datos.proveedor, cif: datos.cif, numFactura: datos.numFactura, fecha: datos.fecha, base: datos.base, importeIva: datos.importeIva, importeIrpf: datos.importeIrpf, total: datos.total } } });
         });
         existing.set(item.id, { id: '', oneDriveItemId: item.id, ...location });
         procesados++;
-        resultados.push({ archivo: item.name, carpeta: INVOICE_FOLDERS[key].nombre, estado: 'ok' });
+        resultados.push({ archivo: item.name, carpeta: INVOICE_FOLDERS[key].nombre, estado: validacion.ok ? 'ok' : 'cuarentena_revisar_lectura' });
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') { resultados.push({ archivo: item.name, carpeta: INVOICE_FOLDERS[key].nombre, estado: 'ya_importado' }); continue; }
         errores++;

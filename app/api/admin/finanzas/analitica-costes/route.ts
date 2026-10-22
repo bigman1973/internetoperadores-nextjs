@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { checkAdminAreaRead } from '@/lib/api-admin-area-read';
 import { costCTE, parseCostFilters, SIN_CATEGORIA, totalColumns } from '@/lib/finanzas/cost-analytics';
+import { facturaEconomicaWhere } from '@/lib/finanzas/invoice-economic-filter';
 
 export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
       const path = costCTE(filters);
       const [kpis] = await tx.$queryRaw<any[]>(Prisma.sql`${root} SELECT ${totalColumns} FROM filtrados`);
       const categorias = await tx.categoriaImputacion.findMany({ select: { nombre: true }, orderBy: [{ orden: 'asc' }, { nombre: 'asc' }], take: 1000 });
-      const usadas = await tx.facturaRecibida.findMany({ select: { imputacion: true }, distinct: ['imputacion'], take: 1000 });
+      const usadas = await tx.facturaRecibida.findMany({ where: facturaEconomicaWhere, select: { imputacion: true }, distinct: ['imputacion'], take: 1000 });
       const textoBusqueda = '%' + filters.buscar.replace(/[\\%_]/g, '\\$&') + '%';
       const comentarioCoincidente = filters.buscar ? Prisma.sql`(SELECT SUBSTRING(c.texto FROM GREATEST(1, STRPOS(LOWER(c.texto), LOWER(${filters.buscar})) - 60) FOR 240) FROM comentarios_facturas_recibidas c
         WHERE c.factura_id = f.id AND c.texto ILIKE ${textoBusqueda} ORDER BY c.created_at DESC, c.id DESC LIMIT 1)` : Prisma.sql`NULL`;

@@ -28,6 +28,7 @@ model UsuarioAdmin {
   outlookConexion  OutlookConexion?
   comentariosFactura ComentarioFacturaRecibida[]
   rentabilidadAuditoria RentabilidadAuditoria[]
+  auditoriasCalidadFactura AuditoriaCalidadFactura[]
 
   @@map("usuarios_admin")
 }
@@ -1210,6 +1211,14 @@ model FacturaRecibida {
   deducibleIva    Boolean  @default(true) @map("deducible_iva")
   // Confirming
   totalConfirming  Float?   @map("total_confirming") // Total del confirming (editable)
+  // B2: calidad documental; los importes y el estado originales nunca se reescriben al marcar una revisión.
+  calidad          CalidadFacturaRecibida @default(VALIDA)
+  canonKey         String?  @map("canon_key")
+  copiaDeId        String?  @map("copia_de_id")
+  fechaProvenancia ProcedenciaFechaFactura? @map("fecha_provenancia")
+  conflictoIdentidad Boolean @default(false) @map("conflicto_identidad")
+  duplicadoExterno Boolean @default(false) @map("duplicado_externo")
+  versionCalidad   Int      @default(1) @map("version_calidad")
   // Timestamps
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -1219,11 +1228,17 @@ model FacturaRecibida {
   comentarios     ComentarioFacturaRecibida[]
   documentosOperadora DocumentoCosteOperadora[]
   historialUbicaciones HistorialUbicacionFacturaRecibida[]
+  copiaDe          FacturaRecibida? @relation("CopiasFacturaRecibida", fields: [copiaDeId], references: [id], onDelete: Restrict)
+  copias           FacturaRecibida[] @relation("CopiasFacturaRecibida")
+  revisionesLecturaResueltas RevisionLecturaFacturaRecibida[]
+  auditoriasCalidad AuditoriaCalidadFactura[]
 
   @@index([estado])
   @@index([proveedor])
   @@index([fecha])
   @@index([imputacion])
+  @@index([calidad, copiaDeId, fecha])
+  @@index([canonKey])
   @@map("facturas_recibidas")
 }
 
@@ -1256,6 +1271,63 @@ model ComentarioFacturaRecibida {
   @@unique([facturaId, solicitudId])
   @@index([facturaId, createdAt])
   @@map("comentarios_facturas_recibidas")
+}
+
+// B2: documento conservado en OneDrive que no puede convertirse todavía en factura.
+// Esta cola no participa en ningún total ni tiene estado contable.
+model RevisionLecturaFacturaRecibida {
+  id               String   @id @default(uuid())
+  oneDriveItemId   String?  @unique @map("onedrive_item_id")
+  oneDriveDriveId  String?  @map("onedrive_drive_id")
+  oneDriveRutaActual String? @map("onedrive_ruta_actual")
+  archivoOneDrive  String?  @map("archivo_onedrive")
+  carpetaOrigen    String?  @map("carpeta_origen")
+  estadoCarpeta    String?  @map("estado_carpeta")
+  proveedor        String?
+  cif              String?
+  numFactura       String?  @map("num_factura")
+  fecha            DateTime?
+  base             Float?
+  tipoIva          Float?   @map("tipo_iva")
+  importeIva       Float?   @map("importe_iva")
+  tipoIrpf         Float?   @map("tipo_irpf")
+  importeIrpf      Float?   @map("importe_irpf")
+  total            Float?
+  concepto         String?
+  ocrConfianza     Float?   @map("ocr_confianza")
+  datosOcrRaw      String?  @map("datos_ocr_raw") @db.Text
+  motivoRevision   String   @map("motivo_revision")
+  version          Int      @default(1)
+  resueltaAt       DateTime? @map("resuelta_at")
+  facturaResueltaId String? @map("factura_resuelta_id")
+  facturaResuelta  FacturaRecibida? @relation(fields: [facturaResueltaId], references: [id], onDelete: Restrict)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  auditorias       AuditoriaCalidadFactura[]
+
+  @@index([resueltaAt, createdAt])
+  @@index([motivoRevision, createdAt])
+  @@map("revisiones_lectura_facturas_recibidas")
+}
+
+// Auditoría externa B2: el detalle de la decisión no vive dentro de la factura ni de la cola.
+model AuditoriaCalidadFactura {
+  id               String   @id @default(uuid())
+  facturaId        String?  @map("factura_id")
+  revisionId       String?  @map("revision_id")
+  actorId          Int?     @map("actor_id")
+  accion           String
+  solicitudId      String?  @map("solicitud_id")
+  huellaSolicitud  String?  @map("huella_solicitud")
+  detalle          Json
+  createdAt        DateTime @default(now()) @map("created_at")
+  factura          FacturaRecibida? @relation(fields: [facturaId], references: [id], onDelete: Restrict)
+  revision         RevisionLecturaFacturaRecibida? @relation(fields: [revisionId], references: [id], onDelete: Restrict)
+  actor            UsuarioAdmin? @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([facturaId, createdAt])
+  @@index([revisionId, createdAt])
+  @@map("auditoria_calidad_facturas")
 }
 
 model ConfirmingLinea {
@@ -1384,6 +1456,21 @@ enum EstadoFactura {
   VALIDADA
   CONTABILIZADA
   RECHAZADA
+}
+
+// B2: calidad separada del estado contable. REVISAR_LECTURA no modifica EstadoFactura.
+enum CalidadFacturaRecibida {
+  VALIDA
+  REVISAR_LECTURA
+  COPIA
+}
+
+// Sólo DOCUMENTO permite alta automática; el resto se conserva para diagnóstico y revisión.
+enum ProcedenciaFechaFactura {
+  DOCUMENTO
+  NOMBRE_ARCHIVO
+  HISTORICA
+  SIN_CONFIRMAR
 }
 
 enum TipoGasto {
