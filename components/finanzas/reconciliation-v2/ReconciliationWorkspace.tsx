@@ -646,7 +646,13 @@ export default function ReconciliationWorkspace() {
         onChanged={() => { void loadLists({ silent: true }); }}
         onOpenMovimiento={(id) => {
           const movement = movements.find((item) => item.id === id);
-          if (movement) void selectMovement(movement);
+          if (movement) { void selectMovement(movement); return; }
+          const sequence=++selectionSequence.current;setSelectedLoading(true);
+          void fetch(buildReadUrl({movementId:id}),{cache:'no-store'}).then(async response=>{
+            const json=await response.json().catch(()=>null);if(!response.ok)throw new Error(backendMessage(json,'No se pudo abrir el movimiento heredado.'));
+            const detail=asResponse(json).movimientos.find(item=>item.id===id);if(!detail)throw new Error('El movimiento no está disponible en la lectura autorizada.');
+            if(sequence===selectionSequence.current){setSelected(detail);resetDraft(detail);}
+          }).catch(error=>setNotice({kind:'error',text:error instanceof Error?error.message:'No se pudo abrir el movimiento heredado.'})).finally(()=>{if(sequence===selectionSequence.current)setSelectedLoading(false);});
         }}
       />}
 

@@ -20,6 +20,8 @@ import {
   type HistoricalBulkPreview,
 } from './historical-bulk-contract';
 
+class RechazoBulkSeguro extends Error {}
+
 const BULK_ENDPOINT = '/api/admin/finanzas/conciliacion-v2/heredados-bloque';
 
 type HistoricalBulkPanelProps = Readonly<{
@@ -246,7 +248,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
         body: JSON.stringify(pending.payload),
       });
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(mensajeHumanoDelError(json, 'No se pudo confirmar el bloque de propuestas exactas.'));
+      if (!response.ok) {const message=mensajeHumanoDelError(json, 'No se pudo confirmar el bloque de propuestas exactas.');if([400,401,403,409,413,415,422].includes(response.status)&&json!==null)throw new RechazoBulkSeguro(message);throw new Error(message);}
       const parsed = parseHistoricalBulkConfirmation(json);
       if ('error' in parsed) throw new Error(`La respuesta de confirmación no se puede verificar: ${parsed.error}`);
       if (parsed.value.confirmadas !== pending.payload.items.length) throw new Error('El servidor no confirmó exactamente la selección solicitada; no se actualizará la pantalla.');
@@ -260,6 +262,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
       onChanged();
       await loadPreview(0);
     } catch (error) {
+      if(error instanceof RechazoBulkSeguro){uncertainMutation.current=false;setPendingConfirmation(null);setConfirmDialogOpen(false);setHumanChecked(false);await loadPreview(0);setNotice(error.message);return;}
       // Incluye errores de red y respuestas no verificables: mismo UUID y mismo payload.
       uncertainMutation.current = true;
       setPendingConfirmation({ ...pending, uncertain: true });
@@ -302,7 +305,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
         body: JSON.stringify(pending.payload),
       });
       const json: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(mensajeHumanoDelError(json, 'No se pudo deshacer el bloque confirmado.'));
+      if (!response.ok) {const message=mensajeHumanoDelError(json, 'No se pudo deshacer el bloque confirmado.');if([400,401,403,409,413,415,422].includes(response.status)&&json!==null)throw new RechazoBulkSeguro(message);throw new Error(message);}
       const parsed = parseHistoricalBulkUndo(json);
       if ('error' in parsed || parsed.value.bloqueId !== pending.payload.bloqueId) throw new Error('La respuesta de reversión no se puede verificar.');
       setReceipt((current) => current ? { ...current, reverted: true, revertedCount: parsed.value.revertidas } : current);
@@ -315,6 +318,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
       onChanged();
       await loadPreview(0);
     } catch (error) {
+      if(error instanceof RechazoBulkSeguro){uncertainMutation.current=false;setPendingUndo(null);setUndoDialogOpen(false);setUndoChecked(false);await loadPreview(0);setNotice(error.message);return;}
       uncertainMutation.current = true;
       setPendingUndo({ ...pending, uncertain: true });
       setNotice(errorText(error, 'No se pudo deshacer el bloque confirmado.'));
@@ -326,7 +330,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
   const pageStart = preview ? preview.offset + 1 : 0;
   const pageEnd = preview ? preview.offset + preview.items.length : 0;
 
-  return <section aria-labelledby="historical-bulk-title" className="overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm">
+  return <section aria-labelledby="historical-bulk-title" data-historical-bulk-version="2" className="relative min-w-0 max-w-full overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm">
     <header className="flex flex-col gap-3 border-b border-violet-100 bg-violet-50/60 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:px-5">
       <div>
         <p className="text-xs font-bold uppercase tracking-[0.14em] text-violet-800">Heredados · sólo previsualización</p>
@@ -355,7 +359,7 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
           <ul className="mt-2 space-y-1 text-xs">{Object.entries(preview.excluidasPorMotivo).map(([reason, count]) => <li key={reason}>{count} · {etiquetaExclusion(reason)}</li>)}</ul>
         </section>}
 
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <div className="relative min-w-0 max-w-full overflow-x-auto rounded-lg border border-slate-200">
           <table className="min-w-[1040px] w-full text-left text-xs sm:text-sm">
             <caption className="sr-only">Propuestas heredadas exactas de la página actual</caption>
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-700"><tr>
