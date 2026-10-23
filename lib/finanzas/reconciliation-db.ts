@@ -309,6 +309,11 @@ async function sourceEvidence(tx: Tx, tipo: TipoDocumentoConciliable, sourceId: 
   }
 }
 
+/** Lee la evidencia B4 viva dentro de la transacción que posee el llamador. */
+export async function sourceEvidenceB4Tx(tx: Prisma.TransactionClient, tipo: TipoDocumentoConciliable, sourceId: string) {
+  return sourceEvidence(tx as Tx, tipo, sourceId)
+}
+
 function pointerKeys(): readonly string[] {
   return ['facturaRecibidaId', 'facturaEmitidaId', 'remesaId', 'nominaId', 'documentoAappId', 'pagoFraccionadoId', 'documentoPrestamoId', 'gastoId', 'traspasoInternoId']
 }
@@ -393,17 +398,14 @@ async function checkIdempotency(tx: Tx, actorId: number, key: string, hash: stri
   return existing
 }
 
-export async function createDocumentoB4(actorId: number, input: unknown) {
+async function createDocumentoB4TxInternal(tx: Tx, actorId: number, input: unknown) {
   exactKeys(input, ['action', 'tipoDocumento', 'sourceId'])
   const raw = input as JsonRecord
   if (raw.action !== 'documento') fail(400, 'VALIDATION_ERROR', 'Acción documento inválida.')
   const tipos = catalogoB4().tiposDocumento as readonly string[]
   if (typeof raw.tipoDocumento !== 'string' || !tipos.includes(raw.tipoDocumento)) fail(400, 'VALIDATION_ERROR', 'tipoDocumento B4 inválido.')
   const sourceId = stringId(raw.sourceId, 'sourceId')
-  await assertFinanceRuntimeReady()
-  return (prisma as PrismaClient).$transaction(async (base) => {
-    const tx = base as Tx
-    const tipo = raw.tipoDocumento as TipoDocumentoConciliable
+  const tipo = raw.tipoDocumento as TipoDocumentoConciliable
     const evidence = await sourceEvidence(tx, tipo, sourceId)
     const pointer = evidence.pointer
     const existing = await b4(tx).documentoConciliable.findFirst({ where: pointer })
@@ -412,11 +414,23 @@ export async function createDocumentoB4(actorId: number, input: unknown) {
       return { documento: docView(existing), created: false }
     }
     const doc = await b4(tx).documentoConciliable.create({ data: { tipo, importeObjetivoCentimos: evidence.target, ...pointer } })
-    return { documento: docView(doc), created: true }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  return { documento: docView(doc), created: true }
 }
 
-export async function confirmarB4(actorId: number, input: unknown) {
+/** Crea/reutiliza un envoltorio B4 dentro de la transacción del llamador. */
+export async function createDocumentoB4Tx(tx: Prisma.TransactionClient, actorId: number, input: unknown) {
+  return createDocumentoB4TxInternal(tx as Tx, actorId, input)
+}
+
+export async function createDocumentoB4(actorId: number, input: unknown) {
+  await assertFinanceRuntimeReady()
+  return (prisma as PrismaClient).$transaction(
+    (tx) => createDocumentoB4Tx(tx, actorId, input),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
+}
+
+async function confirmarB4TxInternal(tx: Tx, actorId: number, input: unknown) {
   exactKeys(input, ['action', 'confirmacion', 'idempotencyKey', 'version', 'borrador'])
   const raw = input as JsonRecord
   if (raw.action !== 'confirmar' || raw.confirmacion !== true) fail(400, 'VALIDATION_ERROR', 'confirmar exige confirmacion: true.')
@@ -433,10 +447,7 @@ export async function confirmarB4(actorId: number, input: unknown) {
   const hash = payloadHash(solicitudB4)
   const draftProbe = raw.borrador as any
   const movimientoId = stringId(draftProbe?.movimientoId, 'borrador.movimientoId')
-  await assertFinanceRuntimeReady()
-  return (prisma as PrismaClient).$transaction(async (base) => {
-    const tx = base as Tx
-    await advisoryAndMovementLock(tx, movimientoId)
+  await advisoryAndMovementLock(tx, movimientoId)
     const replay = await checkIdempotency(tx, actorId, idempotencyKey, hash)
     if (replay) {
       try {
@@ -531,11 +542,23 @@ export async function confirmarB4(actorId: number, input: unknown) {
     await b4(tx).eventoJustificacionB4.createMany({ data: ['SOLICITUD', 'APROBACION', 'APLICACION'].map((accion) => ({
       operacionId: operation.id, movimientoId, accion, actorId, detalle: { version: resultState.version },
     })) })
-    return { idempotente: false, operacion: operationView(operation), estado: resultState }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  return { idempotente: false, operacion: operationView(operation), estado: resultState }
 }
 
-export async function deshacerB4(actorId: number, input: unknown) {
+/** Confirma B4 y B8 dentro de la transacción atómica del llamador. */
+export async function confirmarB4Tx(tx: Prisma.TransactionClient, actorId: number, input: unknown) {
+  return confirmarB4TxInternal(tx as Tx, actorId, input)
+}
+
+export async function confirmarB4(actorId: number, input: unknown) {
+  await assertFinanceRuntimeReady()
+  return (prisma as PrismaClient).$transaction(
+    (tx) => confirmarB4Tx(tx, actorId, input),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
+}
+
+async function deshacerB4TxInternal(tx: Tx, actorId: number, input: unknown) {
   exactKeys(input, ['action', 'confirmacion', 'idempotencyKey', 'version', 'operacionId', 'lineas'])
   const raw = input as JsonRecord
   if (raw.action !== 'deshacer' || raw.confirmacion !== true) fail(400, 'VALIDATION_ERROR', 'deshacer exige confirmacion: true.')
@@ -543,10 +566,7 @@ export async function deshacerB4(actorId: number, input: unknown) {
   const operationId = stringId(raw.operacionId, 'operacionId', true)
   if (!Number.isInteger(raw.version) || (raw.version as number) < 0 || !Array.isArray(raw.lineas)) fail(400, 'VALIDATION_ERROR', 'version o lineas inválidas.')
   const hash = payloadHash(raw)
-  await assertFinanceRuntimeReady()
-  return (prisma as PrismaClient).$transaction(async (base) => {
-    const tx = base as Tx
-    const original = await b4(tx).operacionJustificacionB4.findUnique({ where: { id: operationId } })
+  const original = await b4(tx).operacionJustificacionB4.findUnique({ where: { id: operationId } })
     if (!original) fail(404, 'OPERACION_NO_ENCONTRADA', 'La operación original no existe.')
     await advisoryAndMovementLock(tx, original.movimientoId)
     const replay = await checkIdempotency(tx, actorId, idempotencyKey, hash)
@@ -574,8 +594,20 @@ export async function deshacerB4(actorId: number, input: unknown) {
     await b4(tx).estadoJustificacionMovimientoB4.update({ where: { movimientoId: original.movimientoId }, data: { ...result, actualizadoPorId: actorId } })
     await b4(tx).operacionJustificacionB4.update({ where: { id: original.id }, data: { estado: 'REVERTIDA', revertidaAt: new Date() } })
     await b4(tx).eventoJustificacionB4.createMany({ data: ['SOLICITUD', 'APROBACION', 'REVERSION'].map((accion) => ({ operacionId: operation.id, movimientoId: original.movimientoId, accion, actorId, detalle: { revierteOperacionId: original.id, version: result.version } })) })
-    return { idempotente: false, operacion: operationView(operation), estado: result }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+  return { idempotente: false, operacion: operationView(operation), estado: result }
+}
+
+/** Revierte B4 dentro de la transacción atómica del llamador. */
+export async function deshacerB4Tx(tx: Prisma.TransactionClient, actorId: number, input: unknown) {
+  return deshacerB4TxInternal(tx as Tx, actorId, input)
+}
+
+export async function deshacerB4(actorId: number, input: unknown) {
+  await assertFinanceRuntimeReady()
+  return (prisma as PrismaClient).$transaction(
+    (tx) => deshacerB4Tx(tx, actorId, input),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }
 
 export type ReadConciliacionB4Options = Readonly<{

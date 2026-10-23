@@ -353,7 +353,7 @@ async function snapshotOriginals(client: PgClient): Promise<string> {
   return sha256Canonical(chunks)
 }
 
-async function readSelectedRows(client: PgClient): Promise<RawRow[]> {
+export async function readSelectedRows(client: PgClient): Promise<RawRow[]> {
   const sql = `
     SELECT m.id, m.conciliado, m.importe::text AS importe_text,
       m.factura_id, m.factura_emitida_id, m.nomina_id, m.gasto_id, m.traspaso_relacionado_id, m.entrega_a_cuenta_empleado_id,
