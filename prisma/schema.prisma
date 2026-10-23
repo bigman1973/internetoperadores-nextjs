@@ -10,6 +10,8 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  reversionesLegadoB4 ReversionLegadoB4[]
+  legadosConciliacionB4 LegadoConciliacionB4[]
   financeSyncP2Requested FinanceSyncJobP2[] @relation("FinanceSyncP2RequestedBy")
   financeSyncP2Cancelled FinanceSyncJobP2[] @relation("FinanceSyncP2CancelledBy")
   centrosCosteFinanzasCreadosB8 CentroCosteFinanzas[] @relation("CentroCosteFinanzasB8Creador")
@@ -1145,6 +1147,7 @@ model CuentaBancaria {
 }
 
 model MovimientoBancario {
+  legadoConciliacionB4 LegadoConciliacionB4?
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Movimiento")
   asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Movimiento")
 
@@ -4223,6 +4226,7 @@ model VinculoMovimientoDocumento {
 
 // Idempotency is deliberately scoped to the real UsuarioAdmin Int identity and request key.
 model OperacionJustificacionB4 {
+  legadoConciliacionB4 LegadoConciliacionB4?
   reciboEleccionCentroB8 ReciboEleccionCentroB8?
   id                     String                    @id @default(uuid()) @db.Uuid
   movimientoId           String                    @map("movimiento_id")
@@ -4735,3 +4739,36 @@ model FinanceSyncDailyReceiptP2 {
 // Add only these inverse fields to the existing UsuarioAdmin model:
 // financeSyncP2Requested       FinanceSyncJobP2[]          @relation("FinanceSyncP2RequestedBy")
 // financeSyncP2Cancelled       FinanceSyncJobP2[]          @relation("FinanceSyncP2CancelledBy")
+
+model LegadoConciliacionB4 {
+  movimientoId String @id @map("movimiento_id")
+  id String @unique @default(uuid()) @db.Uuid
+  origen String @default("HISTORICO")
+  lote String
+  clasificacion String
+  procedencia String
+  motivos Json
+  documentos Json
+  snapshotLegacy Json @map("snapshot_legacy")
+  sourceHash String @map("source_hash")
+  importeBancoCentimos Int? @map("importe_banco_centimos")
+  operacionId String? @unique @db.Uuid @map("operacion_id")
+  creadoPorId Int @map("creado_por_id")
+  creadoAt DateTime @default(now()) @map("creado_at")
+  movimiento MovimientoBancario @relation(fields:[movimientoId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacion OperacionJustificacionB4? @relation(fields:[operacionId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  creadoPor UsuarioAdmin @relation(fields:[creadoPorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@index([clasificacion, creadoAt])
+  @@index([lote])
+  @@map("legado_conciliacion_b4")
+}
+
+model ReversionLegadoB4 {
+  id String @id @default(uuid()) @db.Uuid
+  lote String @unique
+  actorId Int @map("actor_id")
+  motivo String
+  creadoAt DateTime @default(now()) @map("creado_at")
+  actor UsuarioAdmin @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@map("reversiones_legado_b4")
+}

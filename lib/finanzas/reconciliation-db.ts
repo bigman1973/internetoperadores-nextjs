@@ -584,7 +584,111 @@ export type ReadConciliacionB4Options = Readonly<{
   q?: string
   cuentaId?: string
   movimientoId?: string
+
+  /** Filtro exclusivo del listado paginado de movimientos, nunca de documentos ni lectura exacta. */
+  heredados?: 'SI' | 'PROPUESTA'
 }>
+
+/** Proyección pública, mínima y de sólo lectura de una fila inmutable de legado B4. */
+export type HistoricoB4ReadDto = Readonly<{
+  id: string
+  origen: 'HISTORICO'
+  clasificacion: 'JUSTIFICADO' | 'PROPUESTA' | 'YA_B4'
+  procedencia: 'MANUAL' | 'AUTOMATICO_TOLERANCIAS' | 'DESCONOCIDO'
+  motivos: string[]
+  documentos: Array<{
+    tipo: string
+    sourceId: string
+    documentoConciliableId: string | null
+    referencia: string
+    importeObjetivoCentimos: number | null
+    archivoDisponible: boolean
+    version?: number
+    stale?: boolean
+  }>
+  creadoAt: string
+}>
+
+type HistoricoB4DocumentoReadDto = HistoricoB4ReadDto['documentos'][number]
+type HistoricoB4FilaRead = Readonly<{
+  movimientoId: string
+  id: unknown
+  origen: unknown
+  clasificacion: unknown
+  procedencia: unknown
+  motivos: unknown
+  documentos: unknown
+  creadoAt: unknown
+}>
+
+const MAX_HISTORICAL_DOCUMENTS = 25
+const MAX_HISTORICAL_REASONS = 25
+const MAX_HISTORICAL_TEXT = 240
+const MAX_HISTORICAL_REASON_TEXT = 320
+
+function historicalText(value: unknown, maxLength = MAX_HISTORICAL_TEXT): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return normalized.length > 0 && normalized.length <= maxLength ? normalized : null
+}
+
+function historicalCents(value: unknown): number | null | undefined {
+  if (value === null) return null
+  return typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined
+}
+
+function historicalDocument(value: unknown): HistoricoB4DocumentoReadDto | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as JsonRecord
+  const tipo = historicalText(raw.tipo, 80)
+  const sourceId = historicalText(raw.sourceId, 160)
+  const referencia = historicalText(raw.referencia)
+  const documentoConciliableId = raw.documentoConciliableId === null
+    ? null : historicalText(raw.documentoConciliableId, 160)
+  const importeObjetivoCentimos = historicalCents(raw.importeObjetivoCentimos)
+  if (!tipo || !sourceId || !referencia || documentoConciliableId === null && raw.documentoConciliableId !== null
+    || importeObjetivoCentimos === undefined || typeof raw.archivoDisponible !== 'boolean') return null
+
+  const version = raw.version
+  const stale = raw.stale
+  if (version !== undefined && (!Number.isSafeInteger(version) || (version as number) < 0)) return null
+  if (stale !== undefined && typeof stale !== 'boolean') return null
+  return {
+    tipo, sourceId, documentoConciliableId, referencia, importeObjetivoCentimos,
+    archivoDisponible: raw.archivoDisponible,
+    ...(version === undefined ? {} : { version: version as number }),
+    ...(stale === undefined ? {} : { stale: stale as boolean }),
+  }
+}
+
+/**
+ * Sanitiza JSONB inmutable antes de enviarlo al navegador. Nunca reexpone el
+ * snapshot/hash/lote/actor ni IDs de archivo que pueda contener el JSON fuente.
+ * Una forma inesperada se oculta por completo en vez de completar datos actuales.
+ */
+export function parseHistoricoB4ReadDto(row: HistoricoB4FilaRead): HistoricoB4ReadDto | null {
+  const id = historicalText(row.id, 160)
+  const creadoAt = isoDate(row.creadoAt)
+  if (!id || !creadoAt || row.origen !== 'HISTORICO'
+    || !['JUSTIFICADO', 'PROPUESTA', 'YA_B4'].includes(String(row.clasificacion))
+    || !['MANUAL', 'AUTOMATICO_TOLERANCIAS', 'DESCONOCIDO'].includes(String(row.procedencia))
+    || !Array.isArray(row.motivos) || row.motivos.length > MAX_HISTORICAL_REASONS
+    || !Array.isArray(row.documentos) || row.documentos.length > MAX_HISTORICAL_DOCUMENTS) return null
+
+  const motivos = row.motivos.map(motivo => historicalText(motivo, MAX_HISTORICAL_REASON_TEXT))
+  if (motivos.some((motivo): motivo is null => motivo === null)) return null
+  const documentos = row.documentos.map(historicalDocument)
+  if (documentos.some((documento): documento is null => documento === null)) return null
+  return {
+    id,
+    origen: 'HISTORICO',
+    clasificacion: row.clasificacion as HistoricoB4ReadDto['clasificacion'],
+    procedencia: row.procedencia as HistoricoB4ReadDto['procedencia'],
+    motivos: motivos as string[],
+    documentos: documentos as HistoricoB4DocumentoReadDto[],
+    creadoAt,
+  }
+}
 
 function boundedLimit(value: number): number {
   return Math.min(MAX_LIMIT, Math.max(1, Math.floor(value)))
@@ -592,6 +696,72 @@ function boundedLimit(value: number): number {
 
 function boundedOffset(value: number | undefined): number {
   return Math.min(100000, Math.max(0, Math.floor(value ?? 0)))
+}
+
+function predicateMovimientosHeredados(filter: ReadConciliacionB4Options['heredados']) {
+  if (!filter) return Prisma.sql`TRUE`
+  return filter === 'PROPUESTA'
+    ? Prisma.sql`EXISTS (
+        SELECT 1 FROM legado_conciliacion_b4 legado
+        WHERE legado.movimiento_id = mb.id
+          AND legado.clasificacion = 'PROPUESTA'
+          AND NOT EXISTS (SELECT 1 FROM reversiones_legado_b4 reversion WHERE reversion.lote = legado.lote)
+      )`
+    : Prisma.sql`EXISTS (
+        SELECT 1 FROM legado_conciliacion_b4 legado
+        WHERE legado.movimiento_id = mb.id
+          AND NOT EXISTS (SELECT 1 FROM reversiones_legado_b4 reversion WHERE reversion.lote = legado.lote)
+      )`
+}
+
+/** Sólo se usa para el listado: la búsqueda de documentos y movimientoId permanecen independientes. */
+async function readFilteredMovementPage(
+  take: number,
+  skip: number,
+  options: ReadConciliacionB4Options,
+): Promise<{ ids: string[]; total: number }> {
+  const account = options.cuentaId ? Prisma.sql`AND mb.cuenta_id = ${options.cuentaId}` : Prisma.empty
+  const concept = options.q?.trim() ? Prisma.sql`AND mb.concepto ILIKE ${`%${options.q.trim()}%`}` : Prisma.empty
+  const historical = predicateMovimientosHeredados(options.heredados)
+  const [rows, countRows] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT mb.id
+      FROM movimientos_bancarios mb
+      WHERE TRUE ${account} ${concept} AND ${historical}
+      ORDER BY mb.fecha_operacion DESC, mb.id ASC
+      LIMIT ${take} OFFSET ${skip}
+    `),
+    prisma.$queryRaw<Array<{ total: bigint | number }>>(Prisma.sql`
+      SELECT COUNT(*) AS total
+      FROM movimientos_bancarios mb
+      WHERE TRUE ${account} ${concept} AND ${historical}
+    `),
+  ])
+  return { ids: rows.map(row => row.id), total: Number(countRows[0]?.total ?? 0) }
+}
+
+/**
+ * Lee exclusivamente los recibos inmutables que pertenecen a la página actual.
+ * La reversión del lote desactiva todo su contenido sin modificar el recibo.
+ */
+async function readHistoricosForMovementPage(movimientoIds: readonly string[]): Promise<Map<string, HistoricoB4ReadDto>> {
+  if (movimientoIds.length === 0) return new Map()
+  const rows = await prisma.$queryRaw<HistoricoB4FilaRead[]>(Prisma.sql`
+    SELECT legado.movimiento_id AS "movimientoId", legado.id, legado.origen,
+      legado.clasificacion, legado.procedencia, legado.motivos, legado.documentos,
+      legado.creado_at AS "creadoAt"
+    FROM legado_conciliacion_b4 legado
+    WHERE legado.movimiento_id IN (${Prisma.join(movimientoIds)})
+      AND NOT EXISTS (SELECT 1 FROM reversiones_legado_b4 reversion WHERE reversion.lote = legado.lote)
+    LIMIT ${movimientoIds.length}
+  `)
+  const parsed = new Map<string, HistoricoB4ReadDto>()
+  for (const row of rows) {
+    const dto = parseHistoricoB4ReadDto(row)
+    // Un recibo corrupto/no compatible se omite: no se usa ni repara una fuente inmutable durante GET.
+    if (dto) parsed.set(row.movimientoId, dto)
+  }
+  return parsed
 }
 
 function pointerForDocument(doc: any): { key: string; sourceId: string } | null {
@@ -763,17 +933,24 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
   const movimientosOffset = boundedOffset(options.movimientosOffset)
   const documentosOffset = boundedOffset(options.documentosOffset)
   const q = options.q?.trim() || undefined
+  // El lookup exacto por movimientoId y la búsqueda documental ignoran este
+  // filtro de lista deliberadamente; el cliente los usa como lecturas aisladas.
+  const filteredMovementPage = options.heredados && !options.movimientoId
+    ? await readFilteredMovementPage(movementTake, movimientosOffset, { ...options, q })
+    : null
   const movementWhere: any = {
     ...(options.cuentaId ? { cuentaId: options.cuentaId } : {}),
     ...(options.movimientoId ? { id: options.movimientoId } : {}),
     ...(q ? { concepto: { contains: q, mode: 'insensitive' } } : {}),
+    ...(filteredMovementPage ? { id: { in: filteredMovementPage.ids } } : {}),
   }
   const [movements, movementsTotal, documentPage, cuentas] = await Promise.all([
     (prisma.movimientoBancario as any).findMany({
-      where: movementWhere, orderBy: [{ fechaOperacion: 'desc' }, { id: 'asc' }], skip: movimientosOffset, take: movementTake,
+      where: movementWhere, orderBy: [{ fechaOperacion: 'desc' }, { id: 'asc' }],
+      ...(filteredMovementPage ? {} : { skip: movimientosOffset, take: movementTake }),
       select: { id: true, fechaOperacion: true, importe: true, concepto: true, cuenta: { select: { id: true, banco: true, alias: true } } },
     }),
-    (prisma.movimientoBancario as any).count({ where: movementWhere }),
+    filteredMovementPage ? Promise.resolve(filteredMovementPage.total) : (prisma.movimientoBancario as any).count({ where: movementWhere }),
     readDocumentPage(documentTake, documentosOffset, q),
     (prisma.cuentaBancaria as any).findMany({ orderBy: [{ banco: 'asc' }, { alias: 'asc' }, { id: 'asc' }], select: { id: true, banco: true, alias: true } }),
   ])
@@ -782,12 +959,13 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
     SELECT id,importe::text AS decimal FROM movimientos_bancarios WHERE id IN (${Prisma.join(movementIds)}) LIMIT ${movementTake}
   `) : []
   const bankDecimals = new Map(bankRows.map(row => [row.id,row.decimal]))
-  const [states, operations] = await Promise.all([
+  const [states, operations, historicosByMovement] = await Promise.all([
     movementIds.length ? b4(prisma as Tx).estadoJustificacionMovimientoB4.findMany({ where: { movimientoId: { in: movementIds } } }) : [],
     movementIds.length ? b4(prisma as Tx).operacionJustificacionB4.findMany({
       where: { movimientoId: { in: movementIds }, estado: 'APLICADA', revierteOperacionId: null, revertidaAt: null },
       select: { id: true, movimientoId: true, versionResultante: true },
     }) : [],
+    readHistoricosForMovementPage(movementIds),
   ])
   const byMovement = new Map<string, any>(states.map((state: any) => [state.movimientoId, state]))
   const appliedByMovement = new Map<string, any>()
@@ -812,7 +990,21 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
       documentoAappId: true, pagoFraccionadoId: true, documentoPrestamoId: true, gastoId: true, traspasoInternoId: true,
     },
   }) : []
-  const allDocs = [...documentPage.docs, ...linkedOnlyDocs]
+  const historicDocumentIds = [...new Set([...historicosByMovement.values()]
+    .flatMap(historico => historico.documentos
+      .map(documento => documento.documentoConciliableId)
+      .filter((id): id is string => id !== null)))]
+  const knownDocIds = new Set([...documentPage.docs, ...linkedOnlyDocs].map((doc: any) => doc.id))
+  const historicOnlyIds = historicDocumentIds.filter(id => !knownDocIds.has(id))
+  const historicOnlyDocs = historicOnlyIds.length ? await b4(prisma as Tx).documentoConciliable.findMany({
+    where: { id: { in: historicOnlyIds } },
+    select: {
+      id: true, tipo: true, importeObjetivoCentimos: true, version: true, activo: true,
+      facturaRecibidaId: true, facturaEmitidaId: true, remesaId: true, nominaId: true,
+      documentoAappId: true, pagoFraccionadoId: true, documentoPrestamoId: true, gastoId: true, traspasoInternoId: true,
+    },
+  }) : []
+  const allDocs = [...documentPage.docs, ...linkedOnlyDocs, ...historicOnlyDocs]
   const [assigned, inspections] = await Promise.all([
     allDocs.length ? activeNet(prisma as unknown as Tx, allDocs.map((doc: any) => doc.id)) : Promise.resolve(new Map<string, number>()),
     inspectDocumentsBatch(allDocs),
@@ -829,6 +1021,25 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
     }
   }
   const docViewById = new Map(allDocs.map((doc: any) => [doc.id, documentView(doc)]))
+  const historicoActualizado = (historico: HistoricoB4ReadDto) => {
+    const documentos = historico.documentos.map((documento) => {
+      const wrapper = documento.documentoConciliableId ? docViewById.get(documento.documentoConciliableId) : undefined
+      // Un DTO histórico que nació como GASTO no se reinterpreta como el TICKET
+      // actual: sólo una coincidencia total de contrato permite reutilizarlo.
+      const exacto = !!wrapper
+        && wrapper.tipo === documento.tipo
+        && wrapper.sourceId === documento.sourceId
+        && wrapper.referencia === documento.referencia
+        && wrapper.importeObjetivoCentimos === documento.importeObjetivoCentimos
+        && (documento.version === undefined || wrapper.version === documento.version)
+        && !wrapper.stale
+      const stale = documento.stale === true || !exacto
+      return stale === documento.stale ? documento : { ...documento, stale }
+    })
+    return {
+      historico: documentos === historico.documentos ? historico : { ...historico, documentos },
+    }
+  }
   const linksByOperation = new Map<string, any[]>()
   for (const link of links) linksByOperation.set(link.operacionCreacionId, [...(linksByOperation.get(link.operacionCreacionId) ?? []), link])
   const movimientoViews = movements.map((movement: any) => {
@@ -840,6 +1051,8 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
       importeCentimos = null
     }
     const operationLinks = operation ? linksByOperation.get(operation.id) ?? [] : []
+    const historico = historicosByMovement.get(movement.id)
+    const evidenciaHistorica = historico ? historicoActualizado(historico) : null
     const viewLink = (link: any) => {
       const doc = link.documentoConciliableId ? docViewById.get(link.documentoConciliableId) : null
       return {
@@ -856,6 +1069,9 @@ export async function readConciliacionB4(movimientosLimit = 50, documentosLimit 
       cuenta: { id: movement.cuenta.id, banco: movement.cuenta.banco, alias: movement.cuenta.alias ?? null },
       operacionAplicada: operation ? { id: operation.id, lineas: operationLinks.map((link: any) => ({ id: link.id, importeCentimos: link.importeCentimos })) } : null,
       vinculos: operationLinks.map(viewLink),
+      ...(evidenciaHistorica ? {
+        historico: evidenciaHistorica.historico,
+      } : {}),
     }
   })
   return {

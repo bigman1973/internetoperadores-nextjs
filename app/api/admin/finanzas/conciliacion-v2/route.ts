@@ -62,6 +62,11 @@ function optionalId(value: string | null): string | null | undefined {
   return value.length > 0 && value.length <= 160 ? value : null
 }
 
+function heredados(value: string | null): 'SI' | 'PROPUESTA' | undefined | null {
+  if (value === null) return undefined
+  return value === 'SI' || value === 'PROPUESTA' ? value : null
+}
+
 function apiError(error: unknown) {
   if (error instanceof B4ServiceError) {
     return privateJson({ error: error.message, codigo: error.code, ...(error.details === undefined ? {} : { errors: error.details }) }, error.status)
@@ -88,10 +93,13 @@ export async function GET(req: NextRequest) {
     const q = query(req.nextUrl.searchParams.get('q'))
     const cuentaId = optionalId(req.nextUrl.searchParams.get('cuentaId'))
     const movimientoId = optionalId(req.nextUrl.searchParams.get('movimientoId'))
-    if (movimientosLimit === null || documentosLimit === null || movimientosOffset === null || documentosOffset === null || q === null || cuentaId === null || movimientoId === null) {
+    const filtroHeredados = heredados(req.nextUrl.searchParams.get('heredados'))
+    if (movimientosLimit === null || documentosLimit === null || movimientosOffset === null || documentosOffset === null || q === null || cuentaId === null || movimientoId === null || filtroHeredados === null) {
       return privateJson({ error: 'Parámetro de lectura no válido' }, 400)
     }
-    return privateJson(await readConciliacionB4(movimientosLimit, documentosLimit, { movimientosOffset, documentosOffset, q: q || undefined, cuentaId, movimientoId }))
+    return privateJson(await readConciliacionB4(movimientosLimit, documentosLimit, {
+      movimientosOffset, documentosOffset, q: q || undefined, cuentaId, movimientoId, heredados: filtroHeredados,
+    }))
   } catch (error) {
     return apiError(error)
   }

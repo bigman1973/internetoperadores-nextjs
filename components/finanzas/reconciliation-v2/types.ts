@@ -24,6 +24,32 @@ export type LineaBorradorB4 =
       importeCentimos: number;
     };
 
+/** Evidencia anterior de sólo lectura enviada opcionalmente por Parent API. */
+export type ClasificacionHistoricoB4 = 'JUSTIFICADO' | 'PROPUESTA' | 'YA_B4';
+export type ProcedenciaHistoricoB4 = 'MANUAL' | 'AUTOMATICO_TOLERANCIAS' | 'DESCONOCIDO';
+
+export type DocumentoHistoricoB4 = Readonly<{
+  tipo: string;
+  sourceId: string;
+  documentoConciliableId: string | null;
+  referencia: string;
+  importeObjetivoCentimos: number | null;
+  archivoDisponible: boolean;
+  /** La fuente puede no conservarlo; entonces prevalece el wrapper B4 actual. */
+  version?: number;
+  stale?: boolean;
+}>;
+
+export type HistoricoB4 = Readonly<{
+  id: string;
+  origen: 'HISTORICO';
+  clasificacion: ClasificacionHistoricoB4;
+  procedencia: ProcedenciaHistoricoB4;
+  motivos: string[];
+  documentos: DocumentoHistoricoB4[];
+  creadoAt: string;
+}>;
+
 export type MovimientoB4 = {
   id: string;
   fechaOperacion: string;
@@ -53,6 +79,10 @@ export type MovimientoB4 = {
     centroCosteNombre?: string | null;
     versionCentroCoste?: number;
   }>;
+  /** Su ausencia mantiene el comportamiento B4 existente. */
+  historico?: HistoricoB4;
+  /** DTOs B4 ya disponibles en esta lectura; nunca se solicitan ni se serializan. */
+  documentosHistoricosDisponibles?: DocumentoB4[];
 };
 
 export type DocumentoB4 = {

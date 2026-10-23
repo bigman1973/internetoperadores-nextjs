@@ -2,6 +2,8 @@
 import PayrollCandidatesPanel from './PayrollCandidatesPanel';
 import PrivateMovementFiles from './PrivateMovementFiles';
 import ConfirmingSupportPanel from './ConfirmingSupportPanel';
+import HistoricalLinksPanel from './HistoricalLinksPanel';
+import { parseHistoricoB4, prepararRevisionHeredada as validarPreparacionHeredada } from './historical-links-contract';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
@@ -55,6 +57,7 @@ const MAX_OFFSET = 100_000;
 const AREA_B4 = 'admin.finanzas.conciliacion';
 
 type Notice = { kind: 'success' | 'error' | 'info'; text: string } | null;
+type FiltroHeredados = 'TODOS' | 'SI' | 'PROPUESTA';
 type LineaDocumentoConCentro = Extract<LineaBorradorB4, { tipo: 'DOCUMENTO' }> & { centroCosteFinanzasId?: string | null };
 type LineaBorradorConCentro = LineaDocumentoConCentro | Extract<LineaBorradorB4, { tipo: 'DIFERENCIA' }>;
 type ConfirmarPayloadConCentro = Omit<ConfirmarPayloadB4, 'borrador'> & {
@@ -102,6 +105,11 @@ function centroCatalogoError(response: Response, json: unknown): string {
 function asResponse(value: unknown): ReconciliationReadResponse {
   const raw = value && typeof value === 'object' ? value as Partial<ReconciliationReadResponse> : {};
   if (!raw.catalogo || !Array.isArray(raw.movimientos) || !Array.isArray(raw.documentos) || !Array.isArray(raw.cuentas) || !raw.paginacion || !Number.isSafeInteger(raw.paginacion.movimientosTotal) || !Number.isSafeInteger(raw.paginacion.documentosTotal)) throw new Error('La lectura B4 está incompleta; los datos no se sustituyen por ceros.');
+  const movimientos = raw.movimientos.map((movement) => {
+    const parsedHistorico = parseHistoricoB4((movement as unknown as { historico?: unknown }).historico);
+    if ('error' in parsedHistorico) throw new Error(`La evidencia heredada no es verificable: ${parsedHistorico.error}`);
+    return parsedHistorico.value === undefined ? movement : { ...movement, historico: parsedHistorico.value };
+  });
   return {
     catalogo: raw.catalogo || {
       estados: ['SIN_DOCUMENTO', 'JUSTIFICADO', 'NO_REQUIERE'],
@@ -109,7 +117,7 @@ function asResponse(value: unknown): ReconciliationReadResponse {
       tiposDocumento: [],
       motivosDiferencia: ['COMISION', 'INTERESES', 'REDONDEO'],
     },
-    movimientos: Array.isArray(raw.movimientos) ? raw.movimientos : [],
+    movimientos,
     documentos: Array.isArray(raw.documentos) ? raw.documentos : [],
     sugerencias: [],
     paginacion: raw.paginacion || {
@@ -152,6 +160,7 @@ export default function ReconciliationWorkspace() {
   const [movementQuery, setMovementQuery] = useState('');
   const [movementSearch, setMovementSearch] = useState('');
   const [accountId, setAccountId] = useState('');
+  const [heredadosFilter, setHeredadosFilter] = useState<FiltroHeredados>('TODOS');
   const [movementsOffset, setMovementsOffset] = useState(0);
   const [documentsOffset, setDocumentsOffset] = useState(0);
   const [selected, setSelected] = useState<MovimientoB4 | null>(null);
@@ -191,9 +200,12 @@ export default function ReconciliationWorkspace() {
     const query = textoBusquedaSeguro(options?.q ?? movementSearch);
     if (query) params.set('q', query);
     if (accountId) params.set('cuentaId', accountId);
+    // El filtro pertenece exclusivamente al listado de movimientos: no altera
+    // búsquedas documentales ni lecturas exactas por movimientoId.
+    if (!options?.onlyDocuments && !options?.movementId && heredadosFilter !== 'TODOS') params.set('heredados', heredadosFilter);
     if (options?.movementId) params.set('movimientoId', options.movementId);
     return `/api/admin/finanzas/conciliacion-v2?${params.toString()}`;
-  }, [accountId, documentsOffset, movementSearch, movementsOffset]);
+  }, [accountId, documentsOffset, heredadosFilter, movementSearch, movementsOffset]);
 
   const loadLists = useCallback(async (options?: { silent?: boolean }) => {
     if (options?.silent) setRefreshing(true); else setLoading(true);
@@ -343,6 +355,44 @@ export default function ReconciliationWorkspace() {
     setProposalReferences(Object.fromEntries(draft.documentos.filter(doc=>doc.referencia!==null).map(doc=>[doc.id,doc.referencia!])));
     setPendingConfirmation(null);setShowReview(false);setNotice({kind:'info',text:'Borrador preparado: revise y confirme explícitamente en B4. No se ha guardado ningún vínculo.'});
   },[canWrite,selected,selectedLoading]);
+
+  const prepararRevisionHeredada = useCallback((docs: DocumentoB4[], draftLines: LineaBorradorB4[]) => {
+    if (!canWrite || selectedLoading || inFlight.current || !selected || selected.operacionAplicada) return;
+    // No se confía en la acción visual: se vuelve a comprobar el único wrapper,
+    // metadatos exactos y capacidad completa antes de tocar el borrador local.
+    const prepared = validarPreparacionHeredada(selected, docs);
+    if ('reason' in prepared) {
+      setNotice({ kind: 'error', text: `No se puede preparar la revisión heredada: ${prepared.reason}` });
+      return;
+    }
+    const sameLines = draftLines.length === prepared.lineas.length && draftLines.every((line, index) => {
+      const expected = prepared.lineas[index];
+      return line.tipo === expected.tipo
+        && line.importeCentimos === expected.importeCentimos
+        && line.tipo === 'DOCUMENTO'
+        && expected.tipo === 'DOCUMENTO'
+        && line.documentoConciliableId === expected.documentoConciliableId;
+    });
+    if (!sameLines) {
+      setNotice({ kind: 'error', text: 'La preparación heredada dejó de coincidir con la evidencia documental exacta.' });
+      return;
+    }
+    const refs = new Map(docs.map((document) => [document.id, document.referencia] as const));
+    const reference = refs.get(prepared.documento.id);
+    if (!reference) {
+      setNotice({ kind: 'error', text: 'El wrapper documental no conserva una referencia verificable.' });
+      return;
+    }
+    setDraftState('JUSTIFICADO');
+    setReason('');
+    setLines(prepared.lineas.map((line) => line.tipo === 'DOCUMENTO'
+      ? lineaDocumentoConCentro(line.documentoConciliableId, line.importeCentimos, undefined)
+      : { tipo: 'DIFERENCIA', motivoDiferencia: line.motivoDiferencia, importeCentimos: line.importeCentimos }));
+    setProposalReferences({ [prepared.documento.id]: reference });
+    setPendingConfirmation(null);
+    setShowReview(false);
+    setNotice({ kind: 'info', text: 'Borrador heredado preparado: revise el descuadre, si existe, y confirme explícitamente en B4. No se ha guardado ningún vínculo.' });
+  }, [canWrite, selected, selectedLoading]);
 
   const addDocumentLine = () => {
     if (!selectedDocument) {
@@ -567,7 +617,7 @@ export default function ReconciliationWorkspace() {
       {notice && <div role={notice.kind === 'error' ? 'alert' : 'status'} className={`flex gap-2 rounded-lg border px-4 py-3 text-sm ${notice.kind === 'error' ? 'border-red-200 bg-red-50 text-red-900' : notice.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}><span>{notice.text}</span></div>}
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <form onSubmit={(event) => { event.preventDefault(); setMovementsOffset(0); setMovementSearch(textoBusquedaSeguro(movementQuery)); }} className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_260px_auto] lg:items-end">
+        <form onSubmit={(event) => { event.preventDefault(); setMovementsOffset(0); setMovementSearch(textoBusquedaSeguro(movementQuery)); }} className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px_220px_auto] lg:items-end">
           <label className="block text-sm font-semibold text-slate-800">Buscar movimientos
             <span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={movementQuery} onChange={(event) => setMovementQuery(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, referencia o importe" className="w-full rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none transition focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /></span>
           </label>
@@ -575,6 +625,13 @@ export default function ReconciliationWorkspace() {
             <select value={accountId} onChange={(event) => { setAccountId(event.target.value); setMovementsOffset(0); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
               <option value="">Todas las cuentas</option>
               {accounts.map((account) => <option key={account.id} value={account.id}>{account.banco} · {account.alias}</option>)}
+            </select>
+          </label>
+          <label className="block text-sm font-semibold text-slate-800">Heredados
+            <select value={heredadosFilter} onChange={(event) => { setHeredadosFilter(event.target.value as FiltroHeredados); setMovementsOffset(0); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
+              <option value="TODOS">TODOS</option>
+              <option value="SI">HEREDADOS</option>
+              <option value="PROPUESTA">HEREDADOS_PROPUESTA</option>
             </select>
           </label>
           <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" /> Buscar</button>
@@ -585,11 +642,11 @@ export default function ReconciliationWorkspace() {
         <div className="border-b border-slate-200 px-4 py-3 sm:px-5"><h2 className="font-bold text-slate-950">Movimientos bancarios</h2><p className="mt-0.5 text-xs text-slate-500">Seleccione un movimiento para abrir el borrador manual.</p></div>
         {loading ? <LoadingRows /> : movements.length === 0 ? <EmptyState title="No hay movimientos" text="Pruebe a cambiar la búsqueda o la cuenta seleccionada." /> : <>
           <div className="divide-y divide-slate-100">
-            {movements.map((movement) => <button key={movement.id} type="button" data-testid="b4-movement" onClick={() => void selectMovement(movement)} className="grid w-full gap-1 px-4 py-3 text-left transition hover:bg-orange-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange-500 sm:grid-cols-[120px_minmax(0,1fr)_150px_180px] sm:items-center sm:gap-3 sm:px-5">
+            {movements.map((movement) => <button key={movement.id} type="button" data-testid="b4-movement" onClick={() => void selectMovement(movement)} className="grid w-full gap-1 px-4 py-3 text-left transition hover:bg-orange-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-orange-500 sm:grid-cols-[120px_minmax(0,1fr)_150px_200px] sm:items-center sm:gap-3 sm:px-5">
               <span className="text-sm font-medium text-slate-700">{fechaCorta(movement.fechaOperacion)}</span>
               <span className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-950">{movement.concepto || 'Sin concepto'}</span><span className="block truncate text-xs text-slate-500">{movement.cuenta?.banco || 'Banco'} · {movement.cuenta?.alias || 'Cuenta sin alias'}</span></span>
               <span className="font-mono text-sm font-bold text-slate-900">{formatCentimos(movement.importeCentimos)}</span>
-              <span className={`w-fit rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusClass(movement.estado)}`}>{estadoVisible(movement.estado, movement.motivoNoRequiere)}</span>
+              <span className="flex w-fit flex-wrap items-center gap-1.5"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${statusClass(movement.estado)}`}>{estadoVisible(movement.estado, movement.motivoNoRequiere)}</span>{movement.historico && <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-900 ring-1 ring-violet-200">Heredado</span>}</span>
             </button>)}
           </div>
           <Pagination current={pagination?.movimientosOffset ?? movementsOffset} total={pagination?.movimientosTotal ?? 0} onPage={(offset) => changePage('movements', offset)} />
@@ -598,6 +655,7 @@ export default function ReconciliationWorkspace() {
 
       {selected && <MovementDrawer
         onPrepararBorradorB6={prepararBorradorB6}
+        onPrepararRevisionHeredada={prepararRevisionHeredada}
         proposalReferences={proposalReferences}
         centerCatalog={centerCatalog}
         onReloadCenterCatalog={loadCenterCatalog}
@@ -662,6 +720,7 @@ export default function ReconciliationWorkspace() {
 
 function MovementDrawer(props: {
   onPrepararBorradorB6:(draft:BorradorPreparadoB6)=>void;
+  onPrepararRevisionHeredada:(docs:DocumentoB4[],lines:LineaBorradorB4[])=>void;
   proposalReferences:Record<string,string>;
   centerCatalog: CatalogoCentrosEstado;
   onReloadCenterCatalog: () => void;
@@ -749,6 +808,12 @@ function MovementDrawer(props: {
         <section aria-label="Líneas del borrador" className="rounded-xl border border-slate-200"><div className="border-b border-slate-200 px-4 py-3"><h3 className="font-bold text-slate-950">Líneas del borrador</h3><p className="mt-0.5 text-xs text-slate-600">La imputación es opcional y se decide por cada línea DOCUMENTO.</p></div>{props.centerSelectionProblems.length > 0 && <div role="alert" className="border-b border-red-200 bg-red-50 px-4 py-3 text-sm text-red-950"><p className="font-bold">Revise la selección de centro antes de confirmar.</p><ul className="mt-1 list-disc pl-5">{props.centerSelectionProblems.map((problem) => <li key={problem}>{problem}</li>)}</ul></div>}{lines.length === 0 ? <p className="px-4 py-4 text-sm text-slate-500">No hay líneas. Un borrador JUSTIFICADO necesita al menos un documento.</p> : <ul className="divide-y divide-slate-100">{lines.map((line, index) => <li key={`${line.tipo}-${index}`} className="min-w-0 space-y-3 px-4 py-3"><div className="flex min-w-0 items-center justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{line.tipo === 'DOCUMENTO' ? (movement.vinculos.find(v => v.documentoConciliableId === line.documentoConciliableId)?.referencia || documents.find((document) => document.id === line.documentoConciliableId)?.referencia || props.proposalReferences[line.documentoConciliableId] || `Documento ${line.documentoConciliableId}`) : etiquetaMotivo(line.motivoDiferencia)}</p><p className="truncate text-xs text-slate-500">{line.tipo === 'DOCUMENTO' ? 'Documento conciliable' : 'Diferencia explícita'}</p></div><div className="flex shrink-0 items-center gap-2"><span className="font-mono text-sm font-bold text-slate-950">{formatCentimos(line.importeCentimos)}</span><button type="button" onClick={() => onRemoveLine(index)} disabled={disabled} aria-label="Eliminar línea" className="rounded p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed"><TrashIcon className="h-4 w-4" aria-hidden="true" /></button></div></div>{line.tipo === 'DOCUMENTO' && !changingAppliedOperation && <CenterChoiceSelector inputId={`b4-center-${index}`} value={line.centroCosteFinanzasId} catalogo={props.centerCatalog} disabled={disabled} onChange={(centerId) => onLineCenter(index, centerId)} onReload={props.onReloadCenterCatalog} />}{line.tipo === 'DOCUMENTO' && changingAppliedOperation && (() => { const confirmed = centroConfirmadoEnVinculo(movement.vinculos.find((v) => v.documentoConciliableId === line.documentoConciliableId)); return confirmed ? <p className="text-xs text-slate-600">Centro confirmado histórico: <strong>{confirmed.codigo && confirmed.nombre ? `${confirmed.codigo} · ${confirmed.nombre}` : confirmed.id}</strong></p> : null; })()}</li>)}</ul>}</section>
 
         <ProposalsPanel movimientoId={movement.id} estadoB4={movement.estado} versionMovimiento={movement.version} importeMovimientoCentimos={bankCents} canWrite={canWrite&&!selectedLoading&&!changingAppliedOperation} onPrepararBorrador={props.onPrepararBorradorB6}/>
+        <HistoricalLinksPanel
+          movimiento={{ ...movement, documentosHistoricosDisponibles: documents }}
+          canWrite={canWrite}
+          busy={selectedLoading || props.reviewing || changingAppliedOperation}
+          onPrepare={props.onPrepararRevisionHeredada}
+        />
         {bankCents !== null && bankCents < 0 && <PayrollCandidatesPanel movimientoId={movement.id} fechaOperacion={movement.fechaOperacion} importeMovimientoCentimos={bankCents} estadoB4={movement.estado} versionMovimiento={movement.version} canWrite={canWrite && !selectedLoading && !changingAppliedOperation} disabled={selectedLoading || changingAppliedOperation || props.reviewing} onPrepararBorrador={props.onPrepararBorradorB6} />}
         {bankCents !== null && bankCents > 0 && <ConfirmingSupportPanel movimientoId={movement.id} importeCentimos={bankCents} disabled={selectedLoading || props.reviewing} canWrite={canWrite && !selectedLoading && !props.reviewing} />}
         <PrivateMovementFiles key={`${movement.id}-${movement.version}`} movimientoId={movement.id} compact />

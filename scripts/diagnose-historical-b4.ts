@@ -1,0 +1,20 @@
+import {PrismaClient,Prisma} from '@prisma/client';
+import {writeFileSync,mkdirSync} from 'node:fs';
+import {readBankInvoicingPopulation} from '../lib/finanzas/bank-invoicing-db';
+import {facturaEconomicaSQL} from '../lib/finanzas/invoice-economic-filter';
+const p=new PrismaClient();
+async function main(){
+ const r=await p.$transaction(async tx=>{
+  await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
+  const counts=(await tx.$queryRawUnsafe<any[]>(`SELECT count(*)::int movimientos,count(*) FILTER(WHERE conciliado)::int conciliados,count(*) FILTER(WHERE factura_id IS NOT NULL)::int recibida,count(*) FILTER(WHERE factura_emitida_id IS NOT NULL)::int emitida,count(*) FILTER(WHERE nomina_id IS NOT NULL)::int nomina,count(*) FILTER(WHERE traspaso_relacionado_id IS NOT NULL)::int traspaso,count(*) FILTER(WHERE gasto_id IS NOT NULL)::int gasto,count(*) FILTER(WHERE entrega_a_cuenta_empleado_id IS NOT NULL)::int entrega,count(*) FILTER(WHERE factura_id IS NOT NULL OR factura_emitida_id IS NOT NULL OR nomina_id IS NOT NULL OR traspaso_relacionado_id IS NOT NULL OR gasto_id IS NOT NULL OR entrega_a_cuenta_empleado_id IS NOT NULL)::int conFk,count(*) FILTER(WHERE nota_conciliacion IS NOT NULL)::int conNota FROM movimientos_bancarios`))[0];
+  const b4=(await tx.$queryRawUnsafe<any[]>(`SELECT (SELECT count(*) FROM estado_justificacion_movimientos)::int estadosB4,(SELECT count(*) FROM vinculos_movimiento_documento WHERE activo)::int lineasB4,(SELECT count(*) FROM operaciones_justificacion_b4)::int operacionesB4,(SELECT count(*) FROM estado_justificacion_movimientos WHERE estado='JUSTIFICADO')::int justificadosB4`))[0];
+  const views=await tx.$queryRawUnsafe<any[]>(`SELECT CASE WHEN m.importe<0 THEN 'CARGOS_SIN_DOCUMENTO' ELSE 'COBROS_SIN_DOCUMENTO' END vista,count(*)::int total,COALESCE(sum(abs(b4_importe_bancario_centimos(m.importe)::bigint)),0)::text importeCentimos FROM movimientos_bancarios m LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id WHERE COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO' AND m.importe<>0 GROUP BY 1`);
+  const received=(await tx.$queryRaw<any[]>(Prisma.sql`WITH f AS(SELECT fr.id,-b4_importe_bancario_centimos(fr.total) objetivo FROM facturas_recibidas fr WHERE ${facturaEconomicaSQL('fr')}), d AS (SELECT dc.factura_recibida_id id,sum(v.importe_centimos::bigint) asignado FROM documentos_conciliables dc JOIN vinculos_movimiento_documento v ON v.documento_conciliable_id=dc.id AND v.activo JOIN estado_justificacion_movimientos e ON e.movimiento_id=v.movimiento_id AND e.estado='JUSTIFICADO' JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id AND o.estado='APLICADA' AND o.revertida_at IS NULL WHERE dc.tipo='FACTURA_RECIBIDA' AND dc.activo GROUP BY dc.factura_recibida_id) SELECT count(*)::int total,coalesce(sum(-(f.objetivo-coalesce(d.asignado,0))),0)::text importePendienteCentimos FROM f LEFT JOIN d USING(id) WHERE f.objetivo IS NOT NULL AND f.objetivo<>coalesce(d.asignado,0)`))[0];
+  const pop=await readBankInvoicingPopulation(tx as any,{enabled:true,assertIsolatedStaging:async()=>undefined});
+  const issued=pop.invoices.filter(i=>i.paymentState!=='COBRADA_CALCULADA');
+  const issuedTotals={total:issued.length,importePendienteConocidoCentimos:issued.reduce((s,i)=>s+BigInt(i.remainingCents??0),BigInt(0)).toString(),importesPendientesDesconocidos:issued.filter(i=>i.remainingCents===null).length};
+  return {at:new Date().toISOString(),counts,b4,views,received:{vista:'FACTURAS_RECIBIDAS_SIN_PAGO',...received},issued:{vista:'FACTURAS_EMITIDAS_SIN_COBRO',...issuedTotals}};
+ },{isolationLevel:'RepeatableRead',maxWait:10000,timeout:90000});
+ const target=process.env.VERCEL_ENV==='production'?'production':'staging';mkdirSync('/home/ubuntu/finanzas-heredados-20261023',{recursive:true});writeFileSync('/home/ubuntu/finanzas-heredados-20261023/diagnostico-'+target+'.json',JSON.stringify(r,null,2)+'\n',{mode:0o600});console.log(JSON.stringify(r));
+}
+main().catch(e=>{console.error(e.code||'HISTORICAL_DIAGNOSIS_FAILED');process.exitCode=1}).finally(()=>p.$disconnect());
