@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePermisoArea } from '@/hooks/usePermisoArea'
 import SyncJobPanel from '@/components/finanzas/sync-jobs/SyncJobPanel'
+import ManualCoverageOverlay from '@/components/finanzas/ManualCoverageOverlay'
 import {
   B7_AREA_PERMISO,
   B7_PAGE_SIZE,
@@ -224,6 +225,7 @@ export default function BankInvoicingWorkspace() {
       <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
         <strong>Lectura bancaria.</strong> Los cobros se calculan desde banco. Marcar cobradas por ISP/remesa sin abono está desactivado.
       </div>
+      <ManualCoverageOverlay consumer="B7" />
       <SyncJobPanel
         source="ISP"
         title="Sincronización de facturas emitidas (ISP)"

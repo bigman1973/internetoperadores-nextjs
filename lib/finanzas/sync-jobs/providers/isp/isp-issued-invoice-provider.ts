@@ -601,7 +601,11 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
             return 'REVISAR'
           }
           if (options.allowExistingIdentityLink !== true) {
-            return 'REVISAR'
+            // The source identity has been proven exact, but linking an old FI is
+            // separately opt-in B7 work.  Its safe Factura metadata may still be
+            // refreshed; neither the FI nor its collection/bank state is touched.
+            await updateVerifiedMetadata()
+            return metadataChanged ? 'ACTUALIZADA' : 'SIN_CAMBIOS'
           }
           if (!await authorizedB7Actor(tx, actorId)) {
             return 'REVISAR'
@@ -631,8 +635,16 @@ export function createIspIssuedInvoiceProvider(options: IspIssuedInvoiceProvider
         if (error instanceof IspInvoiceSyncError) throw error
         // The transaction orchestrator should roll back and record an ERROR.  P2
         // cannot safely enqueue after an unknown DB failure outside that transaction.
-        throw new IspInvoiceSyncError('APPLY_ERROR', error instanceof Error ? error.message : 'Fallo desconocido al aplicar ISP_FACTURA.')
+        throw new IspInvoiceSyncError('APPLY_ERROR', 'No se pudo aplicar ISP_FACTURA.')
       }
+    },
+    describeOutcome(input: { item: SyncSourceItem; prepared: unknown; outcome: SyncOutcome }) {
+      const prepared = asPrepared(input.prepared)
+      // Normalization codes are closed, source-data-free identifiers. A review is
+      // intentionally generic: it must not disclose FI/Factura identity or amounts.
+      if (input.outcome === 'ERROR' && prepared.kind === 'ERROR') return { safeError: prepared.reason }
+      if (input.outcome === 'REVISAR') return { safeError: 'ISP_SOURCE_REQUIRES_REVIEW' }
+      return null
     },
   }
 }

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { BanknotesIcon, ArrowTrendingUpIcon, ArrowTrendingDownIcon, ExclamationTriangleIcon, DocumentTextIcon, CreditCardIcon } from '@heroicons/react/24/outline';
+import ManualCoverageOverlay from '@/components/finanzas/ManualCoverageOverlay';
 
 interface DashboardData {
   periodo: { year: number; trimestre: number | null; desde: string; hasta: string };
@@ -91,6 +92,7 @@ export default function FinanzasDashboard() {
         </div>
       </div>
 
+      <ManualCoverageOverlay consumer="DASHBOARD" />
       {data.ventas.bankCoverage?.status!=='KNOWN'&&<p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Cobro observado en los extractos disponibles: la cobertura bancaria no permite afirmar que todas las cuentas estén actualizadas.</p>}
       {/* Alertas */}
       {(data.alertas.facturasPendientes > 0 || data.alertas.facturasImpagadas > 0 || data.alertas.facturasVencidas > 0) && (

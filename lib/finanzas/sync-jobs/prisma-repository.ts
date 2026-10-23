@@ -1,8 +1,10 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import {
   isActiveStatus,
+  outcomeSafeError,
   sourceItemMatches,
   summary,
+  type ApplyCallbackResult,
   type AtomicApplyResult,
   type DailyEnqueueResult,
   type FinanceSyncRepository,
@@ -16,6 +18,7 @@ import type { JobSummary, SyncItemRecord, SyncJobRecord, SyncOutcome, SyncSource
 /** PostgreSQL P2 adapter. All state changes use serializable transactions. */
 const READ_LIMIT = 100
 const MAX_BOUND = 100
+const MAX_CANCEL_SERIALIZATION_ATTEMPTS = 3
 
 type Row = Record<string, unknown>
 type ReceiptRow = { source: string; requestHash: string; jobId: string | null }
@@ -70,6 +73,9 @@ function isFence(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error)
   return text.includes('FINANCE_SYNC_P2_JOB_FENCE') || text.includes('FINANCE_SYNC_P2_ITEM_FENCE') || text === 'P2_APPLY_FENCE'
 }
+function isSerializationConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'P2034'
+}
 function job(row: Row): SyncJobRecord {
   return {
     id: String(row.id), source: String(row.source) as SyncSource,
@@ -109,6 +115,24 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
     // Callback side effects (domain apply) cannot be safely replayed here.
     return this.prisma.$transaction(fn, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10000, timeout: 45000 })
   }
+  /**
+   * Cancellation is state-only and idempotent, so this is the sole transaction
+   * allowed to retry a PostgreSQL serialization conflict.  In particular, do
+   * not move this retry into `serial`: apply callbacks can contain domain DML.
+   */
+  private async serialCancel<T>(fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < MAX_CANCEL_SERIALIZATION_ATTEMPTS; attempt++) {
+      try {
+        return await this.serial(fn)
+      } catch (error) {
+        if (!isSerializationConflict(error) || attempt + 1 >= MAX_CANCEL_SERIALIZATION_ATTEMPTS) throw error
+        // 10 ms then 20 ms: enough separation for the contested row to settle,
+        // while keeping this narrow, bounded API operation responsive.
+        await new Promise<void>((resolve) => setTimeout(resolve, 10 * (attempt + 1)))
+      }
+    }
+    throw new Error('FINANCE_SYNC_P2_CANCEL_RETRY_EXHAUSTED')
+  }
   private async lock(tx: Prisma.TransactionClient, key: string): Promise<void> {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0::bigint)) LIMIT 1`
   }
@@ -138,7 +162,12 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
     await tx.$executeRaw`
       UPDATE finance_sync_jobs_p2 j SET
         processed=c.processed, nuevas=c.nuevas, actualizadas=c.actualizadas, errores=c.errores,
-        unchanged=c.unchanged, cancelled=c.cancelled, updated_at=clock_timestamp()
+        unchanged=c.unchanged, cancelled=c.cancelled,
+        -- Keep the latest durable per-item code; successful items never carry one.
+        last_error=COALESCE((SELECT i.last_error FROM finance_sync_items_p2 i
+          WHERE i.job_id=${jobId}::uuid AND i.last_error IS NOT NULL
+          ORDER BY i.updated_at DESC,i.sequence DESC LIMIT 1),j.last_error),
+        updated_at=clock_timestamp()
       FROM (
         SELECT COUNT(*) FILTER (WHERE confirmed_at IS NOT NULL)::int processed,
           COUNT(*) FILTER (WHERE outcome='NUEVA')::int nuevas,
@@ -257,7 +286,9 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
   }
 
   async requestCancel(jobId: string, actorId: number, authorizeInTx?: (tx: Prisma.TransactionClient) => Promise<void>): Promise<SyncJobRecord | null> {
-    return this.serial(async (tx) => {
+    return this.serialCancel(async (tx) => {
+      // It is intentionally within the retried callback: authorization is live
+      // and must be revalidated on every serialization attempt.
       await authorizeInTx?.(tx)
       const current = await this.getJobTx(tx, jobId, true)
       if (!current) return null
@@ -452,13 +483,19 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         WHERE id=${sourceItem.id}::uuid AND job_id=${current.id}::uuid AND confirmed_at IS NULL AND status='PROCESSING'::"FinanceSyncItemStatusP2"
           AND lease_token=${input.token} AND lease_until>clock_timestamp()
       `
+      // A prepare failure is durable even while the item is eligible for retry.
+      // A later counters refresh derives the latest remaining item failure code.
+      await tx.$executeRaw`
+        UPDATE finance_sync_jobs_p2 SET last_error=${storedError(input.safeError)},updated_at=clock_timestamp()
+        WHERE id=${current.id}::uuid AND lease_token=${input.token}
+      `
       if (final) await this.counters(tx, current.id)
       return final ? 'final_error' : 'retry'
     })
   }
 
 
-  async applyClaimedItem(input: { jobId: string; itemId: string; token: string; now: Date; deadline: Date; actorId: number | null; authorizeInTx?: (tx: Prisma.TransactionClient) => Promise<void>; apply: (tx: Prisma.TransactionClient, item: SyncSourceItem, actorId: number | null) => Promise<SyncOutcome> }): Promise<AtomicApplyResult> {
+  async applyClaimedItem(input: { jobId: string; itemId: string; token: string; now: Date; deadline: Date; actorId: number | null; authorizeInTx?: (tx: Prisma.TransactionClient) => Promise<void>; safeError?: string | null; apply: (tx: Prisma.TransactionClient, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult> }): Promise<AtomicApplyResult> {
     try {
       return await this.serial(async (tx) => {
         // Guard locks job then item and uses PostgreSQL's live clock, not caller time.
@@ -468,15 +505,17 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         const sourceItem = await this.getItemTx(tx, input.itemId, true)
         if (!current || !sourceItem || sourceItem.jobId!==current.id || !this.live(current,input.token,now) || current.cancelRequestedAt || now>=input.deadline || sourceItem.confirmedAt || sourceItem.status!=='PROCESSING' || sourceItem.leaseToken!==input.token || !sourceItem.leaseUntil || sourceItem.leaseUntil<=now) throw new Error('P2_APPLY_FENCE')
         await input.authorizeInTx?.(tx)
-        const outcome = await input.apply(tx, sourceItem.item, input.actorId)
+        const applied = await input.apply(tx, sourceItem.item, input.actorId)
+        const outcome = typeof applied === 'string' ? applied : applied.outcome
         if (!validOutcome(outcome)) throw new Error('FINANCE_SYNC_P2_INVALID_OUTCOME')
+        const safeOutcomeError = outcomeSafeError(outcome, typeof applied === 'string' ? input.safeError : applied.safeError ?? input.safeError)
         // Keep domain apply and durable item acknowledgement indivisible, with a second live guard.
         await tx.$executeRaw`SELECT finance_sync_p2_assert_apply_guard(${input.jobId}::uuid,${input.itemId}::uuid,${input.token},${input.deadline})`
         const committedAt = await this.now(tx)
         await tx.$executeRaw`
           UPDATE finance_sync_items_p2 SET outcome=${outcome}::"FinanceSyncOutcomeP2",
             status=${outcome==='ERROR' ? 'FINAL_ERROR' : 'COMPLETED'}::"FinanceSyncItemStatusP2",confirmed_at=${committedAt},processed_at=${committedAt},
-            retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error=NULL,updated_at=clock_timestamp()
+            retry_at=NULL,lease_token=NULL,lease_until=NULL,last_error=${safeOutcomeError},updated_at=clock_timestamp()
           WHERE id=${sourceItem.id}::uuid AND job_id=${current.id}::uuid AND confirmed_at IS NULL
             AND status='PROCESSING'::"FinanceSyncItemStatusP2" AND lease_token=${input.token}
         `

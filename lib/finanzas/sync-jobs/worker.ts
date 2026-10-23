@@ -137,7 +137,19 @@ export class FinanceSyncWorker<Tx> {
           authorizeInTx: this.deps.authorizeInTx
             ? (tx) => this.deps.authorizeInTx!({ actorId: job.actorId, source: job.source, operation: 'apply' }, tx)
             : undefined,
-          apply: (tx, item, actorId) => provider.apply(tx as Prisma.TransactionClient, item, prepared, actorId),
+          // Both apply and its optional descriptor are invoked by the repository
+          // while its single transaction is open. Descriptor errors are
+          // deliberately non-fatal: the domain outcome remains authoritative.
+          apply: async (tx, item, actorId) => {
+            const outcome = await provider.apply(tx as Prisma.TransactionClient, item, prepared, actorId)
+            try {
+              const description = provider.describeOutcome?.({ item, prepared, outcome })
+              return { outcome, safeError: description?.safeError }
+            } catch {
+              this.deps.logger?.warn('FINANCE_SYNC_OUTCOME_DESCRIPTION_FAILED')
+              return { outcome }
+            }
+          },
         })
         if (applied.kind === 'applied') result.appliedItems++
         if (applied.kind === 'cancelled') {

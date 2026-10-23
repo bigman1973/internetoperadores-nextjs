@@ -8,6 +8,7 @@ import {
   MagnifyingGlassIcon, PencilSquareIcon, ShieldCheckIcon, XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { usePermisoArea } from '@/hooks/usePermisoArea';
+import ManualCoverageOverlay from '@/components/finanzas/ManualCoverageOverlay';
 import {
   VISTAS_B5, esMotivoNoRequiere, formatCents, leerConfiguracionB5, leerContadoresB5, leerItemsB5,
   type CoberturaB5, type ConfiguracionB5, type ContadorB5, type ConfirmarNoRequiereB4,
@@ -251,6 +252,7 @@ export default function PendientesWorkspace() {
     </header>
 
     {!canWrite && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><strong>Modo consulta.</strong> Su permiso B4 permite leer, no editar la gestión ni confirmar acciones.</div>}
+    <ManualCoverageOverlay consumer="B5" />
     {notice && <div role={notice.kind === 'error' ? 'alert' : 'status'} className={`rounded-lg border px-4 py-3 text-sm ${notice.kind === 'error' ? 'border-red-200 bg-red-50 text-red-900' : notice.kind === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-blue-200 bg-blue-50 text-blue-900'}`}>{notice.text}</div>}
     {configError && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><strong>Metadatos aún no disponibles.</strong> {configError} La asignación de responsable permanece deshabilitada; no se infiere por nombre ni tarjeta.</div>}
 

@@ -71,6 +71,7 @@ function financeAreas(pathname) {
     cuentas: ['admin.finanzas.movimientos', 'admin.finanzas.conciliacion'],
     'datos-fiscales': ['admin.finanzas.datos_fiscales'],
     'estado-cuentas': ['admin.finanzas.importar'],
+    'cortes-cobertura': ['admin.finanzas.importar','admin.finanzas.conciliacion','admin.facturacion'],
     'exportar-a3': ['admin.finanzas.exportar_a3'],
     facturas: ['admin.finanzas.facturas'],
     'facturas-emitidas': ['admin.finanzas.facturas_emitidas'],
@@ -96,7 +97,7 @@ export async function middleware(request) {
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
       || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
-      || (path === '/api/admin/finanzas/conciliacion-v2' && request.method === 'POST')
+      || ((path === '/api/admin/finanzas/cortes-cobertura' || path === '/api/admin/finanzas/conciliacion-v2') && request.method === 'POST')
       || (path === '/api/admin/finanzas/pendientes' && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/pendientes/documento' && request.method === 'POST')
       || (path === '/api/admin/finanzas/remesas/b6' && request.method === 'POST')

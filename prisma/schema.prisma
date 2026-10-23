@@ -29,6 +29,7 @@ model UsuarioAdmin {
   tarjetasRegistradasB5 TarjetaFinancieraB5[] @relation("RegistradorTarjetaB5")
   gestionesPendientesAsignadasB5 GestionPendienteMovimientoB5[] @relation("GestionPendienteB5Responsable")
   auditoriasGestionPendienteB5 AuditoriaGestionPendienteB5[] @relation("AuditoriaGestionPendienteB5Actor")
+  confirmacionesCorteCoberturaB3 CorteCoberturaManualB3[] @relation("CorteCoberturaB3Actor")
   id               Int               @id @default(autoincrement())
   email            String            @unique
   passwordHash     String            @map("password_hash")
@@ -1138,6 +1139,7 @@ model CuentaBancaria {
 
   movimientos MovimientoBancario[]
   importaciones ImportacionExtracto[]
+  confirmacionesCorteCoberturaB3 CorteCoberturaManualB3[] @relation("CorteCoberturaB3Cuenta")
 
   @@map("cuentas_bancarias")
 }
@@ -4274,6 +4276,36 @@ model EventoJustificacionB4 {
   @@index([movimientoId, createdAt])
   @@index([operacionId, createdAt])
   @@map("eventos_justificacion_b4")
+}
+
+enum MotivoCorteCoberturaB3 {
+  EXTRACTO_REVISADO_MANUALMENTE
+}
+
+// Bitácora append-only de un corte declarado y confirmado por una persona.
+// Es metadato de cobertura: no actualiza CuentaBancaria ni acredita continuidad
+// de saldos. `version` y `sourceVersion` protegen el reintento/concurrencia.
+model CorteCoberturaManualB3 {
+  id             String                    @id @default(uuid()) @db.Uuid
+  cuentaId       String                    @map("cuenta_id")
+  fechaCorte     DateTime                  @db.Date @map("fecha_corte")
+  saldoCentimos  BigInt                    @map("saldo_centimos")
+  motivo         MotivoCorteCoberturaB3
+  nota           String                    @db.Text
+  actorId        Int                       @map("actor_id")
+  idempotencyKey String                    @map("idempotency_key") @db.VarChar(160)
+  payloadHash    String                    @map("payload_hash") @db.Char(64)
+  sourceVersion  String                    @map("source_version") @db.Char(64)
+  version        Int
+  confirmedAt    DateTime                  @default(now()) @map("confirmed_at")
+
+  cuenta         CuentaBancaria            @relation("CorteCoberturaB3Cuenta", fields: [cuentaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor          UsuarioAdmin              @relation("CorteCoberturaB3Actor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([actorId, idempotencyKey])
+  @@unique([cuentaId, version])
+  @@index([cuentaId, confirmedAt])
+  @@map("cortes_cobertura_manual_b3")
 }
 
 enum EstadoGestionPendienteB5 {

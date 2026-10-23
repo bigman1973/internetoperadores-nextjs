@@ -37,6 +37,16 @@ export interface SyncProvider {
     prepared: unknown,
     actorId: number | null,
   ): Promise<SyncOutcome>
+  /**
+   * Optional, closed-code annotation for an already computed outcome. It runs in
+   * the same apply transaction after `apply`; it must never expose provider data.
+   * A descriptor failure must not replace the provider outcome.
+   */
+  describeOutcome?(input: {
+    item: SyncSourceItem
+    prepared: unknown
+    outcome: SyncOutcome
+  }): { safeError?: string | null } | null | undefined
 }
 
 export type SyncProviderFactory = (source: SyncSource) => SyncProvider

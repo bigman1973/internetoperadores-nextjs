@@ -337,11 +337,21 @@ const REMITTANCE_REFUNDS_SQL = `
   ) closure ON TRUE
 `
 
+// La cobertura usa el corte manual más reciente o el corte explícito importado. No se
+// actualiza cuentas_bancarias ni se infiere un corte desde saldo/movimientos.
 const COVERAGE_SQL = `
-  SELECT COUNT(*)::integer AS "activeAccountCount",
-    COUNT(fecha_corte_extracto)::integer AS "accountsWithKnownCutoff",
-    MIN(fecha_corte_extracto) AS "minimumCutoff"
-  FROM cuentas_bancarias WHERE activa = true
+  WITH cuentas_activas AS (
+    SELECT id, fecha_corte_extracto FROM cuentas_bancarias WHERE activa = true
+  ), ultimo_corte_manual AS (
+    SELECT DISTINCT ON (cuenta_id) cuenta_id, fecha_corte
+    FROM cortes_cobertura_manual_b3
+    ORDER BY cuenta_id, version DESC
+  )
+  SELECT COUNT(c.id)::integer AS "activeAccountCount",
+    COUNT(COALESCE(m.fecha_corte,c.fecha_corte_extracto))::integer AS "accountsWithKnownCutoff",
+    MIN(COALESCE(m.fecha_corte,c.fecha_corte_extracto)) AS "minimumCutoff"
+  FROM cuentas_activas c
+  LEFT JOIN ultimo_corte_manual m ON m.cuenta_id = c.id
 `
 
 function coverage(row: CoverageRow | undefined): BankCoverage {

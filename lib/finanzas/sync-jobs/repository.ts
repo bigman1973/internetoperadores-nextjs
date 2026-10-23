@@ -30,6 +30,7 @@ export type DailyEnqueueResult =
 
 export type LeaseClaim = { job: SyncJobRecord; token: string } | null
 export type ItemClaim = { item: SyncItemRecord } | null
+export type ApplyCallbackResult = SyncOutcome | { outcome: SyncOutcome; safeError?: string | null }
 export type AtomicApplyResult =
   | { kind: 'applied'; outcome: SyncOutcome; job: SyncJobRecord; item: SyncItemRecord }
   | { kind: 'lost_lease' | 'cancelled' | 'deadline_exceeded' }
@@ -89,7 +90,9 @@ export interface FinanceSyncRepository<Tx = Prisma.TransactionClient> {
     deadline: Date
     actorId: number | null
     authorizeInTx?: (tx: Tx) => Promise<void>
-    apply: (tx: Tx, item: SyncSourceItem, actorId: number | null) => Promise<SyncOutcome>
+    /** Optional static annotation; callback annotations take precedence. */
+    safeError?: string | null
+    apply: (tx: Tx, item: SyncSourceItem, actorId: number | null) => Promise<ApplyCallbackResult>
   }): Promise<AtomicApplyResult>
   finalizeIfDone(input: { jobId: string; token: string; now: Date }): Promise<SyncJobRecord | null>
   finalizeCancellation(input: { jobId: string; token: string; now: Date }): Promise<SyncJobRecord | null>
@@ -113,6 +116,20 @@ export function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   if (/^(PREPARE_TIMEOUT|DEADLINE_EXCEEDED|FINANCE_SYNC_DISABLED)$/.test(message)) return message
   return 'PROVIDER_PREPARE_FAILED'
+}
+
+/** Only closed, non-sensitive codes may cross a provider/repository boundary. */
+export function isSafeErrorCode(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Z0-9_]{2,64}$/.test(value)
+}
+
+/**
+ * `ERROR` and `REVISAR` must retain an actionable, closed code. Successful
+ * outcomes deliberately clear any supplied annotation.
+ */
+export function outcomeSafeError(outcome: SyncOutcome, value: unknown): string | null {
+  if (outcome !== 'ERROR' && outcome !== 'REVISAR') return null
+  return isSafeErrorCode(value) ? value : 'OUTCOME_REQUIRES_REVIEW'
 }
 
 export const systemClock: Clock = { now: () => new Date() }

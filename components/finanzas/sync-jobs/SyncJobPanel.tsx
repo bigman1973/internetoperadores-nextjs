@@ -52,6 +52,16 @@ function phaseLabel(phase: SyncJobDTO['phase']): string {
   return { INVENTORY: 'Inventario', PROCESSING: 'Procesando', FINALIZING: 'Finalizando' }[phase]
 }
 
+function errorDescription(code: string): string {
+  const messages: Record<string, string> = {
+    ISP_EXISTING_IDENTITY_REVIEW: 'Este trabajo antiguo quedó en revisión por un enlace técnico de identidad ausente. No modificó las facturas; la corrección permite leer el espejo exacto sin crear enlaces bancarios.',
+    ISP_SOURCE_REQUIRES_REVIEW: 'La fuente ISP no coincide con la identidad financiera conservada. Se ha dejado pendiente de revisión sin sustituir importes ni cobros.',
+    OUTCOME_REQUIRES_REVIEW: 'El elemento necesita revisión. No se ha inferido ni completado ningún dato financiero.',
+    CENTIMOS_NO_EXACTOS: 'El importe de origen no se puede expresar en céntimos exactos; no se ha redondeado ni importado.',
+  }
+  return messages[code] ? `${messages[code]} (${code})` : code
+}
+
 function formatDate(value: string | null): string {
   if (value === null) return '—'
   const date = new Date(value)
@@ -75,6 +85,8 @@ async function jsonOrNull(response: Response): Promise<unknown> {
 
 function apiError(response: Response, body: unknown, fallback: string): string {
   if (body !== null && typeof body === 'object' && 'error' in body && typeof body.error === 'string' && body.error.trim()) {
+    if (body.error === 'SYNC_BUSY_RETRY') return 'El trabajo estaba actualizándose. Vuelve a pulsar Cancelar; no se ha iniciado otro trabajo.'
+    if (body.error === 'SYNC_REQUEST_FAILED') return 'No se pudo completar la acción. Puedes reintentar la cancelación sin duplicar el trabajo.'
     return body.error
   }
   return response.ok ? fallback : `${fallback} (${response.status})`
@@ -287,12 +299,13 @@ export default function SyncJobPanel({
           <Metric label="Sin cambios" value={String(displayedJob.unchanged)} />
           <Metric label="Errores" value={String(displayedJob.errores)} />
         </div>
+        {displayedJob.errores > 0 && <p className="mt-2 text-xs text-slate-700">Errores incluye tanto fallos técnicos como elementos conservados para revisar. Las incidencias no acreditan cambios en las facturas.</p>}
 
         {totalKnown === null ? <p className="mt-3 text-sm font-medium text-slate-800">Inventario aún en enumeración: {displayedJob.processed} procesados. El total y porcentaje no se muestran hasta que el servidor complete el recuento.</p>
           : totalKnown === 0 ? <p className="mt-3 text-sm font-medium text-slate-800">Inventario enumerado: 0 elementos. No se muestra un 100 % artificial.</p>
           : <div className="mt-3"><div className="flex justify-between gap-3 text-sm text-slate-800"><span>{displayedJob.processed} de {totalKnown} procesados</span><span>{progressPercent}%</span></div><div className="mt-1 h-3 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Progreso de sincronización" aria-valuemin={0} aria-valuemax={totalKnown} aria-valuenow={displayedJob.processed}><div className="h-full rounded-full bg-orange-700 transition-[width]" style={{ width: `${progressPercent}%` }} /></div></div>}
 
-        {displayedJob.lastError && <p className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-900"><strong>Detalle seguro:</strong> {displayedJob.lastError}</p>}
+        {displayedJob.lastError && <p className="mt-3 rounded-md border border-red-300 bg-red-50 p-2 text-sm text-red-900"><strong>Detalle seguro:</strong> {errorDescription(displayedJob.lastError)}</p>}
         {active && <p className="mt-3 text-xs leading-5 text-slate-700">Este navegador solo consulta el trabajo cada 5 segundos. El proceso durable sigue en el servidor aunque cierres o cambies de pantalla.</p>}
         {displayedJob.status === 'CANCEL_REQUESTED' && <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 p-2 text-sm text-amber-950">La cancelación se ha solicitado. El worker terminará de forma segura el archivo actual y se detendrá en el siguiente punto seguro; no se revierte el trabajo ya confirmado.</p>}
         {!active && <p className="mt-3 text-xs text-slate-700">Finalizado: {formatDate(displayedJob.finishedAt)}</p>}

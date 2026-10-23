@@ -187,8 +187,8 @@ function movementFilter(options: ReadPendientesB5Options, alias = "m", accountAl
   // the default: accounts with legacy data and no B3 cut stay visible together
   // with coverage metadata, rather than looking like a balanced zero.
   if ((options.cobertura ?? "TODAS") === "CUBIERTA") {
-    parts.push(Prisma.sql`${Prisma.raw(accountAlias)}.fecha_corte_extracto IS NOT NULL`);
-    parts.push(Prisma.sql`${Prisma.raw(alias)}.fecha_operacion < date_trunc('day',${Prisma.raw(accountAlias)}.fecha_corte_extracto) + interval '1 day'`);
+    parts.push(Prisma.sql`COALESCE((SELECT cm.fecha_corte FROM cortes_cobertura_manual_b3 cm WHERE cm.cuenta_id=${Prisma.raw(accountAlias)}.id ORDER BY cm.version DESC LIMIT 1),${Prisma.raw(accountAlias)}.fecha_corte_extracto) IS NOT NULL`);
+    parts.push(Prisma.sql`${Prisma.raw(alias)}.fecha_operacion < date_trunc('day',COALESCE((SELECT cm.fecha_corte FROM cortes_cobertura_manual_b3 cm WHERE cm.cuenta_id=${Prisma.raw(accountAlias)}.id ORDER BY cm.version DESC LIMIT 1),${Prisma.raw(accountAlias)}.fecha_corte_extracto)) + interval '1 day'`);
   }
   if (options.tarjeta) {
     if (!(FINANCE_CARD_HOLDERS as readonly {last4:string}[]).some(card=>card.last4===options.tarjeta)) fail(400,'VALIDATION_ERROR','Tarjeta inválida.')
@@ -252,7 +252,7 @@ function bankRowsQuery(options: ReadPendientesB5Options, sign: -1 | 1, take: num
       SELECT
         m.id, m.fecha_operacion, m.concepto, m.referencia, m.info_adicional, m.tercero,
         ${cents(Prisma.raw("m.importe"))} AS importe_centimos,
-        c.id AS cuenta_id, c.banco, c.alias AS cuenta_alias, c.fecha_corte_extracto,
+        c.id AS cuenta_id, c.banco, c.alias AS cuenta_alias, COALESCE((SELECT cm.fecha_corte FROM cortes_cobertura_manual_b3 cm WHERE cm.cuenta_id=c.id ORDER BY cm.version DESC LIMIT 1),c.fecha_corte_extracto) AS fecha_corte_extracto,
         COALESCE(e.estado::text, 'SIN_DOCUMENTO') AS estado_b4,
         e.motivo_no_requiere::text AS motivo_no_requiere_b4,
         e.version AS version_b4,
@@ -441,7 +441,7 @@ async function coberturaCuentasB5(cuentaId: string | undefined) {
   const rows = await asDb().$queryRaw<Array<{
     id: string; banco: string; alias: string | null; fechaCorteExtracto: Date | null;
   }>>(Prisma.sql`
-    SELECT c.id, c.banco, c.alias, c.fecha_corte_extracto AS "fechaCorteExtracto"
+    SELECT c.id, c.banco, c.alias, COALESCE((SELECT cm.fecha_corte FROM cortes_cobertura_manual_b3 cm WHERE cm.cuenta_id=c.id ORDER BY cm.version DESC LIMIT 1),c.fecha_corte_extracto) AS "fechaCorteExtracto"
     FROM cuentas_bancarias c
     WHERE ${cuentaId ? Prisma.sql`c.id = ${cuentaId}` : Prisma.sql`c.activa = true`}
     ORDER BY c.banco ASC, c.alias ASC NULLS LAST, c.id ASC

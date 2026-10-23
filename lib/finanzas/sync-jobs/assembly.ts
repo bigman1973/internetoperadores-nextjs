@@ -371,6 +371,12 @@ function apiError(cause: unknown) {
     if (cause.code === 'ACTIVE_JOB') return privateJson({ error: cause.code, activeJob: cause.job }, 409)
     return privateJson({ error: cause.code }, cause.code === 'NOT_FOUND' ? 404 : 409)
   }
+  // No source rows, SQL, URLs, identity or exception message enter logs.
+  const code = cause && typeof cause === 'object' && 'code' in cause
+    && typeof cause.code === 'string' && /^[A-Z0-9_]{2,64}$/.test(cause.code)
+    ? cause.code : 'SYNC_REQUEST_FAILED'
+  console.warn('[finance-sync]', code)
+  if (code === 'P2034') return privateJson({ error: 'SYNC_BUSY_RETRY' }, 409)
   return privateJson({ error: 'SYNC_REQUEST_FAILED' }, 500)
 }
 
