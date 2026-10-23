@@ -23,6 +23,7 @@ import {
 class RechazoBulkSeguro extends Error {}
 
 const BULK_ENDPOINT = '/api/admin/finanzas/conciliacion-v2/heredados-bloque';
+const EXCLUSIONS_REPORT_ENDPOINT = '/api/admin/finanzas/conciliacion-v2/heredados-excluidas';
 
 type HistoricalBulkPanelProps = Readonly<{
   canWrite: boolean;
@@ -337,9 +338,13 @@ export default function HistoricalBulkPanel({ canWrite, cuentaId, q, onChanged, 
         <h2 id="historical-bulk-title" className="mt-1 text-lg font-bold text-slate-950">Propuestas exactas para confirmación en bloque</h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-700">Esta lectura sólo muestra coincidencias exactas ya existentes. No crea wrappers, operaciones ni vínculos. Cada bloque admite como máximo {HISTORICAL_BULK_LIMIT} propuestas para mantener la confirmación atómica y en un tiempo acotado.</p>
       </div>
-      <button type="button" onClick={() => { void loadPreview(offset); }} disabled={loading || confirming || undoing || hasUncertainMutation} className="inline-flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-900 transition hover:bg-violet-100 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60">
-        <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /> {loading ? 'Leyendo propuestas…' : 'Actualizar previsualización'}
-      </button>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <a href={`${EXCLUSIONS_REPORT_ENDPOINT}?formato=html`} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">Informe de excluidas</a>
+        <a href={`${EXCLUSIONS_REPORT_ENDPOINT}?formato=csv`} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-violet-500">CSV</a>
+        <button type="button" onClick={() => { void loadPreview(offset); }} disabled={loading || confirming || undoing || hasUncertainMutation} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-violet-300 bg-white px-4 py-2 text-sm font-bold text-violet-900 transition hover:bg-violet-100 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-60">
+          <ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" /> {loading ? 'Leyendo propuestas…' : 'Actualizar previsualización'}
+        </button>
+      </div>
     </header>
 
     <div className="space-y-4 px-4 py-4 sm:px-5">

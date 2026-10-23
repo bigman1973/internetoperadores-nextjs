@@ -14,6 +14,15 @@ import {signHistoricalBulkPreview,verifyHistoricalBulkPreview,PREVIEW_TOKEN_MAX}
 type Tx=Prisma.TransactionClient & Record<string,any>
 type Raw=Record<string,any>
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const DELEGATED_APPROVAL_REFERENCE=/^[A-Za-z0-9][A-Za-z0-9 .,:;_/@#()[\]{}+=-]*$/
+export const HISTORICAL_BULK_DELEGATED_APPROVAL_TEXT='La confirmación la ejecuta Manus por instrucción de Víctor Giró.'
+export type HistoricalBulkDelegatedApprovalContext=Readonly<{
+ ejecutor:'Manus'
+ instruccionDe:'Víctor Giró'
+ fechaInstruccion:'2026-10-23'
+ modo:'EJECUCION_DELEGADA_EXPLICITA'
+ referenciaAutorizacion:string
+}>
 const fail=(status:number,code:string,text:string):never=>{throw new B4ServiceError(status,code,text)}
 const iso=(value:unknown)=>value instanceof Date && Number.isFinite(value.getTime())?value.toISOString():typeof value==='string'&&Number.isFinite(Date.parse(value))?new Date(value).toISOString():null
 const sourceKey=(tipo:string,id:string)=>tipo+':'+id
@@ -110,6 +119,31 @@ export function parseHistoricalBulkCommand(input:unknown){
  if(action!=='deshacer_bloque'||input.confirmacion!==true||!UUID.test(input.idempotencyKey)||!UUID.test(input.bloqueId))fail(400,'VALIDATION_ERROR','La reversión exige un bloque y una confirmación humana explícita.')
  return input
 }
+/**
+ * Sólo para llamadas server-side explícitas: este contexto jamás se lee del
+ * body HTTP. Mantiene actorId como el usuario autenticado y describe quién
+ * ejecuta materialmente la confirmación y bajo qué instrucción.
+ */
+export function parseHistoricalBulkDelegatedApprovalContext(input:unknown):HistoricalBulkDelegatedApprovalContext|null{
+ if(input===undefined)return null
+ if(!input||typeof input!=='object'||Array.isArray(input)||Object.getPrototypeOf(input)!==Object.prototype)fail(400,'VALIDATION_ERROR','El contexto delegado de aprobación no es válido.')
+ const raw=input as Raw
+ const allowed=['ejecutor','instruccionDe','fechaInstruccion','modo','referenciaAutorizacion']
+ if(Object.keys(raw).length!==allowed.length||Object.keys(raw).some(key=>!allowed.includes(key))||raw.ejecutor!=='Manus'||raw.instruccionDe!=='Víctor Giró'||raw.fechaInstruccion!=='2026-10-23'||raw.modo!=='EJECUCION_DELEGADA_EXPLICITA'||typeof raw.referenciaAutorizacion!=='string'||raw.referenciaAutorizacion.length<16||raw.referenciaAutorizacion.length>320||raw.referenciaAutorizacion.trim()!==raw.referenciaAutorizacion||!DELEGATED_APPROVAL_REFERENCE.test(raw.referenciaAutorizacion))fail(400,'VALIDATION_ERROR','El contexto delegado de aprobación no es válido.')
+ return {ejecutor:'Manus',instruccionDe:'Víctor Giró',fechaInstruccion:'2026-10-23',modo:'EJECUCION_DELEGADA_EXPLICITA',referenciaAutorizacion:raw.referenciaAutorizacion}
+}
+export function historicalBulkConfirmationRequestHash(actorId:number,command:unknown,delegatedApprovalContext?:unknown){
+ if(!Number.isSafeInteger(actorId)||actorId<=0)fail(400,'VALIDATION_ERROR','El actor de aprobación no es válido.')
+ const raw=parseHistoricalBulkCommand(command)
+ if(raw.action!=='confirmar_exactas')fail(400,'VALIDATION_ERROR','Acción de confirmación incorrecta.')
+ const delegation=parseHistoricalBulkDelegatedApprovalContext(delegatedApprovalContext)
+ // Conserva los hashes de bloques anteriores sin delegación; con delegación,
+ // actor, comando y contexto completo forman parte del recibo idempotente.
+ return delegation?digest({actorId,command:raw,delegatedApproval:delegation}):digest(raw)
+}
+export function historicalBulkDelegatedApprovalAuditMetadata(context:HistoricalBulkDelegatedApprovalContext|null){
+ return context?{ejecutor:context.ejecutor,instruccionDe:context.instruccionDe,fechaInstruccion:context.fechaInstruccion,modo:context.modo,referenciaAutorizacion:context.referenciaAutorizacion,textoDelegacion:HISTORICAL_BULK_DELEGATED_APPROVAL_TEXT,delegatedApprovalHash:digest(context)}:{}
+}
 async function liveActor(actorId:number){if(!(await requireB4ActorAccess(actorId,'escritura')).ok)fail(403,'FORBIDDEN','Ya no dispone de permiso de conciliación.')}
 async function lockBatch(tx:Tx,actorId:number,key:string){await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`HB:${actorId}:${key}`},0))::text AS locked`}
 async function receipt(tx:Tx,actorId:number,keyHash:string,kind:'CONFIRMACION'|'REVERSION'){
@@ -121,9 +155,9 @@ function replayResult(rows:Raw[],hash:string,kind:'CONFIRMACION'|'REVERSION'){
  const details=rows[0].detalle
  return {ok:true,bloqueId:details.bloqueId,confirmadas:kind==='CONFIRMACION'?rows.length:undefined,revertidas:kind==='REVERSION'?rows.length:rows.filter(r=>r.operacion.estado==='REVERTIDA').length,idempotente:true,totalCargosCentimos:details.totalCargosCentimos,totalCobrosCentimos:details.totalCobrosCentimos}
 }
-export async function confirmHistoricalBulkTx(base:Prisma.TransactionClient,actorId:number,input:unknown){
- const tx=base as Tx;const raw=parseHistoricalBulkCommand(input);if(raw.action!=='confirmar_exactas')fail(400,'VALIDATION_ERROR','Acción de confirmación incorrecta.');await liveActor(actorId)
- const keyHash=digest({actorId,key:raw.idempotencyKey});const hash=digest(raw)
+export async function confirmHistoricalBulkTx(base:Prisma.TransactionClient,actorId:number,input:unknown,delegatedApprovalContext?:unknown){
+ const tx=base as Tx;const raw=parseHistoricalBulkCommand(input);if(raw.action!=='confirmar_exactas')fail(400,'VALIDATION_ERROR','Acción de confirmación incorrecta.');const delegation=parseHistoricalBulkDelegatedApprovalContext(delegatedApprovalContext);await liveActor(actorId)
+ const keyHash=digest({actorId,key:raw.idempotencyKey});const hash=historicalBulkConfirmationRequestHash(actorId,raw,delegatedApprovalContext)
  await lockBatch(tx,actorId,raw.idempotencyKey)
  const replay=replayResult(await receipt(tx,actorId,keyHash,'CONFIRMACION'),hash,'CONFIRMACION');if(replay)return replay
  if(!verifyHistoricalBulkPreview(raw.previewToken,actorId,raw.items))fail(409,'HISTORICAL_PREVIEW_EXPIRED','La lista previa ha caducado o no corresponde al usuario y la selección; actualice la previsualización. No se ha confirmado nada.')
@@ -143,7 +177,7 @@ export async function confirmHistoricalBulkTx(base:Prisma.TransactionClient,acto
   const lineas=[]
   for(const doc of item.documentos){const wrapper=await createDocumentoB4Tx(tx,actorId,{action:'documento',tipoDocumento:doc.tipo,sourceId:doc.sourceId});lineas.push({tipo:'DOCUMENTO',documentoConciliableId:wrapper.documento.id,importeCentimos:doc.importeObjetivoCentimos})}
   const result=await confirmarB4Tx(tx,actorId,{action:'confirmar',confirmacion:true,idempotencyKey:'HB:'+raw.idempotencyKey+':'+digest(item.movimientoId).slice(0,24),version:item.version,borrador:{movimientoId:item.movimientoId,importeMovimientoCentimos:item.importeMovimientoCentimos,estado:'JUSTIFICADO',lineas}})
-  await tx.eventoJustificacionB4.create({data:{operacionId:result.operacion.id,movimientoId:item.movimientoId,actorId,accion:'APROBACION',detalle:{origen:'HISTORICO',confirmacionHumana:true,bulkKind:'CONFIRMACION',bulkKeyHash:keyHash,bulkRequestHash:hash,bloqueId,historicoId:item.historicoId,fingerprint:item.fingerprint,...totals}}})
+  await tx.eventoJustificacionB4.create({data:{operacionId:result.operacion.id,movimientoId:item.movimientoId,actorId,accion:'APROBACION',detalle:{origen:'HISTORICO',confirmacionHumana:true,bulkKind:'CONFIRMACION',bulkKeyHash:keyHash,bulkRequestHash:hash,bloqueId,historicoId:item.historicoId,fingerprint:item.fingerprint,...historicalBulkDelegatedApprovalAuditMetadata(delegation),...totals}}})
  }
  return {ok:true,bloqueId,confirmadas:selected.length,idempotente:false,...totals}
 }
@@ -165,7 +199,11 @@ export async function undoHistoricalBulkTx(base:Prisma.TransactionClient,actorId
  }
  return {ok:true,bloqueId:raw.bloqueId,revertidas:originals.length,idempotente:false}
 }
-export async function runHistoricalBulk(actorId:number,input:unknown){
- const command=parseHistoricalBulkCommand(input);await assertFinanceRuntimeReady()
- return prisma.$transaction(async(tx):Promise<Record<string,unknown>>=>command.action==='confirmar_exactas'?await confirmHistoricalBulkTx(tx,actorId,input):await undoHistoricalBulkTx(tx,actorId,input),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:120000,maxWait:10000})
+/** El tercer argumento es exclusivamente server-side; la ruta pública usa dos. */
+export async function runHistoricalBulk(actorId:number,input:unknown,delegatedApprovalContext?:unknown){
+ const command=parseHistoricalBulkCommand(input)
+ if(command.action==='confirmar_exactas')parseHistoricalBulkDelegatedApprovalContext(delegatedApprovalContext)
+ else if(delegatedApprovalContext!==undefined)fail(400,'VALIDATION_ERROR','El contexto delegado sólo se admite al confirmar propuestas exactas.')
+ await assertFinanceRuntimeReady()
+ return prisma.$transaction(async(tx):Promise<Record<string,unknown>>=>command.action==='confirmar_exactas'?await confirmHistoricalBulkTx(tx,actorId,input,delegatedApprovalContext):await undoHistoricalBulkTx(tx,actorId,input),{isolationLevel:Prisma.TransactionIsolationLevel.Serializable,timeout:120000,maxWait:10000})
 }

@@ -4,6 +4,7 @@ import PrivateMovementFiles from './PrivateMovementFiles';
 import ConfirmingSupportPanel from './ConfirmingSupportPanel';
 import HistoricalLinksPanel from './HistoricalLinksPanel';
 import HistoricalBulkPanel from './HistoricalBulkPanel';
+import HistoricalBlockReceiptsPanel from './HistoricalBlockReceiptsPanel';
 import { parseHistoricoB4, prepararRevisionHeredada as validarPreparacionHeredada } from './historical-links-contract';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
@@ -638,6 +639,11 @@ export default function ReconciliationWorkspace() {
           <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" /> Buscar</button>
         </form>
       </div>
+
+      {heredadosFilter !== 'TODOS' && <HistoricalBlockReceiptsPanel
+        canWrite={canWrite}
+        onChanged={() => { void loadLists({ silent: true }); }}
+      />}
 
       {heredadosFilter !== 'TODOS' && <HistoricalBulkPanel
         canWrite={canWrite}
