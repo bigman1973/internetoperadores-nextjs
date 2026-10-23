@@ -628,10 +628,10 @@ export default function ReconciliationWorkspace() {
             </select>
           </label>
           <label className="block text-sm font-semibold text-slate-800">Heredados
-            <select value={heredadosFilter} onChange={(event) => { setHeredadosFilter(event.target.value as FiltroHeredados); setMovementsOffset(0); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
-              <option value="TODOS">TODOS</option>
-              <option value="SI">HEREDADOS</option>
-              <option value="PROPUESTA">HEREDADOS_PROPUESTA</option>
+            <select aria-label="Heredados" value={heredadosFilter} onChange={(event) => { setHeredadosFilter(event.target.value as FiltroHeredados); setMovementsOffset(0); }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
+              <option value="TODOS">Todos los movimientos</option>
+              <option value="SI">Con referencia heredada</option>
+              <option value="PROPUESTA">Propuestas heredadas</option>
             </select>
           </label>
           <button type="submit" className="inline-flex items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" /> Buscar</button>
