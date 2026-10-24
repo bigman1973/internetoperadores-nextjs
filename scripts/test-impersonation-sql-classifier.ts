@@ -6,6 +6,8 @@
  * closed, and that the guard routes each kind to the right audit path.
  */
 import assert from 'node:assert/strict'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { Prisma } from '@prisma/client'
 import prisma, { classifyPrisma5RawSqlStatement, guardPrismaImpersonationMutation, type RawSqlStatementKind } from '../lib/prisma'
 import { resolveSignedImpersonationContext, signTrustedImpersonationContext, type TrustedImpersonationContext } from '../lib/impersonation-context'
@@ -71,6 +73,26 @@ const cases: Array<[string, RawSqlStatementKind]> = [
 
 async function main(): Promise<void> {
   for (const [sql, expected] of cases) assert.equal(kind(sql), expected, sql)
+  // pg_advisory_xact_lock returns void, which Prisma $queryRaw cannot
+  // deserialize ($executeRaw returns only a row count and is unaffected).
+  // Every $queryRaw occurrence must therefore end in ::text.
+  const sources = ['lib/impersonation.ts', ...readdirSync('lib/finanzas').filter(name => name.endsWith('.ts')).map(name => join('lib/finanzas', name))]
+  let advisoryLocks = 0
+  for (const file of sources) {
+    const text = readFileSync(file, 'utf8')
+    for (const match of text.matchAll(/pg_advisory_xact_lock\(hashtextextended\(/g)) {
+      const head = text.slice(Math.max(0, match.index! - 120), match.index!)
+      const call = /\$(queryRaw|executeRaw)(?:Unsafe)?[^$]*$/.exec(head)?.[1]
+      if (call !== 'queryRaw') continue
+      advisoryLocks += 1
+      const tail = text.slice(match.index!, match.index! + 260)
+      // Either cast the void to text or select a real column FROM the lock.
+      const castsToText = /^pg_advisory_xact_lock\(hashtextextended\([^\n]*?,\s*0\)\)::text AS locked/.test(tail)
+      const selectsColumn = /SELECT\s+1\s+AS\s+locked\s+FROM\s*$/i.test(text.slice(Math.max(0, match.index! - 40), match.index!))
+      assert.ok(castsToText || selectsColumn, `${file}: bloqueo consultivo sin ::text`)
+    }
+  }
+  assert.ok(advisoryLocks >= 2, 'advisory lock scan found no source')
   // Bound values are data, never grammar.
   assert.equal(classifyPrisma5RawSqlStatement([Prisma.sql`SELECT id FROM t WHERE x=${'1; DROP TABLE t; SELECT pg_sleep(9)'}`]), 'read_only')
   assert.equal(classifyPrisma5RawSqlStatement([['SELECT id FROM t WHERE x=', ''], 'DELETE FROM t']), 'read_only')

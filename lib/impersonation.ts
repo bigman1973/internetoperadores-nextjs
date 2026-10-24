@@ -736,7 +736,7 @@ export async function startImpersonation(input: Readonly<{ sourceToken: JWT; tar
       // replay or another active ledger. The migration trigger repeats this
       // lock as a database backstop for non-application writers.
       await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${`impersonation:${sourceHash}`}, 0)) AS locked
+        SELECT pg_advisory_xact_lock(hashtextextended(${`impersonation:${sourceHash}`}, 0))::text AS locked
       `)
       const replayRows = await tx.$queryRaw<Array<any>>(Prisma.sql`
         SELECT s.id::text,s.actor_id,s.target_id,s.expires_at,s.source_session_hash,e.id::text AS end_id
@@ -896,7 +896,7 @@ export async function exitImpersonation(
       // before its first read so concurrent same-key clicks observe either the
       // exact completed receipt or perform the single terminal transition.
       await tx.$queryRaw(Prisma.sql`
-        SELECT pg_advisory_xact_lock(hashtextextended(${`impersonation-exit:${actorId}:${idempotencyKey}`}, 0)) AS locked
+        SELECT pg_advisory_xact_lock(hashtextextended(${`impersonation-exit:${actorId}:${idempotencyKey}`}, 0))::text AS locked
       `)
       const receipt = await readExitReceiptTx(tx, actorId, idempotencyKey)
       if (receipt) {
