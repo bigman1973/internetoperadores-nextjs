@@ -16,6 +16,17 @@ function privateBoundary(body, status = 403) {
   } });
 }
 
+/** Document navigations keep the orange band and exit; APIs and RSC keep JSON. */
+async function actingDeniedResponse(request, path, targetName, body) {
+  const page = await import('@/lib/impersonation-denied-page');
+  if (!page.isDocumentNavigation(path, request.method, request.headers)) return privateBoundary(body);
+  return new NextResponse(request.method === 'HEAD' ? null : page.renderActingDeniedPage(String(targetName || '')), { status: 403, headers: {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'private, no-store, max-age=0', Pragma: 'no-cache', Expires: '0', Vary: 'Cookie',
+    'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'same-origin', 'X-Frame-Options': 'DENY',
+  } });
+}
+
 function continueRequest(headers) {
   return NextResponse.next({ request: { headers } });
 }
@@ -205,7 +216,7 @@ async function impersonationBoundary(request) {
         kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip, reason: live.reason,
         detail: { code: 'IMPERSONATION_ROUTE_DENIED', action, ipSource: origin.source },
       });
-      return { response: privateBoundary({ error: 'Esta superficie no está disponible durante una actuación.', codigo: 'IMPERSONATION_ROUTE_DENIED' }) };
+      return { response: await actingDeniedResponse(request, path, live.active.targetName, { error: 'Esta superficie no está disponible durante una actuación.', codigo: 'IMPERSONATION_ROUTE_DENIED' }) };
     }
     if (route.permission && !await targetHasLiveMatrixPermission(policy, live.target.id, route.permission)) {
       await acting.appendImpersonationAudit({
@@ -213,7 +224,7 @@ async function impersonationBoundary(request) {
         kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip, reason: live.reason,
         detail: { code: 'IMPERSONATION_TARGET_PERMISSION_DENIED', purpose: route.purpose, action, ipSource: origin.source },
       });
-      return { response: privateBoundary({ error: 'El destino efectivo no dispone del permiso actual para esta superficie.', codigo: 'IMPERSONATION_TARGET_PERMISSION_DENIED' }) };
+      return { response: await actingDeniedResponse(request, path, live.active.targetName, { error: 'El destino efectivo no dispone del permiso actual para esta superficie.', codigo: 'IMPERSONATION_TARGET_PERMISSION_DENIED' }) };
     }
 
     // Every forwarded request has a durable pre-dispatch record. The browser
