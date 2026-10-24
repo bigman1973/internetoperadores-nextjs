@@ -68,6 +68,12 @@ function minimizedNif(value: string | null): string {
 function evidenceLabel(name: string | null, kind: string, nif: string | null): string {
   return `${name?.trim() || 'Tercero registrado'} · ${kind} · NIF/CIF ${minimizedNif(nif)}`
 }
+/** Public/read-model name only.  Evidence detail remains in the immutable receipt
+ * and in the dedicated P1 screen, never in a cross-workspace enrichment. */
+function humanCounterpartyName(label: string | null): string | null {
+  const name = label?.split(' · ', 1)[0]?.trim() ?? ''
+  return name || null
+}
 
 export type CounterpartyCandidateDto = Readonly<{
   id: string
@@ -80,6 +86,22 @@ type Candidate = Readonly<{
   etiqueta: string
   /** Only current linked fiscal evidence may identify a movement before a human click. */
   autoIdentify: boolean
+}>
+export type EasyCounterpartyBulkMovementMaterial = Readonly<{
+  id: string
+  fecha: string
+  importeCentimos: number
+  version: number
+  estado: 'IDENTIFICADO' | 'PROPUESTO' | 'SIN_IDENTIFICAR'
+  propuestaTexto: string | null
+}>
+export type EasyCounterpartyBulkCandidate = Readonly<{
+  movimientoId: string
+  tipoTercero: CounterpartyType
+  origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>
+  sourceIdentity: string
+  etiqueta: string
+  sugerenciaId: string
 }>
 type Decision = Readonly<{
   id: string
@@ -324,6 +346,54 @@ function movementProjection(input: CounterpartyReadInput, limit: number, offset:
   `
 }
 
+function materialFromRow(row: MovementRow): EasyCounterpartyBulkMovementMaterial {
+  const step = resolveStep(row, candidatesForMovement(row))
+  return {
+    id: row.id,
+    fecha: row.fecha,
+    importeCentimos: row.importeCentimos,
+    version: row.decisionVersion,
+    estado: step.estadoPaso1,
+    propuestaTexto: step.estadoPaso1 === 'PROPUESTO' ? row.tercero : null,
+  }
+}
+
+/** Bounded read primitive for the explicit human bulk reviewer.  It evaluates all
+ * direct sources in one projection and never uses bank free text as a source. */
+export async function readEasyCounterpartyBulkMaterialTx(
+  tx: QueryDb,
+  input: CounterpartyReadInput,
+  limit: number,
+): Promise<readonly EasyCounterpartyBulkMovementMaterial[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PENDING_QUEUE_SCAN) fail(400, 'LIMITE_LOTE_INVALIDO', 'El límite de revisión de terceros no es válido.')
+  const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(tx), accountProofTableReady(tx)])
+  const rows = await tx.$queryRaw<Array<any>>(movementProjection(input, limit, 0, withDecisions, withAccountProof))
+  return rows.map(rowView).map(materialFromRow)
+}
+
+/** Re-reads exactly the selected movements after deterministic row locks. */
+export async function readEasyCounterpartyBulkMaterialByIdsTx(
+  tx: Prisma.TransactionClient,
+  ids: readonly string[],
+): Promise<readonly EasyCounterpartyBulkMovementMaterial[]> {
+  const requested = [...new Set(ids)]
+  if (!requested.length || requested.length > 25 || requested.some(id => typeof id !== 'string' || !id || id.length > 160)) fail(400, 'SELECCION_LOTE_INVALIDA', 'La selección de terceros no es válida.')
+  const work = asTx(tx)
+  const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(work), accountProofTableReady(work)])
+  for (const id of [...requested].sort()) await work.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${id} AS text),0))::text AS locked`
+  const rows = await work.$queryRaw<Array<any>>(Prisma.sql`
+    SELECT ${sourceFields(withDecisions)}
+    FROM movimientos_bancarios m
+    ${sourceRelations(withAccountProof)}
+    ${decisionRelations(withDecisions)}
+    WHERE m.id IN (${Prisma.join(requested.map(id => Prisma.sql`${id}`))})
+    ORDER BY m.id ASC
+    FOR UPDATE OF m
+  `)
+  if (rows.length !== requested.length) fail(409, 'SELECCION_LOTE_CAMBIADA', 'Uno de los movimientos ya no está disponible; relea la lista.')
+  return rows.map(rowView).map(materialFromRow)
+}
+
 /** The normal P1 population is materially bounded by the reviewed operating
  * window. A pending queue may not silently truncate before it has calculated its
  * eligible total: require a narrower period instead. */
@@ -500,6 +570,57 @@ export async function readEasyCounterparties(input: CounterpartyReadInput) {
       movimientos,
     }
   } catch (error) { privateError(error) }
+}
+
+/**
+ * Read-only P1 projection for another bounded financial read.  This intentionally
+ * exposes neither a candidate ID nor a receipt/source identifier: consumers only
+ * receive the current human-facing name/state.  It is one movement query for the
+ * complete bounded set, never one query per movement.
+ *
+ * A deployment that has not yet applied an optional P1 table must not turn a
+ * movement into a false “identified” result.  Direct, current fiscal evidence is
+ * still evaluated when the decision ledger is absent; account evidence is omitted
+ * unless its attestation tables are present.
+ */
+export type EasyMovementWho = Readonly<{
+  estado: 'IDENTIFICADO' | 'PROPUESTO' | 'SIN_IDENTIFICAR'
+  nombre: string | null
+}>
+
+export async function readEasyMovementWhoByIds(ids: readonly string[]): Promise<Map<string, EasyMovementWho>> {
+  const requested = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 160))]
+  if (requested.length > 100) fail(400, 'MOVIMIENTOS_DEMASIADOS', 'La consulta de terceros admite hasta 100 movimientos.')
+  const fallback = new Map<string, EasyMovementWho>(requested.map(id => [id, { estado: 'SIN_IDENTIFICAR', nombre: null }]))
+  if (!requested.length) return fallback
+
+  try {
+    const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(), accountProofTableReady()])
+    const rows = await db().$queryRaw<Array<any>>(Prisma.sql`
+      SELECT ${sourceFields(withDecisions)}
+      FROM movimientos_bancarios m
+      ${sourceRelations(withAccountProof)}
+      ${decisionRelations(withDecisions)}
+      WHERE m.id IN (${Prisma.join(requested.map(id => Prisma.sql`${id}`))})
+      ORDER BY m.id ASC
+      LIMIT 100
+    `)
+    for (const raw of rows) {
+      const row = rowView(raw)
+      const step = resolveStep(row, candidatesForMovement(row))
+      fallback.set(row.id, step.estadoPaso1 === 'IDENTIFICADO'
+        ? { estado: 'IDENTIFICADO', nombre: humanCounterpartyName(step.etiqueta) }
+        : step.estadoPaso1 === 'PROPUESTO'
+          ? { estado: 'PROPUESTO', nombre: row.tercero }
+          : { estado: 'SIN_IDENTIFICAR', nombre: null })
+    }
+    return fallback
+  } catch (error) {
+    // This helper is an optional read enrichment.  A missing/rolling-out P1
+    // schema may only degrade to “not identified”, never claim a completed step.
+    if ((error as { code?: unknown })?.code === '42P01') return fallback
+    throw error
+  }
 }
 
 function dedupeCandidates(candidates: Candidate[]) {

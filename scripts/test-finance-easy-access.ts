@@ -8,6 +8,9 @@ test('sólo dos pantallas, sin acceso general ni prefijos engañosos',()=>{
 test('las excepciones manuales no autorizan reglas automáticas ni cambios de permiso',()=>{
  assert(allowed('/api/admin/finanzas/modo-facil','POST'));assert(allowed('/api/admin/finanzas/modo-facil/foto','POST'))
  assert(allowed('/api/admin/finanzas/modo-facil/reglas','POST')) // handler sólo acepta SOLO_PROPONER
+ assert(allowed('/api/admin/finanzas/modo-facil/terceros/bloque','GET'));assert(allowed('/api/admin/finanzas/modo-facil/terceros/bloque','POST'))
+ assert.equal(allowed('/api/admin/finanzas/modo-facil/terceros/bloque','DELETE'),false)
+ assert.equal(allowed('/api/admin/finanzas/modo-facil/automaticas/tramos','GET'),false)
  for(const p of ['/api/admin/finanzas/modo-facil/automaticas','/api/admin/finanzas/conciliacion-v2','/api/admin/finanzas/sync-jobs','/api/admin/permisos'])assert.equal(allowed(p,'POST'),false)
  assert.equal(allowed('/api/admin/finanzas/modo-facil','DELETE'),false)
 })

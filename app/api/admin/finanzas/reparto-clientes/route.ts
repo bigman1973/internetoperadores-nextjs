@@ -1,8 +1,8 @@
 import { NextRequest } from 'next/server'
 import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
 import { operatorAuth, operatorJson } from '@/lib/finanzas/operator-costs-auth'
-import { CustomerCostAllocationError, SERVICE_PERIOD, UUID, parseAllocationRequest } from '@/lib/finanzas/customer-cost-allocation-core'
-import { allocationHistory, confirmCustomerCostAllocation, listCandidateContracts, listEligibleSources, previewCustomerCostAllocation } from '@/lib/finanzas/customer-cost-allocation-db'
+import { CustomerCostAllocationError, SERVICE_PERIOD, UUID, parseAllocationPreparationRequest, parseAllocationRequest } from '@/lib/finanzas/customer-cost-allocation-core'
+import { allocationHistory, confirmCustomerCostAllocation, listCandidateContracts, listEligibleSources, prepareCustomerCostAllocationSource, previewCustomerCostAllocation } from '@/lib/finanzas/customer-cost-allocation-db'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 64 * 1024
@@ -38,7 +38,11 @@ export async function GET(req: NextRequest) {
     const auth = await operatorAuth(false)
     if (auth instanceof Response) return auth
     const recurso = req.nextUrl.searchParams.get('recurso') || 'fuentes'
-    if (recurso === 'fuentes') return operatorJson({ ...(await listEligibleSources(boundedText(req.nextUrl.searchParams.get('buscar'), 'buscar'), page(req.nextUrl.searchParams.get('page')))), canWrite: auth.canWrite })
+    if (recurso === 'fuentes') {
+      const facturaId = req.nextUrl.searchParams.get('facturaId') || undefined
+      if (facturaId && !UUID.test(facturaId)) throw new CustomerCostAllocationError('QUERY_INVALID', 'Factura no válida.')
+      return operatorJson({ ...(await listEligibleSources(boundedText(req.nextUrl.searchParams.get('buscar'), 'buscar'), page(req.nextUrl.searchParams.get('page')), facturaId)), canWrite: auth.canWrite })
+    }
     if (recurso === 'contratos') {
       const fuenteId = req.nextUrl.searchParams.get('fuenteId') || ''
       const periodoServicio = req.nextUrl.searchParams.get('periodoServicio') || ''
@@ -60,7 +64,12 @@ export async function POST(req: NextRequest) {
     const auth = await operatorAuth(true)
     if (auth instanceof Response) return auth
     if (req.headers.get('origin') !== req.nextUrl.origin) return operatorJson({ error: 'Origen no autorizado.', codigo: 'ORIGIN_INVALID' }, 403)
-    const request = parseAllocationRequest(await boundedJson(req))
+    const body = await boundedJson(req)
+    if (typeof body === 'object' && body !== null && !Array.isArray(body) && (body as { action?: unknown }).action === 'prepare') {
+      const preparation = parseAllocationPreparationRequest(body)
+      return operatorJson({ ok: true, ...(await prepareCustomerCostAllocationSource(auth.userId, preparation)) }, 201)
+    }
+    const request = parseAllocationRequest(body)
     if (request.action === 'preview') return operatorJson({ ok: true, preview: await previewCustomerCostAllocation(request) })
     return operatorJson({ ok: true, ...(await confirmCustomerCostAllocation(auth.userId, request)) }, 201)
   } catch (error) { return errorResponse(error) }

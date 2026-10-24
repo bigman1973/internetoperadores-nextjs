@@ -22,6 +22,12 @@ export type AllocationRequest = Readonly<{
   reversionDeRepartoId?: string
   idempotencyKey?: string
 }>
+export type AllocationPreparationRequest = Readonly<{
+  action: 'prepare'
+  facturaId: string
+  invoiceSnapshotHash: string
+  confirmarPreparacion: true
+}>
 export type ValidContractSale = Readonly<{
   clienteId: number
   clienteNombre: string
@@ -124,6 +130,25 @@ export function parseAllocationRequest(raw: unknown): AllocationRequest {
     selecciones: selections,
     ...(reverse ? { reversionDeRepartoId: reverse } : {}),
     ...(action === 'confirm' ? { idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey') } : {}),
+  }
+}
+
+/**
+ * Preparing a source is deliberately a separate, explicit human action. It
+ * never mutates the received invoice: it only creates additive source,
+ * document and audit evidence before a later allocation decision.
+ */
+export function parseAllocationPreparationRequest(raw: unknown): AllocationPreparationRequest {
+  const value = exactKeys(raw, ['action', 'facturaId', 'invoiceSnapshotHash', 'confirmarPreparacion'])
+  if (value.action !== 'prepare') throw new CustomerCostAllocationError('ACTION_INVALID', 'action debe ser prepare.')
+  if (value.confirmarPreparacion !== true) {
+    throw new CustomerCostAllocationError('PREPARATION_CONFIRMATION_REQUIRED', 'Confirma la preparación de la factura antes de continuar.')
+  }
+  return {
+    action: 'prepare',
+    facturaId: uuid(value.facturaId, 'facturaId'),
+    invoiceSnapshotHash: hash(value.invoiceSnapshotHash, 'invoiceSnapshotHash'),
+    confirmarPreparacion: true,
   }
 }
 

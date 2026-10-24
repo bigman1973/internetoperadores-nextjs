@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  canOpenInvoiceCandidate,
   canChooseSource,
   confirmationPayloadJson,
   roundedWeightPercentageHundredths,
@@ -29,10 +30,13 @@ assert.equal(roundedWeightPercentageHundredths('5000', '15000'), '3333')
 assert.equal(roundedWeightPercentageHundredths('0', '15000'), '0')
 assert.equal(roundedWeightPercentageHundredths('100', '0'), null)
 
-const source = { id: firstPayload.fuenteId, proveedor: 'Proveedor de prueba', numFactura: 'TEST-1', fecha: '2026-10-01', base: 100, estado: 'REVISADO', version: 7, snapshotHash: 'a'.repeat(64), clasificacionActual: null, bloqueada: false, motivoBloqueo: null }
+const source = { sourceId: firstPayload.fuenteId, facturaId: '33333333-3333-4333-8333-333333333333', proveedor: 'Proveedor de prueba', numFactura: 'TEST-1', fecha: '2026-10-01', base: 100, estado: 'REVISADO', version: 7, snapshotHash: 'a'.repeat(64), clasificacionActual: null, bloqueada: false, motivoBloqueo: null, situacion: 'APTA' }
 assert.equal(canChooseSource(sourceFromResponse(source, 0)), true)
-assert.equal(canChooseSource(sourceFromResponse({ ...source, id: '11111111-1111-4111-111111111111' }, 0)), false)
+assert.equal(canChooseSource(sourceFromResponse({ ...source, sourceId: '11111111-1111-4111-111111111111' }, 0)), false)
 assert.equal(canChooseSource(sourceFromResponse({ ...source, version: 0 }, 0)), false)
 assert.equal(canChooseSource(sourceFromResponse({ ...source, bloqueada: true }, 0)), false)
+const pending = sourceFromResponse({ ...source, sourceId: null, estado: 'SIN_FUENTE', version: 0, situacion: 'PENDIENTE_PREPARACION' }, 0)
+assert.equal(canOpenInvoiceCandidate(pending), true, 'una factura válida pendiente se puede abrir para revisión humana')
+assert.equal(canChooseSource(pending), false, 'una factura pendiente no puede repartir hasta prepararla')
 
 console.log('customer-cost-allocation-workspace-ui: OK')

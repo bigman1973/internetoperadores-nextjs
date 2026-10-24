@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   ArrowPathIcon,
   CheckCircleIcon,
@@ -11,10 +12,10 @@ import {
 
 type Classification = 'REPARTIBLE' | 'PUNTUAL' | 'ABONO_EXPLICITO'
 type Source = {
-  rowKey: string; id: string; proveedor: string; numFactura: string | null; fecha: string; base: number; estado: string; version: number; snapshotHash: string
-  clasificacionActual: string | null; bloqueada: boolean; motivoBloqueo: string | null; respuestaValida: boolean
+  rowKey: string; sourceId: string | null; facturaId: string; proveedor: string; numFactura: string | null; fecha: string; base: number; estado: string; version: number; snapshotHash: string
+  clasificacionActual: string | null; bloqueada: boolean; motivoBloqueo: string | null; situacion: 'APTA' | 'PENDIENTE_PREPARACION' | 'PENDIENTE_REVISION_FUENTE' | 'RESERVADA_OTRA_FUENTE' | 'ARCHIVADA'; respuestaValida: boolean
 }
-type SourcesResponse = { fuentes: Source[]; page: number; totalPages: number; total: number }
+type SourcesResponse = { fuentes: Source[]; page: number; totalPages: number; total: number; canWrite: boolean }
 type Contract = {
   clienteId: number | null; clienteNombre: string | null; contratoId: number; contratoTitulo: string; tarifa: string; precio: number | null
   unidadesPeriodoMeses: number | null; seleccionable: boolean; motivoExclusion: string | null
@@ -99,7 +100,8 @@ function weightPercentage(weight: string, total: bigint): string {
 
 export function sourceFromResponse(value: unknown, index: number): Source {
   const raw = isRecord(value) ? value : {}
-  const id = typeof raw.id === 'string' ? raw.id : ''
+  const sourceId = nullableString(raw.sourceId)
+  const facturaId = typeof raw.facturaId === 'string' ? raw.facturaId : ''
   const proveedor = typeof raw.proveedor === 'string' ? raw.proveedor : 'Fuente no disponible'
   const numFactura = nullableString(raw.numFactura)
   const fecha = typeof raw.fecha === 'string' ? raw.fecha : ''
@@ -110,28 +112,34 @@ export function sourceFromResponse(value: unknown, index: number): Source {
   const clasificacionActual = nullableString(raw.clasificacionActual)
   const bloqueada = typeof raw.bloqueada === 'boolean' ? raw.bloqueada : true
   const motivoBloqueo = nullableString(raw.motivoBloqueo)
+  const situacion = raw.situacion === 'APTA' || raw.situacion === 'PENDIENTE_PREPARACION' || raw.situacion === 'PENDIENTE_REVISION_FUENTE' || raw.situacion === 'RESERVADA_OTRA_FUENTE' || raw.situacion === 'ARCHIVADA' ? raw.situacion : 'ARCHIVADA'
   const respuestaValida = isRecord(value)
-    && typeof raw.id === 'string' && UUID.test(raw.id)
+    && (raw.sourceId === null || typeof raw.sourceId === 'string' && UUID.test(raw.sourceId))
+    && typeof raw.facturaId === 'string' && UUID.test(raw.facturaId)
     && typeof raw.proveedor === 'string' && raw.proveedor.trim().length > 0
     && (typeof raw.numFactura === 'string' || raw.numFactura === null)
     && typeof raw.fecha === 'string' && raw.fecha.length > 0
     && typeof raw.base === 'number' && Number.isFinite(raw.base)
     && typeof raw.estado === 'string' && raw.estado.length > 0
-    && positiveInteger(raw.version)
+    && (raw.version === 0 || positiveInteger(raw.version))
     && typeof raw.snapshotHash === 'string' && SHA256.test(raw.snapshotHash)
     && (typeof raw.clasificacionActual === 'string' || raw.clasificacionActual === null)
     && typeof raw.bloqueada === 'boolean'
     && (typeof raw.motivoBloqueo === 'string' || raw.motivoBloqueo === null)
-  return { rowKey: `${id || 'invalida'}-${index}`, id, proveedor, numFactura, fecha, base, estado, version, snapshotHash, clasificacionActual, bloqueada, motivoBloqueo, respuestaValida }
+    && typeof raw.situacion === 'string'
+  return { rowKey: `${facturaId || 'invalida'}-${index}`, sourceId, facturaId, proveedor, numFactura, fecha, base, estado, version, snapshotHash, clasificacionActual, bloqueada, motivoBloqueo, situacion, respuestaValida }
 }
 function sourcesFromResponse(value: unknown): SourcesResponse {
-  if (!isRecord(value) || !Array.isArray(value.fuentes) || !positiveInteger(value.page) || !positiveInteger(value.totalPages) || !Number.isSafeInteger(value.total) || Number(value.total) < 0) {
+  if (!isRecord(value) || !Array.isArray(value.fuentes) || !positiveInteger(value.page) || !positiveInteger(value.totalPages) || !Number.isSafeInteger(value.total) || Number(value.total) < 0 || typeof value.canWrite !== 'boolean') {
     throw new Error('La respuesta de fuentes no tiene el formato esperado.')
   }
-  return { fuentes: value.fuentes.map(sourceFromResponse), page: Number(value.page), totalPages: Number(value.totalPages), total: Number(value.total) }
+  return { fuentes: value.fuentes.map(sourceFromResponse), page: Number(value.page), totalPages: Number(value.totalPages), total: Number(value.total), canWrite: value.canWrite }
 }
 export function canChooseSource(source: Source | null): source is Source {
-  return Boolean(source && source.respuestaValida && source.estado === 'REVISADO' && !source.bloqueada)
+  return Boolean(source && source.respuestaValida && source.sourceId && source.version > 0 && source.situacion === 'APTA' && source.estado === 'REVISADO' && !source.bloqueada)
+}
+export function canOpenInvoiceCandidate(source: Source | null): source is Source {
+  return Boolean(source && source.respuestaValida && !source.bloqueada && (source.situacion === 'APTA' || source.situacion === 'PENDIENTE_PREPARACION' || source.situacion === 'PENDIENTE_REVISION_FUENTE'))
 }
 function storedConfirmationIsSafe(payloadJson: string): boolean {
   try {
@@ -189,6 +197,8 @@ async function sendConfirmation(payloadJson: string): Promise<ConfirmationResult
 }
 
 export default function CustomerCostAllocationWorkspace() {
+  const searchParams = useSearchParams()
+  const deepLinkedFacturaId = searchParams.get('facturaId') || ''
   const [sources, setSources] = useState<SourcesResponse | null>(null)
   const [sourcesBusy, setSourcesBusy] = useState(true)
   const [sourceSearch, setSourceSearch] = useState('')
@@ -210,6 +220,7 @@ export default function CustomerCostAllocationWorkspace() {
   const [pendingConfirmation, setPendingConfirmation] = useState<string | null>(null)
   const [confirmationUncertain, setConfirmationUncertain] = useState(false)
   const [pendingConfirmationLoaded, setPendingConfirmationLoaded] = useState(false)
+  const [preparationConfirmed, setPreparationConfirmed] = useState(false)
 
   const selectedContracts = useMemo(() => Object.values(chosen).sort((a, b) => a.contratoId - b.contratoId), [chosen])
   const eligibleSelected = selectedContracts.filter(row => row.seleccionable)
@@ -218,17 +229,17 @@ export default function CustomerCostAllocationWorkspace() {
   const interactionLocked = busy || Boolean(pendingConfirmation) || !pendingConfirmationLoaded
   const currentPage = sources?.page || 1
 
-  async function loadSources(search = sourceSearch, page = currentPage): Promise<SourcesResponse | null> {
+  async function loadSources(search = sourceSearch, page = currentPage, facturaId = ''): Promise<SourcesResponse | null> {
     setSourcesBusy(true); setError('')
     try {
-      const query = `${API}?recurso=fuentes&page=${encodeURIComponent(String(page))}&buscar=${encodeURIComponent(search)}`
+      const query = `${API}?recurso=fuentes&page=${encodeURIComponent(String(page))}&buscar=${encodeURIComponent(search)}${facturaId ? `&facturaId=${encodeURIComponent(facturaId)}` : ''}`
       const data = sourcesFromResponse(await api<unknown>(query))
       setSources(data)
       return data
     } catch (cause) { setError(message(cause)); return null }
     finally { setSourcesBusy(false) }
   }
-  useEffect(() => { void loadSources('', 1) }, [])
+  useEffect(() => { void loadSources('', 1, deepLinkedFacturaId) }, [deepLinkedFacturaId])
   useEffect(() => {
     try {
       const stored = window.sessionStorage.getItem(PENDING_CONFIRMATION_STORAGE)
@@ -241,11 +252,11 @@ export default function CustomerCostAllocationWorkspace() {
     finally { setPendingConfirmationLoaded(true) }
   }, [])
   useEffect(() => {
-    if (!selectedSource) return
+    if (!canChooseSource(selectedSource)) return
     const controller = new AbortController()
     setContractsBusy(true); setContracts(null); setError('')
     const timer = window.setTimeout(() => {
-      api<ContractsResponse>(`${API}?recurso=contratos&fuenteId=${encodeURIComponent(selectedSource.id)}&periodoServicio=${encodeURIComponent(servicePeriod)}&buscar=${encodeURIComponent(contractSearch)}`, { signal: controller.signal })
+      api<ContractsResponse>(`${API}?recurso=contratos&fuenteId=${encodeURIComponent(selectedSource.sourceId)}&periodoServicio=${encodeURIComponent(servicePeriod)}&buscar=${encodeURIComponent(contractSearch)}`, { signal: controller.signal })
         .then(data => { if (!controller.signal.aborted) setContracts(data) })
         .catch(cause => { if (!controller.signal.aborted) setError(message(cause)) })
         .finally(() => { if (!controller.signal.aborted) setContractsBusy(false) })
@@ -253,8 +264,8 @@ export default function CustomerCostAllocationWorkspace() {
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [selectedSource, servicePeriod, contractSearch])
   useEffect(() => {
-    if (!selectedSource) return
-    api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(selectedSource.id)}`)
+    if (!canChooseSource(selectedSource)) return
+    api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(selectedSource.sourceId)}`)
       .then(data => setHistory(data.historial)).catch(() => setHistory([]))
   }, [selectedSource])
 
@@ -262,10 +273,10 @@ export default function CustomerCostAllocationWorkspace() {
     setPreview(null); setHumanConfirmed(false); setConfirmationKey('')
   }
   function chooseSource(source: Source) {
-    if (interactionLocked || !canChooseSource(source)) return
+    if (interactionLocked || !canOpenInvoiceCandidate(source)) return
     // Retain the selected source evidence as a snapshot; later page loads cannot change this request context.
     setSelectedSource(Object.freeze({ ...source }))
-    setChosen({}); clearPreviewConfirmation(); setError(''); setNotice(''); setReverseOf(''); setClassification('REPARTIBLE')
+    setChosen({}); clearPreviewConfirmation(); setError(''); setNotice(''); setReverseOf(''); setClassification('REPARTIBLE'); setPreparationConfirmed(false)
   }
   function toggle(contract: Contract) {
     if (interactionLocked || !contract.seleccionable || classification === 'PUNTUAL') return
@@ -298,14 +309,31 @@ export default function CustomerCostAllocationWorkspace() {
     })
   }
   function buildPayload(action: 'preview' | 'confirm') {
-    if (!selectedSource) throw new Error('Selecciona una fuente de coste.')
+    if (!canChooseSource(selectedSource)) throw new Error('Prepara y revisa primero la factura para reparto.')
     const base = {
-      action, fuenteId: selectedSource.id, sourceVersion: selectedSource.version, invoiceSnapshotHash: selectedSource.snapshotHash,
+      action, fuenteId: selectedSource.sourceId, sourceVersion: selectedSource.version, invoiceSnapshotHash: selectedSource.snapshotHash,
       periodoServicio: servicePeriod, clasificacion: classification,
       selecciones: classification === 'PUNTUAL' ? [] : eligibleSelected.map(row => ({ clienteId: row.clienteId!, contratoId: row.contratoId })),
       reversionDeRepartoId: classification === 'ABONO_EXPLICITO' ? reverseOf || null : null,
     }
     return action === 'confirm' ? { ...base, idempotencyKey: confirmationKey } : base
+  }
+  async function prepareSelectedInvoice() {
+    if (interactionLocked || !selectedSource || !canOpenInvoiceCandidate(selectedSource)) return
+    if (!preparationConfirmed) return setError('Confirma que has revisado la factura antes de prepararla para reparto.')
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api<{ preparada: boolean; fuente: { id: string; version: number; invoiceSnapshotHash: string; estado: string; facturaId: string } }>(API, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'prepare', facturaId: selectedSource.facturaId, invoiceSnapshotHash: selectedSource.snapshotHash, confirmarPreparacion: true }),
+      })
+      const updated: Source = Object.freeze({ ...selectedSource, sourceId: result.fuente.id, version: result.fuente.version, snapshotHash: result.fuente.invoiceSnapshotHash, estado: result.fuente.estado, situacion: 'APTA', bloqueada: false, motivoBloqueo: null })
+      setSelectedSource(updated)
+      setSources(previous => previous ? { ...previous, fuentes: previous.fuentes.map(source => source.facturaId === updated.facturaId ? updated : source) } : previous)
+      setPreparationConfirmed(false)
+      setNotice(result.preparada ? 'Factura preparada y revisada para reparto. La factura original no se ha modificado.' : 'La factura ya estaba preparada para reparto; se reutiliza su fuente existente.')
+    } catch (cause) { setError(message(cause)) }
+    finally { setBusy(false) }
   }
   async function makePreview() {
     if (interactionLocked) return
@@ -339,8 +367,8 @@ export default function CustomerCostAllocationWorkspace() {
   }
   function refreshAfterConfirmation(source: Source | null) {
     void loadSources(sourceSearch, currentPage)
-    if (source) {
-      void api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(source.id)}`)
+    if (canChooseSource(source)) {
+      void api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(source.sourceId)}`)
         .then(data => setHistory(data.historial)).catch(() => setHistory([]))
     }
   }
@@ -402,19 +430,26 @@ export default function CustomerCostAllocationWorkspace() {
 
     <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="source-heading">
       <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div><h2 id="source-heading" className="text-lg font-bold">1. Fuente de coste revisada</h2><p className="mt-1 text-sm text-slate-700">Elige una factura de proveedor revisada. Las que ya tienen un coste directo están bloqueadas para evitar doble conteo.</p></div>
+        <div><h2 id="source-heading" className="text-lg font-bold">1. Factura de proveedor</h2><p className="mt-1 text-sm text-slate-700">Abre una factura económica válida. Si aún no está preparada, revísala y confírmala expresamente antes de clasificarla. Las que ya tienen un coste directo se bloquean para evitar doble conteo.</p></div>
         <button type="button" onClick={() => void loadSources(sourceSearch, currentPage)} disabled={sourcesBusy || interactionLocked} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold hover:bg-slate-50 disabled:opacity-60"><ArrowPathIcon className={`h-4 w-4 ${sourcesBusy ? 'animate-spin' : ''}`} />Actualizar</button>
       </div>
       <div className="p-4 sm:p-5">
         <div className="mb-3 flex gap-2"><div className="relative flex-1"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-600" /><input disabled={interactionLocked} value={sourceSearch} onChange={e => setSourceSearch(e.target.value)} onKeyDown={e => { if (!interactionLocked && e.key === 'Enter') void loadSources(sourceSearch, 1) }} placeholder="Proveedor o número de factura" className={`${input} pl-9`} /></div><button type="button" disabled={interactionLocked} onClick={() => void loadSources(sourceSearch, 1)} className="rounded-lg bg-blue-800 px-4 text-sm font-bold text-white hover:bg-blue-900 disabled:cursor-not-allowed disabled:opacity-60">Buscar</button></div>
-        {selectedSource && <div className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950"><strong>Fuente elegida:</strong> {selectedSource.proveedor} · {selectedSource.numFactura || 'sin número'} · {money(selectedSource.base)} base sin IVA.</div>}
-        <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-700"><tr><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Factura</th><th className="px-3 py-3">Base sin IVA</th><th className="px-3 py-3">Estado</th><th className="px-3 py-3"><span className="sr-only">Elegir</span></th></tr></thead><tbody>{sources?.fuentes.map(source => <tr key={source.rowKey} className={`border-t border-slate-200 ${selectedSource?.id === source.id ? 'bg-blue-50' : ''}`}><td className="px-3 py-3 font-semibold">{source.proveedor}<div className="mt-1 text-xs font-normal text-slate-600">{source.fecha || 'Fecha no disponible'}</div></td><td className="px-3 py-3">{source.numFactura || '—'}</td><td className="px-3 py-3 tabular-nums">{money(source.base)}</td><td className="px-3 py-3">{!source.respuestaValida ? <span className="font-bold text-red-800">No disponible</span> : source.bloqueada ? <span className="font-bold text-red-800">Bloqueada · directo</span> : source.estado !== 'REVISADO' ? <span className="font-bold text-amber-900">No revisada</span> : source.clasificacionActual ? <span>Decisión vigente: {source.clasificacionActual}</span> : <span className="text-emerald-800">Disponible</span>}</td><td className="px-3 py-3 text-right"><button type="button" disabled={interactionLocked || !canChooseSource(source)} onClick={() => chooseSource(source)} className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-blue-950 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{selectedSource?.id === source.id ? 'Elegida' : 'Elegir'}</button></td></tr>)}</tbody></table></div>
-        {!sourcesBusy && sources?.fuentes.length === 0 && <p className="py-7 text-center text-sm text-slate-700">No hay fuentes revisadas que coincidan con la búsqueda.</p>}
+        {selectedSource && <div className="mb-4 rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm text-blue-950"><strong>Factura elegida:</strong> {selectedSource.proveedor} · {selectedSource.numFactura || 'sin número'} · {money(selectedSource.base)} base sin IVA.</div>}
+        <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-700"><tr><th className="px-3 py-3">Proveedor</th><th className="px-3 py-3">Factura</th><th className="px-3 py-3">Base sin IVA</th><th className="px-3 py-3">Para reparto</th><th className="px-3 py-3"><span className="sr-only">Abrir</span></th></tr></thead><tbody>{sources?.fuentes.map(source => <tr key={source.rowKey} className={`border-t border-slate-200 ${selectedSource?.facturaId === source.facturaId ? 'bg-blue-50' : ''}`}><td className="px-3 py-3 font-semibold">{source.proveedor}<div className="mt-1 text-xs font-normal text-slate-600">{source.fecha || 'Fecha no disponible'}</div></td><td className="px-3 py-3">{source.numFactura || '—'}</td><td className="px-3 py-3 tabular-nums">{money(source.base)}</td><td className="px-3 py-3">{!source.respuestaValida ? <span className="font-bold text-red-800">No disponible</span> : source.bloqueada ? <span className="font-bold text-red-800">Bloqueada · coste directo</span> : source.situacion === 'PENDIENTE_PREPARACION' ? <span className="font-bold text-amber-900">Pendiente de preparar</span> : source.situacion === 'PENDIENTE_REVISION_FUENTE' ? <span className="font-bold text-amber-900">Pendiente de revisar</span> : source.clasificacionActual ? <span>Decisión vigente: {source.clasificacionActual}</span> : <span className="font-bold text-emerald-800">Apta</span>}</td><td className="px-3 py-3 text-right"><button type="button" disabled={interactionLocked || !canOpenInvoiceCandidate(source)} onClick={() => chooseSource(source)} className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-xs font-bold text-blue-950 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50">{selectedSource?.facturaId === source.facturaId ? 'Abierta' : 'Abrir'}</button></td></tr>)}</tbody></table></div>
+        {!sourcesBusy && sources?.fuentes.length === 0 && <p className="py-7 text-center text-sm text-slate-700">No hay facturas económicas válidas que coincidan con la búsqueda.</p>}
         <div className="mt-3 flex flex-col gap-2 text-sm text-slate-700 sm:flex-row sm:items-center sm:justify-between"><p>{sources ? <>Página {sources.page} de {sources.totalPages} · {sources.total} fuente(s)</> : 'Cargando fuentes…'}</p><div className="flex gap-2"><button type="button" disabled={interactionLocked || sourcesBusy || !sources || sources.page <= 1} onClick={() => void loadSources(sourceSearch, currentPage - 1)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Anterior</button><button type="button" disabled={interactionLocked || sourcesBusy || !sources || sources.page >= sources.totalPages} onClick={() => void loadSources(sourceSearch, currentPage + 1)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Siguiente</button></div></div>
       </div>
     </section>
 
-    {selectedSource && <>
+    {selectedSource && !canChooseSource(selectedSource) && <section className="rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-sm sm:p-5" aria-labelledby="prepare-heading">
+      <h2 id="prepare-heading" className="text-lg font-bold text-amber-950">2. Revisar y preparar esta factura</h2>
+      <p className="mt-1 max-w-4xl text-sm leading-6 text-amber-950">Esta factura es económica y válida, pero todavía no está preparada para reparto. Esta acción crea o revisa su fuente de coste con un snapshot y auditoría; no cambia importes, estado fiscal, OCR, documento ni imputaciones de la factura.</p>
+      <label className="mt-4 flex cursor-pointer items-start gap-2 text-sm text-slate-900"><input type="checkbox" disabled={interactionLocked || !sources?.canWrite} checked={preparationConfirmed} onChange={event => setPreparationConfirmed(event.target.checked)} /><span><strong>Confirmo que he revisado esta factura para clasificarla individualmente.</strong> Entiendo que la fuente quedará preparada para decidir si es repartible o puntual, sin clasificar otras facturas del proveedor.</span></label>
+      <button type="button" disabled={interactionLocked || !sources?.canWrite || !preparationConfirmed} onClick={() => void prepareSelectedInvoice()} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-700 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"><CheckCircleIcon className="h-4 w-4" />Preparar factura para reparto</button>
+    </section>}
+
+    {canChooseSource(selectedSource) && <>
       <section className="rounded-xl border border-slate-200 bg-white shadow-sm" aria-labelledby="method-heading">
         <div className="border-b border-slate-200 px-4 py-4 sm:px-5"><h2 id="method-heading" className="text-lg font-bold">2. Decisión humana y período de servicio</h2><p className="mt-1 text-sm text-slate-700">La vigencia se comprueba para el período indicado. Si no hay precio histórico comprobable, el contrato queda excluido y no se inventa una tasa.</p></div>
         <fieldset disabled={interactionLocked} className="grid gap-4 p-4 sm:grid-cols-3 sm:p-5"><label><span className="mb-1.5 block text-sm font-bold">Mes de servicio</span><input type="month" value={servicePeriod} onChange={e => { if (interactionLocked) return; setServicePeriod(e.target.value); setChosen({}); clearPreviewConfirmation() }} className={input} /></label><div className="sm:col-span-2"><span className="mb-1.5 block text-sm font-bold">Clasificación de esta factura</span><div className="grid gap-2 sm:grid-cols-3"><label className={`cursor-pointer rounded-lg border p-3 text-sm ${classification === 'REPARTIBLE' ? 'border-blue-700 bg-blue-50' : 'border-slate-300'}`}><input type="radio" checked={classification === 'REPARTIBLE'} onChange={() => { if (interactionLocked) return; setClassification('REPARTIBLE'); setChosen({}); clearPreviewConfirmation() }} /> <strong>Repartible</strong><span className="mt-1 block text-xs text-slate-700">Sólo contratos que selecciones.</span></label><label className={`cursor-pointer rounded-lg border p-3 text-sm ${classification === 'PUNTUAL' ? 'border-blue-700 bg-blue-50' : 'border-slate-300'}`}><input type="radio" checked={classification === 'PUNTUAL'} onChange={() => { if (interactionLocked) return; setClassification('PUNTUAL'); setChosen({}); clearPreviewConfirmation() }} /> <strong>Puntual</strong><span className="mt-1 block text-xs text-slate-700">Fuera de coste compartido; no es cero.</span></label><label className={`cursor-pointer rounded-lg border p-3 text-sm ${classification === 'ABONO_EXPLICITO' ? 'border-blue-700 bg-blue-50' : 'border-slate-300'}`}><input type="radio" checked={classification === 'ABONO_EXPLICITO'} onChange={() => { if (interactionLocked) return; setClassification('ABONO_EXPLICITO'); setChosen({}); clearPreviewConfirmation() }} /> <strong>Abono explícito</strong><span className="mt-1 block text-xs text-slate-700">Sólo para base negativa y reversión manual.</span></label></div></div>

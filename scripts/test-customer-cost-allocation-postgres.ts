@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '../lib/prisma'
-import { CustomerCostAllocationError, currentUtcPeriod, parseAllocationRequest } from '../lib/finanzas/customer-cost-allocation-core'
+import { CustomerCostAllocationError, currentUtcPeriod, parseAllocationPreparationRequest, parseAllocationRequest } from '../lib/finanzas/customer-cost-allocation-core'
 import {
   confirmCustomerCostAllocationTx,
   listCandidateContracts,
   listEligibleSources,
+  prepareCustomerCostAllocationSourceTx,
   previewCustomerCostAllocation,
 } from '../lib/finanzas/customer-cost-allocation-db'
 import { digest, invoiceSnapshot } from '../lib/finanzas/operator-costs'
@@ -196,6 +197,34 @@ async function run() {
       const sourceAfterConfirm = await tx.facturaRecibida.findUniqueOrThrow({ where: { id: invoice.id }, select: { proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true } })
       assert.deepEqual(snapshotLegacy(sourceAfterConfirm), sourceBeforeConfirm, 'Confirmar no reescribe la fuente ni ningún campo legacy de factura')
 
+      // A valid received invoice that does not yet have an operator source must
+      // enter the flow only through an explicit, human-confirmed preparation.
+      const prepareInvoice = await tx.facturaRecibida.create({
+        data: {
+          id: randomUUID(), proveedor: `${TAG}-PREPARAR`, numFactura: `${TAG}-PREPARAR-FR`, fecha: date,
+          base: 33, tipoIva: 0, importeIva: 0, tipoIrpf: 0, importeIrpf: 0, total: 33,
+          concepto: `${TAG} factura para preparar reparto`, lineasDetalle: null, estado: 'PENDIENTE_REVISION', calidad: 'VALIDA',
+          naturalezaDocumento: 'FACTURA_RECIBIDA', conflictoIdentidad: false, duplicadoExterno: false, imputadoAVentas: false,
+        },
+        select: { id: true, proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true, estado: true },
+      })
+      const prepareBefore = snapshotLegacy(prepareInvoice)
+      const preparation = parseAllocationPreparationRequest({ action: 'prepare', facturaId: prepareInvoice.id, invoiceSnapshotHash: digest(invoiceSnapshot(prepareInvoice)), confirmarPreparacion: true })
+      const prepared = await prepareCustomerCostAllocationSourceTx(tx, actor.id, preparation)
+      assert.equal(prepared.preparada, true, 'la factura sólo se prepara después de la acción explícita')
+      assert.equal(prepared.fuente.estado, 'REVISADO')
+      const preparedSource = await tx.fuenteCosteOperadora.findUniqueOrThrow({ where: { id: prepared.fuente.id }, include: { documentos: true, auditoria: true } })
+      assert.equal(preparedSource.documentos.length, 1, 'preparar crea exactamente un vínculo documental aditivo')
+      assert.equal(preparedSource.documentos[0].facturaId, prepareInvoice.id)
+      assert.equal(preparedSource.documentos[0].rol, 'ORIGINAL')
+      assert.equal(preparedSource.auditoria.length, 1, 'preparar deja auditoría aditiva')
+      assert.equal(preparedSource.auditoria[0].accion, 'PREPARAR_REPARTO')
+      const prepareAfter = await tx.facturaRecibida.findUniqueOrThrow({ where: { id: prepareInvoice.id }, select: { proveedor: true, numFactura: true, fecha: true, base: true, concepto: true, lineasDetalle: true } })
+      assert.deepEqual(snapshotLegacy(prepareAfter), prepareBefore, 'preparar no altera estado fiscal, importes ni documento de la factura')
+      const reprepare = await prepareCustomerCostAllocationSourceTx(tx, actor.id, preparation)
+      assert.equal(reprepare.preparada, false, 'un reintento reutiliza la fuente existente y no la duplica')
+      assert.equal(reprepare.fuente.id, prepared.fuente.id)
+
       const replay = await confirmCustomerCostAllocationTx(tx, actor.id, confirmInput)
       assert.equal(replay.idempotente, true, 'La misma clave devuelve el recibo ya creado')
       assert.equal(replay.reparto.id, confirmed.reparto.id)
@@ -285,7 +314,7 @@ async function run() {
   }
   assert(completed, 'La prueba no alcanzó el rollback obligatorio')
   assert.deepEqual(await databaseSnapshot(), before, 'El rollback alteró el staging preexistente')
-  console.log(JSON.stringify({ passed: true, rollback: true, readOnly: true, previewExact: true, idempotency: true, staleReplay: true, puntualSubstitution: true, duplicateSumGuard: true, atomicFailure: true, sourceLegacyUnchanged: true }))
+  console.log(JSON.stringify({ passed: true, rollback: true, readOnly: true, previewExact: true, sourcePreparation: true, idempotency: true, staleReplay: true, puntualSubstitution: true, duplicateSumGuard: true, atomicFailure: true, sourceLegacyUnchanged: true }))
 }
 
 run()

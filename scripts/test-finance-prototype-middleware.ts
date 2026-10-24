@@ -14,7 +14,7 @@ const allowedEnd=source.indexOf("\n    if (path.startsWith('/api/cron/')",allowe
 assert.ok(allowedEnd>allowedStart)
 const expression=source.slice(allowedStart+'const allowed = '.length,allowedEnd).trim().replace(/;$/,'')
 const allowed=new Function('path','request','isAuthorizedP2Path',`return ${expression}`) as (path:string,request:{method:string},p2:(path:string)=>boolean)=>boolean
-for(const path of ['/api/admin/finanzas/modo-facil','/api/admin/finanzas/modo-facil/foto','/api/admin/finanzas/modo-facil/deshacer','/api/admin/finanzas/modo-facil/reglas','/api/admin/finanzas/modo-facil/terceros','/api/admin/finanzas/modo-facil/automaticas','/api/admin/finanzas/reparto-clientes']){
+for(const path of ['/api/admin/finanzas/modo-facil','/api/admin/finanzas/modo-facil/foto','/api/admin/finanzas/modo-facil/deshacer','/api/admin/finanzas/modo-facil/reglas','/api/admin/finanzas/modo-facil/terceros','/api/admin/finanzas/modo-facil/terceros/bloque','/api/admin/finanzas/modo-facil/automaticas','/api/admin/finanzas/reparto-clientes']){
  assert.equal(allowed(path,{method:'POST'},()=>false),true)
  for(const method of ['PUT','PATCH','DELETE'])assert.equal(allowed(path,{method},()=>false),false)
 }

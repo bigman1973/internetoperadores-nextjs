@@ -39,6 +39,11 @@ interface Factura {
   oneDriveItemId?: string;
   estadoCarpeta?: string;
   etiquetaMateriales?: boolean;
+  calidad?: 'VALIDA' | 'REVISAR_LECTURA' | 'COPIA';
+  copiaDeId?: string | null;
+  conflictoIdentidad?: boolean;
+  duplicadoExterno?: boolean;
+  naturalezaDocumento?: string;
   movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
 }
 
@@ -243,6 +248,16 @@ export default function FacturasPage() {
 
   function formatFecha(str: string) {
     return new Date(str).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: '2-digit' });
+  }
+
+  function puedeClasificarReparto(factura: Factura) {
+    return factura.calidad === 'VALIDA'
+      && !factura.copiaDeId
+      && !factura.conflictoIdentidad
+      && !factura.duplicadoExterno
+      && factura.naturalezaDocumento === 'FACTURA_RECIBIDA'
+      && factura.proveedor.trim().toUpperCase() !== 'ERROR_OCR'
+      && factura.proveedor.trim().toUpperCase() !== 'DESCONOCIDO';
   }
 
   return (
@@ -665,6 +680,17 @@ export default function FacturasPage() {
                                 <XCircleIcon className="h-5 w-5" />
                               </button>
                             </>
+                          )}
+                          {puedeClasificarReparto(f) && (
+                            <button
+                              type="button"
+                              onClick={(event) => { event.stopPropagation(); router.push(`/admin/finanzas/reparto-clientes?facturaId=${encodeURIComponent(f.id)}`); }}
+                              disabled={!canWrite}
+                              className="rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-800 disabled:cursor-not-allowed disabled:opacity-50 sm:text-xs"
+                              title="Abrir esta factura para decidir manualmente si es repartible o puntual"
+                            >
+                              Marcar repartible / puntual
+                            </button>
                           )}
                         </div>
                       </td>

@@ -3,22 +3,24 @@ export type EasyAccessProfile = Readonly<{
   canManageAutomation: boolean;
 }>;
 
-/**
- * El perfil es una autoridad de servidor. Una respuesta parcial o malformada no
- * concede acciones de automatización en el navegador.
- */
+/** Un perfil parcial o malformado nunca habilita una vista avanzada en el navegador. */
 export function parseEasyAccessProfile(value: unknown): EasyAccessProfile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('El perfil de acceso no tiene un formato válido.');
+    throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
   const raw = value as Record<string, unknown>;
   if (typeof raw.easyOnly !== 'boolean' || typeof raw.canManageAutomation !== 'boolean') {
-    throw new Error('El perfil de acceso está incompleto.');
+    throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
   return { easyOnly: raw.easyOnly, canManageAutomation: raw.canManageAutomation };
 }
 
-/** La ausencia, el error o un perfil no verificable bloquea la automatización. */
+/** La ausencia o el error de perfil conservan la vista sencilla, sin datos avanzados momentáneos. */
+export function mayViewAdvancedEasyWorkspace(profile: EasyAccessProfile | null | undefined): boolean {
+  return profile?.easyOnly === false;
+}
+
+/** La ausencia, el error o un perfil no verificable bloquea las reglas. */
 export function mayManageAutomation(profile: EasyAccessProfile | null | undefined): boolean {
   return profile?.canManageAutomation === true && profile.easyOnly === false;
 }
@@ -27,11 +29,7 @@ const DOCUMENTO_PRIVADO = /^\/api\/admin\/finanzas\/modo-facil\/documentos\/[A-Z
 const ARCHIVO_B5_PRIVADO = /^\/api\/admin\/finanzas\/movimientos\/[A-Za-z0-9_-]{1,100}\/archivos$/;
 const ADJUNTO_B5 = /^ADJUNTO_B5:[A-Za-z0-9_-]{1,100}$/;
 
-/**
- * Acepta exclusivamente las dos rutas privadas permitidas por el perfil de
- * Modo Fácil. No se permite host, hash, parámetros repetidos ni rutas genéricas
- * aunque procedan de un campo histórico o de concepto bancario.
- */
+/** Acepta exclusivamente las rutas privadas permitidas por Modo Fácil. */
 export function safeEasyPrivateHref(value: unknown): string | null {
   if (typeof value !== 'string' || value.length === 0 || value.length > 600 || !value.startsWith('/')) return null;
   let parsed: URL;

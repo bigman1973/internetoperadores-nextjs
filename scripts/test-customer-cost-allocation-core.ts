@@ -5,6 +5,7 @@ import {
   assertClassificationForCost,
   currentUtcPeriod,
   normalizedTwelfthCents,
+  parseAllocationPreparationRequest,
   parseAllocationRequest,
   type ValidContractSale,
 } from '@/lib/finanzas/customer-cost-allocation-core'
@@ -54,6 +55,10 @@ assert.throws(() => parseAllocationRequest({ ...request, unexpected: true }), /c
 assert.throws(() => parseAllocationRequest({ ...request, clasificacion: 'PUNTUAL', selecciones: [{ clienteId: 1, contratoId: 12 }] }), /puntual/i)
 assert.throws(() => parseAllocationRequest({ ...request, action: 'confirm' }), /idempotencyKey/i)
 assert.doesNotThrow(() => parseAllocationRequest({ ...request, action: 'preview', clasificacion: 'PUNTUAL', selecciones: [] }))
+assert.throws(() => parseAllocationPreparationRequest({ action: 'prepare', facturaId: sourceId, invoiceSnapshotHash: 'a'.repeat(64), confirmarPreparacion: false }), /confirma/i)
+assert.deepEqual(parseAllocationPreparationRequest({ action: 'prepare', facturaId: sourceId, invoiceSnapshotHash: 'a'.repeat(64), confirmarPreparacion: true }), {
+  action: 'prepare', facturaId: sourceId, invoiceSnapshotHash: 'a'.repeat(64), confirmarPreparacion: true,
+})
 assert.equal(currentUtcPeriod(new Date('2026-10-24T23:59:59.999Z')), '2026-10')
 
 // A replay compares the semantic decision, not transport action/key metadata.

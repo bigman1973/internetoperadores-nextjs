@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { assertPrototypeStaging } from './prototype-staging'
 import { facturaEconomicaSQL } from './invoice-economic-filter'
-import { digest, invoiceSnapshot } from './operator-costs'
+import { digest, invoiceSnapshot, sourceKey } from './operator-costs'
 import {
   CustomerCostAllocationError,
   allocationPayloadHash,
@@ -15,6 +15,7 @@ import {
   periodBounds,
   verifiedUnits,
   type AllocationRequest,
+  type AllocationPreparationRequest,
   type ValidContractSale,
 } from './customer-cost-allocation-core'
 
@@ -75,7 +76,8 @@ export type CandidateContract = {
   motivoExclusion: string | null
 }
 export type SourceListItem = {
-  id: string
+  sourceId: string | null
+  facturaId: string
   proveedor: string
   numFactura: string | null
   fecha: string
@@ -86,9 +88,17 @@ export type SourceListItem = {
   clasificacionActual: string | null
   bloqueada: boolean
   motivoBloqueo: string | null
+  situacion: 'APTA' | 'PENDIENTE_PREPARACION' | 'PENDIENTE_REVISION_FUENTE' | 'RESERVADA_OTRA_FUENTE' | 'ARCHIVADA'
 }
-type SourceListRaw = Omit<SourceListItem, 'fecha' | 'clasificacionActual' | 'bloqueada' | 'motivoBloqueo'> & {
+type SourceListRaw = Omit<SourceListItem, 'fecha' | 'clasificacionActual' | 'bloqueada' | 'motivoBloqueo' | 'situacion'> & {
   fecha: Date
+  concepto: string | null
+  lineasDetalle: string | null
+  estado: string | null
+  version: number | null
+  snapshotHash: string | null
+  linkedDocumentRole: string | null
+  clasificacionActual: string | null
   totalRows: bigint | number
   directAllocations: bigint | number
   directLinks: bigint | number
@@ -355,24 +365,26 @@ function previewFrom(source: SourceRow, validated: ReturnType<typeof validateSou
   }
 }
 
-export async function listEligibleSources(search = '', page = 1): Promise<{ fuentes: SourceListItem[]; page: number; totalPages: number; total: number }> {
+export async function listEligibleSources(search = '', page = 1, facturaId?: string): Promise<{ fuentes: SourceListItem[]; page: number; totalPages: number; total: number }> {
   const term = search.trim().slice(0, 160)
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1
   const where = term ? Prisma.sql`AND (fr.proveedor ILIKE ${`%${term.replace(/[\\%_]/g, '\\$&')}%`} ESCAPE '\\' OR COALESCE(fr.num_factura, '') ILIKE ${`%${term.replace(/[\\%_]/g, '\\$&')}%`} ESCAPE '\\')` : Prisma.empty
+  const invoice = facturaId ? Prisma.sql`AND fr.id = ${facturaId}` : Prisma.empty
   const rows = await prisma.$queryRaw<SourceListRaw[]>(Prisma.sql`
-    SELECT f.id, fr.proveedor, fr.num_factura AS "numFactura", fr.fecha, fr.base, f.estado, f.version,
-      d.version AS "snapshotHash",
+    SELECT f.id AS "sourceId", fr.id AS "facturaId", fr.proveedor, fr.num_factura AS "numFactura", fr.fecha, fr.base, fr.concepto, fr.lineas_detalle AS "lineasDetalle",
+      f.estado, f.version, d.version AS "snapshotHash", d.rol AS "linkedDocumentRole",
+      NULL::text AS "clasificacionActual",
       (SELECT COUNT(*) FROM imputaciones_coste_cliente ic WHERE ic.factura_id = fr.id AND ic.confirmado = true) AS "directAllocations",
       (SELECT COUNT(*) FROM vinculaciones_facturas vf WHERE vf.factura_recibida_id = fr.id) AS "directLinks", fr.imputado_a_ventas AS imputed,
       (SELECT COUNT(*) FROM documentos_coste_operadora sd JOIN imputaciones_coste_cliente ic ON ic.factura_id = sd.factura_id AND ic.confirmado = true WHERE sd.fuente_id = f.id) AS "sourceDirectAllocations",
       (SELECT COUNT(*) FROM documentos_coste_operadora sd JOIN vinculaciones_facturas vf ON vf.factura_recibida_id = sd.factura_id WHERE sd.fuente_id = f.id) AS "sourceDirectLinks",
       EXISTS (SELECT 1 FROM documentos_coste_operadora sd JOIN facturas_recibidas sf ON sf.id = sd.factura_id WHERE sd.fuente_id = f.id AND sf.imputado_a_ventas = true) AS "sourceImputed",
       COUNT(*) OVER() AS "totalRows"
-    FROM fuentes_coste_operadora f
-    JOIN documentos_coste_operadora d ON d.fuente_id = f.id AND d.rol = 'ORIGINAL'
-    JOIN facturas_recibidas fr ON fr.id = d.factura_id
-    WHERE f.estado = 'REVISADO' AND ${facturaEconomicaSQL('fr')}
-      AND fr.conflicto_identidad = false AND fr.duplicado_externo = false ${where}
+    FROM facturas_recibidas fr
+    LEFT JOIN documentos_coste_operadora d ON d.factura_id = fr.id
+    LEFT JOIN fuentes_coste_operadora f ON f.id = d.fuente_id
+    WHERE ${facturaEconomicaSQL('fr')}
+      AND fr.conflicto_identidad = false AND fr.duplicado_externo = false ${where} ${invoice}
     ORDER BY fr.fecha DESC, f.id ASC
     OFFSET ${(safePage - 1) * 25} LIMIT 25
   `)
@@ -380,11 +392,38 @@ export async function listEligibleSources(search = '', page = 1): Promise<{ fuen
   return {
     fuentes: rows.map(row => {
       const blocked = row.imputed || row.sourceImputed || count(row.directAllocations) > 0 || count(row.directLinks) > 0 || count(row.sourceDirectAllocations) > 0 || count(row.sourceDirectLinks) > 0
-      return { id: row.id, proveedor: row.proveedor, numFactura: row.numFactura, fecha: isoDate(row.fecha), base: Number(row.base), estado: row.estado, version: row.version, snapshotHash: row.snapshotHash,
-        clasificacionActual: null, bloqueada: blocked, motivoBloqueo: blocked ? 'DIRECT_COST_CONFLICT' : null }
+      const reservedAsEvidence = Boolean(row.sourceId && row.linkedDocumentRole !== 'ORIGINAL')
+      const estado = row.estado || 'SIN_FUENTE'
+      const situacion: SourceListItem['situacion'] = reservedAsEvidence ? 'RESERVADA_OTRA_FUENTE'
+        : !row.sourceId ? 'PENDIENTE_PREPARACION'
+        : estado === 'REVISADO' ? 'APTA'
+        : estado === 'ARCHIVADO' ? 'ARCHIVADA'
+        : 'PENDIENTE_REVISION_FUENTE'
+      const invoiceHash = digest(invoiceSnapshot({ proveedor: row.proveedor, numFactura: row.numFactura, fecha: row.fecha, base: Number(row.base), concepto: row.concepto, lineasDetalle: row.lineasDetalle }))
+      return {
+        sourceId: row.sourceId,
+        facturaId: row.facturaId,
+        proveedor: row.proveedor,
+        numFactura: row.numFactura,
+        fecha: isoDate(row.fecha),
+        base: Number(row.base),
+        estado,
+        version: row.version || 0,
+        snapshotHash: row.snapshotHash || invoiceHash,
+        clasificacionActual: row.clasificacionActual || null,
+        bloqueada: blocked || reservedAsEvidence || estado === 'ARCHIVADO',
+        motivoBloqueo: blocked ? 'DIRECT_COST_CONFLICT' : reservedAsEvidence ? 'DOCUMENT_RESERVED_AS_EVIDENCE' : estado === 'ARCHIVADO' ? 'SOURCE_ARCHIVED' : null,
+        situacion,
+      }
     }),
     page: safePage, total, totalPages: Math.max(1, Math.ceil(total / 25)),
   }
+}
+
+/** Read-only helper for a facturaId deep-link from Facturas recibidas. */
+export async function getAllocationInvoiceCandidate(facturaId: string): Promise<SourceListItem | null> {
+  const result = await listEligibleSources('', 1, facturaId)
+  return result.fuentes[0] || null
 }
 
 export async function listCandidateContracts(fuenteId: string, periodoServicio: string, search = ''): Promise<{ periodoServicio: string; periodoActual: string; contratos: CandidateContract[] }> {
@@ -400,6 +439,123 @@ export async function previewCustomerCostAllocation(request: AllocationRequest) 
   const validated = validateSource(source, request)
   const sales = await validatedSales(prisma, request)
   return previewFrom(source, validated, request, sales)
+}
+
+type PreparatoryInvoiceRow = {
+  facturaId: string
+  proveedor: string
+  numFactura: string | null
+  fecha: Date
+  base: number
+  concepto: string | null
+  lineasDetalle: string | null
+  estado: string
+  imputadoAVentas: boolean
+  directAllocations: bigint | number
+  directLinks: bigint | number
+}
+
+export async function prepareCustomerCostAllocationSourceTx(
+  tx: CustomerCostAllocationTx,
+  actorId: number,
+  request: AllocationPreparationRequest,
+) {
+  await assertCustomerCostAllocationTxStage(tx)
+  await requireLiveAllocationWriter(tx, actorId)
+  await tx.$queryRaw(Prisma.sql`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${request.facturaId}))`)
+  const rows = await tx.$queryRaw<PreparatoryInvoiceRow[]>(Prisma.sql`
+    SELECT fr.id AS "facturaId", fr.proveedor, fr.num_factura AS "numFactura", fr.fecha, fr.base, fr.concepto,
+      fr.lineas_detalle AS "lineasDetalle", fr.estado, fr.imputado_a_ventas AS "imputadoAVentas",
+      (SELECT COUNT(*) FROM imputaciones_coste_cliente ic WHERE ic.factura_id = fr.id AND ic.confirmado = true) AS "directAllocations",
+      (SELECT COUNT(*) FROM vinculaciones_facturas vf WHERE vf.factura_recibida_id = fr.id) AS "directLinks"
+    FROM facturas_recibidas fr
+    WHERE fr.id = ${request.facturaId} AND ${facturaEconomicaSQL('fr')}
+      AND fr.conflicto_identidad = false AND fr.duplicado_externo = false
+    FOR UPDATE
+  `)
+  if (rows.length !== 1) sourceError('La factura ya no es una factura económica canónica y válida.', 'INVOICE_NOT_ELIGIBLE')
+  const invoice = rows[0]
+  if (invoice.estado === 'RECHAZADA') sourceError('La factura está rechazada y no se puede preparar para reparto.', 'INVOICE_NOT_ELIGIBLE')
+  if (invoice.imputadoAVentas || count(invoice.directAllocations) > 0 || count(invoice.directLinks) > 0) {
+    sourceError('La factura ya tiene una imputación directa o vínculo de venta; no se puede preparar como coste compartido.', 'DIRECT_COST_CONFLICT')
+  }
+  const snapshot = invoiceSnapshot(invoice)
+  const snapshotHash = digest(snapshot)
+  if (snapshotHash !== request.invoiceSnapshotHash) {
+    sourceError('La factura cambió desde que abriste el reparto. Recárgala antes de preparar la fuente.', 'INVOICE_VERSION_CONFLICT')
+  }
+  // Reject only an unusable zero base here. A negative invoice can later be
+  // handled solely through the explicit credit mapping flow.
+  const baseCentimos = eurosToCentsExact(invoice.base, 'La base de la factura')
+  if (baseCentimos === BigInt(0)) sourceError('Una base cero no puede prepararse para reparto.', 'ZERO_COST')
+
+  const linked = await tx.$queryRaw<Array<{ sourceId: string; estado: string; version: number; documentRole: string; documentVersion: string }>>(Prisma.sql`
+    SELECT f.id AS "sourceId", f.estado, f.version, d.rol AS "documentRole", d.version AS "documentVersion"
+    FROM documentos_coste_operadora d
+    JOIN fuentes_coste_operadora f ON f.id = d.fuente_id
+    WHERE d.factura_id = ${invoice.facturaId}
+    FOR UPDATE OF d, f
+  `)
+  if (linked.length) {
+    const current = linked[0]
+    if (current.documentRole !== 'ORIGINAL') {
+      sourceError('La factura ya está reservada como evidencia de otra fuente y no se puede duplicar.', 'DOCUMENT_RESERVED_AS_EVIDENCE')
+    }
+    if (current.documentVersion !== snapshotHash) {
+      sourceError('La fuente ya vinculada conserva una versión documental distinta. Revísala antes de repartir.', 'SOURCE_CHANGED')
+    }
+    if (current.estado === 'ARCHIVADO') sourceError('La fuente está archivada y no se puede reactivar para reparto.', 'SOURCE_ARCHIVED')
+    if (current.estado !== 'REVISADO') {
+      const version = current.version + 1
+      await tx.$executeRaw(Prisma.sql`UPDATE fuentes_coste_operadora SET estado = 'REVISADO', version = ${version} WHERE id = ${current.sourceId} AND version = ${current.version}`)
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO auditoria_coste_operadora (id, fuente_id, usuario_id, accion, datos)
+        VALUES (${randomUUID()}, ${current.sourceId}, ${actorId}, 'REVISAR_PARA_REPARTO',
+          ${stringifyJson({ schema: 'CUSTOMER_COST_SOURCE_PREPARATION_V1', facturaId: invoice.facturaId, invoiceSnapshotHash: snapshotHash, baseCentimos: baseCentimos.toString(), origin: 'FACTURA_RECIBIDA', explicitHumanConfirmation: true, beforeState: current.estado })}::jsonb)
+      `)
+      return { preparada: true, fuente: { id: current.sourceId, version, invoiceSnapshotHash: snapshotHash, estado: 'REVISADO', facturaId: invoice.facturaId } }
+    }
+    return { preparada: false, fuente: { id: current.sourceId, version: current.version, invoiceSnapshotHash: snapshotHash, estado: current.estado, facturaId: invoice.facturaId } }
+  }
+
+  const sourceId = randomUUID()
+  const claveOrigen = sourceKey('PROPIA', invoice.facturaId, 'Internet Operadores', snapshot)
+  const sameIdentity = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM fuentes_coste_operadora WHERE clave_origen = ${claveOrigen} FOR UPDATE
+  `)
+  if (sameIdentity.length) sourceError('Ya existe una fuente con la misma identidad documental; recarga antes de continuar.', 'SOURCE_IDENTITY_CONFLICT')
+  const periodo = isoDate(invoice.fecha).slice(0, 7)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO fuentes_coste_operadora (id, clave_origen, origen, empresa_pagadora, periodo, estado, snapshot, fuente_version, version, notas, creado_por, updated_at)
+    VALUES (${sourceId}, ${claveOrigen}, 'PROPIA', 'Internet Operadores', ${periodo}, 'REVISADO', ${stringifyJson(snapshot)}::jsonb, ${snapshotHash}, 1,
+      'Fuente preparada y revisada manualmente para decidir reparto entre clientes; no modifica la factura recibida.', ${actorId}, CURRENT_TIMESTAMP)
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO documentos_coste_operadora (id, fuente_id, factura_id, rol, version)
+    VALUES (${randomUUID()}, ${sourceId}, ${invoice.facturaId}, 'ORIGINAL', ${snapshotHash})
+  `)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO auditoria_coste_operadora (id, fuente_id, usuario_id, accion, datos)
+    VALUES (${randomUUID()}, ${sourceId}, ${actorId}, 'PREPARAR_REPARTO',
+      ${stringifyJson({ schema: 'CUSTOMER_COST_SOURCE_PREPARATION_V1', facturaId: invoice.facturaId, invoiceSnapshotHash: snapshotHash, baseCentimos: baseCentimos.toString(), origin: 'FACTURA_RECIBIDA', explicitHumanConfirmation: true })}::jsonb)
+  `)
+  return { preparada: true, fuente: { id: sourceId, version: 1, invoiceSnapshotHash: snapshotHash, estado: 'REVISADO', facturaId: invoice.facturaId } }
+}
+
+export async function prepareCustomerCostAllocationSource(actorId: number, request: AllocationPreparationRequest) {
+  try {
+    await assertPrototypeStaging()
+    return await prisma.$transaction(
+      async tx => prepareCustomerCostAllocationSourceTx(tx, actorId, request),
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 },
+    )
+  } catch (error) {
+    if (error instanceof CustomerCostAllocationError) throw error
+    if (isUndefinedTable(error)) throw new CustomerCostAllocationError('MIGRATION_PENDING', 'La migración de reparto aún no está aplicada en staging; no se preparó ninguna fuente.', 503)
+    const prismaCode = (error as { code?: string } | null)?.code
+    if (prismaCode === 'P2002' || prismaCode === 'P2034') throw new CustomerCostAllocationError('CONCURRENT_CONFLICT', 'Conflicto concurrente; recarga y vuelve a preparar la fuente.', 409)
+    throw error
+  }
 }
 
 async function currentReceipt(client: DbClient, allocationId: string) {

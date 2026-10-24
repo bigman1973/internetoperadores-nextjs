@@ -113,6 +113,7 @@ export async function middleware(request) {
       // Aplicación nativa acotada aprobada el 24/10; el handler exige staging,
       // perfil vivo y política. No es una excepción del motor legacy.
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
+      || (path === '/api/admin/finanzas/modo-facil/terceros/bloque' && request.method === 'POST')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });

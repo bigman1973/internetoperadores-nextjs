@@ -6,16 +6,8 @@ export type OrigenPaso1 = 'ENTIDAD_FISCAL' | 'EMPLEADO' | 'NOMINA_EMPLEADO' | 'F
 export type EstadoPaso2 = 'SIN_DOCUMENTO' | 'JUSTIFICADO' | 'NO_REQUIERE';
 
 export type PasoSentidoContador = Readonly<{ movimientos: number; importeCentimos: string; identificados?: number }>;
-/**
- * Subtotal de un estado documental. Es opcional mientras las respuestas
- * antiguas no publiquen el desglose; nunca se deduce desde otra cohorte.
- */
 export type Paso2EstadoContador = Readonly<{ movimientos: number; importeCentimos: string }>;
-export type Paso2MesContador = Readonly<{
-  mes: string;
-  documentoConfirmado?: Paso2EstadoContador;
-  noRequiere?: Paso2EstadoContador;
-}>;
+export type Paso2MesContador = Readonly<{ mes: string; documentoConfirmado?: Paso2EstadoContador; noRequiere?: Paso2EstadoContador }>;
 export type Paso1Contadores = Readonly<{
   cohorte: 'TODOS_MOVIMIENTOS_VENTANA'; totalMovimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador;
   identificados: number; propuestosTexto: number; sinIdentificar: number;
@@ -23,13 +15,10 @@ export type Paso1Contadores = Readonly<{
 export type Paso2Contadores = Readonly<{
   cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO'; totalMovimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador;
   criterio: 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1';
-  /** Extensiones P2 opcionales: no sustituyen el denominador SIN_DOCUMENTO. */
   totalVentanaMovimientos?: number;
   justificados?: Readonly<{ movimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador }>;
-  /** Desglose opcional de resultados B4 publicado por backend; no reemplaza la cola pendiente. */
   noRequiere?: Readonly<{ movimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador }>;
   periodo?: Readonly<{ documentoConfirmado: Paso2EstadoContador; noRequiere: Paso2EstadoContador }>;
-  /** Serie opcional, de lectura, para presentar los mismos estados sin sumar períodos distintos. */
   meses?: readonly Paso2MesContador[];
 }>;
 export type PasosModoFacil = Readonly<{ version: 'EASY_PASOS_V1'; paso1: Paso1Contadores; paso2: Paso2Contadores }>;
@@ -38,7 +27,6 @@ export type EasySuggestion = Readonly<{
   id: string;
   tipo: string;
   sourceId: string;
-  /** Puede ser null: la confirmación humana B4 crea el wrapper en la misma transacción. */
   documentoConciliableId: string | null;
   referencia: string;
   tercero: string | null;
@@ -50,6 +38,9 @@ export type EasySuggestion = Readonly<{
   archivoPrivadoHref?: string | null;
   motivos: string[];
 }>;
+
+/** Dato opcional: el servidor lo añade sin sustituir los campos ya publicados del movimiento. */
+export type EasyWhoIs = Readonly<{ estado: EstadoPaso1; nombre: string | null }>;
 
 export type EasyMovement = Readonly<{
   id: string;
@@ -65,6 +56,8 @@ export type EasyMovement = Readonly<{
   estado: 'SIN_DOCUMENTO';
   reglaAplicadaId: string | null;
   motivoNoRequierePropuesto?: string | null;
+  /** Ausente hasta que la proyección del servidor publique la identificación. */
+  quienEs?: EasyWhoIs;
   sugerencias: EasySuggestion[];
 }>;
 
@@ -82,7 +75,6 @@ export type EasyMonth = Readonly<{
 
 export type EasyRule = Readonly<{
   id: string;
-  /** Versión de concurrencia obligatoria para desactivar una regla. */
   version: number;
   contraparte: string;
   accion: string;
@@ -103,7 +95,6 @@ export type EasyReadResponse = Readonly<{
   meses: EasyMonth[];
   reglas: EasyRule[];
   movimientos: EasyMovement[];
-  /** Ausente mientras el backend no haya aplicado la migración P1. */
   pasos?: PasosModoFacil;
 }>;
 
@@ -113,7 +104,6 @@ export type ConfirmarFacturaPayload = Readonly<{
 export type NoRequierePayload = Readonly<{
   action: 'no_requiere'; movimientoId: string; version: number; motivoNoRequiere: string; idempotencyKey: string; confirmacion: true;
 }>;
-/** El wrapper B4 recibe únicamente la recuperación acordada; no se inventan líneas ni versión en la UI. */
 export type DeshacerModoFacilPayload = Readonly<{
   action: 'deshacer'; confirmacion: true; operacionId: string; idempotencyKey: string;
 }>;
@@ -185,10 +175,17 @@ function parseSuggestion(value: unknown, index: number): EasySuggestion {
   };
 }
 
+function parseWhoIs(value: unknown, field: string): EasyWhoIs {
+  const raw = objectAt(value, field);
+  if (raw.estado !== 'IDENTIFICADO' && raw.estado !== 'PROPUESTO' && raw.estado !== 'SIN_IDENTIFICAR') throw new Error(`El campo ${field}.estado no es válido.`);
+  return { estado: raw.estado, nombre: readNullableString(raw.nombre, `${field}.nombre`) };
+}
+
 function parseMovement(value: unknown, index: number): EasyMovement {
   const raw = objectAt(value, `movimientos[${index}]`);
   const account = objectAt(raw.cuenta, `movimientos[${index}].cuenta`);
   if (raw.estado !== 'SIN_DOCUMENTO') throw new Error(`El estado de movimientos[${index}] no pertenece a la cola Modo Fácil.`);
+  const quienEs = raw.quienEs === undefined ? undefined : parseWhoIs(raw.quienEs, `movimientos[${index}].quienEs`);
   return {
     id: readString(raw.id, `movimientos[${index}].id`),
     version: readInteger(raw.version, `movimientos[${index}].version`),
@@ -203,6 +200,7 @@ function parseMovement(value: unknown, index: number): EasyMovement {
     estado: 'SIN_DOCUMENTO',
     reglaAplicadaId: readNullableString(raw.reglaAplicadaId, `movimientos[${index}].reglaAplicadaId`),
     motivoNoRequierePropuesto: raw.motivoNoRequierePropuesto === undefined ? null : readNullableString(raw.motivoNoRequierePropuesto, 'motivoNoRequierePropuesto'),
+    quienEs,
     sugerencias: readArray(raw.sugerencias, `movimientos[${index}].sugerencias`).map(parseSuggestion),
   };
 }
@@ -221,8 +219,8 @@ function parsePasos(value: unknown): PasosModoFacil {
   const raw = objectAt(value, 'pasos');
   if (raw.version !== 'EASY_PASOS_V1') throw new Error('La versión de pasos no es compatible.');
   const paso1 = objectAt(raw.paso1, 'pasos.paso1'); const paso2 = objectAt(raw.paso2, 'pasos.paso2');
-  if (paso1.cohorte !== 'TODOS_MOVIMIENTOS_VENTANA') throw new Error('La cohorte de Paso 1 no es válida.');
-  if (paso2.cohorte !== 'PENDIENTES_B4_SIN_DOCUMENTO' || paso2.criterio !== 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1') throw new Error('La cohorte documental de Paso 2 no es válida.');
+  if (paso1.cohorte !== 'TODOS_MOVIMIENTOS_VENTANA') throw new Error('El resumen de quién es no es válido.');
+  if (paso2.cohorte !== 'PENDIENTES_B4_SIN_DOCUMENTO' || paso2.criterio !== 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1') throw new Error('El resumen de documentos no es válido.');
   const periodo = paso2.periodo === undefined ? undefined : (() => {
     const rawPeriodo = objectAt(paso2.periodo, 'pasos.paso2.periodo');
     return { documentoConfirmado: parsePaso2Estado(rawPeriodo.documentoConfirmado, 'pasos.paso2.periodo.documentoConfirmado'), noRequiere: parsePaso2Estado(rawPeriodo.noRequiere, 'pasos.paso2.periodo.noRequiere') };
@@ -231,7 +229,7 @@ function parsePasos(value: unknown): PasosModoFacil {
     const rawMes = objectAt(value, `pasos.paso2.meses[${index}]`);
     const documentoConfirmado = rawMes.documentoConfirmado === undefined ? undefined : parsePaso2Estado(rawMes.documentoConfirmado, `pasos.paso2.meses[${index}].documentoConfirmado`);
     const noRequiere = rawMes.noRequiere === undefined ? undefined : parsePaso2Estado(rawMes.noRequiere, `pasos.paso2.meses[${index}].noRequiere`);
-    if (!documentoConfirmado && !noRequiere) throw new Error(`El mes pasos.paso2.meses[${index}] no incluye un estado documental verificable.`);
+    if (!documentoConfirmado && !noRequiere) throw new Error(`El mes pasos.paso2.meses[${index}] no incluye un estado verificable.`);
     return { mes: readString(rawMes.mes, `pasos.paso2.meses[${index}].mes`), documentoConfirmado, noRequiere };
   });
   return {
@@ -241,7 +239,7 @@ function parsePasos(value: unknown): PasosModoFacil {
   };
 }
 
-/** Rechaza respuestas parciales para no sustituir evidencias desconocidas por ceros UI. */
+/** Rechaza respuestas parciales para no sustituir información desconocida por ceros. */
 export function parseEasyReadResponse(value: unknown): EasyReadResponse {
   const raw = objectAt(value, 'respuesta');
   if (raw.stagingOnly !== true) throw new Error('La respuesta no declara stagingOnly:true.');
@@ -252,11 +250,7 @@ export function parseEasyReadResponse(value: unknown): EasyReadResponse {
     const item = objectAt(month, `meses[${index}]`);
     if (!['VERDE', 'AMARILLO', 'ROJO', 'GRIS'].includes(String(item.semaforo))) throw new Error(`El semáforo de meses[${index}] no es válido.`);
     if (typeof item.coberturaVerificada !== 'boolean') throw new Error(`La cobertura de meses[${index}] no es válida.`);
-    return {
-      mes: readString(item.mes, `meses[${index}].mes`), pendientes: readInteger(item.pendientes, `meses[${index}].pendientes`), justificados: readInteger(item.justificados, `meses[${index}].justificados`), noRequiere: readInteger(item.noRequiere, `meses[${index}].noRequiere`),
-      importeJustificadoCentimos: readCentsText(item.importeJustificadoCentimos, `meses[${index}].importeJustificadoCentimos`), importePendienteCentimos: readCentsText(item.importePendienteCentimos, `meses[${index}].importePendienteCentimos`),
-      coberturaVerificada: item.coberturaVerificada, semaforo: item.semaforo as SemaforoEasy, mensaje: readString(item.mensaje, `meses[${index}].mensaje`),
-    };
+    return { mes: readString(item.mes, `meses[${index}].mes`), pendientes: readInteger(item.pendientes, `meses[${index}].pendientes`), justificados: readInteger(item.justificados, `meses[${index}].justificados`), noRequiere: readInteger(item.noRequiere, `meses[${index}].noRequiere`), importeJustificadoCentimos: readCentsText(item.importeJustificadoCentimos, `meses[${index}].importeJustificadoCentimos`), importePendienteCentimos: readCentsText(item.importePendienteCentimos, `meses[${index}].importePendienteCentimos`), coberturaVerificada: item.coberturaVerificada, semaforo: item.semaforo as SemaforoEasy, mensaje: readString(item.mensaje, `meses[${index}].mensaje`) };
   });
   const rules = readArray(raw.reglas, 'reglas').map((rule, index): EasyRule => {
     const item = objectAt(rule, `reglas[${index}]`);
@@ -280,7 +274,6 @@ export function cents(value: number | null | undefined): string {
   return `${value < 0 ? '−' : value > 0 ? '+' : ''}${euros}`;
 }
 
-/** Formatter exacto para centimos serializados; nunca convierte BigInt a Number. */
 export function formatCentsText(value: string): string {
   if (!CENTS_TEXT.test(value)) return 'Importe no verificable';
   const negative = value.startsWith('-');
@@ -296,7 +289,6 @@ export function displayDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(date);
 }
 
-/** Convierte YYYY-MM en el nombre que entiende una persona, sin modificar la clave recibida. */
 export function monthLabel(value: string): string {
   const match = /^(\d{4})-(0[1-9]|1[0-2])(?:-01)?$/.exec(value);
   if (!match) return value;
@@ -319,7 +311,6 @@ export function lastFour(card: string | null): string {
   return digits.length >= 4 ? digits.slice(-4) : card;
 }
 
-/** Un archivo es condición B4 para cargos; una factura emitida exacta puede confirmar un cobro sin archivo. */
 export function canConfirmSuggestion(movement: Pick<EasyMovement, 'importeCentimos'>, suggestion: Pick<EasySuggestion, 'exacta' | 'archivoDisponible'>): boolean {
   return suggestion.exacta && (movement.importeCentimos >= 0 || suggestion.archivoDisponible);
 }

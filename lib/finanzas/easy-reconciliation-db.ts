@@ -6,6 +6,7 @@ import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
 import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { createDocumentoB4Tx, confirmarB4Tx, sourceEvidenceB4Tx, type B4ServiceError } from '@/lib/finanzas/reconciliation-db'
+import { readEasyMovementWhoByIds } from '@/lib/finanzas/easy-counterparty-db'
 import {
   EASY_MODE,
   EasyReconciliationValidationError,
@@ -418,6 +419,7 @@ export async function readEasyReconciliation(input: EasyReadInput) {
     const [movementRows, summary, months, rules] = await Promise.all([
       queryMovements(input, input.limit, input.offset), countQueue(input), readMonths(input), readRules(),
     ])
+    const whoById = await readEasyMovementWhoByIds(movementRows.map(movement => movement.id))
     const movements = await Promise.all(movementRows.map(async (movement) => {
       const candidates = await candidatesForMovementTx(db() as unknown as Tx, movement)
       const noRequireCues = (await activeRuleCuesTx(db() as unknown as Tx, movement)).filter(cue => cue.motivo !== null)
@@ -427,6 +429,7 @@ export async function readEasyReconciliation(input: EasyReadInput) {
       return {
         id: movement.id, version: movement.version, fecha: movement.fecha, concepto: movement.concepto, importeCentimos: movement.importeCentimos,
         contraparte: movement.tercero ?? movement.concepto, cuenta: { id: movement.cuentaId, banco: movement.banco, alias: movement.cuentaAlias },
+        quienEs: whoById.get(movement.id) ?? { estado: 'SIN_IDENTIFICAR' as const, nombre: null },
         tarjeta: movement.tarjeta, responsableTarjeta: movement.responsableTarjeta, versionGestion: movement.versionGestion,
         estado: 'SIN_DOCUMENTO' as const, reglaAplicadaId: rule, motivoNoRequierePropuesto: noRequireCue?.motivo ?? null,
         contextoRecogidaManual: {

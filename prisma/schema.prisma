@@ -10,6 +10,8 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  lotesTerceroModoFacil LoteTerceroModoFacil[]
+  reversionesLoteTerceroModoFacil ReversionLoteTerceroModoFacil[]
   ejecucionesAutoModoFacil EjecucionAutoModoFacil[] @relation("EjecucionesAutoModoFacilActor")
   fallosAutoModoFacil FalloAutoModoFacil[] @relation("FallosAutoModoFacilActor")
   reversionesAutoModoFacil ReversionAutoModoFacil[] @relation("ReversionesAutoModoFacilActor")
@@ -1164,6 +1166,7 @@ model CuentaBancaria {
 }
 
 model MovimientoBancario {
+  patasLoteTerceroModoFacil PataLoteTerceroModoFacil[]
   pataReciboAutoModoFacil PataReciboAutoModoFacil?
   legadoConciliacionB4 LegadoConciliacionB4?
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Movimiento")
@@ -5091,6 +5094,9 @@ enum OrigenTerceroModoFacil {
 
 
 model DecisionTerceroModoFacil {
+  pataLoteTerceroModoFacil PataLoteTerceroModoFacil?
+  pataReversionConfirmada PataReversionLoteTerceroModoFacil? @relation("LoteReversionDecisionConfirmada")
+  pataReversionResultado PataReversionLoteTerceroModoFacil? @relation("LoteReversionDecisionResultado")
   id              String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   movimientoId    String                           @map("movimiento_id")
   actorId         Int                              @map("actor_id")
@@ -5194,4 +5200,58 @@ model EjecucionAutoModoFacil {
   recibos         ReciboAutoModoFacil[]
   @@unique([actorId,idempotencyKey])
   @@map("ejecuciones_auto_modo_facil")
+}
+
+// Lotes humanos de identificación de terceros: auditoría aditiva y reversible.
+model LoteTerceroModoFacil {
+  id String @id(map: "lotes_tercero_mf_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  actorId Int @map("actor_id")
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  requestHash String @map("request_hash") @db.Char(64)
+  previewHash String @map("preview_hash") @db.Char(64)
+  resumen Json @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  actor UsuarioAdmin @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "lotes_tercero_mf_actor_fkey")
+  patas PataLoteTerceroModoFacil[]
+  reversion ReversionLoteTerceroModoFacil?
+  @@unique([actorId, idempotencyKey], map: "lotes_tercero_mf_actor_idempotencia_uq")
+  @@map("lotes_tercero_modo_facil")
+}
+model PataLoteTerceroModoFacil {
+  loteId String @map("lote_id") @db.Uuid
+  ordinal Int
+  movimientoId String @map("movimiento_id")
+  decisionConfirmadaId String @unique(map: "patas_lote_tercero_mf_decision_uq") @map("decision_confirmada_id") @db.Uuid
+  fingerprint String @db.Char(64)
+  lote LoteTerceroModoFacil @relation(fields: [loteId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_lote_tercero_mf_lote_fkey")
+  movimiento MovimientoBancario @relation(fields: [movimientoId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_lote_tercero_mf_movimiento_fkey")
+  decision DecisionTerceroModoFacil @relation(fields: [decisionConfirmadaId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_lote_tercero_mf_decision_fkey")
+  @@id([loteId, ordinal], map: "patas_lote_tercero_mf_pkey")
+  @@unique([loteId, movimientoId], map: "patas_lote_tercero_mf_movimiento_uq")
+  @@map("patas_lote_tercero_modo_facil")
+}
+model ReversionLoteTerceroModoFacil {
+  id String @id(map: "reversiones_lote_tercero_mf_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  loteId String @unique(map: "reversiones_lote_tercero_mf_lote_uq") @map("lote_id") @db.Uuid
+  actorId Int @map("actor_id")
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  requestHash String @map("request_hash") @db.Char(64)
+  resumen Json @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp(3)
+  lote LoteTerceroModoFacil @relation(fields: [loteId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "reversiones_lote_tercero_mf_lote_fkey")
+  actor UsuarioAdmin @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "reversiones_lote_tercero_mf_actor_fkey")
+  patas PataReversionLoteTerceroModoFacil[]
+  @@unique([actorId, idempotencyKey], map: "reversiones_lote_tercero_mf_actor_idempotencia_uq")
+  @@map("reversiones_lote_tercero_modo_facil")
+}
+model PataReversionLoteTerceroModoFacil {
+  reversionId String @map("reversion_id") @db.Uuid
+  ordinal Int
+  decisionConfirmadaId String @unique(map: "patas_reversion_lote_tercero_mf_confirmada_uq") @map("decision_confirmada_id") @db.Uuid
+  decisionReversionId String @unique(map: "patas_reversion_lote_tercero_mf_reversion_uq") @map("decision_reversion_id") @db.Uuid
+  reversion ReversionLoteTerceroModoFacil @relation(fields: [reversionId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_reversion_lote_tercero_mf_reversion_fkey")
+  confirmada DecisionTerceroModoFacil @relation("LoteReversionDecisionConfirmada", fields: [decisionConfirmadaId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_reversion_lote_tercero_mf_confirmada_fkey")
+  resultado DecisionTerceroModoFacil @relation("LoteReversionDecisionResultado", fields: [decisionReversionId], references: [id], onDelete: Restrict, onUpdate: Restrict, map: "patas_reversion_lote_tercero_mf_reversion_decision_fkey")
+  @@id([reversionId, ordinal], map: "patas_reversion_lote_tercero_mf_pkey")
+  @@map("patas_reversion_lote_tercero_modo_facil")
 }
