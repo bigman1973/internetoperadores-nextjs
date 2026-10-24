@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import {
+  canChooseSource,
   confirmationPayloadJson,
   roundedWeightPercentageHundredths,
+  sourceFromResponse,
 } from '@/components/finanzas/customer-allocations/CustomerCostAllocationWorkspace'
 
 const firstPayload = {
@@ -26,5 +28,11 @@ assert.equal(roundedWeightPercentageHundredths('10000', '15000'), '6667')
 assert.equal(roundedWeightPercentageHundredths('5000', '15000'), '3333')
 assert.equal(roundedWeightPercentageHundredths('0', '15000'), '0')
 assert.equal(roundedWeightPercentageHundredths('100', '0'), null)
+
+const source = { id: firstPayload.fuenteId, proveedor: 'Proveedor de prueba', numFactura: 'TEST-1', fecha: '2026-10-01', base: 100, estado: 'REVISADO', version: 7, snapshotHash: 'a'.repeat(64), clasificacionActual: null, bloqueada: false, motivoBloqueo: null }
+assert.equal(canChooseSource(sourceFromResponse(source, 0)), true)
+assert.equal(canChooseSource(sourceFromResponse({ ...source, id: '11111111-1111-4111-111111111111' }, 0)), false)
+assert.equal(canChooseSource(sourceFromResponse({ ...source, version: 0 }, 0)), false)
+assert.equal(canChooseSource(sourceFromResponse({ ...source, bloqueada: true }, 0)), false)
 
 console.log('customer-cost-allocation-workspace-ui: OK')

@@ -39,7 +39,7 @@ const ZERO = BigInt(0)
 const HUNDRED = BigInt(100)
 const TEN_THOUSAND = BigInt(10000)
 const TWO = BigInt(2)
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const SHA256 = /^[a-f0-9]{64}$/i
 
 const datePeriod = () => new Date().toISOString().slice(0, 7)
@@ -97,7 +97,7 @@ function weightPercentage(weight: string, total: bigint): string {
   return rounded === null ? '—' : `${percentage.format(Number(BigInt(rounded)) / Number(HUNDRED))} %`
 }
 
-function sourceFromResponse(value: unknown, index: number): Source {
+export function sourceFromResponse(value: unknown, index: number): Source {
   const raw = isRecord(value) ? value : {}
   const id = typeof raw.id === 'string' ? raw.id : ''
   const proveedor = typeof raw.proveedor === 'string' ? raw.proveedor : 'Fuente no disponible'
@@ -130,7 +130,7 @@ function sourcesFromResponse(value: unknown): SourcesResponse {
   }
   return { fuentes: value.fuentes.map(sourceFromResponse), page: Number(value.page), totalPages: Number(value.totalPages), total: Number(value.total) }
 }
-function canChooseSource(source: Source | null): source is Source {
+export function canChooseSource(source: Source | null): source is Source {
   return Boolean(source && source.respuestaValida && source.estado === 'REVISADO' && !source.bloqueada)
 }
 function storedConfirmationIsSafe(payloadJson: string): boolean {
