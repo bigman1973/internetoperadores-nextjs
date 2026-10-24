@@ -758,7 +758,8 @@ export async function startImpersonation(input: Readonly<{ sourceToken: JWT; tar
       )
       if (decision.ok === false) fail(403, decision.code, 'No está autorizado para iniciar la actuación.')
       if (replay) {
-        if (replay.end_id || new Date(replay.expires_at).getTime() <= now.getTime()) {
+        const replayExpiryMs = new Date(replay.expires_at).getTime()
+        if (replay.end_id || !Number.isFinite(replayExpiryMs) || replayExpiryMs <= now.getTime()) {
           fail(409, 'IDEMPOTENCY_CONFLICT', 'La clave de idempotencia ya pertenece a otra actuación.')
         }
         return { sessionId: String(replay.id), actor: identityFromRow(actor)!, target: identityFromRow(target)!, expiresAt: new Date(replay.expires_at), replayed: true }

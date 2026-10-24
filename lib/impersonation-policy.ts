@@ -61,7 +61,10 @@ export function evaluateLiveImpersonation(input: Readonly<{
   if (!input.runtimeEnabled) return { ok: false, code: 'RUNTIME_DISABLED' }
   if (!input.sessionFound) return { ok: false, code: 'SESSION_NOT_FOUND' }
   if (input.closed) return { ok: false, code: 'SESSION_CLOSED' }
-  if (!(input.expiresAt instanceof Date) || input.expiresAt.getTime() <= input.now.getTime()) return { ok: false, code: 'SESSION_EXPIRED' }
+  // NaN compares false with everything, so an unreadable date must be rejected explicitly.
+  const expiresAtMs = input.expiresAt instanceof Date ? input.expiresAt.getTime() : Number.NaN
+  const nowMs = input.now instanceof Date ? input.now.getTime() : Number.NaN
+  if (!Number.isFinite(expiresAtMs) || !Number.isFinite(nowMs) || expiresAtMs <= nowMs) return { ok: false, code: 'SESSION_EXPIRED' }
   if (!input.sourceSessionMatches) return { ok: false, code: 'SOURCE_SESSION_MISMATCH' }
   if (!input.actor?.activo || input.actor.rol !== 'SUPER_ADMIN') return { ok: false, code: 'ACTOR_REVOKED' }
   if (!input.target?.activo) return { ok: false, code: 'TARGET_REVOKED' }

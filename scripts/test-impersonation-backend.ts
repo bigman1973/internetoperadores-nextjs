@@ -56,6 +56,15 @@ test('el chequeo puro de sesión no concede por rol embebido ni por objetivo sup
   }), { ok: false, code: 'TARGET_SUPER_ADMIN' })
 })
 
+test('la caducidad del ledger manda: en el vencimiento y después se deniega', () => {
+  const expiresAt = new Date('2026-10-24T18:00:00.000Z')
+  const base = { sessionFound: true, closed: false, expiresAt, actor, target, sourceSessionMatches: true, runtimeEnabled: true }
+  assert.deepEqual(evaluateLiveImpersonation({ ...base, now: new Date(expiresAt.getTime() - 1) }), { ok: true })
+  assert.deepEqual(evaluateLiveImpersonation({ ...base, now: expiresAt }), { ok: false, code: 'SESSION_EXPIRED' })
+  assert.deepEqual(evaluateLiveImpersonation({ ...base, now: new Date(expiresAt.getTime() + 60_000) }), { ok: false, code: 'SESSION_EXPIRED' })
+  assert.deepEqual(evaluateLiveImpersonation({ ...base, expiresAt: new Date(Number.NaN), now: new Date() }), { ok: false, code: 'SESSION_EXPIRED' })
+})
+
 test('sólo SQL de escritura se marca mutación; SELECT y locks no piden auditoría de write', () => {
   for (const sql of [
     'SELECT 1', ' /* comment */ SELECT id FROM table FOR UPDATE',

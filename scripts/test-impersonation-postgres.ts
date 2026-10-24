@@ -72,6 +72,14 @@ async function main(): Promise<void> {
       assert.equal(started[0].target_id, targetId)
       assert(started[0].expires_at.getTime() > Date.now())
 
+      // Absolute 60-minute ceiling is enforced by the database itself.
+      await tx.$executeRawUnsafe('SAVEPOINT absolute_expiry')
+      await assert.rejects(() => tx.$executeRaw(Prisma.sql`
+        INSERT INTO impersonation_sessions(id,actor_id,target_id,source_session_hash,idempotency_key,reason,started_at,expires_at)
+        VALUES(gen_random_uuid(),${actorId},${targetId},${randomBytes(32).toString('hex')},${`rollback-${randomBytes(16).toString('hex')}`.slice(0, 64)},'Caducidad excesiva.',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP + INTERVAL '61 minutes')
+      `), 'Una actuación de más de 60 minutos debe rechazarse')
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT absolute_expiry')
+
       await tx.$executeRawUnsafe('SAVEPOINT ledger_immutable')
       await assert.rejects(() => tx.$executeRaw(Prisma.sql`
         UPDATE impersonation_sessions SET reason='forbidden' WHERE id=${sessionId}::uuid
