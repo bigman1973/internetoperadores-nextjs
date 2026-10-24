@@ -148,6 +148,8 @@ const navigation: NavEntry[] = [
       { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
       { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
+      { name: 'Modo fácil · staging', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
+      { name: 'Analítica por cliente · staging', href: '/admin/finanzas/analitica-cliente', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },

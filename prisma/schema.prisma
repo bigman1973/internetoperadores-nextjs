@@ -10,6 +10,7 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  evidenciasTelefonoStage EvidenciaCosteTelefonoStage[]
   reversionesLegadoB4 ReversionLegadoB4[]
   legadosConciliacionB4 LegadoConciliacionB4[]
   financeSyncP2Requested FinanceSyncJobP2[] @relation("FinanceSyncP2RequestedBy")
@@ -56,6 +57,10 @@ model UsuarioAdmin {
   operacionesJustificacionSolicitadasB4 OperacionJustificacionB4[] @relation("OperacionJustificacionB4Solicitante")
   operacionesJustificacionAprobadasB4 OperacionJustificacionB4[] @relation("OperacionJustificacionB4Aprobador")
   eventosJustificacionB4 EventoJustificacionB4[] @relation("EventoJustificacionB4Actor")
+  reglasModoFacilCreadas ReglaModoFacil[] @relation("ReglaModoFacilCreador")
+  reglasModoFacilDesactivadas ReglaModoFacil[] @relation("ReglaModoFacilDesactivador")
+  auditoriasReglasModoFacil AuditoriaReglaModoFacil[] @relation("AuditoriaReglaModoFacilActor")
+  recibosModoFacil ReciboModoFacil[] @relation("ReciboModoFacilActor")
 
   @@map("usuarios_admin")
 }
@@ -1142,6 +1147,7 @@ model CuentaBancaria {
   movimientos MovimientoBancario[]
   importaciones ImportacionExtracto[]
   confirmacionesCorteCoberturaB3 CorteCoberturaManualB3[] @relation("CorteCoberturaB3Cuenta")
+  reglasModoFacil ReglaModoFacil[]
 
   @@map("cuentas_bancarias")
 }
@@ -1222,6 +1228,7 @@ model MovimientoBancario {
 }
 
 model FacturaRecibida {
+  evidenciasTelefonoStage EvidenciaCosteTelefonoStage[]
   id              String   @id @default(uuid())
   proveedor       String
   cif             String?
@@ -4255,6 +4262,9 @@ model OperacionJustificacionB4 {
   lineasCreadas          VinculoMovimientoDocumento[] @relation("OperacionB4LineasCreadas")
   lineasAnuladas         VinculoMovimientoDocumento[] @relation("OperacionB4LineasAnuladas")
   eventos                EventoJustificacionB4[]
+  reglaModoFacil         ReglaModoFacil?
+  reciboModoFacil        ReciboModoFacil?
+  auditoriasReglasModoFacil AuditoriaReglaModoFacil[]
 
   @@unique([solicitadaPorId, idempotencyKey])
   @@index([movimientoId, estado])
@@ -4771,4 +4781,106 @@ model ReversionLegadoB4 {
   creadoAt DateTime @default(now()) @map("creado_at")
   actor UsuarioAdmin @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
   @@map("reversiones_legado_b4")
+}
+
+// Modo Fácil — reglas derivadas exclusivamente de una operación B4 aplicada por
+// clic humano. Son afinadores proposal-only: no almacenan documento/sourceId
+// futuro y jamás ejecutan una confirmación automática.
+enum ModoReglaModoFacil {
+  SOLO_PROPONER
+}
+
+model ReglaModoFacil {
+  id                       String                 @id @default(uuid()) @db.Uuid
+  operacionB4Id            String                 @unique @db.Uuid @map("operacion_b4_id")
+  cuentaId                 String                 @map("cuenta_id")
+  contraparteNormalizada   String                 @db.VarChar(300) @map("contraparte_normalizada")
+  signo                    Int
+  tipoDocumento            TipoDocumentoConciliable? @map("tipo_documento")
+  motivoNoRequiere         MotivoNoRequiere?      @map("motivo_no_requiere")
+  accion                   String                 @db.VarChar(80)
+  modo                     ModoReglaModoFacil     @default(SOLO_PROPONER)
+  activa                   Boolean                @default(true)
+  version                  Int                    @default(1)
+  usosConfirmados          Int                    @default(0) @map("usos_confirmados")
+  vigenteDesde             DateTime               @db.Date @map("vigente_desde")
+  vigenteHasta             DateTime?              @db.Date @map("vigente_hasta")
+  creadaPorId              Int                    @map("creada_por_id")
+  desactivadaPorId         Int?                   @map("desactivada_por_id")
+  desactivadaAt            DateTime?              @map("desactivada_at")
+  sourceHash               String                 @db.Char(64) @map("source_hash")
+  createdAt                DateTime               @default(now()) @map("created_at")
+  updatedAt                DateTime               @updatedAt @map("updated_at")
+
+  operacionB4              OperacionJustificacionB4 @relation(fields:[operacionB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  cuenta                   CuentaBancaria          @relation(fields:[cuentaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  creadaPor                UsuarioAdmin            @relation("ReglaModoFacilCreador",fields:[creadaPorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  desactivadaPor           UsuarioAdmin?           @relation("ReglaModoFacilDesactivador",fields:[desactivadaPorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  auditorias               AuditoriaReglaModoFacil[]
+
+  @@index([activa,cuentaId,contraparteNormalizada,signo,vigenteDesde])
+  @@map("reglas_modo_facil")
+}
+
+// Recibo durable para reintentos exactos. La operación B4 conserva la auditoría
+// económica; este recibo sólo liga el contrato Modo Fácil y su sugerencia estable.
+model ReciboModoFacil {
+  id                String                    @id @default(uuid()) @db.Uuid
+  operacionB4Id     String                    @unique @db.Uuid @map("operacion_b4_id")
+  actorId           Int                       @map("actor_id")
+  accion            String                    @db.VarChar(32)
+  idempotencyKey    String                    @db.Uuid @map("idempotency_key")
+  requestHash       String                    @db.Char(64) @map("request_hash")
+  sugerenciaId      String?                   @db.VarChar(80) @map("sugerencia_id")
+  createdAt         DateTime                  @default(now()) @map("created_at")
+
+  operacionB4       OperacionJustificacionB4  @relation(fields:[operacionB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor             UsuarioAdmin              @relation("ReciboModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+
+  @@unique([actorId,idempotencyKey])
+  @@map("recibos_modo_facil")
+}
+
+// Bitácora adicional append-only para creación, desactivación y uso de reglas.
+model AuditoriaReglaModoFacil {
+  id                String          @id @default(uuid()) @db.Uuid
+  reglaId           String          @db.Uuid @map("regla_id")
+  actorId           Int             @map("actor_id")
+  accion            String          @db.VarChar(32)
+  operacionB4Id     String?         @db.Uuid @map("operacion_b4_id")
+  snapshot          Json
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  regla             ReglaModoFacil @relation(fields:[reglaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor             UsuarioAdmin    @relation("AuditoriaReglaModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacionB4       OperacionJustificacionB4? @relation(fields:[operacionB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+
+  @@index([reglaId,createdAt])
+  @@index([operacionB4Id,createdAt])
+  @@map("auditorias_reglas_modo_facil")
+}
+
+
+// Evidencia de PDF; no es asignación de coste ni conciliación bancaria.
+model EvidenciaCosteTelefonoStage {
+  id                String @id @default(uuid()) @db.Uuid
+  facturaId         String @map("factura_id")
+  pdfSha256         String @map("pdf_sha256") @db.Char(64)
+  telefono          String @db.Char(9)
+  baseCentimos      Int @map("base_centimos")
+  baseFuenteText    String @map("base_fuente_text")
+  totalFuenteText   String @map("total_fuente_text")
+  numeroFactura     String @map("numero_factura")
+  fechaFactura      DateTime @map("fecha_factura") @db.Date
+  servicioDesde     DateTime @map("servicio_desde") @db.Date
+  servicioHasta     DateTime @map("servicio_hasta") @db.Date
+  versionExtractor  String @map("version_extractor")
+  evidencia         Json
+  creadaPorId       Int @map("creada_por_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+  factura           FacturaRecibida @relation(fields: [facturaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  creadaPor         UsuarioAdmin @relation(fields: [creadaPorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([facturaId,pdfSha256,versionExtractor],map:"evidencias_coste_telefono_stage_factura_pdf_version_key")
+  @@index([facturaId,createdAt],map:"evidencias_coste_telefono_stage_factura_created_idx")
+  @@map("evidencias_coste_telefono_stage")
 }
