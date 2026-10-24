@@ -101,6 +101,7 @@ function adaptSource(source, text) {
         ...commonEnvironment,
         ['-- Lotes de terceros Modo Fácil — propuesta ADITIVA para revisión.', '-- Lotes de terceros Modo Fácil — release ADITIVO de producción.'],
         ['-- NO EJECUTAR AUTOMÁTICAMENTE. Sólo staging io_staging_finanzas/io_staging_finanzas.', '-- NO EJECUTAR AUTOMÁTICAMENTE. Sólo railway/postgres.'],
+        ['-- NO EJECUTAR AUTOMÁTICAMENTE. Sólo staging railway/railway.', '-- NO EJECUTAR AUTOMÁTICAMENTE. Sólo railway/postgres.'],
         ['easy_counterparty_bulk_staging_only', 'easy_counterparty_bulk_production_only'],
         ['-- Database staging backstop, independent of the web environment. No P1 bulk\n-- receipt can be created with a production database/user pair.', '-- Database production-identity backstop, independent of the web environment. No P1 bulk\n-- receipt can be created outside the railway/postgres pair.'],
       ]);

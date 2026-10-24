@@ -265,7 +265,8 @@ function sourceRelations(withAccountProof: boolean): Prisma.Sql {
     LEFT JOIN LATERAL (
       SELECT a.id::text AS id
       FROM atestaciones_cuenta_auto_modo_facil a
-      JOIN politicas_auto_modo_facil p ON p.id=a.politica_id AND p.estado='ACTIVA' AND p.entorno='STAGING'
+      JOIN politicas_auto_modo_facil p ON p.id=a.politica_id AND p.estado='ACTIVA'
+        AND p.entorno=CASE WHEN current_database()='io_staging_finanzas' THEN 'STAGING' ELSE 'PRODUCTION' END
       WHERE tc.id IS NOT NULL AND a.cuenta_id=tc.id
       ORDER BY a.created_at DESC,a.id DESC LIMIT 1
     ) account_proof ON true
@@ -693,7 +694,8 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
       SELECT c.id,c.banco,c.alias,a.id::text AS atestacion_id
       FROM cuentas_bancarias c
       JOIN atestaciones_cuenta_auto_modo_facil a ON a.cuenta_id=c.id
-      JOIN politicas_auto_modo_facil p ON p.id=a.politica_id AND p.estado='ACTIVA' AND p.entorno='STAGING'
+      JOIN politicas_auto_modo_facil p ON p.id=a.politica_id AND p.estado='ACTIVA'
+        AND p.entorno=CASE WHEN current_database()='io_staging_finanzas' THEN 'STAGING' ELSE 'PRODUCTION' END
       WHERE c.activa=true
         ${term === null ? Prisma.sql`` : Prisma.sql`AND (c.banco ILIKE ${term} OR COALESCE(c.alias,'') ILIKE ${term})`}
       ORDER BY COALESCE(c.alias,c.banco) ASC,c.id ASC LIMIT ${limit}

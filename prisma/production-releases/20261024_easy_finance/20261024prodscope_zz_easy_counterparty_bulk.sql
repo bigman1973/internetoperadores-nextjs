@@ -12,7 +12,7 @@ END;
 $$;
 
 -- Lotes de terceros Modo Fácil — release ADITIVO de producción.
--- NO EJECUTAR AUTOMÁTICAMENTE. Sólo staging railway/railway.
+-- NO EJECUTAR AUTOMÁTICAMENTE. Sólo railway/postgres.
 -- No contiene DML, backfill, reset, sync, emails ni modificaciones de B4,
 -- documentos, movimientos, texto bancario o fichas fiscales existentes.
 -- Requiere primero: perfiles de acceso, ledger P1 y corrección UUID P1.
