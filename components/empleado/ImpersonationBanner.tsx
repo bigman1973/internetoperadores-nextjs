@@ -3,11 +3,15 @@
 import React from 'react';
 import { useImpersonation } from './ImpersonationContext';
 import { EyeIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { useActuation } from '../impersonation/ImpersonationBanner';
 
 export default function ImpersonationBanner() {
   const { impersonatedEmpleado, impersonatedEmail, setImpersonatedEmail, canImpersonate, empleados } = useImpersonation();
+  const { isActing } = useActuation();
 
-  if (!canImpersonate) return null;
+  // La actuación real ya tiene identidad y controles propios; nunca se mezcla con
+  // el selector histórico de sólo previsualización del portal empleado.
+  if (!canImpersonate || isActing) return null;
 
   return (
     <div className="mb-4">

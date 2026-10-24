@@ -4,6 +4,7 @@ import SessionProvider from "../components/SessionProvider";
 import { CartProvider } from "../components/CartProvider";
 import SegmentProvider from "../components/SegmentProvider";
 import NewsletterFloat from "../components/public/NewsletterFloat";
+import ImpersonationBanner, { ActuationProvider } from "../components/impersonation/ImpersonationBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -36,12 +37,15 @@ export default function RootLayout({ children }) {
           strategy="beforeInteractive"
         />
         <SessionProvider>
-          <SegmentProvider>
-            <CartProvider>
-              {children}
-              <NewsletterFloat />
-            </CartProvider>
-          </SegmentProvider>
+          <ActuationProvider>
+            <ImpersonationBanner />
+            <SegmentProvider>
+              <CartProvider>
+                {children}
+                <NewsletterFloat />
+              </CartProvider>
+            </SegmentProvider>
+          </ActuationProvider>
         </SessionProvider>
       </body>
     </html>

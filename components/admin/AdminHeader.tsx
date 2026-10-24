@@ -2,9 +2,11 @@
 
 import { signOut, useSession } from 'next-auth/react'
 import { ArrowRightOnRectangleIcon, Bars3Icon, EyeIcon, XMarkIcon, UserIcon } from '@heroicons/react/24/outline'
+import Link from 'next/link'
 import { useSidebar } from './AdminSidebar'
 import { useRole, ROLES_DISPONIBLES, RolId } from './RoleContext'
 import { useState, useEffect } from 'react'
+import { useActuation } from '../impersonation/ImpersonationBanner'
 
 interface UsuarioListItem {
   id: number
@@ -18,6 +20,7 @@ export default function AdminHeader() {
   const { data: session } = useSession()
   const { setIsOpen } = useSidebar()
   const { isSuperAdmin, isViewingAs, isViewingAsUser, viewingUser, activeRole, setViewAsRole, setViewAsUser } = useRole()
+  const { canStart, isActing } = useActuation()
   const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([])
   const [showUserSelector, setShowUserSelector] = useState(false)
   const [usersLoaded, setUsersLoaded] = useState(false)
@@ -61,10 +64,10 @@ export default function AdminHeader() {
         </div>
 
         <div className="ml-auto flex min-w-0 items-center gap-x-1.5 sm:gap-x-3 lg:gap-x-4">
-          {/* Selector "Ver como" - Solo para SUPER_ADMIN */}
-          {isSuperAdmin && (
+          {/* Selector "Ver como" - sólo previsualización local, no cambia la sesión. */}
+          {isSuperAdmin && !isActing && (
             <div className="flex min-w-0 items-center gap-x-1.5 sm:gap-x-2">
-              <EyeIcon className="h-4 w-4 text-gray-400 hidden sm:block" />
+              <EyeIcon className="h-4 w-4 text-gray-400 hidden sm:block" aria-hidden="true" />
               
               {/* Selector de rol */}
               <select
@@ -73,7 +76,7 @@ export default function AdminHeader() {
                   setViewAsUser(null)
                   setViewAsRole(e.target.value ? (e.target.value as RolId) : null)
                 }}
-                aria-label="Simular rol"
+                aria-label="Previsualizar rol"
                 className={`
                   min-h-10 max-w-24 cursor-pointer rounded-lg border px-2 py-1.5 text-xs font-medium sm:max-w-40 sm:text-sm
                   focus:ring-2 focus:ring-orange-500 focus:border-orange-500
@@ -98,7 +101,7 @@ export default function AdminHeader() {
                   type="button"
                   onClick={() => setShowUserSelector(!showUserSelector)}
                   aria-expanded={showUserSelector}
-                  aria-label="Simular usuario"
+                  aria-label="Previsualizar usuario"
                   className={`
                     flex h-10 min-w-10 cursor-pointer items-center justify-center gap-1 rounded-lg border px-2 text-xs font-medium sm:min-w-0 sm:text-sm
                     ${isViewingAsUser
@@ -116,7 +119,7 @@ export default function AdminHeader() {
                 {showUserSelector && (
                   <div className="absolute right-0 top-full z-50 mt-1 max-h-[70dvh] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl">
                     <div className="p-2 border-b border-gray-100">
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Ver como usuario</p>
+                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Previsualización · Ver como usuario</p>
                     </div>
                     {!usersLoaded && !usersError && <p role="status" className="px-3 py-3 text-xs text-gray-500">Cargando usuarios…</p>}
                     {!usersLoading && usersError && <p role="alert" className="px-3 py-3 text-xs text-red-700">No se pudieron cargar. Cierra y vuelve a abrir para reintentar.</p>}
@@ -151,6 +154,17 @@ export default function AdminHeader() {
                 </button>
               )}
             </div>
+          )}
+
+          {/* Actuación real: el servidor vuelve a confirmar autorización y destinos. */}
+          {isSuperAdmin && canStart && !isActing && (
+            <Link
+              href="/admin/actuar-como"
+              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-orange-600 px-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 sm:px-3 sm:text-sm"
+              title="Iniciar una sesión temporal con otra identidad autorizada"
+            >
+              Actuar como
+            </Link>
           )}
 
           {/* Banner de simulación */}

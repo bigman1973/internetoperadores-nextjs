@@ -1,6 +1,238 @@
 import { NextResponse } from 'next/server';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const IMPERSONATION_HEADER = 'x-io-impersonation-context';
+const EXPECTED_IMPERSONATION_SESSION_HEADER = 'x-io-acting-session';
+
+function configuredSessionCookieName() {
+  return process.env.NEXTAUTH_URL?.startsWith('https://') || process.env.VERCEL === '1'
+    ? '__Secure-next-auth.session-token'
+    : 'next-auth.session-token';
+}
+
+function privateBoundary(body, status = 403) {
+  return NextResponse.json(body, { status, headers: {
+    'Cache-Control': 'private, no-store, max-age=0', Pragma: 'no-cache', Expires: '0', Vary: 'Cookie',
+  } });
+}
+
+function continueRequest(headers) {
+  return NextResponse.next({ request: { headers } });
+}
+
+function clearEffectiveSession(response, cookieName) {
+  response.cookies.set(cookieName, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 });
+  for (let index = 0; index < 8; index += 1) {
+    response.cookies.set(`${cookieName}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 });
+  }
+  return response;
+}
+
+/** The matrix requirement is checked against the freshly read effective target.
+ * It deliberately does not call verificarPermisoServer: that helper's role
+ * fallback is correct for ordinary requests but must never become actor-derived
+ * authority during an acting session. */
+async function targetHasLiveMatrixPermission(policy, targetId, requirement) {
+  if (!requirement || !Number.isSafeInteger(targetId) || targetId <= 0) return false;
+  const areas = [...new Set(requirement.areas)];
+  if (!areas.length) return false;
+  const { default: prisma } = await import('@/lib/prisma');
+  const [target, activeAreas] = await Promise.all([
+    prisma.usuarioAdmin.findUnique({
+      where: { id: targetId },
+      select: {
+        activo: true,
+        rol: true,
+        roles: true,
+        permisos: {
+          where: { area: { activo: true } },
+          select: { lectura: true, escritura: true, area: { select: { codigo: true } } },
+        },
+      },
+    }),
+    prisma.permisoArea.findMany({
+      where: { codigo: { in: areas }, activo: true },
+      select: { codigo: true },
+    }),
+  ]);
+  return policy.targetHasLiveRoutePermission({
+    target: target ? {
+      activo: target.activo,
+      rol: target.rol,
+      roles: target.roles,
+      permisos: target.permisos.map(permission => ({
+        area: permission.area.codigo,
+        lectura: permission.lectura,
+        escritura: permission.escritura,
+      })),
+    } : null,
+    requirement,
+    activeAreas: activeAreas.map(area => area.codigo),
+  });
+}
+
+/** Reads at most 16 KiB from a clone. It never consumes the handler body. */
+async function impersonationAction(request) {
+  if (SAFE_API_METHODS.has(request.method)) return null;
+  const type = request.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+  if (type === 'multipart/form-data') return '__multipart__';
+  if (type !== 'application/json') return null;
+  const declared = request.headers.get('content-length');
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > 16 * 1024)) return null;
+  try {
+    const reader = request.clone().body?.getReader();
+    if (!reader) return null;
+    const decoder = new TextDecoder('utf-8', { fatal: true });
+    let bytes = 0; let text = '';
+    for (;;) {
+      const part = await reader.read();
+      if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > 16 * 1024) { await reader.cancel().catch(() => undefined); return null; }
+      text += decoder.decode(part.value, { stream: true });
+    }
+    text += decoder.decode();
+    const value = JSON.parse(text);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const action = value.action;
+    return typeof action === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(action) ? action : null;
+  } catch { return null; }
+}
+
+/**
+ * Acting is a centrally fail-closed request mode. It runs before every legacy
+ * route/Server Action and injects a MAC that browser headers cannot forge.
+ * Completion auditing is performed by the Prisma guard only after mutations
+ * return; this boundary records the pre-dispatch attempt.
+ */
+async function impersonationBoundary(request) {
+  try {
+    const [{ getToken }, policy, acting, context] = await Promise.all([
+      import('next-auth/jwt'), import('@/lib/impersonation-policy'), import('@/lib/impersonation'), import('@/lib/impersonation-context'),
+    ]);
+    // Browser values are never forwarded as authority. The expected-session
+    // header below is only a stale-form precondition; the signed context is
+    // generated afresh after a live ledger check.
+    const headers = new Headers(request.headers);
+    headers.delete(IMPERSONATION_HEADER);
+    headers.delete(EXPECTED_IMPERSONATION_SESSION_HEADER);
+    const cookieName = acting.nextAuthSessionCookieName();
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName });
+    const claims = acting.readImpersonationClaims(token);
+    const expectedSession = request.headers.get(EXPECTED_IMPERSONATION_SESSION_HEADER);
+    if (expectedSession !== null && (!policy.IMPERSONATION_UUID.test(expectedSession) || !claims || claims.sessionId !== expectedSession)) {
+      // A stale Lorena form must not fall through to a restored Víctor cookie.
+      return { response: privateBoundary({ error: 'La pestaña ya no tiene la sesión de actuación esperada.', codigo: 'IMPERSONATION_STALE_SESSION_DENIED' }) };
+    }
+    if (!claims) return { headers };
+
+    // There is exactly one path representation during an acting session. Check
+    // raw bytes before URL normalization: percent escapes, dot segments,
+    // separators, repeated slashes, trailing slash and case ambiguity deny.
+    const rawPath = policy.rawRequestPathBeforeNormalization(request.url);
+    const normalizedPath = request.nextUrl.pathname;
+    const path = policy.canonicalActingPath(rawPath, normalizedPath);
+    if (!path) {
+      return { response: privateBoundary({ error: 'Ruta no válida durante actuación.', codigo: 'IMPERSONATION_ENCODED_ROUTE_DENIED' }, 400) };
+    }
+
+    // An Authorization bearer header is never a substitute for the browser's
+    // HttpOnly cookie in acting mode, even when a cookie happens to be present.
+    if (request.headers.has('authorization')) {
+      return { response: privateBoundary({ error: 'La actuación sólo admite la cookie de sesión web.', codigo: 'IMPERSONATION_AUTH_HEADER_DENIED' }, 401) };
+    }
+
+    // A new interactive sign-in must terminate the old effective session before
+    // NextAuth can issue a different account cookie. Normal signOut records its
+    // terminal receipt through authOptions.events.signOut.
+    if (policy.isLoginReplacementPath(path)) {
+      await acting.terminateImpersonationToken(token, 'LOGIN');
+      return { headers };
+    }
+    if (path === '/api/auth/signout' && request.method === 'POST') return { headers };
+
+    const action = await impersonationAction(request);
+    if (request.headers.has('next-action')) {
+      return { response: privateBoundary({ error: 'Las Server Actions no están disponibles durante una actuación.', codigo: 'IMPERSONATION_SERVER_ACTION_DENIED' }) };
+    }
+
+    // Explicit exit remains reachable after expiry/revocation so it can recover
+    // the encrypted original identity. `iniciar` is equally narrow here: it
+    // reaches only the endpoint's exact lost-response replay branch. Neither
+    // control action receives an acting context for a business mutation.
+    if (path === '/api/admin/actuar-como' && request.method === 'POST' && (action === 'salir' || action === 'iniciar')) return { headers };
+    // State is also a closed recovery surface. Its handler will verify live
+    // sessions normally and, only after absolute expiry, expose non-authorizing
+    // restorable metadata so the foreground can submit the exit POST.
+    if (path === '/api/admin/actuar-como' && SAFE_API_METHODS.has(request.method)) return { headers };
+
+    const origin = context.trustedRequestOrigin(request.headers);
+    let live;
+    try {
+      live = await acting.resolveLiveImpersonation(token);
+    } catch (error) {
+      // Do not erase the JWE: it contains the only encrypted restoration proof.
+      // It carries no privilege because every route remains denied until salir.
+      try {
+        await acting.appendImpersonationAudit({
+          sessionId: claims.sessionId, actorId: Number(claims.actorId), targetId: Number(claims.targetId),
+          kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip,
+          detail: { code: error?.code || 'IMPERSONATION_INVALID', ipSource: origin.source },
+        });
+      } catch {
+        return { response: privateBoundary({ error: 'No se pudo verificar la seguridad de actuación.', codigo: 'IMPERSONATION_FAIL_CLOSED' }, 503) };
+      }
+      const status = error?.status === 503 ? 503 : 401;
+      return { response: privateBoundary({ error: 'La sesión de actuación no está autorizada.', codigo: error?.code || 'IMPERSONATION_INVALID' }, status) };
+    }
+
+    const isBusinessMutation = !SAFE_API_METHODS.has(request.method)
+      && !path.startsWith('/api/auth/')
+      && path !== '/api/admin/actuar-como';
+    if (isBusinessMutation && expectedSession === null) {
+      await acting.appendImpersonationAudit({
+        sessionId: live.active.sessionId, actorId: live.actor.id, targetId: live.target.id,
+        kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip, reason: live.reason,
+        detail: { code: 'IMPERSONATION_EXPECTED_SESSION_REQUIRED', action, ipSource: origin.source },
+      });
+      return { response: privateBoundary({ error: 'La solicitud debe confirmar la sesión de actuación vigente.', codigo: 'IMPERSONATION_EXPECTED_SESSION_REQUIRED' }) };
+    }
+
+    const route = policy.impersonationRouteDecision(path, request.method, request.nextUrl.searchParams, live.target.id, action);
+    if (!route.allowed) {
+      await acting.appendImpersonationAudit({
+        sessionId: live.active.sessionId, actorId: live.actor.id, targetId: live.target.id,
+        kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip, reason: live.reason,
+        detail: { code: 'IMPERSONATION_ROUTE_DENIED', action, ipSource: origin.source },
+      });
+      return { response: privateBoundary({ error: 'Esta superficie no está disponible durante una actuación.', codigo: 'IMPERSONATION_ROUTE_DENIED' }) };
+    }
+    if (route.permission && !await targetHasLiveMatrixPermission(policy, live.target.id, route.permission)) {
+      await acting.appendImpersonationAudit({
+        sessionId: live.active.sessionId, actorId: live.actor.id, targetId: live.target.id,
+        kind: 'REQUEST', outcome: 'DENIED', method: request.method, path, ip: origin.ip, reason: live.reason,
+        detail: { code: 'IMPERSONATION_TARGET_PERMISSION_DENIED', purpose: route.purpose, action, ipSource: origin.source },
+      });
+      return { response: privateBoundary({ error: 'El destino efectivo no dispone del permiso actual para esta superficie.', codigo: 'IMPERSONATION_TARGET_PERMISSION_DENIED' }) };
+    }
+
+    // Every forwarded request has a durable pre-dispatch record. The browser
+    // body/query/cookies and untrusted headers are never included in the ledger.
+    await acting.appendImpersonationAudit({
+      sessionId: live.active.sessionId, actorId: live.actor.id, targetId: live.target.id,
+      kind: 'REQUEST', outcome: 'ATTEMPT', method: request.method, path, ip: origin.ip, reason: live.reason,
+      detail: { purpose: route.purpose, action, ipSource: origin.source },
+    });
+    headers.set(IMPERSONATION_HEADER, context.signTrustedImpersonationContext({
+      v: 'v1', sessionId: live.active.sessionId, actorId: live.actor.id, targetId: live.target.id,
+      reason: live.reason, method: request.method, path, action, ip: origin.ip, ipSource: origin.source,
+    }));
+    return { headers };
+  } catch (error) {
+    // A DB/audit/configuration failure is never permission to enter a handler.
+    return { response: privateBoundary({ error: 'No se pudo verificar la seguridad de actuación.', codigo: 'IMPERSONATION_FAIL_CLOSED' }, 503) };
+  }
+}
 const ALWAYS_BLOCKED_AUTOMATIC_RECONCILIATION_POSTS = new Set([
   '/api/admin/finanzas/conciliacion/auto',
   // La ruta raíz heredada ya rechaza el POST; el borde lo mantiene bloqueado
@@ -92,11 +324,19 @@ function financeAreas(pathname) {
 }
 
 export async function middleware(request) {
+  const actingBoundary = await impersonationBoundary(request);
+  if (actingBoundary.response) return actingBoundary.response;
+  // No early return: the profile and financial middleware below must evaluate
+  // every acting request with its effective target JWT.
+  const trustedHeaders = actingBoundary.headers;
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
     // Se amplía por bloques validados, nunca por toda el área financiera.
     const allowed = path === '/api/admin/finanzas/sincronizar-onedrive'
+      // El control valida su propia sesión real, CSRF/origen y entorno; esta
+      // excepción no habilita ninguna API de negocio durante actuación.
+      || path === '/api/admin/actuar-como'
       || (/^\/api\/admin\/finanzas\/facturas\/calidad\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/finanzas/importar-movimientos' && request.method === 'POST')
       || (/^\/api\/admin\/finanzas\/movimientos\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
@@ -136,10 +376,11 @@ export async function middleware(request) {
       const [{ getToken }, { isEasyOnlyFinanceUser }, { easyOnlyRequestAllowed, EASY_ONLY_HOME }] = await Promise.all([
         import('next-auth/jwt'), import('@/lib/finanzas/easy-access-profile'), import('@/lib/finanzas/easy-access-core'),
       ]);
-      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
       const userId = Number(token?.id);
       if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0 && await isEasyOnlyFinanceUser(userId)) {
-        if (!easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
+        // Estado/salida son el único escape para una identidad efectiva mínima.
+        if (path !== '/api/admin/actuar-como' && !easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
           if (path.startsWith('/api/')) return blockedBoundary('Este perfil sólo permite Modo fácil y Para pedir.', 'EASY_ONLY_ACCESS');
           return NextResponse.redirect(new URL(EASY_ONLY_HOME, request.url));
         }
@@ -203,7 +444,7 @@ export async function middleware(request) {
     const [{ getToken }, { default: prisma }] = await Promise.all([
       import('next-auth/jwt'), import('@/lib/prisma'),
     ]);
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
     if (token?.userType !== 'admin') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
     }
@@ -252,11 +493,11 @@ export async function middleware(request) {
       console.error('Error verificando acceso financiero:', error);
       return NextResponse.json({ error: 'No se pudo verificar el acceso' }, { status: 503 });
     }
-    return NextResponse.next();
+    return continueRequest(trustedHeaders);
   }
 
   // Las APIs no financieras conservan su autenticación propia.
-  if (request.nextUrl.pathname.startsWith('/api/')) return NextResponse.next();
+  if (request.nextUrl.pathname.startsWith('/api/')) return continueRequest(trustedHeaders);
 
   // Solo proteger en entorno de preview/staging (no en producción ni desarrollo local)
   const isPreview = process.env.VERCEL_ENV === 'preview';
@@ -264,13 +505,13 @@ export async function middleware(request) {
 
   // Si no es staging/preview, permitir acceso sin restricciones
   if (!isPreview && !isStaging) {
-    return NextResponse.next();
+    return continueRequest(trustedHeaders);
   }
 
   // Verificar si ya está autenticado (cookie de sesión)
   const authCookie = request.cookies.get('staging-auth');
   if (authCookie?.value === 'authenticated') {
-    return NextResponse.next();
+    return continueRequest(trustedHeaders);
   }
 
   // Verificar credenciales de Basic Auth
@@ -286,7 +527,7 @@ export async function middleware(request) {
 
     if (user === validUser && pwd === validPassword) {
       // Crear respuesta con cookie de autenticación
-      const response = NextResponse.next();
+      const response = continueRequest(trustedHeaders);
       response.cookies.set('staging-auth', 'authenticated', {
         httpOnly: true,
         secure: true,

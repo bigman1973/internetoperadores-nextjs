@@ -43,6 +43,18 @@ export async function resolveEmpleado(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const asEmail = searchParams.get('as');
 
+  // La previsualización heredada nunca puede encadenarse sobre una identidad
+  // efectiva. Session.impersonation procede del JWE/ledger verificado por
+  // authOptions; no se acepta ningún selector de identidad del navegador.
+  if (asEmail && session.impersonation) {
+    return {
+      empleado: null,
+      isImpersonating: false,
+      error: 'La previsualización no está disponible durante una actuación.',
+      status: 403,
+    };
+  }
+
   const userEmail = session.user.email.toLowerCase();
   const userRole = account.rol;
   const isAdmin = canImpersonate(userEmail, userRole);

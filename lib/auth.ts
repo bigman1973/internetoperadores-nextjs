@@ -2,11 +2,32 @@ import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import AzureADProvider from 'next-auth/providers/azure-ad'
 import bcrypt from 'bcryptjs'
+import { randomUUID } from 'node:crypto'
 import prisma from './prisma'
 import { verifyClienteCredentials, getClienteByEmail } from './ispgestion/service'
 import { reconciliarContactosCrmConClientes } from './crm-contactos'
+import {
+  buildEffectiveImpersonationToken,
+  encodeNextAuthSession,
+  isActiveImpersonationToken,
+  resolveLiveImpersonation,
+  terminateImpersonationToken,
+} from './impersonation'
+
+const useSecureAuthCookies = process.env.NEXTAUTH_URL?.startsWith('https://') || process.env.VERCEL === '1'
+const REAL_SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
 export const authOptions: NextAuthOptions = {
+  // A single bounded session token is used by both normal and effective
+  // sessions. NextAuth receives the same strict attributes when it refreshes
+  // /api/auth/session, so a later refresh cannot weaken the acting cookie.
+  useSecureCookies: useSecureAuthCookies,
+  cookies: {
+    sessionToken: {
+      name: useSecureAuthCookies ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
+      options: { httpOnly: true, secure: useSecureAuthCookies, sameSite: 'strict', path: '/' },
+    },
+  },
   providers: [
     // Azure AD (Microsoft) para admins
     AzureADProvider({
@@ -191,11 +212,31 @@ export const authOptions: NextAuthOptions = {
       return true
     },
     async jwt({ token, user, account }) {
+      // A new login replaces any prior cookie. Middleware records LOGIN for an
+      // existing acting cookie before NextAuth reaches this callback.
+      if (isActiveImpersonationToken(token) && !user) {
+        const live = await resolveLiveImpersonation(token)
+        return buildEffectiveImpersonationToken(token, live)
+      }
+
       if (user) {
+        // A real sign-in replaces any previous effective identity. Do not let
+        // a provider callback carry an old encrypted acting/original envelope
+        // into the new account's JWT.
+        delete token.impersonation
+        delete token.original
+        // `jti` is reissued by NextAuth whenever it encodes a JWE. Keep a
+        // separate opaque source-session id encrypted in the JWT for ledger
+        // binding and CSRF; it is deliberately never copied to Session.
+        token.ioActuationSourceId = randomUUID()
         token.id = user.id
         token.role = user.role
         token.roles = user.roles || []
         token.userType = user.userType
+        // Keep the source session's absolute expiry separately from a JWE exp
+        // that NextAuth may refresh. An acting token can restore only this
+        // encrypted original proof, never an extended super-admin session.
+        token.sourceExpiresAt = Math.floor(Date.now() / 1000) + REAL_SESSION_MAX_AGE
       }
 
       // Si es login con Azure AD, obtener rol del usuario de la BD
@@ -214,14 +255,44 @@ export const authOptions: NextAuthOptions = {
       return token
     },
     async session({ session, token }) {
+      // Re-read the immutable ledger and both current accounts on every
+      // getServerSession/useSession pass. A stale JWT role is never authority.
+      if (isActiveImpersonationToken(token)) {
+        const live = await resolveLiveImpersonation(token)
+        const effective = await buildEffectiveImpersonationToken(token, live)
+        token = effective
+      }
       if (session.user) {
         session.user.id = token.id as string
+        session.user.email = token.email as string
+        session.user.name = token.name as string
         session.user.role = token.role as string
         session.user.roles = (token.roles as string[]) || []
         session.user.userType = token.userType as 'admin' | 'cliente'
+        const raw = token.impersonation as any
+        if (raw) {
+          session.impersonation = {
+            sessionId: raw.sessionId,
+            actorId: raw.actorId,
+            actorName: raw.actorName,
+            targetId: raw.targetId,
+            targetName: raw.targetName,
+            expiresAt: raw.expiresAt,
+          }
+        }
       }
       return session
     }
+  },
+  jwt: {
+    encode: encodeNextAuthSession,
+  },
+  events: {
+    async signOut({ token }) {
+      // Errors are intentionally absorbed by the terminal append-only helper:
+      // logout must still clear the browser cookie and can never preserve access.
+      await terminateImpersonationToken(token, 'SIGN_OUT')
+    },
   },
   pages: {
     signIn: '/login',
@@ -229,7 +300,7 @@ export const authOptions: NextAuthOptions = {
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 días
+    maxAge: REAL_SESSION_MAX_AGE, // 30 días
   },
   secret: process.env.NEXTAUTH_SECRET,
 }
