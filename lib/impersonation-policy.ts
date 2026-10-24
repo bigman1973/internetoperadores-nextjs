@@ -8,6 +8,79 @@ export const IMPERSONATION_CONTEXT_VERSION = 'v1'
 export const IMPERSONATION_IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{16,128}$/
 export const IMPERSONATION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+/** Static database identities. The live identity is re-checked by the core. */
+export const IMPERSONATION_STAGING_IDENTITY = Object.freeze({ database: 'io_staging_finanzas', user: 'io_staging_finanzas' })
+export const IMPERSONATION_PRODUCTION_IDENTITY = Object.freeze({
+  host: 'yamanote.proxy.rlwy.net', port: '34880', database: 'railway', user: 'postgres',
+})
+
+export type ImpersonationEnvironment = 'staging' | 'production'
+export type ImpersonationEnvInput = Readonly<Record<string, string | undefined> & {
+  FINANCE_STAGING_SANDBOX?: string
+  VERCEL_ENV?: string
+  DATABASE_URL?: string
+  IMPERSONATION_PRODUCTION_ENABLED?: string
+  IMPERSONATION_ALLOWED_ACTOR_IDS?: string
+}>
+
+/**
+ * Server configuration only (never request data). Staging requires the isolated
+ * sandbox database; production requires the exact Vercel production runtime and
+ * the reviewed Railway identity. Anything else has no acting surface at all.
+ */
+export function impersonationEnvironment(env: ImpersonationEnvInput): ImpersonationEnvironment | null {
+  let url: URL
+  try { url = new URL(env.DATABASE_URL ?? '') } catch { return null }
+  if (!['postgres:', 'postgresql:'].includes(url.protocol)) return null
+  let user: string
+  try { user = decodeURIComponent(url.username) } catch { return null }
+  // The sandbox flag wins: a misconfigured staging URL never degrades to production.
+  if (env.FINANCE_STAGING_SANDBOX === '1') {
+    return env.VERCEL_ENV !== 'production'
+      && url.pathname === `/${IMPERSONATION_STAGING_IDENTITY.database}`
+      && user === IMPERSONATION_STAGING_IDENTITY.user ? 'staging' : null
+  }
+  if (env.VERCEL_ENV !== 'production') return null
+  return url.hostname === IMPERSONATION_PRODUCTION_IDENTITY.host
+    && url.port === IMPERSONATION_PRODUCTION_IDENTITY.port
+    && url.pathname === `/${IMPERSONATION_PRODUCTION_IDENTITY.database}`
+    && user === IMPERSONATION_PRODUCTION_IDENTITY.user ? 'production' : null
+}
+
+/**
+ * `null` means "not configured". A configured but malformed list is an empty
+ * list, so a typo can never widen access.
+ */
+export function impersonationAllowedActorIds(env: ImpersonationEnvInput): readonly number[] | null {
+  const raw = env.IMPERSONATION_ALLOWED_ACTOR_IDS
+  if (raw === undefined || raw.trim() === '') return null
+  const parts = raw.split(',').map(part => part.trim())
+  if (parts.length > 10 || parts.some(part => !/^[1-9][0-9]{0,8}$/.test(part))) return []
+  return [...new Set(parts.map(Number))]
+}
+
+/** Production must name its real actors explicitly; staging may use every live SUPER_ADMIN. */
+export function impersonationActorListed(actorId: number, env: ImpersonationEnvInput): boolean {
+  const environment = impersonationEnvironment(env)
+  if (!environment || !Number.isSafeInteger(actorId) || actorId <= 0) return false
+  const allowed = impersonationAllowedActorIds(env)
+  if (allowed === null) return environment === 'staging'
+  return allowed.includes(actorId)
+}
+
+/**
+ * Whether new or live acting sessions may be used. Production additionally
+ * needs its explicit switch and a non-empty actor list. Exit/restoration only
+ * needs `impersonationEnvironment`, so switching this off never strands a user.
+ */
+export function impersonationEnabled(env: ImpersonationEnvInput): boolean {
+  const environment = impersonationEnvironment(env)
+  if (environment === 'staging') return true
+  if (environment !== 'production' || env.IMPERSONATION_PRODUCTION_ENABLED !== '1') return false
+  const allowed = impersonationAllowedActorIds(env)
+  return allowed !== null && allowed.length > 0
+}
+
 export type AdminIdentity = Readonly<{
   id: number
   activo: boolean

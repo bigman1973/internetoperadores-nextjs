@@ -5,7 +5,7 @@ import {
   type SignedImpersonationContextResolution,
   type TrustedImpersonationContext,
 } from '@/lib/impersonation-context'
-import { impersonationRequestAllowed } from '@/lib/impersonation-policy'
+import { impersonationActorListed, impersonationEnabled, impersonationRequestAllowed } from '@/lib/impersonation-policy'
 
 // La copia de Finanzas nunca debe reconectar a producción por un override ausente.
 if (process.env.FINANCE_STAGING_SANDBOX === '1') {
@@ -401,14 +401,9 @@ export function impersonationPrismaMutation(action: string, args: unknown): bool
   return RAW_ACTIONS.has(action) && rawSqlLooksMutating(args)
 }
 
-function stagingEnvironment(): boolean {
-  try {
-    const url = new URL(process.env.DATABASE_URL || '')
-    return process.env.FINANCE_STAGING_SANDBOX === '1'
-      && process.env.VERCEL_ENV !== 'production'
-      && url.pathname === '/io_staging_finanzas'
-      && decodeURIComponent(url.username) === 'io_staging_finanzas'
-  } catch { return false }
+/** Delegated writes need the reviewed environment, its switch and a listed real actor. */
+function delegatedWritesEnabledFor(actorId: number): boolean {
+  return impersonationEnabled(process.env) && impersonationActorListed(actorId, process.env)
 }
 
 type LiveContext = TrustedImpersonationContext
@@ -437,7 +432,7 @@ export async function verifyLiveImpersonationContext(
   context: LiveContext,
   tx: Prisma.TransactionClient,
 ): Promise<boolean> {
-  if (!stagingEnvironment() || !impersonationRequestAllowed(context.path, context.method, new URLSearchParams(), context.targetId, context.action)) return false
+  if (!delegatedWritesEnabledFor(context.actorId) || !impersonationRequestAllowed(context.path, context.method, new URLSearchParams(), context.targetId, context.action)) return false
   try {
     // FOR SHARE prevents a concurrent explicit exit (FOR UPDATE OF s) from
     // closing this effective session between the final ledger check and the

@@ -105,21 +105,21 @@ function pageNumber(value: string | null, fallback: number, maximum: number): nu
 }
 
 function clearSessionCookie(response: NextResponse): void {
-  response.cookies.set(nextAuthSessionCookieName(), '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 })
+  response.cookies.set(nextAuthSessionCookieName(), '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 })
   // Remove any stale NextAuth chunks from a previous incompatible deployment.
-  for (let index = 0; index < 8; index += 1) response.cookies.set(`${nextAuthSessionCookieName()}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 })
+  for (let index = 0; index < 8; index += 1) response.cookies.set(`${nextAuthSessionCookieName()}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 })
 }
 
 function setSessionCookie(response: NextResponse, value: string, maxAge: number): void {
   response.cookies.set(nextAuthSessionCookieName(), value, {
     httpOnly: true,
     secure: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
     path: '/',
     maxAge,
   })
   // The issuer rejects >3.6 KiB, still proactively erase legacy chunks.
-  for (let index = 0; index < 8; index += 1) response.cookies.set(`${nextAuthSessionCookieName()}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 })
+  for (let index = 0; index < 8; index += 1) response.cookies.set(`${nextAuthSessionCookieName()}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 })
 }
 
 function jsonWithCsrf(body: Record<string, unknown>, token: JWT, status = 200): NextResponse {

@@ -90,6 +90,16 @@ export function ActuationProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
+    // Anonymous visitors of the public website never have anything to show:
+    // skip the control request there. Inside /admin and /empleado it still
+    // runs, because an expired acting cookie also projects as unauthenticated
+    // and needs the metadata-only recovery state to offer the exit.
+    if (status === 'unauthenticated' && !latestSeedRef.current && !/^\/(?:admin|empleado)(?:\/|$)/.test(window.location.pathname)) {
+      setState(null)
+      setLoading(false)
+      return
+    }
+
     // A closed effective JWE can make NextAuth's session projection fail before
     // its own control GET runs. Still ask the closed control plane: it returns
     // either active:null or metadata-only EXPIRED/REVOKED recovery, never a

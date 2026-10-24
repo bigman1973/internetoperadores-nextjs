@@ -6,16 +6,20 @@ import prisma from '@/lib/prisma'
 import {
   IMPERSONATION_CONTEXT_VERSION,
   IMPERSONATION_MAX_SECONDS,
+  IMPERSONATION_PRODUCTION_IDENTITY,
+  IMPERSONATION_STAGING_IDENTITY,
   IMPERSONATION_UUID,
   canStartImpersonation,
   evaluateLiveImpersonation,
+  impersonationActorListed,
+  impersonationEnabled,
+  impersonationEnvironment,
   normalizedReason,
   type AdminIdentity,
   type ImpersonationBodyAction,
+  type ImpersonationEnvironment,
 } from '@/lib/impersonation-policy'
 
-const STAGING_DATABASE = 'io_staging_finanzas'
-const STAGING_USER = 'io_staging_finanzas'
 const TABLE_MISSING = '42P01'
 
 export type EffectiveAdminIdentity = Readonly<{
@@ -69,7 +73,7 @@ export function privateJsonHeaders(): Record<string, string> {
   }
 }
 
-/** Mirrors NextAuth v4 defaults; acting is enabled only over the HTTPS staging URL. */
+/** Mirrors NextAuth v4 defaults; acting is enabled only over HTTPS deployments. */
 export function nextAuthSessionCookieName(): string {
   return process.env.NEXTAUTH_URL?.startsWith('https://') || process.env.VERCEL === '1'
     ? '__Secure-next-auth.session-token'
@@ -119,32 +123,41 @@ function isMissingTable(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: string }).code === TABLE_MISSING
 }
 
-function databaseConfiguredForStaging(): boolean {
-  try {
-    const url = new URL(process.env.DATABASE_URL || '')
-    return process.env.FINANCE_STAGING_SANDBOX === '1'
-      && process.env.VERCEL_ENV !== 'production'
-      && url.pathname === `/${STAGING_DATABASE}`
-      && decodeURIComponent(url.username) === STAGING_USER
-  } catch {
-    return false
-  }
-}
-
-/** No production fallback: configured and live database identity must both match staging. */
-export async function assertImpersonationStaging(): Promise<void> {
-  if (!databaseConfiguredForStaging()) fail(404, 'IMPERSONATION_STAGING_ONLY', 'Actuar como sólo está habilitado en staging aislado.')
+/**
+ * Configured and live database identity must both match the same reviewed
+ * environment. This is enough for exit/restoration, which must stay possible
+ * even after the production switch is turned off.
+ */
+export async function assertImpersonationEnvironment(): Promise<ImpersonationEnvironment> {
+  const environment = impersonationEnvironment(process.env)
+  if (!environment) fail(404, 'IMPERSONATION_UNAVAILABLE', 'Actuar como no está disponible en este entorno.')
+  const expected = environment === 'staging'
+    ? { database: IMPERSONATION_STAGING_IDENTITY.database, user: IMPERSONATION_STAGING_IDENTITY.user }
+    : { database: IMPERSONATION_PRODUCTION_IDENTITY.database, user: IMPERSONATION_PRODUCTION_IDENTITY.user }
   try {
     const rows = await prisma.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
       SELECT current_database() AS database_name, current_user AS database_user LIMIT 1
     `)
-    if (rows.length !== 1 || rows[0].database_name !== STAGING_DATABASE || rows[0].database_user !== STAGING_USER) {
-      fail(404, 'IMPERSONATION_STAGING_ONLY', 'Actuar como sólo está habilitado en staging aislado.')
+    if (rows.length !== 1 || rows[0].database_name !== expected.database || rows[0].database_user !== expected.user) {
+      fail(404, 'IMPERSONATION_UNAVAILABLE', 'Actuar como no está disponible en este entorno.')
     }
   } catch (error) {
     if (error instanceof ImpersonationError) throw error
     fail(503, 'IMPERSONATION_IDENTITY_UNAVAILABLE', 'No se pudo verificar el entorno de actuación.')
   }
+  return environment
+}
+
+/** New or live acting additionally needs the production switch and actor list. */
+export async function assertImpersonationEnabled(): Promise<ImpersonationEnvironment> {
+  const environment = await assertImpersonationEnvironment()
+  if (!impersonationEnabled(process.env)) fail(404, 'IMPERSONATION_UNAVAILABLE', 'Actuar como no está disponible en este entorno.')
+  return environment
+}
+
+/** Only explicitly listed real actors may start or keep using an acting session. */
+export function impersonationActorAllowed(actorId: number): boolean {
+  return impersonationEnabled(process.env) && impersonationActorListed(actorId, process.env)
 }
 
 function stableSourceId(value: unknown): string | null {
@@ -552,7 +565,7 @@ async function appendBestEffortImpersonationEnd(
 
 /** Verifies ledger, original-session fingerprint and both current identities every request. */
 export async function resolveLiveImpersonation(token: JWT, now = new Date()): Promise<LiveImpersonation> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnvironment()
   const claims = readImpersonationClaims(token)
   if (!claims) fail(401, 'IMPERSONATION_INVALID', 'La sesión de actuación no es válida.')
   const claimedExpiry = new Date(claims.expiresAt)
@@ -580,11 +593,13 @@ export async function resolveLiveImpersonation(token: JWT, now = new Date()): Pr
     const decision = evaluateLiveImpersonation({
       sessionFound: !!ledger, closed: !!ledger?.end_id, expiresAt: ledgerExpiry, now,
       actor: adminFromIdentity(actorRow.effective, actorRow.active), target: adminFromIdentity(targetRow.effective, targetRow.active),
-      sourceSessionMatches: sourceMatches, runtimeEnabled: true,
+      // Production names its real actors explicitly; a later list change ends
+      // the live grant (REVOKED below) while explicit exit stays available.
+      sourceSessionMatches: sourceMatches, runtimeEnabled: impersonationActorAllowed(positiveId(claims.actorId)),
     })
     if (decision.ok === false) {
       if (decision.code === 'SESSION_EXPIRED') await appendBestEffortImpersonationEnd(claims.sessionId, 'EXPIRED')
-      if (decision.code === 'ACTOR_REVOKED' || decision.code === 'TARGET_REVOKED' || decision.code === 'TARGET_SUPER_ADMIN') await appendBestEffortImpersonationEnd(claims.sessionId, 'REVOKED')
+      if (decision.code === 'ACTOR_REVOKED' || decision.code === 'TARGET_REVOKED' || decision.code === 'TARGET_SUPER_ADMIN' || decision.code === 'RUNTIME_DISABLED') await appendBestEffortImpersonationEnd(claims.sessionId, 'REVOKED')
       fail(401, `IMPERSONATION_${decision.code}`, 'La sesión de actuación ya no está autorizada.')
     }
     const actor = actorRow.effective!
@@ -606,7 +621,7 @@ export async function resolveLiveImpersonation(token: JWT, now = new Date()): Pr
  * an expiry/revocation; it never returns an effective identity.
  */
 export async function resolveRestorableImpersonation(token: JWT): Promise<{ active: ActiveImpersonation; endReason: 'EXPIRED' | 'REVOKED' }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnvironment()
   const claims = readImpersonationClaims(token)
   if (!claims) fail(401, 'IMPERSONATION_NOT_ACTIVE', 'No hay una actuación recuperable.')
   const actorId = positiveId(claims.actorId)
@@ -705,12 +720,12 @@ export function sourceSessionMaxAge(token: JWT): number {
 
 function startDeniedCode(error: unknown): string | null {
   if (!(error instanceof ImpersonationError)) return null
-  return ['ACTOR_INVALID', 'ACTOR_NOT_SUPER_ADMIN', 'TARGET_INVALID', 'TARGET_SELF', 'TARGET_SUPER_ADMIN', 'NESTED_IMPERSONATION', 'IDEMPOTENCY_CONFLICT'].includes(error.code) ? error.code : null
+  return ['ACTOR_INVALID', 'ACTOR_NOT_SUPER_ADMIN', 'ACTOR_NOT_ALLOWED', 'TARGET_INVALID', 'TARGET_SELF', 'TARGET_SUPER_ADMIN', 'NESTED_IMPERSONATION', 'IDEMPOTENCY_CONFLICT'].includes(error.code) ? error.code : null
 }
 
 /** Atomic durable start ledger plus success event. The pre-grant attempt is a separate immutable audit. */
 export async function startImpersonation(input: Readonly<{ sourceToken: JWT; targetId: number; reason?: unknown; idempotencyKey: string; ip?: string | null }>): Promise<{ token: JWT; active: ActiveImpersonation; replayed: boolean }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnabled()
   const actorId = positiveId(input.sourceToken.id)
   const reason = normalizedReason(input.reason)
   if (input.reason !== undefined && input.reason !== null && input.reason !== '' && !reason) fail(400, 'REASON_INVALID', 'El motivo debe tener entre 1 y 500 caracteres.')
@@ -757,6 +772,7 @@ export async function startImpersonation(input: Readonly<{ sourceToken: JWT; tar
         { id: input.targetId, activo: target?.activo === true, rol: target?.rol ?? '', roles: target?.roles ?? [] }, false,
       )
       if (decision.ok === false) fail(403, decision.code, 'No está autorizado para iniciar la actuación.')
+      if (!impersonationActorAllowed(actorId)) fail(403, 'ACTOR_NOT_ALLOWED', 'No está autorizado para iniciar la actuación.')
       if (replay) {
         const replayExpiryMs = new Date(replay.expires_at).getTime()
         if (replay.end_id || !Number.isFinite(replayExpiryMs) || replayExpiryMs <= now.getTime()) {
@@ -828,7 +844,7 @@ export async function replayEffectiveImpersonationStart(
   idempotencyKey: string,
   ip?: string | null,
 ): Promise<{ token: JWT; active: ActiveImpersonation; replayed: true }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnabled()
   const claims = readImpersonationClaims(token)
   if (!claims) fail(401, 'IMPERSONATION_NOT_ACTIVE', 'No hay una actuación activa.')
   const claimsTargetId = positiveId(claims.targetId)
@@ -878,7 +894,7 @@ export async function exitImpersonation(
   idempotencyKey: string,
   ip?: string | null,
 ): Promise<{ token: JWT; replayed: boolean }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnvironment()
   const claims = readImpersonationClaims(token)
   if (!claims) fail(401, 'IMPERSONATION_NOT_ACTIVE', 'No hay una actuación activa.')
   const actorId = positiveId(claims.actorId)
@@ -969,7 +985,7 @@ export async function exitImpersonation(
  * exact `(source session, actor, idempotency key, canonical payload)` completed.
  */
 export async function replayRestoredImpersonationExit(token: JWT, idempotencyKey: string): Promise<{ replayed: true }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnvironment()
   if (readImpersonationClaims(token)) fail(409, 'IMPERSONATION_STILL_ACTIVE', 'La salida debe verificarse con la sesión restaurada.')
   const source = originalClaims(token)
   const actorId = positiveId(source.id)
@@ -1034,7 +1050,12 @@ export async function requireLiveSuperAdmin(token: JWT | null | undefined): Prom
   if (!token || token.userType !== 'admin' || readImpersonationClaims(token)) {
     fail(403, 'SUPER_ADMIN_REQUIRED', 'Sólo un SUPER_ADMIN vigente puede usar este control.')
   }
-  const current = await readAdmin(positiveId(token.id))
+  const actorId = positiveId(token.id)
+  // Cheap configuration check first: unlisted users never reach the database.
+  if (!impersonationActorListed(actorId, process.env)) {
+    fail(403, 'SUPER_ADMIN_REQUIRED', 'Sólo un SUPER_ADMIN vigente puede usar este control.')
+  }
+  const current = await readAdmin(actorId)
   if (!current.effective || !current.active || current.effective.role !== 'SUPER_ADMIN') {
     fail(403, 'SUPER_ADMIN_REQUIRED', 'Sólo un SUPER_ADMIN vigente puede usar este control.')
   }
@@ -1042,7 +1063,7 @@ export async function requireLiveSuperAdmin(token: JWT | null | undefined): Prom
 }
 
 export async function listImpersonationTargets(limit = 50, offset = 0): Promise<Array<{ id: number; nombre: string; rol: string }>> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnabled()
   const take = Number.isSafeInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 50
   const skip = Number.isSafeInteger(offset) ? Math.min(Math.max(offset, 0), 10_000) : 0
   return prisma.usuarioAdmin.findMany({
@@ -1052,7 +1073,7 @@ export async function listImpersonationTargets(limit = 50, offset = 0): Promise<
 }
 
 export async function readImpersonationLog(limit = 25, offset = 0): Promise<{ events: Array<Record<string, unknown>>; total: number }> {
-  await assertImpersonationStaging()
+  await assertImpersonationEnvironment()
   const take = Number.isSafeInteger(limit) ? Math.min(Math.max(limit, 1), 100) : 25
   const skip = Number.isSafeInteger(offset) ? Math.min(Math.max(offset, 0), 10_000) : 0
   try {

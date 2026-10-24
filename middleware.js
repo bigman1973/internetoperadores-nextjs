@@ -32,9 +32,9 @@ function continueRequest(headers) {
 }
 
 function clearEffectiveSession(response, cookieName) {
-  response.cookies.set(cookieName, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 });
+  response.cookies.set(cookieName, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 });
   for (let index = 0; index < 8; index += 1) {
-    response.cookies.set(`${cookieName}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 0 });
+    response.cookies.set(`${cookieName}.${index}`, '', { httpOnly: true, secure: true, sameSite: 'lax', path: '/', maxAge: 0 });
   }
   return response;
 }
@@ -117,6 +117,19 @@ async function impersonationAction(request) {
  * return; this boundary records the pre-dispatch attempt.
  */
 async function impersonationBoundary(request) {
+  // Fast path, behaviourally identical to the full branch below: without any
+  // session cookie there are no acting claims, so the only work is stripping
+  // the server-only headers. A stale-form precondition still takes the full
+  // path so it is denied exactly as before.
+  if (request.headers.get(EXPECTED_IMPERSONATION_SESSION_HEADER) === null) {
+    const cookieName = configuredSessionCookieName();
+    const hasSessionCookie = request.cookies.getAll().some(cookie => cookie.name === cookieName || cookie.name.startsWith(`${cookieName}.`));
+    if (!hasSessionCookie) {
+      const headers = new Headers(request.headers);
+      headers.delete(IMPERSONATION_HEADER);
+      return { headers };
+    }
+  }
   try {
     const [{ getToken }, policy, acting, context] = await Promise.all([
       import('next-auth/jwt'), import('@/lib/impersonation-policy'), import('@/lib/impersonation'), import('@/lib/impersonation-context'),

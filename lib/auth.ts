@@ -19,13 +19,16 @@ const REAL_SESSION_MAX_AGE = 30 * 24 * 60 * 60
 
 export const authOptions: NextAuthOptions = {
   // A single bounded session token is used by both normal and effective
-  // sessions. NextAuth receives the same strict attributes when it refreshes
-  // /api/auth/session, so a later refresh cannot weaken the acting cookie.
+  // sessions. NextAuth receives the same attributes when it refreshes
+  // /api/auth/session. SameSite must stay Lax (NextAuth's default): the
+  // Microsoft sign-in returns through a cross-site redirect chain and a Strict
+  // cookie is not sent on it, which would loop users back to /login. Control
+  // POSTs are protected separately by the Strict __Host CSRF cookie + Origin.
   useSecureCookies: useSecureAuthCookies,
   cookies: {
     sessionToken: {
       name: useSecureAuthCookies ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
-      options: { httpOnly: true, secure: useSecureAuthCookies, sameSite: 'strict', path: '/' },
+      options: { httpOnly: true, secure: useSecureAuthCookies, sameSite: 'lax', path: '/' },
     },
   },
   providers: [
