@@ -1,7 +1,14 @@
 export type EasyAccessProfile = Readonly<{
   easyOnly: boolean;
   canManageAutomation: boolean;
+  environment: 'staging' | 'production';
 }>;
+
+/** El servidor siempre declara el entorno; el cliente no acepta ausencia ni coerción. */
+export function parseEasyStagingOnly(value: unknown): boolean {
+  if (typeof value !== 'boolean') throw new Error('El servidor no informó stagingOnly como booleano.');
+  return value;
+}
 
 /** Un perfil parcial o malformado nunca habilita una vista avanzada en el navegador. */
 export function parseEasyAccessProfile(value: unknown): EasyAccessProfile {
@@ -9,10 +16,12 @@ export function parseEasyAccessProfile(value: unknown): EasyAccessProfile {
     throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
   const raw = value as Record<string, unknown>;
-  if (typeof raw.easyOnly !== 'boolean' || typeof raw.canManageAutomation !== 'boolean') {
+  if (typeof raw.easyOnly !== 'boolean' || typeof raw.canManageAutomation !== 'boolean' || (raw.environment !== 'staging' && raw.environment !== 'production')) {
     throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
-  return { easyOnly: raw.easyOnly, canManageAutomation: raw.canManageAutomation };
+  // This is a server-derived capability. The browser neither elevates it from a
+  // role nor changes it according to an URL/environment supplied by the client.
+  return { easyOnly: raw.easyOnly, canManageAutomation: raw.canManageAutomation, environment: raw.environment };
 }
 
 /** La ausencia o el error de perfil conservan la vista sencilla, sin datos avanzados momentáneos. */

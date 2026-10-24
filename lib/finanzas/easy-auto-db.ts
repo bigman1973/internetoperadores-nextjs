@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError, PrototypeStagingError, type FinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { B4ServiceError, confirmarB4Tx, deshacerB4Tx } from '@/lib/finanzas/reconciliation-db'
-import { canManageEasyAutomationStage } from '@/lib/finanzas/easy-access-profile'
+import { canManageEasyAutomation } from '@/lib/finanzas/easy-access-profile'
 import { appendAutoCounterpartyReceiptTx, undoAutoCounterpartyReceiptTx } from '@/lib/finanzas/easy-counterparty-db'
 import {
   EASY_AUTO_DATA_FROM,
@@ -33,12 +33,41 @@ import {
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
 const db = () => prisma as Db
+// The original staging key remains in easy-auto-core for staging runners and
+// rollback tests. Production selects its separate policy only from the
+// server-derived runtime, never from request input.
+const EASY_AUTO_PRODUCTION_POLICY_KEY = 'MODO_FACIL_AUTO_RESTRINGIDA_PRODUCTION_20261024' as const
+type AutoPolicyScope = Readonly<{
+  key: typeof EASY_AUTO_POLICY_KEY | typeof EASY_AUTO_PRODUCTION_POLICY_KEY
+  environment: 'STAGING' | 'PRODUCTION'
+  stagingOnly: boolean
+}>
 const AUTO_SCHEMA_TABLES = [
   'politicas_auto_modo_facil', 'atestaciones_cuenta_auto_modo_facil', 'terceros_banco_auto_modo_facil',
   'ejecuciones_auto_modo_facil', 'recibos_auto_modo_facil', 'patas_recibo_auto_modo_facil',
   'reversiones_auto_modo_facil', 'patas_reversion_auto_modo_facil', 'fallos_auto_modo_facil',
   'decisiones_tercero_modo_facil',
 ] as const
+
+function policyScope(runtime: FinanceEasyRuntimeContext): AutoPolicyScope {
+  return runtime.runtime === 'production'
+    ? { key: EASY_AUTO_PRODUCTION_POLICY_KEY, environment: 'PRODUCTION', stagingOnly: false }
+    : { key: EASY_AUTO_POLICY_KEY, environment: 'STAGING', stagingOnly: true }
+}
+
+/** Re-check the exact database identity on the transaction connection itself. */
+async function assertEasyRuntimeTx(tx: Tx, runtime: FinanceEasyRuntimeContext): Promise<AutoPolicyScope> {
+  const rows = await tx.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
+    SELECT current_database() AS database_name,current_user AS database_user LIMIT 1
+  `)
+  const expected = runtime.runtime === 'production'
+    ? { databaseName: 'railway', databaseUser: 'postgres' }
+    : { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+  if (rows.length !== 1 || rows[0]?.database_name !== expected.databaseName || rows[0]?.database_user !== expected.databaseUser) {
+    throw new FinanceEasyRuntimeError()
+  }
+  return policyScope(runtime)
+}
 
 export class EasyAutoServiceError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) {
@@ -59,7 +88,7 @@ function exactInteger(value: unknown, field: string): number {
 }
 function text(value: unknown): string | null { return typeof value === 'string' && value.trim() ? value.trim() : null }
 function b4Failure(error: unknown): never {
-  if (error instanceof EasyAutoServiceError || error instanceof EasyAutoValidationError || error instanceof PrototypeStagingError) throw error
+  if (error instanceof EasyAutoServiceError || error instanceof EasyAutoValidationError || error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) throw error
   if (error instanceof B4ServiceError) fail(error.status, error.code, error.message, error.details)
   const code = (error as any)?.code
   if (code === 'P2002' || code === 'P2034' || code === '40001') fail(409, 'CONCURRENT_CONFLICT', 'Conflicto concurrente; relea la previsualización antes de reintentar.')
@@ -94,38 +123,39 @@ async function assertAutoSchema(tx: Tx): Promise<void> {
     FROM unnest(ARRAY[${Prisma.join(AUTO_SCHEMA_TABLES.map(name => Prisma.sql`${name}`))}]::text[]) AS t(name)
   `)
   if (rows.length !== AUTO_SCHEMA_TABLES.length || rows.some(row => row.found === null)) {
-    fail(503, 'AUTOMATIZACION_ESQUEMA_PENDIENTE', 'Las migraciones aditivas P1 y de automatización restringida aún no están aplicadas en staging.')
+    fail(503, 'AUTOMATIZACION_ESQUEMA_PENDIENTE', 'Las migraciones aditivas P1 y de automatización restringida aún no están aplicadas en este entorno.')
   }
 }
 
 /** The authorization date is stamped with CURRENT_DATE when appended. A valid prior
  * opt-in remains usable tomorrow; the backend never silently demands a new one. */
-async function activePolicy(tx: Tx, required: boolean): Promise<Policy | null> {
+async function activePolicy(tx: Tx, scope: AutoPolicyScope, required: boolean): Promise<Policy | null> {
   const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT id::text,datos_desde::date::text AS datos_desde,datos_hasta::date::text AS datos_hasta,
       autorizada_en::date::text AS autorizada_en,referencia_autorizacion
     FROM politicas_auto_modo_facil
-    WHERE politica_key=${EASY_AUTO_POLICY_KEY} AND entorno='STAGING' AND estado='ACTIVA'
+    WHERE politica_key=${scope.key} AND entorno=${scope.environment} AND estado='ACTIVA'
       AND datos_desde=CAST(${EASY_AUTO_DATA_FROM} AS date) AND datos_hasta=CAST(${EASY_AUTO_DATA_UNTIL} AS date)
     ORDER BY autorizada_en DESC,created_at DESC,id DESC LIMIT 1
   `)
   const row = rows[0]
   if (!row) {
-    if (required) fail(409, 'POLITICA_AUTOMATICA_NO_ACTIVA', 'No existe una política ACTIVA de staging para la ventana cerrada.')
+    if (required) fail(409, 'POLITICA_AUTOMATICA_NO_ACTIVA', 'No existe una política ACTIVA para la ventana cerrada de este entorno.')
     return null
   }
   return { id: String(row.id), datosDesde: String(row.datos_desde), datosHasta: String(row.datos_hasta), autorizadaEn: String(row.autorizada_en), referenciaAutorizacion: String(row.referencia_autorizacion) }
 }
 
 /** Access is deliberately rechecked at every mutation path, beyond route/session checks. */
-async function requireAutoManager(actorId: number): Promise<void> {
-  await assertPrototypeStaging()
+async function requireAutoManager(actorId: number): Promise<FinanceEasyRuntimeContext> {
+  const runtime = await assertFinanceEasyRuntime()
   if (!Number.isSafeInteger(actorId) || actorId <= 0) fail(401, 'NO_AUTORIZADO', 'Actor no válido.')
-  if (!await canManageEasyAutomationStage(actorId)) {
-    fail(403, 'AUTOMATIZACION_NO_AUTORIZADA', 'El perfil vivo no puede gestionar automatización restringida en staging.')
+  if (!await canManageEasyAutomation(actorId, runtime)) {
+    fail(403, 'AUTOMATIZACION_NO_AUTORIZADA', 'El perfil vivo no puede gestionar automatización restringida.')
   }
   const b4 = await requireB4ActorAccess(actorId, 'escritura')
   if ('response' in b4) fail(b4.response.status, 'B4_ACCESS_REVOKED', 'El permiso B4 de escritura ya no está vigente.')
+  return runtime
 }
 
 async function accountAttestations(tx: Tx, policy: Policy): Promise<AccountAttestation[]> {
@@ -333,19 +363,23 @@ async function appliedReceipts(tx: Tx, policy: Policy) {
 
 /** GET projection backing. It has no DML and never initializes policy/state. */
 export async function readEasyAutomation() {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
     return await db().$transaction(async tx => {
       const work = asTx(tx)
+      const scope = await assertEasyRuntimeTx(work, runtime)
       await assertAutoSchema(work)
-      const policy = await activePolicy(work, false)
-      if (!policy) return { stagingOnly: true as const, automaticas: true as const, policy: null, counts: { examinados: 0, traspasos: 0, comisiones: 0, excluidos: 0, bloqueadosTitularidad: 0, fallosCadena: 0 }, reviewHash: null, candidates: [], bloqueados: [], fallosCadena: [], fallos: [], recibos: [] }
+      const policy = await activePolicy(work, scope, false)
+      // A production GET is a zero-result projection until a separately and
+      // explicitly confirmed POST registers its production policy. It never
+      // inserts, applies, or creates a policy while reading.
+      if (!policy) return { stagingOnly: scope.stagingOnly, automaticas: true as const, policy: null, counts: { examinados: 0, traspasos: 0, comisiones: 0, excluidos: 0, bloqueadosTitularidad: 0, fallosCadena: 0 }, reviewHash: null, candidates: [], bloqueados: [], fallosCadena: [], fallos: [], recibos: [] }
       const read = await candidatesTx(work, policy)
       const selected = read.candidates.slice(0, 100)
       const transfers = selected.filter(candidate => candidate.clase === 'TRASPASO_PROPIO').length
       const commissions = selected.filter(candidate => candidate.clase === 'COMISION_BANCARIA').length
       return {
-        stagingOnly: true as const, automaticas: true as const, policy,
+        stagingOnly: scope.stagingOnly, automaticas: true as const, policy,
         counts: { examinados: read.examined, traspasos: transfers, comisiones: commissions, excluidos: read.excluded, bloqueadosTitularidad: read.blocked.length, fallosCadena: read.chainFailures.length },
         reviewHash: reviewHash(policy.id, selected), candidates: selected.map(candidateDto),
         fallosCadena: read.chainFailures.map(failure => ({ cuenta: { cuentaId: failure.cuenta.accountId, banco: failure.cuenta.banco, alias: failure.cuenta.alias, ibanUltimos4: failure.cuenta.ibanUltimos4 }, codigo: failure.codigo })),
@@ -358,23 +392,24 @@ export async function readEasyAutomation() {
 /** First policy registration is explicit and append-only. It never creates any
  * account ownership claim or third-party mapping. */
 async function registerPolicy(actorId: number, referenciaAutorizacion: string) {
-  await requireAutoManager(actorId)
+  const runtime = await requireAutoManager(actorId)
   try {
     return await db().$transaction(async tx => {
       const work = asTx(tx)
+      const scope = await assertEasyRuntimeTx(work, runtime)
       await assertAutoSchema(work)
-      const existing = await activePolicy(work, false)
+      const existing = await activePolicy(work, scope, false)
       if (existing) {
         if (existing.referenciaAutorizacion !== referenciaAutorizacion) fail(409, 'POLITICA_EXISTENTE_DIFERENTE', 'La política activa ya conserva otra referencia de autorización; no se edita.')
         return { ok: true as const, policy: existing, idempotente: true as const }
       }
       const rows = await work.$queryRaw<Array<any>>(Prisma.sql`
         INSERT INTO politicas_auto_modo_facil (id,politica_key,entorno,estado,datos_desde,datos_hasta,autorizada_en,referencia_autorizacion,creada_por_id,created_at)
-        VALUES (gen_random_uuid(),${EASY_AUTO_POLICY_KEY},'STAGING','ACTIVA',CAST(${EASY_AUTO_DATA_FROM} AS date),CAST(${EASY_AUTO_DATA_UNTIL} AS date),CURRENT_DATE,${referenciaAutorizacion},${actorId},CURRENT_TIMESTAMP)
+        VALUES (gen_random_uuid(),${scope.key},${scope.environment},'ACTIVA',CAST(${EASY_AUTO_DATA_FROM} AS date),CAST(${EASY_AUTO_DATA_UNTIL} AS date),CURRENT_DATE,${referenciaAutorizacion},${actorId},CURRENT_TIMESTAMP)
         RETURNING id::text,datos_desde::date::text AS datos_desde,datos_hasta::date::text AS datos_hasta,autorizada_en::date::text AS autorizada_en,referencia_autorizacion
       `)
       const row = rows[0]
-      if (!row) fail(409, 'POLITICA_NO_REGISTRADA', 'No se pudo registrar la política de staging.')
+      if (!row) fail(409, 'POLITICA_NO_REGISTRADA', 'No se pudo registrar la política del entorno validado.')
       return { ok: true as const, idempotente: false as const, policy: { id: String(row.id), datosDesde: String(row.datos_desde), datosHasta: String(row.datos_hasta), autorizadaEn: String(row.autorizada_en), referenciaAutorizacion: String(row.referencia_autorizacion) } }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 45_000 })
   } catch (error) { return b4Failure(error) }
@@ -383,12 +418,13 @@ async function registerPolicy(actorId: number, referenciaAutorizacion: string) {
 /** One selected account only. It is only for bilateral transfer evidence; pure
  * commissions never prompt it and policy registration never grants it. */
 async function attestEasyAutoAccount(actorId: number, input: Extract<EasyAutoInput, { action: 'atestiguar_cuenta' }>) {
-  await requireAutoManager(actorId)
+  const runtime = await requireAutoManager(actorId)
   try {
     return await db().$transaction(async tx => {
       const work = asTx(tx)
+      const scope = await assertEasyRuntimeTx(work, runtime)
       await assertAutoSchema(work)
-      const policy = await activePolicy(work, true)
+      const policy = await activePolicy(work, scope, true)
       const account = await work.$queryRaw<Array<any>>(Prisma.sql`
         SELECT id FROM cuentas_bancarias WHERE id=${input.cuentaId} AND activa=true FOR KEY SHARE
       `)
@@ -425,23 +461,25 @@ async function attestEasyAutoAccount(actorId: number, input: Extract<EasyAutoInp
 export async function previewEasyAutomation(raw: unknown) {
   const input = parseEasyAutoInput(raw)
   if (input.action !== 'previsualizar') fail(400, 'VALIDATION_ERROR', 'La previsualización exige action=previsualizar.')
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
-    return await db().$transaction(async tx => previewEasyAutomationTx(tx, input), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 45_000 })
+    return await db().$transaction(async tx => previewEasyAutomationTx(tx, input, runtime), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 45_000 })
   } catch (error) { return b4Failure(error) }
 }
 
 /** Caller-owned read helper for rollback integration tests and private runners. */
-export async function previewEasyAutomationTx(tx: Prisma.TransactionClient, input: Extract<EasyAutoInput, { action: 'previsualizar' }>) {
+export async function previewEasyAutomationTx(tx: Prisma.TransactionClient, input: Extract<EasyAutoInput, { action: 'previsualizar' }>, runtime?: FinanceEasyRuntimeContext) {
+  const establishedRuntime = runtime ?? await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const scope = await assertEasyRuntimeTx(work, establishedRuntime)
   await assertAutoSchema(work)
-  const policy = await activePolicy(work, true)
+  const policy = await activePolicy(work, scope, true)
   const read = await candidatesTx(work, policy)
   const selected = read.candidates.slice(0, input.limite)
   const transfers = selected.filter(candidate => candidate.clase === 'TRASPASO_PROPIO').length
   const commissions = selected.filter(candidate => candidate.clase === 'COMISION_BANCARIA').length
   return {
-    stagingOnly: true as const, dryRun: true as const, policy,
+    stagingOnly: scope.stagingOnly, dryRun: true as const, policy,
     counts: { examinados: read.examined, traspasos: transfers, comisiones: commissions, excluidos: read.excluded, bloqueadosTitularidad: read.blocked.length, fallosCadena: read.chainFailures.length },
     reviewHash: reviewHash(policy.id, selected), candidates: selected.map(candidateDto),
     fallosCadena: read.chainFailures.map(failure => ({ cuenta: { cuentaId: failure.cuenta.accountId, banco: failure.cuenta.banco, alias: failure.cuenta.alias, ibanUltimos4: failure.cuenta.ibanUltimos4 }, codigo: failure.codigo })),
@@ -571,12 +609,14 @@ async function executionOperationsTx(tx: Tx, executionId: string, state: 'APLICA
   return rows.map(row => ({ operationId: String(row.id), clase: String(row.clase) as EasyAutoClass, estado: state, operacionesB4: Array.isArray(row.operaciones_b4) ? row.operaciones_b4.map(String) : [] }))
 }
 
-async function executionReplayTx(tx: Tx, actorId: number, input: EasyAutoExecuteInput): Promise<{ operations: ApplyOperation[]; summary: ExecutionSummary } | null> {
+async function executionReplayTx(tx: Tx, actorId: number, input: EasyAutoExecuteInput, scope: AutoPolicyScope): Promise<{ operations: ApplyOperation[]; summary: ExecutionSummary } | null> {
   const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
-    SELECT id::text,request_hash,resumen
-    FROM ejecuciones_auto_modo_facil
-    WHERE actor_id=${actorId} AND idempotency_key=CAST(${input.idempotencyKey} AS uuid)
-    LIMIT 1 FOR UPDATE
+    SELECT e.id::text,e.request_hash,e.resumen
+    FROM ejecuciones_auto_modo_facil e
+    JOIN politicas_auto_modo_facil p ON p.id=e.politica_id
+    WHERE e.actor_id=${actorId} AND e.idempotency_key=CAST(${input.idempotencyKey} AS uuid)
+      AND p.politica_key=${scope.key} AND p.entorno=${scope.environment}
+    LIMIT 1 FOR UPDATE OF e,p
   `)
   const row = rows[0]
   if (!row) return null
@@ -590,21 +630,23 @@ async function executionReplayTx(tx: Tx, actorId: number, input: EasyAutoExecute
   return { operations: await executionOperationsTx(tx, String(row.id), 'REPLAY'), summary }
 }
 
-/** Caller-owned execution helper. The wrapper checks live staging/actor access;
+/** Caller-owned execution helper. The wrapper checks live runtime/actor access;
  * this variant lets the rollback test prove atomicity using one outer transaction. */
-export async function executeEasyAutomationTx(tx: Prisma.TransactionClient, actorId: number, input: EasyAutoExecuteInput) {
+export async function executeEasyAutomationTx(tx: Prisma.TransactionClient, actorId: number, input: EasyAutoExecuteInput, runtime?: FinanceEasyRuntimeContext) {
+  const establishedRuntime = runtime ?? await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const scope = await assertEasyRuntimeTx(work, establishedRuntime)
   await assertAutoSchema(work)
   await work.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`easy-auto-execution:${actorId}:${input.idempotencyKey}`},0))::text AS locked`)
   // This is deliberately before policy/candidate preview. An uncertain committed
   // response replays exactly the persisted receipts even if today's queue changed.
-  const replay = await executionReplayTx(work, actorId, input)
+  const replay = await executionReplayTx(work, actorId, input, scope)
   if (replay) return {
-    stagingOnly: true as const, dryRun: false as const,
+    stagingOnly: scope.stagingOnly, dryRun: false as const,
     counts: { examinados: replay.summary.examinados, aplicados: 0, replays: replay.operations.length, excluidos: replay.summary.excluidos, fallidos: 0 },
     operations: replay.operations,
   }
-  const policy = await activePolicy(work, true)
+  const policy = await activePolicy(work, scope, true)
   const read = await candidatesTx(work, policy)
   const candidates = read.candidates.slice(0, input.limite)
   if (reviewHash(policy.id, candidates) !== input.reviewHash) {
@@ -620,7 +662,7 @@ export async function executeEasyAutomationTx(tx: Prisma.TransactionClient, acto
   const operations: ApplyOperation[] = []
   for (const candidate of candidates) operations.push(await applyCandidateTx(work, actorId, policy, executionId, input, candidate))
   return {
-    stagingOnly: true as const, dryRun: false as const,
+    stagingOnly: scope.stagingOnly, dryRun: false as const,
     counts: { examinados: summary.examinados, aplicados: operations.length, replays: 0, excluidos: summary.excluidos, fallidos: 0 },
     operations,
   }
@@ -629,16 +671,19 @@ export async function executeEasyAutomationTx(tx: Prisma.TransactionClient, acto
 export async function executeEasyAutomation(actorId: number, raw: unknown) {
   const input = parseEasyAutoInput(raw)
   if (input.action !== 'ejecutar') fail(400, 'VALIDATION_ERROR', 'La ejecución exige action=ejecutar.')
-  await requireAutoManager(actorId)
+  const runtime = await requireAutoManager(actorId)
   try {
-    return await db().$transaction(tx => executeEasyAutomationTx(tx, actorId, input), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+    return await db().$transaction(tx => executeEasyAutomationTx(tx, actorId, input, runtime), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   } catch (error) { return b4Failure(error) }
 }
 
-async function undoReplayTx(tx: Tx, actorId: number, input: EasyAutoUndoInput) {
+async function undoReplayTx(tx: Tx, actorId: number, input: EasyAutoUndoInput, scope: AutoPolicyScope) {
   const receiptRows = await tx.$queryRaw<Array<any>>(Prisma.sql`
-    SELECT id::text,actor_id FROM recibos_auto_modo_facil
-    WHERE id=CAST(${input.operationId} AS uuid) LIMIT 1 FOR UPDATE
+    SELECT r.id::text,r.actor_id FROM recibos_auto_modo_facil r
+    JOIN politicas_auto_modo_facil p ON p.id=r.politica_id
+    WHERE r.id=CAST(${input.operationId} AS uuid)
+      AND p.politica_key=${scope.key} AND p.entorno=${scope.environment}
+    LIMIT 1 FOR UPDATE OF r,p
   `)
   const receipt = receiptRows[0]
   if (!receipt) fail(404, 'RECIBO_AUTO_NO_ENCONTRADO', 'La operación automática no existe.')
@@ -659,18 +704,22 @@ async function undoReplayTx(tx: Tx, actorId: number, input: EasyAutoUndoInput) {
 }
 
 /** Caller-owned atomic undo helper, including P1 reversal for every receipt leg. */
-export async function deshacerAutoPairTx(tx: Prisma.TransactionClient, actorId: number, input: EasyAutoUndoInput) {
+export async function deshacerAutoPairTx(tx: Prisma.TransactionClient, actorId: number, input: EasyAutoUndoInput, runtime?: FinanceEasyRuntimeContext) {
+  const establishedRuntime = runtime ?? await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const scope = await assertEasyRuntimeTx(work, establishedRuntime)
   await assertAutoSchema(work)
-  const replay = await undoReplayTx(work, actorId, input)
+  const replay = await undoReplayTx(work, actorId, input, scope)
   if (replay) return replay
   const rows = await work.$queryRaw<Array<any>>(Prisma.sql`
     SELECT r.id::text AS receipt_id,r.actor_id,p.ordinal,p.movimiento_id,p.operacion_b4_id::text AS operacion_b4_id,o.version_resultante
     FROM recibos_auto_modo_facil r
+    JOIN politicas_auto_modo_facil policy ON policy.id=r.politica_id
     JOIN patas_recibo_auto_modo_facil p ON p.recibo_id=r.id
     JOIN operaciones_justificacion_b4 o ON o.id=p.operacion_b4_id
     WHERE r.id=CAST(${input.operationId} AS uuid)
-    ORDER BY p.ordinal ASC FOR UPDATE OF r,p,o
+      AND policy.politica_key=${scope.key} AND policy.entorno=${scope.environment}
+    ORDER BY p.ordinal ASC FOR UPDATE OF r,policy,p,o
   `)
   if (!rows.length) fail(404, 'RECIBO_AUTO_NO_ENCONTRADO', 'La operación automática no conserva patas reversibles.')
   if (exactInteger(rows[0].actor_id, 'actor recibo') !== actorId) fail(403, 'RECIBO_AUTO_ACTOR_DISTINTO', 'Sólo el actor que creó el recibo puede revertir también su decisión P1 automática.')
@@ -710,9 +759,9 @@ export async function deshacerAutoPairTx(tx: Prisma.TransactionClient, actorId: 
 export async function deshacerAutoPair(actorId: number, raw: unknown) {
   const input = parseEasyAutoInput(raw)
   if (input.action !== 'deshacer') fail(400, 'VALIDATION_ERROR', 'La reversión exige action=deshacer.')
-  await requireAutoManager(actorId)
+  const runtime = await requireAutoManager(actorId)
   try {
-    return await db().$transaction(tx => deshacerAutoPairTx(tx, actorId, input), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+    return await db().$transaction(tx => deshacerAutoPairTx(tx, actorId, input, runtime), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   } catch (error) { return b4Failure(error) }
 }
 
@@ -727,6 +776,7 @@ export async function mutateEasyAutomation(actorId: number, raw: unknown) {
 
 export function easyAutoErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
   if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof EasyAutoServiceError) return { status: error.status, body: { error: error.message, codigo: error.code, ...(error.details === undefined ? {} : { errors: error.details }) } }
   if (error instanceof EasyAutoValidationError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   const code = (error as any)?.code

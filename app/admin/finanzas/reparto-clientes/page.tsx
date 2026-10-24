@@ -5,14 +5,15 @@ import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { checkAdminAreaWrite } from '@/lib/api-admin-area-read'
 import { OPERATOR_AREA } from '@/lib/finanzas/operator-costs'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging'
 
 export const dynamic = 'force-dynamic'
 
-/** Protected staging-only shell. The client never grants access by itself. */
+/** Protected server-validated shell. The client never grants access by itself. */
 export default async function CustomerCostAllocationPage() {
-  try { await assertPrototypeStaging() } catch (error) {
-    if (error instanceof PrototypeStagingError) notFound()
+  let environment: 'staging' | 'production'
+  try { environment = (await assertFinanceEasyRuntime()).runtime } catch (error) {
+    if (error instanceof FinanceEasyRuntimeError) notFound()
     throw error
   }
   const session = await getServerSession(authOptions)
@@ -24,5 +25,5 @@ export default async function CustomerCostAllocationPage() {
   // Same established finance area: an existing restricted profile remains restrictive.
   const denied = await checkAdminAreaWrite(OPERATOR_AREA, ['CONTABILIDAD'], session)
   if (denied) redirect('/admin')
-  return <CustomerCostAllocationWorkspace />
+  return <CustomerCostAllocationWorkspace environment={environment} />
 }

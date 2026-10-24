@@ -3,7 +3,7 @@ import prisma from '@/lib/prisma'
 import { archivoRecibidaControlado, bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { cardFromBankText } from '@/lib/finanzas/card-holders'
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, assertPrototypeStaging, FinanceEasyRuntimeError, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { createDocumentoB4Tx, confirmarB4Tx, sourceEvidenceB4Tx, type B4ServiceError } from '@/lib/finanzas/reconciliation-db'
 import { readEasyMovementWhoByIds } from '@/lib/finanzas/easy-counterparty-db'
@@ -68,7 +68,7 @@ function controlledTicket(driveId: unknown, itemId: unknown): boolean {
   return configuredDrive !== null && driveId === configuredDrive && typeof itemId === 'string' && /^[A-Za-z0-9!_.~-]{4,220}$/.test(itemId)
 }
 function privateError(error: unknown): never {
-  if (error instanceof EasyReconciliationServiceError || error instanceof EasyReconciliationValidationError || error instanceof PrototypeStagingError) throw error
+  if (error instanceof EasyReconciliationServiceError || error instanceof EasyReconciliationValidationError || error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) throw error
   if (isB4Error(error)) throw new EasyReconciliationServiceError((error as any).status, (error as any).code, error.message, (error as any).details)
   throw error
 }
@@ -414,7 +414,7 @@ async function readRules() {
 
 /** GET is read-only: this service performs no state initialization, wrapper creation or DML. */
 export async function readEasyReconciliation(input: EasyReadInput) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
     const [movementRows, summary, months, rules] = await Promise.all([
       queryMovements(input, input.limit, input.offset), countQueue(input), readMonths(input), readRules(),
@@ -442,7 +442,7 @@ export async function readEasyReconciliation(input: EasyReadInput) {
       }
     }))
     return {
-      stagingOnly: true as const, automaticas: false as const,
+      stagingOnly: runtime.stagingOnly, automaticas: false as const,
       criterio: 'Cola única SIN_DOCUMENTO ordenada sólo por magnitud; sugerencias B4 exactas, firmadas, vigentes y confirmables sólo por clic.',
       periodo: { desde: input.desde, hasta: input.hasta }, total: summary.total, limit: input.limit, offset: input.offset,
       totales: { cargos: summary.cargos, cobros: summary.cobros, cargosCentimos: summary.cargosCentimos, cobrosCentimos: summary.cobrosCentimos },
@@ -552,7 +552,7 @@ async function confirmEasyReconciliationParsedTx(tx: Tx, actorId: number, input:
  * actor checks remain mandatory; no external provider is called from this path. */
 export async function confirmEasyReconciliationTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseEasyWriteInput(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   const access = await requireB4ActorAccess(actorId, 'escritura')
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   try { return await confirmEasyReconciliationParsedTx(asTx(tx), actorId, input) } catch (error: unknown) { privateError(error) }
@@ -561,7 +561,7 @@ export async function confirmEasyReconciliationTx(tx: Prisma.TransactionClient, 
 /** Every confirmation regenerates its exact B4 source set inside one SERIALIZABLE transaction. */
 export async function confirmEasyReconciliation(actorId: number, raw: unknown) {
   const input = parseEasyWriteInput(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   const access = await requireB4ActorAccess(actorId, 'escritura')
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   try {
@@ -669,6 +669,7 @@ export async function mutateEasyRule(actorId: number, raw: unknown) {
 /** Route-facing error conversion keeps staging and B4 errors actionable without exposing internals. */
 export function easyErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
   if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof EasyReconciliationServiceError) return { status: error.status, body: { error: error.message, codigo: error.code, ...(error.details === undefined ? {} : { errors: error.details }) } }
   if (error instanceof EasyReconciliationValidationError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   const code = (error as any)?.code

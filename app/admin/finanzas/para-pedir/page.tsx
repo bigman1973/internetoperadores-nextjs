@@ -1,16 +1,16 @@
 import { notFound } from 'next/navigation';
 import NewParaPedirWorkspace from '@/components/finanzas/easy/newParaPedirWorkspace';
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging';
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging';
 
 export const dynamic = 'force-dynamic';
 
-/** La bandeja documental sólo se monta en la base de staging aislada. */
+/** La bandeja se monta sólo tras validar el entorno y la identidad viva de BD. */
 export default async function ParaPedirPage() {
   try {
-    await assertPrototypeStaging();
+    const context = await assertFinanceEasyRuntime();
+    return <NewParaPedirWorkspace environment={context.runtime} />;
   } catch (error) {
-    if (error instanceof PrototypeStagingError) notFound();
+    if (error instanceof FinanceEasyRuntimeError) notFound();
     throw error;
   }
-  return <NewParaPedirWorkspace />;
 }

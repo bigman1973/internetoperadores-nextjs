@@ -1,11 +1,12 @@
 import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, assertPrototypeStaging, FinanceEasyRuntimeError, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import {
   COUNTERPARTY_TYPES,
   EASY_COUNTERPARTY_SCHEMA,
   EasyCounterpartyValidationError,
+  classifyCounterpartyContext,
   counterpartyCandidateHash,
   counterpartyRequestHash,
   counterpartySha256,
@@ -56,7 +57,7 @@ function exactCents(value: unknown, field: string, allowZero = true): number {
   return Number(signed)
 }
 function privateError(error: unknown): never {
-  if (error instanceof EasyCounterpartyServiceError || error instanceof EasyCounterpartyValidationError || error instanceof PrototypeStagingError) throw error
+  if (error instanceof EasyCounterpartyServiceError || error instanceof EasyCounterpartyValidationError || error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) throw error
   throw error
 }
 function minimizedNif(value: string | null): string {
@@ -80,6 +81,8 @@ export type CounterpartyCandidateDto = Readonly<{
   tipoTercero: CounterpartyType
   etiqueta: string
   origenPaso1: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>
+  /** Informational only: individual confirmation remains available. */
+  clasificacionContextual: ReturnType<typeof classifyCounterpartyContext>
 }>
 type Candidate = Readonly<{
   seed: CounterpartyCandidateSeed
@@ -193,8 +196,14 @@ function candidatesForMovement(row: MovementRow): Candidate[] {
   }
   return candidates
 }
-function candidateDto(candidate: Candidate): CounterpartyCandidateDto {
-  return { id: counterpartySuggestionId(candidate.seed), tipoTercero: candidate.seed.tipoTercero, etiqueta: candidate.etiqueta, origenPaso1: candidate.seed.origen as CounterpartyCandidateDto['origenPaso1'] }
+function candidateDto(candidate: Candidate, context: Readonly<{ importeCentimos: number; concepto: string; propuestaTexto: string | null }>): CounterpartyCandidateDto {
+  return {
+    id: counterpartySuggestionId(candidate.seed),
+    tipoTercero: candidate.seed.tipoTercero,
+    etiqueta: candidate.etiqueta,
+    origenPaso1: candidate.seed.origen as CounterpartyCandidateDto['origenPaso1'],
+    clasificacionContextual: classifyCounterpartyContext({ tipoTercero: candidate.seed.tipoTercero, ...context }),
+  }
 }
 function decisionView(row: any): Decision | null {
   if (!row || typeof row.decision_id !== 'string' || !COUNTERPARTY_TYPES.includes(String(row.decision_tipo) as CounterpartyType) || !['ENTIDAD_FISCAL', 'EMPLEADO', 'NOMINA_EMPLEADO', 'FACTURA_RECIBIDA', 'FACTURA_EMITIDA', 'CLIENTE_CONTRATO_ACTUAL', 'CUENTA_PROPIA_ACTUAL', 'MANUAL', 'AUTO_RECIBO'].includes(String(row.decision_origen)) || typeof row.decision_hash !== 'string') return null
@@ -527,9 +536,9 @@ export async function readP2CountersTx(tx: QueryDb, input: CounterpartyReadInput
   }
 }
 
-/** The normal route is staging-only. This wrapper preserves that guard. */
+/** P1 and P2 counters are promoted read models; the runtime guard remains fail-closed. */
 export async function readEasyStepCounters(input: CounterpartyReadInput) {
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   try {
     const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(), accountProofTableReady()])
     const [paso1, paso2] = await Promise.all([
@@ -542,7 +551,7 @@ export async function readEasyStepCounters(input: CounterpartyReadInput) {
 
 /** GET P1 projects all movements, including B4 JUSTIFICADO/NO_REQUIERE; it has no DML. */
 export async function readEasyCounterparties(input: CounterpartyReadInput) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
     const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(), accountProofTableReady()])
     const [rawRows, contador] = await Promise.all([
@@ -556,7 +565,11 @@ export async function readEasyCounterparties(input: CounterpartyReadInput) {
       const candidates = candidatesForMovement(row)
       return {
         id: row.id, fecha: row.fecha, concepto: row.concepto, importeCentimos: row.importeCentimos,
-        cuenta: { banco: row.banco, alias: row.alias }, paso1: { ...resolveStep(row, candidates), candidatos: candidates.map(candidateDto) },
+        cuenta: { banco: row.banco, alias: row.alias },
+        paso1: {
+          ...resolveStep(row, candidates),
+          candidatos: candidates.map(candidate => candidateDto(candidate, { importeCentimos: row.importeCentimos, concepto: row.concepto, propuestaTexto: row.tercero })),
+        },
         paso2: { estadoPaso2: row.estadoPaso2 },
       }
     })
@@ -564,7 +577,7 @@ export async function readEasyCounterparties(input: CounterpartyReadInput) {
     const totalFiltrado = input.pendientes ? eligible.length : contador.totalMovimientos
     const movimientos = input.pendientes ? eligible.slice(input.offset, input.offset + input.limit) : eligible
     return {
-      stagingOnly: true as const, automaticas: false as const, periodo: { desde: input.desde, hasta: input.hasta }, contador,
+      stagingOnly: runtime.stagingOnly, automaticas: false as const, periodo: { desde: input.desde, hasta: input.hasta }, contador,
       total: totalFiltrado, totalFiltrado, limit: input.limit, offset: input.offset,
       ...(input.pendientes ? { filtro: 'P1_PENDIENTE' as const } : {}),
       movimientos,
@@ -694,13 +707,25 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
 }
 
 export async function searchEasyCounterparties(input: CounterpartySearchInput) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
     const withAccountProof = await accountProofTableReady()
-    const movement = await db().$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM movimientos_bancarios WHERE id=${input.movimientoId} LIMIT 1`)
-    if (movement.length !== 1) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
+    const [withDecisions, withAccountMetadata] = await Promise.all([decisionTableReady(), accountProofTableReady()])
+    const source = await db().$queryRaw<Array<any>>(Prisma.sql`
+      SELECT ${sourceFields(withDecisions)}
+      FROM movimientos_bancarios m
+      ${sourceRelations(withAccountMetadata)}
+      ${decisionRelations(withDecisions)}
+      WHERE m.id=${input.movimientoId}
+      LIMIT 1
+    `)
+    if (source.length !== 1) fail(404, 'MOVIMIENTO_NO_ENCONTRADO', 'El movimiento bancario no existe.')
+    const movement = rowView(source[0])
     const candidates = await stableSearchCandidatesTx(db(), input.movimientoId, input.buscar, input.limit, withAccountProof)
-    return { stagingOnly: true as const, automaticas: false as const, movimientoId: input.movimientoId, candidatos: candidates.map(candidateDto) }
+    return {
+      stagingOnly: runtime.stagingOnly, automaticas: false as const, movimientoId: input.movimientoId,
+      candidatos: candidates.map(candidate => candidateDto(candidate, { importeCentimos: movement.importeCentimos, concepto: movement.concepto, propuestaTexto: movement.tercero })),
+    }
   } catch (error) { privateError(error) }
 }
 
@@ -810,10 +835,10 @@ async function confirmParsedTx(tx: Tx, actorId: number, input: CounterpartyWrite
   return { ok: true as const, idempotente: false as const, decisionId: id, movimientoId: movement.id, accion: 'REVERTIDA', reversible: false }
 }
 
-/** POST is staging-only, serializable, idempotent and append-only. It never touches B4 state or legacy identity columns. */
+/** POST is serializable, idempotent and append-only. It never touches B4 state or legacy identity columns. */
 export async function mutateEasyCounterparty(actorId: number, raw: unknown) {
   const input = parseCounterpartyWriteInput(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   const access = await requireB4ActorAccess(actorId, 'escritura')
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   if (!await decisionTableReady()) fail(503, 'P1_MIGRATION_PENDIENTE', 'La migración P1 de terceros aún no está aplicada en staging.')
@@ -824,11 +849,11 @@ export async function mutateEasyCounterparty(actorId: number, raw: unknown) {
 }
 
 /** Caller-owned test/integration transaction variant. It deliberately keeps all
- * production checks: staging, live B4 permission, migration readiness and the
+ * production checks: promoted runtime, live B4 permission, migration readiness and the
  * serializable caller's locks are never bypassed. */
 export async function mutateEasyCounterpartyTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseCounterpartyWriteInput(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   const access = await requireB4ActorAccess(actorId, 'escritura')
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   const work = asTx(tx)
@@ -884,8 +909,17 @@ export async function appendAutoCounterpartyReceiptTx(
     sourceIdentity?: string
   }>,
 ) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const runtimeRows = await work.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
+    SELECT current_database() AS database_name,current_user AS database_user LIMIT 1
+  `)
+  const expectedRuntimeIdentity = runtime.runtime === 'production'
+    ? { databaseName: 'railway', databaseUser: 'postgres' }
+    : { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+  if (runtimeRows.length !== 1 || runtimeRows[0]?.database_name !== expectedRuntimeIdentity.databaseName || runtimeRows[0]?.database_user !== expectedRuntimeIdentity.databaseUser) {
+    throw new FinanceEasyRuntimeError()
+  }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.autoReceiptId)) fail(400, 'AUTO_RECIBO_INVALIDO', 'El recibo automático no es un UUID canónico.')
   const leg = (await verifiedActiveAutoLegTx(work, input.autoReceiptId.toLowerCase(), input.movimientoId))[0]
   if (leg.actorId !== actorId) fail(403, 'AUTO_RECIBO_ACTOR_INVALIDO', 'El actor no coincide con el recibo automático vigente.')
@@ -927,8 +961,17 @@ export async function appendAutoCounterpartyReceiptTx(
 /** Automatic child undo helper. It only reverses P1 receipts whose parent automatic
  * receipt and every B4 leg are still current; it cannot adopt an arbitrary receipt. */
 export async function undoAutoCounterpartyReceiptTx(tx: Prisma.TransactionClient, actorId: number, input: Readonly<{ autoReceiptId: string }>) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const runtimeRows = await work.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
+    SELECT current_database() AS database_name,current_user AS database_user LIMIT 1
+  `)
+  const expectedRuntimeIdentity = runtime.runtime === 'production'
+    ? { databaseName: 'railway', databaseUser: 'postgres' }
+    : { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+  if (runtimeRows.length !== 1 || runtimeRows[0]?.database_name !== expectedRuntimeIdentity.databaseName || runtimeRows[0]?.database_user !== expectedRuntimeIdentity.databaseUser) {
+    throw new FinanceEasyRuntimeError()
+  }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.autoReceiptId)) fail(400, 'AUTO_RECIBO_INVALIDO', 'El recibo automático no es un UUID canónico.')
   const receiptId = input.autoReceiptId.toLowerCase()
   const legs = await verifiedActiveAutoLegTx(work, receiptId)
@@ -984,8 +1027,17 @@ export async function reverseAutoCounterpartyReceiptTx(
   actorId: number,
   input: Readonly<{ movimientoId: string; autoReceiptId: string }>,
 ) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   const work = asTx(tx)
+  const runtimeRows = await work.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
+    SELECT current_database() AS database_name,current_user AS database_user LIMIT 1
+  `)
+  const expectedRuntimeIdentity = runtime.runtime === 'production'
+    ? { databaseName: 'railway', databaseUser: 'postgres' }
+    : { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+  if (runtimeRows.length !== 1 || runtimeRows[0]?.database_name !== expectedRuntimeIdentity.databaseName || runtimeRows[0]?.database_user !== expectedRuntimeIdentity.databaseUser) {
+    throw new FinanceEasyRuntimeError()
+  }
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.autoReceiptId)) fail(400, 'AUTO_RECIBO_INVALIDO', 'El recibo automático no es un UUID canónico.')
   const receiptId = input.autoReceiptId.toLowerCase()
   const leg = (await verifiedActiveAutoLegTx(work, receiptId, input.movimientoId))[0]
@@ -1026,7 +1078,7 @@ export async function reverseAutoCounterpartyReceiptTx(
 }
 
 export function easyCounterpartyErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
-  if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof EasyCounterpartyServiceError || error instanceof EasyCounterpartyValidationError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   const code = (error as any)?.code
   if (code === 'P2002' || code === 'P2034' || code === '40001') return { status: 409, body: { error: 'Conflicto concurrente; relea y reintente con la misma clave.', codigo: 'CONCURRENT_CONFLICT' } }

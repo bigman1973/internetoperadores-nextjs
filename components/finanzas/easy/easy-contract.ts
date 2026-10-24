@@ -84,7 +84,7 @@ export type EasyRule = Readonly<{
 }>;
 
 export type EasyReadResponse = Readonly<{
-  stagingOnly: true;
+  stagingOnly: boolean;
   automaticas: false;
   criterio: string;
   periodo: { desde: string; hasta: string };
@@ -121,6 +121,10 @@ const CENTS_TEXT = /^[+-]?\d+$/;
 
 function readString(value: unknown, field: string): string {
   if (!safeString(value)) throw new Error(`El campo ${field} no es texto válido.`);
+  return value;
+}
+function readBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== 'boolean') throw new Error(`El campo ${field} no es booleano válido.`);
   return value;
 }
 function readNullableString(value: unknown, field: string): string | null {
@@ -242,7 +246,7 @@ function parsePasos(value: unknown): PasosModoFacil {
 /** Rechaza respuestas parciales para no sustituir información desconocida por ceros. */
 export function parseEasyReadResponse(value: unknown): EasyReadResponse {
   const raw = objectAt(value, 'respuesta');
-  if (raw.stagingOnly !== true) throw new Error('La respuesta no declara stagingOnly:true.');
+  const stagingOnly = readBoolean(raw.stagingOnly, 'stagingOnly');
   if (raw.automaticas !== false) throw new Error('La respuesta no declara automaticas:false.');
   const period = objectAt(raw.periodo, 'periodo');
   const totals = objectAt(raw.totales, 'totales');
@@ -259,7 +263,7 @@ export function parseEasyReadResponse(value: unknown): EasyReadResponse {
     return { id: readString(item.id, `reglas[${index}].id`), version: readInteger(item.version, `reglas[${index}].version`), contraparte: readString(item.contraparte, `reglas[${index}].contraparte`), accion: readString(item.accion, `reglas[${index}].accion`), activa: item.activa, modo: 'SOLO_PROPONER', usosConfirmados: readInteger(item.usosConfirmados, `reglas[${index}].usosConfirmados`) };
   });
   return {
-    stagingOnly: true, automaticas: false, criterio: readString(raw.criterio, 'criterio'),
+    stagingOnly, automaticas: false, criterio: readString(raw.criterio, 'criterio'),
     periodo: { desde: readString(period.desde, 'periodo.desde'), hasta: readString(period.hasta, 'periodo.hasta') },
     total: readNonNegativeInteger(raw.total, 'total'), limit: readNonNegativeInteger(raw.limit, 'limit'), offset: readNonNegativeInteger(raw.offset, 'offset'),
     totales: { cargos: readNonNegativeInteger(totals.cargos, 'totales.cargos'), cobros: readNonNegativeInteger(totals.cobros, 'totales.cobros'), cargosCentimos: readCentsText(totals.cargosCentimos, 'totales.cargosCentimos'), cobrosCentimos: readCentsText(totals.cobrosCentimos, 'totales.cobrosCentimos') },

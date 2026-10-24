@@ -2,8 +2,9 @@ import { Prisma, PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { B4_CONCILIACION_AREA } from '@/lib/finanzas/reconciliation-auth'
 import { verificarPermisoServer } from '@/lib/permisos'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging'
 import {
+  classifyCounterpartyContext,
   counterpartyCandidateHash,
   counterpartySha256,
   counterpartySuggestionId,
@@ -173,7 +174,8 @@ async function loadExistingRecordsTx(tx: QueryDb): Promise<readonly EasyBulkLogi
 
 type Candidate = Readonly<{ item: EasyBulkPreviewItem; sourceIdentity: string; origin: 'ENTIDAD_FISCAL' | 'CLIENTE_CONTRATO_ACTUAL'; candidateHash: string; sourceHash: string }>
 type ReviewContext = Readonly<{ concepto: string; banco: string; alias: string | null }>
-function isCandidate(value: Candidate | null | 'AMBIGUO'): value is Candidate { return value !== null && value !== 'AMBIGUO' }
+type CandidateResolution = Candidate | null | 'AMBIGUO' | 'REVISION_CONTEXTUAL'
+function isCandidate(value: CandidateResolution): value is Candidate { return value !== null && value !== 'AMBIGUO' && value !== 'REVISION_CONTEXTUAL' }
 function typeLabel(type: 'CLIENTE' | 'PROVEEDOR' | 'BANCO'): string {
   return type === 'CLIENTE' ? 'Cliente registrado' : type === 'PROVEEDOR' ? 'Proveedor registrado' : 'Banco registrado'
 }
@@ -196,7 +198,12 @@ async function loadReviewContextsTx(tx: QueryDb, movementIds: readonly string[],
   }
   return contexts
 }
-function candidateForMaterial(material: EasyCounterpartyBulkMovementMaterial, catalog: readonly EasyBulkLogicalRecord[], context: ReviewContext | undefined): Candidate | null | 'AMBIGUO' {
+/**
+ * The bulk path is fail-closed: even a current exact identity is returned only
+ * when its proposed role agrees with the immutable signed movement and its visible
+ * financial context.  Individual review intentionally remains outside this gate.
+ */
+function candidateForMaterial(material: EasyCounterpartyBulkMovementMaterial, catalog: readonly EasyBulkLogicalRecord[], context: ReviewContext | undefined): CandidateResolution {
   if (material.estado !== 'PROPUESTO' || !material.propuestaTexto) return null
   // A row without its account metadata cannot be safely reviewed in this surface.
   if (!context) return null
@@ -204,6 +211,13 @@ function candidateForMaterial(material: EasyCounterpartyBulkMovementMaterial, ca
   if (match.kind === 'AMBIGUO') return 'AMBIGUO'
   if (match.kind !== 'UNICO') return null
   const record = match.record
+  const contextual = classifyCounterpartyContext({
+    tipoTercero: record.tipoTercero,
+    importeCentimos: material.importeCentimos,
+    concepto: context.concepto,
+    propuestaTexto: material.propuestaTexto,
+  })
+  if (contextual.bloque !== 'ADMISIBLE') return 'REVISION_CONTEXTUAL'
   // BANCO comes only from the same pre-existing fiscal AAPP identity used by P1.
   // A bank-account row is review context, never proof of account ownership.
   const seed: CounterpartyCandidateSeed = {
@@ -244,9 +258,9 @@ function sort(items: readonly EasyBulkPreviewItem[]) {
 
 /** Reads exactly one bounded movement set plus the relevant existing-record
  * catalogue. It never creates a record or promotes bank text without a unique
- * current identity. Caller-owned use is for rollback-only staging tests. */
+ * current identity. Caller-owned use remains covered by rollback-only staging tests. */
 export async function readEasyCounterpartyBulkPreviewTx(tx: Prisma.TransactionClient, input: EasyBulkPreviewInput, actorId: number) {
-  await assertPrototypeStaging()
+  const runtime = await assertFinanceEasyRuntime()
   try {
     const work = asTx(tx)
     const [materials, catalog] = await Promise.all([
@@ -258,12 +272,14 @@ export async function readEasyCounterpartyBulkPreviewTx(tx: Prisma.TransactionCl
     const eligible: Candidate[] = []
     let ambiguous = 0
     let unmatched = 0
+    let contextualReview = 0
     let proposed = 0
     for (const material of materials) {
       if (material.estado !== 'PROPUESTO') continue
       proposed += 1
       const candidate = candidateForMaterial(material, catalog, contexts.get(material.id))
       if (candidate === 'AMBIGUO') { ambiguous += 1; continue }
+      if (candidate === 'REVISION_CONTEXTUAL') { contextualReview += 1; continue }
       if (!candidate) { unmatched += 1; continue }
       eligible.push(candidate)
     }
@@ -271,13 +287,14 @@ export async function readEasyCounterpartyBulkPreviewTx(tx: Prisma.TransactionCl
     const page = ordered.slice(input.offset, input.offset + input.limit)
     const token = page.length ? signEasyCounterpartyBulkPreview(actorId, page) : null
     return {
-      stagingOnly: true as const,
+      stagingOnly: runtime.stagingOnly,
       automaticas: false as const,
       periodo: { desde: input.desde, hasta: input.hasta },
       totalPropuestosTexto: proposed,
       totalElegibles: ordered.length,
       totalAmbiguos: ambiguous,
       totalSinCoincidencia: unmatched,
+      totalRevisionContextual: contextualReview,
       total: ordered.length,
       limit: input.limit,
       offset: input.offset,
@@ -285,14 +302,14 @@ export async function readEasyCounterpartyBulkPreviewTx(tx: Prisma.TransactionCl
       totalesElegibles: totals(ordered),
       items: page,
       previewToken: token,
-      criterio: 'Sólo aparecen coincidencias exactas y únicas con una ficha existente. Los textos sin coincidencia o con más de una ficha siguen pendientes.',
+      criterio: 'Sólo aparecen coincidencias exactas y únicas con una ficha existente cuyo tipo es coherente con el signo y contexto. Confirming sólo admite cliente/cobro, nómina sólo empleado/cargo y préstamo sólo banco existente; Seguridad Social, impuestos, traspasos y cualquier incoherencia siguen para revisión individual. No se corrige ningún rol fiscal.',
     }
   } catch (error) { throwKnown(error) }
 }
 
 /** Read-only public scan. GET runs in its own READ ONLY transaction. */
 export async function readEasyCounterpartyBulkPreview(input: EasyBulkPreviewInput, actorId: number) {
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   try {
     return await db().$transaction(async base => {
       await base.$executeRaw`SET TRANSACTION READ ONLY`
@@ -466,7 +483,7 @@ async function undoBulkTx(base: Prisma.TransactionClient, actorId: number, comma
 
 export async function runEasyCounterpartyBulk(actorId: number, raw: unknown) {
   const command = parseEasyCounterpartyBulkCommand(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   try {
     if (!await p1Ready(db()) || !await bulkReady(db())) requireBulkSchema(false)
     const options = { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 5_000, timeout: 35_000 }
@@ -476,11 +493,11 @@ export async function runEasyCounterpartyBulk(actorId: number, raw: unknown) {
 }
 
 /** Caller-owned integration-test variant.  It deliberately does not bypass the
- * staging gate, P1/bulk schema readiness, actor check, locks or revalidation.
+ * runtime gate, P1/bulk schema readiness, actor check, locks or revalidation.
  * Test callers must use a SERIALIZABLE transaction and always roll it back. */
 export async function runEasyCounterpartyBulkTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const command = parseEasyCounterpartyBulkCommand(raw)
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime()
   try {
     const work = asTx(tx)
     if (!await p1Ready(work) || !await bulkReady(work)) requireBulkSchema(false)
@@ -490,13 +507,13 @@ export async function runEasyCounterpartyBulkTx(tx: Prisma.TransactionClient, ac
 }
 
 function throwKnown(error: unknown): never {
-  if (error instanceof EasyCounterpartyBulkServiceError || error instanceof EasyCounterpartyBulkValidationError || error instanceof PrototypeStagingError) throw error
+  if (error instanceof EasyCounterpartyBulkServiceError || error instanceof EasyCounterpartyBulkValidationError || error instanceof FinanceEasyRuntimeError) throw error
   const code = String((error as { code?: unknown } | null)?.code ?? '')
   if (['P2002', 'P2034', '40001', '40P01', '55P03'].includes(code)) fail(409, 'SELECCION_CAMBIADA', 'La selección cambió. Actualiza la lista.')
   throw error
 }
 export function easyCounterpartyBulkErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
-  if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof EasyCounterpartyBulkServiceError || error instanceof EasyCounterpartyBulkValidationError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   return { status: 500, body: { error: 'No se pudo completar la selección. Comprueba la lista antes de reintentar.', codigo: 'LOTE_TERCEROS_ERROR' } }
 }

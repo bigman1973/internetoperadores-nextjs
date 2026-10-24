@@ -1,16 +1,16 @@
 import { notFound } from 'next/navigation';
 import EasyReconciliationWorkspace from '@/components/finanzas/easy/EasyReconciliationWorkspace';
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging';
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging';
 
 export const dynamic = 'force-dynamic';
 
-/** El prototipo nunca se monta fuera de la base staging aislada. */
+/** Sólo se monta tras validar el contexto de servidor y la identidad viva de BD. */
 export default async function ModoFacilPage() {
   try {
-    await assertPrototypeStaging();
+    const context = await assertFinanceEasyRuntime();
+    return <EasyReconciliationWorkspace environment={context.runtime} />;
   } catch (error) {
-    if (error instanceof PrototypeStagingError) notFound();
+    if (error instanceof FinanceEasyRuntimeError) notFound();
     throw error;
   }
-  return <EasyReconciliationWorkspace />;
 }

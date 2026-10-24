@@ -47,6 +47,7 @@ function preview(overrides: Record<string, unknown> = {}) {
     totalElegibles: 26,
     totalAmbiguos: 2,
     totalSinCoincidencia: 3,
+    totalRevisionContextual: 4,
     limit: 25,
     offset: 0,
     maxBloque: 25,
@@ -63,6 +64,9 @@ test('la lista rápida exige el contexto visible de revisión y conserva sólo d
   assert.equal(parsed.items[0].alias, 'Operativa');
   assert.equal(parsed.items[0].etiqueta, 'Proveedor acreditado');
   assert.equal(parsed.previewToken, token);
+  assert.equal(parsed.totalRevisionContextual, 4);
+  assert.equal(parseThirdPartyBulkRead(preview({ stagingOnly: false })).total, 26, 'El DTO de producción es verificable y no se finge staging.');
+  assert.throws(() => parseThirdPartyBulkRead(preview({ stagingOnly: undefined })), 'stagingOnly debe ser booleano obligatorio.');
   assert.throws(() => {
     const invalid = preview({ items: [{ ...item(), concepto: undefined }] });
     parseThirdPartyBulkRead(invalid);

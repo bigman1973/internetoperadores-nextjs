@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mayManageAutomation, parseEasyAccessProfile, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
+import { mayManageAutomation, parseEasyAccessProfile, parseEasyStagingOnly, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
 import { maskPossibleIban, parseEasyCardRead } from '../components/finanzas/easy/newTarjetasReadPanel';
 import { parseParaPedirRead } from '../components/finanzas/easy/newParaPedirWorkspace';
 import { parseAutomaticPreview } from '../components/finanzas/easy/newAutomaticRulesPanel';
@@ -10,12 +10,23 @@ import { parseEasyReadResponse } from '../components/finanzas/easy/easy-contract
 test('el perfil de automatización falla cerrado ante ausencia o forma incompleta', () => {
   assert.equal(mayManageAutomation(null), false);
   assert.equal(mayManageAutomation(undefined), false);
-  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true }), false);
-  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: false }), false);
-  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true }), true);
-  assert.deepEqual(parseEasyAccessProfile({ easyOnly: true, canManageAutomation: false }), { easyOnly: true, canManageAutomation: false });
+  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true, environment: 'staging' }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: false, environment: 'staging' }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true, environment: 'staging' }), true);
+  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true, environment: 'production' }), false, 'MODO_FACIL_ONLY nunca recibe gestión aunque conserve rol heredado.');
+  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true, environment: 'production' }), true, 'La producción conserva únicamente la capacidad viva ya verificada por servidor.');
+  assert.deepEqual(parseEasyAccessProfile({ easyOnly: true, canManageAutomation: false, environment: 'staging' }), { easyOnly: true, canManageAutomation: false, environment: 'staging' });
+  assert.deepEqual(parseEasyAccessProfile({ easyOnly: false, canManageAutomation: true, environment: 'production' }), { easyOnly: false, canManageAutomation: true, environment: 'production' });
   assert.throws(() => parseEasyAccessProfile({ easyOnly: false }));
   assert.throws(() => parseEasyAccessProfile({ easyOnly: 'false', canManageAutomation: true }));
+  assert.throws(() => parseEasyAccessProfile({ easyOnly: false, canManageAutomation: false, environment: 'preview' }));
+});
+
+test('el flag stagingOnly del DTO es booleano explícito y no inventa staging en producción', () => {
+  assert.equal(parseEasyStagingOnly(true), true);
+  assert.equal(parseEasyStagingOnly(false), false);
+  assert.throws(() => parseEasyStagingOnly(undefined));
+  assert.throws(() => parseEasyStagingOnly('false'));
 });
 
 test('las descargas privadas aceptan sólo documento controlado y adjunto B5 exacto', () => {
@@ -77,6 +88,8 @@ test('la revisión automática conserva bloqueos, fallos y recibos persistentes 
   assert.equal(parsed.bloqueados[0].cuentasPendientes[0].ibanUltimos4, '9876');
   assert.equal(parsed.candidates[0].terceroBancoId, 'banco_1');
   assert.equal(parsed.recibos[0].reversible, true);
+  assert.equal(parseAutomaticPreview({ ...structuredClone(parsed), stagingOnly: false, automaticas: true }).reviewHash, parsed.reviewHash, 'El parser conserva un booleano production=false sin fingir staging.');
+  assert.throws(() => parseAutomaticPreview({ ...structuredClone(parsed), stagingOnly: undefined, automaticas: true }));
   assert.throws(() => parseAutomaticPreview({ ...structuredClone(parsed), policy: null, reviewHash: 'b'.repeat(64) }));
 });
 
@@ -111,6 +124,9 @@ test('Para Pedir sólo acepta la proyección documental B4 sin acciones externas
   };
   const parsed = parseParaPedirRead(base);
   assert.equal(parsed.movimientos[0].importeCentimos, -2500);
+  assert.equal(parsed.stagingOnly, true);
+  assert.equal(parseParaPedirRead({ ...base, stagingOnly: false }).stagingOnly, false, 'Producción conserva la proyección manual con marcador false.');
   assert.equal(parsed.movimientos[0].sugerencias[0].archivoPrivadoHref, '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo');
   assert.throws(() => parseParaPedirRead({ ...base, accionExterna: 'EMAIL' }));
+  assert.throws(() => parseParaPedirRead({ ...base, stagingOnly: 'false' }));
 });

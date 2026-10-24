@@ -69,6 +69,7 @@ export function useSidebar() {
 
 interface AdminSidebarProps {
   easyOnly?: boolean
+  financeEnvironment?: 'staging' | 'production' | null
   user: {
     name: string
     email: string
@@ -149,10 +150,10 @@ const navigation: NavEntry[] = [
       { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
       { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
-      { name: 'Modo fácil · staging', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
-      { name: 'Para pedir · staging', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon, section: 'finanzas' },
-      { name: 'Reparto entre clientes · staging', href: '/admin/finanzas/reparto-clientes', icon: ChartBarIcon, section: 'finanzas.analitica_costes' },
-      { name: 'Analítica por cliente · staging', href: '/admin/finanzas/analitica-cliente', icon: ChartBarIcon, section: 'finanzas' },
+      { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
+      { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon, section: 'finanzas' },
+      { name: 'Reparto entre clientes', href: '/admin/finanzas/reparto-clientes', icon: ChartBarIcon, section: 'finanzas.analitica_costes' },
+      { name: 'Analítica por cliente', href: '/admin/finanzas/analitica-cliente', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
@@ -211,14 +212,33 @@ const navigation: NavEntry[] = [
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
 ]
 
-function SidebarContent({ user, easyOnly = false, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
+function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<string[]>([])
   const { hasAccess, effectiveRole, isViewingAs } = useRole()
+  const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
+  const visibleNavigation = navigation.map((entry): NavEntry => {
+    if (!isGroup(entry) || entry.name !== 'Finanzas') return entry
+    return {
+      ...entry,
+      children: entry.children
+        .filter(child => {
+          if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(child.href)) return financeEnvironment !== null
+          // Telefonía/SOFÍA continúa aparcada en producción.
+          if (child.href === '/admin/finanzas/analitica-cliente') return financeEnvironment === 'staging'
+          return true
+        })
+        .map(child => ({
+          ...child,
+          name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(child.href)
+            ? `${child.name}${financeLabel}` : child.name,
+        })),
+    }
+  })
 
   // Auto-abrir el grupo si la ruta actual está dentro
   useEffect(() => {
-    navigation.forEach((entry) => {
+    visibleNavigation.forEach((entry) => {
       if (isGroup(entry)) {
         const isChildActive = entry.children.some(
           (child) => pathname === child.href || pathname.startsWith(child.href + '/')
@@ -228,7 +248,7 @@ function SidebarContent({ user, easyOnly = false, onNavigate }: AdminSidebarProp
         }
       }
     })
-  }, [pathname])
+  }, [pathname, financeEnvironment])
 
   const toggleGroup = (name: string) => {
     setOpenGroups((prev) =>
@@ -351,7 +371,7 @@ function SidebarContent({ user, easyOnly = false, onNavigate }: AdminSidebarProp
               {(easyOnly ? [
                 { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon },
                 { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon },
-              ] : navigation).map((entry) => {
+              ] : visibleNavigation).map((entry) => {
                 if (isGroup(entry)) {
                   if (!canAccess(entry)) return null
                   return renderNavGroup(entry)
@@ -380,7 +400,7 @@ function SidebarContent({ user, easyOnly = false, onNavigate }: AdminSidebarProp
   )
 }
 
-export default function AdminSidebar({ user, easyOnly = false }: AdminSidebarProps) {
+export default function AdminSidebar({ user, easyOnly = false, financeEnvironment = null }: AdminSidebarProps) {
   const { isOpen, setIsOpen } = useSidebar()
   const pathname = usePathname()
 
@@ -413,7 +433,7 @@ export default function AdminSidebar({ user, easyOnly = false }: AdminSidebarPro
       {/* Sidebar para desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
         <div className="flex grow flex-col border-r border-gray-200 overflow-y-auto">
-          <SidebarContent user={user} easyOnly={easyOnly} />
+          <SidebarContent user={user} easyOnly={easyOnly} financeEnvironment={financeEnvironment} />
         </div>
       </div>
 
@@ -444,7 +464,7 @@ export default function AdminSidebar({ user, easyOnly = false }: AdminSidebarPro
               </div>
 
               {/* Sidebar content */}
-              <SidebarContent user={user} easyOnly={easyOnly} onNavigate={() => setIsOpen(false)} />
+              <SidebarContent user={user} easyOnly={easyOnly} financeEnvironment={financeEnvironment} onNavigate={() => setIsOpen(false)} />
             </div>
           </div>
         </div>

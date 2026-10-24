@@ -15,12 +15,12 @@ type Source = {
   rowKey: string; sourceId: string | null; facturaId: string; proveedor: string; numFactura: string | null; fecha: string; base: number; estado: string; version: number; snapshotHash: string
   clasificacionActual: string | null; bloqueada: boolean; motivoBloqueo: string | null; situacion: 'APTA' | 'PENDIENTE_PREPARACION' | 'PENDIENTE_REVISION_FUENTE' | 'RESERVADA_OTRA_FUENTE' | 'ARCHIVADA'; respuestaValida: boolean
 }
-type SourcesResponse = { fuentes: Source[]; page: number; totalPages: number; total: number; canWrite: boolean }
+type SourcesResponse = { stagingOnly: boolean; fuentes: Source[]; page: number; totalPages: number; total: number; canWrite: boolean }
 type Contract = {
   clienteId: number | null; clienteNombre: string | null; contratoId: number; contratoTitulo: string; tarifa: string; precio: number | null
   unidadesPeriodoMeses: number | null; seleccionable: boolean; motivoExclusion: string | null
 }
-type ContractsResponse = { periodoServicio: string; periodoActual: string; contratos: Contract[] }
+type ContractsResponse = { stagingOnly: boolean; periodoServicio: string; periodoActual: string; contratos: Contract[] }
 type Preview = {
   fuente: { id: string; proveedor: string; numFactura: string | null; fecha: string; base: number; costeCentimos: string; sourceVersion: number; invoiceSnapshotHash: string }
   clasificacion: Classification; periodoServicio: string
@@ -29,7 +29,8 @@ type Preview = {
   pendienteBolsa: boolean; aviso: string | null
 }
 type HistoryItem = { id: string; version: number; estado: string; clasificacion: Classification; periodoServicio: string; costeCentimos: string; createdAt: string; creadoPor: string; contratos: Array<{ clienteId: number; contratoId: number; clienteNombre: string | null; contratoTitulo: string | null }> }
-type ConfirmationResult = { idempotente: boolean; reparto: { id: string; version: number; clasificacion: string } }
+type ConfirmationResult = { stagingOnly: boolean; idempotente: boolean; reparto: { id: string; version: number; clasificacion: string } }
+type HistoryResponse = { stagingOnly: boolean; historial: HistoryItem[] }
 
 const API = '/api/admin/finanzas/reparto-clientes'
 const PENDING_CONFIRMATION_STORAGE = 'admin.finanzas.reparto-clientes.pending-confirmation'
@@ -130,10 +131,21 @@ export function sourceFromResponse(value: unknown, index: number): Source {
   return { rowKey: `${facturaId || 'invalida'}-${index}`, sourceId, facturaId, proveedor, numFactura, fecha, base, estado, version, snapshotHash, clasificacionActual, bloqueada, motivoBloqueo, situacion, respuestaValida }
 }
 function sourcesFromResponse(value: unknown): SourcesResponse {
-  if (!isRecord(value) || !Array.isArray(value.fuentes) || !positiveInteger(value.page) || !positiveInteger(value.totalPages) || !Number.isSafeInteger(value.total) || Number(value.total) < 0 || typeof value.canWrite !== 'boolean') {
+  if (!isRecord(value) || typeof value.stagingOnly !== 'boolean' || !Array.isArray(value.fuentes) || !positiveInteger(value.page) || !positiveInteger(value.totalPages) || !Number.isSafeInteger(value.total) || Number(value.total) < 0 || typeof value.canWrite !== 'boolean') {
     throw new Error('La respuesta de fuentes no tiene el formato esperado.')
   }
-  return { fuentes: value.fuentes.map(sourceFromResponse), page: Number(value.page), totalPages: Number(value.totalPages), total: Number(value.total), canWrite: value.canWrite }
+  return { stagingOnly: value.stagingOnly, fuentes: value.fuentes.map(sourceFromResponse), page: Number(value.page), totalPages: Number(value.totalPages), total: Number(value.total), canWrite: value.canWrite }
+}
+function contractsFromResponse(value: unknown): ContractsResponse {
+  if (!isRecord(value) || typeof value.stagingOnly !== 'boolean' || typeof value.periodoServicio !== 'string' || typeof value.periodoActual !== 'string' || !Array.isArray(value.contratos)) throw new Error('La respuesta de contratos no tiene el formato esperado.')
+  return { stagingOnly: value.stagingOnly, periodoServicio: value.periodoServicio, periodoActual: value.periodoActual, contratos: value.contratos as Contract[] }
+}
+function historyFromResponse(value: unknown): HistoryResponse {
+  if (!isRecord(value) || typeof value.stagingOnly !== 'boolean' || !Array.isArray(value.historial)) throw new Error('La respuesta de historial no tiene el formato esperado.')
+  return { stagingOnly: value.stagingOnly, historial: value.historial as HistoryItem[] }
+}
+function responseMatchesEnvironment(stagingOnly: boolean, environment: 'staging' | 'production') {
+  return stagingOnly === (environment === 'staging')
 }
 export function canChooseSource(source: Source | null): source is Source {
   return Boolean(source && source.respuestaValida && source.sourceId && source.version > 0 && source.situacion === 'APTA' && source.estado === 'REVISADO' && !source.bloqueada)
@@ -163,13 +175,14 @@ function clearStoredPendingConfirmation() {
 }
 function isConfirmationResult(value: unknown): value is ConfirmationResult {
   return isRecord(value)
+    && typeof value.stagingOnly === 'boolean'
     && typeof value.idempotente === 'boolean'
     && isRecord(value.reparto)
     && typeof value.reparto.id === 'string'
     && positiveInteger(value.reparto.version)
     && typeof value.reparto.clasificacion === 'string'
 }
-async function sendConfirmation(payloadJson: string): Promise<ConfirmationResult> {
+async function sendConfirmation(payloadJson: string, environment: 'staging' | 'production'): Promise<ConfirmationResult> {
   let response: Response
   try {
     response = await fetch(API, {
@@ -192,11 +205,11 @@ async function sendConfirmation(payloadJson: string): Promise<ConfirmationResult
     if (!isRecord(body) || typeof body.error !== 'string') throw new ConfirmationUncertainError()
     throw new ApiError(body.error, response.status)
   }
-  if (!isConfirmationResult(body)) throw new ConfirmationUncertainError()
+  if (!isConfirmationResult(body) || !responseMatchesEnvironment(body.stagingOnly, environment)) throw new ConfirmationUncertainError()
   return body
 }
 
-export default function CustomerCostAllocationWorkspace() {
+export default function CustomerCostAllocationWorkspace({ environment }: { environment: 'staging' | 'production' }) {
   const searchParams = useSearchParams()
   const deepLinkedFacturaId = searchParams.get('facturaId') || ''
   const [sources, setSources] = useState<SourcesResponse | null>(null)
@@ -234,6 +247,7 @@ export default function CustomerCostAllocationWorkspace() {
     try {
       const query = `${API}?recurso=fuentes&page=${encodeURIComponent(String(page))}&buscar=${encodeURIComponent(search)}${facturaId ? `&facturaId=${encodeURIComponent(facturaId)}` : ''}`
       const data = sourcesFromResponse(await api<unknown>(query))
+      if (!responseMatchesEnvironment(data.stagingOnly, environment)) throw new Error('La respuesta de reparto no corresponde al entorno financiero verificado.')
       setSources(data)
       return data
     } catch (cause) { setError(message(cause)); return null }
@@ -256,18 +270,26 @@ export default function CustomerCostAllocationWorkspace() {
     const controller = new AbortController()
     setContractsBusy(true); setContracts(null); setError('')
     const timer = window.setTimeout(() => {
-      api<ContractsResponse>(`${API}?recurso=contratos&fuenteId=${encodeURIComponent(selectedSource.sourceId)}&periodoServicio=${encodeURIComponent(servicePeriod)}&buscar=${encodeURIComponent(contractSearch)}`, { signal: controller.signal })
-        .then(data => { if (!controller.signal.aborted) setContracts(data) })
+      api<unknown>(`${API}?recurso=contratos&fuenteId=${encodeURIComponent(selectedSource.sourceId)}&periodoServicio=${encodeURIComponent(servicePeriod)}&buscar=${encodeURIComponent(contractSearch)}`, { signal: controller.signal })
+        .then(value => {
+          const data = contractsFromResponse(value)
+          if (!responseMatchesEnvironment(data.stagingOnly, environment)) throw new Error('La respuesta de contratos no corresponde al entorno financiero verificado.')
+          if (!controller.signal.aborted) setContracts(data)
+        })
         .catch(cause => { if (!controller.signal.aborted) setError(message(cause)) })
         .finally(() => { if (!controller.signal.aborted) setContractsBusy(false) })
     }, 200)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [selectedSource, servicePeriod, contractSearch])
+  }, [selectedSource, servicePeriod, contractSearch, environment])
   useEffect(() => {
     if (!canChooseSource(selectedSource)) return
-    api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(selectedSource.sourceId)}`)
-      .then(data => setHistory(data.historial)).catch(() => setHistory([]))
-  }, [selectedSource])
+    api<unknown>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(selectedSource.sourceId)}`)
+      .then(value => {
+        const data = historyFromResponse(value)
+        if (!responseMatchesEnvironment(data.stagingOnly, environment)) throw new Error('La respuesta de historial no corresponde al entorno financiero verificado.')
+        setHistory(data.historial)
+      }).catch(() => setHistory([]))
+  }, [selectedSource, environment])
 
   function clearPreviewConfirmation() {
     setPreview(null); setHumanConfirmed(false); setConfirmationKey('')
@@ -323,10 +345,11 @@ export default function CustomerCostAllocationWorkspace() {
     if (!preparationConfirmed) return setError('Confirma que has revisado la factura antes de prepararla para reparto.')
     setBusy(true); setError(''); setNotice('')
     try {
-      const result = await api<{ preparada: boolean; fuente: { id: string; version: number; invoiceSnapshotHash: string; estado: string; facturaId: string } }>(API, {
+      const result = await api<unknown>(API, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'prepare', facturaId: selectedSource.facturaId, invoiceSnapshotHash: selectedSource.snapshotHash, confirmarPreparacion: true }),
       })
+      if (!isRecord(result) || typeof result.stagingOnly !== 'boolean' || !responseMatchesEnvironment(result.stagingOnly, environment) || typeof result.preparada !== 'boolean' || !isRecord(result.fuente) || typeof result.fuente.id !== 'string' || !positiveInteger(result.fuente.version) || typeof result.fuente.invoiceSnapshotHash !== 'string' || typeof result.fuente.estado !== 'string' || typeof result.fuente.facturaId !== 'string') throw new Error('La preparación no tiene el formato de entorno esperado.')
       const updated: Source = Object.freeze({ ...selectedSource, sourceId: result.fuente.id, version: result.fuente.version, snapshotHash: result.fuente.invoiceSnapshotHash, estado: result.fuente.estado, situacion: 'APTA', bloqueada: false, motivoBloqueo: null })
       setSelectedSource(updated)
       setSources(previous => previous ? { ...previous, fuentes: previous.fuentes.map(source => source.facturaId === updated.facturaId ? updated : source) } : previous)
@@ -343,9 +366,9 @@ export default function CustomerCostAllocationWorkspace() {
     if (classification === 'ABONO_EXPLICITO' && (!reverseOf || !eligibleSelected.length)) return setError('Un abono exige elegir un reparto positivo vigente y mapear manualmente sus contratos.')
     setBusy(true)
     try {
-      const body = await api<{ preview: Preview }>(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildPayload('preview')) })
-      if (!body || !body.preview) throw new Error('La previsualización no tiene el formato esperado.')
-      setPreview(body.preview)
+      const body = await api<unknown>(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildPayload('preview')) })
+      if (!isRecord(body) || typeof body.stagingOnly !== 'boolean' || !responseMatchesEnvironment(body.stagingOnly, environment) || !isRecord(body.preview)) throw new Error('La previsualización no tiene el formato de entorno esperado.')
+      setPreview(body.preview as unknown as Preview)
       setConfirmationKey(newKey())
     } catch (cause) { setError(message(cause)) }
     finally { setBusy(false) }
@@ -368,15 +391,19 @@ export default function CustomerCostAllocationWorkspace() {
   function refreshAfterConfirmation(source: Source | null) {
     void loadSources(sourceSearch, currentPage)
     if (canChooseSource(source)) {
-      void api<{ historial: HistoryItem[] }>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(source.sourceId)}`)
-        .then(data => setHistory(data.historial)).catch(() => setHistory([]))
+      void api<unknown>(`${API}?recurso=historial&fuenteId=${encodeURIComponent(source.sourceId)}`)
+        .then(value => {
+          const data = historyFromResponse(value)
+          if (!responseMatchesEnvironment(data.stagingOnly, environment)) throw new Error('La respuesta de historial no corresponde al entorno financiero verificado.')
+          setHistory(data.historial)
+        }).catch(() => setHistory([]))
     }
   }
   async function submitPendingConfirmation(payloadJson: string) {
     setBusy(true); setError(''); setNotice('')
     const sourceAtSend = selectedSource
     try {
-      const result = await sendConfirmation(payloadJson)
+      const result = await sendConfirmation(payloadJson, environment)
       clearPendingConfirmation()
       setNotice(result.idempotente ? 'Se recuperó el recibo de la misma confirmación.' : `Decisión ${result.reparto.version} guardada de forma auditable. No se modificó la factura original.`)
       clearPreviewConfirmation(); setChosen({})
@@ -410,7 +437,7 @@ export default function CustomerCostAllocationWorkspace() {
     <header className="rounded-xl border border-slate-200 bg-white px-5 py-5 shadow-sm sm:px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <p className="text-sm font-semibold text-blue-800">Finanzas · staging aislado</p>
+          <p className="text-sm font-semibold text-blue-800">Finanzas · {environment === 'production' ? 'producción con confirmación manual' : 'staging aislado'}</p>
           <h1 className="mt-1 text-2xl font-bold tracking-tight">Reparto de coste entre clientes</h1>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">El peso se calcula con la venta contractual sin IVA de los contratos que selecciones explícitamente, nunca con el banco ni con una selección automática de clientes. Los costes puntuales quedan fuera de la bolsa compartida.</p>
         </div>

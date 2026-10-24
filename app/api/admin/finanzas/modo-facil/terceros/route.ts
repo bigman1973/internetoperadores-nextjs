@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyCounterpartyErrorResponse, mutateEasyCounterparty, readEasyCounterparties, searchEasyCounterparties } from '@/lib/finanzas/easy-counterparty-db'
 import { parseCounterpartyReadInput, parseCounterpartySearchInput } from '@/lib/finanzas/easy-counterparty-core'
 
@@ -47,7 +47,7 @@ function errorResponse(error: unknown) {
 /** P1 is projection-only. `pendientes=SI` is computed before pagination. */
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('lectura', session)
     if ('response' in access) return access.response
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest) {
 /** Only explicit same-origin human confirmation may append/reverse P1 receipts. */
 export async function POST(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('escritura', session)
     if ('response' in access) return access.response

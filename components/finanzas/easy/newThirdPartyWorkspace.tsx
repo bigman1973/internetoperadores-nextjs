@@ -9,12 +9,13 @@ const BULK_API = '/api/admin/finanzas/modo-facil/terceros/bloque';
 export const THIRD_PARTY_PAGE_SIZE = 25;
 const MAX_SEARCH = 120;
 type Notice = Readonly<{ tone: 'error' | 'success' | 'info'; text: string }> | null;
-type Candidate = Readonly<{ id: string; tipoTercero: TipoTerceroPaso1; etiqueta: string; origenPaso1: Exclude<OrigenPaso1, 'MANUAL' | 'AUTO_RECIBO'> }>;
+type ContextualClassification = Readonly<{ bloque: 'ADMISIBLE' | 'REVISION_INDIVIDUAL'; codigo: string; aviso: string }>;
+type Candidate = Readonly<{ id: string; tipoTercero: TipoTerceroPaso1; etiqueta: string; origenPaso1: Exclude<OrigenPaso1, 'MANUAL' | 'AUTO_RECIBO'>; clasificacionContextual?: ContextualClassification }>;
 type StepOne = Readonly<{ estadoPaso1: EstadoPaso1; tipoTercero: TipoTerceroPaso1 | null; etiqueta: string | null; origenPaso1: OrigenPaso1 | null; decisionId: string | null; version: number; propuestaTexto: string | null; candidatos: readonly Candidate[] }>;
 type P1Movement = Readonly<{ id: string; fecha: string; concepto: string; importeCentimos: number; cuenta: { banco: string; alias: string | null }; paso1: StepOne; paso2: { estadoPaso2: EstadoPaso2 } }>;
 type ThirdPartyRead = Readonly<{ periodo: { desde: string; hasta: string }; contador: Paso1Contadores; total: number; limit: number; offset: number; movimientos: readonly P1Movement[] }>;
 export type BulkItem = Readonly<{ movimientoId: string; version: number; sugerenciaId: string; fingerprint: string; fecha: string; importeCentimos: number; tipoTercero: 'CLIENTE' | 'PROVEEDOR' | 'BANCO'; etiqueta: string; concepto: string; banco: string; alias: string | null }>;
-export type BulkRead = Readonly<{ total: number; totalPropuestosTexto: number; totalElegibles: number; totalAmbiguos: number; totalSinCoincidencia: number; limit: number; offset: number; maxBloque: number; items: readonly BulkItem[]; previewToken: string | null }>;
+export type BulkRead = Readonly<{ total: number; totalPropuestosTexto: number; totalElegibles: number; totalAmbiguos: number; totalSinCoincidencia: number; totalRevisionContextual: number; limit: number; offset: number; maxBloque: number; items: readonly BulkItem[]; previewToken: string | null }>;
 export type BulkSelection = Readonly<Pick<BulkItem, 'movimientoId' | 'version' | 'sugerenciaId' | 'fingerprint'>>;
 export type BulkAcceptPayload = Readonly<{ action: 'aceptar_seleccionados'; confirmacion: true; idempotencyKey: string; previewToken: string; items: readonly BulkSelection[] }>;
 export type BulkUndoPayload = Readonly<{ action: 'deshacer_lote'; confirmacion: true; idempotencyKey: string; loteId: string }>;
@@ -76,7 +77,16 @@ function candidate(value: unknown, field: string): Candidate {
   if (!/^p1_[A-Za-z0-9_-]+$/.test(id)) throw new Error(`${field}.id no es válido.`);
   const origin = enumValue(raw.origenPaso1, ORIGINS, `${field}.origenPaso1`);
   if (origin === 'MANUAL' || origin === 'AUTO_RECIBO') throw new Error(`${field} no corresponde a una ficha actual.`);
-  return { id, tipoTercero: enumValue(raw.tipoTercero, THIRD_TYPES, `${field}.tipoTercero`), etiqueta: text(raw.etiqueta, `${field}.etiqueta`), origenPaso1: origin };
+  const contextual = raw.clasificacionContextual === undefined ? null : record(raw.clasificacionContextual, `${field}.clasificacionContextual`);
+  const clasificacionContextual = contextual === null ? undefined : {
+    bloque: enumValue(contextual.bloque, ['ADMISIBLE', 'REVISION_INDIVIDUAL'] as const, `${field}.clasificacionContextual.bloque`),
+    codigo: text(contextual.codigo, `${field}.clasificacionContextual.codigo`),
+    aviso: text(contextual.aviso, `${field}.clasificacionContextual.aviso`),
+  };
+  return {
+    id, tipoTercero: enumValue(raw.tipoTercero, THIRD_TYPES, `${field}.tipoTercero`), etiqueta: text(raw.etiqueta, `${field}.etiqueta`), origenPaso1: origin,
+    ...(clasificacionContextual === undefined ? {} : { clasificacionContextual }),
+  };
 }
 function parseCounter(value: unknown): Paso1Contadores {
   const raw = record(value, 'contador');
@@ -109,7 +119,7 @@ export function parseThirdPartySearchCandidates(value: unknown): readonly Candid
 /** Kept exported for existing contract tests. */
 export function parseThirdPartyRead(value: unknown): ThirdPartyRead {
   const raw = record(value, 'respuesta');
-  if (raw.stagingOnly !== true || raw.automaticas !== false) throw new Error('La respuesta no declara una lectura aislada sin automatismos.');
+  if (typeof raw.stagingOnly !== 'boolean' || raw.automaticas !== false) throw new Error('La respuesta no declara una lectura aislada sin automatismos.');
   const period = record(raw.periodo, 'periodo');
   const movimientos = array(raw.movimientos, 'movimientos').map((item, index): P1Movement => {
     const movement = record(item, `movimientos[${index}]`);
@@ -138,7 +148,7 @@ export function parseThirdPartyRead(value: unknown): ThirdPartyRead {
 /** Closed parser for the accept-in-one-click list. It never fills in absent movement context. */
 export function parseThirdPartyBulkRead(value: unknown): BulkRead {
   const raw = record(value, 'lista');
-  if (raw.stagingOnly !== true || raw.automaticas !== false) throw new Error('La lista no es de la zona aislada.');
+  if (typeof raw.stagingOnly !== 'boolean' || raw.automaticas !== false) throw new Error('La lista no es de la zona aislada.');
   const item = (value: unknown, index: number): BulkItem => {
     const row = record(value, `items[${index}]`);
     const tipo = enumValue(row.tipoTercero, ['CLIENTE', 'PROVEEDOR', 'BANCO'] as const, 'tipo');
@@ -163,7 +173,7 @@ export function parseThirdPartyBulkRead(value: unknown): BulkRead {
   if (new Set(items.map(row => row.movimientoId)).size !== items.length) throw new Error('La página contiene movimientos repetidos.');
   return {
     total, totalPropuestosTexto: nonNegative(raw.totalPropuestosTexto, 'pendientes'), totalElegibles: nonNegative(raw.totalElegibles, 'elegibles'),
-    totalAmbiguos: nonNegative(raw.totalAmbiguos, 'ambiguos'), totalSinCoincidencia: nonNegative(raw.totalSinCoincidencia, 'sin coincidencia'),
+    totalAmbiguos: nonNegative(raw.totalAmbiguos, 'ambiguos'), totalSinCoincidencia: nonNegative(raw.totalSinCoincidencia, 'sin coincidencia'), totalRevisionContextual: nonNegative(raw.totalRevisionContextual, 'revisión contextual'),
     limit, offset, maxBloque, items, previewToken,
   };
 }
@@ -477,7 +487,7 @@ export default function NewThirdPartyWorkspace({ enabled, from, to, query, senti
           <p className="mt-1 text-sm text-slate-600">
             {simple
               ? simplePending === null ? 'Cargando lista…' : <><strong>{simplePending}</strong> pendientes</>
-              : bulk ? <><strong>{bulk.totalElegibles}</strong> coincidencias únicas de <strong>{bulk.totalPropuestosTexto}</strong> nombres propuestos. {bulk.totalAmbiguos ? `${bulk.totalAmbiguos} necesitan revisión porque hay más de una ficha.` : ''}</> : 'Cargando lista…'}
+              : bulk ? <><strong>{bulk.totalElegibles}</strong> coincidencias únicas de <strong>{bulk.totalPropuestosTexto}</strong> nombres propuestos. {bulk.totalAmbiguos ? `${bulk.totalAmbiguos} necesitan revisión porque hay más de una ficha. ` : ''}{bulk.totalRevisionContextual ? `${bulk.totalRevisionContextual} se han excluido del bloque por signo o contexto y siguen disponibles para revisión individual. ` : ''}No se cambia ningún rol fiscal automáticamente.</> : 'Cargando lista…'}
           </p>
         </div>
         {rows.length > 0 && <label className="inline-flex items-center gap-2 text-sm font-bold text-slate-800"><input type="checkbox" checked={allCurrent} onChange={toggleAll} disabled={actionBusy} />Seleccionar toda esta página</label>}
@@ -534,7 +544,7 @@ export default function NewThirdPartyWorkspace({ enabled, from, to, query, senti
               <button type="button" disabled={actionBusy || searching === movement.id || !draft.trim()} onClick={() => void searchManual(movement)} className="inline-flex items-center gap-1 rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-bold text-blue-950 disabled:opacity-50"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
             </div>
             {candidates.length > 0 && <div className="mt-3 space-y-2">
-              {candidates.map(item => <label key={item.id} className={`block cursor-pointer rounded-lg border p-2 ${picked === item.id ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white'}`}><input type="radio" name={`manual-${movement.id}`} checked={picked === item.id} onChange={() => setManualChoice(current => ({ ...current, [movement.id]: item.id }))} className="mr-2" /><strong className="text-slate-950">{item.etiqueta}</strong></label>)}
+              {candidates.map(item => <label key={item.id} className={`block cursor-pointer rounded-lg border p-2 ${picked === item.id ? 'border-blue-500 bg-blue-50' : item.clasificacionContextual?.bloque === 'REVISION_INDIVIDUAL' ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}><input type="radio" name={`manual-${movement.id}`} checked={picked === item.id} onChange={() => setManualChoice(current => ({ ...current, [movement.id]: item.id }))} className="mr-2" /><strong className="text-slate-950">{item.etiqueta}</strong>{item.clasificacionContextual && <p className={`mt-1 text-xs ${item.clasificacionContextual.bloque === 'REVISION_INDIVIDUAL' ? 'text-amber-900' : 'text-slate-600'}`}>{item.clasificacionContextual.bloque === 'REVISION_INDIVIDUAL' ? `Revisión individual: ${item.clasificacionContextual.aviso}` : item.clasificacionContextual.aviso}</p>}</label>)}
               <button type="button" disabled={actionBusy || !picked} onClick={() => chooseManual(movement)} className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">Guardar ficha elegida</button>
             </div>}
           </article>;

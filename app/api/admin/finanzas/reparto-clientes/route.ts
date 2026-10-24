@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError } from '@/lib/finanzas/prototype-staging'
 import { operatorAuth, operatorJson } from '@/lib/finanzas/operator-costs-auth'
 import { CustomerCostAllocationError, SERVICE_PERIOD, UUID, parseAllocationPreparationRequest, parseAllocationRequest } from '@/lib/finanzas/customer-cost-allocation-core'
 import { allocationHistory, confirmCustomerCostAllocation, listCandidateContracts, listEligibleSources, prepareCustomerCostAllocationSource, previewCustomerCostAllocation } from '@/lib/finanzas/customer-cost-allocation-db'
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 64 * 1024
 
 function errorResponse(error: unknown) {
-  if (error instanceof PrototypeStagingError) return operatorJson({ error: error.message, codigo: error.code }, error.status)
+  if (error instanceof FinanceEasyRuntimeError) return operatorJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof CustomerCostAllocationError) return operatorJson({ error: error.message, codigo: error.code }, error.status)
   console.error('[customer-cost-allocation]', error)
   return operatorJson({ error: 'No se pudo procesar el reparto de coste.', codigo: 'CUSTOMER_COST_ALLOCATION_FAILED' }, 500)
@@ -34,7 +34,7 @@ async function boundedJson(req: NextRequest): Promise<unknown> {
 
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const auth = await operatorAuth(false)
     if (auth instanceof Response) return auth
     const recurso = req.nextUrl.searchParams.get('recurso') || 'fuentes'
@@ -52,7 +52,7 @@ export async function GET(req: NextRequest) {
     if (recurso === 'historial') {
       const fuenteId = req.nextUrl.searchParams.get('fuenteId') || ''
       if (!UUID.test(fuenteId)) throw new CustomerCostAllocationError('QUERY_INVALID', 'Fuente no válida.')
-      return operatorJson({ historial: await allocationHistory(fuenteId), canWrite: auth.canWrite })
+      return operatorJson({ ...(await allocationHistory(fuenteId)), canWrite: auth.canWrite })
     }
     throw new CustomerCostAllocationError('QUERY_INVALID', 'Recurso no admitido.')
   } catch (error) { return errorResponse(error) }
@@ -60,18 +60,18 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    const runtime = await assertFinanceEasyRuntime()
     const auth = await operatorAuth(true)
     if (auth instanceof Response) return auth
     if (req.headers.get('origin') !== req.nextUrl.origin) return operatorJson({ error: 'Origen no autorizado.', codigo: 'ORIGIN_INVALID' }, 403)
     const body = await boundedJson(req)
     if (typeof body === 'object' && body !== null && !Array.isArray(body) && (body as { action?: unknown }).action === 'prepare') {
       const preparation = parseAllocationPreparationRequest(body)
-      return operatorJson({ ok: true, ...(await prepareCustomerCostAllocationSource(auth.userId, preparation)) }, 201)
+      return operatorJson({ stagingOnly: runtime.stagingOnly, ok: true, ...(await prepareCustomerCostAllocationSource(auth.userId, preparation)) }, 201)
     }
     const request = parseAllocationRequest(body)
-    if (request.action === 'preview') return operatorJson({ ok: true, preview: await previewCustomerCostAllocation(request) })
-    return operatorJson({ ok: true, ...(await confirmCustomerCostAllocation(auth.userId, request)) }, 201)
+    if (request.action === 'preview') return operatorJson({ stagingOnly: runtime.stagingOnly, ok: true, preview: await previewCustomerCostAllocation(request) })
+    return operatorJson({ stagingOnly: runtime.stagingOnly, ok: true, ...(await confirmCustomerCostAllocation(auth.userId, request)) }, 201)
   } catch (error) { return errorResponse(error) }
 }
 

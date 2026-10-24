@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyCounterpartyBulkErrorResponse, readEasyCounterpartyBulkPreview, runEasyCounterpartyBulk } from '@/lib/finanzas/easy-counterparty-bulk-db'
 import { parseEasyCounterpartyBulkPreviewInput } from '@/lib/finanzas/easy-counterparty-bulk-core'
 
@@ -43,7 +43,7 @@ function errorResponse(error: unknown) {
 /** Shows a bounded current list only. It never appends a P1 receipt or changes B4. */
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const input = parseEasyCounterpartyBulkPreviewInput({
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 /** A person has selected every row; POST still re-checks the actor and every row under one SERIALIZABLE transaction. */
 export async function POST(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const access = await requireB4FinanceAccess('escritura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     if (!sameOrigin(req)) return privateJson({ error: 'El origen de la solicitud no es válido.' }, 403)

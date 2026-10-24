@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {easyOnlyRequestAllowed as allowed} from '../lib/finanzas/easy-access-core'
+import {hasLiveEasyAutomationCapability} from '../lib/finanzas/easy-access-profile'
 test('sólo dos pantallas, sin acceso general ni prefijos engañosos',()=>{
  assert(allowed('/admin/finanzas/modo-facil','GET'));assert(allowed('/admin/finanzas/para-pedir','GET'))
  for(const p of ['/admin','/admin/usuarios','/admin/finanzas/conciliacion-v2','/admin/finanzas/modo-facil/automaticas','/admin/finanzas/reparto-clientes'])assert.equal(allowed(p,'GET'),false)
@@ -22,4 +23,14 @@ test('descargas sólo privadas y de lectura, permisos sólo propios',()=>{
  assert(allowed('/api/admin/permisos','GET',new URLSearchParams('action=usuario&usuarioId=10'),10))
  assert.equal(allowed('/api/admin/permisos','GET',new URLSearchParams('action=todos'),10),false)
  assert.equal(allowed('/api/admin/permisos','GET',new URLSearchParams('action=usuario&usuarioId=11'),10),false)
+})
+
+
+test('la capacidad de automatización sólo nace del perfil vivo no restringido',()=>{
+ assert.equal(hasLiveEasyAutomationCapability({activo:true,rol:'GERENTE',easyOnly:false}),true)
+ assert.equal(hasLiveEasyAutomationCapability({activo:true,rol:'SUPER_ADMIN',easyOnly:false}),true)
+ assert.equal(hasLiveEasyAutomationCapability({activo:false,rol:'GERENTE',easyOnly:false}),false)
+ assert.equal(hasLiveEasyAutomationCapability({activo:true,rol:'CONTABILIDAD',easyOnly:false}),false)
+ assert.equal(hasLiveEasyAutomationCapability({activo:true,rol:'GERENTE',easyOnly:true}),false,'MODO_FACIL_ONLY no recibe gestión con rol heredado')
+ assert.equal(hasLiveEasyAutomationCapability({activo:true,rol:'SUPER_ADMIN',easyOnly:true}),false,'MODO_FACIL_ONLY no recibe gestión con superadmin heredado')
 })

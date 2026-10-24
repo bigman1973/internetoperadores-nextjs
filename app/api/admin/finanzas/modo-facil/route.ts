@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyErrorResponse, confirmEasyReconciliation, readEasyReconciliation } from '@/lib/finanzas/easy-reconciliation-db'
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
 import { readEasyStepCounters } from '@/lib/finanzas/easy-counterparty-db'
@@ -34,7 +34,7 @@ function errorResponse(error: unknown) { const response = easyErrorResponse(erro
 /** Projection only: no wrappers, B4 states, ticket management or rules are created by GET. */
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('lectura', session)
     if ('response' in access) return access.response
@@ -45,8 +45,7 @@ export async function GET(req: NextRequest) {
     })
     const [reconciliation, pasos] = await Promise.all([
       readEasyReconciliation(input),
-      // P1's all-movement cohort and P2's B4 pending cohort are deliberately
-      // separate objects; the service does not create P1 receipts on GET.
+      // P1 and P2 remain separate read cohorts; GET does not append any P1 receipt.
       readEasyStepCounters(input),
     ])
     return privateJson({ ...reconciliation, pasos })
@@ -56,7 +55,7 @@ export async function GET(req: NextRequest) {
 /** Explicit human confirmation only; the service ignores any client amount/document/source fields. */
 export async function POST(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('escritura', session)
     if ('response' in access) return access.response

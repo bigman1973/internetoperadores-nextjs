@@ -48,6 +48,7 @@ type ConfirmAction =
   | { kind: 'disable-rule'; rule: EasyRule; payload: DesactivarReglaPayload };
 type Retriable = { action: ConfirmAction } | null;
 type AuditOperation = { operationId: string; label: string; reversible: boolean };
+type FinanceEasyEnvironment = 'staging' | 'production';
 
 class RequestFailure extends Error {
   constructor(message: string, readonly uncertain: boolean) { super(message); }
@@ -147,7 +148,7 @@ function MovementCard({ movement, chosenSuggestionId, onSuggestion, onInvoice, o
   </article>;
 }
 
-export default function EasyReconciliationWorkspace() {
+export default function EasyReconciliationWorkspace({ environment }: { environment: FinanceEasyEnvironment }) {
   const [data, setData] = useState<EasyReadResponse | null>(null); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [notice, setNotice] = useState<Notice>(null);
   const [from, setFrom] = useState(DEFAULT_FROM); const [to, setTo] = useState(DEFAULT_TO); const [queryInput, setQueryInput] = useState(''); const [query, setQuery] = useState(''); const [sentido, setSentido] = useState<SentidoEasy>('TODOS'); const [card, setCard] = useState(''); const [offset, setOffset] = useState(0);
   const [queueStep, setQueueStep] = useState<'TODOS' | 'P1_PENDIENTE' | 'P2_PENDIENTE'>('TODOS');
@@ -236,7 +237,7 @@ export default function EasyReconciliationWorkspace() {
 
   const noticeStyles = notice?.tone === 'error' ? 'border-red-300 bg-red-50 text-red-950' : notice?.tone === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-blue-300 bg-blue-50 text-blue-950';
   return <main className="mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-5 sm:px-6 lg:px-8">
-    <header className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-300">Finanzas · Modo fácil</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight">Revisa cada movimiento</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">Sólo comisiones y traspasos comprobados pueden seguir las reglas autorizadas. El resto lo revisas tú.</p></div><span className="inline-flex w-fit items-center gap-2 rounded-full border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-extrabold text-orange-950"><ShieldCheckIcon className="h-5 w-5" aria-hidden="true" />Sólo staging · no producción</span></div><p className="mt-4 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs leading-5 text-slate-100">Esta pantalla trabaja sólo con el entorno de prueba. No realiza cambios en producción.</p></header>
+    <header className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm"><div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-300">Finanzas · Modo fácil</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight">Revisa cada movimiento</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">Sólo comisiones y traspasos comprobados pueden seguir las reglas autorizadas. El resto lo revisas tú.</p></div><span className="inline-flex w-fit items-center gap-2 rounded-full border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-extrabold text-orange-950"><ShieldCheckIcon className="h-5 w-5" aria-hidden="true" />{environment === 'production' ? 'Producción · revisión manual' : 'Staging · revisión manual'}</span></div><p className="mt-4 rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-xs leading-5 text-slate-100">{environment === 'production' ? 'Los vínculos automáticos están desactivados. Cada cambio exige confirmación final y no se envían comunicaciones ni se ejecutan sincronizaciones.' : 'Entorno aislado de pruebas. Cada cambio exige confirmación final; no se envían comunicaciones ni se ejecutan sincronizaciones.'}</p></header>
     <EasyHowTo mode="modo-facil" />
     {notice && <div role="alert" className={`flex gap-2 rounded-xl border p-4 text-sm ${noticeStyles}`}><InformationCircleIcon className="h-5 w-5 shrink-0" aria-hidden="true" /><p>{notice.text}</p></div>}
     {retriable && <section className="rounded-xl border border-amber-300 bg-amber-50 p-4"><div className="flex gap-3"><ExclamationTriangleIcon className="h-5 w-5 shrink-0 text-amber-900" aria-hidden="true" /><div><h2 className="font-extrabold text-amber-950">Resultado pendiente de comprobar</h2><p className="mt-1 text-sm text-amber-950">El envío puede haber llegado al servidor. Reintenta esta misma acción antes de hacer otra modificación.</p><button type="button" disabled={submitting} onClick={() => void send(retriable.action)} className="mt-3 rounded-lg bg-amber-800 px-4 py-2 text-sm font-bold text-white hover:bg-amber-900 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50">{submitting ? 'Reintentando…' : 'Reintentar la misma acción'}</button></div></div></section>}

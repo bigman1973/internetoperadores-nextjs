@@ -4,7 +4,7 @@ import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/pr
 
 export const dynamic = 'force-dynamic';
 
-/** No muestra interfaz ni datos si no se verifica el namespace staging aislado. */
+/** Telefonía/SOFÍA queda aparcada: no se promueve con las superficies Modo fácil. */
 export default async function AnaliticaClientePage() {
   try {
     await assertPrototypeStaging();

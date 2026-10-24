@@ -17,12 +17,14 @@ const response = {
 };
 
 const parsed = parseEasyReadResponse(response);
-assert.equal(parsed.stagingOnly, true, 'La UI sólo admite DTO staging explícito.');
+assert.equal(parsed.stagingOnly, true, 'El DTO de staging conserva su entorno real.');
 assert.equal(parsed.automaticas, false, 'La UI rechaza automatismos.');
 assert.equal(parsed.meses[0].coberturaVerificada, false, 'El semáforo sin cobertura se conserva como no verificado.');
 assert.deepEqual(sortQueueByMagnitude(parsed.movimientos).map((movement) => movement.id), ['m-large', 'm-small'], 'La cola se ordena por magnitud absoluta.');
 assert.equal(parsed.reglas[0].version, 3, 'La UI requiere versión antes de desactivar una regla.');
-assert.throws(() => parseEasyReadResponse({ ...response, stagingOnly: false }), /stagingOnly/);
+assert.equal(parseEasyReadResponse({ ...response, stagingOnly: false }).stagingOnly, false, 'El DTO de producción declara false sin aparentar staging.');
+assert.throws(() => parseEasyReadResponse({ ...response, stagingOnly: undefined }), /stagingOnly/);
+assert.throws(() => parseEasyReadResponse({ ...response, stagingOnly: 'false' }), /stagingOnly/);
 assert.throws(() => parseEasyReadResponse({ ...response, automaticas: true }), /automaticas/);
 assert.throws(() => parseEasyReadResponse({ ...response, reglas: [{ ...response.reglas[0], modo: 'AUTOCONFIRMAR' }] }), /proposal-only/);
 assert.throws(() => parseEasyReadResponse({ ...response, reglas: [{ ...response.reglas[0], version: undefined }] }), /version/);

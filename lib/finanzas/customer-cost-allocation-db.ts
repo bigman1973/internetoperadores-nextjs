@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging } from './prototype-staging'
+import { assertFinanceEasyRuntime, type FinanceEasyRuntimeContext } from './prototype-staging'
 import { facturaEconomicaSQL } from './invoice-economic-filter'
 import { digest, invoiceSnapshot, sourceKey } from './operator-costs'
 import {
@@ -158,19 +158,22 @@ async function requireLiveAllocationWriter(tx: CustomerCostAllocationTx, actorId
   }
 }
 
-/** Transaction-local counterpart of the public staging guard for Tx callers. */
-async function assertCustomerCostAllocationTxStage(tx: CustomerCostAllocationTx): Promise<void> {
+/** Transaction-local counterpart of the server runtime guard for Tx callers. */
+async function assertCustomerCostAllocationTxRuntime(tx: CustomerCostAllocationTx, runtime: FinanceEasyRuntimeContext): Promise<void> {
   const rows = await tx.$queryRaw<Array<{ databaseName: string; databaseUser: string; allocationTable: string | null }>>(Prisma.sql`
     SELECT current_database() AS "databaseName", current_user AS "databaseUser",
       to_regclass('repartos_coste_cliente')::text AS "allocationTable"
     LIMIT 1
   `)
   const current = rows[0]
-  if (!current || current.databaseName !== 'io_staging_finanzas' || current.databaseUser !== 'io_staging_finanzas') {
-    throw new CustomerCostAllocationError('STAGING_PROTOTYPE_ONLY', 'Este reparto sólo está disponible en staging aislado.', 404)
+  const expected = runtime.runtime === 'staging'
+    ? { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+    : { databaseName: 'railway', databaseUser: 'postgres' }
+  if (!current || current.databaseName !== expected.databaseName || current.databaseUser !== expected.databaseUser) {
+    throw new CustomerCostAllocationError('FINANCE_EASY_RUNTIME_DISABLED', 'El reparto no está disponible para el entorno financiero activo.', 404)
   }
   if (current.allocationTable !== 'repartos_coste_cliente') {
-    throw new CustomerCostAllocationError('MIGRATION_PENDING', 'La migración de reparto aún no está aplicada en staging; no se guardó ninguna decisión.', 503)
+    throw new CustomerCostAllocationError('MIGRATION_PENDING', 'La migración de reparto aún no está aplicada; no se guardó ninguna decisión.', 503)
   }
 }
 
@@ -365,7 +368,8 @@ function previewFrom(source: SourceRow, validated: ReturnType<typeof validateSou
   }
 }
 
-export async function listEligibleSources(search = '', page = 1, facturaId?: string): Promise<{ fuentes: SourceListItem[]; page: number; totalPages: number; total: number }> {
+export async function listEligibleSources(search = '', page = 1, facturaId?: string): Promise<{ stagingOnly: boolean; fuentes: SourceListItem[]; page: number; totalPages: number; total: number }> {
+  const runtime = await assertFinanceEasyRuntime()
   const term = search.trim().slice(0, 160)
   const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1
   const where = term ? Prisma.sql`AND (fr.proveedor ILIKE ${`%${term.replace(/[\\%_]/g, '\\$&')}%`} ESCAPE '\\' OR COALESCE(fr.num_factura, '') ILIKE ${`%${term.replace(/[\\%_]/g, '\\$&')}%`} ESCAPE '\\')` : Prisma.empty
@@ -390,6 +394,7 @@ export async function listEligibleSources(search = '', page = 1, facturaId?: str
   `)
   const total = rows.length ? count(rows[0].totalRows) : 0
   return {
+    stagingOnly: runtime.stagingOnly,
     fuentes: rows.map(row => {
       const blocked = row.imputed || row.sourceImputed || count(row.directAllocations) > 0 || count(row.directLinks) > 0 || count(row.sourceDirectAllocations) > 0 || count(row.sourceDirectLinks) > 0
       const reservedAsEvidence = Boolean(row.sourceId && row.linkedDocumentRole !== 'ORIGINAL')
@@ -426,19 +431,21 @@ export async function getAllocationInvoiceCandidate(facturaId: string): Promise<
   return result.fuentes[0] || null
 }
 
-export async function listCandidateContracts(fuenteId: string, periodoServicio: string, search = ''): Promise<{ periodoServicio: string; periodoActual: string; contratos: CandidateContract[] }> {
+export async function listCandidateContracts(fuenteId: string, periodoServicio: string, search = ''): Promise<{ stagingOnly: boolean; periodoServicio: string; periodoActual: string; contratos: CandidateContract[] }> {
+  const runtime = await assertFinanceEasyRuntime()
   // A source is re-read so the UI never supplies independent customer/accounting context.
   const source = await loadSource(prisma, fuenteId)
   validateSource(source, { sourceVersion: source.sourceVersion, invoiceSnapshotHash: source.documentVersion })
   const rows = await contractRows(prisma, periodoServicio, undefined, search)
-  return { periodoServicio, periodoActual: currentUtcPeriod(), contratos: rows.map(row => contractCandidate(row, periodoServicio)) }
+  return { stagingOnly: runtime.stagingOnly, periodoServicio, periodoActual: currentUtcPeriod(), contratos: rows.map(row => contractCandidate(row, periodoServicio)) }
 }
 
 export async function previewCustomerCostAllocation(request: AllocationRequest) {
+  const runtime = await assertFinanceEasyRuntime()
   const source = await loadSource(prisma, request.fuenteId)
   const validated = validateSource(source, request)
   const sales = await validatedSales(prisma, request)
-  return previewFrom(source, validated, request, sales)
+  return { stagingOnly: runtime.stagingOnly, ...previewFrom(source, validated, request, sales) }
 }
 
 type PreparatoryInvoiceRow = {
@@ -459,8 +466,9 @@ export async function prepareCustomerCostAllocationSourceTx(
   tx: CustomerCostAllocationTx,
   actorId: number,
   request: AllocationPreparationRequest,
+  runtime?: FinanceEasyRuntimeContext,
 ) {
-  await assertCustomerCostAllocationTxStage(tx)
+  await assertCustomerCostAllocationTxRuntime(tx, runtime ?? await assertFinanceEasyRuntime())
   await requireLiveAllocationWriter(tx, actorId)
   await tx.$queryRaw(Prisma.sql`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${request.facturaId}))`)
   const rows = await tx.$queryRaw<PreparatoryInvoiceRow[]>(Prisma.sql`
@@ -544,9 +552,9 @@ export async function prepareCustomerCostAllocationSourceTx(
 
 export async function prepareCustomerCostAllocationSource(actorId: number, request: AllocationPreparationRequest) {
   try {
-    await assertPrototypeStaging()
+    const runtime = await assertFinanceEasyRuntime()
     return await prisma.$transaction(
-      async tx => prepareCustomerCostAllocationSourceTx(tx, actorId, request),
+      async tx => prepareCustomerCostAllocationSourceTx(tx, actorId, request, runtime),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 },
     )
   } catch (error) {
@@ -575,10 +583,9 @@ async function currentReceipt(client: DbClient, allocationId: string) {
   }
 }
 
-export async function confirmCustomerCostAllocationTx(tx: CustomerCostAllocationTx, actorId: number, request: AllocationRequest) {
+export async function confirmCustomerCostAllocationTx(tx: CustomerCostAllocationTx, actorId: number, request: AllocationRequest, runtime?: FinanceEasyRuntimeContext) {
   if (request.action !== 'confirm' || !request.idempotencyKey) throw new CustomerCostAllocationError('CONFIRM_REQUIRED', 'La confirmación exige clave de idempotencia.')
-  await assertPrototypeStaging()
-  await assertCustomerCostAllocationTxStage(tx)
+  await assertCustomerCostAllocationTxRuntime(tx, runtime ?? await assertFinanceEasyRuntime())
   await requireLiveAllocationWriter(tx, actorId)
   await tx.$queryRaw(Prisma.sql`SELECT 1::int AS locked FROM pg_advisory_xact_lock(hashtext(${request.fuenteId}))`)
   // Lock the physical source rows first so source edits and a replay for the
@@ -635,8 +642,8 @@ export async function confirmCustomerCostAllocationTx(tx: CustomerCostAllocation
 export async function confirmCustomerCostAllocation(actorId: number, request: AllocationRequest) {
   if (request.action !== 'confirm' || !request.idempotencyKey) throw new CustomerCostAllocationError('CONFIRM_REQUIRED', 'La confirmación exige clave de idempotencia.')
   try {
-    await assertPrototypeStaging()
-    return await prisma.$transaction(async tx => confirmCustomerCostAllocationTx(tx, actorId, request), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 })
+    const runtime = await assertFinanceEasyRuntime()
+    return await prisma.$transaction(async tx => confirmCustomerCostAllocationTx(tx, actorId, request, runtime), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 15_000 })
   } catch (error) {
     if (error instanceof CustomerCostAllocationError) throw error
     if (isUndefinedTable(error)) throw new CustomerCostAllocationError('MIGRATION_PENDING', 'La migración de reparto aún no está aplicada en staging; no se guardó ninguna decisión.', 503)
@@ -647,6 +654,7 @@ export async function confirmCustomerCostAllocation(actorId: number, request: Al
 }
 
 export async function allocationHistory(fuenteId: string) {
+  const runtime = await assertFinanceEasyRuntime()
   try {
     const rows = await prisma.$queryRaw<Array<{ id: string; version: number; estado: string; clasificacion: string; periodoServicio: Date; costeCentimos: bigint | number | string; createdAt: Date; creadoPor: string }>>(Prisma.sql`
       SELECT r.id, r.version, r.estado, r.clasificacion, r.periodo_servicio AS "periodoServicio", r.coste_centimos AS "costeCentimos", r.created_at AS "createdAt", u.nombre AS "creadoPor"
@@ -663,9 +671,9 @@ export async function allocationHistory(fuenteId: string) {
     `) : []
     const contractsByAllocation = new Map<string, Array<{ clienteId: number; contratoId: number; clienteNombre: string | null; contratoTitulo: string | null }>>()
     for (const contract of contracts) contractsByAllocation.set(contract.repartoId, [...(contractsByAllocation.get(contract.repartoId) || []), contract])
-    return rows.map(row => ({ ...row, periodoServicio: isoDate(row.periodoServicio), createdAt: row.createdAt.toISOString(), costeCentimos: asBigInt(row.costeCentimos, 'Coste').toString(), contratos: contractsByAllocation.get(row.id) || [] }))
+    return { stagingOnly: runtime.stagingOnly, historial: rows.map(row => ({ ...row, periodoServicio: isoDate(row.periodoServicio), createdAt: row.createdAt.toISOString(), costeCentimos: asBigInt(row.costeCentimos, 'Coste').toString(), contratos: contractsByAllocation.get(row.id) || [] })) }
   } catch (error) {
-    if (isUndefinedTable(error)) return []
+    if (isUndefinedTable(error)) return { stagingOnly: runtime.stagingOnly, historial: [] }
     throw error
   }
 }

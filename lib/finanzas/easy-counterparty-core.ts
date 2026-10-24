@@ -9,6 +9,112 @@ export const EASY_COUNTERPARTY_MAX_SEARCH_LIMIT = 50
 
 export const COUNTERPARTY_TYPES = ['CLIENTE', 'PROVEEDOR', 'BANCO', 'CUENTA_PROPIA', 'EMPLEADO'] as const
 export type CounterpartyType = typeof COUNTERPARTY_TYPES[number]
+/**
+ * These are review outcomes, never fiscal-role corrections.  They are deliberately
+ * pure so a preview, its signed re-read and the individual selector apply exactly
+ * the same conservative context/sign rule.
+ */
+export const COUNTERPARTY_CONTEXTUAL_CODES = [
+  'CONTEXTO_CONFIRMING',
+  'CONTEXTO_NOMINA',
+  'CONTEXTO_SEGURIDAD_SOCIAL',
+  'CONTEXTO_IMPUESTO',
+  'CONTEXTO_PRESTAMO',
+  'CONTEXTO_TRASPASO',
+  'IMPORTE_CERO_O_INVALIDO',
+  'SIGNO_COMPATIBLE_PROVEEDOR',
+  'SIGNO_INCOHERENTE_PROVEEDOR',
+  'SIGNO_COMPATIBLE_CLIENTE',
+  'SIGNO_INCOHERENTE_CLIENTE',
+  'SIGNO_COMPATIBLE_EMPLEADO',
+  'SIGNO_INCOHERENTE_EMPLEADO',
+  'CUENTA_PROPIA_SIN_TRASPASO',
+  'BANCO_SIGNO_NEUTRO',
+] as const
+export type CounterpartyContextualCode = typeof COUNTERPARTY_CONTEXTUAL_CODES[number]
+export type CounterpartyContextualClassification = Readonly<{
+  bloque: 'ADMISIBLE' | 'REVISION_INDIVIDUAL'
+  codigo: CounterpartyContextualCode
+  /** Always explicit: this surface may warn, but it never rewrites a fiscal role. */
+  aviso: string
+}>
+export type CounterpartyContextualInput = Readonly<{
+  tipoTercero: CounterpartyType
+  importeCentimos: number
+  concepto?: string | null
+  propuestaTexto?: string | null
+}>
+
+function contextualText(value: string | null | undefined): string {
+  return typeof value === 'string'
+    ? value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').normalize('NFKC').toLocaleUpperCase('es-ES')
+    : ''
+}
+function hasContext(text: string, expression: RegExp): boolean { return expression.test(text) }
+function contextualReview(codigo: CounterpartyContextualCode, aviso: string): CounterpartyContextualClassification {
+  return { bloque: 'REVISION_INDIVIDUAL', codigo, aviso: `${aviso} La ficha fiscal no se corrige automáticamente.` }
+}
+
+/**
+ * Classifies a proposed *role* against the signed movement and only the visible
+ * bank context.  It does not identify a person/entity and does not mutate a fiscal
+ * record.  Any uncertainty is review-individual; callers may use ADMISIBLE solely
+ * for the explicit human bulk package.
+ */
+export function classifyCounterpartyContext(input: CounterpartyContextualInput): CounterpartyContextualClassification {
+  const amount = input.importeCentimos
+  if (!Number.isSafeInteger(amount) || amount === 0) {
+    return contextualReview('IMPORTE_CERO_O_INVALIDO', 'El movimiento no tiene un signo bancario utilizable para aceptar un tercero en bloque.')
+  }
+  const text = `${contextualText(input.concepto)} ${contextualText(input.propuestaTexto)}`
+  // A special financial context does not change a fiscal role.  It is admissible
+  // only where the signed amount and the already-existing exact-match type agree.
+  if (hasContext(text, /\b(?:CONFIRMING|CESION\s+DE\s+CREDITOS|ANTICIPO\s+CONFIRMING)\b/u)) {
+    return input.tipoTercero === 'CLIENTE' && amount > 0
+      ? { bloque: 'ADMISIBLE', codigo: 'CONTEXTO_CONFIRMING', aviso: 'Cobro de confirming compatible con cliente existente; confirme la coincidencia exacta.' }
+      : contextualReview('CONTEXTO_CONFIRMING', `El concepto indica confirming o cesión de créditos; la ficha actual es ${input.tipoTercero.toLocaleLowerCase('es-ES')} y el tipo esperado para este cobro es cliente.`)
+  }
+  if (hasContext(text, /\b(?:NOMINAS?|SALARIOS?|REMUNERACIONES?)\b/u)) {
+    return input.tipoTercero === 'EMPLEADO' && amount < 0
+      ? { bloque: 'ADMISIBLE', codigo: 'CONTEXTO_NOMINA', aviso: 'Cargo de nómina compatible con empleado existente; confirme la coincidencia exacta.' }
+      : contextualReview('CONTEXTO_NOMINA', `El concepto indica nómina o salario; la ficha actual es ${input.tipoTercero.toLocaleLowerCase('es-ES')} y el tipo esperado para este cargo es empleado.`)
+  }
+  if (hasContext(text, /\b(?:TGSS|SEGURIDAD\s+SOCIAL|TESORERIA\s+GENERAL)\b/u)) {
+    return contextualReview('CONTEXTO_SEGURIDAD_SOCIAL', 'El concepto indica Seguridad Social; no hay un tipo administrativo para aceptación en bloque y requiere revisión individual.')
+  }
+  if (hasContext(text, /\b(?:AEAT|AGENCIA\s+TRIBUTARIA|HACIENDA|IMPUESTOS?|MODELO\s*(?:111|115|123|130|190|200|202|303|347|390))\b/u)) {
+    return contextualReview('CONTEXTO_IMPUESTO', 'El concepto indica un impuesto o administración tributaria; no hay un tipo administrativo para aceptación en bloque y requiere revisión individual.')
+  }
+  if (hasContext(text, /\b(?:PRESTAMOS?|CREDITOS?|LEASING|FINANCIACION|CUOTA\s+(?:PRESTAMO|CREDITO|LEASING))\b/u)) {
+    return input.tipoTercero === 'BANCO'
+      ? { bloque: 'ADMISIBLE', codigo: 'CONTEXTO_PRESTAMO', aviso: 'Préstamo o financiación compatible con banco existente; confirme la coincidencia exacta.' }
+      : contextualReview('CONTEXTO_PRESTAMO', `El concepto indica préstamo, crédito o financiación; la ficha actual es ${input.tipoTercero.toLocaleLowerCase('es-ES')} y el tipo esperado es banco.`)
+  }
+  if (hasContext(text, /\b(?:TRASPASO|TRANSFERENCIA\s+(?:ENTRE|INTERNA|PROPIA))\b/u)) {
+    return contextualReview('CONTEXTO_TRASPASO', 'El concepto indica un traspaso o transferencia interna y requiere revisión individual.')
+  }
+  if (input.tipoTercero === 'PROVEEDOR') {
+    return amount < 0
+      ? { bloque: 'ADMISIBLE', codigo: 'SIGNO_COMPATIBLE_PROVEEDOR', aviso: 'Cargo compatible con proveedor para el bloque; confirme la coincidencia exacta.' }
+      : contextualReview('SIGNO_INCOHERENTE_PROVEEDOR', 'El movimiento es un cobro y la ficha propuesta es un proveedor.')
+  }
+  if (input.tipoTercero === 'CLIENTE') {
+    return amount > 0
+      ? { bloque: 'ADMISIBLE', codigo: 'SIGNO_COMPATIBLE_CLIENTE', aviso: 'Cobro compatible con cliente para el bloque; confirme la coincidencia exacta.' }
+      : contextualReview('SIGNO_INCOHERENTE_CLIENTE', 'El movimiento es un cargo y la ficha propuesta es un cliente.')
+  }
+  if (input.tipoTercero === 'EMPLEADO') {
+    return amount < 0
+      ? { bloque: 'ADMISIBLE', codigo: 'SIGNO_COMPATIBLE_EMPLEADO', aviso: 'Cargo compatible con empleado para el bloque; confirme la coincidencia exacta.' }
+      : contextualReview('SIGNO_INCOHERENTE_EMPLEADO', 'El movimiento es un cobro y la ficha propuesta es un empleado.')
+  }
+  if (input.tipoTercero === 'CUENTA_PROPIA') {
+    return contextualReview('CUENTA_PROPIA_SIN_TRASPASO', 'Una cuenta propia exige evidencia de traspaso acreditada y no se acepta en bloque.')
+  }
+  // A bank may be debit or credit (fees, settlements, financing); the sign alone
+  // cannot reclassify it. Special financial contexts above remain fail-closed.
+  return { bloque: 'ADMISIBLE', codigo: 'BANCO_SIGNO_NEUTRO', aviso: 'El signo no determina un banco; la coincidencia exacta acreditada se conserva para revisión.' }
+}
 export const COUNTERPARTY_ORIGINS = [
   'ENTIDAD_FISCAL', 'EMPLEADO', 'NOMINA_EMPLEADO', 'FACTURA_RECIBIDA', 'FACTURA_EMITIDA',
   'CLIENTE_CONTRATO_ACTUAL', 'CUENTA_PROPIA_ACTUAL', 'MANUAL', 'AUTO_RECIBO',

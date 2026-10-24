@@ -10,7 +10,8 @@ import ProtectedRoute from '../../components/admin/ProtectedRoute'
 import prisma from '../../lib/prisma'
 import { canAccessAdminPanel } from '../../lib/admin-panel-access'
 import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
-import { isEasyOnlyStageUser } from '@/lib/finanzas/easy-access-profile'
+import { isEasyOnlyFinanceUser } from '@/lib/finanzas/easy-access-profile'
+import { getFinanceEasyProfileRuntime, getFinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
 
 export default async function AdminLayout({
   children,
@@ -18,7 +19,12 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth('admin')
-  const easyOnly = await isEasyOnlyStageUser(Number(session.user.id))
+  // Both values originate from server configuration plus current_database/current_user.
+  // There is no client hostname fallback and neither lookup writes financial state.
+  const [profileEnvironment, financeContext] = await Promise.all([
+    getFinanceEasyProfileRuntime(), getFinanceEasyRuntimeContext(),
+  ])
+  const easyOnly = profileEnvironment !== null && await isEasyOnlyFinanceUser(Number(session.user.id))
   const canAccessAdmin = await canAccessAdminPanel(session.user, usuarioId =>
     prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
   )
@@ -35,7 +41,7 @@ export default async function AdminLayout({
       >
         <SidebarProvider>
           <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
-            <AdminSidebar user={session.user} easyOnly={easyOnly} />
+            <AdminSidebar user={session.user} easyOnly={easyOnly} financeEnvironment={financeContext?.runtime ?? null} />
             <div className="min-w-0 lg:pl-64">
               <AdminHeader />
               <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">

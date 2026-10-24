@@ -122,19 +122,23 @@ export async function middleware(request) {
   const path = request.nextUrl.pathname;
   const isMutatingApiMethod = !SAFE_API_METHODS.has(request.method);
 
-  // Perfil mínimo vivo de staging. Se comprueba antes de cualquier handler,
-  // incluso con un JWT GERENTE anterior o una URL escrita a mano.
-  if (process.env.FINANCE_STAGING_SANDBOX === '1' && (
+  // Perfil mínimo vivo: se comprueba antes de cualquier handler, incluso con
+  // un JWT GERENTE anterior o una URL escrita a mano. En producción depende
+  // del modelo, no del interruptor de UI, para que un rollback de Modo fácil
+  // nunca ensanche el acceso heredado de Lorena.
+  const mustCheckEasyOnlyProfile = process.env.FINANCE_STAGING_SANDBOX === '1'
+    || (process.env.VERCEL_ENV === 'production' && process.env.FINANCE_MODEL_PRODUCTION_ENABLED === '1');
+  if (mustCheckEasyOnlyProfile && (
     path === '/admin' || path.startsWith('/admin/') || path === '/empleado' || path.startsWith('/empleado/')
     || (path.startsWith('/api/') && !isNextAuthOrLoginPath(path))
   )) {
     try {
-      const [{ getToken }, { isEasyOnlyStageUser }, { easyOnlyRequestAllowed, EASY_ONLY_HOME }] = await Promise.all([
+      const [{ getToken }, { isEasyOnlyFinanceUser }, { easyOnlyRequestAllowed, EASY_ONLY_HOME }] = await Promise.all([
         import('next-auth/jwt'), import('@/lib/finanzas/easy-access-profile'), import('@/lib/finanzas/easy-access-core'),
       ]);
       const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
       const userId = Number(token?.id);
-      if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0 && await isEasyOnlyStageUser(userId)) {
+      if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0 && await isEasyOnlyFinanceUser(userId)) {
         if (!easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
           if (path.startsWith('/api/')) return blockedBoundary('Este perfil sólo permite Modo fácil y Para pedir.', 'EASY_ONLY_ACCESS');
           return NextResponse.redirect(new URL(EASY_ONLY_HOME, request.url));

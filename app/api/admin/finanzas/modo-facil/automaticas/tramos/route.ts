@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
+import { canManageEasyAutomation } from '@/lib/finanzas/easy-access-profile'
 import {
   bankChainGapErrorResponse,
   parseBankChainGapPageInput,
@@ -23,10 +24,13 @@ function errorResponse(error: unknown) {
  */
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    const runtime = await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('lectura', session)
     if ('response' in access) return access.response
+    if (!await canManageEasyAutomation(access.actor.id, runtime)) {
+      return privateJson({ error: 'El perfil vivo no puede consultar el diagnóstico de tramos de saldo.', codigo: 'TRAMOS_CADENA_NO_AUTORIZADOS' }, 403)
+    }
     const page = parseBankChainGapPageInput(req.nextUrl.searchParams)
     return privateJson(page
       ? await readBankChainGapPage(access.actor.id, page)

@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
-import { canManageEasyAutomationStage } from '@/lib/finanzas/easy-access-profile'
+import { assertFinanceEasyRuntime, FinanceEasyRuntimeError, PrototypeStagingError, type FinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
+import { canManageEasyAutomation } from '@/lib/finanzas/easy-access-profile'
 import { centsFromExactSqlText } from '@/lib/finanzas/easy-auto-core'
 import {
   bankChainGapCountByCode,
@@ -27,6 +27,20 @@ function fail(status: number, code: string, message: string): never {
 }
 
 function asTx(tx: Prisma.TransactionClient): Tx { return tx as Tx }
+
+/** Re-check the selected runtime on this transaction's actual connection. */
+async function assertBankChainGapRuntimeTx(tx: Tx, runtime: FinanceEasyRuntimeContext): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ database_name: string; database_user: string }>>(Prisma.sql`
+    SELECT current_database() AS database_name,current_user AS database_user LIMIT 1
+  `)
+  const expected = runtime.runtime === 'production'
+    ? { databaseName: 'railway', databaseUser: 'postgres' }
+    : { databaseName: 'io_staging_finanzas', databaseUser: 'io_staging_finanzas' }
+  if (rows.length !== 1 || rows[0]?.database_name !== expected.databaseName || rows[0]?.database_user !== expected.databaseUser) {
+    throw new FinanceEasyRuntimeError()
+  }
+  return runtime.stagingOnly
+}
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null
@@ -82,7 +96,7 @@ function accountSummary(account: any, rows: readonly BankChainGapRow[], diagnosi
 
 async function readSnapshot(tx: Tx) {
   // PostgreSQL enforces the invariant at the connection level: a future accidental
-  // insert/update in this function aborts before it can mutate staging.
+  // insert/update in this function aborts before it can mutate either runtime.
   await tx.$executeRaw(Prisma.sql`SET TRANSACTION READ ONLY`)
   const [accounts, movements] = await Promise.all([
     tx.$queryRaw<Array<any>>(Prisma.sql`
@@ -110,28 +124,31 @@ async function readSnapshot(tx: Tx) {
 
 /**
  * Internal capability is deliberately stronger than ordinary B4 reading: only a
- * live manager profile in the isolated staging database can inspect account-chain
- * diagnosis. This is the same capability guard used by restricted automation.
+ * live manager profile in the validated promoted runtime can inspect account-chain
+ * diagnosis. MODO_FACIL_ONLY remains denied even if it retains a legacy role.
  */
-export async function assertBankChainGapManager(actorId: number): Promise<void> {
-  await assertPrototypeStaging()
-  if (!Number.isSafeInteger(actorId) || actorId <= 0 || !await canManageEasyAutomationStage(actorId)) {
-    fail(403, 'TRAMOS_CADENA_NO_AUTORIZADOS', 'El perfil vivo no puede consultar el diagnóstico de tramos de saldo en staging.')
+export async function assertBankChainGapManager(actorId: number): Promise<FinanceEasyRuntimeContext> {
+  const runtime = await assertFinanceEasyRuntime()
+  if (!Number.isSafeInteger(actorId) || actorId <= 0 || !await canManageEasyAutomation(actorId, runtime)) {
+    fail(403, 'TRAMOS_CADENA_NO_AUTORIZADOS', 'El perfil vivo no puede consultar el diagnóstico de tramos de saldo.')
   }
+  return runtime
 }
 
 /** Summary contains exactly one masked record for each active account. No DML. */
 export async function readBankChainGapSummary(actorId: number) {
-  await assertBankChainGapManager(actorId)
+  const runtime = await assertBankChainGapManager(actorId)
   try {
     return await db().$transaction(async tx => {
-      const snapshot = await readSnapshot(asTx(tx))
+      const work = asTx(tx)
+      const stagingOnly = await assertBankChainGapRuntimeTx(work, runtime)
+      const snapshot = await readSnapshot(work)
       const accounts = snapshot.accounts.map(account => {
         const rows = snapshot.rowsByAccount.get(String(account.id)) ?? []
         return accountSummary(account, rows, diagnoseBankChainGaps(rows))
       })
       return {
-        stagingOnly: true as const,
+        stagingOnly,
         lecturaSolo: true as const,
         cuentas: accounts,
         totalCuentas: accounts.length,
@@ -142,7 +159,7 @@ export async function readBankChainGapSummary(actorId: number) {
       timeout: 45_000,
     })
   } catch (error) {
-    if (error instanceof BankChainGapsServiceError || error instanceof PrototypeStagingError) throw error
+    if (error instanceof BankChainGapsServiceError || error instanceof PrototypeStagingError || error instanceof FinanceEasyRuntimeError) throw error
     throw error
   }
 }
@@ -168,9 +185,11 @@ export function parseBankChainGapPageInput(search: URLSearchParams): BankChainGa
 
 /** One masked account plus one deterministic page of its demonstrated failures. No DML. */
 export async function readBankChainGapPage(actorId: number, input: BankChainGapPageInput) {
-  await assertBankChainGapManager(actorId)
+  const runtime = await assertBankChainGapManager(actorId)
   return db().$transaction(async tx => {
-    const snapshot = await readSnapshot(asTx(tx))
+    const work = asTx(tx)
+    const stagingOnly = await assertBankChainGapRuntimeTx(work, runtime)
+    const snapshot = await readSnapshot(work)
     const account = snapshot.accounts.find(item => String(item.id).toLowerCase() === input.cuentaId)
     if (!account) fail(404, 'CUENTA_NO_ENCONTRADA', 'La cuenta no existe o no está activa.')
     const rows = snapshot.rowsByAccount.get(String(account.id)) ?? []
@@ -178,7 +197,7 @@ export async function readBankChainGapPage(actorId: number, input: BankChainGapP
     const summary = accountSummary(account, rows, diagnosis)
     const fallos: readonly BankChainGap[] = diagnosis.fallos.slice(input.offset, input.offset + input.limit)
     return {
-      stagingOnly: true as const,
+      stagingOnly,
       lecturaSolo: true as const,
       ...summary,
       limit: input.limit,
@@ -195,5 +214,6 @@ export async function readBankChainGapPage(actorId: number, input: BankChainGapP
 export function bankChainGapErrorResponse(error: unknown): { status: number; body: { error: string; codigo?: string } } {
   if (error instanceof BankChainGapsServiceError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   return { status: 500, body: { error: 'No se pudo leer el diagnóstico de tramos de saldo.' } }
 }

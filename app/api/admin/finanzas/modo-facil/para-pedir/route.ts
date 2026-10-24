@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
-import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
+import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyErrorResponse, readEasyReconciliation } from '@/lib/finanzas/easy-reconciliation-db'
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
 
@@ -18,7 +18,7 @@ function errorResponse(error: unknown) { const response = easyErrorResponse(erro
  */
 export async function GET(req: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertFinanceEasyRuntime()
     const session = await getServerSession(authOptions)
     const access = await requireB4FinanceAccess('lectura', session)
     if ('response' in access) return access.response
@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     const queue = await readEasyReconciliation(input)
     const movimientos = queue.movimientos.filter(movement => !movement.sugerencias.some(suggestion => suggestion.exacta && (movement.importeCentimos >= 0 || suggestion.archivoDisponible)))
     return privateJson({
-      stagingOnly: true as const,
+      stagingOnly: queue.stagingOnly,
       automaticas: false as const,
       accionExterna: 'NINGUNA' as const,
       criterio: 'Cola documental B4 SIN_DOCUMENTO sin soporte actual confirmable; recogida manual, sin envío ni sincronización.',

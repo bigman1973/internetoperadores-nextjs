@@ -10,9 +10,9 @@ import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/pr
 export const dynamic = 'force-dynamic'
 
 /**
- * Prototype only: GET has no mutation path. The staging assertion deliberately
- * precedes authentication and every source SELECT, so this route is unavailable
- * outside the isolated staging database even to an authenticated administrator.
+ * Telefonía/SOFÍA remains staging-only: use the strict assertion (not the
+ * promoted Modo fácil/Reparto guard) before authentication and every SELECT.
+ * It is therefore unavailable in production even to an administrator.
  */
 export async function GET(request: NextRequest) {
   try {
