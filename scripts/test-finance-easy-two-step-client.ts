@@ -1,0 +1,116 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mayManageAutomation, parseEasyAccessProfile, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
+import { maskPossibleIban, parseEasyCardRead } from '../components/finanzas/easy/newTarjetasReadPanel';
+import { parseParaPedirRead } from '../components/finanzas/easy/newParaPedirWorkspace';
+import { parseAutomaticPreview } from '../components/finanzas/easy/newAutomaticRulesPanel';
+import { parseThirdPartyRead, parseThirdPartySearchCandidates } from '../components/finanzas/easy/newThirdPartyWorkspace';
+import { parseEasyReadResponse } from '../components/finanzas/easy/easy-contract';
+
+test('el perfil de automatización falla cerrado ante ausencia o forma incompleta', () => {
+  assert.equal(mayManageAutomation(null), false);
+  assert.equal(mayManageAutomation(undefined), false);
+  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: false }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true }), true);
+  assert.deepEqual(parseEasyAccessProfile({ easyOnly: true, canManageAutomation: false }), { easyOnly: true, canManageAutomation: false });
+  assert.throws(() => parseEasyAccessProfile({ easyOnly: false }));
+  assert.throws(() => parseEasyAccessProfile({ easyOnly: 'false', canManageAutomation: true }));
+});
+
+test('las descargas privadas aceptan sólo documento controlado y adjunto B5 exacto', () => {
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/modo-facil/documentos/doc_01/archivo'), '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo');
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/movimientos/mov_01/archivos?archivoId=ADJUNTO_B5%3Aadj_01'), '/api/admin/finanzas/movimientos/mov_01/archivos?archivoId=ADJUNTO_B5%3Aadj_01');
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/movimientos/mov_01/archivos?archivoId=ADJUNTO_B5%3Aadj_01&otro=1'), null);
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/movimientos/mov_01/archivos?archivoId=OTRO%3Aadj_01'), null);
+  assert.equal(safeEasyPrivateHref('https://example.invalid/api/admin/finanzas/modo-facil/documentos/doc_01/archivo'), null);
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/modo-facil/documentos/doc_01/archivo#fragmento'), null);
+  assert.equal(safeEasyPrivateHref('/api/admin/finanzas/tickets/archivo'), null);
+});
+
+test('el parser P1 conserva signos y rechaza fuentes que no sean evidencia actual', () => {
+  const candidateId = `p1_${'a'.repeat(64)}`;
+  const parsed = parseThirdPartyRead({
+    stagingOnly: true, automaticas: false, periodo: { desde: '2026-01-01', hasta: '2026-10-08' },
+    contador: { cohorte: 'TODOS_MOVIMIENTOS_VENTANA', totalMovimientos: 1, cargos: { movimientos: 1, importeCentimos: '-1234', identificados: 0 }, cobros: { movimientos: 0, importeCentimos: '0', identificados: 0 }, identificados: 0, propuestosTexto: 1, sinIdentificar: 0 },
+    total: 1, limit: 25, offset: 0,
+    movimientos: [{ id: 'mov-01', fecha: '2026-01-03', concepto: 'COMPRA', importeCentimos: -1234, cuenta: { banco: 'Banco', alias: null }, paso1: { estadoPaso1: 'PROPUESTO', tipoTercero: null, etiqueta: null, origenPaso1: null, decisionId: null, version: 0, propuestaTexto: 'Texto del banco', candidatos: [{ id: candidateId, tipoTercero: 'PROVEEDOR', etiqueta: 'Proveedor acreditado', origenPaso1: 'ENTIDAD_FISCAL' }] }, paso2: { estadoPaso2: 'SIN_DOCUMENTO' } }],
+  });
+  assert.equal(parsed.movimientos[0].importeCentimos, -1234);
+  assert.equal(parsed.movimientos[0].paso1.candidatos[0].origenPaso1, 'ENTIDAD_FISCAL');
+  const invalid = structuredClone({
+    stagingOnly: true, automaticas: false, periodo: { desde: '2026-01-01', hasta: '2026-10-08' },
+    contador: { cohorte: 'TODOS_MOVIMIENTOS_VENTANA', totalMovimientos: 1, cargos: { movimientos: 1, importeCentimos: '-1234', identificados: 0 }, cobros: { movimientos: 0, importeCentimos: '0', identificados: 0 }, identificados: 0, propuestosTexto: 1, sinIdentificar: 0 },
+    total: 1, limit: 25, offset: 0,
+    movimientos: [{ id: 'mov-01', fecha: '2026-01-03', concepto: 'COMPRA', importeCentimos: -1234, cuenta: { banco: 'Banco', alias: null }, paso1: { estadoPaso1: 'PROPUESTO', tipoTercero: null, etiqueta: null, origenPaso1: null, decisionId: null, version: 0, propuestaTexto: 'Texto', candidatos: [{ id: candidateId, tipoTercero: 'PROVEEDOR', etiqueta: 'No permitido', origenPaso1: 'MANUAL' }] }, paso2: { estadoPaso2: 'SIN_DOCUMENTO' } }],
+  });
+  assert.throws(() => parseThirdPartyRead(invalid));
+});
+
+test('la búsqueda P1 sólo incorpora candidatos opacos y estables devueltos por el servidor', () => {
+  const candidates = parseThirdPartySearchCandidates({
+    candidatos: [
+      { id: 'p1_cliente_actual', tipoTercero: 'CLIENTE', etiqueta: 'Cliente real', origenPaso1: 'CLIENTE_CONTRATO_ACTUAL' },
+      { id: 'p1_proveedor_fiscal', tipoTercero: 'PROVEEDOR', etiqueta: 'Proveedor real', origenPaso1: 'ENTIDAD_FISCAL' },
+    ],
+  });
+  assert.equal(candidates.length, 2);
+  assert.equal(candidates[0].id, 'p1_cliente_actual');
+  assert.equal(candidates[1].etiqueta, 'Proveedor real');
+  assert.throws(() => parseThirdPartySearchCandidates({ candidatos: [{ id: 'proveedor-escrito', tipoTercero: 'PROVEEDOR', etiqueta: 'Texto libre', origenPaso1: 'ENTIDAD_FISCAL' }] }));
+  assert.throws(() => parseThirdPartySearchCandidates({ candidatos: [{ id: 'p1_manual', tipoTercero: 'PROVEEDOR', etiqueta: 'Manual', origenPaso1: 'MANUAL' }] }));
+});
+
+test('la revisión automática conserva bloqueos, fallos y recibos persistentes sin inventar candidatos', () => {
+  const parsed = parseAutomaticPreview({
+    stagingOnly: true, automaticas: true,
+    policy: { id: 'pol_01', datosDesde: '2026-01-01', datosHasta: '2026-10-08', autorizadaEn: '2026-10-24', referenciaAutorizacion: 'Víctor Giró 24/10/2026; comisiones y traspasos propios staging' },
+    counts: { examinados: 4, traspasos: 1, comisiones: 1, excluidos: 1, bloqueadosTitularidad: 1, fallosCadena: 1 },
+    reviewHash: 'a'.repeat(64),
+    candidates: [{ fingerprint: 'f_comision', clase: 'COMISION_BANCARIA', origen: 'REGLA', movimientos: [{ id: 'mov_c', cuentaId: 'cta_1', fecha: '2026-10-01', importeCentimos: -99, versionB4: 1 }], motivoNoRequiere: 'COMISION_BANCARIA', terceroBancoId: 'banco_1', controles: ['BANCO_COBRADOR_DERIVADO_DE_CUENTA'] }],
+    fallosCadena: [{ cuenta: { cuentaId: 'cta_2', banco: 'Banco seguro', alias: null, ibanUltimos4: '1234' }, codigo: 'CADENA_SALDO_NO_ENCADENA' }],
+    bloqueados: [{ fingerprint: 'f_transfer', clase: 'TRASPASO_PROPIO', movimientos: [{ id: 'mov_a', cuentaId: 'cta_3', fecha: '2026-10-02', importeCentimos: -100, versionB4: 2 }, { id: 'mov_b', cuentaId: 'cta_4', fecha: '2026-10-03', importeCentimos: 100, versionB4: 2 }], bloqueos: ['POR_TITULARIDAD_NO_ACREDITADA'], cuentasPendientes: [{ cuentaId: 'cta_3', banco: 'Banco propio', alias: 'Operativa', ibanUltimos4: '9876' }] }],
+    fallos: [{ id: 'fail_1', fingerprint: 'f_old', clase: 'TRASPASO_PROPIO', codigo: 'CANDIDATO_OBSOLETO', mensaje: 'La revisión cambió.', createdAt: '2026-10-24T10:00:00.000Z' }],
+    recibos: [{ operationId: '11111111-1111-4111-8111-111111111111', clase: 'COMISION_BANCARIA', origen: 'REGLA', operacionesB4: ['b4_1'], reversible: true, reverted: false, createdAt: '2026-10-24T11:00:00.000Z' }],
+  });
+  assert.equal(parsed.fallosCadena[0].codigo, 'CADENA_SALDO_NO_ENCADENA');
+  assert.equal(parsed.bloqueados[0].cuentasPendientes[0].ibanUltimos4, '9876');
+  assert.equal(parsed.candidates[0].terceroBancoId, 'banco_1');
+  assert.equal(parsed.recibos[0].reversible, true);
+  assert.throws(() => parseAutomaticPreview({ ...structuredClone(parsed), policy: null, reviewHash: 'b'.repeat(64) }));
+});
+
+test('los nuevos desgloses documentales de período y mes son opcionales y no sustituyen la cohorte pendiente', () => {
+  const base = {
+    stagingOnly: true, automaticas: false, criterio: 'lectura', periodo: { desde: '2026-01-01', hasta: '2026-10-08' }, total: 0, limit: 25, offset: 0,
+    totales: { cargos: 0, cobros: 0, cargosCentimos: '0', cobrosCentimos: '0' }, meses: [], reglas: [], movimientos: [],
+    pasos: { version: 'EASY_PASOS_V1', paso1: { cohorte: 'TODOS_MOVIMIENTOS_VENTANA', totalMovimientos: 2, cargos: { movimientos: 1, importeCentimos: '-100', identificados: 0 }, cobros: { movimientos: 1, importeCentimos: '200', identificados: 1 }, identificados: 1, propuestosTexto: 1, sinIdentificar: 0 }, paso2: { cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO', totalMovimientos: 1, cargos: { movimientos: 1, importeCentimos: '-100' }, cobros: { movimientos: 0, importeCentimos: '0' }, criterio: 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1', periodo: { documentoConfirmado: { movimientos: 3, importeCentimos: '-300' }, noRequiere: { movimientos: 2, importeCentimos: '-50' } }, meses: [{ mes: '2026-10', documentoConfirmado: { movimientos: 2, importeCentimos: '-200' }, noRequiere: { movimientos: 1, importeCentimos: '-25' } }] } },
+  };
+  const parsed = parseEasyReadResponse(base);
+  assert.equal(parsed.pasos?.paso2.totalMovimientos, 1);
+  assert.equal(parsed.pasos?.paso2.periodo?.documentoConfirmado.movimientos, 3);
+  assert.equal(parsed.pasos?.paso2.meses?.[0].noRequiere?.importeCentimos, '-25');
+  const compatible = structuredClone(base);
+  delete (compatible.pasos.paso2 as { periodo?: unknown; meses?: unknown }).periodo;
+  delete (compatible.pasos.paso2 as { periodo?: unknown; meses?: unknown }).meses;
+  assert.equal(parseEasyReadResponse(compatible).pasos?.paso2.periodo, undefined);
+});
+
+test('la tarjeta privada conserva sólo los cuatro últimos dígitos y enmascara IBAN', () => {
+  const parsed = parseEasyCardRead({ stagingOnly: true, tarjeta: '2390', periodo: { desde: '2026-01-01', hasta: '2026-10-08' }, total: 1, importeCargosCentimos: '-2500', cuentas: [{ banco: 'Banco', alias: null, ibanUltimos4: '1234' }], movimientos: [{ fecha: '2026-01-02', banco: 'Banco', cuentaAlias: null, concepto: 'Compra', importeCentimos: -2500, estadoDocumento: 'SIN_DOCUMENTO' }], limit: 50, offset: 0 });
+  assert.equal(parsed.cuentas[0].ibanUltimos4, '1234');
+  assert.equal(maskPossibleIban('ES91 2100 0418 4502 0005 1332'), '[cuenta protegida]');
+  assert.equal(maskPossibleIban('Alias seguro'), 'Alias seguro');
+});
+
+test('Para Pedir sólo acepta la proyección documental B4 sin acciones externas', () => {
+  const base = {
+    stagingOnly: true, automaticas: false, accionExterna: 'NINGUNA', criterio: 'lectura', periodo: { desde: '2026-01-01', hasta: '2026-10-08' },
+    contadorPaso2: { cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO', totalMovimientos: 1, cargos: 1, cobros: 0, cargosCentimos: '-2500', cobrosCentimos: '0' }, limit: 25, offset: 0, totalPaginaSinSoporte: 1,
+    movimientos: [{ id: 'mov-01', fecha: '2026-01-02', concepto: 'Cargo', importeCentimos: -2500, cuenta: { banco: 'Banco', alias: null }, tarjeta: null, estado: 'SIN_DOCUMENTO', sugerencias: [{ id: 'sug-01', referencia: 'F-01', tercero: null, tipo: 'FACTURA_RECIBIDA', archivoDisponible: true, archivoPrivadoHref: '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo', motivos: ['Importe distinto'] }] }],
+  };
+  const parsed = parseParaPedirRead(base);
+  assert.equal(parsed.movimientos[0].importeCentimos, -2500);
+  assert.equal(parsed.movimientos[0].sugerencias[0].archivoPrivadoHref, '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo');
+  assert.throws(() => parseParaPedirRead({ ...base, accionExterna: 'EMAIL' }));
+});

@@ -2524,6 +2524,12 @@ export default function OperatorCosts() {
             Centros, facturas propias y originales de terceros, en vistas
             separadas.
           </p>
+          <Link
+            href="/admin/finanzas/reparto-clientes"
+            className="mt-2 inline-flex text-xs font-bold text-blue-900 hover:underline focus:outline-none focus:ring-2 focus:ring-blue-700"
+          >
+            Repartir coste entre clientes (staging)
+          </Link>
         </div>
         <button
           type="button"

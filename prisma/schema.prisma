@@ -10,6 +10,15 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  ejecucionesAutoModoFacil EjecucionAutoModoFacil[] @relation("EjecucionesAutoModoFacilActor")
+  fallosAutoModoFacil FalloAutoModoFacil[] @relation("FallosAutoModoFacilActor")
+  reversionesAutoModoFacil ReversionAutoModoFacil[] @relation("ReversionesAutoModoFacilActor")
+  recibosAutoModoFacil ReciboAutoModoFacil[] @relation("RecibosAutoModoFacilActor")
+  tercerosBancoAutoModoFacil TerceroBancoAutoModoFacil[] @relation("TercerosBancoAutoModoFacilActor")
+  atestacionesCuentaAutoModoFacil AtestacionCuentaAutoModoFacil[] @relation("AtestacionesCuentaAutoModoFacilActor")
+  politicasAutoModoFacilCreadas PoliticaAutoModoFacil[] @relation("PoliticasAutoModoFacilCreadas")
+  perfilesAccesoModoFacil PerfilAccesoModoFacil[] @relation("EasyProfileUser")
+  perfilesAccesoModoFacilRegistrados PerfilAccesoModoFacil[] @relation("EasyProfileActor")
   evidenciasTelefonoStage EvidenciaCosteTelefonoStage[]
   reversionesLegadoB4 ReversionLegadoB4[]
   legadosConciliacionB4 LegadoConciliacionB4[]
@@ -1132,6 +1141,8 @@ enum DestinatariosComunicado {
 // =============================================
 
 model CuentaBancaria {
+  tercerosBancoAutoModoFacil TerceroBancoAutoModoFacil[]
+  atestacionesAutoModoFacil AtestacionCuentaAutoModoFacil[]
   id          String   @id @default(uuid())
   banco       String   // Santander, CaixaBank, BBVA, Caixa Guissona, Vivid, Wise
   iban        String   @unique
@@ -1153,6 +1164,7 @@ model CuentaBancaria {
 }
 
 model MovimientoBancario {
+  pataReciboAutoModoFacil PataReciboAutoModoFacil?
   legadoConciliacionB4 LegadoConciliacionB4?
   auditoriasRemesaB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Movimiento")
   asignacionesDevolucionRemesaB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Movimiento")
@@ -4233,6 +4245,9 @@ model VinculoMovimientoDocumento {
 
 // Idempotency is deliberately scoped to the real UsuarioAdmin Int identity and request key.
 model OperacionJustificacionB4 {
+  patasAutoReversionResultado PataReversionAutoModoFacil[] @relation("PataAutoReversionResultado")
+  patasAutoReversionOriginal PataReversionAutoModoFacil[] @relation("PataAutoReversionOriginal")
+  pataReciboAutoModoFacil PataReciboAutoModoFacil?
   legadoConciliacionB4 LegadoConciliacionB4?
   reciboEleccionCentroB8 ReciboEleccionCentroB8?
   id                     String                    @id @default(uuid()) @db.Uuid
@@ -4883,4 +4898,300 @@ model EvidenciaCosteTelefonoStage {
   @@unique([facturaId,pdfSha256,versionExtractor],map:"evidencias_coste_telefono_stage_factura_pdf_version_key")
   @@index([facturaId,createdAt],map:"evidencias_coste_telefono_stage_factura_created_idx")
   @@map("evidencias_coste_telefono_stage")
+}
+
+model PerfilAccesoModoFacil {
+  id String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  usuarioId Int @map("usuario_id")
+  version Int
+  perfil String
+  actorId Int @map("actor_id")
+  instruccion String
+  snapshot Json @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  usuario UsuarioAdmin @relation("EasyProfileUser", fields: [usuarioId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  actor UsuarioAdmin @relation("EasyProfileActor", fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([usuarioId,version])
+  @@index([usuarioId,version(sort: Desc)], map: "perfiles_acceso_modo_facil_user_idx")
+  @@map("perfiles_acceso_modo_facil")
+}
+
+
+model PoliticaAutoModoFacil {
+  ejecuciones EjecucionAutoModoFacil[]
+  id                      String   @id @default(uuid()) @db.Uuid
+  politicaKey             String   @map("politica_key")
+  entorno                 String
+  estado                  String
+  datosDesde              DateTime @db.Date @map("datos_desde")
+  datosHasta              DateTime @db.Date @map("datos_hasta")
+  autorizadaEn            DateTime @db.Date @map("autorizada_en")
+  referenciaAutorizacion  String   @map("referencia_autorizacion") @db.VarChar(300)
+  creadaPorId             Int      @map("creada_por_id")
+  createdAt               DateTime @default(now()) @map("created_at")
+  creadaPor               UsuarioAdmin @relation("PoliticasAutoModoFacilCreadas", fields:[creadaPorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  atestaciones            AtestacionCuentaAutoModoFacil[]
+  tercerosBanco           TerceroBancoAutoModoFacil[]
+  recibos                 ReciboAutoModoFacil[]
+  fallos                  FalloAutoModoFacil[]
+  @@unique([politicaKey,entorno,autorizadaEn])
+  @@map("politicas_auto_modo_facil")
+}
+
+
+model AtestacionCuentaAutoModoFacil {
+  id                         String   @id @default(uuid()) @db.Uuid
+  politicaId                 String   @db.Uuid @map("politica_id")
+  cuentaId                   String   @map("cuenta_id")
+  version                    Int
+  titularDeclarado           String   @db.VarChar(300) @map("titular_declarado")
+  cifTitular                 String?  @db.VarChar(32) @map("cif_titular")
+  referenciaEvidencia        String   @db.VarChar(500) @map("referencia_evidencia")
+  confirmacionTitularidadIo  Boolean  @map("confirmacion_titularidad_io")
+  actorId                    Int      @map("actor_id")
+  snapshot                   Json
+  createdAt                  DateTime @default(now()) @map("created_at")
+  politica                   PoliticaAutoModoFacil @relation(fields:[politicaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  cuenta                     CuentaBancaria @relation(fields:[cuentaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor                      UsuarioAdmin @relation("AtestacionesCuentaAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([politicaId,cuentaId])
+  @@map("atestaciones_cuenta_auto_modo_facil")
+}
+
+
+model TerceroBancoAutoModoFacil {
+  id                   String   @id @default(uuid()) @db.Uuid
+  politicaId           String   @db.Uuid @map("politica_id")
+  cuentaId             String   @map("cuenta_id")
+  nombreNormalizado    String   @db.VarChar(300) @map("nombre_normalizado")
+  referenciaEvidencia  String   @db.VarChar(500) @map("referencia_evidencia")
+  activo               Boolean  @default(true)
+  actorId              Int      @map("actor_id")
+  snapshot             Json
+  createdAt            DateTime @default(now()) @map("created_at")
+  politica             PoliticaAutoModoFacil @relation(fields:[politicaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  cuenta               CuentaBancaria @relation(fields:[cuentaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor                UsuarioAdmin @relation("TercerosBancoAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  recibos              ReciboAutoModoFacil[]
+  @@unique([politicaId,cuentaId,nombreNormalizado])
+  @@map("terceros_banco_auto_modo_facil")
+}
+
+
+model ReciboAutoModoFacil {
+  ejecucion EjecucionAutoModoFacil @relation(fields:[ejecucionId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  ejecucionId String @db.Uuid @map("ejecucion_id")
+  id                  String   @id @default(uuid()) @db.Uuid
+  politicaId          String   @db.Uuid @map("politica_id")
+  actorId             Int      @map("actor_id")
+  clase               String   @db.VarChar(32)
+  origen              String   @db.VarChar(16)
+  idempotencyKey      String   @db.Uuid @map("idempotency_key")
+  requestHash         String   @db.Char(64) @map("request_hash")
+  fingerprint         String   @db.Char(64)
+  terceroBancoId      String?  @db.Uuid @map("tercero_banco_id")
+  createdAt           DateTime @default(now()) @map("created_at")
+  politica            PoliticaAutoModoFacil @relation(fields:[politicaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor               UsuarioAdmin @relation("RecibosAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  terceroBanco        TerceroBancoAutoModoFacil? @relation(fields:[terceroBancoId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  patas               PataReciboAutoModoFacil[]
+  reversion           ReversionAutoModoFacil?
+  @@unique([actorId,idempotencyKey])
+  @@unique([politicaId,fingerprint])
+  @@map("recibos_auto_modo_facil")
+}
+
+
+model PataReciboAutoModoFacil {
+  reciboId             String   @db.Uuid @map("recibo_id")
+  ordinal              Int
+  movimientoId         String   @map("movimiento_id")
+  operacionB4Id        String   @db.Uuid @map("operacion_b4_id")
+  motivoNoRequiere     MotivoNoRequiere @map("motivo_no_requiere")
+  recibo               ReciboAutoModoFacil @relation(fields:[reciboId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  movimiento           MovimientoBancario @relation(fields:[movimientoId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacionB4          OperacionJustificacionB4 @relation(fields:[operacionB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@id([reciboId,ordinal])
+  @@unique([movimientoId])
+  @@unique([operacionB4Id])
+  @@map("patas_recibo_auto_modo_facil")
+}
+
+
+model ReversionAutoModoFacil {
+  id                 String   @id @default(uuid()) @db.Uuid
+  reciboId           String   @unique @db.Uuid @map("recibo_id")
+  actorId            Int      @map("actor_id")
+  idempotencyKey     String   @db.Uuid @map("idempotency_key")
+  requestHash        String   @db.Char(64) @map("request_hash")
+  createdAt          DateTime @default(now()) @map("created_at")
+  recibo             ReciboAutoModoFacil @relation(fields:[reciboId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor              UsuarioAdmin @relation("ReversionesAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  patas              PataReversionAutoModoFacil[]
+  @@unique([actorId,idempotencyKey])
+  @@map("reversiones_auto_modo_facil")
+}
+
+
+model PataReversionAutoModoFacil {
+  reversionId              String @db.Uuid @map("reversion_id")
+  ordinal                  Int
+  operacionB4OriginalId    String @unique @db.Uuid @map("operacion_b4_original_id")
+  operacionB4ReversionId   String @unique @db.Uuid @map("operacion_b4_reversion_id")
+  reversion                ReversionAutoModoFacil @relation(fields:[reversionId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacionB4Original      OperacionJustificacionB4 @relation("PataAutoReversionOriginal",fields:[operacionB4OriginalId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacionB4Reversion     OperacionJustificacionB4 @relation("PataAutoReversionResultado",fields:[operacionB4ReversionId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@id([reversionId,ordinal])
+  @@map("patas_reversion_auto_modo_facil")
+}
+
+
+model FalloAutoModoFacil {
+  id         String @id @default(uuid()) @db.Uuid
+  politicaId String @db.Uuid @map("politica_id")
+  actorId    Int @map("actor_id")
+  fingerprint String @db.Char(64)
+  clase      String @db.VarChar(32)
+  codigo     String @db.VarChar(80)
+  mensaje    String @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+  politica   PoliticaAutoModoFacil @relation(fields:[politicaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor      UsuarioAdmin @relation("FallosAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@index([politicaId,createdAt(sort: Desc)])
+  @@map("fallos_auto_modo_facil")
+}
+
+
+enum EstadoDecisionTerceroModoFacil {
+  CONFIRMADA
+  REVERTIDA
+}
+
+
+enum TipoTerceroModoFacil {
+  CLIENTE
+  PROVEEDOR
+  BANCO
+  CUENTA_PROPIA
+  EMPLEADO
+}
+
+
+enum OrigenTerceroModoFacil {
+  ENTIDAD_FISCAL
+  EMPLEADO
+  NOMINA_EMPLEADO
+  FACTURA_RECIBIDA
+  FACTURA_EMITIDA
+  CLIENTE_CONTRATO_ACTUAL
+  CUENTA_PROPIA_ACTUAL
+  MANUAL
+  AUTO_RECIBO
+}
+
+
+model DecisionTerceroModoFacil {
+  id              String                           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  movimientoId    String                           @map("movimiento_id")
+  actorId         Int                              @map("actor_id")
+  accion          EstadoDecisionTerceroModoFacil
+  tipoTercero     TipoTerceroModoFacil
+  origen          OrigenTerceroModoFacil
+  candidatoHash   String                           @map("candidato_hash") @db.Char(64)
+  idempotencyKey  String                           @map("idempotency_key") @db.Uuid
+  requestHash     String                           @map("request_hash") @db.Char(64)
+  revierteId      String?                          @map("revierte_id") @db.Uuid
+  snapshot        Json
+  createdAt       DateTime                         @default(now()) @map("created_at")
+
+  @@unique([actorId, idempotencyKey])
+  @@index([movimientoId, createdAt])
+  @@index([revierteId])
+  @@map("decisiones_tercero_modo_facil")
+}
+
+
+model RepartoCosteCliente {
+  id                       String   @id
+  fuenteCosteOperadoraId    String   @map("fuente_coste_operadora_id")
+  facturaRecibidaId         String   @map("factura_recibida_id")
+  version                  Int
+  estado                   String   @default("VIGENTE")
+  clasificacion            String
+  periodoServicio          DateTime @db.Date @map("periodo_servicio")
+  costeCentimos            BigInt   @map("coste_centimos")
+  sourceVersion            Int      @map("source_version")
+  sourceSnapshotHash       String   @map("source_snapshot_hash")
+  snapshotFuente           Json     @map("snapshot_fuente")
+  snapshotSeleccion        Json     @map("snapshot_seleccion")
+  reversionDeRepartoId     String?  @map("reversion_de_reparto_id")
+  idempotencyKey           String   @unique @map("idempotency_key")
+  payloadHash              String   @map("payload_hash")
+  creadoPor                Int      @map("creado_por")
+  createdAt                DateTime @default(now()) @map("created_at")
+  contratos                RepartoCosteClienteContrato[]
+  lineas                   RepartoCosteClienteLinea[]
+  auditorias               AuditoriaRepartoCosteCliente[]
+  @@unique([fuenteCosteOperadoraId, version])
+  @@map("repartos_coste_cliente")
+}
+
+
+model RepartoCosteClienteContrato {
+  id                               String @id
+  repartoId                        String @map("reparto_id")
+  clienteId                        Int    @map("cliente_id")
+  contratoId                       Int    @map("contrato_id")
+  ventaPeriodoCentimos             BigInt @map("venta_periodo_centimos")
+  unidadesPeriodoMeses             Int    @map("unidades_periodo_meses")
+  ventaNormalizadaDoceavosCentimo  BigInt @map("venta_normalizada_doceavos_centimo")
+  snapshotContrato                 Json   @map("snapshot_contrato")
+  reparto                          RepartoCosteCliente @relation(fields: [repartoId], references: [id])
+  @@unique([repartoId, contratoId])
+  @@map("repartos_coste_cliente_contratos")
+}
+
+
+model RepartoCosteClienteLinea {
+  id                               String @id
+  repartoId                        String @map("reparto_id")
+  clienteId                        Int    @map("cliente_id")
+  ventaNormalizadaDoceavosCentimo  BigInt @map("venta_normalizada_doceavos_centimo")
+  restoNumerador                   BigInt @map("resto_numerador")
+  ordenResto                       Int    @map("orden_resto")
+  costeCentimos                    BigInt @map("coste_centimos")
+  snapshotCliente                  Json   @map("snapshot_cliente")
+  reparto                          RepartoCosteCliente @relation(fields: [repartoId], references: [id])
+  @@unique([repartoId, clienteId])
+  @@map("repartos_coste_cliente_lineas")
+}
+
+
+model AuditoriaRepartoCosteCliente {
+  id             String @id
+  repartoId      String @map("reparto_id")
+  usuarioId      Int    @map("usuario_id")
+  accion         String
+  idempotencyKey String @unique @map("idempotency_key")
+  antes          Json?
+  despues        Json
+  reparto        RepartoCosteCliente @relation(fields: [repartoId], references: [id])
+  @@map("auditorias_reparto_coste_cliente")
+}
+
+
+model EjecucionAutoModoFacil {
+  id              String   @id @default(uuid()) @db.Uuid
+  politicaId      String   @db.Uuid @map("politica_id")
+  actorId         Int      @map("actor_id")
+  idempotencyKey  String   @db.Uuid @map("idempotency_key")
+  requestHash     String   @db.Char(64) @map("request_hash")
+  reviewHash      String   @db.Char(64) @map("review_hash")
+  resumen         Json
+  createdAt       DateTime @default(now()) @map("created_at")
+  politica        PoliticaAutoModoFacil @relation(fields:[politicaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor           UsuarioAdmin @relation("EjecucionesAutoModoFacilActor",fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  recibos         ReciboAutoModoFacil[]
+  @@unique([actorId,idempotencyKey])
+  @@map("ejecuciones_auto_modo_facil")
 }

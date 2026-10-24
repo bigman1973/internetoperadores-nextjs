@@ -10,6 +10,7 @@ import ProtectedRoute from '../../components/admin/ProtectedRoute'
 import prisma from '../../lib/prisma'
 import { canAccessAdminPanel } from '../../lib/admin-panel-access'
 import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
+import { isEasyOnlyStageUser } from '@/lib/finanzas/easy-access-profile'
 
 export default async function AdminLayout({
   children,
@@ -17,10 +18,11 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth('admin')
+  const easyOnly = await isEasyOnlyStageUser(Number(session.user.id))
   const canAccessAdmin = await canAccessAdminPanel(session.user, usuarioId =>
     prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
   )
-  if (!canAccessAdmin) {
+  if (!canAccessAdmin && !easyOnly) {
     redirect('/empleado')
   }
   
@@ -33,14 +35,14 @@ export default async function AdminLayout({
       >
         <SidebarProvider>
           <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
-            <AdminSidebar user={session.user} />
+            <AdminSidebar user={session.user} easyOnly={easyOnly} />
             <div className="min-w-0 lg:pl-64">
               <AdminHeader />
               <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">
-                <ProtectedRoute>
+                {easyOnly ? children : <ProtectedRoute>
                   {process.env.FINANCE_STAGING_SANDBOX === '1' && <PendingTicketsNotice />}
                   {children}
-                </ProtectedRoute>
+                </ProtectedRoute>}
               </main>
             </div>
           </div>

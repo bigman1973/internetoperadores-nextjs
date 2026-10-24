@@ -1,5 +1,38 @@
 export type SentidoEasy = 'TODOS' | 'CARGOS' | 'COBROS';
 export type SemaforoEasy = 'VERDE' | 'AMARILLO' | 'ROJO' | 'GRIS';
+export type TipoTerceroPaso1 = 'CLIENTE' | 'PROVEEDOR' | 'BANCO' | 'CUENTA_PROPIA' | 'EMPLEADO';
+export type EstadoPaso1 = 'IDENTIFICADO' | 'PROPUESTO' | 'SIN_IDENTIFICAR';
+export type OrigenPaso1 = 'ENTIDAD_FISCAL' | 'EMPLEADO' | 'NOMINA_EMPLEADO' | 'FACTURA_RECIBIDA' | 'FACTURA_EMITIDA' | 'CLIENTE_CONTRATO_ACTUAL' | 'CUENTA_PROPIA_ACTUAL' | 'MANUAL' | 'AUTO_RECIBO';
+export type EstadoPaso2 = 'SIN_DOCUMENTO' | 'JUSTIFICADO' | 'NO_REQUIERE';
+
+export type PasoSentidoContador = Readonly<{ movimientos: number; importeCentimos: string; identificados?: number }>;
+/**
+ * Subtotal de un estado documental. Es opcional mientras las respuestas
+ * antiguas no publiquen el desglose; nunca se deduce desde otra cohorte.
+ */
+export type Paso2EstadoContador = Readonly<{ movimientos: number; importeCentimos: string }>;
+export type Paso2MesContador = Readonly<{
+  mes: string;
+  documentoConfirmado?: Paso2EstadoContador;
+  noRequiere?: Paso2EstadoContador;
+}>;
+export type Paso1Contadores = Readonly<{
+  cohorte: 'TODOS_MOVIMIENTOS_VENTANA'; totalMovimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador;
+  identificados: number; propuestosTexto: number; sinIdentificar: number;
+}>;
+export type Paso2Contadores = Readonly<{
+  cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO'; totalMovimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador;
+  criterio: 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1';
+  /** Extensiones P2 opcionales: no sustituyen el denominador SIN_DOCUMENTO. */
+  totalVentanaMovimientos?: number;
+  justificados?: Readonly<{ movimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador }>;
+  /** Desglose opcional de resultados B4 publicado por backend; no reemplaza la cola pendiente. */
+  noRequiere?: Readonly<{ movimientos: number; cargos: PasoSentidoContador; cobros: PasoSentidoContador }>;
+  periodo?: Readonly<{ documentoConfirmado: Paso2EstadoContador; noRequiere: Paso2EstadoContador }>;
+  /** Serie opcional, de lectura, para presentar los mismos estados sin sumar períodos distintos. */
+  meses?: readonly Paso2MesContador[];
+}>;
+export type PasosModoFacil = Readonly<{ version: 'EASY_PASOS_V1'; paso1: Paso1Contadores; paso2: Paso2Contadores }>;
 
 export type EasySuggestion = Readonly<{
   id: string;
@@ -70,6 +103,8 @@ export type EasyReadResponse = Readonly<{
   meses: EasyMonth[];
   reglas: EasyRule[];
   movimientos: EasyMovement[];
+  /** Ausente mientras el backend no haya aplicado la migración P1. */
+  pasos?: PasosModoFacil;
 }>;
 
 export type ConfirmarFacturaPayload = Readonly<{
@@ -92,6 +127,7 @@ export type DesactivarReglaPayload = Readonly<{
 const safeString = (value: unknown): value is string => typeof value === 'string';
 const safeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+const CENTS_TEXT = /^[+-]?\d+$/;
 
 function readString(value: unknown, field: string): string {
   if (!safeString(value)) throw new Error(`El campo ${field} no es texto válido.`);
@@ -105,6 +141,11 @@ function readInteger(value: unknown, field: string): number {
   if (!safeInteger(value)) throw new Error(`El campo ${field} no es un entero seguro.`);
   return value;
 }
+function readNonNegativeInteger(value: unknown, field: string): number {
+  const parsed = readInteger(value, field);
+  if (parsed < 0) throw new Error(`El campo ${field} no puede ser negativo.`);
+  return parsed;
+}
 function readArray(value: unknown, field: string): unknown[] {
   if (!Array.isArray(value)) throw new Error(`El campo ${field} debe ser una lista.`);
   return value;
@@ -112,6 +153,11 @@ function readArray(value: unknown, field: string): unknown[] {
 function objectAt(value: unknown, field: string): Record<string, unknown> {
   const parsed = record(value);
   if (!parsed) throw new Error(`El campo ${field} debe ser un objeto.`);
+  return parsed;
+}
+function readCentsText(value: unknown, field: string): string {
+  const parsed = readString(value, field);
+  if (!CENTS_TEXT.test(parsed)) throw new Error(`El campo ${field} no contiene céntimos exactos.`);
   return parsed;
 }
 
@@ -161,6 +207,40 @@ function parseMovement(value: unknown, index: number): EasyMovement {
   };
 }
 
+function parsePasoSentido(value: unknown, field: string, requireIdentified: boolean): PasoSentidoContador {
+  const raw = objectAt(value, field);
+  const result: { movimientos: number; importeCentimos: string; identificados?: number } = { movimientos: readNonNegativeInteger(raw.movimientos, `${field}.movimientos`), importeCentimos: readCentsText(raw.importeCentimos, `${field}.importeCentimos`) };
+  if (requireIdentified) result.identificados = readNonNegativeInteger(raw.identificados, `${field}.identificados`);
+  return result;
+}
+function parsePaso2Estado(value: unknown, field: string): Paso2EstadoContador {
+  const raw = objectAt(value, field);
+  return { movimientos: readNonNegativeInteger(raw.movimientos, `${field}.movimientos`), importeCentimos: readCentsText(raw.importeCentimos, `${field}.importeCentimos`) };
+}
+function parsePasos(value: unknown): PasosModoFacil {
+  const raw = objectAt(value, 'pasos');
+  if (raw.version !== 'EASY_PASOS_V1') throw new Error('La versión de pasos no es compatible.');
+  const paso1 = objectAt(raw.paso1, 'pasos.paso1'); const paso2 = objectAt(raw.paso2, 'pasos.paso2');
+  if (paso1.cohorte !== 'TODOS_MOVIMIENTOS_VENTANA') throw new Error('La cohorte de Paso 1 no es válida.');
+  if (paso2.cohorte !== 'PENDIENTES_B4_SIN_DOCUMENTO' || paso2.criterio !== 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1') throw new Error('La cohorte documental de Paso 2 no es válida.');
+  const periodo = paso2.periodo === undefined ? undefined : (() => {
+    const rawPeriodo = objectAt(paso2.periodo, 'pasos.paso2.periodo');
+    return { documentoConfirmado: parsePaso2Estado(rawPeriodo.documentoConfirmado, 'pasos.paso2.periodo.documentoConfirmado'), noRequiere: parsePaso2Estado(rawPeriodo.noRequiere, 'pasos.paso2.periodo.noRequiere') };
+  })();
+  const meses = paso2.meses === undefined ? undefined : readArray(paso2.meses, 'pasos.paso2.meses').map((value, index): Paso2MesContador => {
+    const rawMes = objectAt(value, `pasos.paso2.meses[${index}]`);
+    const documentoConfirmado = rawMes.documentoConfirmado === undefined ? undefined : parsePaso2Estado(rawMes.documentoConfirmado, `pasos.paso2.meses[${index}].documentoConfirmado`);
+    const noRequiere = rawMes.noRequiere === undefined ? undefined : parsePaso2Estado(rawMes.noRequiere, `pasos.paso2.meses[${index}].noRequiere`);
+    if (!documentoConfirmado && !noRequiere) throw new Error(`El mes pasos.paso2.meses[${index}] no incluye un estado documental verificable.`);
+    return { mes: readString(rawMes.mes, `pasos.paso2.meses[${index}].mes`), documentoConfirmado, noRequiere };
+  });
+  return {
+    version: 'EASY_PASOS_V1',
+    paso1: { cohorte: 'TODOS_MOVIMIENTOS_VENTANA', totalMovimientos: readNonNegativeInteger(paso1.totalMovimientos, 'pasos.paso1.totalMovimientos'), cargos: parsePasoSentido(paso1.cargos, 'pasos.paso1.cargos', true), cobros: parsePasoSentido(paso1.cobros, 'pasos.paso1.cobros', true), identificados: readNonNegativeInteger(paso1.identificados, 'pasos.paso1.identificados'), propuestosTexto: readNonNegativeInteger(paso1.propuestosTexto, 'pasos.paso1.propuestosTexto'), sinIdentificar: readNonNegativeInteger(paso1.sinIdentificar, 'pasos.paso1.sinIdentificar') },
+    paso2: { cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO', totalMovimientos: readNonNegativeInteger(paso2.totalMovimientos, 'pasos.paso2.totalMovimientos'), cargos: parsePasoSentido(paso2.cargos, 'pasos.paso2.cargos', false), cobros: parsePasoSentido(paso2.cobros, 'pasos.paso2.cobros', false), criterio: 'B4_DOCUMENTAL_INDEPENDIENTE_DE_PASO_1', periodo, meses },
+  };
+}
+
 /** Rechaza respuestas parciales para no sustituir evidencias desconocidas por ceros UI. */
 export function parseEasyReadResponse(value: unknown): EasyReadResponse {
   const raw = objectAt(value, 'respuesta');
@@ -174,7 +254,7 @@ export function parseEasyReadResponse(value: unknown): EasyReadResponse {
     if (typeof item.coberturaVerificada !== 'boolean') throw new Error(`La cobertura de meses[${index}] no es válida.`);
     return {
       mes: readString(item.mes, `meses[${index}].mes`), pendientes: readInteger(item.pendientes, `meses[${index}].pendientes`), justificados: readInteger(item.justificados, `meses[${index}].justificados`), noRequiere: readInteger(item.noRequiere, `meses[${index}].noRequiere`),
-      importeJustificadoCentimos: readString(item.importeJustificadoCentimos, `meses[${index}].importeJustificadoCentimos`), importePendienteCentimos: readString(item.importePendienteCentimos, `meses[${index}].importePendienteCentimos`),
+      importeJustificadoCentimos: readCentsText(item.importeJustificadoCentimos, `meses[${index}].importeJustificadoCentimos`), importePendienteCentimos: readCentsText(item.importePendienteCentimos, `meses[${index}].importePendienteCentimos`),
       coberturaVerificada: item.coberturaVerificada, semaforo: item.semaforo as SemaforoEasy, mensaje: readString(item.mensaje, `meses[${index}].mensaje`),
     };
   });
@@ -187,9 +267,9 @@ export function parseEasyReadResponse(value: unknown): EasyReadResponse {
   return {
     stagingOnly: true, automaticas: false, criterio: readString(raw.criterio, 'criterio'),
     periodo: { desde: readString(period.desde, 'periodo.desde'), hasta: readString(period.hasta, 'periodo.hasta') },
-    total: readInteger(raw.total, 'total'), limit: readInteger(raw.limit, 'limit'), offset: readInteger(raw.offset, 'offset'),
-    totales: { cargos: readInteger(totals.cargos, 'totales.cargos'), cobros: readInteger(totals.cobros, 'totales.cobros'), cargosCentimos: readString(totals.cargosCentimos, 'totales.cargosCentimos'), cobrosCentimos: readString(totals.cobrosCentimos, 'totales.cobrosCentimos') },
-    meses: months, reglas: rules, movimientos: readArray(raw.movimientos, 'movimientos').map(parseMovement),
+    total: readNonNegativeInteger(raw.total, 'total'), limit: readNonNegativeInteger(raw.limit, 'limit'), offset: readNonNegativeInteger(raw.offset, 'offset'),
+    totales: { cargos: readNonNegativeInteger(totals.cargos, 'totales.cargos'), cobros: readNonNegativeInteger(totals.cobros, 'totales.cobros'), cargosCentimos: readCentsText(totals.cargosCentimos, 'totales.cargosCentimos'), cobrosCentimos: readCentsText(totals.cobrosCentimos, 'totales.cobrosCentimos') },
+    meses: months, reglas: rules, movimientos: readArray(raw.movimientos, 'movimientos').map(parseMovement), pasos: raw.pasos === undefined ? undefined : parsePasos(raw.pasos),
   };
 }
 
@@ -202,7 +282,7 @@ export function cents(value: number | null | undefined): string {
 
 /** Formatter exacto para centimos serializados; nunca convierte BigInt a Number. */
 export function formatCentsText(value: string): string {
-  if (!/^[+-]?\d+$/.test(value)) return 'Importe no verificable';
+  if (!CENTS_TEXT.test(value)) return 'Importe no verificable';
   const negative = value.startsWith('-');
   const raw = (negative || value.startsWith('+') ? value.slice(1) : value).replace(/^0+(?=\d)/, '') || '0';
   const normalized = raw.padStart(3, '0');

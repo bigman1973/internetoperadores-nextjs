@@ -56,6 +56,7 @@ function financeAreas(pathname) {
     dashboard: ['admin.finanzas'],
     'analitica-costes': ['admin.finanzas.analitica_costes'],
     'costes-operadora': ['admin.finanzas.analitica_costes'],
+    'reparto-clientes': ['admin.finanzas.analitica_costes'],
     rentabilidad: ['admin.finanzas.analitica_costes'],
     clientes: pathname.startsWith('/api/admin/finanzas/clientes/ggcc-draxton')
       ? ['admin.finanzas.ggcc_draxton'] : [],
@@ -109,6 +110,9 @@ export async function middleware(request) {
       || (path === '/api/admin/finanzas/exportar-a3' && request.method === 'POST')
       || (path === '/api/admin/finanzas/sync-jobs' && ['POST','PATCH'].includes(request.method) && isAuthorizedP2Path(path))
       || (['/api/admin/finanzas/modo-facil', '/api/admin/finanzas/modo-facil/deshacer', '/api/admin/finanzas/modo-facil/foto', '/api/admin/finanzas/modo-facil/reglas'].includes(path) && request.method === 'POST')
+      // Aplicación nativa acotada aprobada el 24/10; el handler exige staging,
+      // perfil vivo y política. No es una excepción del motor legacy.
+      || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
@@ -116,6 +120,29 @@ export async function middleware(request) {
   }
   const path = request.nextUrl.pathname;
   const isMutatingApiMethod = !SAFE_API_METHODS.has(request.method);
+
+  // Perfil mínimo vivo de staging. Se comprueba antes de cualquier handler,
+  // incluso con un JWT GERENTE anterior o una URL escrita a mano.
+  if (process.env.FINANCE_STAGING_SANDBOX === '1' && (
+    path === '/admin' || path.startsWith('/admin/') || path === '/empleado' || path.startsWith('/empleado/')
+    || (path.startsWith('/api/') && !isNextAuthOrLoginPath(path))
+  )) {
+    try {
+      const [{ getToken }, { isEasyOnlyStageUser }, { easyOnlyRequestAllowed, EASY_ONLY_HOME }] = await Promise.all([
+        import('next-auth/jwt'), import('@/lib/finanzas/easy-access-profile'), import('@/lib/finanzas/easy-access-core'),
+      ]);
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+      const userId = Number(token?.id);
+      if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0 && await isEasyOnlyStageUser(userId)) {
+        if (!easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
+          if (path.startsWith('/api/')) return blockedBoundary('Este perfil sólo permite Modo fácil y Para pedir.', 'EASY_ONLY_ACCESS');
+          return NextResponse.redirect(new URL(EASY_ONLY_HOME, request.url));
+        }
+      }
+    } catch {
+      return NextResponse.json({ error: 'No se pudo verificar el perfil de acceso.' }, { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
+    }
+  }
 
   // Bloqueo externo independiente: no impide confirmar documentación manual.
   if (process.env.FINANCE_EXTERNAL_ACTIONS_DISABLED === '1' && path.startsWith('/api/') && !isNextAuthOrLoginPath(path)) {

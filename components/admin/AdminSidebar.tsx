@@ -68,6 +68,7 @@ export function useSidebar() {
 }
 
 interface AdminSidebarProps {
+  easyOnly?: boolean
   user: {
     name: string
     email: string
@@ -149,6 +150,8 @@ const navigation: NavEntry[] = [
       { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
       { name: 'Modo fácil · staging', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
+      { name: 'Para pedir · staging', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon, section: 'finanzas' },
+      { name: 'Reparto entre clientes · staging', href: '/admin/finanzas/reparto-clientes', icon: ChartBarIcon, section: 'finanzas.analitica_costes' },
       { name: 'Analítica por cliente · staging', href: '/admin/finanzas/analitica-cliente', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
       { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: ChartBarIcon, section: 'finanzas' },
@@ -208,7 +211,7 @@ const navigation: NavEntry[] = [
   { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
 ]
 
-function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
+function SidebarContent({ user, easyOnly = false, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<string[]>([])
   const { hasAccess, effectiveRole, isViewingAs } = useRole()
@@ -234,6 +237,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
   }
 
   const canAccess = (item: NavItem | NavGroup) => {
+    if (easyOnly) return !isGroup(item) && ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir'].includes(item.href)
     // Para grupos, mostrar si al menos un hijo es accesible
     if (isGroup(item)) {
       const groupAccess = hasAccess(item.section || 'dashboard')
@@ -250,7 +254,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
 
   const renderNavItem = (item: NavItem, isChild = false, depth = 0): React.ReactNode => {
     // Verificar permisos del item hijo
-    if (item.section && !hasAccess(item.section)) return null
+    if (!easyOnly && item.section && !hasAccess(item.section)) return null
 
     const isActive = pathname === item.href || 
       (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
@@ -324,7 +328,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
     <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
       {/* Logo */}
       <div className="flex h-16 shrink-0 items-center">
-        <Link href="/admin" prefetch={false} className="flex items-center" onClick={onNavigate}>
+        <Link href={easyOnly ? '/admin/finanzas/modo-facil' : '/admin'} prefetch={false} className="flex items-center" onClick={onNavigate}>
           <span className="text-2xl font-bold">
             <span className="text-black">internet</span>
             <span className="text-orange-500">operadores</span>
@@ -344,7 +348,10 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
         <ul role="list" className="flex flex-1 flex-col gap-y-7">
           <li>
             <ul role="list" className="-mx-2 space-y-1">
-              {navigation.map((entry) => {
+              {(easyOnly ? [
+                { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon },
+                { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon },
+              ] : navigation).map((entry) => {
                 if (isGroup(entry)) {
                   if (!canAccess(entry)) return null
                   return renderNavGroup(entry)
@@ -373,7 +380,7 @@ function SidebarContent({ user, onNavigate }: AdminSidebarProps & { onNavigate?:
   )
 }
 
-export default function AdminSidebar({ user }: AdminSidebarProps) {
+export default function AdminSidebar({ user, easyOnly = false }: AdminSidebarProps) {
   const { isOpen, setIsOpen } = useSidebar()
   const pathname = usePathname()
 
@@ -406,7 +413,7 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
       {/* Sidebar para desktop */}
       <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
         <div className="flex grow flex-col border-r border-gray-200 overflow-y-auto">
-          <SidebarContent user={user} />
+          <SidebarContent user={user} easyOnly={easyOnly} />
         </div>
       </div>
 
@@ -437,7 +444,7 @@ export default function AdminSidebar({ user }: AdminSidebarProps) {
               </div>
 
               {/* Sidebar content */}
-              <SidebarContent user={user} onNavigate={() => setIsOpen(false)} />
+              <SidebarContent user={user} easyOnly={easyOnly} onNavigate={() => setIsOpen(false)} />
             </div>
           </div>
         </div>

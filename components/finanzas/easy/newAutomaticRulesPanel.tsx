@@ -1,0 +1,188 @@
+'use client';
+
+import { ArrowPathIcon, CheckCircleIcon, ExclamationTriangleIcon, ShieldCheckIcon } from '@heroicons/react/24/outline';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { cents, displayDate, makeIdempotencyKey } from './easy-contract';
+import { mayManageAutomation, type EasyAccessProfile } from './easy-two-step-client';
+
+const API = '/api/admin/finanzas/modo-facil/automaticas';
+const DEFAULT_FROM = '2026-01-01';
+const DEFAULT_TO = '2026-10-08';
+const LIMIT = 100;
+const POLICY_REFERENCE = 'Víctor Giró 24/10/2026; comisiones y traspasos propios staging';
+
+type AutoClass = 'TRASPASO_PROPIO' | 'COMISION_BANCARIA';
+type AutoReason = 'TRASPASO_INTERNO_SIN_DOCUMENTO' | 'COMISION_BANCARIA';
+type ChainCode = 'SALDO_NO_EXACTO_O_AUSENTE' | 'ORDEN_MISMO_DIA_NO_ACREDITADO' | 'CADENA_SALDO_NO_ENCADENA' | 'CADENA_SALDO_SIN_VECINDARIO' | 'CADENA_SALDO_AMBIGUA' | 'CADENA_SALDO_CICLICA' | 'COBERTURA_EXTRACTO_INSUFICIENTE';
+type Notice = Readonly<{ tone: 'error' | 'success' | 'info'; text: string }> | null;
+type RegisterPolicyRequest = Readonly<{ action: 'registrar_politica'; referenciaAutorizacion: typeof POLICY_REFERENCE; confirmacion: true }>;
+type AttestRequest = Readonly<{ action: 'atestiguar_cuenta'; cuentaId: string; titularDeclarado: 'Internet Operadores'; cifTitular?: string; referenciaEvidencia: string; confirmacionTitularidadIo: true; confirmacion: true }>;
+type ExecuteRequest = Readonly<{ action: 'ejecutar'; desde: string; hasta: string; limite: number; idempotencyKey: string; reviewHash: string; confirmacion: true }>;
+type UndoRequest = Readonly<{ action: 'deshacer'; operationId: string; idempotencyKey: string; confirmacion: true }>;
+type Account = Readonly<{ cuentaId: string; banco: string; alias: string | null; ibanUltimos4: string }>;
+type Movement = Readonly<{ id: string; cuentaId: string; fecha: string; importeCentimos: number; versionB4: number }>;
+type Candidate = Readonly<{ fingerprint: string; clase: AutoClass; origen: 'REGLA'; movimientos: readonly Movement[]; motivoNoRequiere: AutoReason; terceroBancoId: string | null; controles: readonly string[] }>;
+type BlockedCandidate = Readonly<{ fingerprint: string; clase: AutoClass; movimientos: readonly Movement[]; bloqueos: readonly ['POR_TITULARIDAD_NO_ACREDITADA']; cuentasPendientes: readonly Account[] }>;
+type ChainFailure = Readonly<{ cuenta: Account; codigo: ChainCode }>;
+type AutoFailure = Readonly<{ id: string; fingerprint: string; clase: string; codigo: string; mensaje: string; createdAt: string }>;
+type AutoReceipt = Readonly<{ operationId: string; clase: AutoClass; origen: 'REGLA'; operacionesB4: readonly string[]; reversible: boolean; reverted: boolean; createdAt: string }>;
+type Preview = Readonly<{
+  policy: Readonly<{ id: string; datosDesde: string; datosHasta: string; autorizadaEn: string; referenciaAutorizacion: string }> | null;
+  counts: Readonly<{ examinados: number; traspasos: number; comisiones: number; excluidos: number; bloqueadosTitularidad: number; fallosCadena: number }>;
+  reviewHash: string | null;
+  candidates: readonly Candidate[];
+  fallosCadena: readonly ChainFailure[];
+  bloqueados: readonly BlockedCandidate[];
+  fallos: readonly AutoFailure[];
+  recibos: readonly AutoReceipt[];
+}>;
+type Mutation =
+  | Readonly<{ kind: 'policy'; payload: RegisterPolicyRequest }>
+  | Readonly<{ kind: 'attest'; payload: AttestRequest; account: Account }>
+  | Readonly<{ kind: 'execute'; payload: ExecuteRequest }>
+  | Readonly<{ kind: 'undo'; payload: UndoRequest; receipt: AutoReceipt }>;
+
+class AutoRequestFailure extends Error { constructor(message: string, readonly uncertain: boolean) { super(message); } }
+
+function asObject(value: unknown, field: string): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value as Record<string, unknown>; }
+function text(value: unknown, field: string): string { if (typeof value !== 'string' || !value.trim()) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value; }
+function optionalText(value: unknown, field: string): string | null { return value === undefined || value === null ? null : text(value, field); }
+function integer(value: unknown, field: string): number { if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value as number; }
+function signedInteger(value: unknown, field: string): number { if (!Number.isSafeInteger(value)) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value as number; }
+function boolean(value: unknown, field: string): boolean { if (value !== true && value !== false) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value; }
+function array(value: unknown, field: string): unknown[] { if (!Array.isArray(value)) throw new Error(`La respuesta de automatización no incluye ${field} verificable.`); return value; }
+function autoClass(value: unknown, field: string): AutoClass { if (value === 'TRASPASO_PROPIO' || value === 'COMISION_BANCARIA') return value; throw new Error(`La respuesta de automatización no incluye ${field} válido.`); }
+function reason(value: unknown, field: string): AutoReason { if (value === 'TRASPASO_INTERNO_SIN_DOCUMENTO' || value === 'COMISION_BANCARIA') return value; throw new Error(`La respuesta de automatización no incluye ${field} válido.`); }
+function chainCode(value: unknown, field: string): ChainCode { if (value === 'SALDO_NO_EXACTO_O_AUSENTE' || value === 'ORDEN_MISMO_DIA_NO_ACREDITADO' || value === 'CADENA_SALDO_NO_ENCADENA' || value === 'CADENA_SALDO_SIN_VECINDARIO' || value === 'CADENA_SALDO_AMBIGUA' || value === 'CADENA_SALDO_CICLICA' || value === 'COBERTURA_EXTRACTO_INSUFICIENTE') return value; throw new Error(`La respuesta de automatización no incluye ${field} válido.`); }
+function message(body: unknown, fallback: string): string { return body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' && (body as { error: string }).error.trim() ? (body as { error: string }).error.trim() : fallback; }
+function isUncertain(error: unknown): boolean { return error instanceof AutoRequestFailure ? error.uncertain : error instanceof TypeError || (error instanceof Error && /network|red|timeout|fetch/i.test(error.message)); }
+function classLabel(value: AutoClass): string { return value === 'TRASPASO_PROPIO' ? 'Traspaso propio' : 'Comisión bancaria'; }
+function reasonLabel(value: AutoReason): string { return value === 'TRASPASO_INTERNO_SIN_DOCUMENTO' ? 'Traspaso interno sin documento' : 'Comisión bancaria'; }
+function chainLabel(value: ChainCode): string { const labels: Record<ChainCode, string> = { SALDO_NO_EXACTO_O_AUSENTE: 'Saldo no exacto o ausente', ORDEN_MISMO_DIA_NO_ACREDITADO: 'Orden de movimientos del mismo día no acreditada', CADENA_SALDO_NO_ENCADENA: 'La cadena de saldos no encadena', CADENA_SALDO_SIN_VECINDARIO: 'Falta saldo previo o posterior para demostrar la cadena', CADENA_SALDO_AMBIGUA: 'La cadena tiene ramas o apuntes intermedios sin encadenar', CADENA_SALDO_CICLICA: 'La cadena de saldos presenta un ciclo', COBERTURA_EXTRACTO_INSUFICIENTE: 'El extracto no acredita cobertura hasta la fecha del traspaso' }; return labels[value]; }
+function accountLabel(account: Account): string { return `${account.banco}${account.alias ? ` · ${account.alias}` : ''} · terminada en ${account.ibanUltimos4}`; }
+function parseAccount(value: unknown, field: string): Account { const raw = asObject(value, field); const last = text(raw.ibanUltimos4, `${field}.ibanUltimos4`); if (!/^[A-Za-z0-9]{4}$/.test(last)) throw new Error(`La respuesta de automatización no incluye ${field}.ibanUltimos4 verificable.`); return { cuentaId: text(raw.cuentaId, `${field}.cuentaId`), banco: text(raw.banco, `${field}.banco`), alias: optionalText(raw.alias, `${field}.alias`), ibanUltimos4: last }; }
+function parseMovement(value: unknown, field: string): Movement { const raw = asObject(value, field); return { id: text(raw.id, `${field}.id`), cuentaId: text(raw.cuentaId, `${field}.cuentaId`), fecha: text(raw.fecha, `${field}.fecha`), importeCentimos: signedInteger(raw.importeCentimos, `${field}.importeCentimos`), versionB4: integer(raw.versionB4, `${field}.versionB4`) }; }
+function parseCandidate(value: unknown, field: string): Candidate { const raw = asObject(value, field); if (raw.origen !== 'REGLA') throw new Error(`El origen de ${field} no está permitido.`); return { fingerprint: text(raw.fingerprint, `${field}.fingerprint`), clase: autoClass(raw.clase, `${field}.clase`), origen: 'REGLA', movimientos: array(raw.movimientos, `${field}.movimientos`).map((item, index) => parseMovement(item, `${field}.movimientos[${index}]`)), motivoNoRequiere: reason(raw.motivoNoRequiere, `${field}.motivoNoRequiere`), terceroBancoId: raw.terceroBancoId === undefined || raw.terceroBancoId === null ? null : text(raw.terceroBancoId, `${field}.terceroBancoId`), controles: array(raw.controles, `${field}.controles`).map((control, index) => text(control, `${field}.controles[${index}]`)) }; }
+
+/** El parser no convierte cuentas o texto en evidencia; consume exclusivamente la proyección verificada de GET. */
+export function parseAutomaticPreview(value: unknown): Preview {
+  const raw = asObject(value, 'previsualización');
+  if (raw.stagingOnly !== true || raw.automaticas !== true) throw new Error('El servidor no confirmó una revisión de automatización de staging.');
+  const policyRaw = raw.policy === null ? null : asObject(raw.policy, 'política');
+  const counts = asObject(raw.counts, 'contadores');
+  const policy = policyRaw === null ? null : { id: text(policyRaw.id, 'policy.id'), datosDesde: text(policyRaw.datosDesde, 'policy.datosDesde'), datosHasta: text(policyRaw.datosHasta, 'policy.datosHasta'), autorizadaEn: text(policyRaw.autorizadaEn, 'policy.autorizadaEn'), referenciaAutorizacion: text(policyRaw.referenciaAutorizacion, 'policy.referenciaAutorizacion') };
+  const reviewHash = raw.reviewHash === null ? null : text(raw.reviewHash, 'reviewHash');
+  if ((policy === null) !== (reviewHash === null)) throw new Error('La política y su hash de revisión no son coherentes.');
+  return {
+    policy,
+    counts: { examinados: integer(counts.examinados, 'counts.examinados'), traspasos: integer(counts.traspasos, 'counts.traspasos'), comisiones: integer(counts.comisiones, 'counts.comisiones'), excluidos: integer(counts.excluidos, 'counts.excluidos'), bloqueadosTitularidad: integer(counts.bloqueadosTitularidad, 'counts.bloqueadosTitularidad'), fallosCadena: integer(counts.fallosCadena, 'counts.fallosCadena') },
+    reviewHash,
+    candidates: array(raw.candidates, 'candidates').map((item, index) => parseCandidate(item, `candidates[${index}]`)),
+    fallosCadena: array(raw.fallosCadena, 'fallosCadena').map((item, index): ChainFailure => { const failure = asObject(item, `fallosCadena[${index}]`); return { cuenta: parseAccount(failure.cuenta, `fallosCadena[${index}].cuenta`), codigo: chainCode(failure.codigo, `fallosCadena[${index}].codigo`) }; }),
+    bloqueados: array(raw.bloqueados, 'bloqueados').map((item, index): BlockedCandidate => { const blocked = asObject(item, `bloqueados[${index}]`); const lock = array(blocked.bloqueos, `bloqueados[${index}].bloqueos`); if (lock.length !== 1 || lock[0] !== 'POR_TITULARIDAD_NO_ACREDITADA') throw new Error(`bloqueados[${index}].bloqueos no es válido.`); return { fingerprint: text(blocked.fingerprint, `bloqueados[${index}].fingerprint`), clase: autoClass(blocked.clase, `bloqueados[${index}].clase`), movimientos: array(blocked.movimientos, `bloqueados[${index}].movimientos`).map((movement, movementIndex) => parseMovement(movement, `bloqueados[${index}].movimientos[${movementIndex}]`)), bloqueos: ['POR_TITULARIDAD_NO_ACREDITADA'], cuentasPendientes: array(blocked.cuentasPendientes, `bloqueados[${index}].cuentasPendientes`).map((account, accountIndex) => parseAccount(account, `bloqueados[${index}].cuentasPendientes[${accountIndex}]`)) }; }),
+    fallos: array(raw.fallos, 'fallos').map((item, index): AutoFailure => { const failure = asObject(item, `fallos[${index}]`); return { id: text(failure.id, `fallos[${index}].id`), fingerprint: text(failure.fingerprint, `fallos[${index}].fingerprint`), clase: text(failure.clase, `fallos[${index}].clase`), codigo: text(failure.codigo, `fallos[${index}].codigo`), mensaje: text(failure.mensaje, `fallos[${index}].mensaje`), createdAt: text(failure.createdAt, `fallos[${index}].createdAt`) }; }),
+    recibos: array(raw.recibos, 'recibos').map((item, index): AutoReceipt => { const receipt = asObject(item, `recibos[${index}]`); if (receipt.origen !== 'REGLA') throw new Error(`recibos[${index}].origen no es válido.`); return { operationId: text(receipt.operationId, `recibos[${index}].operationId`), clase: autoClass(receipt.clase, `recibos[${index}].clase`), origen: 'REGLA', operacionesB4: array(receipt.operacionesB4, `recibos[${index}].operacionesB4`).map((operation, operationIndex) => text(operation, `recibos[${index}].operacionesB4[${operationIndex}]`)), reversible: boolean(receipt.reversible, `recibos[${index}].reversible`), reverted: boolean(receipt.reverted, `recibos[${index}].reverted`), createdAt: text(receipt.createdAt, `recibos[${index}].createdAt`) }; }),
+  };
+}
+
+function parseExecutionReceipt(value: unknown): void {
+  const raw = asObject(value, 'ejecución');
+  if (raw.stagingOnly !== true || raw.dryRun !== false) throw new Error('El servidor no confirmó una ejecución auditada de staging.');
+  const counts = asObject(raw.counts, 'counts');
+  integer(counts.examinados, 'counts.examinados'); integer(counts.aplicados, 'counts.aplicados'); integer(counts.replays, 'counts.replays'); integer(counts.excluidos, 'counts.excluidos'); integer(counts.fallidos, 'counts.fallidos');
+  array(raw.operations, 'operations').forEach((item, index) => { const operation = asObject(item, `operations[${index}]`); text(operation.operationId, `operations[${index}].operationId`); autoClass(operation.clase, `operations[${index}].clase`); if (operation.estado !== 'APLICADA' && operation.estado !== 'REPLAY') throw new Error(`operations[${index}].estado no es válido.`); array(operation.operacionesB4, `operations[${index}].operacionesB4`).forEach((id, itemIndex) => text(id, `operations[${index}].operacionesB4[${itemIndex}]`)); });
+}
+function parseGenericReceipt(value: unknown): void { const raw = asObject(value, 'recibo'); if (raw.ok !== true) throw new Error('El servidor no devolvió un recibo verificable.'); }
+function parseUndoReceipt(value: unknown, operationId: string): void { const raw = asObject(value, 'reversión'); if (raw.ok !== true || text(raw.operationId, 'operationId') !== operationId || typeof raw.noop !== 'boolean') throw new Error('La reversión no devolvió un recibo verificable.'); }
+function mutationTitle(mutation: Mutation): string { return mutation.kind === 'policy' ? 'Activar política de staging' : mutation.kind === 'attest' ? 'Confirmar titularidad de cuenta' : mutation.kind === 'execute' ? 'Aplicar lote revisado' : 'Deshacer recibo completo'; }
+
+/** Operación opcional, siempre humana y limitada por la autorización vigente del servidor. */
+export default function NewAutomaticRulesPanel({ profile }: Readonly<{ profile: EasyAccessProfile | null }>) {
+  const [preview, setPreview] = useState<Preview | null>(null); const [loading, setLoading] = useState(false); const [notice, setNotice] = useState<Notice>(null);
+  const [confirming, setConfirming] = useState<Mutation | null>(null); const [pending, setPending] = useState<Mutation | null>(null); const [submitting, setSubmitting] = useState(false);
+  const [attesting, setAttesting] = useState<Account | null>(null); const [evidenceReference, setEvidenceReference] = useState(''); const [cif, setCif] = useState(''); const [confirmedOwnership, setConfirmedOwnership] = useState(false);
+  const allowed = mayManageAutomation(profile);
+  const blocked = loading || submitting || pending !== null;
+  const candidates = useMemo(() => preview?.candidates ?? [], [preview]);
+
+  const load = useCallback(async (preserveNotice = false) => {
+    if (!allowed) return;
+    setLoading(true);
+    try {
+      const response = await fetch(API, { method: 'GET', cache: 'no-store' });
+      const raw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new AutoRequestFailure(response.status === 409 ? 'La política o la cola cambiaron. Lee una revisión nueva antes de continuar.' : message(raw, `No se pudo leer la revisión (${response.status}).`), response.status >= 500);
+      setPreview(parseAutomaticPreview(raw));
+      if (!preserveNotice) setNotice(null);
+    } catch (error) { setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'No se pudo leer la revisión.' }); }
+    finally { setLoading(false); }
+  }, [allowed]);
+  useEffect(() => { void load(); }, [load]);
+
+  function startAttestation(account: Account) {
+    if (blocked) return;
+    setAttesting(account); setEvidenceReference(''); setCif(''); setConfirmedOwnership(false);
+  }
+  function requestAttestation() {
+    if (!attesting || !evidenceReference.trim() || !confirmedOwnership || blocked) return;
+    const payload: AttestRequest = { action: 'atestiguar_cuenta', cuentaId: attesting.cuentaId, titularDeclarado: 'Internet Operadores', referenciaEvidencia: evidenceReference.trim().slice(0, 300), confirmacionTitularidadIo: true, confirmacion: true };
+    if (cif.trim()) (payload as { cifTitular?: string }).cifTitular = cif.trim().slice(0, 32);
+    setConfirming({ kind: 'attest', payload, account: attesting });
+  }
+  function requestExecution() {
+    if (!preview?.policy || !preview.reviewHash || candidates.length === 0 || blocked) return;
+    setConfirming({ kind: 'execute', payload: { action: 'ejecutar', desde: DEFAULT_FROM, hasta: DEFAULT_TO, limite: LIMIT, idempotencyKey: makeIdempotencyKey(), reviewHash: preview.reviewHash, confirmacion: true } });
+  }
+  function requestUndo(receipt: AutoReceipt) { if (!blocked && receipt.reversible && !receipt.reverted) setConfirming({ kind: 'undo', receipt, payload: { action: 'deshacer', operationId: receipt.operationId, idempotencyKey: makeIdempotencyKey(), confirmacion: true } }); }
+
+  async function send(mutation: Mutation) {
+    if (!allowed || submitting) return;
+    setSubmitting(true); setPending(mutation);
+    try {
+      const response = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(mutation.payload) });
+      const raw: unknown = await response.json().catch(() => null);
+      if (response.status === 409) {
+        setConfirming(null); setPending(null); setAttesting(null);
+        setNotice({ tone: 'info', text: 'La revisión o el recibo cambió en el servidor. Se recargará sin repetir la acción.' });
+        await load(true);
+        return;
+      }
+      if (!response.ok) throw new AutoRequestFailure(message(raw, `No se pudo completar ${mutationTitle(mutation).toLocaleLowerCase('es-ES')} (${response.status}).`), response.status >= 500);
+      try {
+        if (mutation.kind === 'execute') parseExecutionReceipt(raw);
+        else if (mutation.kind === 'undo') parseUndoReceipt(raw, mutation.receipt.operationId);
+        else parseGenericReceipt(raw);
+      } catch (error) {
+        throw new AutoRequestFailure(error instanceof Error ? error.message : 'El recibo de servidor no es verificable.', true);
+      }
+      setConfirming(null); setPending(null); setAttesting(null);
+      setNotice({ tone: 'success', text: mutation.kind === 'policy' ? 'Política de staging registrada y activada con la referencia autorizada.' : mutation.kind === 'attest' ? 'Titularidad de la cuenta registrada para auditoría. Se actualizará la revisión.' : mutation.kind === 'execute' ? 'Ejecución auditada finalizada. Los recibos persistentes se han recargado.' : 'El recibo y todas sus patas B4 se han revertido atómicamente.' });
+      await load(true);
+    } catch (error) {
+      const textError = error instanceof Error ? error.message : 'No se pudo completar la acción.';
+      if (isUncertain(error)) setNotice({ tone: 'error', text: `Resultado incierto: no cambies de acción. Reintenta exactamente este recibo con su misma clave. ${textError}` });
+      else { setPending(null); setConfirming(null); setNotice({ tone: 'error', text: textError }); }
+    } finally { setSubmitting(false); }
+  }
+
+  if (!allowed) return null;
+  const noticeClass = notice?.tone === 'error' ? 'border-red-300 bg-red-50 text-red-950' : notice?.tone === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-blue-300 bg-blue-50 text-blue-950';
+  const canExecute = Boolean(preview?.policy && preview.reviewHash && candidates.length > 0 && !blocked);
+
+  return <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm" aria-labelledby="automaticas-title">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-800">Staging · revisión restringida</p><h2 id="automaticas-title" className="mt-1 text-lg font-extrabold text-slate-950">Automatización de reglas acotadas</h2><p className="mt-1 max-w-3xl text-sm leading-6 text-slate-700">Sólo comisiones bancarias y traspasos propios con todos los controles aprobados. Cada lote cierra sus casos válidos automáticamente; la titularidad, la activación y la reversión se controlan por separado. No se modifica producción.</p></div><ShieldCheckIcon className="h-7 w-7 shrink-0 text-violet-700" aria-hidden="true" /></div>
+    {notice && <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`mt-4 rounded-lg border p-3 text-sm ${noticeClass}`}>{notice.text}</p>}
+    <div className="mt-4 flex flex-wrap items-end justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-sm text-slate-700">Ventana fija autorizable: <strong>{displayDate(DEFAULT_FROM)}–{displayDate(DEFAULT_TO)}</strong>. No se deriva del navegador.</p><button type="button" disabled={blocked} onClick={() => void load(true)} className="inline-flex items-center gap-2 rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm font-bold text-violet-900 hover:bg-violet-50 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50"><ArrowPathIcon className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} aria-hidden="true" />{loading ? 'Leyendo…' : 'Actualizar revisión'}</button></div>
+    {pending && <div role="alert" className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"><div className="flex gap-2"><ExclamationTriangleIcon className="h-5 w-5 shrink-0" aria-hidden="true" /><div><strong>Resultado sin confirmar</strong><p className="mt-1">No se permiten nuevas acciones ni cambios de decisión. Reintenta exactamente el mismo envío con su clave original.</p><button type="button" disabled={submitting} onClick={() => void send(pending)} className="mt-3 rounded-lg bg-amber-800 px-3 py-2 font-bold text-white hover:bg-amber-900 focus:outline-none focus:ring-2 focus:ring-violet-500">{submitting ? 'Reintentando…' : 'Reintentar la misma acción'}</button></div></div></div>}
+    {preview && <>
+      {!preview.policy ? <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-labelledby="auto-policy-title"><h3 id="auto-policy-title" className="font-extrabold text-amber-950">No hay política automática activa</h3><p className="mt-1 text-sm leading-6 text-amber-950">La lectura no escribe. Sólo el perfil autorizado puede registrar la política append-only de esta ventana con la referencia de Víctor Giró del 24/10/2026.</p><button type="button" disabled={blocked} onClick={() => setConfirming({ kind: 'policy', payload: { action: 'registrar_politica', referenciaAutorizacion: POLICY_REFERENCE, confirmacion: true } })} className="mt-3 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50">Activar política de staging</button></section> : <section className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4"><div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h3 className="font-extrabold text-slate-950">Revisión vigente</h3><p className="mt-1 text-sm text-slate-700">Política autorizada {displayDate(preview.policy.autorizadaEn)} · datos {displayDate(preview.policy.datosDesde)}–{displayDate(preview.policy.datosHasta)}.</p><p className="mt-1 text-xs text-slate-600">Referencia: {preview.policy.referenciaAutorizacion}</p></div><button type="button" disabled={!canExecute} title={!canExecute ? 'Se requiere política, hash verificable y al menos un candidato aplicable.' : undefined} onClick={requestExecution} className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50">Revisar antes de aplicar</button></div><dl className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 xl:grid-cols-6"><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Examinados</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.examinados}</dd></div><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Traspasos</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.traspasos}</dd></div><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Comisiones</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.comisiones}</dd></div><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Excluidos</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.excluidos}</dd></div><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Bloq. titularidad</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.bloqueadosTitularidad}</dd></div><div className="rounded-lg bg-white p-3"><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Fallos cadena</dt><dd className="mt-1 font-extrabold text-slate-950">{preview.counts.fallosCadena}</dd></div></dl></section>}
+      {preview.fallosCadena.length > 0 && <section className="mt-4 rounded-xl border border-red-300 bg-red-50 p-4" aria-labelledby="chain-failures-title"><h3 id="chain-failures-title" className="font-extrabold text-red-950">Fallos de cadena de saldo</h3><p className="mt-1 text-sm text-red-950">Se muestran antes de candidatos. No se puede atestiguar una cuenta ni aplicar una regla para sortear estos fallos.</p><ul className="mt-3 space-y-2">{preview.fallosCadena.map((failure, index) => <li key={`${failure.cuenta.cuentaId}-${failure.codigo}-${index}`} className="rounded-lg bg-white p-3 text-sm text-slate-800"><strong>{accountLabel(failure.cuenta)}</strong><span className="block mt-1">{chainLabel(failure.codigo)}</span></li>)}</ul></section>}
+      {preview.bloqueados.length > 0 && <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-labelledby="blocked-title"><h3 id="blocked-title" className="font-extrabold text-amber-950">Candidatos técnicamente válidos bloqueados por titularidad</h3><p className="mt-1 text-sm leading-6 text-amber-950">Sólo las cuentas de un traspaso propio listadas aquí pueden recibir una atestación individual. No se atestiguan todas las cuentas; una comisión no solicita titularidad ni cadena de saldo desde esta pantalla.</p><ul className="mt-3 space-y-3">{preview.bloqueados.map((item) => <li key={item.fingerprint} className="rounded-lg border border-amber-200 bg-white p-3"><p className="font-bold text-slate-950">{classLabel(item.clase)} · bloqueo por titularidad no acreditada</p><p className="mt-1 text-xs text-slate-600">{item.movimientos.map(movement => `${displayDate(movement.fecha)} · ${cents(movement.importeCentimos)}`).join(' · ')}</p>{item.clase === 'TRASPASO_PROPIO' ? <ul className="mt-3 space-y-2">{item.cuentasPendientes.map(account => <li key={account.cuentaId} className="flex flex-col gap-2 rounded-lg bg-amber-50 p-3 sm:flex-row sm:items-center sm:justify-between"><span className="text-sm font-semibold text-slate-900">{accountLabel(account)}</span><button type="button" disabled={blocked} onClick={() => startAttestation(account)} className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-bold text-amber-950 hover:bg-amber-100 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50">Informar titularidad de esta cuenta</button></li>)}</ul> : <p className="mt-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700">Una comisión bancaria no se desbloquea atestiguando cuentas desde la UI. Revisa el tercero bancario derivado y la evidencia publicada por el servidor.</p>}</li>)}</ul></section>}
+      {attesting && <section className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4" aria-labelledby="attest-title"><h3 id="attest-title" className="font-extrabold text-amber-950">Atestación individual de cuenta</h3><p className="mt-1 text-sm leading-6 text-amber-950">Cuenta seleccionada: <strong>{accountLabel(attesting)}</strong>. Declara únicamente titularidad de Internet Operadores si dispones de evidencia verificable.</p><div className="mt-3 grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold text-slate-800 sm:col-span-2">Referencia de evidencia verificable<input value={evidenceReference} maxLength={300} onChange={(event) => setEvidenceReference(event.target.value)} placeholder="Documento o confirmación concreta" className="mt-1 block w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-slate-950 focus:border-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-500" /></label><label className="text-sm font-bold text-slate-800">CIF del titular (si consta)<input value={cif} maxLength={32} onChange={(event) => setCif(event.target.value)} className="mt-1 block w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-slate-950 focus:border-violet-600 focus:outline-none focus:ring-2 focus:ring-violet-500" /></label><label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-white p-3 text-sm text-slate-800"><input type="checkbox" checked={confirmedOwnership} onChange={(event) => setConfirmedOwnership(event.target.checked)} className="mt-0.5 h-4 w-4" /><span>Confirmo explícitamente que esta cuenta pertenece a Internet Operadores.</span></label></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={blocked || !evidenceReference.trim() || !confirmedOwnership} onClick={requestAttestation} className="rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50">Revisar atestación</button><button type="button" disabled={blocked} onClick={() => setAttesting(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 disabled:opacity-50">Cancelar</button></div></section>}
+      {preview.policy && <section className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4" aria-labelledby="candidates-title"><h3 id="candidates-title" className="font-extrabold text-slate-950">Candidatos aplicables · máximo 100 por lote</h3><p className="mt-1 text-sm text-slate-700">Las comisiones usan el tercero bancario derivado y validado por backend; no se introduce banco ni se atestigua titularidad desde esta lista.</p><ul className="mt-3 space-y-2">{candidates.length === 0 ? <li className="rounded-lg bg-white p-3 text-sm text-slate-700">No hay candidatos que cumplan todos los controles de la política.</li> : candidates.map((candidate) => <li key={candidate.fingerprint} className="rounded-lg border border-violet-100 bg-white p-3"><div className="flex flex-wrap items-center justify-between gap-2"><p className="font-bold text-slate-950">{classLabel(candidate.clase)}</p><span className="rounded-full bg-violet-100 px-2 py-1 text-xs font-bold text-violet-900">{reasonLabel(candidate.motivoNoRequiere)}</span></div><ul className="mt-2 space-y-1 text-xs text-slate-700">{candidate.movimientos.map((movement) => <li key={movement.id}>{displayDate(movement.fecha)} · <strong>{cents(movement.importeCentimos)}</strong> · movimiento verificado</li>)}</ul><p className="mt-2 text-xs text-slate-600">Controles: {candidate.controles.join(' · ') || 'Sin detalle adicional'}</p></li>)}</ul></section>}
+      {preview.fallos.length > 0 && <section className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4" aria-labelledby="auto-failures-title"><h3 id="auto-failures-title" className="font-extrabold text-red-950">Fallos persistentes de automatización</h3><ul className="mt-3 space-y-2">{preview.fallos.map(failure => <li key={failure.id} className="rounded-lg bg-white p-3 text-sm text-slate-800"><strong>{failure.clase} · {failure.codigo}</strong><p className="mt-1">{failure.mensaje}</p><p className="mt-1 text-xs text-slate-600">{displayDate(failure.createdAt)}</p></li>)}</ul></section>}
+      {preview.recibos.length > 0 && <section className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4" aria-labelledby="receipts-title"><h3 id="receipts-title" className="font-extrabold text-slate-950">Recibos automáticos persistentes</h3><p className="mt-1 text-sm text-slate-700">Se recuperan del servidor después de recargar la página. Cada recibo agrupa la operación y su reversión atómica.</p><ul className="mt-3 space-y-2">{preview.recibos.map(receipt => <li key={receipt.operationId} className="flex flex-col gap-2 rounded-lg bg-white p-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-bold text-slate-950">{classLabel(receipt.clase)} · {receipt.reverted ? 'revertida' : receipt.reversible ? 'reversible' : 'no reversible según servidor'}</p><p className="mt-1 text-xs text-slate-600">{receipt.operacionesB4.length} operación(es) B4 · {displayDate(receipt.createdAt)}</p></div>{receipt.reversible && !receipt.reverted ? <button type="button" disabled={blocked} onClick={() => requestUndo(receipt)} className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-bold text-red-800 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50">Deshacer recibo completo</button> : <span className="text-xs font-bold text-slate-600">{receipt.reverted ? 'Ya revertido' : 'No reversible'}</span>}</li>)}</ul></section>}
+    </>}
+    {confirming && <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 sm:items-center" role="presentation"><section role="dialog" aria-modal="true" aria-labelledby="auto-confirm-title" className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl"><div className="flex gap-3"><ExclamationTriangleIcon className="mt-0.5 h-6 w-6 shrink-0 text-violet-800" aria-hidden="true" /><div><h3 id="auto-confirm-title" className="font-extrabold text-slate-950">Confirmación final requerida</h3><p className="mt-2 text-sm leading-6 text-slate-700">{confirming.kind === 'policy' ? <>Registrarás la política append-only para la ventana fija de staging con la referencia autorizada: <strong>{POLICY_REFERENCE}</strong>.</> : confirming.kind === 'attest' ? <>Registrarás una atestación auditada sólo para <strong>{accountLabel(confirming.account)}</strong>, con titular declarado <strong>Internet Operadores</strong>. No atestigua ninguna otra cuenta.</> : confirming.kind === 'execute' ? <>El servidor volverá a calcular la revisión y sólo aplicará el lote si su hash sigue siendo idéntico. Los elementos que ya no cumplan controles quedarán excluidos.</> : <>Desharás el recibo completo y todas sus patas B4 en una única reversión auditada. Esta acción no se enviará hasta confirmar ahora.</>}</p></div></div><div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={submitting || pending !== null} onClick={() => setConfirming(null)} className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800">Cancelar</button><button type="button" disabled={submitting || pending !== null} onClick={() => void send(confirming)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800 focus:outline-none focus:ring-2 focus:ring-violet-500"><CheckCircleIcon className="h-5 w-5" aria-hidden="true" />{submitting ? 'Enviando…' : 'Confirmar definitivamente'}</button></div></section></div>}
+  </section>;
+}

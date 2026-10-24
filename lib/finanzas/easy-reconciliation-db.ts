@@ -114,6 +114,7 @@ type Movement = Readonly<{
   version: number
   versionGestion: number
   nominaId: string | null
+  entregaEmpleadoId: string | null
   entidadFiscalId: string | null
   entidadFiscalTipo: string | null
   entidadFiscalRazonSocial: string | null
@@ -324,7 +325,7 @@ async function queryMovements(input: EasyReadInput, take: number, skip: number):
   const q = input.q ? `%${input.q}%` : null
   const cardPattern = input.tarjeta ? `(?:[*]{1,12}[[:space:]]*|[xX]{2,12}[[:space:]]*|[Tt][Aa][Rr][Jj][Ee][Tt][Aa][[:space:]]+)${input.tarjeta}([^0-9]|$)` : null
   const rows = await db().$queryRaw<Array<any>>(Prisma.sql`
-    SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,m.nomina_id,m.entidad_fiscal_id,ef.tipo::text AS entidad_fiscal_tipo,ef.razon_social AS entidad_fiscal_razon,m.importe::text AS importe_text,
+    SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,m.nomina_id,m.entrega_a_cuenta_empleado_id,m.entidad_fiscal_id,ef.tipo::text AS entidad_fiscal_tipo,ef.razon_social AS entidad_fiscal_razon,m.importe::text AS importe_text,
       c.id AS cuenta_id,c.banco,c.alias AS cuenta_alias,COALESCE(e.version,1) AS version_b4,COALESCE(g.version,1) AS version_gestion
     FROM movimientos_bancarios m
     JOIN cuentas_bancarias c ON c.id=m.cuenta_id
@@ -348,7 +349,7 @@ async function queryMovements(input: EasyReadInput, take: number, skip: number):
       id: String(row.id), fecha: String(row.fecha), concepto: String(row.concepto ?? ''), referencia: text(row.referencia), infoAdicional: text(row.info_adicional), tercero: text(row.tercero),
       importeCentimos: cents, cuentaId: String(row.cuenta_id), banco: String(row.banco), cuentaAlias: row.cuenta_alias === null ? null : String(row.cuenta_alias),
       version: exactInteger(row.version_b4, 'version B4'), versionGestion: exactInteger(row.version_gestion, 'version gestión'),
-      nominaId: row.nomina_id === null ? null : String(row.nomina_id), entidadFiscalId: row.entidad_fiscal_id === null ? null : String(row.entidad_fiscal_id), entidadFiscalTipo: text(row.entidad_fiscal_tipo), entidadFiscalRazonSocial: text(row.entidad_fiscal_razon),
+      nominaId: row.nomina_id === null ? null : String(row.nomina_id), entregaEmpleadoId: row.entrega_a_cuenta_empleado_id === null ? null : String(row.entrega_a_cuenta_empleado_id), entidadFiscalId: row.entidad_fiscal_id === null ? null : String(row.entidad_fiscal_id), entidadFiscalTipo: text(row.entidad_fiscal_tipo), entidadFiscalRazonSocial: text(row.entidad_fiscal_razon),
       tarjeta: card?.terminacion ?? null, responsableTarjeta: card?.titular ?? null,
     }
   })
@@ -428,6 +429,12 @@ export async function readEasyReconciliation(input: EasyReadInput) {
         contraparte: movement.tercero ?? movement.concepto, cuenta: { id: movement.cuentaId, banco: movement.banco, alias: movement.cuentaAlias },
         tarjeta: movement.tarjeta, responsableTarjeta: movement.responsableTarjeta, versionGestion: movement.versionGestion,
         estado: 'SIN_DOCUMENTO' as const, reglaAplicadaId: rule, motivoNoRequierePropuesto: noRequireCue?.motivo ?? null,
+        contextoRecogidaManual: {
+          tipoEntidadFiscal: movement.entidadFiscalTipo,
+          empleadoAcreditadoPor: movement.nominaId !== null ? 'NOMINA' : movement.entregaEmpleadoId !== null ? 'ENTREGA_A_CUENTA' : movement.entidadFiscalTipo === 'PERSONAL' ? 'ENTIDAD_FISCAL_PERSONAL' : null,
+          tarjetaTerminacion: movement.tarjeta,
+          cuentaBanco: movement.banco,
+        },
         sugerencias: candidates.map(candidateDto),
       }
     }))
@@ -444,7 +451,7 @@ export async function readEasyReconciliation(input: EasyReadInput) {
 async function lockMovement(tx: Tx, movimientoId: string): Promise<Movement> {
   await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${movimientoId} AS text),0))::text AS locked`
   const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
-    SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,m.nomina_id,m.entidad_fiscal_id,ef.tipo::text AS entidad_fiscal_tipo,ef.razon_social AS entidad_fiscal_razon,m.importe::text AS importe_text,
+    SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,m.nomina_id,m.entrega_a_cuenta_empleado_id,m.entidad_fiscal_id,ef.tipo::text AS entidad_fiscal_tipo,ef.razon_social AS entidad_fiscal_razon,m.importe::text AS importe_text,
       c.id AS cuenta_id,c.banco,c.alias AS cuenta_alias,COALESCE(e.estado::text,'SIN_DOCUMENTO') AS estado_b4,COALESCE(e.version,1) AS version_b4,
       COALESCE(g.version,1) AS version_gestion
     FROM movimientos_bancarios m JOIN cuentas_bancarias c ON c.id=m.cuenta_id
@@ -457,7 +464,7 @@ async function lockMovement(tx: Tx, movimientoId: string): Promise<Movement> {
   if (row.estado_b4 !== 'SIN_DOCUMENTO') fail(409, 'DESHACER_REQUERIDO', 'El movimiento ya no está SIN_DOCUMENTO; debe releerse o deshacerse la operación vigente.')
   const cents = centsFromSqlText(row.importe_text, 'movimiento.importe', true)
   const card = cardFromBankText([row.concepto, row.referencia, row.info_adicional].filter(Boolean).join(' '))
-  return { id: String(row.id), fecha: String(row.fecha), concepto: String(row.concepto ?? ''), referencia: text(row.referencia), infoAdicional: text(row.info_adicional), tercero: text(row.tercero), importeCentimos: cents, cuentaId: String(row.cuenta_id), banco: String(row.banco), cuentaAlias: row.cuenta_alias === null ? null : String(row.cuenta_alias), version: exactInteger(row.version_b4, 'version B4'), versionGestion: exactInteger(row.version_gestion, 'version gestión'), nominaId: row.nomina_id === null ? null : String(row.nomina_id), entidadFiscalId: row.entidad_fiscal_id === null ? null : String(row.entidad_fiscal_id), entidadFiscalTipo: text(row.entidad_fiscal_tipo), entidadFiscalRazonSocial: text(row.entidad_fiscal_razon), tarjeta: card?.terminacion ?? null, responsableTarjeta: card?.titular ?? null }
+  return { id: String(row.id), fecha: String(row.fecha), concepto: String(row.concepto ?? ''), referencia: text(row.referencia), infoAdicional: text(row.info_adicional), tercero: text(row.tercero), importeCentimos: cents, cuentaId: String(row.cuenta_id), banco: String(row.banco), cuentaAlias: row.cuenta_alias === null ? null : String(row.cuenta_alias), version: exactInteger(row.version_b4, 'version B4'), versionGestion: exactInteger(row.version_gestion, 'version gestión'), nominaId: row.nomina_id === null ? null : String(row.nomina_id), entregaEmpleadoId: row.entrega_a_cuenta_empleado_id === null ? null : String(row.entrega_a_cuenta_empleado_id), entidadFiscalId: row.entidad_fiscal_id === null ? null : String(row.entidad_fiscal_id), entidadFiscalTipo: text(row.entidad_fiscal_tipo), entidadFiscalRazonSocial: text(row.entidad_fiscal_razon), tarjeta: card?.terminacion ?? null, responsableTarjeta: card?.titular ?? null }
 }
 
 async function replayReceipt(tx: Tx, actorId: number, input: EasyWriteInput) {

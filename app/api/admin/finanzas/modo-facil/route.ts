@@ -5,6 +5,7 @@ import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/
 import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
 import { easyErrorResponse, confirmEasyReconciliation, readEasyReconciliation } from '@/lib/finanzas/easy-reconciliation-db'
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
+import { readEasyStepCounters } from '@/lib/finanzas/easy-counterparty-db'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 16 * 1024
@@ -42,7 +43,13 @@ export async function GET(req: NextRequest) {
       limit: req.nextUrl.searchParams.get('limit'), offset: req.nextUrl.searchParams.get('offset'),
       q: req.nextUrl.searchParams.get('q'), sentido: req.nextUrl.searchParams.get('sentido'), tarjeta: req.nextUrl.searchParams.get('tarjeta'),
     })
-    return privateJson(await readEasyReconciliation(input))
+    const [reconciliation, pasos] = await Promise.all([
+      readEasyReconciliation(input),
+      // P1's all-movement cohort and P2's B4 pending cohort are deliberately
+      // separate objects; the service does not create P1 receipts on GET.
+      readEasyStepCounters(input),
+    ])
+    return privateJson({ ...reconciliation, pasos })
   } catch (error) { return errorResponse(error) }
 }
 
