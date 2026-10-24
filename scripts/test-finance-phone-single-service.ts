@@ -26,6 +26,7 @@ function input(overrides: Partial<PhoneCostCalculationInput> = {}): PhoneCostCal
       proveedor: 'Telefónica de España',
       fecha: '2026-09-19',
       baseText: '58.79',
+      totalText: '71.13',
       economica: true,
       telefonoServicio: null,
       datosOcrRaw: null,
@@ -61,6 +62,15 @@ const noEvidence = calculatePhoneCostAnalytics(input({ documentosRecibidos: [{
   ...input().documentosRecibidos[0], evidenciasServicioUnico: [],
 }] }))
 assert.equal(noEvidence.totales.costeAsignablePropuestoCentimos, '0', 'four-decimal legacy PDF detail cannot become a whole-invoice cost without staged evidence')
+
+const missingTotal = calculatePhoneCostAnalytics(input({ documentosRecibidos: [{
+  ...input().documentosRecibidos[0], totalText: null,
+}] }))
+assert.equal(missingTotal.totales.costeAsignablePropuestoCentimos, '0', 'whole-PDF evidence must revalidate the source total')
+const changedSource = calculatePhoneCostAnalytics(input({ documentosRecibidos: [{
+  ...input().documentosRecibidos[0], evidenciasServicioUnico: [{ ...evidence, sourceSnapshotMatches: false }],
+}] }))
+assert.equal(changedSource.totales.costeAsignablePropuestoCentimos, '0', 'a changed source snapshot cannot be silently allocated')
 
 const sourceMismatch = calculatePhoneCostAnalytics(input({ documentosRecibidos: [{
   ...input().documentosRecibidos[0], evidenciasServicioUnico: [{ ...evidence, baseFuenteText: '58.7900' }],

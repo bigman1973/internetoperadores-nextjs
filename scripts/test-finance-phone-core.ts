@@ -50,7 +50,7 @@ function fijaInput(overrides: Partial<PhoneCostCalculationInput> = {}): PhoneCos
   return {
     periodo: { desde: '2026-09-01', hasta: '2026-09-30' },
     documentosRecibidos: [{
-      id: 'fija-1', numFactura: 'TA7MI0068516', proveedor: 'Telefónica de España', fecha: '2026-09-19', baseText: '58.79', economica: true,
+      id: 'fija-1', numFactura: 'TA7MI0068516', proveedor: 'Telefónica de España', fecha: '2026-09-19', baseText: '58.79', totalText: '71.13', economica: true,
       telefonoServicio: null, datosOcrRaw: null,
       // Four-decimal PDF charges deliberately do not become the allocation base.
       lineasDetalleRaw: JSON.stringify([{ descripcion: 'Internet 100 Mb (1 Ago. a 31 Ago.)', precio: '56.1982' }]),
