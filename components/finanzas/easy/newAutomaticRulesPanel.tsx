@@ -160,7 +160,7 @@ export default function NewAutomaticRulesPanel({ profile }: Readonly<{ profile: 
       await load(true);
     } catch (error) {
       const textError = error instanceof Error ? error.message : 'No se pudo completar la acción.';
-      if (isUncertain(error)) setNotice({ tone: 'error', text: `Resultado incierto: no cambies de acción. Reintenta exactamente este recibo con su misma clave. ${textError}` });
+      if (isUncertain(error)) { setConfirming(null); setNotice({ tone: 'error', text: `Resultado incierto: no cambies de acción. Reintenta exactamente este recibo con su misma clave. ${textError}` }); }
       else { setPending(null); setConfirming(null); setNotice({ tone: 'error', text: textError }); }
     } finally { setSubmitting(false); }
   }

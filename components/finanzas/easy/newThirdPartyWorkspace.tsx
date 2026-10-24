@@ -157,7 +157,7 @@ export default function NewThirdPartyWorkspace({ enabled, from, to, query, senti
       await load(true, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo guardar la identificación.';
-      if (isUncertain(error)) setNotice({ tone: 'error', text: `Resultado incierto: no cambies de acción. Reintenta exactamente este recibo P1. ${message}` });
+      if (isUncertain(error)) { setConfirming(null); setNotice({ tone: 'error', text: `Resultado incierto: no cambies de acción. Reintenta exactamente este recibo P1. ${message}` }); }
       else { setPending(null); setConfirming(null); setNotice({ tone: 'error', text: message }); }
     } finally { setSubmitting(false); }
   }
