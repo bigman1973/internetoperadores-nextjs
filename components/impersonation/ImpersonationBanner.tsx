@@ -208,9 +208,9 @@ const GLOBAL_SAFE_SPACE_CSS = `
       height: calc(100dvh - var(--actuation-banner-height, 0px)) !important;
     }
   }
-  html[data-actuation-active='true'] [data-admin-shell] header.sticky {
-    top: var(--actuation-banner-height, 0px) !important;
-  }
+  /* [data-admin-shell] uses overflow-x:hidden, so it is the sticky header's
+     scroll container. The body padding already places it below the banner;
+     adding the banner height here again would leave an empty gap. */
   html[data-actuation-active='true'] aside.fixed {
     top: var(--actuation-banner-height, 0px) !important;
   }
