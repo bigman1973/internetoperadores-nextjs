@@ -121,28 +121,24 @@ export default function FacturasEmitidasPage() {
         </div>
       </div>
 
-      {/* Resumen */}
-      {resumen && (
+      {/* Reserva la geometría del resumen mientras llega la misma respuesta de servidor. */}
+      {(loading || resumen) && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl border p-4">
+          <div className="min-h-32 bg-white rounded-xl border p-4">
             <p className="text-xs text-gray-500">Facturado (fuente FI)</p>
-            <p className="text-xl font-bold text-gray-900">{formatMoney(resumen.totalFacturado)}</p>
-            {resumen.totalFacturado.unknownInvoiceCount > 0 && <p className="mt-1 text-xs text-amber-700">{resumen.totalFacturado.unknownInvoiceCount} sin total verificable</p>}
+            {resumen ? <><p className="text-xl font-bold text-gray-900">{formatMoney(resumen.totalFacturado)}</p>{resumen.totalFacturado.unknownInvoiceCount > 0 && <p className="mt-1 text-xs text-amber-700">{resumen.totalFacturado.unknownInvoiceCount} sin total verificable</p>}</> : <div aria-busy="true" className="mt-3 h-7 animate-pulse rounded bg-slate-100" />}
           </div>
-          <div className="bg-white rounded-xl border p-4">
+          <div className="min-h-32 bg-white rounded-xl border p-4">
             <p className="text-xs text-gray-500">Cobro documental confirmado</p>
-            <p className="text-xl font-bold text-green-600">{formatMoney(resumen.totalCobrado)}</p>
-            <p className="mt-1 text-xs text-gray-500">B4/B6; no usa cobro legacy</p>
+            {resumen ? <><p className="text-xl font-bold text-green-600">{formatMoney(resumen.totalCobrado)}</p><p className="mt-1 text-xs text-gray-500">B4/B6; no usa cobro legacy</p></> : <><div aria-busy="true" className="mt-3 h-7 animate-pulse rounded bg-slate-100" /><div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-slate-100" /></>}
           </div>
-          <div className="bg-white rounded-xl border p-4">
+          <div className="min-h-32 bg-white rounded-xl border p-4">
             <p className="text-xs text-gray-500">Pendiente no confirmado</p>
-            <p className="text-xl font-bold text-amber-600">{formatMoney(resumen.pendienteCobro)}</p>
-            {resumen.revisiones > 0 && <p className="mt-1 text-xs text-amber-700">{resumen.revisiones} requieren revisión bancaria</p>}
+            {resumen ? <><p className="text-xl font-bold text-amber-600">{formatMoney(resumen.pendienteCobro)}</p>{resumen.revisiones > 0 && <p className="mt-1 text-xs text-amber-700">{resumen.revisiones} requieren revisión bancaria</p>}</> : <div aria-busy="true" className="mt-3 h-7 animate-pulse rounded bg-slate-100" />}
           </div>
-          <div className="bg-white rounded-xl border p-4">
+          <div className="min-h-32 bg-white rounded-xl border p-4">
             <p className="text-xs text-gray-500">Diferencia de caja atribuible</p>
-            <p className="text-xl font-bold text-blue-600">{formatMoney(resumen.diferenciasCaja.atribuible)}</p>
-            <p className="mt-1 text-xs text-gray-500">No modifica la deuda documental</p>
+            {resumen ? <><p className="text-xl font-bold text-blue-600">{formatMoney(resumen.diferenciasCaja.atribuible)}</p><p className="mt-1 text-xs text-gray-500">No modifica la deuda documental</p></> : <><div aria-busy="true" className="mt-3 h-7 animate-pulse rounded bg-slate-100" /><div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-slate-100" /></>}
           </div>
         </div>
       )}
@@ -156,13 +152,13 @@ export default function FacturasEmitidasPage() {
             placeholder="Buscar cliente, factura, CIF..."
             value={filtros.buscar}
             onChange={(e) => { setFiltros({...filtros, buscar: e.target.value}); setPage(1); }}
-            className="w-full border rounded-lg pl-9 pr-3 py-2 text-sm"
+            className="min-h-11 w-full border rounded-lg pl-9 pr-3 py-2 text-sm"
           />
         </div>
         <select
           value={filtros.estado}
           onChange={(e) => { setFiltros({...filtros, estado: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm"
+          className="min-h-11 border rounded-lg px-3 py-2 text-sm"
         >
           <option value="">Todos los estados</option>
           {Object.entries(ESTADOS).map(([k, v]) => (
@@ -172,7 +168,7 @@ export default function FacturasEmitidasPage() {
         <select
           value={filtros.serie}
           onChange={(e) => { setFiltros({...filtros, serie: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm"
+          className="min-h-11 border rounded-lg px-3 py-2 text-sm"
         >
           <option value="">Todas las series</option>
           {SERIES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -181,20 +177,20 @@ export default function FacturasEmitidasPage() {
           type="date"
           value={filtros.desde}
           onChange={(e) => { setFiltros({...filtros, desde: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm"
+          className="min-h-11 border rounded-lg px-3 py-2 text-sm"
         />
         <input
           type="date"
           value={filtros.hasta}
           onChange={(e) => { setFiltros({...filtros, hasta: e.target.value}); setPage(1); }}
-          className="border rounded-lg px-3 py-2 text-sm"
+          className="min-h-11 border rounded-lg px-3 py-2 text-sm"
         />
       </div>
 
       {/* Tabla */}
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Nº Factura</th>
@@ -286,14 +282,14 @@ export default function FacturasEmitidasPage() {
               <button
                 onClick={() => setPage(p => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+                className="min-h-11 px-3 py-1 text-sm border rounded disabled:opacity-50"
               >
                 Anterior
               </button>
               <button
                 onClick={() => setPage(p => p + 1)}
                 disabled={page * 50 >= total}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-50"
+                className="min-h-11 px-3 py-1 text-sm border rounded disabled:opacity-50"
               >
                 Siguiente
               </button>

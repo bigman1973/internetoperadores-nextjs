@@ -34,39 +34,47 @@ export default function CobrosPendientesPage() {
   const [porCliente, setPorCliente] = useState<ClienteResumen[]>([]);
   const [loading, setLoading] = useState(true);
   const [buscar, setBuscar] = useState('');
+  const [buscarAplicado, setBuscarAplicado] = useState('');
   const [formaCobro, setFormaCobro] = useState('todas');
   const [diasMin, setDiasMin] = useState('0');
   const [page, setPage] = useState(1);
   const [vista, setVista] = useState<'facturas' | 'clientes'>('facturas');
+  const [searchVersion, setSearchVersion] = useState(0);
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '100',
-        buscar,
-        formaCobro,
-        diasMin,
-      });
-      const res = await fetch(`/api/admin/finanzas/cobros-pendientes?${params}`);
-      const data = await res.json();
-      setFacturas(data.facturas || []);
-      setTotal(data.total || 0);
-      setResumen(data.resumen || null);
-      setPorCliente(data.porCliente || []);
-    } catch (e) {
-      console.error(e);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchData(); }, [page, formaCobro, diasMin]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          limit: '100',
+          buscar: buscarAplicado,
+          formaCobro,
+          diasMin,
+        });
+        const res = await fetch(`/api/admin/finanzas/cobros-pendientes?${params}`, { signal: controller.signal });
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        setFacturas(data.facturas || []);
+        setTotal(data.total || 0);
+        setResumen(data.resumen || null);
+        setPorCliente(data.porCliente || []);
+      } catch (e) {
+        if (!controller.signal.aborted) console.error(e);
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    };
+    void fetchData();
+    return () => controller.abort();
+  }, [buscarAplicado, diasMin, formaCobro, page, searchVersion]);
 
   const handleBuscar = (e: React.FormEvent) => {
     e.preventDefault();
+    setBuscarAplicado(buscar);
     setPage(1);
-    fetchData();
+    setSearchVersion((version) => version + 1);
   };
 
   const estadoColor = (dias: number) => {
@@ -84,7 +92,7 @@ export default function CobrosPendientesPage() {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <div className="p-4 sm:p-6 max-w-[1600px] mx-auto">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Cobros Pendientes</h1>
@@ -92,49 +100,42 @@ export default function CobrosPendientesPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      {resumen && (
-        <div className="grid grid-cols-5 gap-4 mb-6">
+      {/* Mantiene el hueco de los KPIs durante la misma lectura inicial. */}
+      {(loading || resumen) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <div className="bg-white border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <BanknotesIcon className="h-4 w-4 text-blue-600" />
               <p className="text-[10px] text-gray-500 uppercase font-medium">Total Pendiente</p>
             </div>
-            <p className="text-2xl font-bold text-blue-700">{resumen.totalPendiente.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
-            <p className="text-xs text-gray-400 mt-1">{resumen.numFacturas} facturas</p>
+            {resumen ? <><p className="text-2xl font-bold text-blue-700">{resumen.totalPendiente.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numFacturas} facturas</p></> : <KpiSkeleton />}
           </div>
           <div className="bg-white border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <UserGroupIcon className="h-4 w-4 text-indigo-600" />
               <p className="text-[10px] text-gray-500 uppercase font-medium">Clientes</p>
             </div>
-            <p className="text-2xl font-bold text-indigo-700">{resumen.numClientes}</p>
-            <p className="text-xs text-gray-400 mt-1">Con facturas pendientes</p>
+            {resumen ? <><p className="text-2xl font-bold text-indigo-700">{resumen.numClientes}</p><p className="text-xs text-gray-400 mt-1">Con facturas pendientes</p></> : <KpiSkeleton />}
           </div>
           <div className="bg-white border border-orange-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <ClockIcon className="h-4 w-4 text-orange-600" />
               <p className="text-[10px] text-orange-600 uppercase font-medium">Vencidas (&gt;30d)</p>
             </div>
-            <p className="text-2xl font-bold text-orange-700">{resumen.importeVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
-            <p className="text-xs text-gray-400 mt-1">{resumen.numVencidas} facturas</p>
+            {resumen ? <><p className="text-2xl font-bold text-orange-700">{resumen.importeVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numVencidas} facturas</p></> : <KpiSkeleton />}
           </div>
           <div className="bg-white border border-red-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <ExclamationTriangleIcon className="h-4 w-4 text-red-600" />
               <p className="text-[10px] text-red-600 uppercase font-medium">Muy vencidas (&gt;60d)</p>
             </div>
-            <p className="text-2xl font-bold text-red-700">{resumen.importeMuyVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p>
-            <p className="text-xs text-gray-400 mt-1">{resumen.numMuyVencidas} facturas</p>
+            {resumen ? <><p className="text-2xl font-bold text-red-700">{resumen.importeMuyVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numMuyVencidas} facturas</p></> : <KpiSkeleton />}
           </div>
           <div className="bg-white border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <p className="text-[10px] text-gray-500 uppercase font-medium">% Vencido</p>
             </div>
-            <p className="text-2xl font-bold text-gray-700">
-              {resumen.totalPendiente > 0 ? Math.round((resumen.importeVencido / resumen.totalPendiente) * 100) : 0}%
-            </p>
-            <p className="text-xs text-gray-400 mt-1">Del total pendiente</p>
+            {resumen ? <><p className="text-2xl font-bold text-gray-700">{resumen.totalPendiente > 0 ? Math.round((resumen.importeVencido / resumen.totalPendiente) * 100) : 0}%</p><p className="text-xs text-gray-400 mt-1">Del total pendiente</p></> : <KpiSkeleton />}
           </div>
         </div>
       )}
@@ -142,7 +143,7 @@ export default function CobrosPendientesPage() {
       {/* Filtros */}
       <div className="bg-white border rounded-xl p-4 mb-4">
         <div className="flex items-center gap-4 flex-wrap">
-          <form onSubmit={handleBuscar} className="flex items-center gap-2">
+          <form onSubmit={handleBuscar} className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <div className="relative">
               <MagnifyingGlassIcon className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -150,18 +151,18 @@ export default function CobrosPendientesPage() {
                 value={buscar}
                 onChange={e => setBuscar(e.target.value)}
                 placeholder="Buscar cliente, factura o CIF..."
-                className="pl-9 pr-3 py-2 border rounded-lg text-sm w-64"
+                className="min-h-11 w-full pl-9 pr-3 py-2 border rounded-lg text-sm sm:w-64"
               />
             </div>
-            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Buscar</button>
+            <button type="submit" className="min-h-11 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">Buscar</button>
           </form>
-          <select value={formaCobro} onChange={e => { setFormaCobro(e.target.value); setPage(1); }} className="border rounded-lg px-3 py-2 text-sm">
+          <select value={formaCobro} onChange={e => { setFormaCobro(e.target.value); setPage(1); }} className="min-h-11 border rounded-lg px-3 py-2 text-sm">
             <option value="todas">Todas las formas de cobro</option>
             <option value="Transferencia">Transferencia</option>
             <option value="Confirming">Confirming</option>
             <option value="">Sin forma de cobro</option>
           </select>
-          <select value={diasMin} onChange={e => { setDiasMin(e.target.value); setPage(1); }} className="border rounded-lg px-3 py-2 text-sm">
+          <select value={diasMin} onChange={e => { setDiasMin(e.target.value); setPage(1); }} className="min-h-11 border rounded-lg px-3 py-2 text-sm">
             <option value="0">Todas las antigüedades</option>
             <option value="15">Más de 15 días</option>
             <option value="30">Más de 30 días</option>
@@ -169,8 +170,8 @@ export default function CobrosPendientesPage() {
             <option value="90">Más de 90 días</option>
           </select>
           <div className="ml-auto flex gap-1 bg-gray-100 rounded-lg p-0.5">
-            <button onClick={() => setVista('facturas')} className={`px-3 py-1.5 rounded-md text-xs font-medium ${vista === 'facturas' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Por factura</button>
-            <button onClick={() => setVista('clientes')} className={`px-3 py-1.5 rounded-md text-xs font-medium ${vista === 'clientes' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Por cliente</button>
+            <button onClick={() => setVista('facturas')} className={`min-h-11 px-3 py-1.5 rounded-md text-xs font-medium ${vista === 'facturas' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Por factura</button>
+            <button onClick={() => setVista('clientes')} className={`min-h-11 px-3 py-1.5 rounded-md text-xs font-medium ${vista === 'clientes' ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>Por cliente</button>
           </div>
         </div>
       </div>
@@ -178,7 +179,8 @@ export default function CobrosPendientesPage() {
       {/* Vista por facturas */}
       {vista === 'facturas' && (
         <div className="bg-white border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Cliente</th>
@@ -223,13 +225,14 @@ export default function CobrosPendientesPage() {
               ))}
             </tbody>
           </table>
+          </div>
           {/* Paginación */}
           {total > 100 && (
             <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
               <p className="text-xs text-gray-500">{total} facturas total</p>
               <div className="flex gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="px-3 py-1 border rounded text-xs disabled:opacity-40">Anterior</button>
-                <button onClick={() => setPage(p => p + 1)} disabled={page * 100 >= total} className="px-3 py-1 border rounded text-xs disabled:opacity-40">Siguiente</button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="min-h-11 px-3 py-1 border rounded text-xs disabled:opacity-40">Anterior</button>
+                <button onClick={() => setPage(p => p + 1)} disabled={page * 100 >= total} className="min-h-11 px-3 py-1 border rounded text-xs disabled:opacity-40">Siguiente</button>
               </div>
             </div>
           )}
@@ -239,7 +242,8 @@ export default function CobrosPendientesPage() {
       {/* Vista por clientes */}
       {vista === 'clientes' && (
         <div className="bg-white border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Cliente</th>
@@ -265,8 +269,13 @@ export default function CobrosPendientesPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function KpiSkeleton() {
+  return <><div aria-busy="true" className="mt-2 h-8 animate-pulse rounded bg-slate-100" /><div className="mt-2 h-3 w-3/5 animate-pulse rounded bg-slate-100" /></>;
 }
