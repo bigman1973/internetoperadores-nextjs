@@ -287,7 +287,7 @@ export default function MigracionAdamoClient() {
       </div>
 
       {/* KPIs */}
-      {stats && (<>
+      {stats ? <>
         {/* Fila 1: Situación actual (fija) */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 mb-3">
           <div className="bg-white border rounded-lg p-4">
@@ -350,7 +350,26 @@ export default function MigracionAdamoClient() {
             <p className="text-xs text-gray-400">vs facturación actual</p>
           </div>
         </div>
-      </>)}
+      </> : loading ? (
+        <div className="animate-pulse" aria-busy="true">
+          <div className="grid grid-cols-2 gap-3 mb-3 md:grid-cols-4 lg:grid-cols-8">
+            {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+              <div key={i} className={`${i === 7 ? 'min-h-[92px]' : 'min-h-[76px]'} rounded-lg border bg-white p-4`}>
+                <div className="h-3 w-2/3 rounded bg-gray-200"></div>
+                <div className="mt-3 h-7 w-1/2 rounded bg-gray-100"></div>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-6 md:grid-cols-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="min-h-[92px] rounded-lg border bg-white p-4">
+                <div className="h-3 w-2/3 rounded bg-gray-200"></div>
+                <div className="mt-3 h-7 w-1/2 rounded bg-gray-100"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Filtros */}
       <div className="bg-white border rounded-lg p-4 mb-4">
@@ -432,7 +451,12 @@ export default function MigracionAdamoClient() {
         {/* Tabla */}
         <div className={`bg-white border rounded-lg overflow-hidden ${selectedCliente ? 'w-3/5' : 'w-full'}`}>
           {loading ? (
-            <div className="p-8 text-center text-gray-500">Cargando...</div>
+            <div className="min-h-[338px] animate-pulse p-4" aria-busy="true">
+              <div className="h-10 rounded bg-gray-100"></div>
+              <div className="mt-4 space-y-3">
+                {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-10 rounded bg-gray-100"></div>)}
+              </div>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
