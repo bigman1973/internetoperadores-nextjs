@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { ReceiptPercentIcon, ClockIcon, DocumentTextIcon, ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
@@ -24,18 +24,22 @@ export default function EmpleadoPage() {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [resumenImputaciones, setResumenImputaciones] = useState<ResumenPersonalImputaciones | null>(null);
   const [loadingAlertas, setLoadingAlertas] = useState(true);
+  // Última persona cuyos avisos ya se han pintado: recargar los de la misma
+  // persona no vuelve a mostrar el esqueleto (evita saltos de contenido).
+  const avisosCargadosDe = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchAlertas() {
       if (!isReady) return;
       try {
-        setLoadingAlertas(true);
         const query = getQueryParam();
+        if (avisosCargadosDe.current !== query) setLoadingAlertas(true);
         const res = await fetch(`/api/empleado/alertas${query ? `?${query}` : ''}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           setAlertas(data.alertas || []);
           setResumenImputaciones(data.resumenImputaciones || null);
+          avisosCargadosDe.current = query;
         }
       } catch (e) {
         console.error(e);
