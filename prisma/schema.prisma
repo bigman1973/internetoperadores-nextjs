@@ -5454,6 +5454,38 @@ model AsistenteEscalado {
   @@map("asistente_escalados")
 }
 
+// Contacto consentido separado de las entidades operativas. La FK a la
+// conversación se materializa en la migración sin exponer navegación ni PII
+// cifrada desde los modelos existentes.
+model AsistenteContactoSeguro {
+  id             String   @id @default(uuid()) @db.Uuid
+  referenciaTipo String   @map("referencia_tipo")
+  referenciaId   String   @map("referencia_id") @db.Uuid
+  conversacionId String?  @map("conversacion_id") @db.Uuid
+  cifrado        String   @db.Text
+  keyVersion     String   @map("key_version")
+  borrarDespues  DateTime @map("borrar_despues") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([referenciaTipo, referenciaId])
+  @@index([borrarDespues])
+  @@map("asistente_contactos_seguros")
+}
+
+// Registro mínimo y sin PII de purgas, supresiones y revocaciones del asistente.
+model AsistenteGestionPrivacidad {
+  id           String   @id @default(uuid()) @db.Uuid
+  tipo         String
+  objetivoHash String   @map("objetivo_hash")
+  actorId      Int?     @map("actor_id")
+  ejecutor     String
+  resultado    Json     @default("{}") @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt])
+  @@map("asistente_gestion_privacidad")
+}
+
 model AsistenteHueco {
   id             String                 @id @default(uuid()) @db.Uuid
   preguntaAnon   String                 @map("pregunta_anon")
