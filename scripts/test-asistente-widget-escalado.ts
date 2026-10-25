@@ -7,16 +7,39 @@ import ts from 'typescript'
 const requireReal = createRequire(import.meta.url)
 const ROOT = process.cwd()
 
-type Registro = { create: Array<Record<string, unknown>>; update: Array<Record<string, unknown>>; conversaciones: number }
+type Registro = {
+  create: Array<Record<string, unknown>>
+  update: Array<Record<string, unknown>>
+  contactos: Array<Record<string, unknown>>
+  conversaciones: number
+}
 
-function cargarRuta(registro: Registro) {
+function cargarRuta(registro: Registro, opciones: { contactoFalla?: boolean } = {}) {
   const fuente = fs.readFileSync(path.join(ROOT, 'app/api/asistente/escalado/route.ts'), 'utf8')
   const compilado = ts.transpileModule(fuente, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
   }).outputText
-  const prisma = {
-    asistenteEscalado: { create: async ({ data }: { data: Record<string, unknown> }) => { registro.create.push(data); return data } },
+  let escalado = 0
+  const tx = {
+    asistenteEscalado: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        registro.create.push(data)
+        return { id: `00000000-0000-4000-8000-00000000000${++escalado}` }
+      },
+    },
     asistenteConversacion: { update: async ({ data }: { data: Record<string, unknown> }) => { registro.update.push(data); return data } },
+    asistenteContactoSeguro: { upsert: async ({ create }: { create: Record<string, unknown> }) => { registro.contactos.push(create); return create } },
+  }
+  const prisma = {
+    $transaction: async (fn: (client: typeof tx) => Promise<void>) => {
+      const start = { create: registro.create.length, update: registro.update.length, contactos: registro.contactos.length }
+      try { await fn(tx) } catch (error) {
+        registro.create.length = start.create
+        registro.update.length = start.update
+        registro.contactos.length = start.contactos
+        throw error
+      }
+    },
   }
   const mocks: Record<string, unknown> = {
     '@/lib/prisma': { __esModule: true, default: prisma },
@@ -30,6 +53,19 @@ function cargarRuta(registro: Registro) {
     },
     '@/lib/asistente/rate-limit': { consumirRateLimit: async () => ({ permitido: true }), hmacAsistente: () => 'visitante-de-prueba' },
     '@/lib/asistente/responder': { conversacionPublicaSegura: async () => { registro.conversaciones += 1; return '00000000-0000-4000-8000-000000000001' } },
+    '@/lib/asistente/contacto-seguro': {
+      guardarContactoSeguro: async (_db: unknown, input: Record<string, unknown>) => {
+        if (opciones.contactoFalla) throw new Error('CONTACTO_CIFRADO_NO_CONFIGURADO')
+        await tx.asistenteContactoSeguro.upsert({ create: {
+          referenciaTipo: input.referenciaTipo,
+          referenciaId: input.referenciaId,
+          conversacionId: input.conversacionId,
+          borrarDespues: input.borrarDespues,
+          cifrado: '{"version":"v1","contenido":"cifrado-sintetico"}',
+          keyVersion: 'contacto-v1',
+        } })
+      },
+    },
   }
   const exports: Record<string, unknown> = {}
   new Function('require', 'exports', compilado)(
@@ -48,32 +84,45 @@ function request(body: unknown): Request {
   })
 }
 
+const contacto = {
+  motivo: 'PETICION',
+  nombre: 'Persona sintética',
+  telefono: '600000000',
+  preferencia: 'LLAMADA',
+  consentimiento: true,
+}
+
 async function main() {
-  const registro: Registro = { create: [], update: [], conversaciones: 0 }
-  const POST = cargarRuta(registro)
+  const exitoso: Registro = { create: [], update: [], contactos: [], conversaciones: 0 }
+  const postExitoso = cargarRuta(exitoso)
+  const respuesta = await postExitoso(request(contacto))
+  assert.equal(respuesta.status, 200)
+  assert.equal((await respuesta.json()).ok, true)
+  assert.equal(exitoso.create.length, 1)
+  const escalado = exitoso.create[0]
+  assert.equal(escalado.contactoNombre, null)
+  assert.equal(escalado.contactoTelefono, null)
+  assert.equal(escalado.contactoEmail, null)
+  assert.equal(escalado.preferencia, 'LLAMADA')
+  assert.equal(escalado.consentimiento, true)
+  assert.equal(exitoso.contactos.length, 1, 'El contacto se delega al helper seguro de captación')
+  const seguro = JSON.stringify(exitoso.contactos[0])
+  assert.ok(!seguro.includes('Persona sintética') && !seguro.includes('600000000'), 'El registro seguro de la ruta no lleva PII en claro')
 
-  const conContacto = await POST(request({
-    motivo: 'PETICION',
-    nombre: 'Persona sintética',
-    telefono: '600000000',
-    consentimiento: true,
-  }))
-  assert.equal(conContacto.status, 503)
-  assert.deepEqual(await conContacto.json(), { codigo: 'CONTACTO_SEGURO_NO_CONFIGURADO' })
-  assert.equal(registro.create.length, 0, 'No debe persistir escalado con PII sin helper seguro')
-  assert.equal(registro.conversaciones, 0, 'No debe crear conversación si se rechaza la captura')
+  const fallido: Registro = { create: [], update: [], contactos: [], conversaciones: 0 }
+  const postFallido = cargarRuta(fallido, { contactoFalla: true })
+  const sinSecreto = await postFallido(request(contacto))
+  assert.equal(sinSecreto.status, 503)
+  assert.deepEqual(await sinSecreto.json(), { codigo: 'CONTACTO_SEGURO_NO_CONFIGURADO' })
+  assert.equal(fallido.create.length, 0, 'El escalado se revierte si el contacto cifrado no se puede guardar')
+  assert.equal(fallido.contactos.length, 0)
 
-  const sinContacto = await POST(request({ motivo: 'ENFADO', consentimiento: false }))
-  assert.equal(sinContacto.status, 200)
-  const data = registro.create[0]
-  assert.ok(data, 'Debe registrar una escalada sin datos de contacto')
-  assert.equal(data.contactoNombre, null)
-  assert.equal(data.contactoTelefono, null)
-  assert.equal(data.contactoEmail, null)
-  assert.equal(data.preferencia, null)
-  assert.equal(data.franja, null)
-  assert.equal(data.consentimiento, false)
-  console.log('Widget escalado: la captura de contacto falla cerrada y no persiste PII en claro.')
+  const sinContacto: Registro = { create: [], update: [], contactos: [], conversaciones: 0 }
+  const postSinContacto = cargarRuta(sinContacto)
+  assert.equal((await postSinContacto(request({ motivo: 'ENFADO', consentimiento: false }))).status, 200)
+  assert.equal(sinContacto.contactos.length, 0)
+  assert.equal(sinContacto.create[0]?.contactoNombre, null)
+  console.log('Widget escalado: contacto delegado al helper seguro, sin PII en claro y fallo cerrado sin secreto.')
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1 })
