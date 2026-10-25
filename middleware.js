@@ -378,6 +378,10 @@ export async function middleware(request) {
       // perfil vivo y política. No es una excepción del motor legacy.
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
+      || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
+      || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
+      || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
+      || (path === '/api/admin/asistente/configuracion' && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
