@@ -87,6 +87,7 @@ interface NavItem {
   href: string
   icon: any
   section?: string // Sección para verificar permisos
+  exact?: boolean // Sólo activo en su ruta exacta (no en subrutas)
   subitems?: NavItem[] // Subapartados de una sección con página propia
 }
 
@@ -146,7 +147,7 @@ const navigation: NavEntry[] = [
     icon: SparklesIcon,
     section: 'asistente',
     children: [
-      { name: 'Resumen', href: '/admin/asistente', icon: ChartBarIcon, section: 'asistente' },
+      { name: 'Resumen', href: '/admin/asistente', icon: ChartBarIcon, section: 'asistente', exact: true },
       { name: 'Chat interno', href: '/admin/asistente/chat', icon: ChatBubbleLeftRightIcon, section: 'asistente.chat' },
       { name: 'Conocimiento', href: '/admin/asistente/conocimiento', icon: BookOpenIcon, section: 'asistente.conocimiento' },
       { name: 'Conversaciones', href: '/admin/asistente/conversaciones', icon: QueueListIcon, section: 'asistente.conversaciones' },
@@ -296,8 +297,8 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
     // Verificar permisos del item hijo
     if (!easyOnly && item.section && !hasAccess(item.section)) return null
 
-    const isActive = pathname === item.href || 
-      (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
+    const isActive = pathname === item.href ||
+      (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
       (item.href === '/admin' && pathname === '/admin')
     
     return (
