@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import SalarySimulationPanel from '@/components/empleados/SalarySimulationPanel';
 import {
   UsersIcon,
   CurrencyEuroIcon,
@@ -16,6 +16,14 @@ import {
   HandRaisedIcon,
   AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
+
+const SalarySimulationPanel = dynamic(
+  () => import('@/components/empleados/SalarySimulationPanel'),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[420px] p-6 text-center text-sm text-gray-500">Cargando simulación salarial...</div>,
+  },
+);
 
 interface Nomina {
   id: string;
