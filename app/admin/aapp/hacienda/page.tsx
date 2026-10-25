@@ -185,7 +185,7 @@ export default function HaciendaPage() {
       </div>
 
       {/* KPIs */}
-      {resumen && (
+      {resumen ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <div className="bg-white border rounded-lg p-4">
             <p className="text-2xl font-bold text-gray-900">{resumen.totalDocs}</p>
@@ -208,7 +208,16 @@ export default function HaciendaPage() {
             <p className="text-xs text-gray-500">Importe pendiente</p>
           </div>
         </div>
-      )}
+      ) : loading ? (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6" aria-busy="true">
+          {[1, 2, 3, 4, 5].map(i => (
+            <div key={i} className="min-h-[76px] animate-pulse rounded-lg border bg-white p-4">
+              <div className="h-7 w-1/2 rounded bg-gray-200"></div>
+              <div className="mt-2 h-3 w-4/5 rounded bg-gray-100"></div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6 flex-wrap">
