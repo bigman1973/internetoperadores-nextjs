@@ -257,10 +257,16 @@ function pageRange(total: number, offset: number, limit: number) {
   const to = from === 0 ? 0 : Math.min(total, offset + limit);
   return { from, to, previous: Math.max(0, offset - limit), next: offset + limit < total ? offset + limit : null };
 }
+// La composición de una remesa puede tener decenas de facturas y la tarjeta
+// se pinta en móvil y en escritorio: la tabla sólo se monta al abrirla.
+function CompositionDetails({ item }: Readonly<{ item: Proposal }>) {
+  const [open, setOpen] = useState(false);
+  const remaining = item.composicionTotal - item.composicion.length;
+  return <details onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary>{open && <><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{invoice.vencimiento ? displayDate(invoice.vencimiento) : 'Sin vencimiento'}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</>}</details>;
+}
 function contentSummary(item: Proposal) {
   if (item.composicionTotal === 0) return null;
-  const remaining = item.composicionTotal - item.composicion.length;
-  return <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{invoice.vencimiento ? displayDate(invoice.vencimiento) : 'Sin vencimiento'}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</details>;
+  return <CompositionDetails item={item} />;
 }
 function proposalExtra(item: Proposal): ReactNode {
   const differences = item.lineas.filter((line) => line.tipo === 'DIFERENCIA');
