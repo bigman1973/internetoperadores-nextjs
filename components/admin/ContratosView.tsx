@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { ArrowPathIcon, MagnifyingGlassIcon, ChevronDownIcon, ChevronRightIcon, TableCellsIcon, UserGroupIcon, CubeIcon } from '@heroicons/react/24/outline'
 
@@ -115,8 +115,18 @@ const BAR_COLORS = [
   'bg-sky-500', 'bg-fuchsia-500', 'bg-slate-400', 'bg-stone-400', 'bg-gray-400',
 ]
 
+const currencyFormatter = new Intl.NumberFormat('es-ES', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+const dateFormatter = new Intl.DateTimeFormat('es-ES')
+
 function formatCurrency(val: number | string): string {
-  return Number(val).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return currencyFormatter.format(Number(val))
+}
+
+function formatDate(date: string): string {
+  return dateFormatter.format(new Date(date))
 }
 
 function DashboardStatsSkeleton() {
@@ -157,6 +167,96 @@ function ContractResultsSkeleton() {
     </div>
   )
 }
+
+const DashboardStats = memo(function DashboardStats({ stats, onSelectProduct }: { stats: Stats; onSelectProduct: (producto: string) => void }) {
+  const maxProductRevenue = useMemo(
+    () => Math.max(0, ...stats.productos.map(product => Number(product.facturacion))),
+    [stats.productos]
+  )
+
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+          <dt className="text-xs font-medium text-gray-500 uppercase">Total Contratos</dt>
+          <dd className="mt-1 text-2xl font-bold text-gray-900">{stats.general.total}</dd>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+          <dt className="text-xs font-medium text-gray-500 uppercase">Activos</dt>
+          <dd className="mt-1 text-2xl font-bold text-green-600">{stats.general.activos}</dd>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+          <dt className="text-xs font-medium text-gray-500 uppercase">Dados de Baja</dt>
+          <dd className="mt-1 text-2xl font-bold text-red-500">{stats.general.bajas}</dd>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+          <dt className="text-xs font-medium text-gray-500 uppercase">Facturación Mensual</dt>
+          <dd className="mt-1 text-2xl font-bold text-orange-600">{formatCurrency(stats.general.facturacion_mensual)}&euro;</dd>
+        </div>
+        <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
+          <dt className="text-xs font-medium text-gray-500 uppercase">Clientes con Servicio</dt>
+          <dd className="mt-1 text-2xl font-bold text-blue-600">{stats.general.clientes_con_servicio}</dd>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Facturación por Producto</h3>
+          <div className="space-y-2 max-h-80 overflow-y-auto">
+            {stats.productos.map((prod, idx) => {
+              const pct = maxProductRevenue > 0 ? (Number(prod.facturacion) / maxProductRevenue) * 100 : 0
+              return (
+                <div key={prod.producto} className="flex items-center gap-3">
+                  <button
+                    onClick={() => onSelectProduct(prod.producto)}
+                    className={`inline-flex min-h-11 items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 min-w-[90px] justify-center ${getProductColor(prod.producto)}`}
+                  >
+                    {prod.producto}
+                  </button>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2.5">
+                    <div className={`${BAR_COLORS[idx % BAR_COLORS.length]} h-2.5 rounded-full`} style={{ width: `${pct}%` }}></div>
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 w-28 text-right">
+                    {formatCurrency(prod.facturacion)}&euro;
+                  </span>
+                  <span className="text-xs text-gray-500 w-16 text-right">
+                    {prod.activos} act.
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
+          <h3 className="text-sm font-semibold text-gray-900 mb-3">Top 15 Clientes por Facturación</h3>
+          <div className="overflow-y-auto max-h-80">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-500 uppercase">
+                  <th className="text-left py-1 pr-2">#</th>
+                  <th className="text-left py-1">Cliente</th>
+                  <th className="text-right py-1">Contratos</th>
+                  <th className="text-right py-1">Facturación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.topClientes.map((client, i) => (
+                  <tr key={client.cliente_id} className="border-t border-gray-100">
+                    <td className="py-1.5 pr-2 text-gray-400 font-mono text-xs">{i + 1}</td>
+                    <td className="py-1.5 text-gray-900 font-medium truncate max-w-[200px]">{client.nombre_cliente}</td>
+                    <td className="py-1.5 text-right text-gray-600">{client.contratos_activos}</td>
+                    <td className="py-1.5 text-right font-medium text-orange-600">{formatCurrency(client.facturacion)}&euro;</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+})
 
 type ViewMode = 'grouped' | 'byproduct' | 'list'
 
@@ -265,21 +365,26 @@ export default function ContratosView() {
     }
   }
 
-  const toggleClient = (id: string) => {
+  const toggleClient = useCallback((id: string) => {
     setExpandedClients(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
-  }
+  }, [])
 
-  const toggleProduct = (id: string) => {
+  const toggleProduct = useCallback((id: string) => {
     setExpandedProducts(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
-  }
+  }, [])
+
+  const selectProduct = useCallback((selectedProduct: string) => {
+    setProducto(selectedProduct)
+    setPage(1)
+  }, [])
 
   const clearFilters = () => {
     setSearch(''); setSearchInput(''); setEstado(''); setProducto(''); setPage(1)
@@ -287,11 +392,6 @@ export default function ContratosView() {
 
   const total = viewMode === 'grouped' ? groupedTotal : viewMode === 'byproduct' ? productTotal : listTotal
   const totalPages = viewMode === 'grouped' ? groupedTotalPages : viewMode === 'byproduct' ? productTotalPages : listTotalPages
-  const maxProductRevenue = useMemo(
-    () => Math.max(0, ...(stats?.productos.map(product => Number(product.facturacion)) || [])),
-    [stats]
-  )
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -310,92 +410,7 @@ export default function ContratosView() {
       </div>
 
       {/* Dashboard Stats */}
-      {stats ? (
-        <>
-          {/* Main stats cards */}
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
-              <dt className="text-xs font-medium text-gray-500 uppercase">Total Contratos</dt>
-              <dd className="mt-1 text-2xl font-bold text-gray-900">{stats.general.total}</dd>
-            </div>
-            <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
-              <dt className="text-xs font-medium text-gray-500 uppercase">Activos</dt>
-              <dd className="mt-1 text-2xl font-bold text-green-600">{stats.general.activos}</dd>
-            </div>
-            <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
-              <dt className="text-xs font-medium text-gray-500 uppercase">Dados de Baja</dt>
-              <dd className="mt-1 text-2xl font-bold text-red-500">{stats.general.bajas}</dd>
-            </div>
-            <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
-              <dt className="text-xs font-medium text-gray-500 uppercase">Facturación Mensual</dt>
-              <dd className="mt-1 text-2xl font-bold text-orange-600">{formatCurrency(stats.general.facturacion_mensual)}&euro;</dd>
-            </div>
-            <div className="rounded-lg bg-white shadow border border-gray-200 px-4 py-4">
-              <dt className="text-xs font-medium text-gray-500 uppercase">Clientes con Servicio</dt>
-              <dd className="mt-1 text-2xl font-bold text-blue-600">{stats.general.clientes_con_servicio}</dd>
-            </div>
-          </div>
-
-          {/* Product breakdown + Top clients */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* By Product */}
-            <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Facturación por Producto</h3>
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {stats.productos.map((prod, idx) => {
-                  const pct = maxProductRevenue > 0 ? (Number(prod.facturacion) / maxProductRevenue) * 100 : 0
-                  return (
-                    <div key={prod.producto} className="flex items-center gap-3">
-                      <button
-                        onClick={() => { setProducto(prod.producto); setPage(1) }}
-                        className={`inline-flex min-h-11 items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 min-w-[90px] justify-center ${getProductColor(prod.producto)}`}
-                      >
-                        {prod.producto}
-                      </button>
-                      <div className="flex-1 bg-gray-100 rounded-full h-2.5">
-                        <div className={`${BAR_COLORS[idx % BAR_COLORS.length]} h-2.5 rounded-full`} style={{ width: `${pct}%` }}></div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-700 w-28 text-right">
-                        {formatCurrency(prod.facturacion)}&euro;
-                      </span>
-                      <span className="text-xs text-gray-500 w-16 text-right">
-                        {prod.activos} act.
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Top Clients */}
-            <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Top 15 Clientes por Facturación</h3>
-              <div className="overflow-y-auto max-h-80">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-xs text-gray-500 uppercase">
-                      <th className="text-left py-1 pr-2">#</th>
-                      <th className="text-left py-1">Cliente</th>
-                      <th className="text-right py-1">Contratos</th>
-                      <th className="text-right py-1">Facturación</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.topClientes.map((client, i) => (
-                      <tr key={client.cliente_id} className="border-t border-gray-100">
-                        <td className="py-1.5 pr-2 text-gray-400 font-mono text-xs">{i + 1}</td>
-                        <td className="py-1.5 text-gray-900 font-medium truncate max-w-[200px]">{client.nombre_cliente}</td>
-                        <td className="py-1.5 text-right text-gray-600">{client.contratos_activos}</td>
-                        <td className="py-1.5 text-right font-medium text-orange-600">{formatCurrency(client.facturacion)}&euro;</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </>
-      ) : statsLoading ? <DashboardStatsSkeleton /> : null}
+      {stats ? <DashboardStats stats={stats} onSelectProduct={selectProduct} /> : statsLoading ? <DashboardStatsSkeleton /> : null}
 
       {/* Filters + View Toggle */}
       <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
@@ -664,11 +679,11 @@ export default function ContratosView() {
                           ) : '-'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-medium text-gray-900">{formatCurrency(contrato.precio)}&euro;</td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{contrato.fecha_inicio ? new Date(contrato.fecha_inicio).toLocaleDateString('es-ES') : '-'}</td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{contrato.fecha_inicio ? formatDate(contrato.fecha_inicio) : '-'}</td>
                         <td className="px-4 py-3 whitespace-nowrap text-sm">
                           {contrato.fecha_baja ? (
                             <span className="text-red-600">
-                              {new Date(contrato.fecha_baja).toLocaleDateString('es-ES')}
+                              {formatDate(contrato.fecha_baja)}
                               {contrato.causa_baja && <span className="block text-xs">{contrato.causa_baja}</span>}
                             </span>
                           ) : '-'}
@@ -708,7 +723,7 @@ export default function ContratosView() {
 }
 
 // Reusable contract row component
-function ContractRow({ contrato, indent = false, showClient = false }: { contrato: Contrato; indent?: boolean; showClient?: boolean }) {
+const ContractRow = memo(function ContractRow({ contrato, indent = false, showClient = false }: { contrato: Contrato; indent?: boolean; showClient?: boolean }) {
   return (
     <div className={`px-5 py-3 ${indent ? 'pl-14' : ''} ${!contrato.activo ? 'opacity-60' : ''}`}>
       <div className="flex items-start justify-between">
@@ -735,9 +750,9 @@ function ContractRow({ contrato, indent = false, showClient = false }: { contrat
           <p className="text-sm font-medium text-gray-900 truncate">{contrato.titulo}</p>
           <p className="text-xs text-gray-500">{contrato.tarifa}</p>
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1 text-xs text-gray-500">
-            {contrato.fecha_inicio && <span>Inicio: {new Date(contrato.fecha_inicio).toLocaleDateString('es-ES')}</span>}
+            {contrato.fecha_inicio && <span>Inicio: {formatDate(contrato.fecha_inicio)}</span>}
             {contrato.fecha_baja && (
-              <span className="text-red-600">Baja: {new Date(contrato.fecha_baja).toLocaleDateString('es-ES')}{contrato.causa_baja && ` (${contrato.causa_baja})`}</span>
+              <span className="text-red-600">Baja: {formatDate(contrato.fecha_baja)}{contrato.causa_baja && ` (${contrato.causa_baja})`}</span>
             )}
             {contrato.telefonos_contrato && <span>Tel: {contrato.telefonos_contrato}</span>}
           </div>
@@ -751,4 +766,4 @@ function ContractRow({ contrato, indent = false, showClient = false }: { contrat
       </div>
     </div>
   )
-}
+})
