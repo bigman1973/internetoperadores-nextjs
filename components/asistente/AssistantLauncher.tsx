@@ -11,9 +11,10 @@ type AssistantLoadingShellProps = {
   dialogRef: RefObject<HTMLDivElement | null>
   closeButtonRef: RefObject<HTMLButtonElement | null>
   onClose: () => void
+  failed: boolean
 }
 
-function AssistantLoadingShell({ dialogRef, closeButtonRef, onClose }: AssistantLoadingShellProps) {
+function AssistantLoadingShell({ dialogRef, closeButtonRef, onClose, failed }: AssistantLoadingShellProps) {
   return (
     <div className="fixed inset-0 z-[60] bg-slate-950/30 sm:bg-transparent" role="presentation">
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="asistente-titulo" className="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:inset-auto sm:bottom-24 sm:left-6 sm:h-[min(600px,calc(100dvh-7rem))] sm:w-[min(380px,calc(100vw-3rem))] sm:rounded-2xl sm:border sm:border-slate-200">
@@ -23,7 +24,7 @@ function AssistantLoadingShell({ dialogRef, closeButtonRef, onClose }: Assistant
             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" /></svg>
           </button>
         </header>
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-700" aria-live="polite">Preparando el asistente…</div>
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-700" aria-live="polite" role={failed ? "alert" : "status"}>{failed ? "No hemos podido cargar el asistente. Cierra el diálogo y vuelve a intentarlo." : "Preparando el asistente…"}</div>
       </div>
     </div>
   )
@@ -43,6 +44,7 @@ export default function AssistantLauncher() {
   const [Panel, setPanel] = useState<PanelComponent | null>(null)
   const [open, setOpen] = useState(false)
   const [panelVisible, setPanelVisible] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [unavailable, setUnavailable] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
@@ -105,7 +107,7 @@ export default function AssistantLauncher() {
               setPanelVisible(true)
             }
           })
-          .catch(() => undefined)
+          .catch(() => { if (!cancelled) setLoadFailed(true) })
       })
     })
     return () => {
@@ -174,6 +176,7 @@ export default function AssistantLauncher() {
         onFocus={scheduleIdleLoad}
         onClick={() => {
           clearIntentTimer()
+          setLoadFailed(false)
           setPanelVisible(false)
           setOpen(true)
         }}
@@ -184,7 +187,7 @@ export default function AssistantLauncher() {
         </svg>
         <span className="sr-only">Asistente virtual</span>
       </button>
-      {showLoadingShell ? <AssistantLoadingShell dialogRef={loadingDialogRef} closeButtonRef={loadingCloseButtonRef} onClose={close} /> : null}
+      {showLoadingShell ? <AssistantLoadingShell dialogRef={loadingDialogRef} closeButtonRef={loadingCloseButtonRef} onClose={close} failed={loadFailed} /> : null}
       {Panel && open && panelVisible ? (
         <Panel
           launcherRef={launcherRef}

@@ -15,7 +15,9 @@ const indexOf = (source: string, value: string) => {
 
 assert.match(launcher, /disabled=\{!hydrated\}/, 'El botón permanece deshabilitado hasta la hidratación.')
 assert.match(launcher, /role="dialog" aria-modal="true" aria-labelledby="asistente-titulo"/, 'La carcasa inmediata conserva el diálogo modal etiquetado.')
-assert.match(launcher, /aria-live="polite">Preparando el asistente…<\//, 'La carcasa inmediata comunica su estado sin ocultarlo.')
+assert.match(launcher, /aria-live="polite" role=\{failed \? "alert" : "status"\}/, 'La carcasa comunica estado o fallo accesibles.')
+assert.match(launcher, /Preparando el asistente…/, 'Se conserva el feedback de preparación.')
+assert.match(launcher, /Cierra el diálogo y vuelve a intentarlo/, 'Un fallo de chunk no se presenta como preparación indefinida.')
 assert.match(launcher, /if \(event\.key === 'Escape'\)[\s\S]*?close\(\)/, 'La carcasa inmediata permite cerrar con Escape.')
 assert.match(launcher, /document\.addEventListener\('keydown', onKeyDown\)/, 'La carcasa inmediata instala la trampa de foco.')
 assert.match(launcher, /launcherRef\.current\?\.focus\(\)/, 'El cierre devuelve el foco al lanzador.')
