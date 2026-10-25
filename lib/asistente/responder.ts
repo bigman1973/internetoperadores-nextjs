@@ -66,7 +66,7 @@ function fuenteParaDatoPublicado(pregunta: string, fuentes: FuenteRespuesta[]): 
 }
 
 /** En modo extractivo se citan fragmentos literales, sin resumir cifras, plazos ni condiciones. */
-function respuestaExtractivaLiteral(pregunta: string, fragmentos: FragmentoRecuperado[]): { respuesta: string; fuentes: FuenteRespuesta[]; modo: 'extractivo' } {
+function respuestaExtractivaLiteral(pregunta: string, fragmentos: FragmentoRecuperado[]): { respuesta: string; fuentes: FuenteRespuesta[]; modo: 'extractivo'; datoNoPublicado?: boolean } {
   const fuentes = fragmentos.slice(0, 4).map((fragmento, indice) => ({
     n: indice + 1,
     titulo: fragmento.titulo,
@@ -77,7 +77,7 @@ function respuestaExtractivaLiteral(pregunta: string, fragmentos: FragmentoRecup
   }))
   const referencias = fuentes.map(fuente => `[${fuente.n}]`).join(' ')
   const fuenteDato = fuenteParaDatoPublicado(pregunta, fuentes)
-  if (!fuenteDato) return { respuesta: `La documentación disponible no concreta ese dato. ${referencias}`, fuentes, modo: 'extractivo' }
+  if (!fuenteDato) return { respuesta: `La documentación disponible no concreta ese dato. ${referencias}`, fuentes, modo: 'extractivo', datoNoPublicado: true }
   // Se reproduce sólo el fragmento más pertinente. Las otras fuentes quedan
   // citadas como relacionadas sin introducir en la respuesta cifras, plazos o
   // condiciones que no responden a la pregunta.
@@ -125,7 +125,7 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
   let sinFuente = false
   let escalar = false
   let motivo: RespuestaAsistente['motivoEscalado']
-  let modoRespuesta: RespuestaAsistente['modo'] = runtime.modo === 'local' ? 'local' : 'extractivo'
+  let modoRespuesta: RespuestaAsistente['modo'] = 'extractivo'
   if (analisis.injection) {
     respuesta = RESPUESTA_INYECCION
     sinFuente = true
@@ -160,13 +160,16 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
       // El modo extractivo no reescribe los fragmentos: conserva evidencia
       // literal. El proveedor local recibe la pregunta anonimizada y la
       // configuración aprobada; si cae al fallback informa su modo real.
-      const proveedorConfigurado = proveedorPara as unknown as (modo: 'extractivo' | 'local' | 'desactivado', opciones?: { modelo?: string | null; tono?: string }) => NonNullable<ReturnType<typeof proveedorPara>>
       const resultado = runtime.modo === 'extractivo'
         ? respuestaExtractivaLiteral(textoAnon, fragmentos)
-        : await proveedorConfigurado(runtime.modo, { modelo: runtime.modelo, tono: runtime.tono }).responder(textoAnon, fragmentos)
+        : await proveedorPara(runtime.modo, { modelo: runtime.modelo, tono: runtime.tono })!.responder(textoAnon, fragmentos)
       respuesta = resultado.respuesta
       fuentes = resultado.fuentes
       modoRespuesta = resultado.modo === 'local' ? 'local' : 'extractivo'
+      if ('datoNoPublicado' in resultado && resultado.datoNoPublicado) {
+        sinFuente = true; motivo = 'SIN_RESPUESTA'; escalar = true
+        await guardarHueco(textoAnon, canal, conversacionId, mensajes.id)
+      }
     }
   }
   const almacenada = await redactarPII(respuesta, { incluirCodigoPostal: false })

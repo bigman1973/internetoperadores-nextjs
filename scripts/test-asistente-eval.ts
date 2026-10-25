@@ -200,7 +200,7 @@ async function main(): Promise<void> {
   const url = process.env.ASSISTANT_TEST_DATABASE_URL
   asegurar(url && new URL(url).pathname === `/${BASE_LOCAL_EVAL}` && ['127.0.0.1', 'localhost', '::1'].includes(new URL(url).hostname), 'EVAL_DB_GUARD')
   process.env.DATABASE_URL = url
-  delete process.env.FINANCE_STAGING_SANDBOX
+  process.env.FINANCE_STAGING_SANDBOX = '0'
   process.env.ASSISTANT_MODE = 'extractivo'
   process.env.ASSISTANT_PUBLIC_ENABLED = 'true'
   process.env.ASSISTANT_CLIENT_ENABLED = 'false'
