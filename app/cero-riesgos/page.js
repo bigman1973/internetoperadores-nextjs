@@ -9,13 +9,13 @@ export default function Home() {
 
 
       {/* Hero */}
-      <section className="relative bg-cover bg-center h-[600px] flex items-center" 
+      <section className="relative bg-cover bg-center min-h-[600px] py-16 md:py-0 md:h-[600px] flex items-center"
         style={{backgroundImage: "linear-gradient(rgba(0,0,0,0.5), rgba(0,0,0,0.5)), url('https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=1600')"}}>
         <div className="container mx-auto px-4 text-center text-white">
-          <h1 className="text-6xl font-bold mb-6">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-6 break-words">
             Cero Riesgo, empieza con<br/>saber la verdad.
           </h1>
-          <div className="flex justify-center gap-8 mb-8 text-lg">
+          <div className="flex flex-wrap justify-center gap-x-8 gap-y-3 mb-8 text-base sm:text-lg">
             <div className="flex items-center gap-2">
               <span className="text-green-400">✓</span> Vulnerabilidades IT
             </div>
@@ -31,7 +31,7 @@ export default function Home() {
           </div>
           <a 
             href="/cero-riesgos/cotizar" 
-            className="inline-block bg-orange-500 text-white px-10 py-4 rounded text-xl font-bold hover:bg-orange-600"
+            className="inline-block bg-orange-500 text-white px-6 sm:px-10 py-4 rounded text-lg sm:text-xl font-bold hover:bg-orange-600"
             
             
           >
@@ -46,15 +46,15 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-3 gap-12 text-center">
             <div>
-              <div className="text-6xl font-bold text-orange-500 mb-2">6,340+</div>
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">6,340+</div>
               <div className="text-gray-600">Clientes atendidos</div>
             </div>
             <div>
-              <div className="text-6xl font-bold text-orange-500 mb-2">19</div>
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">19</div>
               <div className="text-gray-600">Años de experiencia</div>
             </div>
             <div>
-              <div className="text-6xl font-bold text-orange-500 mb-2">+39,567€</div>
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">+39,567€</div>
               <div className="text-gray-600">Pérdida media por ciberataque a empresas españolas</div>
             </div>
           </div>
@@ -66,7 +66,7 @@ export default function Home() {
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-2 gap-12 items-center">
             <div>
-              <h2 className="text-5xl font-bold mb-6">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 break-words">
                 Esto no es un servicio convencional. Esto va de proteger lo que has construido
               </h2>
               <div className="h-1 w-20 bg-orange-500 mb-6"></div>
@@ -191,8 +191,8 @@ export default function Home() {
           </p>
           
           <div className="space-y-12">
-            <div className="flex gap-8 items-start">
-              <div className="text-6xl font-bold text-orange-500 opacity-20">01</div>
+            <div className="flex gap-4 sm:gap-8 items-start">
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 opacity-20">01</div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold mb-3">Reunión inicial</h3>
                 <p className="text-gray-700">
@@ -201,8 +201,8 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="flex gap-8 items-start">
-              <div className="text-6xl font-bold text-orange-500 opacity-20">02</div>
+            <div className="flex gap-4 sm:gap-8 items-start">
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 opacity-20">02</div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold mb-3">Análisis técnico</h3>
                 <p className="text-gray-700">
@@ -211,8 +211,8 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="flex gap-8 items-start">
-              <div className="text-6xl font-bold text-orange-500 opacity-20">03</div>
+            <div className="flex gap-4 sm:gap-8 items-start">
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 opacity-20">03</div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold mb-3">Informe con prioridades</h3>
                 <p className="text-gray-700">
@@ -221,8 +221,8 @@ export default function Home() {
               </div>
             </div>
             
-            <div className="flex gap-8 items-start">
-              <div className="text-6xl font-bold text-orange-500 opacity-20">04</div>
+            <div className="flex gap-4 sm:gap-8 items-start">
+              <div className="text-5xl md:text-6xl font-bold text-orange-500 opacity-20">04</div>
               <div className="flex-1">
                 <h3 className="text-2xl font-bold mb-3">Entrega en 48 h</h3>
                 <p className="text-gray-700">
@@ -310,7 +310,7 @@ export default function Home() {
           </p>
           <a 
             href="https://wa.me/34900730034?text=Hola,%20quiero%20reservar%20el%20servicio%20Cero%20Riesgos%20por%20790€.%20¿Cuándo%20podemos%20hablar?" 
-            className="inline-block bg-white text-orange-500 px-10 py-4 rounded text-xl font-bold hover:bg-gray-100"
+            className="inline-block bg-white text-orange-500 px-6 sm:px-10 py-4 rounded text-lg sm:text-xl font-bold hover:bg-gray-100"
             target="_blank"
             rel="noopener noreferrer"
           >
