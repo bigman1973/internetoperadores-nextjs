@@ -16,9 +16,10 @@ type Props = {
   version: number
   sourceSyncedAt: string | null
   refreshOnSaved?: boolean
+  initialEditing?: boolean
 }
 
-function CrmBusinessUnitQuickEditor({ contactId, initialUnits, options, editable, version, sourceSyncedAt, refreshOnSaved = false }: Props) {
+function CrmBusinessUnitQuickEditor({ contactId, initialUnits, options, editable, version, sourceSyncedAt, refreshOnSaved = false, initialEditing = false }: Props) {
   const router = useRouter()
   const { hasAreaAccess, isSuperAdmin, isViewingAs } = useRole()
   const canWrite = editable && !isViewingAs && (isSuperAdmin || hasAreaAccess('admin.crm.contactos', 'escritura'))
@@ -28,7 +29,7 @@ function CrmBusinessUnitQuickEditor({ contactId, initialUnits, options, editable
   }, [initialUnits, options])
   const [savedUnits, setSavedUnits] = useState(initialUnits)
   const [selectedUnits, setSelectedUnits] = useState(initialUnits)
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(initialEditing)
   const [saving, setSaving] = useState(false)
   const [currentVersion, setCurrentVersion] = useState(version)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -138,6 +139,7 @@ export default memo(CrmBusinessUnitQuickEditor, (previous, next) => (
   && previous.version === next.version
   && previous.sourceSyncedAt === next.sourceSyncedAt
   && previous.refreshOnSaved === next.refreshOnSaved
+  && previous.initialEditing === next.initialEditing
   && sameStringArray(previous.initialUnits, next.initialUnits)
   && sameOptions(previous.options, next.options)
 ))
