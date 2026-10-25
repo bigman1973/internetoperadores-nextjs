@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { coincideTarifaEmpresa, normalizaBusquedaTarifaEmpresa } from './tarifasEmpresaFilter';
 import { iconoCategoria } from './tarifasEmpresaShared';
 
 interface CategoriaResumen {
@@ -14,27 +15,32 @@ interface Props {
   total: number;
 }
 
-function coincideBusqueda(elemento: HTMLElement, termino: string) {
-  if (!termino) return true;
+interface TarifaCatalogo {
+  elemento: HTMLElement;
+  nombre: string;
+  descripcion: string;
+  velocidad: string;
+  categoria: string;
+}
 
-  return [
-    elemento.dataset.tarifaNombre,
-    elemento.dataset.tarifaDescripcion,
-    elemento.dataset.tarifaVelocidad,
-    elemento.dataset.tarifaCategoria,
-  ].some((valor) => valor?.includes(termino));
+interface SeccionCatalogo {
+  elemento: HTMLElement;
+  categoria: string;
+  tarifas: TarifaCatalogo[];
 }
 
 export default function TarifasEmpresaClient({ categorias, total }: Props) {
   const router = useRouter();
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState('TODAS');
-  const [busqueda, setBusqueda] = useState('');
+  const [busquedaEntrada, setBusquedaEntrada] = useState('');
+  const busqueda = useDeferredValue(busquedaEntrada);
   const [tarifasVisibles, setTarifasVisibles] = useState(total);
   const [refreshing, setRefreshing] = useState(false);
   const seHaFiltrado = useRef(false);
+  const catalogoCacheado = useRef<SeccionCatalogo[] | null>(null);
 
   useEffect(() => {
-    const termino = busqueda.trim().toLowerCase();
+    const termino = normalizaBusquedaTarifaEmpresa(busqueda);
     const tieneFiltro = categoriaSeleccionada !== 'TODAS' || Boolean(termino);
 
     // En la carga inicial no se toca el catálogo estático: el navegador puede
@@ -48,46 +54,50 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
     const sinResultados = document.getElementById('tarifas-empresa-sin-resultados');
     if (!catalogo || !sinResultados) return;
 
-    const secciones = Array.from(catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'));
-    const seccionesConResultado = secciones.map((seccion) => {
-      const categoria = seccion.dataset.tarifasCategoria;
-      const tarifas = Array.from(seccion.querySelectorAll<HTMLElement>('[data-tarifa]'));
-      let visibles = 0;
-      let primerIndiceVisible = Number.POSITIVE_INFINITY;
+    // El catálogo es HTML estable del servidor. Se crea su índice sólo al
+    // primer filtro para no recorrer miles de nodos en cada pulsación. Un
+    // router.refresh puede sustituir ese HTML, por lo que se invalida sólo en
+    // ese caso antes de volver a indexarlo.
+    if (catalogoCacheado.current?.some(({ elemento }) => !catalogo.contains(elemento))) {
+      catalogoCacheado.current = null;
+    }
+    catalogoCacheado.current ??= Array.from(
+      catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'),
+    ).map((seccion) => ({
+      elemento: seccion,
+      categoria: seccion.dataset.tarifasCategoria || '',
+      tarifas: Array.from(seccion.querySelectorAll<HTMLElement>('[data-tarifa]')).map((elemento) => ({
+        elemento,
+        nombre: elemento.dataset.tarifaNombre || '',
+        descripcion: elemento.dataset.tarifaDescripcion || '',
+        velocidad: elemento.dataset.tarifaVelocidad || '',
+        categoria: elemento.dataset.tarifaCategoria || '',
+      })),
+    }));
 
-      for (const tarifa of tarifas) {
-        const coincideCategoria = categoriaSeleccionada === 'TODAS' || categoria === categoriaSeleccionada;
-        const coincide = coincideCategoria && coincideBusqueda(tarifa, termino);
-        tarifa.hidden = !coincide;
+    let tarifasVisiblesAhora = 0;
+    for (const seccion of catalogoCacheado.current) {
+      let visiblesEnSeccion = 0;
+
+      for (const tarifa of seccion.tarifas) {
+        const coincideCategoria = categoriaSeleccionada === 'TODAS' || seccion.categoria === categoriaSeleccionada;
+        const coincide = coincideCategoria && coincideTarifaEmpresa(tarifa, termino);
+        const debeOcultarse = !coincide;
+        if (tarifa.elemento.hidden !== debeOcultarse) tarifa.elemento.hidden = debeOcultarse;
         if (coincide) {
-          visibles += 1;
-          primerIndiceVisible = Math.min(primerIndiceVisible, Number(tarifa.dataset.tarifaIndice));
+          visiblesEnSeccion += 1;
         }
       }
 
-      seccion.hidden = visibles === 0;
-      return {
-        seccion,
-        visibles,
-        primerIndiceVisible,
-      };
-    });
-
-    const visibles = seccionesConResultado.reduce((acumulado, seccion) => acumulado + seccion.visibles, 0);
-    const ordenadas = [...seccionesConResultado].sort(
-      (a, b) => b.visibles - a.visibles || a.primerIndiceVisible - b.primerIndiceVisible,
-    );
-
-    if (ordenadas.some((seccion, indice) => seccion.seccion !== secciones[indice])) {
-      const fragmento = document.createDocumentFragment();
-      for (const { seccion } of ordenadas) fragmento.append(seccion);
-      catalogo.append(fragmento);
+      const debeOcultarse = visiblesEnSeccion === 0;
+      if (seccion.elemento.hidden !== debeOcultarse) seccion.elemento.hidden = debeOcultarse;
+      tarifasVisiblesAhora += visiblesEnSeccion;
     }
 
-    sinResultados.hidden = visibles !== 0;
-    setTarifasVisibles(visibles);
+    sinResultados.hidden = tarifasVisiblesAhora !== 0;
+    setTarifasVisibles(tarifasVisiblesAhora);
     seHaFiltrado.current = tieneFiltro;
-  }, [busqueda, categoriaSeleccionada, categorias, total]);
+  }, [busqueda, categoriaSeleccionada, total]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -105,14 +115,14 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
     <>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-8">
         <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-          <form id="tarifas-empresa-filtros" onSubmit={(event) => event.preventDefault()} onReset={() => { setBusqueda(''); setCategoriaSeleccionada('TODAS'); }}>
+          <form id="tarifas-empresa-filtros" onSubmit={(event) => event.preventDefault()} onReset={() => { setBusquedaEntrada(''); setCategoriaSeleccionada('TODAS'); }}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Buscar tarifa</label>
                 <input
                   type="text"
-                  value={busqueda}
-                  onChange={(event) => setBusqueda(event.target.value)}
+                  value={busquedaEntrada}
+                  onChange={(event) => setBusquedaEntrada(event.target.value)}
                   placeholder="Nombre, velocidad, categoría..."
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 />
