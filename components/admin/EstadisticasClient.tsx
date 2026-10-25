@@ -51,6 +51,7 @@ export default function EstadisticasClient() {
 
   // Cargar Chart.js
   useEffect(() => {
+    if (!datosMensual && !datosClientes && !datosCategorias) return
     if (typeof window !== 'undefined' && !window.Chart) {
       const script = document.createElement('script')
       script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'
@@ -59,7 +60,7 @@ export default function EstadisticasClient() {
     } else {
       setChartLoaded(true)
     }
-  }, [])
+  }, [datosMensual, datosClientes, datosCategorias])
 
   const fetchData = async (tipo: string) => {
     setLoading(true)
@@ -328,7 +329,16 @@ export default function EstadisticasClient() {
       </div>
 
       {/* KPIs */}
-      {datosMensual && (() => {
+      {loading && !datosMensual ? (
+        <div className="space-y-4" aria-busy="true" aria-live="polite">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            {[...Array(5)].map((_, index) => <div key={index} className="h-24 animate-pulse rounded-lg border border-gray-100 bg-gray-50" />)}
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
+            {[...Array(2)].map((_, index) => <div key={index} className="h-24 animate-pulse rounded-lg border border-gray-100 bg-gray-50" />)}
+          </div>
+        </div>
+      ) : datosMensual && (() => {
         const acumulado2026 = datosMensual.totales.año2026?.total_sin_iva || 0
         const facturas2026 = datosMensual.totales.año2026?.facturas || 0
         const proyeccion2026 = ultimoMes > 0 ? acumulado2026 * (12 / ultimoMes) : 0
@@ -417,7 +427,7 @@ export default function EstadisticasClient() {
           ].map(t => (
             <button key={t.key}
               onClick={() => setTab(t.key as any)}
-              className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`min-h-11 pb-3 text-sm font-medium border-b-2 transition-colors ${
                 tab === t.key ? 'border-orange-500 text-orange-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
               {t.label}
@@ -449,8 +459,8 @@ export default function EstadisticasClient() {
               </div>
 
               {/* Tabla detalle */}
-              <div className="rounded-lg bg-white shadow border border-gray-200 overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
+              <div className="overflow-x-auto rounded-lg bg-white shadow border border-gray-200">
+                <table className="min-w-[740px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Mes</th>
@@ -513,8 +523,8 @@ export default function EstadisticasClient() {
               </div>
 
               {/* Tabla detalle clientes */}
-              <div className="rounded-lg bg-white shadow border border-gray-200 overflow-hidden">
-                <table className="min-w-full divide-y divide-gray-200">
+              <div className="overflow-x-auto rounded-lg bg-white shadow border border-gray-200">
+                <table className="min-w-[900px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
@@ -586,11 +596,11 @@ export default function EstadisticasClient() {
               </div>
 
               {/* Tabla distribución */}
-              <div className="rounded-lg bg-white shadow border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto rounded-lg bg-white shadow border border-gray-200">
                 <div className="px-4 py-3 bg-gray-50 border-b">
                   <h3 className="text-sm font-semibold text-gray-700">Distribución por Segmento — 2025: {datosCategorias.periodoLabel2025 || datosCategorias.periodoComparado} | 2026: {datosCategorias.periodoLabel2026 || datosCategorias.periodoComparado}</h3>
                 </div>
-                <table className="min-w-full divide-y divide-gray-200">
+                <table className="min-w-[760px] divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Segmento</th>
