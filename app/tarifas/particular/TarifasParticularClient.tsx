@@ -1,7 +1,7 @@
 'use client';
-import { useState, useMemo, useEffect } from 'react';
+import { Suspense, useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import ParticularNav from '../../../components/ParticularNav';
 import ParticularFooter from '../../../components/ParticularFooter';
 import AddToCartButton from '../../../components/AddToCartButton';
@@ -35,55 +35,51 @@ const iconoCategoria: Record<string, string> = {
   'CUOTAS DE ALTA': '📋',
 };
 
-// Iconos y orden para subcategorías de Internet (tecnologías)
-const iconoTecnologia: Record<string, string> = {
-  'Fibra': '🔵',
-  '4G/5G': '📶',
-  'Radio': '📡',
-  'Satélite': '🛰️',
-};
+// Orden para subcategorías de Internet (tecnologías)
 const ordenTecnologia: Record<string, number> = {
   'Fibra': 1,
   '4G/5G': 2,
   'Radio': 3,
   'Satélite': 4,
 };
-const descripcionTecnologia: Record<string, string> = {
-  'Fibra': 'Conexión de fibra óptica. Máxima velocidad y estabilidad para tu hogar.',
-  '4G/5G': 'Internet móvil de alta velocidad. Cobertura donde no llega la fibra.',
-  'Radio': 'Conexión inalámbrica por radioenlace. Ideal para zonas rurales y aisladas.',
-  'Satélite': 'Internet vía satélite. Cobertura garantizada en cualquier punto.',
+const categoriasPorParametro: Record<string, string> = {
+  internet: 'INTERNET',
+  movil: 'TELEFONÍA MÓVIL',
+  fijo: 'TELEFONÍA FIJA',
+  packs: 'PACKS',
+  'mas-vendido': 'MAS_VENDIDO',
 };
 
 interface Props {
   tarifas: TarifaWeb[];
-  categorias: Record<string, TarifaWeb[]>;
   total: number;
   masVendidoIds?: number[];
 }
-export default function TarifasParticularClient({ tarifas, categorias, total, masVendidoIds = [] }: Props) {
-  const router = useRouter();
+
+function CategoriaDesdeUrl({ onCategoriaChange }: { onCategoriaChange: (categoria: string) => void }) {
   const searchParams = useSearchParams();
-  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS');
-  const [busqueda, setBusqueda] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  // Map URL ?cat= param to category filter
+
   useEffect(() => {
     const catParam = searchParams.get('cat');
     if (catParam) {
-      const catMap: Record<string, string> = {
-        'internet': 'INTERNET',
-        'movil': 'TELEFONÍA MÓVIL',
-        'fijo': 'TELEFONÍA FIJA',
-        'packs': 'PACKS',
-        'mas-vendido': 'MAS_VENDIDO',
-      };
-      const mapped = catMap[catParam.toLowerCase()];
+      const mapped = categoriasPorParametro[catParam.toLowerCase()];
       if (mapped) {
-        setCategoriaSeleccionada(mapped);
+        onCategoriaChange(mapped);
       }
     }
-  }, [searchParams]);
+  }, [searchParams, onCategoriaChange]);
+
+  return null;
+}
+
+function NavegacionDesdeUrl() {
+  const searchParams = useSearchParams();
+  return <ParticularNav currentPage={searchParams.get('cat') || 'internet'} />;
+}
+
+export default function TarifasParticularClient({ tarifas, total, masVendidoIds = [] }: Props) {
+  const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<string>('TODAS');
+  const [busqueda, setBusqueda] = useState('');
   // Títulos dinámicos según categoría
   const titulosPorCategoria: Record<string, { titulo: string; descripcion: string }> = {
     'TODAS': { titulo: 'Tarifas para Particulares', descripcion: 'Encuentra la tarifa perfecta para tu hogar. Internet, móvil y línea fija con la mejor cobertura.' },
@@ -96,11 +92,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     'PACKS': { titulo: 'Packs Ahorro', descripcion: 'Combina internet, móvil y fijo en un solo pack. Más servicios, menos preocupaciones y el mejor precio.' },
   };
   const heroInfo = titulosPorCategoria[categoriaSeleccionada] || titulosPorCategoria['TODAS'];
-  const categoriasOrdenadas = useMemo(() => {
-    return Object.entries(categorias)
-      .sort((a, b) => b[1].length - a[1].length)
-      .map(([cat]) => cat);
-  }, [categorias]);
   // Mapeo de categoría seleccionada a sección web para filtrar
   const seccionWebMap: Record<string, string> = {
     'INTERNET': 'internet',
@@ -168,17 +159,6 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
     return sorted;
   }, [tarifasInternetFiltradas, categoriaSeleccionada]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await fetch('/api/revalidate-tarifas', { method: 'POST' });
-      router.refresh();
-    } catch (e) {
-      console.error('Error refreshing:', e);
-    } finally {
-      setTimeout(() => setRefreshing(false), 1000);
-    }
-  };
   const tarifasDestacadas = tarifasFiltradas.filter(t => t.destacada);
   const tarifasNormales = tarifasFiltradas.filter(t => !t.destacada);
   const getDetalleConectividad = (tarifa: TarifaWeb): string | null => {
@@ -258,10 +238,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
             )}
             <div className="space-y-2">
               {tarifa.caracteristicas.items.filter((feat: {titulo: string; descripcion: string}) => feat.titulo).map((feat: {titulo: string; descripcion: string}, idx: number) => (
-                <div key={idx} className="flex items-start gap-2 text-sm">
-                  <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-orange-500" fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                  </svg>
+                <div key={idx} className="flex items-start gap-2 text-sm before:mt-0.5 before:flex-shrink-0 before:font-bold before:text-orange-500 before:content-['✓']">
                   <div>
                     <span className="font-medium text-gray-800">{feat.titulo}</span>
                     {feat.descripcion && (
@@ -283,7 +260,12 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <ParticularNav currentPage={searchParams.get("cat") || "internet"} />
+      <Suspense fallback={<ParticularNav currentPage="internet" />}>
+        <NavegacionDesdeUrl />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CategoriaDesdeUrl onCategoriaChange={setCategoriaSeleccionada} />
+      </Suspense>
       <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white py-12 md:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h1 className="text-3xl md:text-5xl font-bold mb-4">{heroInfo.titulo}</h1>
@@ -390,10 +372,7 @@ export default function TarifasParticularClient({ tarifas, categorias, total, ma
                           <div className="mt-4 pt-4 border-t border-gray-100">
                             <div className="space-y-1.5">
                               {tarifa.caracteristicas.items.filter((feat: {titulo: string; descripcion: string}) => feat.titulo).map((feat: {titulo: string; descripcion: string}, idx: number) => (
-                                <div key={idx} className="flex items-start gap-2 text-sm">
-                                  <svg className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-orange-500" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                  </svg>
+                                <div key={idx} className="flex items-start gap-2 text-sm before:mt-0.5 before:flex-shrink-0 before:text-xs before:font-bold before:text-orange-500 before:content-['✓']">
                                   <div>
                                     <span className="font-medium text-gray-800 text-xs">{feat.titulo}</span>
                                     {feat.descripcion && (
