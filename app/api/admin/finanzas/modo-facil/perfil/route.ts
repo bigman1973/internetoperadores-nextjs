@@ -10,12 +10,14 @@ export async function GET() {
     const context = await assertFinanceEasyRuntime()
     const auth = await requireB4FinanceAccess('lectura')
     if ('response' in auth) return auth.response
-    const [easyOnly, canManageAutomation] = await Promise.all([
+    const [easyOnly, canManageAutomation, writeAccess] = await Promise.all([
       isEasyOnlyFinanceUser(auth.actor.id),
       canManageEasyAutomation(auth.actor.id, context),
+      requireB4FinanceAccess('escritura'),
     ])
     return NextResponse.json({
       easyOnly,
+      canWrite: writeAccess.ok === true,
       canManageAutomation,
       environment: context.runtime,
     }, { headers: { 'cache-control': 'private, no-store' } })

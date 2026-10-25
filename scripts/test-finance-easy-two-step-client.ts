@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mayManageAutomation, parseEasyAccessProfile, parseEasyStagingOnly, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
+import { mayManageAutomation, mayWriteEasyWorkspace, parseEasyAccessProfile, parseEasyStagingOnly, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
 import { maskPossibleIban, parseEasyCardRead } from '../components/finanzas/easy/newTarjetasReadPanel';
 import { parseParaPedirRead } from '../components/finanzas/easy/newParaPedirWorkspace';
 import { parseAutomaticPreview } from '../components/finanzas/easy/newAutomaticRulesPanel';
@@ -10,13 +10,16 @@ import { parseEasyReadResponse } from '../components/finanzas/easy/easy-contract
 test('el perfil de automatización falla cerrado ante ausencia o forma incompleta', () => {
   assert.equal(mayManageAutomation(null), false);
   assert.equal(mayManageAutomation(undefined), false);
-  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true, environment: 'staging' }), false);
-  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: false, environment: 'staging' }), false);
-  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true, environment: 'staging' }), true);
-  assert.equal(mayManageAutomation({ easyOnly: true, canManageAutomation: true, environment: 'production' }), false, 'MODO_FACIL_ONLY nunca recibe gestión aunque conserve rol heredado.');
-  assert.equal(mayManageAutomation({ easyOnly: false, canManageAutomation: true, environment: 'production' }), true, 'La producción conserva únicamente la capacidad viva ya verificada por servidor.');
-  assert.deepEqual(parseEasyAccessProfile({ easyOnly: true, canManageAutomation: false, environment: 'staging' }), { easyOnly: true, canManageAutomation: false, environment: 'staging' });
-  assert.deepEqual(parseEasyAccessProfile({ easyOnly: false, canManageAutomation: true, environment: 'production' }), { easyOnly: false, canManageAutomation: true, environment: 'production' });
+  assert.equal(mayManageAutomation({ easyOnly: true, canWrite: true, canManageAutomation: true, environment: 'staging' }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canWrite: true, canManageAutomation: false, environment: 'staging' }), false);
+  assert.equal(mayManageAutomation({ easyOnly: false, canWrite: true, canManageAutomation: true, environment: 'staging' }), true);
+  assert.equal(mayManageAutomation({ easyOnly: true, canWrite: true, canManageAutomation: true, environment: 'production' }), false, 'MODO_FACIL_ONLY nunca recibe gestión aunque conserve rol heredado.');
+  assert.equal(mayManageAutomation({ easyOnly: false, canWrite: true, canManageAutomation: true, environment: 'production' }), true, 'La producción conserva únicamente la capacidad viva ya verificada por servidor.');
+  assert.equal(mayWriteEasyWorkspace(null), false);
+  assert.equal(mayWriteEasyWorkspace({ easyOnly: true, canWrite: false, canManageAutomation: false, environment: 'staging' }), false);
+  assert.equal(mayWriteEasyWorkspace({ easyOnly: true, canWrite: true, canManageAutomation: false, environment: 'staging' }), true);
+  assert.deepEqual(parseEasyAccessProfile({ easyOnly: true, canWrite: true, canManageAutomation: false, environment: 'staging' }), { easyOnly: true, canWrite: true, canManageAutomation: false, environment: 'staging' });
+  assert.deepEqual(parseEasyAccessProfile({ easyOnly: false, canWrite: false, canManageAutomation: true, environment: 'production' }), { easyOnly: false, canWrite: false, canManageAutomation: true, environment: 'production' });
   assert.throws(() => parseEasyAccessProfile({ easyOnly: false }));
   assert.throws(() => parseEasyAccessProfile({ easyOnly: 'false', canManageAutomation: true }));
   assert.throws(() => parseEasyAccessProfile({ easyOnly: false, canManageAutomation: false, environment: 'preview' }));
