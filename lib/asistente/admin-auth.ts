@@ -12,6 +12,7 @@ const NOMBRES: Record<string, string> = {
   'admin.asistente.conocimiento': 'Asistente IA > Conocimiento',
   'admin.asistente.conversaciones': 'Asistente IA > Conversaciones',
   'admin.asistente.leads': 'Asistente IA > Leads',
+  'admin.asistente.leads.contacto': 'Asistente IA > Contacto consentido',
   'admin.asistente.aprendizaje': 'Asistente IA > Aprendizaje',
   'admin.asistente.analitica': 'Asistente IA > Analítica',
   'admin.asistente.propuestas': 'Asistente IA > Informes y propuestas',
