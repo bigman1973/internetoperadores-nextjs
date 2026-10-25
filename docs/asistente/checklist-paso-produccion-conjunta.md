@@ -68,6 +68,8 @@ La comparativa vigente reúne 14 páginas y perfiles móviles/escritorio. La ser
 
 <div class="warning-box"><strong>Interpretación correcta:</strong> los resultados de laboratorio son válidos para detectar regresiones en los guiones medidos; no son una certificación de Core Web Vitals de campo, no cubren todas las acciones y no autorizan publicación. Mantener explícitos «sin p75 de campo» y «sin INP de escritorio» en cualquier informe de aprobación.</div>
 
+<div class="tip-box"><strong>Ensayo adicional del widget:</strong> ON 49d12b8 / OFF 65f5904; copias locales, 412 px, CPU ×4, red 150 ms/1,6 Mbit/s, 3 muestras frías por variante. INP de apertura/cierre: 56, 64 y 80 ms. Mediana LCP ON/OFF: 1.244/1.240 ms (+0,32 %), sin llamadas del asistente antes de interactuar. Se conserva el fallo inicial de 368–408 ms y su corrección. Es evidencia local, no Vercel ni p75; no acredita envío de chat ni TTFT GPU.</div>
+
 ## Asistente IA — controles y entregas parciales, no apto para activación
 
 La evaluación offline/extractiva más reciente registra **100/100 casos correctos (100 %) en la evaluación integrada extractiva; esto no autoriza producción**. El recibo integrado identifica el corpus y el SHA 478a84b; se obtuvieron citas 100 %, cero cifras inventadas, cero fugas/canarios públicos y cero PII persistida. La batería no es tráfico real y requiere revisión de negocio. El entorno GPU definitivo no existe: la prueba de aislamiento Docker realizada es una sonda **CPU parcial**, sin GPU ni pila completa. Tampoco existen locks finales de imágenes/modelos, host UE contratado/verificado, DPA aprobado o programación efectiva de informes.
@@ -76,7 +78,7 @@ La evaluación offline/extractiva más reciente registra **100/100 casos correct
 |---|---|---|
 | Evaluación | 100/100; extractiva y offline, no equivale a activación. | Revisar el recibo integrado y repetir con el modelo local/GPU antes de activar ese modo. |
 | GPU / host | No hay GPU ni `nvidia-smi` en sandbox. | Host UE autorizado, hardware real, red privada, soporte y pruebas completas. |
-| Egress | Sonda CPU parcial bloqueó DNS externo/TCP a 1.1.1.1:443 en red Docker `internal=true`. | Probar cada contenedor de la pila completa, Caddy, mTLS, nftables y recibos en host real. |
+| Egress | Sonda CPU parcial bloqueó DNS externo/TCP a un destino externo de control en red Docker `internal=true`. | Probar cada contenedor de la pila completa, Caddy, mTLS, nftables y recibos en host real. |
 | Cadencia diaria | CLI y plantillas systemd preparados; **ningún timer/servicio activo**. | Host autorizado, instalación y prueba real de `08:00 Europe/Madrid`; no confundir con abrir el panel. |
 | Supply chain | Plantillas con marcadores; no hay pesos, imágenes ni digests finales. | Bundle offline revisado por dos personas, licencia, revisión, hashes y locks reales. |
 | Legal / residencia | Pendientes DPA, región efectiva UE, subencargados y aprobación de tratamiento. | Contratos, confirmaciones y aprobación jurídica documentada. |
