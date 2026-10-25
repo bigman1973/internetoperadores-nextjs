@@ -446,7 +446,7 @@ function AltaServicioContent() {
 
               {/* Grid de tarifas */}
               {tarifasDisponibles.length === 0 ? (
-                <div className="text-center py-8">
+                <div className="flex min-h-[500px] flex-col items-center justify-center text-center py-8">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500 mx-auto mb-3"></div>
                   <p className="text-sm text-gray-500">Cargando tarifas...</p>
                 </div>
