@@ -290,10 +290,10 @@ export default function ClientesTable({ clientes }: ClientesTableProps) {
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-end gap-x-2">
-                      <Link href={`/admin/clientes/${cliente.id}/editar`} className="text-orange-600 hover:text-orange-900">
+                      <Link href={`/admin/clientes/${cliente.id}/editar`} className="inline-flex min-h-11 min-w-11 items-center justify-center text-orange-600 hover:text-orange-900">
                         <PencilIcon className="h-5 w-5" />
                       </Link>
-                      <button onClick={() => handleDelete(cliente.id)} className="text-red-600 hover:text-red-900">
+                      <button onClick={() => handleDelete(cliente.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-600 hover:text-red-900">
                         <TrashIcon className="h-5 w-5" />
                       </button>
                     </div>

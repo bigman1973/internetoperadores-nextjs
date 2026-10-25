@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowPathIcon, MagnifyingGlassIcon, ChevronDownIcon, ChevronRightIcon, TableCellsIcon, UserGroupIcon, CubeIcon } from '@heroicons/react/24/outline'
 
@@ -119,10 +119,50 @@ function formatCurrency(val: number | string): string {
   return Number(val).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function DashboardStatsSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse" aria-hidden="true">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <div key={index} className="min-h-[88px] rounded-lg border border-gray-200 bg-white px-4 py-4">
+            <div className="h-3 w-3/4 rounded bg-gray-200" />
+            <div className="mt-3 h-7 w-1/2 rounded bg-gray-200" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div key={index} className="min-h-80 rounded-lg border border-gray-200 bg-white p-5">
+            <div className="h-4 w-2/5 rounded bg-gray-200" />
+            <div className="mt-5 space-y-4">
+              {Array.from({ length: 7 }, (_, row) => <div key={row} className="h-3 rounded bg-gray-100" />)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ContractResultsSkeleton() {
+  return (
+    <div className="space-y-3" aria-live="polite" aria-label="Cargando contratos">
+      {Array.from({ length: 8 }, (_, index) => (
+        <div key={index} className="min-h-[92px] animate-pulse rounded-lg border border-gray-200 bg-white px-5 py-4">
+          <div className="h-4 w-2/5 rounded bg-gray-200" />
+          <div className="mt-3 h-3 w-3/4 rounded bg-gray-100" />
+          <div className="mt-2 h-3 w-1/2 rounded bg-gray-100" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 type ViewMode = 'grouped' | 'byproduct' | 'list'
 
 export default function ContratosView() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -161,6 +201,8 @@ export default function ContratosView() {
       }
     } catch (err) {
       console.error('Error fetching stats:', err)
+    } finally {
+      setStatsLoading(false)
     }
   }
 
@@ -245,6 +287,10 @@ export default function ContratosView() {
 
   const total = viewMode === 'grouped' ? groupedTotal : viewMode === 'byproduct' ? productTotal : listTotal
   const totalPages = viewMode === 'grouped' ? groupedTotalPages : viewMode === 'byproduct' ? productTotalPages : listTotalPages
+  const maxProductRevenue = useMemo(
+    () => Math.max(0, ...(stats?.productos.map(product => Number(product.facturacion)) || [])),
+    [stats]
+  )
 
   return (
     <div className="space-y-6">
@@ -254,9 +300,9 @@ export default function ContratosView() {
           <h1 className="text-2xl font-bold text-gray-900">Contratos / Servicios</h1>
           <p className="mt-1 text-sm text-gray-500">Gestión y visualización de todos los servicios contratados</p>
         </div>
-        <div className="mt-4 sm:mt-0 flex gap-x-3">
+        <div className="mt-4 flex flex-wrap gap-3 sm:mt-0">
           <button onClick={handleSync} disabled={syncing}
-            className="inline-flex items-center gap-x-2 rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50">
+            className="inline-flex min-h-11 items-center gap-x-2 rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50">
             <ArrowPathIcon className={`h-5 w-5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar'}
           </button>
@@ -264,7 +310,7 @@ export default function ContratosView() {
       </div>
 
       {/* Dashboard Stats */}
-      {stats && (
+      {stats ? (
         <>
           {/* Main stats cards */}
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
@@ -297,13 +343,12 @@ export default function ContratosView() {
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Facturación por Producto</h3>
               <div className="space-y-2 max-h-80 overflow-y-auto">
                 {stats.productos.map((prod, idx) => {
-                  const maxFact = Math.max(...stats.productos.map(p => Number(p.facturacion)))
-                  const pct = maxFact > 0 ? (Number(prod.facturacion) / maxFact) * 100 : 0
+                  const pct = maxProductRevenue > 0 ? (Number(prod.facturacion) / maxProductRevenue) * 100 : 0
                   return (
                     <div key={prod.producto} className="flex items-center gap-3">
                       <button
                         onClick={() => { setProducto(prod.producto); setPage(1) }}
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 min-w-[90px] justify-center ${getProductColor(prod.producto)}`}
+                        className={`inline-flex min-h-11 items-center rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap cursor-pointer hover:opacity-80 min-w-[90px] justify-center ${getProductColor(prod.producto)}`}
                       >
                         {prod.producto}
                       </button>
@@ -350,7 +395,7 @@ export default function ContratosView() {
             </div>
           </div>
         </>
-      )}
+      ) : statsLoading ? <DashboardStatsSkeleton /> : null}
 
       {/* Filters + View Toggle */}
       <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
@@ -364,7 +409,7 @@ export default function ContratosView() {
               </div>
               <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Nombre cliente, título, tarifa, teléfono, ID..."
-                className="block w-full rounded-md border-gray-300 pl-10 pr-3 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
+                className="block min-h-11 w-full rounded-md border-gray-300 pl-10 pr-3 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
             </div>
           </form>
 
@@ -372,7 +417,7 @@ export default function ContratosView() {
           <div className="w-full lg:w-40">
             <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
             <select value={estado} onChange={(e) => { setEstado(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block min-h-11 w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               <option value="activo">Activos</option>
               <option value="baja">Dados de Baja</option>
@@ -383,7 +428,7 @@ export default function ContratosView() {
           <div className="w-full lg:w-48">
             <label className="block text-sm font-medium text-gray-700 mb-1">Producto</label>
             <select value={producto} onChange={(e) => { setProducto(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block min-h-11 w-full rounded-md border-gray-300 py-2 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               {stats?.productos.map(p => (
                 <option key={p.producto} value={p.producto}>{p.producto} ({p.activos})</option>
@@ -392,23 +437,23 @@ export default function ContratosView() {
           </div>
 
           {/* Buttons */}
-          <div className="flex gap-2">
-            <button onClick={handleSearch} className="bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-orange-500">Buscar</button>
-            <button onClick={clearFilters} className="bg-white text-gray-700 px-4 py-2 rounded-md text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleSearch} className="min-h-11 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500">Buscar</button>
+            <button onClick={clearFilters} className="min-h-11 rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</button>
           </div>
 
           {/* View mode toggle */}
-          <div className="flex rounded-md shadow-sm">
+          <div className="flex flex-wrap rounded-md shadow-sm">
             <button onClick={() => { setViewMode('grouped'); setPage(1) }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-l-md border ${viewMode === 'grouped' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+              className={`inline-flex min-h-11 items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-l-md border ${viewMode === 'grouped' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
               <UserGroupIcon className="h-4 w-4" /> Por Cliente
             </button>
             <button onClick={() => { setViewMode('byproduct'); setPage(1) }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium border -ml-px ${viewMode === 'byproduct' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+              className={`inline-flex min-h-11 items-center gap-1.5 px-3 py-2 text-sm font-medium border -ml-px ${viewMode === 'byproduct' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
               <CubeIcon className="h-4 w-4" /> Por Producto
             </button>
             <button onClick={() => { setViewMode('list'); setPage(1) }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-r-md border -ml-px ${viewMode === 'list' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+              className={`inline-flex min-h-11 items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-r-md border -ml-px ${viewMode === 'list' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
               <TableCellsIcon className="h-4 w-4" /> Lista Plana
             </button>
           </div>
@@ -421,19 +466,19 @@ export default function ContratosView() {
             {search && (
               <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">
                 Búsqueda: &quot;{search}&quot;
-                <button onClick={() => { setSearch(''); setSearchInput('') }} className="text-orange-500 hover:text-orange-700">&times;</button>
+                <button onClick={() => { setSearch(''); setSearchInput('') }} className="inline-flex min-h-11 min-w-11 items-center justify-center text-orange-500 hover:text-orange-700">&times;</button>
               </span>
             )}
             {estado && (
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                 Estado: {estado === 'activo' ? 'Activos' : 'Dados de Baja'}
-                <button onClick={() => setEstado('')} className="text-blue-500 hover:text-blue-700">&times;</button>
+                <button onClick={() => setEstado('')} className="inline-flex min-h-11 min-w-11 items-center justify-center text-blue-500 hover:text-blue-700">&times;</button>
               </span>
             )}
             {producto && (
               <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getProductColor(producto)}`}>
                 Producto: {producto}
-                <button onClick={() => setProducto('')} className="hover:opacity-70">&times;</button>
+                <button onClick={() => setProducto('')} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:opacity-70">&times;</button>
               </span>
             )}
           </div>
@@ -442,10 +487,7 @@ export default function ContratosView() {
 
       {/* Loading */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-          <span className="ml-3 text-gray-500">Cargando contratos...</span>
-        </div>
+        <ContractResultsSkeleton />
       ) : (
         <>
           {/* GROUPED BY CLIENT VIEW */}
@@ -465,7 +507,7 @@ export default function ContratosView() {
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-gray-900 truncate">{cliente.nombre_cliente}</span>
                             {cliente.cliente_db_id && (
-                              <Link href={`/admin/clientes/${cliente.cliente_db_id}/editar`} onClick={(e) => e.stopPropagation()} className="text-xs text-orange-600 hover:text-orange-700 hover:underline">Ver ficha</Link>
+                              <Link href={`/admin/clientes/${cliente.cliente_db_id}/editar`} onClick={(e) => e.stopPropagation()} className="inline-flex min-h-11 min-w-11 items-center justify-center text-xs text-orange-600 hover:text-orange-700 hover:underline">Ver ficha</Link>
                             )}
                           </div>
                           <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
@@ -612,7 +654,7 @@ export default function ContratosView() {
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="font-medium text-gray-900 truncate max-w-[180px]">{contrato.nombre_cliente}</div>
-                          {contrato.cliente_db_id && <Link href={`/admin/clientes/${contrato.cliente_db_id}/editar`} className="text-xs text-orange-600 hover:underline">Ver ficha</Link>}
+                          {contrato.cliente_db_id && <Link href={`/admin/clientes/${contrato.cliente_db_id}/editar`} className="inline-flex min-h-11 min-w-11 items-center justify-center text-xs text-orange-600 hover:underline">Ver ficha</Link>}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-900 font-medium max-w-[200px] truncate" title={contrato.titulo}>{contrato.titulo}</td>
                         <td className="px-4 py-3 text-sm text-gray-600 max-w-[180px] truncate" title={contrato.tarifa}>{contrato.tarifa}</td>
@@ -645,16 +687,16 @@ export default function ContratosView() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-gray-700">
                 Página {page} de {totalPages} ({total} {viewMode === 'grouped' ? 'clientes' : viewMode === 'byproduct' ? 'productos' : 'contratos'})
               </p>
               <div className="flex gap-x-2">
                 {page > 1 && (
-                  <button onClick={() => setPage(page - 1)} className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50">Anterior</button>
+                  <button onClick={() => setPage(page - 1)} className="min-h-11 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50">Anterior</button>
                 )}
                 {page < totalPages && (
-                  <button onClick={() => setPage(page + 1)} className="rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-500">Siguiente</button>
+                  <button onClick={() => setPage(page + 1)} className="min-h-11 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-500">Siguiente</button>
                 )}
               </div>
             </div>
@@ -686,7 +728,7 @@ function ContractRow({ contrato, indent = false, showClient = false }: { contrat
             <p className="text-xs font-medium text-orange-700 mb-0.5">
               {contrato.nombre_cliente}
               {contrato.cliente_db_id && (
-                <Link href={`/admin/clientes/${contrato.cliente_db_id}/editar`} className="ml-2 text-orange-500 hover:underline">Ver ficha</Link>
+                <Link href={`/admin/clientes/${contrato.cliente_db_id}/editar`} className="ml-2 inline-flex min-h-11 min-w-11 items-center justify-center text-orange-500 hover:underline">Ver ficha</Link>
               )}
             </p>
           )}
