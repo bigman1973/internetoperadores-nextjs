@@ -1075,7 +1075,7 @@ export default function DraxtonContratosPage() {
           )}
           {/* Dedicación de recursos */}
           {personalContratoCargando ? (
-            <div className="min-h-[160px] animate-pulse rounded-xl border border-gray-200 bg-gray-50 p-4" aria-busy="true">
+            <div className="min-h-[605px] animate-pulse rounded-xl border border-gray-200 bg-gray-50 p-4 md:min-h-[371px] lg:min-h-[324px] xl:min-h-[278px]" aria-busy="true">
               <div className="h-4 w-48 rounded bg-gray-200"></div>
               <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
                 {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-lg bg-white"></div>)}
