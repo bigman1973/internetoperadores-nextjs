@@ -15,8 +15,12 @@ const sorted = [{ id: 'C', visibles: 1, primerIndice: 11 }, { id: 'B', visibles:
 assert.deepEqual(sorted.map(item => item.id), ['A', 'B', 'C', 'D']);
 
 const queues = readFileSync('components/finanzas/easy/EasyReviewQueues.tsx', 'utf8');
+const queuePanel = readFileSync('components/finanzas/easy/EasyReviewQueuePanel.tsx', 'utf8');
 assert.ok(!queues.includes('fetch(') && !queues.includes('useEffect'));
-assert.ok(queues.includes('hidden={!isReviewQueueVisible'));
+assert.ok(queuePanel.includes('hidden={!visible}'));
+assert.ok(queuePanel.includes("data-easy-review-isolated={isolated ? 'true' : 'false'}"));
+assert.ok(queuePanel.includes('@supports (content-visibility: auto)'));
+assert.ok(queuePanel.includes('contain-intrinsic-size: auto 36rem'));
 assert.ok(queues.includes("step === 'TODOS' || step === panel"));
 const crm = readFileSync('app/admin/crm/contactos/page.tsx', 'utf8');
 assert.ok(crm.indexOf('await requireAdminAreaRead') < crm.indexOf('<CrmContactsDirectoryContent'));

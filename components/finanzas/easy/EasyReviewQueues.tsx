@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import EasyReviewQueuePanel from './EasyReviewQueuePanel';
 
 export type EasyReviewQueueStep = 'TODOS' | 'P1_PENDIENTE' | 'P2_PENDIENTE' | 'COBROS_PROPUESTOS';
 
@@ -42,15 +43,15 @@ export default function EasyReviewQueues({ whoQueueEnabled, whoQueue, collection
       </div>
     </div>
 
-    <div id="easy-queue-all" hidden={queueStep !== 'TODOS'} />
-    <div id="easy-queue-who" hidden={!isReviewQueueVisible(queueStep, 'P1_PENDIENTE')}>
+    <EasyReviewQueuePanel id="easy-queue-all" panel="who" visible={queueStep === 'TODOS'} isolated={false} />
+    <EasyReviewQueuePanel id="easy-queue-who" panel="who" visible={isReviewQueueVisible(queueStep, 'P1_PENDIENTE')} isolated={queueStep !== 'TODOS'}>
       {whoQueue}
-    </div>
-    <div id="easy-queue-collections" hidden={!isReviewQueueVisible(queueStep, 'COBROS_PROPUESTOS')} className={queueStep === 'TODOS' ? 'mt-5' : undefined}>
+    </EasyReviewQueuePanel>
+    <EasyReviewQueuePanel id="easy-queue-collections" panel="collections" visible={isReviewQueueVisible(queueStep, 'COBROS_PROPUESTOS')} isolated={queueStep !== 'TODOS'} className={queueStep === 'TODOS' ? 'mt-5' : undefined}>
       {collectionQueue}
-    </div>
-    <div id="easy-queue-document" hidden={!isReviewQueueVisible(queueStep, 'P2_PENDIENTE')} className={queueStep === 'TODOS' ? 'mt-5' : undefined}>
+    </EasyReviewQueuePanel>
+    <EasyReviewQueuePanel id="easy-queue-document" panel="document" visible={isReviewQueueVisible(queueStep, 'P2_PENDIENTE')} isolated={queueStep !== 'TODOS'} className={queueStep === 'TODOS' ? 'mt-5' : undefined}>
       {documentQueue}
-    </div>
+    </EasyReviewQueuePanel>
   </section>;
 }
