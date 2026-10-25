@@ -348,25 +348,11 @@ export default async function CrmContactosPage({ searchParams }: { searchParams:
           </div>
         ) : (
           <>
-            <div className="divide-y divide-gray-100 lg:hidden">
-              {contacts.map((contact) => <ContactCard key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} businessUnitEditable={businessUnitEditable} refreshOnUnitSaved={Boolean(params.unit)} dealsFiltered={hasPositiveDealFilter} />)}
-            </div>
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50"><tr><Th>Contacto</Th><Th>Empresa</Th><Th>Unidad de negocio · editable</Th><Th>Negocios</Th><Th>Estado</Th><Th>Listas</Th><Th>Actualización</Th><Th><span className="sr-only">Abrir</span></Th></tr></thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {contacts.map((contact) => (
-                    <tr key={contact.id}>
-                      <td className="px-5 py-4"><p className="font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></td>
-                      <td className="px-5 py-4 text-sm text-gray-700">{contact.empresa || '—'}</td>
-                      <td className="px-5 py-4"><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} refreshOnSaved={Boolean(params.unit)} /></td>
-                      <td className="px-5 py-4"><DealSummary contact={contact} filtered={hasPositiveDealFilter} /></td>
-                      <td className="px-5 py-4"><ContactStatus contact={contact} /></td>
-                      <td className="px-5 py-4"><ListSummary contact={contact} /></td>
-                      <td className="whitespace-nowrap px-5 py-4 text-sm text-gray-500">{contact.sincronizadoAt?.toLocaleDateString('es-ES') || 'Pendiente'}</td>
-                      <td className="px-5 py-4 text-right"><Link href={`/admin/crm/contactos/${contact.id}`} prefetch={false} className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></td>
-                    </tr>
-                  ))}
+            <div className="overflow-x-auto">
+              <table className="block w-full lg:table lg:min-w-full lg:divide-y lg:divide-gray-200">
+                <thead className="sr-only bg-gray-50 lg:not-sr-only lg:table-header-group"><tr><Th>Contacto</Th><Th>Empresa</Th><Th>Unidad de negocio · editable</Th><Th>Negocios</Th><Th>Estado</Th><Th>Listas</Th><Th>Actualización</Th><Th><span className="sr-only">Abrir</span></Th></tr></thead>
+                <tbody className="block divide-y divide-gray-100 bg-white lg:table-row-group">
+                  {contacts.map((contact) => <ContactRow key={contact.id} contact={contact} businessUnitOptions={businessUnitOptions} businessUnitEditable={businessUnitEditable} refreshOnUnitSaved={Boolean(params.unit)} dealsFiltered={hasPositiveDealFilter} />)}
                 </tbody>
               </table>
             </div>
@@ -430,6 +416,22 @@ function DealSummary({ contact, filtered = false }: { contact: any; filtered?: b
   )
 }
 
-function ContactCard({ contact, businessUnitOptions, businessUnitEditable, refreshOnUnitSaved = false, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; businessUnitEditable: boolean; refreshOnUnitSaved?: boolean; dealsFiltered?: boolean }) {
-  return <article className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div><ContactStatus contact={contact} /></div>{contact.empresa && <p className="mt-3 text-sm text-gray-600">{contact.empresa}</p>}<div className="mt-3"><p className="mb-1 text-xs text-gray-500">Unidad de negocio</p><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} refreshOnSaved={refreshOnUnitSaved} /></div><div className="mt-3 rounded-lg border border-gray-100 bg-gray-50 p-3"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div><div className="mt-3 flex items-end justify-between gap-3"><div className="min-w-0"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} prefetch={false} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></article>
+function ContactRow({ contact, businessUnitOptions, businessUnitEditable, refreshOnUnitSaved = false, dealsFiltered = false }: { contact: any; businessUnitOptions: Array<{ value: string; label: string }>; businessUnitEditable: boolean; refreshOnUnitSaved?: boolean; dealsFiltered?: boolean }) {
+  return (
+    <tr className="block p-4 lg:table-row lg:p-0">
+      <td className="block p-0 lg:table-cell lg:px-5 lg:py-4">
+        <div className="flex items-start justify-between gap-3 lg:block">
+          <div className="min-w-0"><p className="break-words font-semibold text-gray-900">{contact.nombre || contact.email || `Contacto #${contact.hubspotId}`}</p><p className="mt-1 break-all text-sm text-gray-500">{contact.email || contact.telefono || 'Sin correo ni teléfono'}</p></div>
+          <div className="lg:hidden"><ContactStatus contact={contact} /></div>
+        </div>
+      </td>
+      <td className={`${contact.empresa ? 'mt-3 block text-sm text-gray-600 lg:table-cell lg:px-5 lg:py-4 lg:text-gray-700' : 'hidden lg:table-cell lg:px-5 lg:py-4 lg:text-sm lg:text-gray-700'}`}>{contact.empresa || '—'}</td>
+      <td className="mt-3 block lg:table-cell lg:px-5 lg:py-4"><p className="mb-1 text-xs text-gray-500 lg:hidden">Unidad de negocio</p><CrmBusinessUnitQuickEditor contactId={contact.id} initialUnits={contact.unidadesNegocio} options={businessUnitOptions} editable={businessUnitEditable} version={contact.datosVersion} sourceSyncedAt={contact.sincronizadoAt?.toISOString() || null} refreshOnSaved={refreshOnUnitSaved} /></td>
+      <td className="mt-3 block lg:table-cell lg:px-5 lg:py-4"><div className="rounded-lg border border-gray-100 bg-gray-50 p-3 lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 lg:hidden">Negocios</p><DealSummary contact={contact} filtered={dealsFiltered} /></div></td>
+      <td className="hidden lg:table-cell lg:px-5 lg:py-4"><ContactStatus contact={contact} /></td>
+      <td className="hidden lg:table-cell lg:px-5 lg:py-4"><ListSummary contact={contact} /></td>
+      <td className="hidden whitespace-nowrap lg:table-cell lg:px-5 lg:py-4 lg:text-sm lg:text-gray-500">{contact.sincronizadoAt?.toLocaleDateString('es-ES') || 'Pendiente'}</td>
+      <td className="mt-3 block lg:table-cell lg:px-5 lg:py-4 lg:text-right"><div className="flex items-end justify-between gap-3 lg:block"><div className="min-w-0 lg:hidden"><p className="text-xs text-gray-500">Pertenece a</p><p className="truncate text-sm font-medium text-gray-800">{contact._count.listas.toLocaleString('es-ES')} {contact._count.listas === 1 ? 'lista' : 'listas'}</p></div><Link href={`/admin/crm/contactos/${contact.id}`} prefetch={false} className="inline-flex min-h-11 shrink-0 items-center gap-1 text-sm font-semibold text-orange-700 hover:text-orange-800">Ver ficha <ArrowRightIcon className="h-4 w-4" /></Link></div></td>
+    </tr>
+  )
 }
