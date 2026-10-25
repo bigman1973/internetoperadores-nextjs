@@ -108,34 +108,34 @@ export default function CobrosPendientesPage() {
               <BanknotesIcon className="h-4 w-4 text-blue-600" />
               <p className="text-[10px] text-gray-500 uppercase font-medium">Total Pendiente</p>
             </div>
-            {resumen ? <><p className="text-2xl font-bold text-blue-700">{resumen.totalPendiente.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numFacturas} facturas</p></> : <KpiSkeleton />}
+            {resumen ? <><p className="text-2xl font-bold text-blue-700">{resumen.totalPendiente.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numFacturas} facturas</p></> : loading ? <KpiSkeleton /> : <p className="text-2xl font-bold text-gray-400">—</p>}
           </div>
           <div className="bg-white border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <UserGroupIcon className="h-4 w-4 text-indigo-600" />
               <p className="text-[10px] text-gray-500 uppercase font-medium">Clientes</p>
             </div>
-            {resumen ? <><p className="text-2xl font-bold text-indigo-700">{resumen.numClientes}</p><p className="text-xs text-gray-400 mt-1">Con facturas pendientes</p></> : <KpiSkeleton />}
+            {resumen ? <><p className="text-2xl font-bold text-indigo-700">{resumen.numClientes}</p><p className="text-xs text-gray-400 mt-1">Con facturas pendientes</p></> : loading ? <KpiSkeleton /> : <p className="text-2xl font-bold text-gray-400">—</p>}
           </div>
           <div className="bg-white border border-orange-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <ClockIcon className="h-4 w-4 text-orange-600" />
               <p className="text-[10px] text-orange-600 uppercase font-medium">Vencidas (&gt;30d)</p>
             </div>
-            {resumen ? <><p className="text-2xl font-bold text-orange-700">{resumen.importeVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numVencidas} facturas</p></> : <KpiSkeleton />}
+            {resumen ? <><p className="text-2xl font-bold text-orange-700">{resumen.importeVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numVencidas} facturas</p></> : loading ? <KpiSkeleton /> : <p className="text-2xl font-bold text-gray-400">—</p>}
           </div>
           <div className="bg-white border border-red-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <ExclamationTriangleIcon className="h-4 w-4 text-red-600" />
               <p className="text-[10px] text-red-600 uppercase font-medium">Muy vencidas (&gt;60d)</p>
             </div>
-            {resumen ? <><p className="text-2xl font-bold text-red-700">{resumen.importeMuyVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numMuyVencidas} facturas</p></> : <KpiSkeleton />}
+            {resumen ? <><p className="text-2xl font-bold text-red-700">{resumen.importeMuyVencido.toLocaleString('es-ES', {style:'currency',currency:'EUR'})}</p><p className="text-xs text-gray-400 mt-1">{resumen.numMuyVencidas} facturas</p></> : loading ? <KpiSkeleton /> : <p className="text-2xl font-bold text-gray-400">—</p>}
           </div>
           <div className="bg-white border rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
               <p className="text-[10px] text-gray-500 uppercase font-medium">% Vencido</p>
             </div>
-            {resumen ? <><p className="text-2xl font-bold text-gray-700">{resumen.totalPendiente > 0 ? Math.round((resumen.importeVencido / resumen.totalPendiente) * 100) : 0}%</p><p className="text-xs text-gray-400 mt-1">Del total pendiente</p></> : <KpiSkeleton />}
+            {resumen ? <><p className="text-2xl font-bold text-gray-700">{resumen.totalPendiente > 0 ? Math.round((resumen.importeVencido / resumen.totalPendiente) * 100) : 0}%</p><p className="text-xs text-gray-400 mt-1">Del total pendiente</p></> : loading ? <KpiSkeleton /> : <p className="text-2xl font-bold text-gray-400">—</p>}
           </div>
         </div>
       )}
