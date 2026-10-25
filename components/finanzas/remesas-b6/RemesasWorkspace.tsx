@@ -97,7 +97,7 @@ export default function RemesasWorkspace() {
   const [remesasPaginacion, setRemesasPaginacion] = useState<PaginacionB6>(VACIA)
   const [remesasBusqueda, setRemesasBusqueda] = useState('')
   const [remesasBusquedaAplicada, setRemesasBusquedaAplicada] = useState('')
-  const [remesasCargando, setRemesasCargando] = useState(false)
+  const [remesasCargando, setRemesasCargando] = useState(true)
   const [remesaSeleccionada, setRemesaSeleccionada] = useState<RemesaB6 | null>(null)
 
   // Sólo miembrosRemesa acredita y conserva las fuentes de membresía actual.
@@ -424,13 +424,13 @@ export default function RemesasWorkspace() {
 
   if (!permisosLoaded) {
     return (
-      <section className="mx-auto min-h-[1120px] max-w-7xl space-y-5 p-4 sm:p-6 lg:min-h-[760px]" aria-busy="true" aria-labelledby="b6-title">
-        <div className="animate-pulse overflow-hidden rounded-2xl border border-orange-200 bg-orange-50 p-5 sm:p-7">
+      <section className="mx-auto max-w-7xl space-y-5 p-4 sm:p-6" aria-busy="true" aria-labelledby="b6-title">
+        <div className="min-h-[272px] animate-pulse overflow-hidden rounded-2xl border border-orange-200 bg-orange-50 p-5 min-[360px]:min-h-[236px] min-[400px]:min-h-[204px] sm:p-7 md:min-h-[166px] xl:min-h-[146px]">
           <h1 id="b6-title" className="h-8 w-2/3 rounded bg-orange-200"> <span className="sr-only">Comprobando permiso de lectura…</span></h1>
           <div className="mt-3 h-4 w-full rounded bg-orange-100"></div>
         </div>
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]">
-          {[1, 2].map(i => <div key={i} className="min-h-[260px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4"><div className="h-5 w-2/5 rounded bg-slate-200"></div><div className="mt-4 space-y-3">{[1, 2, 3].map(row => <div key={row} className="h-10 rounded bg-slate-100"></div>)}</div></div>)}
+          {[1, 2].map(i => <div key={i} className={`${i === 1 ? 'min-h-[768px] md:min-h-[744px]' : 'min-h-[219px] md:min-h-[183px] lg:min-h-[744px]'} animate-pulse rounded-2xl border border-slate-200 bg-white p-4`}><div className="h-5 w-2/5 rounded bg-slate-200"></div><div className="mt-4 space-y-3">{[1, 2, 3].map(row => <div key={row} className="h-10 rounded bg-slate-100"></div>)}</div></div>)}
         </div>
         <div className="min-h-[180px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4"><div className="h-5 w-1/3 rounded bg-slate-200"></div></div>
       </section>
@@ -476,7 +476,7 @@ export default function RemesasWorkspace() {
             <input id="b6-remesas-q" value={remesasBusqueda} onChange={(event) => setRemesasBusqueda(event.target.value)} maxLength={120} placeholder="Nombre o ISP Gestión" className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none ring-orange-500 focus:ring-2" />
             <button type="submit" className="rounded-lg bg-orange-700 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-800">Buscar</button>
           </form>
-          <div className="max-h-[34rem] divide-y divide-slate-100 overflow-auto">
+          <div className={`max-h-[34rem] divide-y divide-slate-100 overflow-auto ${remesasCargando ? 'min-h-[34rem]' : ''}`}>
             {remesasCargando && <p className="p-4 text-sm text-slate-500">Leyendo remesas…</p>}
             {!remesasCargando && remesas.length === 0 && <p className="p-4 text-sm text-slate-500">No hay remesas en esta página.</p>}
             {remesas.map((remesa) => {

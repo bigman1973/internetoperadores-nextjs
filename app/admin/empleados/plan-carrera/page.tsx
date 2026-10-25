@@ -313,7 +313,7 @@ export default function PlanCarreraPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <Link href="/admin/empleados" className="p-2 hover:bg-gray-100 rounded-lg">
             <ArrowLeftIcon className="h-5 w-5 text-gray-500" />
@@ -327,7 +327,7 @@ export default function PlanCarreraPage() {
           value={selectedEmpleado}
           onChange={(e) => { latestRequest.current++; setObjetivos([]); setEvaluaciones([]); setFormaciones([]); setCondiciones([]); setUltimoBrutoMensual(null); setSelectedEmpleado(e.target.value); setShowCondForm(false); setConditionError(''); }}
           aria-label="Seleccionar empleado"
-          className="max-w-full min-h-10 px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
+          className="w-full sm:w-auto max-w-full min-h-10 px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-600"
           style={{ colorScheme: 'light', WebkitTextFillColor: '#0f172a' }}
         >
           {empleados.map(emp => (
