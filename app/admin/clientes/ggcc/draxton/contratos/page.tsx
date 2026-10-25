@@ -131,6 +131,7 @@ export default function DraxtonContratosPage() {
   const [editingProveedorId, setEditingProveedorId] = useState<string | null>(null);
   const [proveedorParentId, setProveedorParentId] = useState<string | null>(null);
   const [empresasGrupo, setEmpresasGrupo] = useState<EmpresaGrupo[]>([]);
+  const [empresasGrupoCargando, setEmpresasGrupoCargando] = useState(true);
   const [showEmpresasForm, setShowEmpresasForm] = useState(false);
   const [formEmpresa, setFormEmpresa] = useState<Partial<EmpresaGrupo>>({ nombre: '', activa: true });
   const [busquedaCliente, setBusquedaCliente] = useState('');
@@ -145,6 +146,7 @@ export default function DraxtonContratosPage() {
   const [guardiasData, setGuardiasData] = useState<any>(null);
   const [actualizacionesImputadas, setActualizacionesImputadas] = useState<Record<string, number>>({});
   const [personalContrato, setPersonalContrato] = useState<any[]>([]);
+  const [personalContratoCargando, setPersonalContratoCargando] = useState(true);
   const [proyectosContrato, setProyectosContrato] = useState<any[]>([]);
   const [showProyectoForm, setShowProyectoForm] = useState(false);
   const [proyectoFormContratoId, setProyectoFormContratoId] = useState<string | null>(null);
@@ -241,6 +243,8 @@ export default function DraxtonContratosPage() {
       }
     } catch (err) {
       console.error('Error al cargar personal:', err);
+    } finally {
+      setPersonalContratoCargando(false);
     }
   }
 
@@ -500,6 +504,8 @@ export default function DraxtonContratosPage() {
       setEmpresasGrupo(data);
     } catch (err) {
       console.error('Error al cargar empresas del grupo:', err);
+    } finally {
+      setEmpresasGrupoCargando(false);
     }
   }
 
@@ -1003,7 +1009,16 @@ export default function DraxtonContratosPage() {
       </div>
 
       {/* KPIs mejorados */}
-      {activos.length > 0 && (
+      {loading ? (
+        <div className="space-y-3 animate-pulse lg:min-h-[620px]" aria-busy="true">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {[1, 2, 3, 4, 5, 6].map(i => <div key={i} className="min-h-[92px] rounded-xl border border-gray-200 bg-white p-4"><div className="h-3 w-3/5 rounded bg-gray-200"></div><div className="mt-3 h-5 w-1/2 rounded bg-gray-100"></div></div>)}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map(i => <div key={i} className="min-h-[92px] rounded-xl border border-gray-200 bg-white p-4"><div className="h-3 w-3/5 rounded bg-gray-200"></div><div className="mt-3 h-5 w-1/2 rounded bg-gray-100"></div></div>)}
+          </div>
+        </div>
+      ) : activos.length > 0 && (
         <div className="space-y-3">
           {/* Totales */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -1059,7 +1074,14 @@ export default function DraxtonContratosPage() {
             </div>
           )}
           {/* Dedicación de recursos */}
-          {dedicacionEmpleados.length > 0 && (
+          {personalContratoCargando ? (
+            <div className="min-h-[160px] animate-pulse rounded-xl border border-gray-200 bg-gray-50 p-4" aria-busy="true">
+              <div className="h-4 w-48 rounded bg-gray-200"></div>
+              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3].map(i => <div key={i} className="h-14 rounded-lg bg-white"></div>)}
+              </div>
+            </div>
+          ) : dedicacionEmpleados.length > 0 && (
             <div className={`${personasSobreasignadas.length > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'} border rounded-xl p-4`}>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-lg">{personasSobreasignadas.length > 0 ? '⚠️' : '👥'}</span>
@@ -1413,7 +1435,14 @@ export default function DraxtonContratosPage() {
             </div>
           </div>
         )}
-        {empresasGrupo.length > 0 && (
+        {empresasGrupoCargando ? (
+          <div className="min-h-[236px] animate-pulse p-4" aria-busy="true">
+            <div className="h-8 rounded bg-gray-100"></div>
+            <div className="mt-4 space-y-3">
+              {[1, 2, 3, 4].map(i => <div key={i} className="h-6 rounded bg-gray-100"></div>)}
+            </div>
+          </div>
+        ) : empresasGrupo.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 border-b">
@@ -1449,7 +1478,7 @@ export default function DraxtonContratosPage() {
             </table>
           </div>
         )}
-        {empresasGrupo.length === 0 && !showEmpresasForm && (
+        {!empresasGrupoCargando && empresasGrupo.length === 0 && !showEmpresasForm && (
           <div className="px-6 py-8 text-center text-gray-400 text-sm">No hay empresas del grupo registradas. Añade la primera.</div>
         )}
       </div>
