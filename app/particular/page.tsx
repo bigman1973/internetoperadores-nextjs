@@ -10,7 +10,7 @@ export const metadata = {
   openGraph: {
     title: 'Internet donde vivas. Sin excusas. | Internet Operadores',
     description: 'Fibra, 4G o 5G: te conectamos con la mejor tecnología disponible en tu zona. Sin permanencia, sin subidas de precio.',
-    images: ['/hero-b2c-familia.png'],
+    images: ['/images/hero/particular-familia-1280.webp'],
   },
 };
 
