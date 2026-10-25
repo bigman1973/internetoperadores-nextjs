@@ -14,6 +14,21 @@ function objeto(valor: unknown): valor is Record<string, unknown> {
   return Boolean(valor) && typeof valor === 'object' && !Array.isArray(valor)
 }
 
+function clavesExactas(valor: Record<string, unknown>, claves: string[]): boolean {
+  const recibidas = Object.keys(valor)
+  return recibidas.length === claves.length && claves.every(clave => Object.hasOwn(valor, clave)) && recibidas.every(clave => claves.includes(clave))
+}
+
+function esUuid(valor: unknown): valor is string {
+  return typeof valor === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(valor)
+}
+
+export function validarConfirmacionRetencion(valor: unknown): { previewToken: string; confirmacion: true; idempotencyKey: string } {
+  if (!objeto(valor) || !clavesExactas(valor, ['accion', 'previewToken', 'confirmacion', 'idempotencyKey'])) throw new ErrorPrivacidad('SOLICITUD_INVALIDA')
+  if (valor.accion !== 'confirmar' || typeof valor.previewToken !== 'string' || valor.previewToken.length < 32 || valor.previewToken.length > 4096 || valor.confirmacion !== true || !esUuid(valor.idempotencyKey)) throw new ErrorPrivacidad('SOLICITUD_INVALIDA')
+  return { previewToken: valor.previewToken, confirmacion: true, idempotencyKey: valor.idempotencyKey }
+}
+
 /**
  * La ruta permanece en ensayo salvo `accion: confirmar`, que exige confirmación
  * humana, previsualización firmada y una nueva comprobación en transacción.
@@ -28,10 +43,9 @@ export async function POST(req: Request) {
     if (cuerpo.datos.accion === 'previsualizar' && Object.keys(cuerpo.datos).length === 1) {
       return jsonPrivado({ ok: true, ensayo: true, preview: await previsualizarPurga({ actorId: acceso.actor.id }) })
     }
-    if (cuerpo.datos.accion === 'confirmar' && Object.keys(cuerpo.datos).length === 5) {
-      const { accion: _accion, previewToken, confirmacion, idempotencyKey, ejecutor } = cuerpo.datos
-      if (typeof previewToken !== 'string' || confirmacion !== true || typeof idempotencyKey !== 'string' || (ejecutor !== undefined && typeof ejecutor !== 'string')) return jsonPrivado({ error: 'Solicitud inválida' }, 400)
-      const resultado = await confirmarPrivacidad({ actorId: acceso.actor.id, previewToken, confirmacion: true, idempotencyKey, ejecutor: typeof ejecutor === 'string' ? ejecutor.slice(0, 80) : 'admin.retencion' })
+    if (cuerpo.datos.accion === 'confirmar') {
+      const confirmacion = validarConfirmacionRetencion(cuerpo.datos)
+      const resultado = await confirmarPrivacidad({ actorId: acceso.actor.id, ...confirmacion, ejecutor: 'admin.retencion' })
       return jsonPrivado(resultado)
     }
     return jsonPrivado({ error: 'Solicitud inválida' }, 400)

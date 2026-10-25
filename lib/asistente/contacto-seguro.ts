@@ -19,7 +19,7 @@ type ContactoSeguroDelegate = {
     update: { conversacionId: string; cifrado: string; keyVersion: string; borrarDespues: Date }
   }) => Promise<unknown>
   findFirst: (args: {
-    where: { referenciaTipo: ReferenciaContactoSeguro; referenciaId: string; conversacionId: string }
+    where: { referenciaTipo: ReferenciaContactoSeguro; referenciaId: string; conversacionId: string; borrarDespues: { gt: Date } }
     select: { cifrado: true; keyVersion: true }
   }) => Promise<{ cifrado: string; keyVersion: string } | null>
 }
@@ -131,11 +131,11 @@ export async function guardarContactoSeguro(db: DbContactoSeguro, { referenciaTi
   })
 }
 
-/** Recupera y verifica un contacto cifrado de la misma referencia y conversación, o null si no existe. */
+/** Recupera y verifica un contacto cifrado vigente de la misma referencia y conversación. */
 export async function leerContactoSeguro(db: DbContactoSeguro, { referenciaTipo, referenciaId, conversacionId }: ContextoContactoSeguro): Promise<DatosContactoSeguro | null> {
   validarContexto({ referenciaTipo, referenciaId, conversacionId })
   const registro = await db.asistenteContactoSeguro.findFirst({
-    where: { referenciaTipo, referenciaId, conversacionId },
+    where: { referenciaTipo, referenciaId, conversacionId, borrarDespues: { gt: new Date() } },
     select: { cifrado: true, keyVersion: true },
   })
   if (!registro) return null

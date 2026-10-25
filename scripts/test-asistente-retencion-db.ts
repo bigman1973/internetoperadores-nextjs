@@ -11,7 +11,7 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname) || parsed.pathn
 process.env.DATABASE_URL = url
 process.env.ASSISTANT_MODE = 'extractivo'
 process.env.NEXTAUTH_SECRET = 'prueba-local-seguridad-solo-fixtures-no-usar-en-produccion'
-delete process.env.FINANCE_STAGING_SANDBOX
+process.env.FINANCE_STAGING_SANDBOX = '0'
 
 type Ids = { conversacion: string; lead?: string; escalado?: string; mensaje?: string }
 
@@ -92,9 +92,17 @@ async function main(): Promise<void> {
     await crearContratoPrivacidad(cliente)
     await limpiar(cliente)
     const { previsualizarPurga, previsualizarDerecho, confirmarPrivacidad, nuevaClaveIdempotenciaPrivacidad, ErrorPrivacidad } = await import('@/lib/asistente/retencion')
+    const { guardarContactoSeguro, leerContactoSeguro } = await import('@/lib/asistente/contacto-seguro')
+    const { default: prisma } = await import('@/lib/prisma')
+    const { validarConfirmacionRetencion } = await import('@/app/api/admin/asistente/retencion/route')
     const ahora = new Date('2026-10-25T18:00:00.000Z')
     const vencido = new Date('2026-10-24T18:00:00.000Z')
     const futuro = new Date('2026-12-25T18:00:00.000Z')
+
+    const claveRuta = nuevaClaveIdempotenciaPrivacidad()
+    const confirmacionRuta = { accion: 'confirmar', previewToken: 'x'.repeat(32), confirmacion: true as const, idempotencyKey: claveRuta }
+    assert.deepEqual(validarConfirmacionRetencion(confirmacionRuta), { previewToken: confirmacionRuta.previewToken, confirmacion: true, idempotencyKey: claveRuta })
+    assert.throws(() => validarConfirmacionRetencion({ ...confirmacionRuta, ejecutor: 'cliente.no.autorizado' }), (error: unknown) => error instanceof ErrorPrivacidad && error.codigo === 'SOLICITUD_INVALIDA')
 
     // PURGA: conversación vencida, dependencias con CASCADE y contactos cifrados nuevos.
     const caduca = await conversacion(cliente, { expira: vencido })
@@ -141,6 +149,13 @@ async function main(): Promise<void> {
       assert.match(serializado, /recuentos/)
     }
 
+    // Un ciphertext vencido nunca se descifra ni se entrega, incluso antes de que una purga posterior lo elimine.
+    const conversacionContactoVencido = await conversacion(cliente, { expira: futuro })
+    const leadContactoVencido = await lead(cliente, conversacionContactoVencido.conversacion, futuro)
+    const contextoContactoVencido = { referenciaTipo: 'LEAD' as const, referenciaId: leadContactoVencido, conversacionId: conversacionContactoVencido.conversacion }
+    await guardarContactoSeguro(prisma, { ...contextoContactoVencido, datos: { nombre: 'Fixture expirado', email: 'expirado@example.test' }, borrarDespues: vencido })
+    assert.equal(await leerContactoSeguro(prisma, contextoContactoVencido), null)
+
     // REVOCACIÓN: anonimiza la proyección del asistente y elimina sólo el contacto seguro asociado.
     const revocable = await conversacion(cliente, { expira: futuro })
     const leadRevocable = await lead(cliente, revocable.conversacion, futuro, true)
@@ -148,14 +163,64 @@ async function main(): Promise<void> {
     const previewRevocar = await previsualizarDerecho({ actorId: 7, accion: 'REVOCACION', objetivoTipo: 'LEAD', objetivoId: leadRevocable })
     assert.equal(previewRevocar.recuentos.leads, 1)
     assert.equal(previewRevocar.recuentos.contactos, 1)
-    const revocada = await confirmarPrivacidad({ actorId: 7, previewToken: previewRevocar.previewToken!, confirmacion: true, idempotencyKey: nuevaClaveIdempotenciaPrivacidad(), ejecutor: 'test.derechos' })
+    const claveRevocacion = nuevaClaveIdempotenciaPrivacidad()
+    const revocada = await confirmarPrivacidad({ actorId: 7, previewToken: previewRevocar.previewToken!, confirmacion: true, idempotencyKey: claveRevocacion, ejecutor: 'test.derechos' })
     assert.equal(revocada.accion, 'REVOCACION')
+    assert.equal(revocada.idempotente, false)
     const leadAnonimo = await cliente.query('SELECT nombre,email,telefono,empresa,consentimiento,estado FROM asistente_leads WHERE id=$1::uuid', [leadRevocable])
     assert.deepEqual(leadAnonimo.rows[0], { nombre: '[CONTACTO_REVOCADO]', email: null, telefono: null, empresa: null, consentimiento: true, estado: 'DESCARTADO' })
     assert.equal((await cliente.query('SELECT count(*)::int AS total FROM asistente_contactos_seguros WHERE referencia_id=$1::uuid', [leadRevocable])).rows[0].total, 0)
+
+    // El mismo token y clave debe devolver el recibo original pese a que la preview ya sería vacía.
+    const recibosAntesReplay = await cliente.query('SELECT count(*)::int AS total FROM asistente_gestion_privacidad')
+    const replay = await confirmarPrivacidad({ actorId: 7, previewToken: previewRevocar.previewToken!, confirmacion: true, idempotencyKey: claveRevocacion, ejecutor: 'test.derechos' })
+    assert.equal(replay.idempotente, true)
+    assert.deepEqual(replay.recuentos, revocada.recuentos)
+    assert.equal((await cliente.query('SELECT count(*)::int AS total FROM asistente_gestion_privacidad')).rows[0].total, recibosAntesReplay.rows[0].total)
+
+    // Una clave pertenece a un único actor y solicitud; no se puede reutilizar contra otro objetivo.
+    const otroRevocable = await conversacion(cliente, { expira: futuro })
+    const otroLead = await lead(cliente, otroRevocable.conversacion, futuro, true)
+    await contacto(cliente, 'LEAD', otroLead, otroRevocable.conversacion, futuro)
+    const previewDistinta = await previsualizarDerecho({ actorId: 7, accion: 'REVOCACION', objetivoTipo: 'LEAD', objetivoId: otroLead })
+    await assert.rejects(
+      () => confirmarPrivacidad({ actorId: 7, previewToken: previewDistinta.previewToken!, confirmacion: true, idempotencyKey: claveRevocacion, ejecutor: 'test.derechos' }),
+      (error: unknown) => error instanceof ErrorPrivacidad && error.codigo === 'IDEMPOTENCIA_CLAVE_REUTILIZADA',
+    )
+    assert.equal((await cliente.query('SELECT count(*)::int AS total FROM asistente_contactos_seguros WHERE referencia_id=$1::uuid', [otroLead])).rows[0].total, 1)
     const previewRevocada = await previsualizarDerecho({ actorId: 7, accion: 'REVOCACION', objetivoTipo: 'LEAD', objetivoId: leadRevocable })
     assert.equal(previewRevocada.recuentos.leads, 0)
     assert.equal(previewRevocada.recuentos.contactos, 0)
+
+    // ESCALADO nuevo: la proyección heredada queda NULL y el único contacto activo es el ciphertext seguro.
+    const escaladoCifrado = await conversacion(cliente, { expira: futuro })
+    const escaladoLegacyNulo = await escalado(cliente, escaladoCifrado.conversacion, true)
+    await cliente.query('UPDATE asistente_escalados SET contacto_nombre=NULL, contacto_email=NULL, contacto_telefono=NULL WHERE id=$1::uuid', [escaladoLegacyNulo])
+    await contacto(cliente, 'ESCALADO', escaladoLegacyNulo, escaladoCifrado.conversacion, futuro)
+    const previewEscaladoCifrado = await previsualizarDerecho({ actorId: 7, accion: 'REVOCACION', objetivoTipo: 'ESCALADO', objetivoId: escaladoLegacyNulo })
+    assert.equal(previewEscaladoCifrado.recuentos.escalados, 1)
+    assert.equal(previewEscaladoCifrado.recuentos.contactos, 1)
+    const escaladoRevocado = await confirmarPrivacidad({ actorId: 7, previewToken: previewEscaladoCifrado.previewToken!, confirmacion: true, idempotencyKey: nuevaClaveIdempotenciaPrivacidad(), ejecutor: 'test.derechos' })
+    assert.equal(escaladoRevocado.recuentos.escalados, 1)
+    assert.equal(escaladoRevocado.recuentos.contactos, 1)
+    assert.equal((await cliente.query('SELECT count(*)::int AS total FROM asistente_contactos_seguros WHERE referencia_id=$1::uuid', [escaladoLegacyNulo])).rows[0].total, 0)
+    assert.equal((await cliente.query('SELECT estado FROM asistente_escalados WHERE id=$1::uuid', [escaladoLegacyNulo])).rows[0].estado, 'DESCARTADO')
+
+    // Dos confirmaciones concurrentes con la misma clave se serializan y conservan un único recibo.
+    const concurrente = await conversacion(cliente, { expira: futuro })
+    const leadConcurrente = await lead(cliente, concurrente.conversacion, futuro, true)
+    await contacto(cliente, 'LEAD', leadConcurrente, concurrente.conversacion, futuro)
+    const previewConcurrente = await previsualizarDerecho({ actorId: 7, accion: 'REVOCACION', objetivoTipo: 'LEAD', objetivoId: leadConcurrente })
+    const claveConcurrente = nuevaClaveIdempotenciaPrivacidad()
+    const recibosAntesConcurrente = await cliente.query('SELECT count(*)::int AS total FROM asistente_gestion_privacidad')
+    const [confirmacionA, confirmacionB] = await Promise.all([
+      confirmarPrivacidad({ actorId: 7, previewToken: previewConcurrente.previewToken!, confirmacion: true, idempotencyKey: claveConcurrente, ejecutor: 'test.concurrente' }),
+      confirmarPrivacidad({ actorId: 7, previewToken: previewConcurrente.previewToken!, confirmacion: true, idempotencyKey: claveConcurrente, ejecutor: 'test.concurrente' }),
+    ])
+    assert.equal(confirmacionA.recuentos.leads, 1)
+    assert.equal(confirmacionB.recuentos.leads, 1)
+    assert.equal([confirmacionA.idempotente, confirmacionB.idempotente].filter(valor => valor === false).length, 1)
+    assert.equal((await cliente.query('SELECT count(*)::int AS total FROM asistente_gestion_privacidad')).rows[0].total, recibosAntesConcurrente.rows[0].total + 1)
 
     // SUPRESIÓN dirigida: elimina sólo datos del asistente vinculados a la conversación.
     const suprimir = await conversacion(cliente, { expira: futuro })

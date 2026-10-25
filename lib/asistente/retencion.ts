@@ -45,6 +45,18 @@ type CargaPreview = {
   expiresAt: number
 }
 
+type IdempotenciaPrivacidad = {
+  claveHash: string
+  solicitudHash: string
+  reviewHash: string
+}
+
+type FilaReciboIdempotencia = {
+  tipo: string
+  objetivoHash: string
+  resultado: unknown
+}
+
 export type PrevisualizacionPrivacidad = {
   accion: AccionPrivacidad
   objetivoTipo: TipoObjetivoPrivacidad
@@ -70,6 +82,7 @@ export class ErrorPrivacidad extends Error {
 
 const PREVIEW_TTL_MS = 15 * 60 * 1_000
 const LIMITE_MAXIMO = 100
+const CLAVES_RECUENTO: Array<keyof RecuentoPrivacidad> = ['conversaciones', 'mensajes', 'valoraciones', 'leads', 'escalados', 'huecos', 'contactos']
 
 function secret(): string {
   const valor = process.env.NEXTAUTH_SECRET
@@ -106,6 +119,32 @@ function objetivoHash(instantanea: InstantaneaPrivacidad): string {
     objetivoTipo: instantanea.objetivoTipo,
     objetivoId: instantanea.objetivoId,
     corteAt: instantanea.corteAt,
+  })
+}
+
+function objetivoHashPreview(preview: CargaPreview): string {
+  return huella({
+    v: 1,
+    accion: preview.accion,
+    objetivoTipo: preview.objetivoTipo,
+    objetivoId: preview.objetivoId,
+    corteAt: preview.corteAt,
+  })
+}
+
+function hashClaveIdempotencia(actorId: number, idempotencyKey: string): string {
+  return huella({ schema: 'ASISTENTE_PRIVACIDAD_IDEMPOTENCIA_CLAVE_V1', actorId, idempotencyKey })
+}
+
+function hashSolicitud(preview: CargaPreview): string {
+  return huella({
+    schema: 'ASISTENTE_PRIVACIDAD_SOLICITUD_V1',
+    actorId: preview.actorId,
+    accion: preview.accion,
+    objetivoTipo: preview.objetivoTipo,
+    objetivoId: preview.objetivoId,
+    corteAt: preview.corteAt,
+    reviewHash: preview.reviewHash,
   })
 }
 
@@ -217,7 +256,16 @@ async function crearInstantanea(db: Db, entrada: { accion: AccionPrivacidad; obj
       : Prisma.sql`id = CAST(${objetivoId!} AS uuid)`)
   } else {
     escaladosDirectos = await filasPorCondicion(db, 'asistente_escalados', entrada.accion === 'REVOCACION'
-      ? Prisma.sql`id = CAST(${objetivoId!} AS uuid) AND (contacto_nombre IS NOT NULL OR contacto_telefono IS NOT NULL OR contacto_email IS NOT NULL)`
+      ? Prisma.sql`id = CAST(${objetivoId!} AS uuid) AND (
+          contacto_nombre IS NOT NULL OR contacto_telefono IS NOT NULL OR contacto_email IS NOT NULL OR EXISTS (
+            SELECT 1
+             FROM asistente_contactos_seguros contacto_cifrado
+             WHERE contacto_cifrado.referencia_tipo = 'ESCALADO'
+               AND contacto_cifrado.referencia_id = asistente_escalados.id
+               AND contacto_cifrado.cifrado IS NOT NULL
+               AND contacto_cifrado.borrar_despues > CURRENT_TIMESTAMP
+          )
+        )`
       : Prisma.sql`id = CAST(${objetivoId!} AS uuid)`)
   }
 
@@ -311,6 +359,61 @@ function vacio(recuentos: RecuentoPrivacidad): boolean {
   return Object.values(recuentos).every(valor => valor === 0)
 }
 
+function objeto(valor: unknown): valor is Record<string, unknown> {
+  return Boolean(valor) && typeof valor === 'object' && !Array.isArray(valor)
+}
+
+function recuentosAuditados(valor: unknown): RecuentoPrivacidad | null {
+  if (!objeto(valor) || Object.keys(valor).length !== CLAVES_RECUENTO.length || !CLAVES_RECUENTO.every(clave => Object.hasOwn(valor, clave))) return null
+  const recuentos: Partial<RecuentoPrivacidad> = {}
+  for (const clave of CLAVES_RECUENTO) {
+    const numero = valor[clave]
+    if (typeof numero !== 'number' || !Number.isSafeInteger(numero) || numero < 0) return null
+    recuentos[clave] = numero
+  }
+  return recuentos as RecuentoPrivacidad
+}
+
+function resultadoAuditoria(valor: unknown): Record<string, unknown> | null {
+  if (typeof valor === 'string') {
+    try { return resultadoAuditoria(JSON.parse(valor)) } catch { return null }
+  }
+  return objeto(valor) ? valor : null
+}
+
+async function bloquearIdempotencia(db: Db, actorId: number, claveHash: string): Promise<void> {
+  const claveBloqueo = `asistente-privacidad:idempotencia:${actorId}:${claveHash}`
+  await db.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${claveBloqueo}, 0))`)
+}
+
+async function buscarReciboIdempotencia(db: Db, actorId: number, idempotencia: IdempotenciaPrivacidad, preview: CargaPreview): Promise<ResultadoPrivacidad | null> {
+  const filas = await (db.$queryRaw(Prisma.sql`
+    SELECT tipo::text AS "tipo", objetivo_hash AS "objetivoHash", resultado
+      FROM asistente_gestion_privacidad
+     WHERE actor_id = ${actorId}
+       AND resultado->'idempotencia'->>'claveHash' = ${idempotencia.claveHash}
+     ORDER BY created_at ASC, id ASC
+     LIMIT 2
+     FOR UPDATE
+  `) as Promise<FilaReciboIdempotencia[]>)
+  if (!filas.length) return null
+  if (filas.length !== 1) throw new ErrorPrivacidad('RECIBO_IDEMPOTENCIA_AMBIGUO', 409)
+
+  const resultado = resultadoAuditoria(filas[0].resultado)
+  const guardada = resultado && resultado.idempotencia
+  const recuentos = resultado && recuentosAuditados(resultado.recuentos)
+  if (!resultado || resultado.schema !== 'ASISTENTE_PRIVACIDAD_V1' || resultado.ensayo !== false || !objeto(guardada) || !recuentos
+    || typeof guardada.claveHash !== 'string' || typeof guardada.solicitudHash !== 'string' || typeof guardada.reviewHash !== 'string') {
+    throw new ErrorPrivacidad('RECIBO_IDEMPOTENCIA_INVALIDO', 409)
+  }
+  if (guardada.claveHash !== idempotencia.claveHash) throw new ErrorPrivacidad('RECIBO_IDEMPOTENCIA_INVALIDO', 409)
+  if (guardada.solicitudHash !== idempotencia.solicitudHash || guardada.reviewHash !== idempotencia.reviewHash
+    || filas[0].tipo !== preview.accion || filas[0].objetivoHash !== objetivoHashPreview(preview)) {
+    throw new ErrorPrivacidad('IDEMPOTENCIA_CLAVE_REUTILIZADA', 409, 'La clave de idempotencia ya se usó con una solicitud distinta.')
+  }
+  return { ok: true, accion: preview.accion, recuentos, idempotente: true }
+}
+
 async function aplicarInstantanea(db: Db, instantanea: InstantaneaPrivacidad): Promise<RecuentoPrivacidad> {
   const contactos = await borrarContactosSeleccionados(db, instantanea.contactos)
   if (instantanea.accion === 'REVOCACION') {
@@ -354,17 +457,24 @@ async function aplicarInstantanea(db: Db, instantanea: InstantaneaPrivacidad): P
   }
 }
 
-async function auditar(db: Db, entrada: { instantanea: InstantaneaPrivacidad; actorId: number; ejecutor: string; recuentos: RecuentoPrivacidad; idempotente: boolean }): Promise<void> {
+async function auditar(db: Db, entrada: { instantanea: InstantaneaPrivacidad; actorId: number; ejecutor: string; recuentos: RecuentoPrivacidad; idempotente: boolean; idempotencia: IdempotenciaPrivacidad }): Promise<void> {
   const resultado = {
     schema: 'ASISTENTE_PRIVACIDAD_V1',
     ensayo: false,
     idempotente: entrada.idempotente,
     recuentos: entrada.recuentos,
+    idempotencia: entrada.idempotencia,
   }
   await db.$executeRaw(Prisma.sql`
     INSERT INTO asistente_gestion_privacidad (tipo, objetivo_hash, actor_id, ejecutor, resultado)
     VALUES (${entrada.instantanea.accion}, ${objetivoHash(entrada.instantanea)}, ${entrada.actorId}, ${entrada.ejecutor}, ${JSON.stringify(resultado)}::jsonb)
   `)
+}
+
+function esConflictoSerializable(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const prisma = error as { code?: unknown; meta?: { code?: unknown } }
+  return prisma.code === 'P2034' || prisma.code === '40001' || (prisma.code === 'P2010' && prisma.meta?.code === '40001')
 }
 
 /**
@@ -378,30 +488,47 @@ export async function confirmarPrivacidad(entrada: { actorId: number; previewTok
   const preview = leerPreviewToken(entrada.previewToken, entrada.actorId)
   const corte = preview.corteAt ? new Date(preview.corteAt) : null
   if (corte && Number.isNaN(corte.getTime())) throw new ErrorPrivacidad('PREVISUALIZACION_INVALIDA', 409)
+  const idempotencia = {
+    claveHash: hashClaveIdempotencia(entrada.actorId, entrada.idempotencyKey),
+    solicitudHash: hashSolicitud(preview),
+    reviewHash: preview.reviewHash,
+  }
 
-  return prisma.$transaction(async (tx: Db) => {
-    const inicial = await crearInstantanea(tx, {
-      accion: preview.accion,
-      objetivoTipo: preview.objetivoTipo,
-      objetivoId: preview.objetivoId,
-      corte,
-    })
-    if (reviewHash(inicial) !== preview.reviewHash) throw new ErrorPrivacidad('PREVISUALIZACION_OBSOLETA', 409, 'Los datos cambiaron; revisa de nuevo antes de confirmar.')
-    await bloquearInstantanea(tx, inicial)
-    const revalidada = await crearInstantanea(tx, {
-      accion: preview.accion,
-      objetivoTipo: preview.objetivoTipo,
-      objetivoId: preview.objetivoId,
-      corte,
-    })
-    if (reviewHash(revalidada) !== preview.reviewHash) throw new ErrorPrivacidad('PREVISUALIZACION_OBSOLETA', 409, 'Los datos cambiaron; revisa de nuevo antes de confirmar.')
-    const idempotente = vacio(revalidada.recuentos)
-    const recuentos = idempotente
-      ? { conversaciones: 0, mensajes: 0, valoraciones: 0, leads: 0, escalados: 0, huecos: 0, contactos: 0 }
-      : await aplicarInstantanea(tx, revalidada)
-    await auditar(tx, { instantanea: revalidada, actorId: entrada.actorId, ejecutor: entrada.ejecutor || 'admin', recuentos, idempotente })
-    return { ok: true as const, accion: preview.accion, recuentos, idempotente }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20_000 })
+  for (let intento = 0; intento < 3; intento += 1) {
+    try {
+      return await prisma.$transaction(async (tx: Db) => {
+        await bloquearIdempotencia(tx, entrada.actorId, idempotencia.claveHash)
+        const reciboPrevio = await buscarReciboIdempotencia(tx, entrada.actorId, idempotencia, preview)
+        if (reciboPrevio) return reciboPrevio
+
+        const inicial = await crearInstantanea(tx, {
+          accion: preview.accion,
+          objetivoTipo: preview.objetivoTipo,
+          objetivoId: preview.objetivoId,
+          corte,
+        })
+        if (reviewHash(inicial) !== preview.reviewHash) throw new ErrorPrivacidad('PREVISUALIZACION_OBSOLETA', 409, 'Los datos cambiaron; revisa de nuevo antes de confirmar.')
+        await bloquearInstantanea(tx, inicial)
+        const revalidada = await crearInstantanea(tx, {
+          accion: preview.accion,
+          objetivoTipo: preview.objetivoTipo,
+          objetivoId: preview.objetivoId,
+          corte,
+        })
+        if (reviewHash(revalidada) !== preview.reviewHash) throw new ErrorPrivacidad('PREVISUALIZACION_OBSOLETA', 409, 'Los datos cambiaron; revisa de nuevo antes de confirmar.')
+        const idempotente = vacio(revalidada.recuentos)
+        const recuentos = idempotente
+          ? { conversaciones: 0, mensajes: 0, valoraciones: 0, leads: 0, escalados: 0, huecos: 0, contactos: 0 }
+          : await aplicarInstantanea(tx, revalidada)
+        await auditar(tx, { instantanea: revalidada, actorId: entrada.actorId, ejecutor: entrada.ejecutor || 'admin', recuentos, idempotente, idempotencia })
+        return { ok: true as const, accion: preview.accion, recuentos, idempotente }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20_000 })
+    } catch (error: unknown) {
+      if (intento < 2 && esConflictoSerializable(error)) continue
+      throw error
+    }
+  }
+  throw new ErrorPrivacidad('TRANSACCION_PRIVACIDAD_REINTENTO_AGOTADO', 409)
 }
 
 /** Identificador sólo para los recibos/tests; nunca contiene el objetivo sin hash. */
