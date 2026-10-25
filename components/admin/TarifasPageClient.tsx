@@ -2,23 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import type { ReorderTarifa } from '../../app/admin/tarifas/ReorderTarifasModal'
 import {
   PlusIcon, MagnifyingGlassIcon, ArrowPathIcon,
   ChevronDownIcon, ChevronRightIcon, ChevronUpIcon,
   PencilIcon, TrashIcon, DocumentDuplicateIcon,
   StarIcon, PhoneIcon, GlobeAltIcon, DevicePhoneMobileIcon, TvIcon,
   TableCellsIcon, Squares2X2Icon,
-  EyeIcon, EyeSlashIcon, Bars3Icon, ArrowsUpDownIcon
+  EyeIcon, EyeSlashIcon, ArrowsUpDownIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
-import {
-  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import {
-  arrayMove, SortableContext, verticalListSortingStrategy, useSortable
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 interface Tarifa {
   id: number
@@ -258,6 +252,10 @@ function SeccionEmpresaSelector({ value, onChange, disabled }: {
 
 type ViewMode = 'grouped' | 'list'
 
+const ReorderTarifasModal = dynamic(() => import('../../app/admin/tarifas/ReorderTarifasModal'), {
+  ssr: false,
+})
+
 export default function TarifasPageClient() {
   const [stats, setStats] = useState<{ total: number; activas: number; categorias: CategoriaStats[] } | null>(null)
   const [statsLoading, setStatsLoading] = useState(true)
@@ -293,13 +291,8 @@ export default function TarifasPageClient() {
   const [reorderMode, setReorderMode] = useState(false)
   const [reorderCategory, setReorderCategory] = useState<string | null>(null)
   const [reorderSubcategory, setReorderSubcategory] = useState<string | null>(null)
-  const [reorderTarifas, setReorderTarifas] = useState<Tarifa[]>([])
+  const [reorderTarifas, setReorderTarifas] = useState<ReorderTarifa[]>([])
   const [savingOrder, setSavingOrder] = useState(false)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor)
-  )
 
   const startReorder = (cat: string) => {
     const grupo = grupos.find(g => g.categoria === cat)
@@ -318,16 +311,6 @@ export default function TarifasPageClient() {
     if (!grupo) return
     setReorderSubcategory(subcat)
     setReorderTarifas(grupo.tarifas.filter(t => (t.subcategoria || 'Sin subcategoría') === subcat))
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setReorderTarifas(prev => {
-      const oldIndex = prev.findIndex(t => t.id === active.id)
-      const newIndex = prev.findIndex(t => t.id === over.id)
-      return arrayMove(prev, oldIndex, newIndex)
-    })
   }
 
   const saveReorder = async () => {
@@ -1102,104 +1085,21 @@ export default function TarifasPageClient() {
         </>
       )}
 
-      {/* Modal de reordenación */}
+      {/* Modal de reordenación, descargado sólo al solicitarlo. */}
       {reorderMode && reorderCategory && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">Reordenar tarifas</h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border ${getCatColor(reorderCategory)}`}>{reorderCategory}</span>
-                  </p>
-                </div>
-                <button onClick={cancelReorder} className="text-gray-400 hover:text-gray-600">
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-              {/* Subcategoría tabs */}
-              {(() => {
-                const grupo = grupos.find(g => g.categoria === reorderCategory)
-                if (!grupo) return null
-                const subcats = Array.from(new Set(grupo.tarifas.map(t => t.subcategoria || 'Sin subcategoría')))
-                if (subcats.length <= 1) return null
-                return (
-                  <div className="flex flex-wrap gap-1 mt-3">
-                    {subcats.map(sub => (
-                      <button
-                        key={sub}
-                        onClick={() => changeReorderSubcategory(sub)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                          reorderSubcategory === sub
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {sub}
-                      </button>
-                    ))}
-                  </div>
-                )
-              })()}
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              <p className="text-xs text-gray-400 mb-3">Arrastra para cambiar el orden. El orden se aplica en todas las vistas web.</p>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={reorderTarifas.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                  {reorderTarifas.map((tarifa, idx) => (
-                    <SortableReorderItem key={tarifa.id} tarifa={tarifa} index={idx} />
-                  ))}
-                </SortableContext>
-              </DndContext>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button onClick={cancelReorder} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button onClick={saveReorder} disabled={savingOrder} className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-500 disabled:opacity-50">
-                {savingOrder ? 'Guardando...' : 'Guardar orden'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReorderTarifasModal
+          category={reorderCategory}
+          categoryClassName={getCatColor(reorderCategory)}
+          subcategory={reorderSubcategory}
+          categoryTarifas={grupos.find(grupo => grupo.categoria === reorderCategory)?.tarifas || []}
+          tarifas={reorderTarifas}
+          saving={savingOrder}
+          onSubcategoryChange={changeReorderSubcategory}
+          onTarifasChange={setReorderTarifas}
+          onCancel={cancelReorder}
+          onSave={saveReorder}
+        />
       )}
-    </div>
-  )
-}
-
-// Sortable item component for reorder modal
-function SortableReorderItem({ tarifa, index }: { tarifa: Tarifa; index: number }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tarifa.id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center gap-3 p-3 mb-2 rounded-lg border ${
-        isDragging ? 'bg-orange-50 border-orange-300 shadow-lg' : 'bg-white border-gray-200 hover:border-gray-300'
-      }`}
-    >
-      <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600">
-        <Bars3Icon className="h-5 w-5" />
-      </button>
-      <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{tarifa.nombre}</p>
-        {tarifa.nombreComercial && <p className="text-xs text-orange-600 truncate">{tarifa.nombreComercial}</p>}
-      </div>
-      <div className="text-right flex-shrink-0">
-        <p className="text-sm font-semibold text-gray-900">{tarifa.precioConIva.toFixed(2)} €</p>
-        <div className="flex gap-1 justify-end mt-0.5">
-          {tarifa.publicarWebParticular && <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-600 px-1.5 py-0 text-[10px] font-medium">P</span>}
-          {tarifa.publicarWebEmpresa && <span className="inline-flex items-center rounded-full bg-orange-100 text-orange-600 px-1.5 py-0 text-[10px] font-medium">E</span>}
-        </div>
-      </div>
     </div>
   )
 }
