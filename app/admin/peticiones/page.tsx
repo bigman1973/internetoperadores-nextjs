@@ -197,24 +197,28 @@ export default function AdminPeticionesPage() {
 
       {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
-      {!loading && (
+      {loading ? (
+        <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" aria-busy="true" aria-live="polite">
+          {[...Array(7)].map((_, index) => <div key={index} className="h-[76px] animate-pulse rounded-xl border border-gray-100 bg-gray-50" />)}
+        </div>
+      ) : (
         <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-yellow-400" onClick={() => setFiltroEstado(filtroEstado === 'pendiente' ? '' : 'pendiente')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-yellow-400" onClick={() => setFiltroEstado(filtroEstado === 'pendiente' ? '' : 'pendiente')}>
             <p className="text-xs text-gray-500">Pendientes</p><p className="text-2xl font-bold text-yellow-600">{kpis.pendientes || 0}</p>
           </button>
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-blue-400" onClick={() => setFiltroEstado(filtroEstado === 'aprobada' ? '' : 'aprobada')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-blue-400" onClick={() => setFiltroEstado(filtroEstado === 'aprobada' ? '' : 'aprobada')}>
             <p className="text-xs text-gray-500">Aprobadas</p><p className="text-2xl font-bold text-blue-600">{kpis.aprobadas || 0}</p>
           </button>
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-indigo-400" onClick={() => setFiltroEstado(filtroEstado === 'en_desarrollo' ? '' : 'en_desarrollo')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-indigo-400" onClick={() => setFiltroEstado(filtroEstado === 'en_desarrollo' ? '' : 'en_desarrollo')}>
             <p className="text-xs text-gray-500">En desarrollo</p><p className="text-2xl font-bold text-indigo-600">{kpis.enDesarrollo || 0}</p>
           </button>
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-violet-400" onClick={() => setFiltroEstado(filtroEstado === 'pendiente_validacion' ? '' : 'pendiente_validacion')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-violet-400" onClick={() => setFiltroEstado(filtroEstado === 'pendiente_validacion' ? '' : 'pendiente_validacion')}>
             <p className="text-xs text-gray-500">Por validar</p><p className="text-2xl font-bold text-violet-600">{kpis.porValidar || 0}</p>
           </button>
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-amber-400" onClick={() => setFiltroEstado(filtroEstado === 'ajustes_solicitados' ? '' : 'ajustes_solicitados')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-amber-400" onClick={() => setFiltroEstado(filtroEstado === 'ajustes_solicitados' ? '' : 'ajustes_solicitados')}>
             <p className="text-xs text-gray-500">Con ajustes</p><p className="text-2xl font-bold text-amber-600">{kpis.conAjustes || 0}</p>
           </button>
-          <button className="rounded-xl border bg-white p-3 text-left hover:border-green-400" onClick={() => setFiltroEstado(filtroEstado === 'resuelta' ? '' : 'resuelta')}>
+          <button className="min-h-11 min-w-11 rounded-xl border bg-white p-3 text-left hover:border-green-400" onClick={() => setFiltroEstado(filtroEstado === 'resuelta' ? '' : 'resuelta')}>
             <p className="text-xs text-gray-500">Cerradas</p><p className="text-2xl font-bold text-green-600">{kpis.resueltas || 0}</p>
           </button>
           <div className="rounded-xl border bg-white p-3">
@@ -227,23 +231,28 @@ export default function AdminPeticionesPage() {
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <div className="flex flex-col">
           <label className="mb-1 text-xs text-gray-500">Estado</label>
-          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="rounded-lg border px-3 py-2 text-sm text-gray-900">
+          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} className="min-h-11 rounded-lg border px-3 py-2 text-sm text-gray-900">
             <option value="">Todos</option>
             {ESTADOS.map(item => <option key={item.v} value={item.v}>{item.l}</option>)}
           </select>
         </div>
         <div className="flex flex-col">
           <label className="mb-1 text-xs text-gray-500">Tipo</label>
-          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="rounded-lg border px-3 py-2 text-sm text-gray-900">
+          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)} className="min-h-11 rounded-lg border px-3 py-2 text-sm text-gray-900">
             <option value="">Todos</option>
             {TIPOS.map(item => <option key={item.v} value={item.v}>{item.l}</option>)}
           </select>
         </div>
-        {(filtroEstado || filtroTipo) && <button onClick={() => { setFiltroEstado(''); setFiltroTipo('') }} className="mt-5 text-xs font-medium text-orange-600 hover:text-orange-800">Limpiar filtros</button>}
+        {(filtroEstado || filtroTipo) && <button onClick={() => { setFiltroEstado(''); setFiltroTipo('') }} className="mt-5 inline-flex min-h-11 items-center text-xs font-medium text-orange-600 hover:text-orange-800">Limpiar filtros</button>}
       </div>
 
       {loading ? (
-        <div className="py-12 text-center text-gray-500">Cargando...</div>
+        <div className="min-h-[34rem] overflow-x-auto rounded-xl border bg-white" aria-busy="true" aria-live="polite">
+          <div className="min-w-[1050px] divide-y">
+            <div className="h-12 bg-gray-50" />
+            {[...Array(8)].map((_, index) => <div key={index} className="h-16 animate-pulse bg-gray-50/50" />)}
+          </div>
+        </div>
       ) : peticiones.length === 0 ? (
         <div className="rounded-xl border bg-white py-16 text-center text-gray-500">No hay peticiones con estos filtros</div>
       ) : (
@@ -281,13 +290,13 @@ export default function AdminPeticionesPage() {
                           value={estadoEditable ? peticion.estado : 'bloqueado'}
                           onChange={e => handleAction('cambiar_estado', peticion.id, { estado: e.target.value })}
                           disabled={saving}
-                          className="rounded border px-2 py-1 text-xs text-gray-700"
+                          className="min-h-11 rounded border px-2 py-1 text-xs text-gray-700"
                           title="El cierre solo lo confirma el solicitante"
                         >
                           {!estadoEditable && <option value="bloqueado" disabled>{estadoLabel(peticion.estado)}</option>}
                           {ESTADOS_ADMIN.map(item => <option key={item.v} value={item.v}>{item.l}</option>)}
                         </select>
-                        <button onClick={() => abrirDetalle(peticion)} className="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">Ver</button>
+                        <button onClick={() => abrirDetalle(peticion)} className="min-h-11 min-w-11 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200">Ver</button>
                       </div>
                     </td>
                   </tr>
