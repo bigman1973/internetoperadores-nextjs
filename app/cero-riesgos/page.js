@@ -44,17 +44,17 @@ export default function Home() {
       {/* Stats */}
       <section className="py-16 bg-gray-50">
         <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-3 gap-12 text-center">
+          <div className="grid md:grid-cols-3 gap-8 lg:gap-12 text-center">
             <div>
-              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">6,340+</div>
+              <div className="text-5xl lg:text-6xl font-bold text-orange-500 mb-2">6,340+</div>
               <div className="text-gray-600">Clientes atendidos</div>
             </div>
             <div>
-              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">19</div>
+              <div className="text-5xl lg:text-6xl font-bold text-orange-500 mb-2">19</div>
               <div className="text-gray-600">Años de experiencia</div>
             </div>
             <div>
-              <div className="text-5xl md:text-6xl font-bold text-orange-500 mb-2">+39,567€</div>
+              <div className="text-5xl lg:text-6xl font-bold text-orange-500 mb-2">+39,567€</div>
               <div className="text-gray-600">Pérdida media por ciberataque a empresas españolas</div>
             </div>
           </div>
