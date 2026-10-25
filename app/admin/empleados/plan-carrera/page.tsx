@@ -125,7 +125,7 @@ const MOTIVOS_SALARIAL = [
 export default function PlanCarreraPage() {
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [selectedEmpleado, setSelectedEmpleado] = useState<string>('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'objetivos' | 'evaluaciones' | 'formacion' | 'salarial'>('objetivos');
 
   // Data
@@ -176,13 +176,20 @@ export default function PlanCarreraPage() {
   }, [selectedEmpleado]);
 
   async function fetchEmpleados() {
-    const res = await fetch('/api/admin/empleados?view=career-select');
-    const data = await res.json();
-    const emps = (data.empleados || []).map((e: any) => ({
-      id: e.id, nombreCompleto: e.nombreCompleto, categoria: e.categoria, estado: e.estado, fechaAlta: e.fechaAlta,
-    }));
-    setEmpleados(emps);
-    if (emps.length > 0 && !selectedEmpleado) setSelectedEmpleado(emps[0].id);
+    try {
+      const res = await fetch('/api/admin/empleados?view=career-select');
+      if (!res.ok) throw new Error('No se pudo cargar la lista de empleados');
+      const data = await res.json();
+      const emps = (data.empleados || []).map((e: any) => ({
+        id: e.id, nombreCompleto: e.nombreCompleto, categoria: e.categoria, estado: e.estado, fechaAlta: e.fechaAlta,
+      }));
+      setEmpleados(emps);
+      if (emps.length > 0 && !selectedEmpleado) setSelectedEmpleado(emps[0].id);
+      else setLoading(false);
+    } catch (e) {
+      console.error(e);
+      setLoading(false);
+    }
   }
 
   async function fetchPlanCarrera() {
@@ -330,7 +337,7 @@ export default function PlanCarreraPage() {
       </div>
 
       {/* KPIs */}
-      {empActual && (
+      {empActual ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -386,7 +393,13 @@ export default function PlanCarreraPage() {
             </div>
           )}
         </div>
-      )}
+      ) : loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4" aria-hidden="true">
+          {[0, 1, 2, 3, 4].map(item => (
+            <div key={item} className="min-h-[104px] animate-pulse rounded-xl border bg-white" />
+          ))}
+        </div>
+      ) : null}
 
       {/* Tabs */}
       <div className="border-b">
@@ -413,7 +426,13 @@ export default function PlanCarreraPage() {
 
       {/* Content */}
       {loading ? (
-        <div className="text-center py-12 text-gray-400">Cargando...</div>
+        <div className="min-h-[194px] rounded-xl border bg-white p-6" role="status" aria-live="polite">
+          <div className="animate-pulse space-y-4" aria-hidden="true">
+            <div className="h-5 w-32 rounded bg-gray-200" />
+            <div className="h-20 rounded-lg bg-gray-100" />
+          </div>
+          <span className="sr-only">Cargando...</span>
+        </div>
       ) : (
         <div className="bg-white rounded-xl border">
           {/* OBJETIVOS */}
