@@ -6,8 +6,6 @@ import Link from 'next/link'
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import ClientesTable from '../../../components/admin/ClientesTable'
 import SyncClientesButton from '../../../components/admin/SyncClientesButton'
-import { Prisma } from '@prisma/client'
-
 interface SearchParams {
   search?: string
   newsletter?: string
@@ -222,6 +220,56 @@ async function getClientes(searchParams: SearchParams) {
       orderBy: { nombre: 'asc' },
       skip,
       take: pageSize,
+      // ClientesTable sólo usa estos datos. Evitar serializar el registro completo
+      // (incluido passwordHash y otros campos que no se muestran) reduce el trabajo
+      // de la consulta, el payload de React Flight y la hidratación inicial.
+      select: {
+        id: true,
+        email: true,
+        ispGestionId: true,
+        nombre: true,
+        ultimoAcceso: true,
+        newsletterSuscrito: true,
+        createdAt: true,
+        updatedAt: true,
+        clienteIdIsp: true,
+        codigo: true,
+        nif: true,
+        cif: true,
+        personaFisica: true,
+        segmentoCrm: true,
+        segmentoCrmActualizadoPor: true,
+        nombreComercial: true,
+        telefono: true,
+        movil: true,
+        fax: true,
+        web: true,
+        movilSms: true,
+        tipoCalle: true,
+        domicilio: true,
+        numero: true,
+        piso: true,
+        puerta: true,
+        municipio: true,
+        localidad: true,
+        codigoPostal: true,
+        provincia: true,
+        pais: true,
+        cuentaCargo: true,
+        formaPago: true,
+        tipoIva: true,
+        facturaElectronica: true,
+        facturaMail: true,
+        facturaPapel: true,
+        representante: true,
+        nifRepresentante: true,
+        activo: true,
+        baneado: true,
+        fechaAlta: true,
+        fechaBaja: true,
+        idioma: true,
+        recibePublicidad: true,
+      },
     }),
     prisma.clienteWeb.count({ where }),
     prisma.clienteWeb.count({ where: { activo: true } }),
@@ -348,7 +396,7 @@ async function getClientes(searchParams: SearchParams) {
 
   // Contar activos con facturación: contratos activos O facturas emitidas en el año en curso
   const anioActual = new Date().getFullYear()
-  const [allContratosActivos, facturasAnioActual] = await Promise.all([
+  const [allContratosActivos, facturasAnioActual, allClientesActivos] = await Promise.all([
     prisma.contratoServicio.findMany({
       where: { activo: true },
       select: { clienteId: true },
@@ -359,13 +407,13 @@ async function getClientes(searchParams: SearchParams) {
       select: { codigoCliente: true },
       distinct: ['codigoCliente'],
     }),
+    prisma.clienteWeb.findMany({
+      where: { activo: true },
+      select: { clienteIdIsp: true, personaFisica: true, codigo: true },
+    }),
   ])
   const idsConContratosGlobal = new Set(allContratosActivos.map(c => c.clienteId))
   const codigosConFacturas = new Set(facturasAnioActual.map(f => f.codigoCliente))
-  const allClientesActivos = await prisma.clienteWeb.findMany({
-    where: { activo: true },
-    select: { clienteIdIsp: true, personaFisica: true, codigo: true },
-  })
   const clientesConFactList = allClientesActivos.filter(c => 
     (c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp)) ||
     (c.codigo && codigosConFacturas.has(c.codigo))
