@@ -67,6 +67,17 @@ export async function extraerArchivo(buffer: Buffer, nombre: string): Promise<{ 
   throw new Error('TIPO_ARCHIVO_NO_PERMITIDO')
 }
 
+/**
+ * Texto sobre el que se calcula el índice léxico de un fragmento: título del
+ * documento + fragmento. Las FAQ suelen responder sin repetir la pregunta y,
+ * sin el título, «¿qué velocidades ofrecéis?» no encontraba su propia FAQ.
+ * La cita y el texto mostrado siguen siendo sólo `contenido`.
+ */
+export function textoIndexable(titulo: string, fragmento: string): string {
+  const t = normalizar(String(titulo ?? '').slice(0, 500))
+  const f = normalizar(fragmento)
+  return t && !f.startsWith(t) ? `${t} . ${f}` : f
+}
 export type OpcionesIndexado = {
   /** Espacio de un documento NUEVO. Un documento existente conserva siempre su espacio, roles y cliente. */
   espacio?: 'PUBLICO' | 'INTERNO'
@@ -93,7 +104,7 @@ export async function indexarFuente(fuente: FuenteIngesta, actorId?: number, opc
     // Sólo la versión vigente puede responder: las anteriores quedan inactivas (se conservan para auditoría).
     await tx.asistenteFragmento.updateMany({ where: { documentoId: documento.id, activo: true }, data: { activo: false } })
     const fragmentos = trocear(contenido, { max: 900, solape: 140 })
-    if (fragmentos.length) await tx.asistenteFragmento.createMany({ data: fragmentos.map((fragmento, orden) => ({ documentoId: documento.id, versionId: versionCreada.id, orden, titulo: fuente.titulo.slice(0, 500), contenido: fragmento, contenidoNorm: normalizar(fragmento), espacio, roles, tenantClienteId: documento.tenantClienteId ?? null, activo: publicado, urlFuente: fuente.urlFuente || null })) })
+    if (fragmentos.length) await tx.asistenteFragmento.createMany({ data: fragmentos.map((fragmento, orden) => ({ documentoId: documento.id, versionId: versionCreada.id, orden, titulo: fuente.titulo.slice(0, 500), contenido: fragmento, contenidoNorm: textoIndexable(fuente.titulo, fragmento), espacio, roles, tenantClienteId: documento.tenantClienteId ?? null, activo: publicado, urlFuente: fuente.urlFuente || null })) })
     return { creado: true, documentoId: documento.id, estado }
   })
 }

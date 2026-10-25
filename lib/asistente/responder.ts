@@ -76,8 +76,11 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
     respuesta = runtime.bienvenida
     sinFuente = true
   } else {
-    const fragmentos = await buscar(entrada.mensaje, alcance, { limite: 6 })
-    if (!fragmentos.length || fragmentos[0].puntuacion < 0.02) {
+    // Se busca sobre el texto ya anonimizado y sin marcadores ([DNI], [IBAN]…):
+    // los datos personales no influyen en la búsqueda ni salen hacia embeddings.
+    const consultaBusqueda = textoAnon.replace(/\[[A-Z_]+\]/g, ' ').trim() || entrada.mensaje
+    const fragmentos = await buscar(consultaBusqueda, alcance, { limite: 6 })
+    if (!fragmentos.length || !(fragmentos[0].puntuacion > 0)) {
       respuesta = 'No tengo esa información en nuestra documentación. Si quieres, puedo ponerte en contacto con una persona.'
       sinFuente = true
       motivo = 'SIN_RESPUESTA'

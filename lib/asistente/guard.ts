@@ -20,7 +20,9 @@ const INYECCION = [
   /\b(?:bypass|elude|evade|disable|skip|override) (?:the |all |your |any )?(?:security|safety|filters?|restrictions|rules|guardrails|controls)\b/i,
 ]
 const ENFADO = /\b(?:inutil|inútil|mierda|puta|estafa(?:dores)?|imbecil|imbécil|vergonzoso|ladrones?|cabreo|enfadad[oa]|reclamacion|reclamación)\b/i
-const HUMANO = /\b(?:persona|humano|agente|operador|comercial|soporte|llamad(?:me|a)|hablar con alguien|contactar con)\b/i
+// «soporte» o «contactar con» solos son preguntas informativas (FAQ); la petición
+// de persona exige un sujeto humano explícito o «hablar con alguien».
+const HUMANO = /\b(?:persona|humano|humana|agente|operador|operadora|comercial|llamad(?:me|a)|hablar con alguien)\b/i
 const SALUDO = /^(?:hola|buenas(?:\s+(?:tardes|dias|días|noches))?|hey|hello|hi|que tal|qué tal)[!. ,¡¿?]*$/i
 const FUERA_DOMINIO = /\b(?:receta|horoscopo|horóscopo|resultado(?:s)? (?:de )?futbol|fútbol|criptomoneda|acciones? de bolsa|programa(?:r)? en python|politica internacional|política internacional)\b/i
 

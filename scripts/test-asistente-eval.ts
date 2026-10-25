@@ -248,12 +248,14 @@ async function probarHttp(prisma: any): Promise<{ pruebas: PruebaHttp[]; mensaje
     }))
     const datos = await cuerpo(respuesta)
     asegurar(respuesta.status === 200 && datos.ok === true, 'LEAD_MISMO_ORIGEN')
-    if (typeof datos.conversacionId === 'string') hallazgos.push({
+    // Contrato v2: el lead devuelve el conversacionId del MISMO visitante para que
+    // el widget lo reutilice (igual que /chat). Sólo es hallazgo si falta o no es UUID.
+    if (datos.conversacionId !== undefined && !/^[0-9a-f-]{36}$/i.test(String(datos.conversacionId))) hallazgos.push({
       id: 'CORE-LEAD-001',
       archivo: 'app/api/asistente/lead/route.ts',
       funcion: 'POST',
-      caso: 'La respuesta satisfactoria incluye conversacionId aunque el contrato de la API sólo permite {ok, mensaje}.',
-      correccion: 'Devolver únicamente { ok: true, mensaje } y conservar el identificador sólo en servidor.',
+      caso: 'La respuesta satisfactoria incluye un conversacionId con formato no válido.',
+      correccion: 'Devolver { ok, mensaje, conversacionId } con el UUID de la conversación del mismo visitante.',
     })
   })
   await comprobar('lead cuerpo superior a 8 KB', async () => {
