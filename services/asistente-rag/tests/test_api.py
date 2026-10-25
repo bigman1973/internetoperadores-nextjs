@@ -25,6 +25,7 @@ def client() -> TestClient:
         embeddings_model="bge-m3",
         reranker_model="bge-reranker-v2-m3",
         spacy_model="es_core_news_lg",
+        rerank_enabled=True,
     )
     with TestClient(create_app(settings=settings, backend=FakeBackend())) as test_client:
         yield test_client
@@ -91,6 +92,25 @@ def test_rerank_lexico_devuelve_resultados_ordenados_y_limita_top_n(client: Test
     )
     assert response.status_code == 200
     assert [item["index"] for item in response.json()["results"]] == [1, 2]
+
+
+def test_rerank_cerrado_por_defecto_no_carga_un_modelo_ni_degrada_a_red(auth: dict[str, str]) -> None:
+    settings = Settings(
+        api_key="clave-de-prueba-local",
+        backend="fake",
+        models_dir=__import__("pathlib").Path("/models"),
+        embeddings_model="bge-m3",
+        reranker_model="bge-reranker-v2-m3",
+        spacy_model="es_core_news_lg",
+    )
+    with TestClient(create_app(settings=settings, backend=FakeBackend())) as disabled_client:
+        response = disabled_client.post(
+            "/v1/rerank",
+            headers=auth,
+            json={"query": "fibra", "documents": ["Fibra empresarial"]},
+        )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Reranking local no habilitado"}
 
 
 def test_redacta_patrones_espanoles_sin_devolver_el_texto_original(client: TestClient, auth: dict[str, str]) -> None:

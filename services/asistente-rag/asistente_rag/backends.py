@@ -14,6 +14,10 @@ from .config import Settings, force_offline_environment
 DIMENSION = 1024
 
 
+class RerankDisabledError(RuntimeError):
+    """Señala un servicio sano cuyo reranking no está aprobado para operar."""
+
+
 def _normalise_words(text: str) -> set[str]:
     normalised = unicodedata.normalize("NFD", text.lower())
     normalised = "".join(char for char in normalised if unicodedata.category(char) != "Mn")
@@ -123,17 +127,22 @@ class RealBackend(Backend):
         force_offline_environment()
         self._models_dir = settings.models_dir
         self._embeddings_path = self._required_path(settings.embeddings_model)
-        self._reranker_path = self._required_path(settings.reranker_model)
         self._spacy_path = self._required_path(settings.spacy_model)
         try:
             from sentence_transformers import SentenceTransformer
-            from FlagEmbedding import FlagReranker
             import spacy
             from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
         except ImportError as error:  # pragma: no cover - se cubre en build real
             raise RuntimeError("Faltan dependencias locales del backend real") from error
         self._embedder = SentenceTransformer(str(self._embeddings_path), local_files_only=True)
-        self._reranker = FlagReranker(str(self._reranker_path), use_fp16=False)
+        self._reranker = None
+        if settings.rerank_enabled:
+            self._reranker_path = self._required_path(settings.reranker_model)
+            try:
+                from FlagEmbedding import FlagReranker
+            except ImportError as error:  # pragma: no cover - se cubre en build real
+                raise RuntimeError("Falta FlagEmbedding para el reranker local") from error
+            self._reranker = FlagReranker(str(self._reranker_path), use_fp16=False)
         nlp = spacy.load(str(self._spacy_path))
         self._analyzer = AnalyzerEngine(nlp_engine=self._presidio_nlp(nlp), supported_languages=["es"])
         self._add_spanish_recognizers(Pattern, PatternRecognizer)
@@ -167,6 +176,8 @@ class RealBackend(Backend):
         return [[float(value) for value in row] for row in values]
 
     def rerank(self, query: str, documents: list[str]) -> list[tuple[int, float]]:
+        if self._reranker is None:
+            raise RerankDisabledError("Reranking local deshabilitado")
         scores = self._reranker.compute_score([[query, document] for document in documents])
         return sorted(enumerate(float(score) for score in scores), key=lambda item: (-item[1], item[0]))
 

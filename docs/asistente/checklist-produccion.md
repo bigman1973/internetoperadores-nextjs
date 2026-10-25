@@ -44,6 +44,15 @@
 
 El endpoint `/api/cron/asistente-informe` queda preparado, pero en staging está bloqueado y no hay `vercel.json` modificado. Si se aprueba más adelante, la línea de cron debe documentarse/revisarse de forma separada: Vercel cron usa UTC; el handler convierte a `Europe/Madrid`, toma lock idempotente y ejecuta sólo a las 08:00 locales. Mientras tanto el informe se genera de forma perezosa e idempotente al abrir panel, con botón «Generar ahora». `ASSISTANT_CRON_ENABLED=false` hasta aprobación.
 
+### Mantenimiento del host GPU
+
+No se crea un cron ni un servicio persistente con esta entrega. Cuando exista un host autorizado, cualquier programación de copia, verificación de restauración, rotación de soporte offline o revisión de recibos debe usar el ejecutor nativo del host con `Europe/Madrid`, cuenta de mínimo privilegio, salida local redactada, bloqueo para impedir ejecuciones solapadas y ventana de cambio aprobada. No debe abrir red, descargar actualizaciones, ejecutar `docker pull`, modificar modelos ni activar el asistente. La programación efectiva sigue bloqueada hasta que el host, el responsable y el procedimiento de reversión estén aprobados y probados.
+
+- [ ] Existe dueño operativo y ventana de mantenimiento aprobada para cada tarea GPU programada.
+- [ ] Cada tarea usa `flock`, registra sólo resultado agregado en almacenamiento local y deja un recibo sin secretos/PII.
+- [ ] Se ha probado manualmente el mismo comando con backup/restauración en volumen nuevo antes de programarlo.
+- [ ] La tarea no contiene secretos en argumentos, no usa red y falla cerrada si faltan hash, `.env` restrictivo o almacenamiento cifrado.
+
 ## Plan de vuelta atrás exacto
 
 1. **Apagar tráfico y generación inmediatamente:** establecer `ASSISTANT_PUBLIC_ENABLED=false` y `ASSISTANT_MODE=desactivado` en el entorno correspondiente.

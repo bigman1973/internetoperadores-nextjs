@@ -48,6 +48,10 @@ def main() -> int:
 
     telemetry = {
         "HF_HUB_OFFLINE": "1",
+        "HF_HUB_DISABLE_TELEMETRY": "1",
+        "HF_HUB_DISABLE_UPDATE_CHECK": "1",
+        "HF_HUB_DISABLE_IMPLICIT_TOKEN": "1",
+        "HF_DATASETS_OFFLINE": "1",
         "TRANSFORMERS_OFFLINE": "1",
         "DO_NOT_TRACK": "1",
         "OTEL_SDK_DISABLED": "true",
@@ -104,6 +108,12 @@ def main() -> int:
                 fail(errors, f"{name}: los modelos deben montarse ./models:/models:ro")
         if name == "asistente-rag" and spec.get("read_only") is not True:
             fail(errors, "asistente-rag: root filesystem debe ser de sólo lectura")
+
+    if services.get("redis", {}).get("profiles") != ["estado"]:
+        fail(errors, "redis: debe quedar apagado por defecto en el perfil estado")
+    for name in ("langfuse-web", "langfuse-worker", "langfuse-db", "clickhouse", "minio"):
+        if services.get(name, {}).get("profiles") != ["observabilidad"]:
+            fail(errors, f"{name}: debe quedar apagado por defecto en el perfil observabilidad")
 
     caddyfile = (ROOT / "Caddyfile").read_text(encoding="utf-8")
     for required in ("auto_https off", "admin off", "require_and_verify", "CADDY_GATEWAY_TOKEN"):

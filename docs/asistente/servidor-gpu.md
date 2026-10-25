@@ -1,45 +1,42 @@
 # Servidor GPU recomendado y dimensionado
 
-**Estado:** recomendación de infraestructura, no orden de compra. Precios, stock, DPA, región y subencargados deben reconfirmarse antes de contratar.
+**Estado:** recomendación técnica acotada a staging y preparación. No es una orden de compra ni autoriza producción. Precios, stock, DPA, región y subencargados requieren reconfirmación antes de contratar.
 
-## Recomendación inicial
+## Candidato de modelo: Mistral Small 3.1 24B Instruct
 
-La opción principal es **Hetzner GEX63 en HEL1 (Helsinki)**: NVIDIA RTX PRO 6000 Blackwell Max-Q con 96 GB GDDR7 ECC, 128 GB RAM y 2 × 1,92 TB NVMe. Según el análisis de Fase 0, la referencia era 999 €/mes más 999 € de alta sin IVA a 25 de octubre de 2026. Se recomienda por el margen que deja para Qwen3-32B INT4, caché KV, crecimiento de concurrencia y servicios locales sin *offload* de CPU. El coste no incluye copias, operación, certificados ni soporte.
+La primera opción para una evaluación ciega es **Mistral Small 3.1 24B Instruct**. La ficha oficial declara licencia Apache-2.0, uso y modificación comercial, soporte explícito de español, 24.000 millones de parámetros y vLLM como framework recomendado [1]. La misma ficha estima aproximadamente 55 GB de VRAM para BF16/FP16; la guía offline de la ficha advierte más de 60 GB de VRAM. Por prudencia, el presupuesto de memoria debe partir de al menos 60 GB antes de caché KV, runtime y concurrencia [1].
 
-El modelo base a evaluar es **Qwen3-32B Instruct** con licencia Apache-2.0 y cuantización AWQ/GPTQ INT4, servido por vLLM. El Compose utiliza inicialmente `/models/Qwen3-32B-AWQ`, `--served-model-name=io-qwen3-32b-awq`, `--max-model-len=8192`, `--gpu-memory-utilization=0.85` y `--max-num-seqs=16`. La aplicación debe limitar la entrada RAG a 6.000 tokens y la salida a 350. La cuantización y revisión exacta deben congelarse por commit/hash tras prueba; no se deben inferir de un nombre de repositorio mutable.
+No se ha descargado, fijado ni validado un checkpoint ni una cuantización en esta entrega. El `models.lock.example` contiene marcadores intencionados y no es un lock final. Una alternativa Apache-2.0 multilingüe es Qwen3; su ficha oficial declara soporte de más de 100 idiomas y dialectos, pero tampoco está congelada en este repositorio [2].
 
-La alternativa pragmática es **Mistral Small 3.1 24B Instruct INT4/INT8** en L40S 48 GB de Scaleway PAR-2 o hardware europeo equivalente. Reduce compromiso inicial y puede rendir mejor en latencia, pero ofrece menos margen de KV y concurrencia. GEX45 de 24 GB sólo es apropiado para 7–14B o pruebas de contexto muy limitado: no se recomienda como destino estable de Qwen3-32B.
+## Hardware UE a evaluar
 
-## Dimensionado de memoria y disco
+| Prioridad | Candidato | VRAM | Precio de catálogo consultado | Motivo y condición |
+|---|---|---:|---:|---|
+| 1 | Dedicado RTX PRO 6000 Max-Q en Países Bajos | 96 GB GDDR7 ECC | desde 1.190 €/mes sin IVA | Deja margen para Mistral 24B BF16, caché KV y servicios auxiliares. La página publica sala de datos UE en Países Bajos; confirmar contrato, DPA, borrado, soporte, red privada y stock. [3] |
+| 2 | OVHcloud L40S | 48 GB GDDR6 | 1,80 USD/h; ≈1.314 USD/mes a 730 h | Sólo piloto cuantizado si checkpoint exacto, contexto y concurrencia superan evaluación. OVHcloud declara la L40S apta para inferencia generativa; la residencia se valida con región/contrato. [4] |
+| 3 | OVHcloud H100 | 80 GB HBM2e | 2,99 USD/h; ≈2.182,70 USD/mes a 730 h | Alternativa para evaluación BF16 con margen de memoria; coste de catálogo sin impuestos, almacenamiento o conectividad. [4] |
 
-| Recurso | GEX63 recomendado | Punto de partida operativo | Justificación |
-|---|---:|---:|---|
-| VRAM | 96 GB | ≤85 % P95 | INT4 de 32B requiere margen para runtime, escalas AWQ/GPTQ, CUDA y caché KV. No activar si deja menos de 15–20 % libre. |
-| RAM | 128 GB | vLLM 72 GiB máximo; RAG 12 GiB; resto para host/caché | Evita presión de memoria/OOM y permite spaCy, embeddings y procesos de operación. |
-| CPU | CPU del dedicado | vLLM 12 vCPU; RAG 6 vCPU; servicios auxiliares limitados | El reranker CPU se mantiene apagado salvo que el P95 adicional sea ≤600 ms. |
-| NVMe | 3,84 TB brutos | separar SO, `models`, volúmenes y copias temporales | Pesos, imágenes OCI, bundle, logs mínimos y restauraciones necesitan margen. Definir cifrado del disco. |
-| Red | 1 Gb/s o superior | sólo relay/VPN en 443 | No hay navegación/egress; el ancho de banda se dimensiona para usuarios autorizados y copia offline. |
+El coste mensual orientativo se calcula como tarifa horaria multiplicada por 730 horas. No incorpora IVA, disco, snapshots, soporte, egress, relay/VPN, certificados, copias, administración ni costes de parada. No se recomienda comprar ni crear una cuenta desde esta documentación.
 
-Un vector float32 de 1.024 dimensiones ocupa 4 KiB bruto; 100.000 fragmentos implican alrededor de 0,4 GB sólo en vectores. En staging se usan `real[]` opcionales y FTS; en producción pgvector vive en una base separada, cuya capacidad se presupuestará con WAL, HNSW, metadatos y restauraciones, no en el NVMe de vLLM por defecto.
+## Dimensionado inicial
 
-## Servicios y presupuestos
+| Recurso | Punto de partida para host dedicado 96 GB | Justificación |
+|---|---:|---|
+| VRAM | 96 GB; objetivo P95 <85 % | 24B BF16 necesita ≥55–60 GB según el proveedor del modelo; queda margen operativo para KV, CUDA y concurrencia. [1] |
+| RAM | 128 GB | vLLM, FastAPI y cachés necesitan margen sin *offload* de CPU. |
+| CPU | 12 vCPU vLLM + 6 vCPU RAG como límite inicial | Ajustar en host real. El reranker parte apagado y sólo se habilita si su aumento P95 es ≤600 ms. |
+| Disco NVMe cifrado | ≥2 TB, preferiblemente separado por SO/modelos/volúmenes | Debe alojar bundle offline, pesos, imágenes, temporales de restauración y copias locales. |
+| Red | 1 Gb/s o superior, relay/VPN en 443 | No habilitar navegación general. El acceso se reduce a relay/VPN y Caddy con mTLS. |
 
-| Servicio | Estado inicial | Límite Compose | Notas |
-|---|---|---:|---|
-| vLLM | activo | 72 GiB, 12 CPU, 2.048 PID | GPU; pesos de sólo lectura; sin logs de solicitudes. |
-| `asistente-rag` | activo | 12 GiB, 6 CPU, 512 PID | bge-m3, reranker opcional y spaCy español desde `/models`. |
-| Caddy | activo | 4 GiB, 2 CPU, 256 PID | único borde; mTLS, token y PEM local. |
-| Redis | perfil `estado` | 2 GiB, 1 CPU | sólo si se necesita estado interno. |
-| Langfuse + datos | perfil `observabilidad` | 4–8 GiB por servicio | apagado por defecto; sólo trazas ya anonimizadas y telemetría desactivada. |
+Un vector `float32` de 1.024 dimensiones ocupa 4 KiB brutos. Cien mil fragmentos requieren aproximadamente 0,4 GB sólo de vectores; WAL, índices HNSW, metadatos y restauraciones se dimensionan en la base vectorial separada, no en el host de vLLM.
 
-Los límites son guardarraíles iniciales, no garantía de compatibilidad de runtime. Deben revisarse en el host real con `nvidia-smi`, OOM, caché KV, P95 y concurrencia acordada.
+## Criterios de aceptación
 
-## Criterios de selección y aceptación
+El modo `local` sigue bloqueado hasta superar una batería ciega de 100 preguntas españolas, con fidelidad/citas ≥95 %, cero fuga ACL, respuesta fuera de dominio apropiada ≥90 %, P95 de primer token <3 s bajo carga acordada, VRAM P95 <85 % y error <1 %. También son obligatorios bundle offline revisado, firewall con egress denegado, DNS/TCP negativos desde cada contenedor, mTLS, copia/restauración, DPA y aprobación jurídica. Si un criterio falla, staging conserva el modo `extractivo` y producción permanece `desactivado`.
 
-Antes de fijar proveedor, modelo y cuantización se ejecutará una batería ciega de 100 preguntas españolas: tarifas públicas, respaldo de conexión, Informe Cero Riesgos, cobertura, objeciones, negativas fuera de dominio, seguridad y tono. Se mide fidelidad a fuentes, citas correctas, abstención, fuga ACL, utilidad, TTFT, tokens/s, memoria y error.
+## Referencias
 
-Sólo se habilita modo `local` si el candidato logra como mínimo 95 % de fidelidad/citas, cero fugas de ACL, 90 % de respuesta apropiada fuera de dominio, P95 de primer token inferior a 3 s bajo carga acordada, uso VRAM P95 inferior a 85 % y tasa de error menor del 1 %. Si no se cumplen, el modo se conserva `extractivo`.
-
-## Validaciones de compra y operación
-
-Antes de contratar se deben validar disponibilidad física, ubicación exacta, DPA/subencargados, soporte, procedimientos de borrado, acceso de consola, posibilidad de VPN/relay, firewall, custodia de backups, cifrado de discos, drivers/CUDA y SLA. La residencia europea es una condición contractual y técnica, no una afirmación que pueda derivarse sólo de una página comercial.
+[1]: https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503 "Model card Mistral Small 3.1 24B Instruct"
+[2]: https://huggingface.co/Qwen/Qwen3-4B "Qwen3 4B model card"
+[3]: https://www.leadergpu.com/ "LeaderGPU bare-metal GPU servers in Europe"
+[4]: https://www.ovhcloud.com/en/public-cloud/gpu/ "OVHcloud GPU instances"

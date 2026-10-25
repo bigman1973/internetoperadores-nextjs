@@ -11,7 +11,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from .backends import Backend, create_backend
+from .backends import Backend, RerankDisabledError, create_backend
 from .config import Settings, force_offline_environment
 from .schemas import (
     EmbeddingItem,
@@ -74,6 +74,10 @@ def create_app(settings: Settings | None = None, backend: Backend | None = None)
     @app.middleware("http")
     async def limit_request_size(request: Request, call_next):
         content_length = request.headers.get("content-length")
+        if request.method in {"POST", "PUT", "PATCH"} and content_length is None:
+            # Rechazar transferencias por fragmentos evita que el límite dependa
+            # de que el servidor haya leído ya un cuerpo potencialmente enorme.
+            return JSONResponse({"detail": "Content-Length obligatorio"}, status_code=411)
         if content_length:
             try:
                 if int(content_length) > settings.max_request_bytes:
@@ -118,9 +122,15 @@ def create_app(settings: Settings | None = None, backend: Backend | None = None)
 
     @app.post("/v1/rerank", response_model=RerankResponse, dependencies=protected)
     async def rerank(payload: RerankRequest) -> RerankResponse:
+        if not settings.rerank_enabled:
+            # No se degrada a una API externa ni se carga el modelo por demanda.
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Reranking local no habilitado")
         metrics.increment("rerank")
         top_n = payload.top_n if payload.top_n is not None else len(payload.documents)
-        results = backend.rerank(payload.query, payload.documents)[:top_n]
+        try:
+            results = backend.rerank(payload.query, payload.documents)[:top_n]
+        except RerankDisabledError as error:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Reranking local no habilitado") from error
         return RerankResponse(results=[RerankItem(index=index, relevance_score=score) for index, score in results])
 
     @app.post("/v1/redact", response_model=RedactResponse, dependencies=protected)

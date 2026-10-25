@@ -28,7 +28,7 @@ Relay privado/VPN autorizado
        │ mTLS + Bearer de gateway, TCP/443
        ▼
  Caddy (red borde + red interna; único puerto publicado)
-       ├──── /v1/chat/completions ──► vLLM / Qwen3-32B AWQ
+       ├──── /v1/chat/completions ──► vLLM / checkpoint local aprobado
        └──── /health,/v1/* ─────────► asistente-rag
                                          ├ bge-m3 (1.024 dimensiones)
                                          ├ bge-reranker-v2-m3 (opcional)
@@ -53,7 +53,9 @@ Todas las rutas de datos requieren `Authorization: Bearer` y comparación en tie
 
 ## Modelo, dimensionado y aceptación
 
-La referencia es Qwen3-32B Instruct cuantizado AWQ/GPTQ INT4 servido por vLLM, con nombre expuesto `io-qwen3-32b-awq`. La primera opción de hardware es Hetzner GEX63 (RTX PRO 6000 Blackwell Max-Q 96 GB, 128 GB RAM, Helsinki) por su margen para pesos, caché KV y concurrencia. Mistral Small 3.1 24B INT4 en una L40S 48 GB es alternativa a medir, no sustitución automática.
+Mistral Small 3.1 24B Instruct es el primer candidato para evaluación por su licencia Apache-2.0, español explícito y compatibilidad documentada con vLLM. Qwen3 Apache-2.0 es alternativa multilingüe. Ningún checkpoint, cuantización, digest o lock de modelo está aprobado ni materializado todavía. El Compose conserva la ruta/nombre Qwen como plantilla de configuración que deberá cambiarse sólo junto con una revisión inmutable validada; no prueba ni selecciona ese artefacto.
+
+La referencia de capacidad es un host dedicado UE con 96 GB VRAM ECC y 128 GB RAM, que deja margen para un candidato de 24B en BF16, caché KV y servicios locales. Una L40S de 48 GB queda limitada a una cuantización validada y a la concurrencia/contexto que supere las pruebas; no es sustitución automática. La documentación `servidor-gpu.md` registra precios de catálogo orientativos y sus fuentes, sin constituir una compra.
 
 Parámetros iniciales conservadores: entrada máxima 6.000 tokens dentro de `--max-model-len=8192`, 350 tokens de respuesta en el proveedor de aplicación, `--gpu-memory-utilization=0.85` y máximo 16 secuencias. No son una garantía. Sólo se permite `local` si la batería ciega de 100 preguntas en español alcanza los umbrales acordados —incluido cero fuga ACL— y el P95 de primer token es inferior a 3 s con carga definida y VRAM P95 por debajo del 85 %.
 

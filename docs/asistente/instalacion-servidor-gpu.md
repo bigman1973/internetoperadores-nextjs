@@ -75,6 +75,8 @@ docker compose --env-file .env --profile estado --profile observabilidad up -d
 
 Archivar los recibos de `recibos/`, el manifiesto SHA-256, versión de driver/GPU y resultado de `docker compose ps`. Si `probar-sin-salida.sh` permite DNS o TCP externo desde cualquier servicio, detener el proceso y corregir la red/firewall antes de procesar datos.
 
+La sonda `probar-red-interna-parcial.sh` se puede ejecutar previamente en una estación de desarrollo con Docker. Sólo verifica una imagen CPU ligera fijada en una red `internal=true`; su recibo es parcial y no acredita Caddy, vLLM, FastAPI, GPU, mTLS, nftables ni la configuración completa. No sustituye `probar-sin-salida.sh` en el host autorizado.
+
 ## 6. Operación, copias y actualización
 
 - Copia: ejecutar `backup.sh`; crea una copia local cifrada de los volúmenes existentes, con contenedor `--network none`. Definir retención y conservar la clave fuera de Git.

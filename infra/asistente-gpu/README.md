@@ -16,3 +16,9 @@ Este directorio contiene plantillas y procedimientos para el host GPU europeo de
 ```
 
 La validación estática no sustituye `docker compose config -q`, la prueba en GPU, nftables, mTLS, copias ni benchmark. `images.lock.example` y `models.lock.example` contienen marcadores intencionados: se rechazan hasta que una estación conectada los complete y revise.
+
+## Prueba parcial de semántica Docker
+
+`probar-red-interna-parcial.sh` usa una sonda efímera `busybox@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662` y comprueba que una red Docker `internal=true` bloquea DNS y TCP externo. Es el digest de la única imagen CPU ligera materializada para esta prueba; no es una entrada de `images.lock` ni un lock final. La sonda no descarga modelos, limpia contenedor/red al terminar y guarda el recibo fuera de Git en `recibos/`.
+
+Su resultado es **parcial**: no demuestra vLLM, RAG, Caddy, mTLS, GPU, firewall `nftables`, copias ni el Compose completo. La evidencia bloqueante del host futuro sigue siendo `probar-sin-salida.sh`, ejecutada después del arranque controlado y del firewall de salida denegada.

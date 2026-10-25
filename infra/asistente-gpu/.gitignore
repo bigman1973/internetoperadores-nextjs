@@ -1,0 +1,8 @@
+# Evidencias y material temporal del host; conservar fuera de Git con el expediente aprobado.
+!.env.example
+recibos/
+offline-bundle/
+models/
+certs/
+restauracion/
+backup.env
