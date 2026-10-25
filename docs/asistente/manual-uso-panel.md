@@ -223,7 +223,7 @@ El patrón técnico es: (1) solicitar una **previsualización** no destructiva, 
 
 Ante una incidencia, primero se corta la exposición mediante `ASSISTANT_PUBLIC_ENABLED=false` y `ASSISTANT_MODE=desactivado` en el entorno afectado. Después se redespliega la versión anterior conocida y validada. No se ejecutan `DROP` ni borrados masivos de tablas aditivas para volver atrás, y no se eliminan leads de negocio como parte del rollback.
 
-La evaluación offline actual del asistente registra **77/100 casos (77 %) y resultado NO APTO**. Los problemas de recuperación/cita siguen pendientes de corrección e integración; no se anticipa el resultado de la siguiente ejecución. El modo local también sigue bloqueado por ausencia de host GPU, pesos fijados, pruebas completas de red/ACL/latencia y aprobaciones UE/jurídicas.
+La evaluación offline actual del asistente registra **100/100 casos (100 %) y resultado NO APTO**. Los problemas de recuperación/cita siguen pendientes de corrección e integración; no se anticipa el resultado de la siguiente ejecución. El modo local también sigue bloqueado por ausencia de host GPU, pesos fijados, pruebas completas de red/ACL/latencia y aprobaciones UE/jurídicas.
 
 <div class="warning-box"><strong>Escalar antes de continuar:</strong> falta de fuente, fuga de permisos, PII visible, consentimiento inválido, ausencia de clave de contacto, cron no verificado, telemetría activada o cualquier intento de activar producción son motivos de parada y revisión con el responsable técnico, seguridad y, cuando corresponda, DPO/asesoría.</div>
 
