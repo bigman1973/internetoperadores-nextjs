@@ -21,6 +21,7 @@ interface TarifaCatalogo {
   descripcion: string;
   velocidad: string;
   categoria: string;
+  indice: number;
 }
 
 interface SeccionCatalogo {
@@ -72,12 +73,15 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
         descripcion: elemento.dataset.tarifaDescripcion || '',
         velocidad: elemento.dataset.tarifaVelocidad || '',
         categoria: elemento.dataset.tarifaCategoria || '',
+        indice: Number(elemento.dataset.tarifaIndice),
       })),
     }));
 
     let tarifasVisiblesAhora = 0;
+    const resultadosOrdenables: { elemento: HTMLElement; visibles: number; primerIndice: number }[] = [];
     for (const seccion of catalogoCacheado.current) {
       let visiblesEnSeccion = 0;
+      let primerIndice = Number.POSITIVE_INFINITY;
 
       for (const tarifa of seccion.tarifas) {
         const coincideCategoria = categoriaSeleccionada === 'TODAS' || seccion.categoria === categoriaSeleccionada;
@@ -86,12 +90,25 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
         if (tarifa.elemento.hidden !== debeOcultarse) tarifa.elemento.hidden = debeOcultarse;
         if (coincide) {
           visiblesEnSeccion += 1;
+          primerIndice = Math.min(primerIndice, tarifa.indice);
         }
       }
 
       const debeOcultarse = visiblesEnSeccion === 0;
       if (seccion.elemento.hidden !== debeOcultarse) seccion.elemento.hidden = debeOcultarse;
       tarifasVisiblesAhora += visiblesEnSeccion;
+      resultadosOrdenables.push({ elemento: seccion.elemento, visibles: visiblesEnSeccion, primerIndice });
+    }
+
+    // Mantiene la ordenación original por coincidencias y primer índice.
+    // El índice evita recorrer de nuevo los descendientes; sólo se mueve el
+    // HTML si la secuencia visual/teclado realmente tiene que cambiar.
+    const ordenadas = [...resultadosOrdenables].sort((a, b) => b.visibles - a.visibles || a.primerIndice - b.primerIndice);
+    const actuales = Array.from(catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'));
+    if (ordenadas.some((resultado, index) => resultado.elemento !== actuales[index])) {
+      const fragmento = document.createDocumentFragment();
+      for (const resultado of ordenadas) fragmento.append(resultado.elemento);
+      catalogo.append(fragmento);
     }
 
     sinResultados.hidden = tarifasVisiblesAhora !== 0;

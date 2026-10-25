@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
-import { requireAuth } from '../../../lib/middleware/auth'
+import { requireAdminAreaRead } from '@/lib/admin-area-auth'
 import prisma from '../../../lib/prisma'
 import UsuariosAdminClient from '../../../components/admin/UsuariosAdminClient'
 import { serializeUsuariosInitiales } from '../../../components/admin/usuariosInitialData'
 
 export default async function UsuariosPage() {
-  await requireAuth('admin')
+  await requireAdminAreaRead('admin.usuarios')
 
   const usuarios = await prisma.usuarioAdmin.findMany({
     select: {
