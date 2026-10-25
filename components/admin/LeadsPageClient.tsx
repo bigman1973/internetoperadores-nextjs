@@ -72,7 +72,7 @@ const prioridadColor: Record<string, string> = {
   BAJA: 'bg-gray-100 text-gray-700',
 };
 
-export default function LeadsPageClient() {
+export default function LeadsPageClient({ integrada = false }: { integrada?: boolean }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,13 +127,14 @@ export default function LeadsPageClient() {
   const cerrados = stats.filter(s => s.estado === 'CERRADO_GANADO').reduce((sum, s) => sum + s._count.id, 0);
 
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
-      <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+    <div className={integrada ? '' : 'p-4 sm:p-6 max-w-7xl mx-auto'}>
+      {!integrada && <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leads Migración Web</h1>
           <p className="text-sm text-gray-500 mt-1">Gestión de solicitudes del formulario de migración web</p>
         </div>
-      </div>
+      </div>}
+      {integrada && <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4"><h2 className="text-xl font-bold text-gray-900">Leads de migración web</h2><p className="mt-1 text-sm text-gray-600">Gestión de solicitudes del formulario de migración web existente.</p></div>}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
