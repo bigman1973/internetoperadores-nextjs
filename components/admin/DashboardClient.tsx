@@ -1,7 +1,8 @@
 'use client'
 
+import dynamic from 'next/dynamic'
+import { memo } from 'react'
 import { useRole } from './RoleContext'
-import PendingPetitionsAlert from '@/components/peticiones/PendingPetitionsAlert'
 import { 
   CreditCardIcon, 
   UsersIcon,
@@ -16,6 +17,10 @@ import {
   CloudIcon,
   WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
+
+const PendingPetitionsAlert = dynamic(
+  () => import('@/components/peticiones/PendingPetitionsAlert'),
+)
 
 interface DashboardStats {
   tarifasActivas: number
@@ -62,7 +67,7 @@ export default function DashboardClient({
   )
 }
 
-function VisorDashboard({ userName }: { userName: string }) {
+const VisorDashboard = memo(function VisorDashboard({ userName }: { userName: string }) {
   return (
     <div className="space-y-8">
       {/* Welcome hero */}
@@ -191,9 +196,9 @@ function VisorDashboard({ userName }: { userName: string }) {
 
     </div>
   )
-}
+})
 
-function DirectivoDashboard({ userName, stats, mesActual }: { userName: string; stats: DashboardStats; mesActual: string }) {
+const DirectivoDashboard = memo(function DirectivoDashboard({ userName, stats, mesActual }: { userName: string; stats: DashboardStats; mesActual: string }) {
   return (
     <div className="space-y-6">
       <div>
@@ -284,4 +289,4 @@ function DirectivoDashboard({ userName, stats, mesActual }: { userName: string; 
       </div>
     </div>
   )
-}
+})
