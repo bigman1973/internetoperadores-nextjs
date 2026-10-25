@@ -16,7 +16,7 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 type Level = 'EXACTA' | 'REVISAR';
 type Notice = Readonly<{ tone: 'error' | 'success' | 'info'; text: string }> | null;
 type CollectionLine = Readonly<{ tipo: 'DOCUMENTO' | 'DIFERENCIA'; referencia: string; importeCentimos: number }>;
-type Composition = Readonly<{ numFactura: string; cliente: string; importeCentimos: number; vencimiento: string; facturaEmitidaId: string | null }>;
+type Composition = Readonly<{ numFactura: string; cliente: string; importeCentimos: number; vencimiento: string | null; facturaEmitidaId: string | null }>;
 type TwinMovement = Readonly<{ movimientoId: string; fecha: string; cuentaAlias: string | null; concepto: string; importeCentimos: number }>;
 type Proposal = Readonly<{
   propuestaId: string;
@@ -117,7 +117,7 @@ function parseComposition(value: unknown, field: string): Composition {
     numFactura: text(raw.numFactura, `${field}.numFactura`),
     cliente: text(raw.cliente, `${field}.cliente`),
     importeCentimos: integer(raw.importeCentimos, `${field}.importeCentimos`),
-    vencimiento: text(raw.vencimiento, `${field}.vencimiento`),
+    vencimiento: nullableText(raw.vencimiento, `${field}.vencimiento`),
     facturaEmitidaId: raw.facturaEmitidaId === null ? null : text(raw.facturaEmitidaId, `${field}.facturaEmitidaId`),
   };
 }
@@ -260,7 +260,7 @@ function pageRange(total: number, offset: number, limit: number) {
 function contentSummary(item: Proposal) {
   if (item.composicionTotal === 0) return null;
   const remaining = item.composicionTotal - item.composicion.length;
-  return <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{displayDate(invoice.vencimiento)}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</details>;
+  return <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{invoice.vencimiento ? displayDate(invoice.vencimiento) : 'Sin vencimiento'}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</details>;
 }
 function proposalExtra(item: Proposal): ReactNode {
   const differences = item.lineas.filter((line) => line.tipo === 'DIFERENCIA');

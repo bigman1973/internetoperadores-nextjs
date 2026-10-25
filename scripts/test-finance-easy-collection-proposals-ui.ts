@@ -90,4 +90,11 @@ test('el bloque de cobros respeta el máximo de doce del servidor', () => {
   assert.equal(client, server);
   assert.ok(!/Seleccionar las 25 primeras/.test(ui));
 });
+test('acepta facturas sin vencimiento en la composición (transferencias y confirming)', () => {
+  const base = response();
+  const item = { ...base.items[0], composicion: [{ numFactura: 'F-2026-02', cliente: 'Cliente de prueba', importeCentimos: 30000, vencimiento: null, facturaEmitidaId: '123e4567-e89b-42d3-a456-426614174009' }] };
+  const parsed = parseCollectionProposalsRead({ ...base, items: [item] });
+  assert.equal(parsed.items[0].composicion[0].vencimiento, null);
+  assert.throws(() => parseCollectionProposalsRead({ ...base, items: [{ ...item, composicion: [{ ...item.composicion[0], vencimiento: 7 }] }] }));
+});
 console.log('test-finance-easy-collection-proposals-ui: OK');
