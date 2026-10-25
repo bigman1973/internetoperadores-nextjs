@@ -152,6 +152,19 @@ type MovementRow = Readonly<{
   decisionVersion: number
   decision: Decision | null
 }>
+/**
+ * Read-only collection context.  It is deliberately not a P1 candidate: a
+ * generated proposal is never an acceptable browser-selectable identity.
+ * `clienteUnico` comes only from the issued-invoice document, never from the
+ * free-text composition snapshot.
+ */
+type CollectionWho = Readonly<{
+  metodo: string
+  nClientes: number
+  nFacturas: number
+  clienteUnico: string | null
+  confirmada: boolean
+}>
 
 function addCandidate(target: Candidate[], movimientoId: string, tipoTercero: CounterpartyType, origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>, sourceIdentity: string | null, etiqueta: string, autoIdentify = false) {
   if (!sourceIdentity) return
@@ -237,6 +250,20 @@ async function decisionTableReady(tx: QueryDb = db()): Promise<boolean> { return
 async function accountProofTableReady(tx: QueryDb = db()): Promise<boolean> {
   const [attestations, policies] = await Promise.all([tableReady(tx, 'atestaciones_cuenta_auto_modo_facil'), tableReady(tx, 'politicas_auto_modo_facil')])
   return attestations && policies
+}
+/** Optional append-only collection tables do not exist on older production
+ * deployments.  This guard must run before the collection query references any
+ * of them, so the P1 display degrades rather than making an assertion. */
+async function collectionWhoTablesReady(tx: QueryDb = db()): Promise<boolean> {
+  const rows = await tx.$queryRaw<Array<{ ready: boolean }>>(Prisma.sql`
+    SELECT (
+      to_regclass('public.modo_facil_generaciones_cobro') IS NOT NULL
+      AND to_regclass('public.modo_facil_propuestas_cobro') IS NOT NULL
+      AND to_regclass('public.eventos_justificacion_b4') IS NOT NULL
+      AND to_regclass('public.operaciones_justificacion_b4') IS NOT NULL
+    ) AS ready
+  `)
+  return rows[0]?.ready === true
 }
 function directionClause(direction: CounterpartyDirection): Prisma.Sql {
   return direction === 'CARGOS' ? Prisma.sql`AND b4_importe_bancario_centimos(m.importe) < 0`
@@ -356,15 +383,181 @@ function movementProjection(input: CounterpartyReadInput, limit: number, offset:
   `
 }
 
-function materialFromRow(row: MovementRow): EasyCounterpartyBulkMovementMaterial {
-  const step = resolveStep(row, candidatesForMovement(row))
+// This optional enrichment is page-sized by design; do not turn P1 reads into
+// a second unbounded collection scan.
+const MAX_COLLECTION_WHO_IDS = 500
+function requestedCollectionWhoIds(ids: readonly string[]): string[] {
+  const requested = [...new Set(ids.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 160))]
+  if (requested.length > MAX_COLLECTION_WHO_IDS) fail(422, 'COBROS_P1_DEMASIADOS', 'Hay demasiados movimientos para proyectar propuestas de cobro; acote el periodo o los filtros.')
+  return requested
+}
+/**
+ * One bounded read for a page/batch of movements.  `composicion.cliente` is
+ * presentation-only and is intentionally ignored: the client count and the
+ * optional single-client label are rebuilt from the current issued invoices.
+ *
+ * A proposal alone is only a proposal.  `confirmada` additionally requires a
+ * current B4 JUSTIFICADO state and a human PRINCIPAL approval for this exact
+ * proposal/generation which has not been reverted.
+ */
+async function collectionWhoTx(tx: QueryDb, ids: readonly string[], tablesReady: boolean): Promise<Map<string, CollectionWho>> {
+  const requested = requestedCollectionWhoIds(ids)
+  const result = new Map<string, CollectionWho>()
+  if (!requested.length || !tablesReady) return result
+  const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
+    WITH generacion_vigente AS (
+      SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1
+    ), propuestas AS (
+      SELECT p.id,p.generacion_id,p.movimiento_id,p.metodo,p.composicion,p.fingerprint,COALESCE(b4.estado::text,'SIN_DOCUMENTO') AS estado_b4
+      FROM modo_facil_propuestas_cobro p
+      JOIN generacion_vigente g ON g.id=p.generacion_id
+      LEFT JOIN estado_justificacion_movimientos b4 ON b4.movimiento_id=p.movimiento_id
+      WHERE p.movimiento_id IN (${Prisma.join(requested.map(id => Prisma.sql`${id}`))})
+        AND p.estado_propuesto='JUSTIFICADO'
+    )
+    SELECT p.movimiento_id,p.metodo,
+      COUNT(DISTINCT fe.id)::int AS n_facturas,
+      COUNT(DISTINCT lower(NULLIF(btrim(fe.cliente),'')))::int AS n_clientes,
+      MIN(NULLIF(btrim(fe.cliente),'')) AS cliente_unico,
+      (
+        p.estado_b4='JUSTIFICADO'
+        AND EXISTS (
+          SELECT 1 FROM eventos_justificacion_b4 aprobacion
+          JOIN operaciones_justificacion_b4 operacion ON operacion.id=aprobacion.operacion_id
+            AND operacion.estado='APLICADA'::"EstadoOperacionB4" AND operacion.revertida_at IS NULL
+          WHERE aprobacion.movimiento_id=p.movimiento_id
+            AND aprobacion.accion='APROBACION'::"AccionEventoJustificacionB4"
+            AND aprobacion.detalle->>'origen'='PROPUESTA_COBRO'
+            AND aprobacion.detalle->>'bulkKind'='COBROS_CONFIRMACION'
+            AND aprobacion.detalle->>'rol'='PRINCIPAL'
+            AND aprobacion.detalle->>'propuestaId'=p.id::text
+            AND aprobacion.detalle->>'generacionId'=p.generacion_id::text
+            AND aprobacion.detalle->>'fingerprint'=p.fingerprint
+            AND NOT EXISTS (
+              SELECT 1 FROM eventos_justificacion_b4 reversion
+              WHERE reversion.accion='REVERSION'::"AccionEventoJustificacionB4"
+                AND reversion.detalle->>'origen'='PROPUESTA_COBRO'
+                AND reversion.detalle->>'bulkKind'='COBROS_REVERSION'
+                AND reversion.detalle->>'bloqueId'=aprobacion.detalle->>'bloqueId'
+                AND reversion.detalle->>'propuestaId'=p.id::text
+                AND reversion.detalle->>'generacionId'=p.generacion_id::text
+                AND reversion.detalle->>'fingerprint'=p.fingerprint
+                AND reversion.detalle->>'rol'='PRINCIPAL'
+            )
+        )
+      ) AS confirmada
+    FROM propuestas p
+    LEFT JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
+    ) composicion(valor) ON true
+    LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
+    GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
+    ORDER BY p.movimiento_id ASC
+    LIMIT ${requested.length}
+  `)
+  return collectionWhoMap(rows)
+}
+function collectionWhoMap(rows: readonly any[]): Map<string, CollectionWho> {
+  const result = new Map<string, CollectionWho>()
+  for (const row of rows) {
+    const movimientoId = clean(row.movimiento_id)
+    if (!movimientoId) continue
+    const nClientes = exactInteger(row.n_clientes ?? 0, 'clientes documentales de cobro')
+    const nFacturas = exactInteger(row.n_facturas ?? 0, 'facturas documentales de cobro')
+    if (nClientes < 0 || nFacturas < 0) fail(422, 'COBROS_P1_INVALIDOS', 'La composición documental de cobro no es válida.')
+    result.set(movimientoId, {
+      metodo: String(row.metodo ?? ''), nClientes, nFacturas,
+      clienteUnico: nClientes === 1 ? clean(row.cliente_unico) : null,
+      confirmada: row.confirmada === true,
+    })
+  }
+  return result
+}
+/** Counter reads cannot turn a large movement projection into a large `IN` list.
+ * They scan only proposals of the one current generation that are inside the
+ * existing movement filter, and fail closed if that optional surface exceeds its
+ * explicit bound. */
+async function collectionWhoForInputTx(tx: QueryDb, input: CounterpartyReadInput, tablesReady: boolean): Promise<Map<string, CollectionWho>> {
+  if (!tablesReady) return new Map()
+  const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
+    WITH generacion_vigente AS (
+      SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1
+    ), propuestas AS (
+      SELECT p.id,p.generacion_id,p.movimiento_id,p.metodo,p.composicion,p.fingerprint,COALESCE(b4.estado::text,'SIN_DOCUMENTO') AS estado_b4
+      FROM modo_facil_propuestas_cobro p
+      JOIN generacion_vigente g ON g.id=p.generacion_id
+      JOIN movimientos_bancarios m ON m.id=p.movimiento_id
+      LEFT JOIN estado_justificacion_movimientos b4 ON b4.movimiento_id=p.movimiento_id
+      WHERE p.estado_propuesto='JUSTIFICADO' AND ${baseMovementWhere(input)}
+    )
+    SELECT p.movimiento_id,p.metodo,
+      COUNT(DISTINCT fe.id)::int AS n_facturas,
+      COUNT(DISTINCT lower(NULLIF(btrim(fe.cliente),'')))::int AS n_clientes,
+      MIN(NULLIF(btrim(fe.cliente),'')) AS cliente_unico,
+      (
+        p.estado_b4='JUSTIFICADO'
+        AND EXISTS (
+          SELECT 1 FROM eventos_justificacion_b4 aprobacion
+          JOIN operaciones_justificacion_b4 operacion ON operacion.id=aprobacion.operacion_id
+            AND operacion.estado='APLICADA'::"EstadoOperacionB4" AND operacion.revertida_at IS NULL
+          WHERE aprobacion.movimiento_id=p.movimiento_id
+            AND aprobacion.accion='APROBACION'::"AccionEventoJustificacionB4"
+            AND aprobacion.detalle->>'origen'='PROPUESTA_COBRO'
+            AND aprobacion.detalle->>'bulkKind'='COBROS_CONFIRMACION'
+            AND aprobacion.detalle->>'rol'='PRINCIPAL'
+            AND aprobacion.detalle->>'propuestaId'=p.id::text
+            AND aprobacion.detalle->>'generacionId'=p.generacion_id::text
+            AND aprobacion.detalle->>'fingerprint'=p.fingerprint
+            AND NOT EXISTS (
+              SELECT 1 FROM eventos_justificacion_b4 reversion
+              WHERE reversion.accion='REVERSION'::"AccionEventoJustificacionB4"
+                AND reversion.detalle->>'origen'='PROPUESTA_COBRO'
+                AND reversion.detalle->>'bulkKind'='COBROS_REVERSION'
+                AND reversion.detalle->>'bloqueId'=aprobacion.detalle->>'bloqueId'
+                AND reversion.detalle->>'propuestaId'=p.id::text
+                AND reversion.detalle->>'generacionId'=p.generacion_id::text
+                AND reversion.detalle->>'fingerprint'=p.fingerprint
+                AND reversion.detalle->>'rol'='PRINCIPAL'
+            )
+        )
+      ) AS confirmada
+    FROM propuestas p
+    LEFT JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
+    ) composicion(valor) ON true
+    LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
+    GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
+    ORDER BY p.movimiento_id ASC
+    LIMIT ${MAX_COLLECTION_WHO_IDS + 1}
+  `)
+  if (rows.length > MAX_COLLECTION_WHO_IDS) fail(422, 'COBROS_P1_DEMASIADOS', 'Hay demasiadas propuestas vigentes para calcular el contador de terceros; acote el periodo o los filtros.')
+  return collectionWhoMap(rows)
+}
+async function collectionWhoForRowsTx(tx: QueryDb, rows: readonly MovementRow[], tablesReady: boolean): Promise<Map<string, CollectionWho>> {
+  return collectionWhoTx(tx, rows.map(row => row.id), tablesReady)
+}
+function collectionProposedLabel(collection: CollectionWho): string | null {
+  const isRemesa = ['REMESA_VENCIMIENTO', 'REMESA_UNION', 'REMESA_RESIDUO'].includes(collection.metodo)
+  if (!isRemesa || collection.nClientes < 2 || collection.nFacturas < 1) return null
+  return `Varios clientes · remesa de ${collection.nFacturas} recibos`
+}
+function collectionIdentifiedLabel(collection: CollectionWho): string | null {
+  if (!collection.confirmada || collection.nClientes < 1 || collection.nFacturas < 1) return null
+  if (collection.nClientes >= 2) return `Varios clientes · ${collection.nFacturas} facturas`
+  const client = collection.clienteUnico
+  if (!client) return null
+  return `${client} · ${collection.nFacturas} ${collection.nFacturas === 1 ? 'factura' : 'facturas'}`
+}
+
+function materialFromRow(row: MovementRow, collection: CollectionWho | undefined): EasyCounterpartyBulkMovementMaterial {
+  const step = resolveStep(row, candidatesForMovement(row), collection)
   return {
     id: row.id,
     fecha: row.fecha,
     importeCentimos: row.importeCentimos,
     version: row.decisionVersion,
     estado: step.estadoPaso1,
-    propuestaTexto: step.estadoPaso1 === 'PROPUESTO' ? row.tercero : null,
+    propuestaTexto: step.estadoPaso1 === 'PROPUESTO' ? step.propuestaTexto : null,
   }
 }
 
@@ -376,9 +569,10 @@ export async function readEasyCounterpartyBulkMaterialTx(
   limit: number,
 ): Promise<readonly EasyCounterpartyBulkMovementMaterial[]> {
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PENDING_QUEUE_SCAN) fail(400, 'LIMITE_LOTE_INVALIDO', 'El límite de revisión de terceros no es válido.')
-  const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(tx), accountProofTableReady(tx)])
-  const rows = await tx.$queryRaw<Array<any>>(movementProjection(input, limit, 0, withDecisions, withAccountProof))
-  return rows.map(rowView).map(materialFromRow)
+  const [withDecisions, withAccountProof, withCollections] = await Promise.all([decisionTableReady(tx), accountProofTableReady(tx), collectionWhoTablesReady(tx)])
+  const rows = (await tx.$queryRaw<Array<any>>(movementProjection(input, limit, 0, withDecisions, withAccountProof))).map(rowView)
+  const collections = await collectionWhoForRowsTx(tx, rows, withCollections)
+  return rows.map(row => materialFromRow(row, collections.get(row.id)))
 }
 
 /** Re-reads exactly the selected movements after deterministic row locks. */
@@ -389,7 +583,7 @@ export async function readEasyCounterpartyBulkMaterialByIdsTx(
   const requested = [...new Set(ids)]
   if (!requested.length || requested.length > 25 || requested.some(id => typeof id !== 'string' || !id || id.length > 160)) fail(400, 'SELECCION_LOTE_INVALIDA', 'La selección de terceros no es válida.')
   const work = asTx(tx)
-  const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(work), accountProofTableReady(work)])
+  const [withDecisions, withAccountProof, withCollections] = await Promise.all([decisionTableReady(work), accountProofTableReady(work), collectionWhoTablesReady(work)])
   for (const id of [...requested].sort()) await work.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(CAST(${id} AS text),0))::text AS locked`
   const rows = await work.$queryRaw<Array<any>>(Prisma.sql`
     SELECT ${sourceFields(withDecisions)}
@@ -401,7 +595,9 @@ export async function readEasyCounterpartyBulkMaterialByIdsTx(
     FOR UPDATE OF m
   `)
   if (rows.length !== requested.length) fail(409, 'SELECCION_LOTE_CAMBIADA', 'Uno de los movimientos ya no está disponible; relea la lista.')
-  return rows.map(rowView).map(materialFromRow)
+  const movements = rows.map(rowView)
+  const collections = await collectionWhoForRowsTx(work, movements, withCollections)
+  return movements.map(row => materialFromRow(row, collections.get(row.id)))
 }
 
 /** The normal P1 population is materially bounded by the reviewed operating
@@ -409,7 +605,7 @@ export async function readEasyCounterpartyBulkMaterialByIdsTx(
  * eligible total: require a narrower period instead. */
 const MAX_PENDING_QUEUE_SCAN = 5_000
 
-function resolveStep(row: MovementRow, candidates: readonly Candidate[]) {
+function resolveStep(row: MovementRow, candidates: readonly Candidate[], collection?: CollectionWho) {
   const active = row.decision
   if (active?.origen === 'AUTO_RECIBO') {
     return { estadoPaso1: 'IDENTIFICADO' as const, tipoTercero: active.tipo, etiqueta: active.etiqueta ?? 'Tercero acreditado por recibo automático vigente', origenPaso1: active.origen, decisionId: active.id, version: row.decisionVersion, propuestaTexto: null }
@@ -420,12 +616,22 @@ function resolveStep(row: MovementRow, candidates: readonly Candidate[]) {
     // the current source hash under the movement lock.
     return { estadoPaso1: 'IDENTIFICADO' as const, tipoTercero: active.tipo, etiqueta: active.etiqueta ?? 'Tercero confirmado manualmente', origenPaso1: active.origen, decisionId: active.id, version: row.decisionVersion, propuestaTexto: null }
   }
+  const collectionIdentified = collection ? collectionIdentifiedLabel(collection) : null
+  if (collectionIdentified) {
+    return { estadoPaso1: 'IDENTIFICADO' as const, tipoTercero: 'CLIENTE' as const, etiqueta: collectionIdentified, origenPaso1: 'FACTURA_EMITIDA' as const, decisionId: null, version: row.decisionVersion, propuestaTexto: null }
+  }
   const automatic = candidates.filter(candidate => candidate.autoIdentify)
   // Never choose the first source: a second stable source is a contradiction
   // until a human selects it, even when both happen to have the same broad type.
   if (automatic.length === 1 && candidates.length === 1) {
     const current = automatic[0]
     return { estadoPaso1: 'IDENTIFICADO' as const, tipoTercero: current.seed.tipoTercero, etiqueta: current.etiqueta, origenPaso1: current.seed.origen, decisionId: null, version: row.decisionVersion, propuestaTexto: null }
+  }
+  const collectionProposed = collection ? collectionProposedLabel(collection) : null
+  if (collectionProposed) {
+    // A current remittance proposal is a display-only prompt, never a candidate
+    // and never an identification before its human B4 confirmation.
+    return { estadoPaso1: 'PROPUESTO' as const, tipoTercero: null, etiqueta: collectionProposed, origenPaso1: null, decisionId: null, version: row.decisionVersion, propuestaTexto: null }
   }
   if (row.tercero) return { estadoPaso1: 'PROPUESTO' as const, tipoTercero: null, etiqueta: null, origenPaso1: null, decisionId: null, version: row.decisionVersion, propuestaTexto: row.tercero }
   return { estadoPaso1: 'SIN_IDENTIFICAR' as const, tipoTercero: null, etiqueta: null, origenPaso1: null, decisionId: null, version: row.decisionVersion, propuestaTexto: null }
@@ -441,10 +647,11 @@ function asCounter(rows: readonly MovementRow[], predicate: (row: MovementRow) =
 /** Pure P1 counter projection. Production callers pass withDecisions:false so it never touches P1 tables. */
 export async function readCountersTx(tx: QueryDb, input: CounterpartyReadInput, options: Readonly<{ withDecisions: boolean; withAccountProof: boolean }>) {
   const rows = (await tx.$queryRaw<Array<any>>(movementProjection(input, 100_000, 0, options.withDecisions, options.withAccountProof))).map(rowView)
-  const states = rows.map(row => ({ row, step: resolveStep(row, candidatesForMovement(row)) }))
+  const collections = await collectionWhoForInputTx(tx, input, await collectionWhoTablesReady(tx))
+  const states = rows.map(row => ({ row, step: resolveStep(row, candidatesForMovement(row), collections.get(row.id)) }))
   const identified = states.filter(item => item.step.estadoPaso1 === 'IDENTIFICADO')
-  const proposals = states.filter(item => item.step.estadoPaso1 !== 'IDENTIFICADO' && item.row.tercero !== null)
-  const unrecognized = states.filter(item => item.step.estadoPaso1 !== 'IDENTIFICADO' && item.row.tercero === null)
+  const proposals = states.filter(item => item.step.estadoPaso1 === 'PROPUESTO')
+  const unrecognized = states.filter(item => item.step.estadoPaso1 === 'SIN_IDENTIFICAR')
   const chargeRows = rows.filter(row => row.importeCentimos < 0)
   const receiptRows = rows.filter(row => row.importeCentimos > 0)
   return {
@@ -554,7 +761,7 @@ export async function readEasyStepCounters(input: CounterpartyReadInput) {
 export async function readEasyCounterparties(input: CounterpartyReadInput) {
   const runtime = await assertFinanceEasyRuntime()
   try {
-    const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(), accountProofTableReady()])
+    const [withDecisions, withAccountProof, withCollections] = await Promise.all([decisionTableReady(), accountProofTableReady(), collectionWhoTablesReady()])
     const [rawRows, contador] = await Promise.all([
       db().$queryRaw<Array<any>>(movementProjection(input, input.pendientes ? MAX_PENDING_QUEUE_SCAN : input.limit, input.pendientes ? 0 : input.offset, withDecisions, withAccountProof)),
       readCountersTx(db(), input, { withDecisions, withAccountProof }),
@@ -562,13 +769,17 @@ export async function readEasyCounterparties(input: CounterpartyReadInput) {
     if (input.pendientes && rawRows.length === MAX_PENDING_QUEUE_SCAN) {
       fail(422, 'COLA_P1_DEMASIADO_AMPLIA', 'La cola P1 pendiente supera el límite seguro; acote el periodo o los filtros antes de paginar.')
     }
-    const projected = rawRows.map(rowView).map(row => {
+    const rows = rawRows.map(rowView)
+    const collections = input.pendientes
+      ? await collectionWhoForInputTx(db(), input, withCollections)
+      : await collectionWhoForRowsTx(db(), rows, withCollections)
+    const projected = rows.map(row => {
       const candidates = candidatesForMovement(row)
       return {
         id: row.id, fecha: row.fecha, concepto: row.concepto, importeCentimos: row.importeCentimos,
         cuenta: { banco: row.banco, alias: row.alias },
         paso1: {
-          ...resolveStep(row, candidates),
+          ...resolveStep(row, candidates, collections.get(row.id)),
           candidatos: candidates.map(candidate => candidateDto(candidate, { importeCentimos: row.importeCentimos, concepto: row.concepto, propuestaTexto: row.tercero })),
         },
         paso2: { estadoPaso2: row.estadoPaso2 },
@@ -609,7 +820,7 @@ export async function readEasyMovementWhoByIds(ids: readonly string[]): Promise<
   if (!requested.length) return fallback
 
   try {
-    const [withDecisions, withAccountProof] = await Promise.all([decisionTableReady(), accountProofTableReady()])
+    const [withDecisions, withAccountProof, withCollections] = await Promise.all([decisionTableReady(), accountProofTableReady(), collectionWhoTablesReady()])
     const rows = await db().$queryRaw<Array<any>>(Prisma.sql`
       SELECT ${sourceFields(withDecisions)}
       FROM movimientos_bancarios m
@@ -619,13 +830,14 @@ export async function readEasyMovementWhoByIds(ids: readonly string[]): Promise<
       ORDER BY m.id ASC
       LIMIT 100
     `)
-    for (const raw of rows) {
-      const row = rowView(raw)
-      const step = resolveStep(row, candidatesForMovement(row))
+    const movements = rows.map(rowView)
+    const collections = await collectionWhoForRowsTx(db(), movements, withCollections)
+    for (const row of movements) {
+      const step = resolveStep(row, candidatesForMovement(row), collections.get(row.id))
       fallback.set(row.id, step.estadoPaso1 === 'IDENTIFICADO'
         ? { estado: 'IDENTIFICADO', nombre: humanCounterpartyName(step.etiqueta) }
         : step.estadoPaso1 === 'PROPUESTO'
-          ? { estado: 'PROPUESTO', nombre: row.tercero }
+          ? { estado: 'PROPUESTO', nombre: step.etiqueta ?? step.propuestaTexto ?? row.tercero }
           : { estado: 'SIN_IDENTIFICAR', nombre: null })
     }
     return fallback

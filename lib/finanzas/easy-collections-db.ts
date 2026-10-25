@@ -296,6 +296,97 @@ export async function readEasyCollectionsPreview(input: EasyCollectionPreviewInp
   } catch (error) { throwKnown(error) }
 }
 
+const MAX_MOVEMENT_PROPOSALS = 100
+const MAX_INVOICE_TOTALS = 1_500
+export type EasyMovementCollectionProposal = Readonly<{
+  rol: 'PRINCIPAL' | 'PAR'
+  propuestaId: string; movimientoId: string; fingerprint: string; previewToken: string | null
+  metodo: EasyCollectionMethod; etiquetaMetodo: string; nivel: EasyCollectionLevel; explicacion: string
+  importeMovimientoCentimos: number
+  lineas: ReturnType<typeof lineView>
+  composicion: ReadonlyArray<ReturnType<typeof compositionView>['composicion'][number] & { totalFacturaCentimos: number | null; fechaFactura: string | null }>
+  composicionTotal: number; composicionImporteCentimos: number; clientesDistintos: number
+  diferenciaCentimos: number
+  par: null | { fecha: string; cuentaAlias: string | null; concepto: string; importeCentimos: number }
+  seleccionable: boolean; motivoNoSeleccionable: string | null
+}>
+function distinctClients(raw: unknown): number {
+  const rows = Array.isArray(raw) ? raw : []
+  return new Set(rows.map(row => (row && typeof row === 'object' ? String((row as Raw).cliente ?? '') : '').trim().toLocaleLowerCase('es-ES')).filter(Boolean)).size
+}
+/**
+ * Sólo lectura para la tarjeta del Modo fácil: la propuesta vigente (generación actual) de
+ * cada movimiento visible, con una lista previa firmada de un único elemento.  No crea
+ * envoltorios B4, estados ni eventos.  Si las tablas de propuestas no existen (producción
+ * antes de publicar), devuelve un mapa vacío.
+ */
+export async function readEasyCollectionsForMovements(movementIds: readonly string[], actorId: number): Promise<Map<string, EasyMovementCollectionProposal>> {
+  const requested = [...new Set(movementIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 160))]
+  const result = new Map<string, EasyMovementCollectionProposal>()
+  if (!requested.length) return result
+  if (requested.length > MAX_MOVEMENT_PROPOSALS) fail(400, 'MOVIMIENTOS_DEMASIADOS', 'La consulta de propuestas admite hasta 100 movimientos.')
+  await assertFinanceEasyRuntime()
+  try {
+    return await db().$transaction(async base => {
+      await base.$executeRaw`SET TRANSACTION READ ONLY`
+      const ready = await base.$queryRaw<Array<{ ready: boolean }>>(Prisma.sql`
+        SELECT (to_regclass('public.modo_facil_propuestas_cobro') IS NOT NULL AND to_regclass('public.modo_facil_generaciones_cobro') IS NOT NULL) AS ready
+      `)
+      if (ready[0]?.ready !== true) return result
+      const generation = await currentGenerationTx(base)
+      if (!generation) return result
+      const movementList = Prisma.join(requested.map(id => Prisma.sql`${id}`))
+      const idRows = await base.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id::text AS id FROM modo_facil_propuestas_cobro
+        WHERE generacion_id=CAST(${generation.id} AS uuid) AND (movimiento_id IN (${movementList}) OR movimiento_par_id IN (${movementList}))
+        ORDER BY id LIMIT ${MAX_MOVEMENT_PROPOSALS * 2}
+      `)
+      if (!idRows.length) return result
+      const ids = idRows.map(row => row.id)
+      const proposals = await proposalsTx(base, generation.id, ids, false, true)
+      const rawRows = await base.$queryRaw<ProposalRow[]>(proposalPopulationSql(generation.id, ids))
+      const byId = new Map(rawRows.map(row => [String(row.propuestaId), row]))
+      const valid = proposals.filter(item => {
+        const row = byId.get(item.propuestaId)
+        return !!row && sinDocumento(row.estadoB4) && (item.movimientoParId === null || sinDocumento(row.parEstadoB4))
+      })
+      if (!valid.length) return result
+      const compositions = await compositionsTx(base, valid.map(item => item.propuestaId))
+      const views = new Map(valid.map(item => [item.propuestaId, compositionView(compositions.get(item.propuestaId))]))
+      const invoiceIds = [...new Set([...views.values()].flatMap(view => view.composicion.map(row => row.facturaEmitidaId).filter((id): id is string => !!id)))].slice(0, MAX_INVOICE_TOTALS)
+      const invoiceRows = invoiceIds.length ? await base.$queryRaw<Array<{ id: string; totalCentimos: bigint | number | null; fecha: Date | string | null }>>(Prisma.sql`
+        SELECT id,round(total::numeric*100)::bigint AS "totalCentimos",fecha FROM facturas_emitidas
+        WHERE id IN (${Prisma.join(invoiceIds.map(id => Prisma.sql`${id}`))}) LIMIT ${invoiceIds.length}
+      `) : []
+      const invoices = new Map(invoiceRows.map(row => [row.id, { total: row.totalCentimos === null ? null : Number(row.totalCentimos), fecha: iso(row.fecha) }]))
+      for (const item of valid) {
+        const view = views.get(item.propuestaId) ?? compositionView([])
+        const choice = easyCollectionSelection(selectionFacts(item))
+        const selection = { propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint }
+        const documentos = item.lineas.reduce((sum, line) => sum + (line.tipo === 'DOCUMENTO' ? line.importeCentimos : 0), 0)
+        const dto: Omit<EasyMovementCollectionProposal, 'rol'> = {
+          propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint,
+          previewToken: choice.seleccionable ? signEasyCollectionsPreview(actorId, [selection]) : null,
+          metodo: item.metodo, etiquetaMetodo: methodLabel(item.metodo), nivel: item.nivel, explicacion: item.explicacion,
+          importeMovimientoCentimos: item.importeMovimientoCentimos, lineas: lineView(item),
+          composicion: view.composicion.map(row => {
+            const invoice = row.facturaEmitidaId ? invoices.get(row.facturaEmitidaId) : undefined
+            return { ...row, totalFacturaCentimos: invoice?.total ?? null, fechaFactura: invoice?.fecha ?? null }
+          }),
+          composicionTotal: view.composicionTotal, composicionImporteCentimos: view.composicionImporteCentimos,
+          clientesDistintos: distinctClients(compositions.get(item.propuestaId)),
+          diferenciaCentimos: item.importeMovimientoCentimos - documentos,
+          par: item.par ? { fecha: item.par.fecha, cuentaAlias: item.par.cuentaAlias, concepto: item.par.concepto, importeCentimos: item.par.importeCentimos } : null,
+          seleccionable: choice.seleccionable, motivoNoSeleccionable: choice.motivoNoSeleccionable,
+        }
+        if (requested.includes(item.movimientoId)) result.set(item.movimientoId, { rol: 'PRINCIPAL', ...dto })
+        if (item.movimientoParId && requested.includes(item.movimientoParId)) result.set(item.movimientoParId, { rol: 'PAR', ...dto })
+      }
+      return result
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 20_000 })
+  } catch (error) { throwKnown(error) }
+}
+
 async function liveActorTx(tx: Tx, actorId: number) {
   if (!Number.isSafeInteger(actorId) || actorId <= 0) fail(403, 'SIN_PERMISO_ACTUAL', 'Ya no tienes permiso para confirmar propuestas de cobro.')
   const rows = await tx.$queryRaw<Array<{ id: number; activo: boolean; rol: string; roles: unknown }>>(Prisma.sql`

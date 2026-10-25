@@ -6,6 +6,7 @@ import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyErrorResponse, confirmEasyReconciliation, readEasyReconciliation } from '@/lib/finanzas/easy-reconciliation-db'
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
 import { readEasyStepCounters } from '@/lib/finanzas/easy-counterparty-db'
+import { readEasyCollectionsForMovements } from '@/lib/finanzas/easy-collections-db'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 16 * 1024
@@ -48,7 +49,13 @@ export async function GET(req: NextRequest) {
       // P1 and P2 remain separate read cohorts; GET does not append any P1 receipt.
       readEasyStepCounters(input),
     ])
-    return privateJson({ ...reconciliation, pasos })
+    // Read-only enrichment: the current collection proposal (remesa, confirming, varias
+    // facturas) of each visible movement. It never blocks the queue if unavailable.
+    const movimientos = Array.isArray(reconciliation?.movimientos) ? reconciliation.movimientos : []
+    let propuestas = new Map<string, unknown>()
+    try { propuestas = await readEasyCollectionsForMovements(movimientos.map(movement => movement.id), access.actor.id) }
+    catch (error) { console.warn('[modo-facil] propuestas de cobro no disponibles', (error as { code?: unknown })?.code ?? 'ERROR') }
+    return privateJson({ ...reconciliation, movimientos: movimientos.map(movement => ({ ...movement, propuestaCobro: propuestas.get(movement.id) ?? null })), pasos })
   } catch (error) { return errorResponse(error) }
 }
 

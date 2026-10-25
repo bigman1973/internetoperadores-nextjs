@@ -42,6 +42,44 @@ export type EasySuggestion = Readonly<{
 /** Dato opcional: el servidor lo añade sin sustituir los campos ya publicados del movimiento. */
 export type EasyWhoIs = Readonly<{ estado: EstadoPaso1; nombre: string | null }>;
 
+export type EasyCollectionLevel = 'EXACTA' | 'REVISAR';
+export type EasyCollectionLine = Readonly<{ tipo: 'DOCUMENTO' | 'DIFERENCIA'; referencia: string; importeCentimos: number }>;
+export type EasyCollectionInvoice = Readonly<{
+  numFactura: string | null;
+  cliente: string | null;
+  importeCentimos: number;
+  vencimiento: string | null;
+  facturaEmitidaId: string | null;
+  totalFacturaCentimos: number | null;
+  fechaFactura: string | null;
+}>;
+export type EasyCollectionPair = Readonly<{ fecha: string; cuentaAlias: string | null; concepto: string; importeCentimos: number }>;
+/**
+ * Proyección opcional, firmada por el servidor, de una propuesta 1→N de cobro.
+ * Su ausencia conserva la respuesta histórica de Modo Fácil sin sustituirla.
+ */
+export type EasyCollectionProposal = Readonly<{
+  rol: 'PRINCIPAL' | 'PAR';
+  propuestaId: string;
+  movimientoId: string;
+  fingerprint: string;
+  previewToken: string | null;
+  metodo: string;
+  etiquetaMetodo: string;
+  nivel: EasyCollectionLevel;
+  explicacion: string;
+  importeMovimientoCentimos: number;
+  lineas: readonly EasyCollectionLine[];
+  composicion: readonly EasyCollectionInvoice[];
+  composicionTotal: number;
+  composicionImporteCentimos: number;
+  clientesDistintos: number;
+  diferenciaCentimos: number;
+  par: EasyCollectionPair | null;
+  seleccionable: boolean;
+  motivoNoSeleccionable: string | null;
+}>;
+
 export type EasyMovement = Readonly<{
   id: string;
   version: number;
@@ -58,6 +96,8 @@ export type EasyMovement = Readonly<{
   motivoNoRequierePropuesto?: string | null;
   /** Ausente hasta que la proyección del servidor publique la identificación. */
   quienEs?: EasyWhoIs;
+  /** Ausente en servidores previos; nunca se inventa una propuesta local. */
+  propuestaCobro?: EasyCollectionProposal | null;
   sugerencias: EasySuggestion[];
 }>;
 
@@ -113,15 +153,35 @@ export type CrearReglaPayload = Readonly<{
 export type DesactivarReglaPayload = Readonly<{
   action: 'desactivar'; reglaId: string; version: number; confirmacion: true;
 }>;
+export type ConfirmarBloqueCobroPayload = Readonly<{
+  action: 'confirmar_bloque';
+  confirmacion: true;
+  idempotencyKey: string;
+  previewToken: string;
+  items: readonly Readonly<{ propuestaId: string; movimientoId: string; fingerprint: string }>[];
+}>;
+export type DeshacerBloqueCobroPayload = Readonly<{
+  action: 'deshacer_bloque';
+  confirmacion: true;
+  idempotencyKey: string;
+  bloqueId: string;
+}>;
 
 const safeString = (value: unknown): value is string => typeof value === 'string';
 const safeInteger = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value);
 const record = (value: unknown): Record<string, unknown> | null => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 const CENTS_TEXT = /^[+-]?\d+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function readString(value: unknown, field: string): string {
   if (!safeString(value)) throw new Error(`El campo ${field} no es texto válido.`);
   return value;
+}
+function readBoundedString(value: unknown, field: string, maximum: number): string {
+  const parsed = readString(value, field);
+  if (!parsed.trim() || parsed.length > maximum) throw new Error(`El campo ${field} no es texto válido.`);
+  return parsed;
 }
 function readBoolean(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`El campo ${field} no es booleano válido.`);
@@ -185,11 +245,59 @@ function parseWhoIs(value: unknown, field: string): EasyWhoIs {
   return { estado: raw.estado, nombre: readNullableString(raw.nombre, `${field}.nombre`) };
 }
 
+function parseCollectionLine(value: unknown, field: string): EasyCollectionLine {
+  const raw = objectAt(value, field);
+  if (raw.tipo !== 'DOCUMENTO' && raw.tipo !== 'DIFERENCIA') throw new Error(`El campo ${field}.tipo no es válido.`);
+  return { tipo: raw.tipo, referencia: readBoundedString(raw.referencia, `${field}.referencia`, 600), importeCentimos: readInteger(raw.importeCentimos, `${field}.importeCentimos`) };
+}
+function parseCollectionInvoice(value: unknown, field: string): EasyCollectionInvoice {
+  const raw = objectAt(value, field);
+  const nullableBounded = (input: unknown, inputField: string, maximum: number) => input === null ? null : readBoundedString(input, inputField, maximum);
+  return {
+    numFactura: nullableBounded(raw.numFactura, `${field}.numFactura`, 240),
+    cliente: nullableBounded(raw.cliente, `${field}.cliente`, 240),
+    importeCentimos: readInteger(raw.importeCentimos, `${field}.importeCentimos`),
+    vencimiento: nullableBounded(raw.vencimiento, `${field}.vencimiento`, 40),
+    facturaEmitidaId: nullableBounded(raw.facturaEmitidaId, `${field}.facturaEmitidaId`, 160),
+    totalFacturaCentimos: raw.totalFacturaCentimos === null ? null : readInteger(raw.totalFacturaCentimos, `${field}.totalFacturaCentimos`),
+    fechaFactura: nullableBounded(raw.fechaFactura, `${field}.fechaFactura`, 40),
+  };
+}
+function parseCollectionProposal(value: unknown, field: string): EasyCollectionProposal {
+  const raw = objectAt(value, field);
+  if (raw.rol !== 'PRINCIPAL' && raw.rol !== 'PAR') throw new Error(`El campo ${field}.rol no es válido.`);
+  if (raw.nivel !== 'EXACTA' && raw.nivel !== 'REVISAR') throw new Error(`El campo ${field}.nivel no es válido.`);
+  const propuestaId = readBoundedString(raw.propuestaId, `${field}.propuestaId`, 64);
+  if (!UUID.test(propuestaId)) throw new Error(`El campo ${field}.propuestaId no es válido.`);
+  const fingerprint = readBoundedString(raw.fingerprint, `${field}.fingerprint`, 64);
+  if (!/^[a-f0-9]{64}$/.test(fingerprint)) throw new Error(`El campo ${field}.fingerprint no es válido.`);
+  const previewToken = raw.previewToken === null ? null : readBoundedString(raw.previewToken, `${field}.previewToken`, 16_000);
+  if (raw.seleccionable !== true && raw.seleccionable !== false) throw new Error(`El campo ${field}.seleccionable no es válido.`);
+  if (raw.seleccionable && !previewToken) throw new Error(`El campo ${field}.previewToken no es válido.`);
+  const composicion = readArray(raw.composicion, `${field}.composicion`).map((item, index) => parseCollectionInvoice(item, `${field}.composicion[${index}]`));
+  const composicionTotal = readNonNegativeInteger(raw.composicionTotal, `${field}.composicionTotal`);
+  if (composicion.length > 60 || composicion.length > composicionTotal || composicionTotal > 10_000) throw new Error(`El campo ${field}.composicion no es válido.`);
+  const par = raw.par === null ? null : (() => {
+    const pair = objectAt(raw.par, `${field}.par`);
+    return { fecha: readBoundedString(pair.fecha, `${field}.par.fecha`, 40), cuentaAlias: pair.cuentaAlias === null ? null : readBoundedString(pair.cuentaAlias, `${field}.par.cuentaAlias`, 240), concepto: readBoundedString(pair.concepto, `${field}.par.concepto`, 1_000), importeCentimos: readInteger(pair.importeCentimos, `${field}.par.importeCentimos`) };
+  })();
+  return {
+    rol: raw.rol, propuestaId, movimientoId: readBoundedString(raw.movimientoId, `${field}.movimientoId`, 160), fingerprint, previewToken,
+    metodo: readBoundedString(raw.metodo, `${field}.metodo`, 80), etiquetaMetodo: readBoundedString(raw.etiquetaMetodo, `${field}.etiquetaMetodo`, 240), nivel: raw.nivel,
+    explicacion: readBoundedString(raw.explicacion, `${field}.explicacion`, 600), importeMovimientoCentimos: readInteger(raw.importeMovimientoCentimos, `${field}.importeMovimientoCentimos`),
+    lineas: readArray(raw.lineas, `${field}.lineas`).map((item, index) => parseCollectionLine(item, `${field}.lineas[${index}]`)),
+    composicion, composicionTotal, composicionImporteCentimos: readInteger(raw.composicionImporteCentimos, `${field}.composicionImporteCentimos`),
+    clientesDistintos: readNonNegativeInteger(raw.clientesDistintos, `${field}.clientesDistintos`), diferenciaCentimos: readInteger(raw.diferenciaCentimos, `${field}.diferenciaCentimos`),
+    par, seleccionable: raw.seleccionable, motivoNoSeleccionable: raw.motivoNoSeleccionable === null ? null : readBoundedString(raw.motivoNoSeleccionable, `${field}.motivoNoSeleccionable`, 600),
+  };
+}
+
 function parseMovement(value: unknown, index: number): EasyMovement {
   const raw = objectAt(value, `movimientos[${index}]`);
   const account = objectAt(raw.cuenta, `movimientos[${index}].cuenta`);
   if (raw.estado !== 'SIN_DOCUMENTO') throw new Error(`El estado de movimientos[${index}] no pertenece a la cola Modo Fácil.`);
   const quienEs = raw.quienEs === undefined ? undefined : parseWhoIs(raw.quienEs, `movimientos[${index}].quienEs`);
+  const propuestaCobro = raw.propuestaCobro === undefined ? undefined : raw.propuestaCobro === null ? null : parseCollectionProposal(raw.propuestaCobro, `movimientos[${index}].propuestaCobro`);
   return {
     id: readString(raw.id, `movimientos[${index}].id`),
     version: readInteger(raw.version, `movimientos[${index}].version`),
@@ -205,6 +313,7 @@ function parseMovement(value: unknown, index: number): EasyMovement {
     reglaAplicadaId: readNullableString(raw.reglaAplicadaId, `movimientos[${index}].reglaAplicadaId`),
     motivoNoRequierePropuesto: raw.motivoNoRequierePropuesto === undefined ? null : readNullableString(raw.motivoNoRequierePropuesto, 'motivoNoRequierePropuesto'),
     quienEs,
+    propuestaCobro,
     sugerencias: readArray(raw.sugerencias, `movimientos[${index}].sugerencias`).map(parseSuggestion),
   };
 }
@@ -349,4 +458,15 @@ export function buildCreateRulePayload(operacionId: string): CrearReglaPayload {
 }
 export function buildDisableRulePayload(rule: Pick<EasyRule, 'id' | 'version'>): DesactivarReglaPayload {
   return { action: 'desactivar', reglaId: rule.id, version: rule.version, confirmacion: true };
+}
+
+/** Sólo forma el cuerpo de una propuesta ya firmada por el servidor para un único cobro. */
+export function buildCollectionConfirmPayload(proposal: Pick<EasyCollectionProposal, 'propuestaId' | 'movimientoId' | 'fingerprint' | 'previewToken' | 'seleccionable'>, idempotencyKey: string): ConfirmarBloqueCobroPayload | null {
+  if (!UUID_V4.test(idempotencyKey) || !proposal.seleccionable || !proposal.previewToken || proposal.previewToken.length > 16_000 || !UUID.test(proposal.propuestaId) || !proposal.movimientoId || !/^[a-f0-9]{64}$/.test(proposal.fingerprint)) return null;
+  const item = Object.freeze({ propuestaId: proposal.propuestaId, movimientoId: proposal.movimientoId, fingerprint: proposal.fingerprint });
+  return Object.freeze({ action: 'confirmar_bloque' as const, confirmacion: true as const, idempotencyKey: idempotencyKey.toLowerCase(), previewToken: proposal.previewToken, items: Object.freeze([item]) });
+}
+export function buildCollectionUndoPayload(bloqueId: string, idempotencyKey: string): DeshacerBloqueCobroPayload | null {
+  if (!UUID_V4.test(idempotencyKey) || !UUID.test(bloqueId)) return null;
+  return Object.freeze({ action: 'deshacer_bloque' as const, confirmacion: true as const, idempotencyKey: idempotencyKey.toLowerCase(), bloqueId: bloqueId.toLowerCase() });
 }
