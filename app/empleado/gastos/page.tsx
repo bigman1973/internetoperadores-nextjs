@@ -194,11 +194,14 @@ export default function EmpleadoGastosPage() {
     return new Date(f).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
+  const supervisorEsperado = session?.user?.role === 'SUPER_ADMIN' || session?.user?.role === 'GERENTE';
+  const reservarVistaSupervisor = loading ? supervisorEsperado : verTodos;
+
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+        <div className={reservarVistaSupervisor ? 'min-h-[84px] sm:min-h-0' : undefined}>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ReceiptPercentIcon className="h-7 w-7 text-orange-600" />
             {verTodos ? 'Tickets de Gasto - Todos los empleados' : 'Mis Tickets de Gasto'}
@@ -217,29 +220,33 @@ export default function EmpleadoGastosPage() {
       </div>
 
       {/* Filtro por empleado (solo SUPER_ADMIN) */}
-      {verTodos && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">Filtrar por empleado:</label>
-          <select
-            value={filtroEmpleado}
-            onChange={(e) => setFiltroEmpleado(e.target.value)}
-            className="min-h-11 min-w-[250px] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
-          >
-            <option value="">Todos los empleados</option>
-            {empleados.map(u => (
-              <option key={u.id} value={u.email}>{u.name || u.email}</option>
-            ))}
-          </select>
-          {filtroEmpleado && (
-            <button
-              onClick={() => setFiltroEmpleado('')}
-              className="text-sm text-orange-600 hover:underline"
-            >
-              Limpiar filtro
-            </button>
+      {reservarVistaSupervisor ? (
+        <div className="min-h-[92px] sm:min-h-[60px]">
+          {verTodos && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Filtrar por empleado:</label>
+              <select
+                value={filtroEmpleado}
+                onChange={(e) => setFiltroEmpleado(e.target.value)}
+                className="min-h-11 min-w-[250px] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+              >
+                <option value="">Todos los empleados</option>
+                {empleados.map(u => (
+                  <option key={u.id} value={u.email}>{u.name || u.email}</option>
+                ))}
+              </select>
+              {filtroEmpleado && (
+                <button
+                  onClick={() => setFiltroEmpleado('')}
+                  className="text-sm text-orange-600 hover:underline"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Resumen rápido */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -268,7 +275,7 @@ export default function EmpleadoGastosPage() {
       </div>
 
       {/* Tabla de tickets */}
-      <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${loading ? 'min-h-[360px]' : ''}`}>
+      <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${loading ? 'min-h-[249px]' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
