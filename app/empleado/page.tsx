@@ -136,7 +136,8 @@ export default function EmpleadoPage() {
 
       {!loadingAlertas && resumenImputaciones && <EmployeeTimesheetSummary summary={resumenImputaciones} />}
 
-      {/* Accesos rapidos */}
+      {/* Accesos rapidos: se pintan al terminar la carga de avisos para que no se desplacen (CLS) */}
+      {!loadingAlertas && (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Link
           href="/empleado/imputaciones"
@@ -187,6 +188,7 @@ export default function EmpleadoPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
