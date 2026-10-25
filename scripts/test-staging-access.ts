@@ -42,6 +42,7 @@ async function main() {
   check(html.includes('method="post"'))
   check(!html.includes('synthetic-password'))
   check(page.headers.get('cache-control') === 'private, no-store')
+  check(page.headers.get('referrer-policy') === 'same-origin')
   check(page.headers.get('content-security-policy')!.includes("frame-ancestors 'none'"))
   const body = new URLSearchParams({ username: 'synthetic-reviewer', password: 'synthetic-password', next: '/admin' }).toString()
   const headers = { origin: 'https://staging.internetoperadores.com', 'content-type': 'application/x-www-form-urlencoded' }
