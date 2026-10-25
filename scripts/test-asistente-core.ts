@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { normalizar, trocear } from '@/lib/asistente/text'
+import { consultaParaRecuperacion, normalizar, trocear } from '@/lib/asistente/text'
 import { redactarPIILocal, luhn } from '@/lib/asistente/pii'
 import { analizarMensaje } from '@/lib/asistente/guard'
 import { dentroHorarioHumano } from '@/lib/asistente/horario'
@@ -13,6 +13,12 @@ function prueba(nombre: string, fn: () => void) { try { fn(); console.log(`OK ${
 prueba('normalización y troceado deterministas', () => {
   assert.equal(normalizar('  ÁRBOL, conexión  5G! '), 'arbol conexion 5g')
   const partes = trocear('Una frase larga. '.repeat(300), { max: 400, solape: 60 }); assert.ok(partes.length > 5); assert.deepEqual(partes, trocear('Una frase larga. '.repeat(300), { max: 400, solape: 60 }))
+})
+
+prueba('consulta extractiva separa PII anonimizada de la pregunta', () => {
+  assert.equal(consultaParaRecuperacion('Mi [IBAN] no debe conservarse; ¿qué opciones hay?'), '¿qué opciones hay?')
+  assert.equal(consultaParaRecuperacion('¿Qué plazo tiene una instalación?'), '¿Qué plazo tiene una instalación?')
+  assert.equal(consultaParaRecuperacion('Mi [EMAIL] no debe conservarse.'), 'Mi no debe conservarse.')
 })
 
 prueba('PII española y Luhn', () => {

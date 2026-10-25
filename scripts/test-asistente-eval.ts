@@ -16,8 +16,8 @@ import type { AlcanceAsistente } from '@/lib/asistente/acl'
 
 const RAIZ = process.cwd()
 const ENTORNO_EVAL = '/home/ubuntu/asistente-ia-20261025/pruebas/.env.eval'
-const DIRECTORIO_SALIDA = '/home/ubuntu/asistente-ia-20261025/eval'
-const INFORME_EQUIPO = '/home/ubuntu/asistente-ia-20261025/equipos/eval.md'
+const DIRECTORIO_SALIDA = process.env.ASSISTANT_EVAL_OUTPUT_DIR || '/home/ubuntu/asistente-ia-20261025/eval'
+const INFORME_EQUIPO = process.env.ASSISTANT_EVAL_TEAM_REPORT || '/home/ubuntu/asistente-ia-20261025/equipos/eval.md'
 const MIGRACION = path.join(RAIZ, 'prisma/migrations/20261025_asistente_ia/migration.sql')
 const requireReal = createRequire(import.meta.url)
 

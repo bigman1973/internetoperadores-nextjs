@@ -8,6 +8,18 @@ export function normalizar(valor: string): string {
     .trim()
 }
 
+/**
+ * Prepara una consulta ya anonimizada para FTS sin añadir vocabulario de
+ * negocio. Si la persona escribe una declaración seguida de una pregunta
+ * explícita (caso habitual tras un marcador PII), la última pregunta es la
+ * parte informativa. Los marcadores nunca participan en la recuperación.
+ */
+export function consultaParaRecuperacion(valor: string): string {
+  const sinMarcadores = String(valor ?? '').replace(/\[[A-Z_]+\]/g, ' ').replace(/\s+/g, ' ').trim()
+  const inicioPregunta = sinMarcadores.lastIndexOf('¿')
+  return inicioPregunta >= 0 ? sinMarcadores.slice(inicioPregunta).trim() : sinMarcadores
+}
+
 export function textoPlano(valor: string): string {
   return String(valor ?? '')
     .replace(/<[^>]*>/g, ' ')

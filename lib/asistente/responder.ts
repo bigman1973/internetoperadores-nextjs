@@ -6,7 +6,7 @@ import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { redactarPII } from '@/lib/asistente/pii'
 import { proveedorPara, type FuenteRespuesta } from '@/lib/asistente/provider'
 import { buscar } from '@/lib/asistente/retrieval'
-import { normalizar } from '@/lib/asistente/text'
+import { consultaParaRecuperacion, normalizar } from '@/lib/asistente/text'
 
 export type CtaAsistente = { tipo: 'INFORME_CERO_RIESGOS' | 'BACKUP_CONEXION' | 'CONTACTO' | 'LEAD'; texto: string; url?: string }
 export type RespuestaAsistente = { conversacionId: string; mensajeId: string; respuesta: string; fuentes: FuenteRespuesta[]; sinFuente: boolean; escalar: boolean; motivoEscalado?: 'PETICION' | 'ENFADO' | 'SIN_RESPUESTA' | 'FUERA_DOMINIO'; ctas: CtaAsistente[]; modo: 'extractivo' | 'local' }
@@ -76,9 +76,10 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
     respuesta = runtime.bienvenida
     sinFuente = true
   } else {
-    // Se busca sobre el texto ya anonimizado y sin marcadores ([DNI], [IBAN]…):
-    // los datos personales no influyen en la búsqueda ni salen hacia embeddings.
-    const consultaBusqueda = textoAnon.replace(/\[[A-Z_]+\]/g, ' ').trim() || entrada.mensaje
+    // Se busca sobre el texto ya anonimizado y sin marcadores ([DNI], [IBAN]…).
+    // Una declaración PII anterior a una pregunta no añade ruido a FTS ni sale
+    // hacia embeddings; no se amplía la consulta con alias ni sinónimos.
+    const consultaBusqueda = consultaParaRecuperacion(textoAnon)
     const fragmentos = await buscar(consultaBusqueda, alcance, { limite: 6 })
     if (!fragmentos.length || !(fragmentos[0].puntuacion > 0)) {
       respuesta = 'No tengo esa información en nuestra documentación. Si quieres, puedo ponerte en contacto con una persona.'
