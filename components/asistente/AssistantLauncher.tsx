@@ -1,23 +1,48 @@
 'use client'
 
-import dynamic from 'next/dynamic'
 import { usePathname } from 'next/navigation'
-import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentType, type RefObject } from 'react'
 import { isAssistantExcludedPath } from '@/lib/asistente/public-flag'
 import type { AssistantPanelProps } from './AssistantPanel'
 
 type PanelComponent = ComponentType<AssistantPanelProps>
 
+type AssistantLoadingShellProps = {
+  dialogRef: RefObject<HTMLDivElement | null>
+  closeButtonRef: RefObject<HTMLButtonElement | null>
+  onClose: () => void
+}
+
+function AssistantLoadingShell({ dialogRef, closeButtonRef, onClose }: AssistantLoadingShellProps) {
+  return (
+    <div className="fixed inset-0 z-[60] bg-slate-950/30 sm:bg-transparent" role="presentation">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="asistente-titulo" className="fixed inset-0 flex h-[100dvh] w-full flex-col overflow-hidden bg-white shadow-2xl sm:inset-auto sm:bottom-24 sm:left-6 sm:h-[min(600px,calc(100dvh-7rem))] sm:w-[min(380px,calc(100vw-3rem))] sm:rounded-2xl sm:border sm:border-slate-200">
+        <header className="flex shrink-0 items-center justify-between bg-primary px-4 py-3 text-white">
+          <h2 id="asistente-titulo" className="text-base font-bold">Asistente de IA</h2>
+          <button ref={closeButtonRef} type="button" onClick={onClose} className="flex h-10 w-10 items-center justify-center rounded-lg text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white" aria-label="Cerrar asistente">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" /></svg>
+          </button>
+        </header>
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-700" aria-live="polite">Preparando el asistente…</div>
+      </div>
+    </div>
+  )
+}
+
 /**
- * Lanzador deliberadamente pequeño. El import dinámico se instancia en la primera
- * interacción, evitando solicitar el panel de conversación durante LCP.
+ * Lanzador deliberadamente pequeño. El panel sólo se descarga tras una interacción
+ * deliberada y no se monta hasta haber dejado pintar la respuesta inmediata al clic.
  */
 export default function AssistantLauncher() {
   const pathname = usePathname()
   const launcherRef = useRef<HTMLButtonElement>(null)
+  const loadingDialogRef = useRef<HTMLDivElement>(null)
+  const loadingCloseButtonRef = useRef<HTMLButtonElement>(null)
   const intentTimerRef = useRef<number | null>(null)
+  const panelPromiseRef = useRef<Promise<{ default: PanelComponent }> | null>(null)
   const [Panel, setPanel] = useState<PanelComponent | null>(null)
   const [open, setOpen] = useState(false)
+  const [panelVisible, setPanelVisible] = useState(false)
   const [unavailable, setUnavailable] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
@@ -26,12 +51,14 @@ export default function AssistantLauncher() {
   const excluded = isAssistantExcludedPath(pathname)
 
   const loadPanel = useCallback(() => {
-    // La descarga real del chunk no se solicita hasta una interacción del usuario.
-    void import('./AssistantPanel').catch(() => undefined)
-    setPanel((current) => {
-      if (current) return current
-      return dynamic<AssistantPanelProps>(() => import('./AssistantPanel'), { ssr: false })
-    })
+    if (!panelPromiseRef.current) {
+      const promise = import('./AssistantPanel')
+      panelPromiseRef.current = promise
+      void promise.catch(() => {
+        if (panelPromiseRef.current === promise) panelPromiseRef.current = null
+      })
+    }
+    return panelPromiseRef.current
   }, [])
 
   const clearIntentTimer = useCallback(() => {
@@ -42,27 +69,89 @@ export default function AssistantLauncher() {
   }, [])
 
   const scheduleIdleLoad = useCallback(() => {
-    if (Panel || intentTimerRef.current !== null) return
+    if (panelPromiseRef.current || intentTimerRef.current !== null) return
     const schedule = () => {
       const idle = window.requestIdleCallback
       if (typeof idle === 'function') {
-        idle(() => loadPanel(), { timeout: 4500 })
+        idle(() => { void loadPanel().catch(() => undefined) }, { timeout: 4500 })
       } else {
-        loadPanel()
+        void loadPanel().catch(() => undefined)
       }
     }
     // Sólo después de una interacción deliberada; el retardo protege LCP/TBT.
-    intentTimerRef.current = window.setTimeout(schedule, 4500)
-  }, [Panel, loadPanel])
+    intentTimerRef.current = window.setTimeout(() => {
+      intentTimerRef.current = null
+      schedule()
+    }, 4500)
+  }, [loadPanel])
 
   const close = useCallback(() => {
+    setPanelVisible(false)
     setOpen(false)
     window.setTimeout(() => launcherRef.current?.focus(), 0)
   }, [])
 
   useEffect(() => {
+    if (!open || panelVisible) return
+    let cancelled = false
+    let secondFrame: number | null = null
+    // Dos frames reservan un paint de la carcasa antes de descargar o montar el diálogo completo.
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        void loadPanel()
+          .then(({ default: PanelComponent }) => {
+            if (!cancelled) {
+              setPanel(() => PanelComponent)
+              setPanelVisible(true)
+            }
+          })
+          .catch(() => undefined)
+      })
+    })
+    return () => {
+      cancelled = true
+      window.cancelAnimationFrame(firstFrame)
+      if (secondFrame !== null) window.cancelAnimationFrame(secondFrame)
+    }
+  }, [loadPanel, open, panelVisible])
+
+  useEffect(() => {
+    if (!open || panelVisible) return
+    const focusCloseButton = window.setTimeout(() => loadingCloseButtonRef.current?.focus(), 0)
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        close()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const dialog = loadingDialogRef.current
+      if (!dialog) return
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => !element.hasAttribute('hidden') && element.getClientRects().length > 0)
+      if (!focusable.length) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.clearTimeout(focusCloseButton)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [close, open, panelVisible])
+
+  useEffect(() => {
     if (excluded) {
       clearIntentTimer()
+      setPanelVisible(false)
       setOpen(false)
     }
   }, [clearIntentTimer, excluded])
@@ -71,6 +160,7 @@ export default function AssistantLauncher() {
 
   if (excluded || unavailable) return null
 
+  const showLoadingShell = open && !panelVisible
   return (
     <>
       <button
@@ -84,7 +174,7 @@ export default function AssistantLauncher() {
         onFocus={scheduleIdleLoad}
         onClick={() => {
           clearIntentTimer()
-          loadPanel()
+          setPanelVisible(false)
           setOpen(true)
         }}
         className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-white shadow-lg transition-transform duration-200 hover:bg-orange-600 active:scale-95 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 motion-reduce:transition-none sm:bottom-6 sm:left-6 sm:h-14 sm:w-14"
@@ -94,12 +184,14 @@ export default function AssistantLauncher() {
         </svg>
         <span className="sr-only">Asistente virtual</span>
       </button>
-      {Panel && open ? (
+      {showLoadingShell ? <AssistantLoadingShell dialogRef={loadingDialogRef} closeButtonRef={loadingCloseButtonRef} onClose={close} /> : null}
+      {Panel && open && panelVisible ? (
         <Panel
           launcherRef={launcherRef}
           onClose={close}
           onUnavailable={() => {
             clearIntentTimer()
+            setPanelVisible(false)
             setOpen(false)
             launcherRef.current?.focus()
             setUnavailable(true)
