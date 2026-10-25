@@ -1,6 +1,14 @@
 import { getTarifasSeccionParticular } from '@/lib/tarifas-web';
 import SeccionTarifasParticular from '@/components/public/SeccionTarifasParticular';
+import { unstable_cache } from 'next/cache';
+
 export const revalidate = 60;
+
+const getMovilTarifas = unstable_cache(
+  () => getTarifasSeccionParticular('movil'),
+  ['tarifas-seccion-particular-movil-v1'],
+  { revalidate: 60 }
+);
 
 export const metadata = {
   title: 'Tarifas Móvil | Internet Operadores',
@@ -8,7 +16,7 @@ export const metadata = {
 };
 
 export default async function MovilPage() {
-  const { top3, total } = await getTarifasSeccionParticular('movil');
+  const { top3, total } = await getMovilTarifas();
 
   const icono = (
     <svg className="w-16 h-16 mx-auto text-white/90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
