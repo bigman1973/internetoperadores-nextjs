@@ -85,7 +85,7 @@ export default function PoliticaCookies() {
             </p>
             
             {/* Contenedor para la declaración automática de Cookiebot */}
-            <div id="cookiebot-declaration" className="my-8 bg-gray-50 p-6 rounded-lg">
+            <div id="cookiebot-declaration" className="my-8 min-w-0 max-w-full overflow-x-auto overscroll-x-contain rounded-lg bg-gray-50 p-6" role="region" aria-label="Declaración de cookies" tabIndex="0">
               <p className="text-gray-600 text-center">Cargando declaración de cookies...</p>
             </div>
           </section>
@@ -102,7 +102,7 @@ export default function PoliticaCookies() {
               Si tiene alguna pregunta sobre nuestra Política de Cookies, puede contactarnos en:
             </p>
             <ul className="list-none text-gray-700 space-y-2 mb-4">
-              <li>📧 Email: <a href="mailto:david.perez@internetoperadores.com" className="text-orange-500 hover:text-orange-600">david.perez@internetoperadores.com</a></li>
+              <li>📧 Email: <a href="mailto:david.perez@internetoperadores.com" className="break-all text-orange-500 hover:text-orange-600">david.perez@internetoperadores.com</a></li>
               <li>📞 Teléfono: <a href="tel:+34900730034" className="text-orange-500 hover:text-orange-600">+34 900 730 034</a></li>
             </ul>
           </section>
@@ -126,4 +126,3 @@ export default function PoliticaCookies() {
     </div>
   );
 }
-
