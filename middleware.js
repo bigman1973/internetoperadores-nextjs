@@ -383,6 +383,7 @@ export async function middleware(request) {
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/asistente/configuracion' && request.method === 'PATCH')
       || (['/api/admin/asistente/aprendizaje', '/api/admin/asistente/informes'].includes(path) && request.method === 'POST')
+      || (['/api/admin/asistente/derechos', '/api/admin/asistente/retencion'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {

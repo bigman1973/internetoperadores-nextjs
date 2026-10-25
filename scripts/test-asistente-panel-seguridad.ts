@@ -44,8 +44,12 @@ function zipBombaSintetica(): Buffer {
 
 async function main() {
   const cliente = new Client({ connectionString: process.env.ASSISTANT_TEST_DATABASE_URL })
+  const conexion = new URL(process.env.ASSISTANT_TEST_DATABASE_URL!)
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(conexion.hostname) || conexion.pathname !== '/asistente_fases_panel') throw new Error('PANEL_TEST_LOCAL_DB_REQUIRED')
   await cliente.connect()
   try {
+    const identidad = (await cliente.query('SELECT current_database() AS db LIMIT 1')).rows[0]
+    if (identidad.db !== 'asistente_fases_panel') throw new Error('PANEL_TEST_LIVE_DB_GUARD')
     await cliente.query('DROP SCHEMA public CASCADE')
     await cliente.query('CREATE SCHEMA public')
     await cliente.query(archivo('prisma/migrations/20261025_asistente_ia/migration.sql'))
