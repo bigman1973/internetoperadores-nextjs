@@ -43,7 +43,7 @@ export default function EasyReviewQueues({ whoQueueEnabled, whoQueue, collection
       </div>
     </div>
 
-    <EasyReviewQueuePanel id="easy-queue-all" panel="who" visible={queueStep === 'TODOS'} isolated={false} />
+    <EasyReviewQueuePanel id="easy-queue-all" panel="who" visible={queueStep === 'TODOS'} isolated={false} children={null} />
     <EasyReviewQueuePanel id="easy-queue-who" panel="who" visible={isReviewQueueVisible(queueStep, 'P1_PENDIENTE')} isolated={queueStep !== 'TODOS'}>
       {whoQueue}
     </EasyReviewQueuePanel>
