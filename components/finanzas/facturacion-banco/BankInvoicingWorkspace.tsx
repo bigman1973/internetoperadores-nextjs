@@ -134,7 +134,7 @@ export default function BankInvoicingWorkspace() {
   const [reloadNonce, setReloadNonce] = useState(0)
   const [data, setData] = useState<B7ReadDto | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState<B7InvoiceSettlement | null>(null)
   const requestSequence = useRef(0)
   const activeRequest = useRef<AbortController | null>(null)
@@ -216,8 +216,8 @@ export default function BankInvoicingWorkspace() {
             <p className="mt-2 max-w-3xl text-sm text-slate-100">Facturas emitidas y cobro documental confirmado por banco. No usa estados de cobro del ISP ni marca facturas como cobradas.</p>
           </div>
           <nav aria-label="Navegación financiera" className="flex flex-wrap gap-2">
-            <Link href="/admin/finanzas/conciliacion-v2" className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white">Conciliación</Link>
-            <Link href="/admin/finanzas/pendientes" className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white">Pendientes</Link>
+            <Link href="/admin/finanzas/conciliacion-v2" className="min-h-11 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white">Conciliación</Link>
+            <Link href="/admin/finanzas/pendientes" className="min-h-11 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white">Pendientes</Link>
           </nav>
         </div>
       </header>
@@ -230,23 +230,24 @@ export default function BankInvoicingWorkspace() {
         source="ISP"
         title="Sincronización de facturas emitidas (ISP)"
         description="Sólo sincroniza facturas emitidas. No modifica cobros, remesas ni estados financieros."
+        className="min-h-[28rem] sm:min-h-[25rem]"
       />
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Filtros de facturación">
         <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(220px,1fr)_190px_230px_auto] lg:items-end">
           <label className="block min-w-0 text-sm font-semibold text-slate-800" htmlFor="b7-search">Buscar
-            <input id="b7-search" data-testid="b7-search" value={search} onChange={(event) => { setSearch(event.target.value.slice(0, 120)); setOffset(0) }} maxLength={120} placeholder="Factura o cliente" className="mt-1 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" />
+            <input id="b7-search" data-testid="b7-search" value={search} onChange={(event) => { setSearch(event.target.value.slice(0, 120)); setOffset(0) }} maxLength={120} placeholder="Factura o cliente" className="mt-1 min-h-11 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" />
           </label>
           <label className="block text-sm font-semibold text-slate-800" htmlFor="b7-month">Mes de emisión
-            <span className="mt-1 flex gap-2"><input id="b7-month" data-testid="b7-month" type="month" value={month} onChange={(event) => { setMonth(event.target.value); setOffset(0) }} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /><button type="button" onClick={() => { setMonth(''); setOffset(0) }} disabled={!month} className="rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Todos</button></span>
+            <span className="mt-1 flex gap-2"><input id="b7-month" data-testid="b7-month" type="month" value={month} onChange={(event) => { setMonth(event.target.value); setOffset(0) }} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100" /><button type="button" onClick={() => { setMonth(''); setOffset(0) }} disabled={!month} className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Todos</button></span>
           </label>
           <label className="block text-sm font-semibold text-slate-800" htmlFor="b7-state">Estado documental
-            <select id="b7-state" data-testid="b7-state" value={state} onChange={(event) => { setState(event.target.value); setOffset(0) }} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
+            <select id="b7-state" data-testid="b7-state" value={state} onChange={(event) => { setState(event.target.value); setOffset(0) }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100">
               <option value="">Todos los estados documentales</option>
               {STATE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
-          <button type="button" onClick={retry} disabled={loading} className="rounded-lg border border-orange-300 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60">Actualizar</button>
+          <button type="button" onClick={retry} disabled={loading} className="min-h-11 rounded-lg border border-orange-300 bg-white px-4 py-2 text-sm font-bold text-orange-900 shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60">Actualizar</button>
         </div>
         <p className="mt-3 text-xs text-slate-600">El mes filtra la fecha de la FacturaEmitida. Vacío significa todos los meses y mantiene el resumen completo.</p>
       </section>
