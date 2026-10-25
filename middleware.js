@@ -382,6 +382,8 @@ export async function middleware(request) {
       || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || (path === '/api/admin/asistente/configuracion' && request.method === 'PATCH')
+      || (['/api/admin/asistente/aprendizaje', '/api/admin/asistente/informes'].includes(path) && request.method === 'POST')
+      || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
