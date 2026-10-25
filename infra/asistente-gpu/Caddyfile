@@ -1,0 +1,45 @@
+{
+  # Sin ACME, DNS, panel de administración ni logs de peticiones que puedan contener texto.
+  auto_https off
+  admin off
+  log {
+    output discard
+  }
+}
+
+:8443 {
+  tls /run/certs/fullchain.pem /run/certs/privkey.pem {
+    client_auth {
+      trust_pool file /run/certs/clients-ca.pem
+      mode require_and_verify
+    }
+  }
+
+  request_body {
+    max_size 128KB
+  }
+
+  # El relay privado debe presentar certificado cliente y token. Vercel directo no
+  # puede aportar mTLS estándar: no activar este borde sin relay/VPN aprobado.
+  @gateway header Authorization "Bearer {$CADDY_GATEWAY_TOKEN}"
+  @vllm path /v1/chat/completions /v1/models
+  @rag path /health /v1/embeddings /v1/rerank /v1/redact
+
+  handle @gateway {
+    handle @vllm {
+      header_up Authorization "Bearer {$VLLM_INTERNAL_API_KEY}"
+      header_up -X-Forwarded-For
+      header_up X-Forwarded-Proto https
+      reverse_proxy vllm:8000
+    }
+    handle @rag {
+      header_up Authorization "Bearer {$ASSISTANT_RAG_API_KEY}"
+      header_up -X-Forwarded-For
+      header_up X-Forwarded-Proto https
+      reverse_proxy asistente-rag:8080
+    }
+    respond "Ruta no permitida" 404
+  }
+
+  respond "No autorizado" 401
+}

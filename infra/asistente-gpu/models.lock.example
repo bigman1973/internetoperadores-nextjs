@@ -1,0 +1,7 @@
+# Formato: tipo|directorio_local|origen|revision_o_sha256.
+# `hf` exige commit Git de 40 hex; `spacy-wheel` exige URL HTTPS de rueda y SHA-256 de 64 hex.
+# Sustituir todos los marcadores tras revisar licencia, checkpoint y compatibilidad vLLM/spaCy.
+hf|Qwen3-32B-AWQ|Qwen/Qwen3-32B-AWQ|REEMPLAZAR_REVISION_GIT_40_HEX
+hf|bge-m3|BAAI/bge-m3|REEMPLAZAR_REVISION_GIT_40_HEX
+hf|bge-reranker-v2-m3|BAAI/bge-reranker-v2-m3|REEMPLAZAR_REVISION_GIT_40_HEX
+spacy-wheel|es_core_news_lg|https://github.com/explosion/spacy-models/releases/download/es_core_news_lg-3.8.0/es_core_news_lg-3.8.0-py3-none-any.whl|REEMPLAZAR_SHA256_64_HEX
