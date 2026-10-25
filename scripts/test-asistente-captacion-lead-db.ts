@@ -9,7 +9,7 @@ process.env.ASSISTANT_MODE = 'extractivo'
 process.env.ASSISTANT_PUBLIC_ENABLED = 'true'
 process.env.NEXTAUTH_SECRET = 'secreto-local-aislado-de-pruebas-captacion-lead'
 process.env.ASSISTANT_CONSENT_VERSION = 'prueba-local-v1'
-delete process.env.FINANCE_STAGING_SANDBOX
+process.env.FINANCE_STAGING_SANDBOX = '0' // Evita que Prisma reponga .env de staging; la URL de test ya está verificada.
 
 const entrada = {
   tipo: 'EMPRESA' as const,

@@ -8,7 +8,7 @@ if (!url || new URL(url).hostname !== '127.0.0.1' || new URL(url).pathname !== '
 process.env.DATABASE_URL = url
 process.env.ASSISTANT_MODE = 'extractivo'
 process.env.NEXTAUTH_SECRET = 'secreto-local-aislado-de-pruebas-contacto-seguro'
-delete process.env.FINANCE_STAGING_SANDBOX
+process.env.FINANCE_STAGING_SANDBOX = '0' // Evita que Prisma reponga .env de staging; la URL de test ya está verificada.
 
 async function main() {
   const { default: prisma } = await import('@/lib/prisma')

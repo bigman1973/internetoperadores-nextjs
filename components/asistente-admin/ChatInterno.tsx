@@ -51,7 +51,7 @@ export default function ChatInterno({ puedeEscribir }: { puedeEscribir: boolean 
       const resultado = datos as Respuesta
       setConversacionId(resultado.conversacionId)
       setMensajes((previos) => [...previos, { id: `asistente-${Date.now()}`, rol: 'asistente', texto: resultado.respuesta, respuesta: resultado }])
-      setEstado(resultado.sinFuente ? 'Respuesta generada sin una fuente disponible.' : 'Respuesta lista con fuentes.')
+      setEstado(resultado.sinFuente ? 'No hay una fuente disponible para responder con fundamento.' : 'Respuesta lista con fuentes.')
       window.setTimeout(() => areaRespuesta.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }), 0)
     } catch (error) {
       const mensajeError = error instanceof Error ? error.message : 'No se ha podido obtener una respuesta.'
@@ -67,7 +67,7 @@ export default function ChatInterno({ puedeEscribir }: { puedeEscribir: boolean 
       <div className="sm:flex sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2"><SparklesIcon className="h-7 w-7 text-orange-600" aria-hidden="true" /><h1 className="text-2xl font-bold text-gray-900">Chat interno</h1></div>
-          <p className="mt-1 text-sm text-gray-600">Consulta el conocimiento interno. Las respuestas incluyen las fuentes disponibles.</p>
+          <p className="mt-1 text-sm text-gray-600">Consulta el conocimiento interno. Las respuestas incluyen las fuentes disponibles.</p><p className="mt-2 text-xs text-gray-600">En modo extractivo se muestran fragmentos aprobados, no se redacta texto nuevo. La redacción generativa requiere el servidor local validado.</p>
         </div>
         {!puedeEscribir && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 sm:mt-0">Tienes acceso de lectura. No puedes enviar mensajes.</p>}
       </div>

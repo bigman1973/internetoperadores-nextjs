@@ -11,7 +11,7 @@ if (destino.hostname !== '127.0.0.1' || destino.pathname !== '/asistente_fases_i
 process.env.DATABASE_URL = url
 process.env.ASSISTANT_MODE = 'extractivo'
 process.env.ASSISTANT_PUBLIC_ENABLED = 'true'
-delete process.env.FINANCE_STAGING_SANDBOX
+process.env.FINANCE_STAGING_SANDBOX = '0' // Evita que Prisma reponga .env de staging; la URL de test ya está verificada.
 delete process.env.ASSISTANT_EMBEDDINGS_URL
 delete process.env.ASSISTANT_LOCAL_BASE_URL
 delete process.env.ASSISTANT_CRON_ENABLED
