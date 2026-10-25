@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useDeferredValue } from 'react';
 import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../lib/crm-segmentos';
 
 interface LeadSolucion {
@@ -111,6 +111,7 @@ export default function LeadsSolucionesClient() {
   const [filtroEstado, setFiltroEstado] = useState('');
   const [filtroPrioridad, setFiltroPrioridad] = useState('');
   const [buscar, setBuscar] = useState('');
+  const buscarDiferido = useDeferredValue(buscar);
   const [selectedLead, setSelectedLead] = useState<LeadSolucion | null>(null);
   const [editingNotas, setEditingNotas] = useState('');
   const [saving, setSaving] = useState(false);
@@ -122,7 +123,7 @@ export default function LeadsSolucionesClient() {
       if (filtroTipo) params.set('tipo', filtroTipo);
       if (filtroEstado) params.set('estado', filtroEstado);
       if (filtroPrioridad) params.set('prioridad', filtroPrioridad);
-      if (buscar) params.set('buscar', buscar);
+      if (buscarDiferido) params.set('buscar', buscarDiferido);
 
       const res = await fetch(`/api/admin/leads-soluciones?${params.toString()}`);
       if (res.ok) {
@@ -136,7 +137,7 @@ export default function LeadsSolucionesClient() {
     } finally {
       setLoading(false);
     }
-  }, [filtroTipo, filtroEstado, filtroPrioridad, buscar]);
+  }, [filtroTipo, filtroEstado, filtroPrioridad, buscarDiferido]);
 
   useEffect(() => {
     fetchLeads();
@@ -254,7 +255,7 @@ export default function LeadsSolucionesClient() {
               placeholder="Empresa, contacto, email..."
               value={buscar}
               onChange={(e) => setBuscar(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
             />
           </div>
           <div>
@@ -262,7 +263,7 @@ export default function LeadsSolucionesClient() {
             <select
               value={filtroTipo}
               onChange={(e) => setFiltroTipo(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
             >
               {TIPOS_SOLUCION.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -274,7 +275,7 @@ export default function LeadsSolucionesClient() {
             <select
               value={filtroEstado}
               onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
             >
               {ESTADOS.map(e => (
                 <option key={e.value} value={e.value}>{e.label}</option>
@@ -286,7 +287,7 @@ export default function LeadsSolucionesClient() {
             <select
               value={filtroPrioridad}
               onChange={(e) => setFiltroPrioridad(e.target.value)}
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
+              className="min-h-11 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-orange-500 focus:ring-orange-500"
             >
               {PRIORIDADES.map(p => (
                 <option key={p.value} value={p.value}>{p.label}</option>
@@ -380,14 +381,14 @@ export default function LeadsSolucionesClient() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => handleDeleteLead(selectedLead.id, selectedLead.empresa || selectedLead.nombre)}
-                  className="text-red-400 hover:text-red-600 transition-colors"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-400 hover:text-red-600 transition-colors"
                   title="Eliminar lead"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                 </button>
                 <button
                   onClick={() => setSelectedLead(null)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-gray-600"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -414,7 +415,7 @@ export default function LeadsSolucionesClient() {
                 <select
                   value={selectedLead.estado}
                   onChange={(e) => updateLead(selectedLead.id, { estado: e.target.value })}
-                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500"
+                  className="min-h-11 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500"
                   disabled={saving}
                 >
                   {ESTADOS.filter(e => e.value).map(e => (
@@ -427,7 +428,7 @@ export default function LeadsSolucionesClient() {
                 <select
                   value={selectedLead.prioridad}
                   onChange={(e) => updateLead(selectedLead.id, { prioridad: e.target.value })}
-                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500"
+                  className="min-h-11 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500"
                   disabled={saving}
                 >
                   {PRIORIDADES.filter(p => p.value).map(p => (
@@ -457,7 +458,7 @@ export default function LeadsSolucionesClient() {
                 <button
                   onClick={() => updateLead(selectedLead.id, { notas: editingNotas })}
                   disabled={saving}
-                  className="mt-2 px-3 py-1.5 bg-orange-500 text-white text-sm rounded-md hover:bg-orange-600 disabled:opacity-50"
+                  className="mt-2 min-h-11 px-3 py-1.5 bg-orange-500 text-white text-sm rounded-md hover:bg-orange-600 disabled:opacity-50"
                 >
                   {saving ? 'Guardando...' : 'Guardar notas'}
                 </button>

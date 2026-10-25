@@ -127,13 +127,17 @@ export default function PendientesWorkspace() {
   const [counters, setCounters] = useState<ContadorB5[] | null>(null);
   const [config, setConfig] = useState<ConfiguracionB5 | null>(null);
   const [configError, setConfigError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // Keep the initial placeholders in the first paint. Otherwise the counters
+  // and the table are inserted together after their read and move the page.
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [editing, setEditing] = useState<MovimientoPendienteB5 | null>(null);
   const [noRequire, setNoRequire] = useState<NoRequireDialog>(null);
   const [uploadingFor, setUploadingFor] = useState<MovimientoPendienteB5 | null>(null);
   const [viewingAttachments,setViewingAttachments]=useState<MovimientoPendienteB5|null>(null);
+  const readSequence = useRef(0);
+  const pendingRead = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
   const dates = useMemo(() => monthRange(mes), [mes]);
   const accountDisabled = !isBankView(vista);
@@ -160,24 +164,41 @@ export default function PendientesWorkspace() {
       setConfigError(error instanceof Error ? error.message : 'Configuración de responsables no disponible.');
     }
   }, []);
-  const load = useCallback(async (silent = false) => {
-    if (!canRead || !dates) return;
+  const load = useCallback((silent = false): Promise<void> => {
+    if (!canRead || !dates) return Promise.resolve();
+    const itemsQuery = buildParams('items').toString();
+    const countersQuery = buildParams('contadores').toString();
+    const requestKey = `${itemsQuery}|${countersQuery}`;
+    // Effects can be replayed while permissions settle. Reuse the same read
+    // when its complete parameter set is identical instead of issuing it twice.
+    if (pendingRead.current?.key === requestKey) return pendingRead.current.promise;
+    const sequence = ++readSequence.current;
     if (silent) setRefreshing(true); else { setLoading(true); setItemsData(null); setCounters(null); }
-    try {
-      const [itemsResponse, countersResponse] = await Promise.all([
-        fetch(`${API}?${buildParams('items').toString()}`, { cache: 'no-store' }),
-        fetch(`${API}?${buildParams('contadores').toString()}`, { cache: 'no-store' }),
-      ]);
-      const [itemsJson, countersJson] = await Promise.all([itemsResponse.json().catch(() => null), countersResponse.json().catch(() => null)]);
-      if (!itemsResponse.ok) throw new Error(message(itemsJson, 'No se pudo leer la bandeja de pendientes.'));
-      if (!countersResponse.ok) throw new Error(message(countersJson, 'No se pudieron leer los contadores B5.'));
-      // Both response parsers reject malformed data; an error never becomes an empty/zero financial state.
-      setItemsData(leerItemsB5(itemsJson));
-      setCounters(leerContadoresB5(countersJson).contadores);
-      if (!silent) setNotice(null);
-    } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo leer Pendientes B5.' });
-    } finally { setLoading(false); setRefreshing(false); }
+    const promise = (async () => {
+      try {
+        const [itemsResponse, countersResponse] = await Promise.all([
+          fetch(`${API}?${itemsQuery}`, { cache: 'no-store' }),
+          fetch(`${API}?${countersQuery}`, { cache: 'no-store' }),
+        ]);
+        const [itemsJson, countersJson] = await Promise.all([itemsResponse.json().catch(() => null), countersResponse.json().catch(() => null)]);
+        if (!itemsResponse.ok) throw new Error(message(itemsJson, 'No se pudo leer la bandeja de pendientes.'));
+        if (!countersResponse.ok) throw new Error(message(countersJson, 'No se pudieron leer los contadores B5.'));
+        if (sequence !== readSequence.current) return;
+        // Both response parsers reject malformed data; an error never becomes an empty/zero financial state.
+        setItemsData(leerItemsB5(itemsJson));
+        setCounters(leerContadoresB5(countersJson).contadores);
+        if (!silent) setNotice(null);
+      } catch (error) {
+        if (sequence === readSequence.current) setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'No se pudo leer Pendientes B5.' });
+      } finally {
+        if (sequence === readSequence.current) { setLoading(false); setRefreshing(false); }
+      }
+    })();
+    pendingRead.current = { key: requestKey, promise };
+    void promise.finally(() => {
+      if (pendingRead.current?.promise === promise) pendingRead.current = null;
+    });
+    return promise;
   }, [buildParams, canRead, dates]);
 
   useEffect(() => { if (canRead) void loadConfig(); }, [canRead, loadConfig]);
@@ -248,7 +269,7 @@ export default function PendientesWorkspace() {
   return <section className="mx-auto w-full max-w-[1600px] min-w-0 overflow-x-hidden space-y-5 text-slate-900" data-testid="b5-workspace">
     <header className="flex flex-col gap-4 border-b border-orange-100 pb-5 lg:flex-row lg:items-end lg:justify-between">
       <div><p className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-orange-700"><ShieldCheckIcon className="h-4 w-4" aria-hidden="true" /> B5 · bandeja operativa</p><h1 className="text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">Pendientes de conciliación</h1><p className="mt-1 max-w-3xl text-sm text-slate-600">El banco y B4 determinan pago, cobro, vínculo y No requiere. Esta bandeja sólo gestiona responsable, estado humano y nota.</p></div>
-      <button type="button" data-testid="b5-refresh" onClick={() => { void load(true); void loadConfig(); }} disabled={loading || refreshing} className="inline-flex items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-3 py-2 text-sm font-semibold text-orange-800 shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" /> Actualizar</button>
+      <button type="button" data-testid="b5-refresh" onClick={() => { void load(true); void loadConfig(); }} disabled={loading || refreshing} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-orange-300 bg-white px-3 py-2 text-sm font-semibold text-orange-800 shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:cursor-not-allowed disabled:opacity-60"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" /> Actualizar</button>
     </header>
 
     {!canWrite && <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"><strong>Modo consulta.</strong> Su permiso B4 permite leer, no editar la gestión ni confirmar acciones.</div>}
@@ -288,12 +309,12 @@ export default function PendientesWorkspace() {
 }
 
 function Counters({ counters, loading }: { counters: ContadorB5[] | null; loading: boolean }) {
-  if (loading) return <div aria-busy="true" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />)}</div>;
+  if (loading) return <div aria-busy="true" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-40 animate-pulse rounded-xl border border-slate-200 bg-slate-100" />)}</div>;
   if (!counters) return null;
   return <section aria-label="Contadores por mes y cuenta" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{counters.length === 0 ? <p className="text-sm text-slate-600">No hay contadores devueltos para este alcance; no se interpreta como completitud cero.</p> : counters.map((counter) => {
     const known = counter.porcentajeJustificadoBps !== null;
     const percent = known ? `${(counter.porcentajeJustificadoBps! / 100).toLocaleString('es-ES', { maximumFractionDigits: 2 })}%` : 'No calculable';
-    return <article key={`${counter.mes}-${counter.cuenta.id}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{counter.mes?.slice(0,7) || 'Mes no disponible'} · {labelAccount(counter.cuenta)}</p><p className="mt-2 text-2xl font-bold text-slate-950">{percent}</p><p className="mt-1 text-xs text-slate-600">Con documento: {formatCentsText(counter.importeJustificadoCentimos)} / evaluable: {formatCentsText(counter.importeEvaluableCentimos)}</p>{counter.parcial ? <p className="mt-2 text-xs font-bold text-amber-800">Parcial: {counter.movimientosImporteNoExacto > 0 ? `${counter.movimientosImporteNoExacto} importe(s) no exacto(s).` : 'El porcentaje no representa una completitud total.'}</p> : <p className="mt-2 text-xs text-emerald-700">Calculado sobre los movimientos disponibles, sin traspasos.</p>}</article>;
+    return <article key={`${counter.mes}-${counter.cuenta.id}`} className="min-h-40 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">{counter.mes?.slice(0,7) || 'Mes no disponible'} · {labelAccount(counter.cuenta)}</p><p className="mt-2 text-2xl font-bold text-slate-950">{percent}</p><p className="mt-1 text-xs text-slate-600">Con documento: {formatCentsText(counter.importeJustificadoCentimos)} / evaluable: {formatCentsText(counter.importeEvaluableCentimos)}</p>{counter.parcial ? <p className="mt-2 text-xs font-bold text-amber-800">Parcial: {counter.movimientosImporteNoExacto > 0 ? `${counter.movimientosImporteNoExacto} importe(s) no exacto(s).` : 'El porcentaje no representa una completitud total.'}</p> : <p className="mt-2 text-xs text-emerald-700">Calculado sobre los movimientos disponibles, sin traspasos.</p>}</article>;
   })}</section>;
 }
 function CardFilterBar({ selected, onChange, options }: { selected: CardFilter; onChange: (value: CardFilter) => void; options: Array<{ last4: string; titular: string }> }) {

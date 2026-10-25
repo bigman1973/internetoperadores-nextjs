@@ -166,7 +166,7 @@ export default function LeadsMantenimientoPage() {
         <div className="flex items-center gap-2">
           <button
             onClick={fetchLeads}
-            className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
+            className="min-h-11 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-all"
           >
             Actualizar
           </button>
@@ -174,8 +174,8 @@ export default function LeadsMantenimientoPage() {
       </div>
 
       {/* Dashboard métricas */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">
+      <div className="min-h-[372px] sm:min-h-[180px] lg:min-h-[84px] mb-6" aria-busy={!stats && loading}>
+        {stats ? <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
             <p className="text-xs text-gray-500 mt-1">Total</p>
@@ -208,12 +208,15 @@ export default function LeadsMantenimientoPage() {
             <p className="text-2xl font-bold text-gray-700">{stats.sinOferta}</p>
             <p className="text-xs text-gray-500 mt-1">Sin oferta</p>
           </div>
-        </div>
-      )}
+        </div> : loading ? <div role="status" aria-label="Cargando métricas de mantenimiento" className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 animate-pulse">
+          {[...Array(8)].map((_, index) => <div key={index} className="h-[116px] rounded-xl border border-gray-200 bg-white p-4"><div className="mx-auto h-7 w-12 rounded bg-gray-200" /><div className="mx-auto mt-3 h-3 w-16 rounded bg-gray-100" /></div>)}
+        </div> : null}
+      </div>
 
       {/* Distribución por tipo de negocio */}
-      {stats && stats.total > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+      <div className="min-h-[148px] sm:min-h-[68px] mb-6" aria-busy={!stats && loading}>
+      {stats && stats.total > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <button
             onClick={() => setFiltroTipo(filtroTipo === 'FARMACIA' ? '' : 'FARMACIA')}
             className={`rounded-xl border p-3 text-center transition-all ${filtroTipo === 'FARMACIA' ? 'border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200' : 'border-gray-200 bg-white hover:border-emerald-300'}`}
@@ -243,7 +246,10 @@ export default function LeadsMantenimientoPage() {
             <p className="text-xs text-gray-600">Med/Grande</p>
           </button>
         </div>
-      )}
+      ) : !stats && loading ? <div role="status" aria-label="Cargando distribución por tipo de negocio" className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-pulse">
+        {[...Array(4)].map((_, index) => <div key={index} className="h-[68px] rounded-xl border border-gray-200 bg-white p-3"><div className="mx-auto h-5 w-10 rounded bg-gray-200" /><div className="mx-auto mt-2 h-3 w-16 rounded bg-gray-100" /></div>)}
+      </div> : null}
+      </div>
 
       {/* Filtros */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
@@ -255,7 +261,7 @@ export default function LeadsMantenimientoPage() {
               value={buscar}
               onChange={e => setBuscar(e.target.value)}
               placeholder="Nombre, empresa, email..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+              className="min-h-11 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
             />
           </div>
           <div>
@@ -263,7 +269,7 @@ export default function LeadsMantenimientoPage() {
             <select
               value={filtroTipo}
               onChange={e => setFiltroTipo(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
+              className="min-h-11 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
             >
               {TIPOS_NEGOCIO.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -275,7 +281,7 @@ export default function LeadsMantenimientoPage() {
             <select
               value={filtroEstado}
               onChange={e => setFiltroEstado(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
+              className="min-h-11 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
             >
               {ESTADOS.map(e => (
                 <option key={e.value} value={e.value}>{e.label}</option>
@@ -287,7 +293,7 @@ export default function LeadsMantenimientoPage() {
             <select
               value={filtroOferta}
               onChange={e => setFiltroOferta(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
+              className="min-h-11 w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500"
             >
               {OFERTA_FILTER.map(o => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -381,14 +387,14 @@ export default function LeadsMantenimientoPage() {
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/admin/leads-mantenimiento/${lead.id}`}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-100 transition-all"
+                            className="inline-flex min-h-11 items-center gap-1 px-3 py-1.5 bg-orange-50 text-orange-700 rounded-lg text-xs font-medium hover:bg-orange-100 transition-all"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                             Gestionar
                           </Link>
                           <button
                             onClick={() => handleDeleteLead(lead.id, lead.empresa || lead.nombre)}
-                            className="inline-flex items-center gap-1 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-xs transition-all"
+                            className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 px-2 py-1.5 text-red-600 hover:bg-red-50 rounded-lg text-xs transition-all"
                             title="Eliminar lead"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

@@ -277,8 +277,8 @@ export default function TarifasEmpresaClient({ tarifas, categorias, total }: Pro
               {/* Table view for connectivity/telephony categories */}
               {(cat.includes('FIBRA') || cat.includes('INTERNET') || cat.includes('TELEFONÍA') || cat.includes('LÍNEA') || cat.includes('MÓVIL') || cat.includes('FTTH')) ? (
                 <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
+                  <div className="max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label={`Tabla de tarifas ${cat}`} tabIndex={0}>
+                    <table className="w-full min-w-[900px]">
                       <thead>
                         <tr className="bg-gray-900 text-white">
                           <th className="text-left px-6 py-4 font-semibold">Tarifa</th>

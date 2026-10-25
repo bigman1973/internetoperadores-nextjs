@@ -58,7 +58,15 @@ export default function MisNominasPage() {
   }
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-gray-400">Cargando...</div>;
+    return (
+      <div className="space-y-6" aria-label="Cargando nóminas" role="status">
+        <div>
+          <div className="h-8 w-48 animate-pulse rounded bg-gray-200" />
+          <div className="mt-2 h-4 w-72 animate-pulse rounded bg-gray-100" />
+        </div>
+        <div className="min-h-[360px] animate-pulse rounded-xl border bg-white" />
+      </div>
+    );
   }
 
   if (error) {
@@ -79,7 +87,8 @@ export default function MisNominasPage() {
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="min-w-[680px] w-full text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Período</th>
@@ -123,7 +132,7 @@ export default function MisNominasPage() {
                       <div className="flex flex-wrap items-center justify-center gap-2">
                         {nom.documentos.map(doc => (
                           <a key={doc.driveItemId} href={`/api/admin/nominas/download/${encodeURIComponent(doc.driveItemId)}`}
-                            target="_blank" rel="noopener" className="inline-flex items-center gap-1 text-orange-700 hover:underline text-xs">
+                            target="_blank" rel="noopener" className="inline-flex min-h-11 items-center gap-1 text-orange-700 hover:underline text-xs">
                             <ArrowDownTrayIcon className="h-4 w-4" />{doc.tipo === 'LIQUIDACION' ? 'Liquidación' : 'Nómina'}
                           </a>
                         ))}
@@ -133,7 +142,7 @@ export default function MisNominasPage() {
                         href={nom.archivoUrl}
                         target="_blank"
                         rel="noopener"
-                        className="inline-flex items-center gap-1 text-orange-600 hover:text-orange-700"
+                        className="inline-flex min-h-11 items-center gap-1 text-orange-600 hover:text-orange-700"
                       >
                         <ArrowDownTrayIcon className="h-4 w-4" />
                         <span className="text-xs">PDF</span>
@@ -147,6 +156,7 @@ export default function MisNominasPage() {
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

@@ -67,7 +67,7 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
     return (
       <button
         onClick={handleAdd}
-        className={`bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${className || ''}`}
+        className={`min-h-11 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors ${className || ''}`}
       >
         Solicitar alta
       </button>
@@ -75,8 +75,8 @@ export default function AddToCartButton({ tarifa, className, variant = 'primary'
   }
 
   const baseClasses = variant === 'primary'
-    ? 'block w-full text-center py-2.5 mt-4 rounded-lg font-semibold transition-all text-sm'
-    : 'block w-full text-center py-3 rounded-lg font-medium transition-colors'
+    ? 'block min-h-11 w-full text-center py-2.5 mt-4 rounded-lg font-semibold transition-all text-sm'
+    : 'block min-h-11 w-full text-center py-3 rounded-lg font-medium transition-colors'
 
   if (added) {
     return (

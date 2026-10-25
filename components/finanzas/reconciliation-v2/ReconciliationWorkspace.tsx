@@ -1,12 +1,7 @@
 'use client';
-import PayrollCandidatesPanel from './PayrollCandidatesPanel';
-import PrivateMovementFiles from './PrivateMovementFiles';
-import ConfirmingSupportPanel from './ConfirmingSupportPanel';
-import HistoricalLinksPanel from './HistoricalLinksPanel';
-import HistoricalBulkPanel from './HistoricalBulkPanel';
-import HistoricalBlockReceiptsPanel from './HistoricalBlockReceiptsPanel';
 import { parseHistoricoB4, prepararRevisionHeredada as validarPreparacionHeredada } from './historical-links-contract';
 
+import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   ArrowPathIcon,
@@ -21,7 +16,6 @@ import {
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { usePermisoArea } from '@/hooks/usePermisoArea';
-import ProposalsPanel from './standaloneProposalsPanel';
 import CenterChoiceSelector, {
   etiquetaCentro,
   parseCentrosCosteCatalogo,
@@ -53,6 +47,17 @@ import {
   sumarCentimosFirmados,
   textoBusquedaSeguro,
 } from './utils';
+
+// Estos paneles sólo aparecen al abrir un movimiento o al activar el filtro
+// histórico. Separarlos del chunk inicial evita analizar su UI y contratos al
+// cargar por primera vez la lista de movimientos.
+const PayrollCandidatesPanel = dynamic(() => import('./PayrollCandidatesPanel'));
+const PrivateMovementFiles = dynamic(() => import('./PrivateMovementFiles'));
+const ConfirmingSupportPanel = dynamic(() => import('./ConfirmingSupportPanel'));
+const HistoricalLinksPanel = dynamic(() => import('./HistoricalLinksPanel'));
+const HistoricalBulkPanel = dynamic(() => import('./HistoricalBulkPanel'));
+const HistoricalBlockReceiptsPanel = dynamic(() => import('./HistoricalBlockReceiptsPanel'));
+const ProposalsPanel = dynamic(() => import('./standaloneProposalsPanel'));
 
 const PAGE_SIZE = 50;
 const MAX_OFFSET = 100_000;
@@ -249,7 +254,11 @@ export default function ReconciliationWorkspace() {
     }
   }, [canRead]);
 
-  useEffect(() => { void loadCenterCatalog(); }, [loadCenterCatalog]);
+  // El catálogo sólo se consulta al abrir un movimiento. Antes no hay una línea
+  // documental que pueda usarlo ni una selección de centro que validar.
+  useEffect(() => {
+    if (selected && centerCatalog.kind === 'idle') void loadCenterCatalog();
+  }, [centerCatalog.kind, loadCenterCatalog, selected]);
 
   // El buscador documental es deliberadamente una lectura independiente. Su
   // respuesta sólo actualiza documentos, nunca sustituye la lista de movimientos.

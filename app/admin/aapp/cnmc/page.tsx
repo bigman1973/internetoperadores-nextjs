@@ -54,6 +54,19 @@ function catLabel(cat: string) {
   return CATEGORIAS.find(c => c.value === cat)?.label || cat;
 }
 
+function KpisSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-4 mb-6 md:grid-cols-5 animate-pulse" aria-hidden="true">
+      {Array.from({ length: 5 }, (_, index) => (
+        <div key={index} className="min-h-[76px] rounded-lg border bg-white p-4">
+          <div className="h-7 w-1/2 rounded bg-gray-200"></div>
+          <div className="mt-2 h-3 w-3/4 rounded bg-gray-100"></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CNMCPage() {
   const [tab, setTab] = useState<'documentos'|'obligaciones'|'calendario'>('documentos');
   const [docs, setDocs] = useState<Documento[]>([]);
@@ -159,7 +172,7 @@ export default function CNMCPage() {
       </div>
 
       {/* KPIs */}
-      {resumen && (
+      {resumen ? (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <div className="bg-white border rounded-lg p-4">
             <p className="text-2xl font-bold text-gray-900">{resumen.totalDocs}</p>
@@ -182,7 +195,7 @@ export default function CNMCPage() {
             <p className="text-xs text-gray-500">Importe pendiente</p>
           </div>
         </div>
-      )}
+      ) : loading ? <KpisSkeleton /> : null}
 
       {/* Tabs */}
       <div className="flex gap-2 mb-6">

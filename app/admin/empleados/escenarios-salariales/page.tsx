@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 import { authOptions } from '@/lib/auth';
-import SalaryScenariosPanel from '@/components/empleados/SalaryScenariosPanel';
+import SalaryScenariosPanelLoader from '@/components/empleados/SalaryScenariosPanelLoader';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +24,7 @@ export default async function SalaryScenariosPage() {
           <ArrowLeftIcon className="h-4 w-4" /> Volver a costes actuales
         </Link>
       </div>
-      <SalaryScenariosPanel />
+      <SalaryScenariosPanelLoader />
     </div>
   );
 }

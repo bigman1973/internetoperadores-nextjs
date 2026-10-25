@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import SalarySimulationPanel from '@/components/empleados/SalarySimulationPanel';
 import {
   UsersIcon,
   CurrencyEuroIcon,
@@ -16,6 +16,14 @@ import {
   HandRaisedIcon,
   AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
+
+const SalarySimulationPanel = dynamic(
+  () => import('@/components/empleados/SalarySimulationPanel'),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[420px] p-6 text-center text-sm text-gray-500">Cargando simulación salarial...</div>,
+  },
+);
 
 interface Nomina {
   id: string;
@@ -242,7 +250,7 @@ export default function AdminEmpleadosPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Costes de Personal</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -252,11 +260,11 @@ export default function AdminEmpleadosPage() {
             )}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           {isSuperAdmin && (
             <Link
               href="/admin/empleados/escenarios-salariales"
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              className="flex min-h-11 items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
             >
               <AdjustmentsHorizontalIcon className="h-4 w-4" />
               Escenarios salariales
@@ -264,7 +272,7 @@ export default function AdminEmpleadosPage() {
           )}
           <Link
             href="/admin/empleados/nominas"
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+            className="flex min-h-11 items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
           >
             <CloudArrowUpIcon className="h-4 w-4" />
             Importar Nóminas
@@ -272,7 +280,7 @@ export default function AdminEmpleadosPage() {
           <select
             value={periodo}
             onChange={(e) => setPeriodo(e.target.value as Periodo)}
-            className="px-3 py-2 border rounded-lg text-sm"
+            className="min-h-11 px-3 py-2 border rounded-lg text-sm"
           >
             {PERIODOS.map(p => (
               <option key={p.value} value={p.value}>{p.label}</option>
@@ -282,7 +290,7 @@ export default function AdminEmpleadosPage() {
             <select
               value={mesSeleccionado}
               onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
-              className="px-3 py-2 border rounded-lg text-sm"
+              className="min-h-11 px-3 py-2 border rounded-lg text-sm"
             >
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                 <option key={m} value={m}>{MESES[m]} {anioSeleccionado}</option>
@@ -292,7 +300,7 @@ export default function AdminEmpleadosPage() {
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm"
+            className="min-h-11 px-3 py-2 border rounded-lg text-sm"
           >
             <option value="todos">Todos</option>
             <option value="ACTIVO">Activos</option>
@@ -302,7 +310,7 @@ export default function AdminEmpleadosPage() {
       </div>
 
       {/* KPI Cards - 8 cards */}
-      {totales && (
+      {totales ? (
         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -392,20 +400,26 @@ export default function AdminEmpleadosPage() {
             <p className="text-xs text-gray-400">no suma a costes</p>
           </div>
         </div>
-      )}
+      ) : loading ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4 lg:grid-cols-8" aria-label="Cargando indicadores de personal" role="status">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(item => <div key={item} className="h-28 animate-pulse rounded-xl border bg-white" />)}
+        </div>
+      ) : null}
 
       {/* Fórmula verificación */}
-      {totales && totales.totalCosteEmpresa > 0 && (
+      {totales && totales.totalCosteEmpresa > 0 ? (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
           <span className="font-semibold">Verificación:</span>{' '}
           Neto ({formatEur(totales.totalNeto)}) + IRPF ({formatEur(totales.totalIRPF)}) + SS Trab ({formatEur(totales.totalSSTrabajador)}) = Devengado ({formatEur(totales.totalDevengado)})
           {' | '}
           Devengado + SS Empresa ({formatEur(totales.totalSSEmpresa)}) + Otros costes ({formatEur(totales.totalOtrosCostesEmpresa)}) = <span className="font-bold">Coste Total ({formatEur(totales.totalCosteEmpresa)})</span>
         </div>
-      )}
+      ) : loading ? (
+        <div className="h-[76px] animate-pulse rounded-xl border border-blue-100 bg-blue-50/60" aria-hidden="true" />
+      ) : null}
 
       {/* Tabla de empleados */}
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className={`bg-white rounded-xl border overflow-hidden ${loading ? 'min-h-[560px]' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">

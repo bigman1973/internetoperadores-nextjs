@@ -117,31 +117,33 @@ export default function SoportePage() {
           <h2 className="text-3xl font-bold text-gray-900 mb-12 text-center">Nuestro compromiso de servicio (SLA)</h2>
           <div className="max-w-4xl mx-auto">
             <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-gray-100">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-orange-500 text-white">
-                    <th className="px-6 py-4 text-left font-semibold">Prioridad</th>
-                    <th className="px-6 py-4 text-left font-semibold">Tipo de incidencia</th>
-                    <th className="px-6 py-4 text-left font-semibold">Tiempo de respuesta</th>
-                    <th className="px-6 py-4 text-left font-semibold">Tiempo de resolución</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { prioridad: 'Crítica', color: 'text-red-600', tipo: 'Caída total del servicio', respuesta: '15 minutos', resolucion: '4 horas' },
-                    { prioridad: 'Alta', color: 'text-orange-600', tipo: 'Degradación severa del servicio', respuesta: '30 minutos', resolucion: '8 horas' },
-                    { prioridad: 'Media', color: 'text-yellow-600', tipo: 'Problema parcial o intermitente', respuesta: '2 horas', resolucion: '24 horas' },
-                    { prioridad: 'Baja', color: 'text-green-600', tipo: 'Consulta técnica o mejora', respuesta: '4 horas', resolucion: '48 horas' }
-                  ].map((s, i) => (
-                    <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className={`px-6 py-4 font-bold ${s.color}`}>{s.prioridad}</td>
-                      <td className="px-6 py-4 text-gray-700">{s.tipo}</td>
-                      <td className="px-6 py-4 text-gray-900 font-semibold">{s.respuesta}</td>
-                      <td className="px-6 py-4 text-gray-900 font-semibold">{s.resolucion}</td>
+              <div className="max-w-full overflow-x-auto overscroll-x-contain" role="region" aria-label="Tabla de niveles de servicio" tabIndex={0}>
+                <table className="w-full min-w-[680px]">
+                  <thead>
+                    <tr className="bg-orange-500 text-white">
+                      <th className="px-6 py-4 text-left font-semibold">Prioridad</th>
+                      <th className="px-6 py-4 text-left font-semibold">Tipo de incidencia</th>
+                      <th className="px-6 py-4 text-left font-semibold">Tiempo de respuesta</th>
+                      <th className="px-6 py-4 text-left font-semibold">Tiempo de resolución</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {[
+                      { prioridad: 'Crítica', color: 'text-red-600', tipo: 'Caída total del servicio', respuesta: '15 minutos', resolucion: '4 horas' },
+                      { prioridad: 'Alta', color: 'text-orange-600', tipo: 'Degradación severa del servicio', respuesta: '30 minutos', resolucion: '8 horas' },
+                      { prioridad: 'Media', color: 'text-yellow-600', tipo: 'Problema parcial o intermitente', respuesta: '2 horas', resolucion: '24 horas' },
+                      { prioridad: 'Baja', color: 'text-green-600', tipo: 'Consulta técnica o mejora', respuesta: '4 horas', resolucion: '48 horas' }
+                    ].map((s, i) => (
+                      <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className={`px-6 py-4 font-bold ${s.color}`}>{s.prioridad}</td>
+                        <td className="px-6 py-4 text-gray-700">{s.tipo}</td>
+                        <td className="px-6 py-4 text-gray-900 font-semibold">{s.respuesta}</td>
+                        <td className="px-6 py-4 text-gray-900 font-semibold">{s.resolucion}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

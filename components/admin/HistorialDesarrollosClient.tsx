@@ -146,7 +146,7 @@ export default function HistorialDesarrollosClient() {
           <p className="mt-1 text-sm text-gray-500">Registro de todos los desarrollos realizados en la web pública y panel de administración</p>
         </div>
         <button onClick={() => { cancelForm(); setShowForm(true) }}
-          className="mt-4 sm:mt-0 inline-flex items-center gap-1.5 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500">
+          className="mt-4 inline-flex min-h-11 items-center gap-1.5 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 sm:mt-0">
           <PlusIcon className="h-4 w-4" /> Nuevo Desarrollo
         </button>
       </div>
@@ -154,20 +154,20 @@ export default function HistorialDesarrollosClient() {
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-center">
         <select value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}
-          className="rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500">
+          className="min-h-11 rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500">
           <option value="">Todos los tipos</option>
           <option value="publica">Web Pública</option>
           <option value="privada">Panel Admin</option>
           <option value="ambas">Pública + Admin</option>
         </select>
         <select value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}
-          className="rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500">
+          className="min-h-11 rounded-md border-gray-300 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500">
           <option value="">Todos los estados</option>
           <option value="completado">Completados</option>
           <option value="en_progreso">En progreso</option>
           <option value="planificado">Planificados</option>
         </select>
-        <button onClick={fetchData} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-orange-600">
+        <button onClick={fetchData} className="inline-flex min-h-11 items-center gap-1 text-sm text-gray-500 hover:text-orange-600">
           <ArrowPathIcon className="h-4 w-4" /> Actualizar
         </button>
         <span className="text-sm text-gray-500 ml-auto">{registros.length} registros</span>
@@ -234,7 +234,10 @@ export default function HistorialDesarrollosClient() {
 
       {/* Lista de desarrollos */}
       {loading ? (
-        <div className="text-center py-12 text-gray-500">Cargando...</div>
+        <div className="min-h-[34rem] overflow-hidden rounded-lg border border-gray-200 bg-white shadow" aria-busy="true" aria-live="polite">
+          <div className="h-12 bg-gray-50" />
+          {[...Array(10)].map((_, index) => <div key={index} className="h-[68px] animate-pulse border-t border-gray-100 bg-gray-50/50" />)}
+        </div>
       ) : registros.length === 0 ? (
         <div className="rounded-lg bg-white shadow border border-gray-200 p-12 text-center">
           <CodeBracketIcon className="mx-auto h-12 w-12 text-gray-400" />
@@ -284,10 +287,10 @@ export default function HistorialDesarrollosClient() {
                   {estadoBadge(reg.estado)}
                 </div>
                 <div className="col-span-1 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => handleEdit(reg)} className="p-1 text-gray-400 hover:text-orange-600" title="Editar">
+                  <button onClick={() => handleEdit(reg)} className="inline-flex min-h-11 min-w-11 items-center justify-center p-1 text-gray-400 hover:text-orange-600" title="Editar">
                     <PencilIcon className="h-4 w-4" />
                   </button>
-                  <button onClick={() => handleDelete(reg.id)} className="p-1 text-gray-400 hover:text-red-600" title="Eliminar">
+                  <button onClick={() => handleDelete(reg.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center p-1 text-gray-400 hover:text-red-600" title="Eliminar">
                     <TrashIcon className="h-4 w-4" />
                   </button>
                 </div>

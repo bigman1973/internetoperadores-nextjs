@@ -204,7 +204,17 @@ export default function ConfigCategoriasClient() {
     return COLORES.find(c => c.value === color)?.class || 'bg-gray-100 text-gray-800 border-gray-300'
   }
 
-  if (loading) return <div className="p-6 text-center text-gray-500">Cargando categorías...</div>
+  if (loading) {
+    return (
+      <div className="min-h-[28rem] space-y-4" aria-busy="true" aria-live="polite">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-2"><div className="h-6 w-56 rounded bg-gray-100" /><div className="h-4 w-80 max-w-full rounded bg-gray-100" /></div>
+          <div className="h-11 w-40 shrink-0 rounded-md bg-gray-100" />
+        </div>
+        {[...Array(6)].map((_, index) => <div key={index} className="h-14 animate-pulse rounded-lg border border-gray-100 bg-gray-50" />)}
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -220,7 +230,7 @@ export default function ConfigCategoriasClient() {
         </div>
         <button
           onClick={() => setShowNewCat(true)}
-          className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-2 text-sm font-medium text-white hover:bg-orange-700"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md bg-orange-600 px-3 py-2 text-sm font-medium text-white hover:bg-orange-700"
         >
           <PlusIcon className="h-4 w-4" /> Nueva Categoría
         </button>
@@ -254,10 +264,10 @@ export default function ConfigCategoriasClient() {
             </select>
           </div>
           <div className="flex gap-2">
-            <button type="submit" className="inline-flex items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-sm text-white hover:bg-orange-700">
+            <button type="submit" className="inline-flex min-h-11 items-center gap-1 rounded-md bg-orange-600 px-3 py-1.5 text-sm text-white hover:bg-orange-700">
               <CheckIcon className="h-4 w-4" /> Crear
             </button>
-            <button type="button" onClick={() => setShowNewCat(false)} className="inline-flex items-center gap-1 rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300">
+            <button type="button" onClick={() => setShowNewCat(false)} className="inline-flex min-h-11 items-center gap-1 rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300">
               <XMarkIcon className="h-4 w-4" /> Cancelar
             </button>
           </div>
@@ -271,7 +281,7 @@ export default function ConfigCategoriasClient() {
             {/* Cabecera categoría */}
             <div className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
               <div className="flex items-center gap-3">
-                <button onClick={() => setExpandedId(expandedId === cat.id ? null : cat.id)} className="text-gray-400 hover:text-gray-600">
+                <button onClick={() => setExpandedId(expandedId === cat.id ? null : cat.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-gray-600">
                   {expandedId === cat.id ? <ChevronDownIcon className="h-5 w-5" /> : <ChevronRightIcon className="h-5 w-5" />}
                 </button>
                 {editingCatId === cat.id ? (
@@ -289,10 +299,10 @@ export default function ConfigCategoriasClient() {
                     >
                       {COLORES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                     </select>
-                    <button onClick={() => handleUpdateCat(cat.id)} className="text-green-600 hover:text-green-800">
+                    <button onClick={() => handleUpdateCat(cat.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-600 hover:text-green-800">
                       <CheckIcon className="h-4 w-4" />
                     </button>
-                    <button onClick={() => setEditingCatId(null)} className="text-gray-400 hover:text-gray-600">
+                    <button onClick={() => setEditingCatId(null)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-gray-600">
                       <XMarkIcon className="h-4 w-4" />
                     </button>
                   </div>
@@ -310,20 +320,20 @@ export default function ConfigCategoriasClient() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => { setEditingCatId(cat.id); setEditCatForm({ nombre: cat.nombre, descripcion: cat.descripcion || '', color: cat.color }) }}
-                    className="text-gray-400 hover:text-orange-600"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-orange-600"
                     title="Editar"
                   >
                     <PencilIcon className="h-4 w-4" />
                   </button>
                   <button
                     onClick={() => handleToggleCat(cat.id, cat.activa)}
-                    className={`text-xs px-2 py-0.5 rounded ${cat.activa ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+                    className={`inline-flex min-h-11 items-center text-xs px-2 py-0.5 rounded ${cat.activa ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
                   >
                     {cat.activa ? 'Activa' : 'Inactiva'}
                   </button>
                   <button
                     onClick={() => handleDeleteCat(cat.id, cat.nombre)}
-                    className="text-gray-400 hover:text-red-600"
+                    className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-red-600"
                     title="Eliminar"
                   >
                     <TrashIcon className="h-4 w-4" />
@@ -346,10 +356,10 @@ export default function ConfigCategoriasClient() {
                             onChange={e => setEditSubForm({ ...editSubForm, nombre: e.target.value })}
                             className="rounded border border-gray-300 px-2 py-1 text-sm text-gray-900 w-40"
                           />
-                          <button onClick={() => handleUpdateSub(cat.id, sub.id)} className="text-green-600 hover:text-green-800">
+                          <button onClick={() => handleUpdateSub(cat.id, sub.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-600 hover:text-green-800">
                             <CheckIcon className="h-4 w-4" />
                           </button>
-                          <button onClick={() => setEditingSubId(null)} className="text-gray-400 hover:text-gray-600">
+                          <button onClick={() => setEditingSubId(null)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-gray-600">
                             <XMarkIcon className="h-4 w-4" />
                           </button>
                         </div>
@@ -362,13 +372,13 @@ export default function ConfigCategoriasClient() {
                           <div className="flex items-center gap-2">
                             <button
                               onClick={() => { setEditingSubId(sub.id); setEditSubForm({ nombre: sub.nombre, descripcion: sub.descripcion || '' }) }}
-                              className="text-gray-400 hover:text-orange-600"
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-orange-600"
                             >
                               <PencilIcon className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={() => handleDeleteSub(cat.id, sub.id, sub.nombre)}
-                              className="text-gray-400 hover:text-red-600"
+                              className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-red-600"
                             >
                               <TrashIcon className="h-3.5 w-3.5" />
                             </button>
@@ -390,17 +400,17 @@ export default function ConfigCategoriasClient() {
                         required
                         autoFocus
                       />
-                      <button type="submit" className="text-green-600 hover:text-green-800">
+                      <button type="submit" className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-600 hover:text-green-800">
                         <CheckIcon className="h-4 w-4" />
                       </button>
-                      <button type="button" onClick={() => setShowNewSub(null)} className="text-gray-400 hover:text-gray-600">
+                      <button type="button" onClick={() => setShowNewSub(null)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-gray-600">
                         <XMarkIcon className="h-4 w-4" />
                       </button>
                     </form>
                   ) : (
                     <button
                       onClick={() => { setShowNewSub(cat.id); setNewSubForm({ nombre: '', descripcion: '' }) }}
-                      className="inline-flex items-center gap-1 text-sm text-orange-600 hover:text-orange-800 pt-1"
+                      className="inline-flex min-h-11 items-center gap-1 text-sm text-orange-600 hover:text-orange-800 pt-1"
                     >
                       <PlusIcon className="h-3.5 w-3.5" /> Añadir subcategoría
                     </button>

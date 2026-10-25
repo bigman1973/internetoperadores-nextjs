@@ -23,15 +23,15 @@ export default function Header() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2 md:gap-0">
             <div className="flex flex-wrap gap-3 md:gap-6 text-white font-semibold items-center">
-              <Link href="/" className="hover:text-orange-500">INICIO</Link>
-              <a href="mailto:david.perez@internetoperadores.com" className="hover:text-orange-500 hidden md:inline">
+              <Link href="/" className="inline-flex min-h-11 items-center hover:text-orange-500">INICIO</Link>
+              <a href="mailto:david.perez@internetoperadores.com" className="hidden min-h-11 items-center hover:text-orange-500 md:inline-flex">
                 david.perez@internetoperadores.com
               </a>
               <span className="hidden lg:inline text-sm">Paseo De La Habana 26 1-1. 28036, Madrid. España</span>
             </div>
             <a 
               href="https://wa.me/34900730034?text=Hola,%20quiero%20información%20sobre%20Internet%20Operadores" 
-              className="bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold text-center"
+              className="inline-flex min-h-11 items-center justify-center bg-green-500 px-4 py-2 rounded hover:bg-green-600 font-semibold text-center"
               target="_blank"
               rel="noopener noreferrer"
             >
@@ -47,19 +47,19 @@ export default function Header() {
           <div className="flex justify-between items-center">
             <div>
               <Link href="/">
-                <img src="/logo_transparent.png" alt="Internet Operadores" className="h-8 md:h-10 cursor-pointer" />
+                <img src="/logo_transparent.png" alt="Internet Operadores" width="247" height="119" className="h-8 w-auto cursor-pointer md:h-10" />
               </Link>
             </div>
             
             {/* Desktop Menu */}
             <div className="hidden md:flex gap-6 text-gray-900 font-semibold items-center">
-              <Link href="/" className="hover:text-orange-500">INICIO</Link>
-              <Link href="/empresa" className="hover:text-orange-500">EMPRESA</Link>
+              <Link href="/" className="inline-flex min-h-11 items-center hover:text-orange-500">INICIO</Link>
+              <Link href="/empresa" className="inline-flex min-h-11 items-center hover:text-orange-500">EMPRESA</Link>
               
               {/* Soluciones Dropdown */}
               <div className="relative group">
                 <button 
-                  className="hover:text-orange-500 flex items-center gap-1"
+                  className="flex min-h-11 items-center gap-1 hover:text-orange-500"
                   onMouseEnter={() => setSolucionesOpen(true)}
                   onMouseLeave={() => setSolucionesOpen(false)}
                 >
@@ -89,15 +89,15 @@ export default function Header() {
                 </div>
               </div>
 
-              <Link href="/fansaticos" className="hover:text-orange-500">FANSÁTICOS</Link>
-              <Link href="/cero-riesgos" className="hover:text-orange-500">CERO RIESGOS</Link>
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">SABER DIARIO</a>
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">Protección</a>
+              <Link href="/fansaticos" className="inline-flex min-h-11 items-center hover:text-orange-500">FANSÁTICOS</Link>
+              <Link href="/cero-riesgos" className="inline-flex min-h-11 items-center hover:text-orange-500">CERO RIESGOS</Link>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center hover:text-orange-500">SABER DIARIO</a>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-600">Protección</a>
             </div>
 
             {/* Mobile Menu Button */}
             <button 
-              className="md:hidden text-gray-900 focus:outline-none"
+              className="flex min-h-11 min-w-11 items-center justify-center text-gray-900 focus:outline-none md:hidden"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Toggle menu"
             >
@@ -114,18 +114,18 @@ export default function Header() {
           {/* Mobile Menu */}
           {mobileMenuOpen && (
             <div className="md:hidden mt-4 pb-4 flex flex-col gap-3">
-              <Link href="/" className="text-gray-900 hover:text-orange-500 font-semibold py-2">INICIO</Link>
-              <Link href="/empresa" className="text-gray-900 hover:text-orange-500 font-semibold py-2">EMPRESA</Link>
+              <Link href="/" className="flex min-h-11 items-center text-gray-900 hover:text-orange-500 font-semibold py-2">INICIO</Link>
+              <Link href="/empresa" className="flex min-h-11 items-center text-gray-900 hover:text-orange-500 font-semibold py-2">EMPRESA</Link>
               
               {/* Mobile Soluciones */}
               <div className="border-t border-b border-gray-100 py-2">
-                <Link href="/soluciones" className="text-orange-500 font-semibold py-2 block">SOLUCIONES</Link>
+                <Link href="/soluciones" className="flex min-h-11 items-center text-orange-500 font-semibold py-2">SOLUCIONES</Link>
                 <div className="pl-4 space-y-2 mt-2">
                   {soluciones.map((solucion) => (
                     <Link 
                       key={solucion.href}
                       href={solucion.href} 
-                      className="text-gray-600 hover:text-orange-500 py-1 block text-sm"
+                      className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-500"
                     >
                       {solucion.nombre}
                     </Link>
@@ -133,10 +133,10 @@ export default function Header() {
                 </div>
               </div>
 
-              <Link href="/fansaticos" className="text-gray-900 hover:text-orange-500 font-semibold py-2">FANSÁTICOS</Link>
-              <Link href="/cero-riesgos" className="text-gray-900 hover:text-orange-500 font-semibold py-2">CERO RIESGOS</Link>
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="text-gray-900 hover:text-orange-500 font-semibold py-2">SABER DIARIO</a>
-              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="bg-orange-500 text-white px-4 py-3 rounded hover:bg-orange-600 font-semibold text-center">Protección</a>
+              <Link href="/fansaticos" className="flex min-h-11 items-center text-gray-900 hover:text-orange-500 font-semibold py-2">FANSÁTICOS</Link>
+              <Link href="/cero-riesgos" className="flex min-h-11 items-center text-gray-900 hover:text-orange-500 font-semibold py-2">CERO RIESGOS</Link>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-center text-gray-900 hover:text-orange-500 font-semibold py-2">SABER DIARIO</a>
+              <a href="https://dcfb0cf4.sibforms.com/serve/MUIFANgDSlNz0J6jkpzLENOPwNhPBMIluIzy24WifdoCJLUOD_of_bitIxciEv0MeYqaD6AzUbJZ5caTr7RrN9YbODvcxeHC0PxrXXbCPWekbMK3TvuDEvZqp5Dlq_5kq9AcxaMpowt1CmY2AYfgNNk6V4GLaLciGSpHTpHFpaNed_wDeWABFLO0AJ2QwskgqKKpq5iqokVitp7U" target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-center justify-center bg-orange-500 text-white px-4 py-3 rounded hover:bg-orange-600 font-semibold text-center">Protección</a>
             </div>
           )}
         </div>

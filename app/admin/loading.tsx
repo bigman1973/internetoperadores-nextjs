@@ -1,6 +1,6 @@
 export default function AdminLoading() {
   return (
-    <div role="status" aria-busy="true" aria-label="Cargando apartado del panel" className="space-y-5">
+    <div role="status" aria-busy="true" aria-label="Cargando apartado del panel" className="min-h-[32rem] space-y-5">
       <p className="sr-only">Cargando apartado…</p>
       <div className="h-8 w-48 rounded-lg bg-gray-200" />
       <div className="h-4 w-full max-w-lg rounded bg-gray-100" />

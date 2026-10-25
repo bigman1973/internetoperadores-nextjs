@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import OrganizationChartPanel from '@/components/empleados/OrganizationChartPanel';
+import OrganizationChartPanelLoader from '@/components/empleados/OrganizationChartPanelLoader';
 
 export default async function OrganigramaPage() {
   const session = await getServerSession(authOptions);
@@ -10,7 +10,7 @@ export default async function OrganigramaPage() {
 
   return (
     <div className="mx-auto max-w-[1600px]">
-      <OrganizationChartPanel isSuperAdmin={role === 'SUPER_ADMIN'} />
+      <OrganizationChartPanelLoader isSuperAdmin={role === 'SUPER_ADMIN'} />
     </div>
   );
 }

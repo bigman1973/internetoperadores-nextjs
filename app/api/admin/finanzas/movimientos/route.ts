@@ -175,11 +175,19 @@ export async function GET(req: NextRequest) {
       prisma.movimientoBancario.count({ where }),
     ])
 
-    const enriquecidos = await Promise.all(movimientos.map(async (movimiento: any) => {
-      const traspasoRelacionado = movimiento.traspasoRelacionadoId
-        ? await prisma.movimientoBancario.findUnique({ where: { id: movimiento.traspasoRelacionadoId }, select: { id: true, fechaOperacion: true, importe: true, concepto: true, cuenta: { select: { banco: true, alias: true } } } })
-        : null
-      return normalizarMovimientoLectura({ ...movimiento, traspasoRelacionado })
+    const traspasoIds = [...new Set(movimientos
+      .map((movimiento: any) => movimiento.traspasoRelacionadoId)
+      .filter((id: string | null): id is string => Boolean(id)))]
+    const traspasosRelacionados = traspasoIds.length
+      ? await prisma.movimientoBancario.findMany({
+        where: { id: { in: traspasoIds } },
+        select: { id: true, fechaOperacion: true, importe: true, concepto: true, cuenta: { select: { banco: true, alias: true } } },
+      })
+      : []
+    const traspasoPorId = new Map(traspasosRelacionados.map((traspaso: any) => [traspaso.id, traspaso]))
+    const enriquecidos = movimientos.map((movimiento: any) => normalizarMovimientoLectura({
+      ...movimiento,
+      traspasoRelacionado: movimiento.traspasoRelacionadoId ? traspasoPorId.get(movimiento.traspasoRelacionadoId) ?? null : null,
     }))
     return jsonPrivado({ movimientos: enriquecidos, total, page, totalPages: Math.ceil(total / limit) })
   } catch {

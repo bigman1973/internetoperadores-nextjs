@@ -56,7 +56,15 @@ export default function EmpleadoPage() {
       </div>
 
       {/* Avisos prioritarios al iniciar sesión */}
-      {!loadingAlertas && alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
+      {loadingAlertas ? (
+        <div className="mb-6 min-h-[620px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4 sm:min-h-[400px]" aria-label="Cargando avisos y resumen de imputaciones" role="status">
+          <div className="h-5 w-48 rounded bg-slate-200" />
+          <div className="mt-3 h-4 max-w-2xl rounded bg-slate-100" />
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map(item => <div key={item} className="h-20 rounded-xl bg-slate-100" />)}
+          </div>
+        </div>
+      ) : alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
         <div className="mb-6 space-y-3">
           {alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).map((alerta, i) => {
             const esPeticion = alerta.tipo === 'peticiones_pendientes_validacion';
