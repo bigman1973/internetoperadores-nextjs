@@ -42,11 +42,13 @@ p { text-align: justify; margin-bottom: 12px; } code { font-size: 9.5pt; backgro
 
 # 1. Propósito, alcance y reglas de uso
 
-Este manual explica cómo revisar y operar las capacidades previstas del asistente privado cuando el integrador las haya unido en el entorno autorizado. Describe el widget público, las áreas administrativas y los controles que no deben omitirse. No debe interpretarse como una confirmación de disponibilidad de todas las pantallas ni como autorización para abrir tráfico, mover el modo a `local`, enviar avisos o tratar datos reales fuera de los procedimientos aprobados.
+Este manual explica cómo utilizar y revisar el asistente privado integrado en staging: widget público, captación en Leads, áreas administrativas y controles de privacidad. No autoriza producción, mover el modo a `local`, enviar avisos o tratar datos reales fuera de los procedimientos aprobados.
 
 <div class="highlight-box"><strong>Regla principal:</strong> el asistente no aprende, publica, contacta ni activa un servicio por sí mismo. Las respuestas extractivas sólo usan fuentes permitidas; una ausencia de fuente debe acabar en una respuesta honesta y la opción de atención humana.</div>
 
 El estado de referencia es `ASSISTANT_MODE=extractivo` en staging y `ASSISTANT_MODE=desactivado` fuera de staging hasta que se cumplan los controles técnicos, jurídicos y de aprobación. El espacio Cliente permanece desactivado. No hay envío de correos, SMS, webhooks ni sincronización externa del asistente.
+
+<div class="tip-box"><strong>Validación en staging:</strong> evaluación extractiva 100/100, captación/proyección a Leads 20/20, widget móvil y foco 32/32. Comparación local adicional con CPU ×4: INP de apertura/cierre 56–80 ms; LCP activado/apagado +0,32 % (3 muestras por variante). No equivale a p75 de campo, evaluación GPU ni programación real de las 08:00.</div>
 
 ## Cómo interpretar las instrucciones
 
@@ -55,7 +57,7 @@ El estado de referencia es `ASSISTANT_MODE=extractivo` en staging y `ASSISTANT_M
 | **Revisar en panel** | Acción prevista para una persona autorizada cuando la ruta/pantalla esté integrada y disponible. |
 | **Revisión humana obligatoria** | No debe sustituirse por automatización, texto generado ni una aceptación implícita. |
 | **Técnico — sin UI declarada** | Existe o se prepara una operación de servidor/API; este manual no inventa botones ni asegura una pantalla. Requiere el procedimiento autorizado. |
-| **Pendiente de integración o validación** | No usar como evidencia de extremo a extremo. El padre debe verificarlo tras los merges. |
+| **Pendiente de integración o validación** | No usar como evidencia de extremo a extremo. El equipo de desarrollo debe verificarlo tras la integración. |
 
 ## Checklist de inicio de turno
 
