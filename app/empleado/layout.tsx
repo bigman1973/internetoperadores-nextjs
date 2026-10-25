@@ -17,12 +17,12 @@ export default async function EmpleadoLayout({
     prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
   )
   return (
-    <SessionProvider>
+    <SessionProvider session={session}>
       <ImpersonationProvider>
-        <div className="min-h-screen bg-gray-50 text-gray-900">
+        <div className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
           <EmpleadoSidebar user={session.user} canAccessAdmin={canAccessAdmin} />
-          <div className="lg:pl-64">
-            <main className="p-4 sm:p-6 lg:p-8">
+          <div className="min-w-0 lg:pl-64">
+            <main className="min-w-0 p-4 sm:p-6 lg:p-8">
               <ImpersonationBannerWrapper />
               {children}
             </main>

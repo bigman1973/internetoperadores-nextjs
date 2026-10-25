@@ -78,7 +78,7 @@ export default function AdminHeader() {
                 }}
                 aria-label="Previsualizar rol"
                 className={`
-                  min-h-10 max-w-24 cursor-pointer rounded-lg border px-2 py-1.5 text-xs font-medium sm:max-w-40 sm:text-sm
+                  min-h-11 max-w-24 cursor-pointer rounded-lg border px-2 py-1.5 text-xs font-medium sm:max-w-40 sm:text-sm
                   focus:ring-2 focus:ring-orange-500 focus:border-orange-500
                   ${isViewingAs && !isViewingAsUser
                     ? 'border-amber-300 bg-amber-50 text-amber-800' 
@@ -103,7 +103,7 @@ export default function AdminHeader() {
                   aria-expanded={showUserSelector}
                   aria-label="Previsualizar usuario"
                   className={`
-                    flex h-10 min-w-10 cursor-pointer items-center justify-center gap-1 rounded-lg border px-2 text-xs font-medium sm:min-w-0 sm:text-sm
+                    flex h-11 min-w-11 cursor-pointer items-center justify-center gap-1 rounded-lg border px-2 text-xs font-medium sm:min-w-0 sm:text-sm
                     ${isViewingAsUser
                       ? 'border-purple-300 bg-purple-50 text-purple-800' 
                       : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
@@ -146,7 +146,7 @@ export default function AdminHeader() {
               {isViewingAs && (
                 <button
                   onClick={() => { setViewAsRole(null); setViewAsUser(null); setShowUserSelector(false) }}
-                  className="inline-flex h-10 min-w-10 items-center justify-center gap-1 rounded-lg bg-amber-100 px-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200"
+                  className="inline-flex h-11 min-w-11 items-center justify-center gap-1 rounded-lg bg-amber-100 px-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200"
                   title="Volver a Super Admin"
                 >
                   <XMarkIcon className="h-3 w-3" />
@@ -157,14 +157,18 @@ export default function AdminHeader() {
           )}
 
           {/* Actuación real: el servidor vuelve a confirmar autorización y destinos. */}
-          {isSuperAdmin && canStart && !isActing && (
-            <Link
-              href="/admin/actuar-como"
-              className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-lg bg-orange-600 px-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 sm:px-3 sm:text-sm"
-              title="Iniciar una sesión temporal con otra identidad autorizada"
-            >
-              Actuar como
-            </Link>
+          {isSuperAdmin && (
+            <div className="flex h-11 w-11 shrink-0 items-stretch sm:w-[5.875rem]">
+              {canStart && !isActing && (
+                <Link
+                  href="/admin/actuar-como"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-orange-600 px-1 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 sm:px-3 sm:text-sm"
+                  title="Iniciar una sesión temporal con otra identidad autorizada"
+                >
+                  <span className="text-center leading-3 sm:whitespace-nowrap sm:leading-normal">Actuar como</span>
+                </Link>
+              )}
+            </div>
           )}
 
           {/* Banner de simulación */}
@@ -178,15 +182,17 @@ export default function AdminHeader() {
           <div className="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200" aria-hidden="true" />
           
           {/* User menu */}
-          {session?.user && (
-            <button
-              onClick={() => signOut({ callbackUrl: '/login' })}
-              className="flex h-11 w-11 shrink-0 items-center justify-center gap-x-2 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-100 hover:text-orange-600 sm:w-auto sm:px-2"
-            >
-              <span className="hidden sm:inline">{session.user.name || session.user.email}</span>
-              <ArrowRightOnRectangleIcon className="h-5 w-5" aria-hidden="true" />
-            </button>
-          )}
+          <div className="flex h-11 w-11 shrink-0 sm:w-auto">
+            {session?.user && (
+              <button
+                onClick={() => signOut({ callbackUrl: '/login' })}
+                className="flex h-full w-full items-center justify-center gap-x-2 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-100 hover:text-orange-600 sm:w-auto sm:px-2"
+              >
+                <span className="hidden sm:inline">{session.user.name || session.user.email}</span>
+                <ArrowRightOnRectangleIcon className="h-5 w-5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </header>
