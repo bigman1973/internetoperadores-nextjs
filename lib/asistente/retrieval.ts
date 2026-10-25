@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import net from 'node:net'
 import prisma from '@/lib/prisma'
 import type { AlcanceAsistente } from '@/lib/asistente/acl'
 import { normalizar } from '@/lib/asistente/text'
@@ -8,13 +9,34 @@ export type FragmentoRecuperado = { id: string; documentoId: string; versionId: 
 
 function limiteSeguro(valor: number | undefined): number { return Math.max(1, Math.min(20, Number.isInteger(valor) ? Number(valor) : 6)) }
 
+function filtroAlcance(alcance: AlcanceAsistente) {
+  return {
+    espacios: alcance.espacios,
+    roles: alcance.roles,
+    tenant: alcance.tenantId,
+    todoInterno: alcance.puedeLeerTodoInterno === true,
+  }
+}
+
+/** El chat jamás permite una allowlist de host públicamente enrutable. */
+export function urlEmbeddingsInternaParaChat(valor: string | undefined): URL | null {
+  const url = urlInternaSegura(valor)
+  if (!url) return null
+  const host = url.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal') || host.endsWith('.railway.internal')) return url
+  if (net.isIP(host) === 4) {
+    const partes = host.split('.').map(Number)
+    if (partes[0] === 10 || partes[0] === 127 || partes[0] === 192 && partes[1] === 168 || partes[0] === 172 && partes[1] >= 16 && partes[1] <= 31) return url
+  }
+  if (net.isIP(host) === 6 && (host === '::1' || host.startsWith('fc') || host.startsWith('fd'))) return url
+  return null
+}
+
 async function consultaFts(terminos: string, alcance: AlcanceAsistente, limite: number, operador: 'web' | 'plain'): Promise<FragmentoRecuperado[]> {
   const consulta = operador === 'web'
     ? Prisma.sql`websearch_to_tsquery('spanish', ${terminos})`
     : Prisma.sql`plainto_tsquery('spanish', ${terminos})`
-  const espacios = alcance.espacios
-  const roles = alcance.roles
-  const tenant = alcance.tenantId
+  const { espacios, roles, tenant, todoInterno } = filtroAlcance(alcance)
   return prisma.$queryRaw<FragmentoRecuperado[]>(Prisma.sql`
     WITH q AS (SELECT ${consulta} AS tsq)
     SELECT f.id::text AS "id", f.documento_id::text AS "documentoId", f.version_id::text AS "versionId",
@@ -26,7 +48,7 @@ async function consultaFts(terminos: string, alcance: AlcanceAsistente, limite: 
      WHERE f.activo = true
        AND d.estado = 'PUBLICADO'
        AND f.espacio = ANY(${espacios}::text[])
-       AND (f.espacio <> 'INTERNO' OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
+       AND (f.espacio <> 'INTERNO' OR ${todoInterno} OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
        AND (f.espacio <> 'CLIENTE' OR f.tenant_cliente_id = ${tenant})
        AND f.tsv @@ q.tsq
      ORDER BY "puntuacion" DESC, f.created_at DESC
@@ -49,9 +71,7 @@ function coseno(a: number[], b: number[]): number {
  * La puntuación es la proporción de términos cubiertos (0–1).
  */
 async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, limite: number): Promise<FragmentoRecuperado[]> {
-  const espacios = alcance.espacios
-  const roles = alcance.roles
-  const tenant = alcance.tenantId
+  const { espacios, roles, tenant, todoInterno } = filtroAlcance(alcance)
   const filas = await prisma.$queryRaw<Array<FragmentoRecuperado & { coincidencias: number; n: number }>>(Prisma.sql`
     WITH lex AS (SELECT tsvector_to_array(to_tsvector('spanish', ${terminos})) AS l),
          q AS (SELECT l, cardinality(l) AS n,
@@ -71,7 +91,7 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
          AND f.activo = true
          AND d.estado = 'PUBLICADO'
          AND f.espacio = ANY(${espacios}::text[])
-         AND (f.espacio <> 'INTERNO' OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
+         AND (f.espacio <> 'INTERNO' OR ${todoInterno} OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
          AND (f.espacio <> 'CLIENTE' OR f.tenant_cliente_id = ${tenant})
          AND f.tsv @@ q.tsq
     ) c
@@ -83,11 +103,11 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
 }
 
 async function embeddingConsulta(consulta: string): Promise<number[] | null> {
-  const base = urlInternaSegura(process.env.ASSISTANT_EMBEDDINGS_URL)
+  const base = urlEmbeddingsInternaParaChat(process.env.ASSISTANT_EMBEDDINGS_URL)
   if (!base) return null
   const url = new URL('/v1/embeddings', base)
   try {
-    const respuesta = await fetchInterno(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(process.env.ASSISTANT_EMBEDDINGS_API_KEY ? { authorization: `Bearer ${process.env.ASSISTANT_EMBEDDINGS_API_KEY}` } : {}) }, body: JSON.stringify({ input: [consulta] }) })
+    const respuesta = await fetchInterno(url, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', ...(process.env.ASSISTANT_EMBEDDINGS_API_KEY ? { authorization: `Bearer ${process.env.ASSISTANT_EMBEDDINGS_API_KEY}` } : {}) }, body: JSON.stringify({ input: [consulta] }) })
     if (!respuesta.ok) return null
     const datos = await respuesta.json() as { data?: Array<{ embedding?: unknown }> }
     const vector = datos.data?.[0]?.embedding

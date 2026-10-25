@@ -58,9 +58,12 @@ export default function GestionConocimiento({ puedeEscribir }: { puedeEscribir: 
 
   async function cambiarEstado(id: string, estado: 'PUBLICADO' | 'ARCHIVADO') {
     if (!puedeEscribir || guardando) return
+    const motivoPublicacion = estado === 'PUBLICADO' ? window.prompt('Indica el motivo de la revisión humana antes de publicar (mínimo 3 caracteres):')?.trim() : undefined
+    if (estado === 'PUBLICADO' && (!motivoPublicacion || motivoPublicacion.length < 3)) { setMensaje('La publicación requiere confirmación y un motivo de revisión humana.'); return }
+    if (estado === 'PUBLICADO' && !window.confirm('Confirmas que has revisado el contenido anonimizado y autorizas su publicación?')) return
     setGuardando(true); setMensaje('')
     try {
-      const respuesta = await fetch(`/api/admin/asistente/conocimiento/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ estado }) })
+      const respuesta = await fetch(`/api/admin/asistente/conocimiento/${id}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ estado, ...(estado === 'PUBLICADO' ? { confirmarPublicacion: true, motivoPublicacion } : {}) }) })
       const datos = await respuesta.json().catch(() => null)
       if (!respuesta.ok) throw new Error(datos?.error || 'No se ha podido actualizar el estado.')
       setMensaje(estado === 'PUBLICADO' ? 'Documento publicado.' : 'Documento archivado.')

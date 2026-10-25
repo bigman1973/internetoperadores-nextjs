@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { exigirAdminAsistente } from '@/lib/asistente/admin-auth'
 import { esMismoOrigen, jsonPrivado, leerJsonLimitado } from '@/lib/asistente/http'
@@ -35,12 +36,12 @@ export async function POST(req: Request) {
       const elegido = espacioFormulario(formulario.get('espacio')); if (!elegido) return jsonPrivado({ error: 'Espacio no válido' }, 400)
       espacio = elegido
       const extraido = await extraerArchivo(Buffer.from(await archivo.arrayBuffer()), archivo.name)
-      fuente = { titulo: String(formulario.get('titulo') || archivo.name).slice(0, 500), contenido: extraido.contenido, tipo: extraido.tipo, origen: `admin:${archivo.name}:${Date.now()}`, urlFuente: null }
+      fuente = { titulo: String(formulario.get('titulo') || 'Documento administrativo').slice(0, 500), contenido: extraido.contenido, tipo: extraido.tipo, origen: `admin:${randomUUID()}`, urlFuente: null }
     } else {
       const cuerpo = await leerJsonLimitado(req, 120000); const entrada = cuerpo.ok ? esquema.safeParse(cuerpo.datos) : { success: false as const }
       if (!entrada.success) return jsonPrivado({ error: 'Solicitud inválida' }, 400)
       espacio = entrada.data.espacio
-      fuente = { titulo: entrada.data.titulo, contenido: entrada.data.contenido, tipo: entrada.data.tipo, origen: `admin:${entrada.data.titulo}:${Date.now()}`, urlFuente: null }
+      fuente = { titulo: entrada.data.titulo, contenido: entrada.data.contenido, tipo: entrada.data.tipo, origen: `admin:${randomUUID()}`, urlFuente: null }
     }
     // Todo conocimiento subido entra como BORRADOR: no responde hasta que una persona lo publica (PATCH estado=PUBLICADO).
     const resultado = await indexarFuente(fuente, acceso.actor.id, { espacio, estado: 'BORRADOR' })

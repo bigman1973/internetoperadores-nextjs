@@ -5,7 +5,7 @@ import { Client } from 'pg'
 import { config as cargarEntorno } from 'dotenv'
 
 const raiz = process.cwd()
-cargarEntorno({ path: '/home/ubuntu/asistente-ia-20261025/pruebas/.env.panel' })
+cargarEntorno({ path: '/home/ubuntu/asistente-fases-20261025/pruebas/.env.local-panel' })
 const url = process.env.ASSISTANT_TEST_DATABASE_URL
 if (!url) throw new Error('ASSISTANT_TEST_DATABASE_URL_REQUERIDA')
 
@@ -67,8 +67,10 @@ async function main() {
     }
     const detalleConversacion = archivo('app/api/admin/asistente/conversaciones/[id]/route.ts')
     assert.match(detalleConversacion, /visitanteHashCorto/)
-    assert.match(detalleConversacion, /const \{ visitanteHash, \.\.\.segura \} = conversacion/)
+    assert.match(detalleConversacion, /const \{ visitanteHash, mensajesLista, \.\.\.segura \} = conversacion/)
     assert.match(detalleConversacion, /visitanteHash\.slice\(0, 8\)/)
+    assert.match(detalleConversacion, /redactarPIILocal/)
+    assert.doesNotMatch(detalleConversacion, /fuentes:\s*true/)
     const apiLeads = archivo('app/api/admin/asistente/leads/route.ts')
     assert.match(apiLeads, /consentimiento \? \{ nombre, empresa, email, telefono \} : null/)
     const apiLeadCambio = archivo('app/api/admin/asistente/leads/[id]/route.ts')

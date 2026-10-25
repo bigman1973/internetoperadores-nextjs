@@ -2,11 +2,12 @@ import { z } from 'zod'
 import prisma from '@/lib/prisma'
 import { exigirAdminAsistente } from '@/lib/asistente/admin-auth'
 import { esMismoOrigen, jsonPrivado, leerJsonLimitado, uuidValido } from '@/lib/asistente/http'
+import { redactarPIILocal } from '@/lib/asistente/pii'
 import { normalizar, sha256Hex, textoPlano, trocear } from '@/lib/asistente/text'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-const esquema = z.object({ titulo: z.string().min(3).max(500).optional(), contenido: z.string().min(1).max(100000).optional(), estado: z.enum(['BORRADOR', 'PUBLICADO', 'ARCHIVADO']).optional() }).refine(valor => Object.keys(valor).length > 0)
+const esquema = z.object({ titulo: z.string().min(3).max(500).optional(), contenido: z.string().min(1).max(100000).optional(), estado: z.enum(['BORRADOR', 'PUBLICADO', 'ARCHIVADO']).optional(), confirmarPublicacion: z.literal(true).optional(), motivoPublicacion: z.string().min(3).max(500).optional() }).refine(valor => Object.keys(valor).length > 0)
 
 export async function GET(_req: Request, contexto: { params: Promise<{ id: string }> }) {
   const acceso = await exigirAdminAsistente('admin.asistente.conocimiento', 'lectura'); if ('response' in acceso) return acceso.response
@@ -22,6 +23,7 @@ export async function PATCH(req: Request, contexto: { params: Promise<{ id: stri
   const { id } = await contexto.params; if (!uuidValido(id)) return jsonPrivado({ error: 'Documento inválido' }, 400)
   const cuerpo = await leerJsonLimitado(req, 120000); const entrada = cuerpo.ok ? esquema.safeParse(cuerpo.datos) : { success: false as const }
   if (!entrada.success) return jsonPrivado({ error: 'Solicitud inválida' }, 400)
+  if (entrada.data.estado === 'PUBLICADO' && (entrada.data.confirmarPublicacion !== true || !entrada.data.motivoPublicacion)) return jsonPrivado({ error: 'La publicación requiere confirmarPublicacion: true y un motivo' }, 400)
   try {
     const actualizado = await prisma.$transaction(async tx => {
       const documento = await tx.asistenteDocumento.findUnique({ where: { id } }); if (!documento) return null
@@ -36,14 +38,15 @@ export async function PATCH(req: Request, contexto: { params: Promise<{ id: stri
             await tx.asistenteDocumentoVersion.update({ where: { id: vigente.id }, data: { aprobadoPor: acceso.actor.id } })
           }
         }
-        return tx.asistenteDocumento.update({ where: { id }, data: { titulo: entrada.data.titulo || documento.titulo, estado, updatedAt: new Date() } })
+        return tx.asistenteDocumento.update({ where: { id }, data: { titulo: entrada.data.titulo ? redactarPIILocal(entrada.data.titulo, true) : documento.titulo, estado, updatedAt: new Date() } })
       }
-      const contenido = textoPlano(entrada.data.contenido); const version = documento.versionActual + 1
+      const contenido = redactarPIILocal(textoPlano(entrada.data.contenido), true); const version = documento.versionActual + 1
+      const titulo = entrada.data.titulo ? redactarPIILocal(entrada.data.titulo, true) : documento.titulo
       const creada = await tx.asistenteDocumentoVersion.create({ data: { documentoId: id, version, contenido, checksum: sha256Hex(contenido), creadoPor: acceso.actor.id, aprobadoPor: entrada.data.estado === 'PUBLICADO' ? acceso.actor.id : null } })
       await tx.asistenteFragmento.updateMany({ where: { documentoId: id, activo: true }, data: { activo: false } })
       const fragmentos = trocear(contenido, { max: 900, solape: 140 })
-      if (fragmentos.length) await tx.asistenteFragmento.createMany({ data: fragmentos.map((fragmento, orden) => ({ documentoId: id, versionId: creada.id, orden, titulo: entrada.data.titulo || documento.titulo, contenido: fragmento, contenidoNorm: normalizar(fragmento), espacio: documento.espacio, roles: documento.roles, tenantClienteId: documento.tenantClienteId, activo: (entrada.data.estado || documento.estado) === 'PUBLICADO' })) })
-      return tx.asistenteDocumento.update({ where: { id }, data: { titulo: entrada.data.titulo || documento.titulo, estado: entrada.data.estado || documento.estado, versionActual: version, updatedAt: new Date() } })
+      if (fragmentos.length) await tx.asistenteFragmento.createMany({ data: fragmentos.map((fragmento, orden) => ({ documentoId: id, versionId: creada.id, orden, titulo, contenido: fragmento, contenidoNorm: normalizar(fragmento), espacio: documento.espacio, roles: documento.roles, tenantClienteId: documento.tenantClienteId, activo: (entrada.data.estado || documento.estado) === 'PUBLICADO' })) })
+      return tx.asistenteDocumento.update({ where: { id }, data: { titulo, estado: entrada.data.estado || documento.estado, versionActual: version, updatedAt: new Date() } })
     })
     if (!actualizado) return jsonPrivado({ error: 'No encontrado' }, 404)
     return jsonPrivado({ ok: true, documento: { id: actualizado.id, versionActual: actualizado.versionActual, estado: actualizado.estado } })

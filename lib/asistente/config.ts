@@ -4,6 +4,8 @@ import { assistantClientEnabled, assistantPublicEnabled, envAssistantMode, type 
 export type HorarioHumano = { zona: string; dias: number[]; inicio: string; fin: string }
 export type AssistantRuntime = {
   modo: AssistantMode
+  modelo: string | null
+  tono: string
   publicEnabled: boolean
   clientEnabled: boolean
   maxChars: number
@@ -16,6 +18,7 @@ export type AssistantRuntime = {
 
 const HORARIO_POR_DEFECTO: HorarioHumano = { zona: 'Europe/Madrid', dias: [1, 2, 3, 4, 5], inicio: '09:00', fin: '18:00' }
 const BIENVENIDA_POR_DEFECTO = 'Hola, soy el asistente virtual de Internet Operadores. ¿En qué puedo ayudarte?'
+const TONO_POR_DEFECTO = 'cercano y profesional'
 
 function enteroSeguro(valor: string | undefined, defecto: number, min: number, max: number): number {
   const numero = Number(valor)
@@ -49,6 +52,8 @@ export async function getAssistantRuntime(): Promise<AssistantRuntime> {
   const modoEntorno = envAssistantMode()
   const porDefecto: AssistantRuntime = {
     modo: modoEntorno,
+    modelo: null,
+    tono: TONO_POR_DEFECTO,
     publicEnabled: assistantPublicEnabled() && modoEntorno !== 'desactivado',
     clientEnabled: assistantClientEnabled() && modoEntorno !== 'desactivado',
     maxChars: enteroSeguro(process.env.ASSISTANT_MAX_MESSAGE_CHARS, 1500, 100, 4000),
@@ -67,6 +72,8 @@ export async function getAssistantRuntime(): Promise<AssistantRuntime> {
     const modo = modoMasRestrictivo(modoEntorno, configuracion.modo)
     return {
       modo,
+      modelo: configuracion.modelo?.trim().slice(0, 200) || null,
+      tono: configuracion.tono?.trim().slice(0, 1000) || TONO_POR_DEFECTO,
       publicEnabled: porDefecto.publicEnabled && modo !== 'desactivado',
       clientEnabled: porDefecto.clientEnabled && modo !== 'desactivado',
       maxChars: porDefecto.maxChars,
@@ -81,4 +88,4 @@ export async function getAssistantRuntime(): Promise<AssistantRuntime> {
   }
 }
 
-export { HORARIO_POR_DEFECTO, BIENVENIDA_POR_DEFECTO }
+export { HORARIO_POR_DEFECTO, BIENVENIDA_POR_DEFECTO, TONO_POR_DEFECTO }
