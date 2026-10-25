@@ -19,6 +19,8 @@ prueba('consulta extractiva separa PII anonimizada de la pregunta', () => {
   assert.equal(consultaParaRecuperacion('Mi [IBAN] no debe conservarse; ¿qué opciones hay?'), '¿qué opciones hay?')
   assert.equal(consultaParaRecuperacion('¿Qué plazo tiene una instalación?'), '¿Qué plazo tiene una instalación?')
   assert.equal(consultaParaRecuperacion('Mi [EMAIL] no debe conservarse.'), 'Mi no debe conservarse.')
+  const contextoLegitimo = 'Si se interrumpe la línea principal de mi empresa, ¿cómo entra la conexión de reserva?'
+  assert.equal(consultaParaRecuperacion(contextoLegitimo), contextoLegitimo)
 })
 
 prueba('PII española y Luhn', () => {
