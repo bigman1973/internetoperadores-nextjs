@@ -35,6 +35,10 @@ async function conversacionSegura(id: string | undefined, canal: 'PUBLICO' | 'IN
   const creada = await prisma.asistenteConversacion.create({ data: { canal, usuarioId, visitanteHash, borrarDespues } })
   return creada.id
 }
+/** Recupera la conversación pública del MISMO visitante o crea una nueva; nunca acepta un id ajeno. */
+export function conversacionPublicaSegura(id: string | undefined, visitanteHash: string, retencionMeses: number): Promise<string> {
+  return conversacionSegura(id, 'PUBLICO', null, visitanteHash, retencionMeses)
+}
 
 async function guardarHueco(preguntaAnon: string, canal: string, conversacionId: string, mensajeId: string): Promise<void> {
   const preguntaNorm = normalizar(preguntaAnon).slice(0, 1200)
