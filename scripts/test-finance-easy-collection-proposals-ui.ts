@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -81,4 +82,12 @@ test('la actualización reemplaza filas seleccionadas por la versión recién ca
   assert.equal(next[original.propuestaId].fingerprint, fresh.fingerprint);
 });
 
+test('el bloque de cobros respeta el máximo de doce del servidor', () => {
+  const core = readFileSync('lib/finanzas/easy-collections-core.ts', 'utf8');
+  const ui = readFileSync('components/finanzas/easy/NewCollectionProposalsWorkspace.tsx', 'utf8');
+  const server = Number(/EASY_COLLECTIONS_MAX_BLOCK_ITEMS = (\d+)/.exec(core)?.[1]);
+  const client = Number(/COLLECTION_PROPOSALS_MAX_BLOCK = (\d+)/.exec(ui)?.[1]);
+  assert.equal(client, server);
+  assert.ok(!/Seleccionar las 25 primeras/.test(ui));
+});
 console.log('test-finance-easy-collection-proposals-ui: OK');
