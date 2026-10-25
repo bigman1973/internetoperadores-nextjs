@@ -28,24 +28,41 @@ export async function GET() {
   }
 
   try {
-    const cuentas = await (prisma.cuentaBancaria as any).findMany({
-      select: {
-        id: true, banco: true, alias: true, activa: true, saldoActual: true, fechaSaldo: true, fechaCorteExtracto: true,
-        _count: { select: { movimientos: true } },
-      },
-      orderBy: { banco: 'asc' },
-    })
-    const estadoCuentas = await Promise.all(cuentas.map(async (cuenta: any) => {
-      const movimientos = await prisma.movimientoBancario.findMany({
-        where: { cuentaId: cuenta.id },
-        select: { fechaOperacion: true, importe: true, saldo: true },
-        orderBy: [{ fechaOperacion: 'asc' }, { createdAt: 'asc' }],
+    const [cuentas, importaciones] = await Promise.all([
+      (prisma.cuentaBancaria as any).findMany({
+        select: {
+          id: true, banco: true, alias: true, activa: true, saldoActual: true, fechaSaldo: true, fechaCorteExtracto: true,
+          _count: { select: { movimientos: true } },
+        },
+        orderBy: { banco: 'asc' },
+      }),
+      prisma.importacionExtracto.findMany({
+        orderBy: { createdAt: 'desc' }, take: 20,
+        select: {
+          id: true, nombreArchivo: true, movImportados: true, movDuplicados: true,
+          fechaPrimerMov: true, fechaUltimoMov: true, createdAt: true,
+          cuenta: { select: { banco: true } },
+        },
+      }),
+    ])
+    const movimientos = cuentas.length
+      ? await prisma.movimientoBancario.findMany({
+        where: { cuentaId: { in: cuentas.map((cuenta: any) => cuenta.id) } },
+        select: { cuentaId: true, fechaOperacion: true, importe: true, saldo: true },
+        orderBy: [{ cuentaId: 'asc' }, { fechaOperacion: 'asc' }, { createdAt: 'asc' }],
       })
-      const primerMovimiento = movimientos[0]?.fechaOperacion ?? null
-      const ultimoMovimiento = movimientos.length ? movimientos[movimientos.length - 1].fechaOperacion : null
+      : []
+    const movimientosPorCuenta = new Map<string, any[]>()
+    for (const movimiento of movimientos) {
+      movimientosPorCuenta.set(movimiento.cuentaId, [...(movimientosPorCuenta.get(movimiento.cuentaId) ?? []), movimiento])
+    }
+    const estadoCuentas = cuentas.map((cuenta: any) => {
+      const movimientosCuenta = movimientosPorCuenta.get(cuenta.id) ?? []
+      const primerMovimiento = movimientosCuenta[0]?.fechaOperacion ?? null
+      const ultimoMovimiento = movimientosCuenta.length ? movimientosCuenta[movimientosCuenta.length - 1].fechaOperacion : null
       // Los registros históricos no tienen secuencia intradía persistida: si hay más de
       // uno el mismo día, el núcleo informa orden ambiguo en vez de fabricar cobertura.
-      const continuidad = analizarCadenaSaldo(movimientos, null)
+      const continuidad = analizarCadenaSaldo(movimientosCuenta, null)
       const corte = cuenta.fechaCorteExtracto ?? null
       return {
         id: cuenta.id,
@@ -72,7 +89,7 @@ export async function GET() {
           fuenteCierre: corte ? 'EXTRACTO_IMPORTADO' : 'SIN_EXTRACTO_CUBIERTO',
         },
       }
-    }))
+    })
 
     estadoCuentas.sort((a: any, b: any) => {
       if (a.activa !== b.activa) return a.activa ? -1 : 1
@@ -81,10 +98,6 @@ export async function GET() {
       return new Date(a.ultimoMovimiento).getTime() - new Date(b.ultimoMovimiento).getTime()
     })
 
-    const importaciones = await prisma.importacionExtracto.findMany({
-      orderBy: { createdAt: 'desc' }, take: 20,
-      include: { cuenta: { select: { banco: true } } },
-    })
     const historial = importaciones.map((item) => ({
       id: item.id,
       archivo: item.nombreArchivo,
