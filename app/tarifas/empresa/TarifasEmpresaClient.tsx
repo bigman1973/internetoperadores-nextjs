@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   coincideTarifaEmpresa,
@@ -41,6 +41,7 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
   const busqueda = useDeferredValue(busquedaEntrada);
   const [tarifasVisibles, setTarifasVisibles] = useState(total);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshPending, startRefresh] = useTransition();
   const [filtrando, setFiltrando] = useState(false);
   const seHaFiltrado = useRef(false);
   const catalogoCacheado = useRef<SeccionCatalogo[] | null>(null);
@@ -56,6 +57,10 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
       if (fotograma !== undefined) cancelAnimationFrame(fotograma);
     };
     const sigueVigente = () => trabajoFiltro.current === trabajoActual;
+    if (refreshPending) {
+      setFiltrando(tieneFiltro);
+      return cancelar;
+    }
 
     // En la carga inicial no se toca el catálogo estático: el navegador puede
     // pintar el HTML completo sin recorrer ni reconciliar miles de nodos.
@@ -184,13 +189,16 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
     });
 
     return cancelar;
-  }, [busqueda, categoriaSeleccionada, total]);
+  }, [busqueda, categoriaSeleccionada, total, refreshPending]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await fetch('/api/revalidate-tarifas', { method: 'POST' });
-      router.refresh();
+      trabajoFiltro.current += 1;
+      catalogoCacheado.current = null;
+      setFiltrando(false);
+      startRefresh(() => router.refresh());
     } catch (error) {
       console.error('Error refreshing:', error);
     } finally {
@@ -240,7 +248,7 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  disabled={refreshing}
+                  disabled={refreshing || refreshPending}
                   className="text-xs text-gray-400 hover:text-orange-600 flex items-center gap-1 transition-colors"
                   title="Actualizar tarifas"
                 >
