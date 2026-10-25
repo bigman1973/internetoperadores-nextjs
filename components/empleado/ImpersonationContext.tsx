@@ -56,11 +56,15 @@ export function ImpersonationProvider({ children }: { children: React.ReactNode 
   const [canImpersonateState, setCanImpersonateState] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
+  // Depende sólo del correo y del rol: next-auth vuelve a emitir un objeto de
+  // sesión nuevo al revalidar y eso no debe reiniciar el portal ni sus cargas.
+  const sessionEmail = session?.user?.email ? session.user.email.toLowerCase() : null;
+  const sessionRole: string = (session?.user as any)?.role || '';
   useEffect(() => {
-    if (!session?.user?.email) return;
+    if (!sessionEmail) return;
     setIsReady(false);
-    const email = session.user.email.toLowerCase();
-    const role = (session.user as any).role || '';
+    const email = sessionEmail;
+    const role = sessionRole;
     const isAdmin = ROLES_ADMIN.includes(role) || EMAILS_ADMIN.includes(email);
     setCanImpersonateState(isAdmin);
 
@@ -81,7 +85,7 @@ export function ImpersonationProvider({ children }: { children: React.ReactNode 
       })
       .catch(() => {})
       .finally(() => setIsReady(true));
-  }, [session]);
+  }, [sessionEmail, sessionRole]);
 
   const setImpersonatedEmail = useCallback((email: string | null) => {
     const normalizedEmail = email ? email.toLowerCase() : null;
