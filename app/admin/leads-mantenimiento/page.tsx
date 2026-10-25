@@ -174,7 +174,7 @@ export default function LeadsMantenimientoPage() {
       </div>
 
       {/* Dashboard métricas */}
-      <div className="min-h-[372px] sm:min-h-[180px] lg:min-h-[84px] mb-6" aria-busy={!stats}>
+      <div className="min-h-[372px] sm:min-h-[180px] lg:min-h-[84px] mb-6" aria-busy={!stats && loading}>
         {stats ? <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           <div className="bg-white rounded-xl border border-gray-200 p-4 text-center">
             <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
@@ -208,13 +208,13 @@ export default function LeadsMantenimientoPage() {
             <p className="text-2xl font-bold text-gray-700">{stats.sinOferta}</p>
             <p className="text-xs text-gray-500 mt-1">Sin oferta</p>
           </div>
-        </div> : <div role="status" aria-label="Cargando métricas de mantenimiento" className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 animate-pulse">
+        </div> : loading ? <div role="status" aria-label="Cargando métricas de mantenimiento" className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 animate-pulse">
           {[...Array(8)].map((_, index) => <div key={index} className="h-[116px] rounded-xl border border-gray-200 bg-white p-4"><div className="mx-auto h-7 w-12 rounded bg-gray-200" /><div className="mx-auto mt-3 h-3 w-16 rounded bg-gray-100" /></div>)}
-        </div>}
+        </div> : null}
       </div>
 
       {/* Distribución por tipo de negocio */}
-      <div className="min-h-[148px] sm:min-h-[68px] mb-6" aria-busy={!stats}>
+      <div className="min-h-[148px] sm:min-h-[68px] mb-6" aria-busy={!stats && loading}>
       {stats && stats.total > 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <button
@@ -246,7 +246,7 @@ export default function LeadsMantenimientoPage() {
             <p className="text-xs text-gray-600">Med/Grande</p>
           </button>
         </div>
-      ) : !stats ? <div role="status" aria-label="Cargando distribución por tipo de negocio" className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-pulse">
+      ) : !stats && loading ? <div role="status" aria-label="Cargando distribución por tipo de negocio" className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-pulse">
         {[...Array(4)].map((_, index) => <div key={index} className="h-[68px] rounded-xl border border-gray-200 bg-white p-3"><div className="mx-auto h-5 w-10 rounded bg-gray-200" /><div className="mx-auto mt-2 h-3 w-16 rounded bg-gray-100" /></div>)}
       </div> : null}
       </div>
