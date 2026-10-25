@@ -19,15 +19,16 @@ export default async function AdminLayout({
   children: React.ReactNode
 }) {
   const session = await requireAuth('admin')
-  // Both values originate from server configuration plus current_database/current_user.
-  // There is no client hostname fallback and neither lookup writes financial state.
-  const [profileEnvironment, financeContext] = await Promise.all([
-    getFinanceEasyProfileRuntime(), getFinanceEasyRuntimeContext(),
+  // Las tres lecturas posteriores a la autenticación son independientes y no mutan
+  // estado. Mantenemos requireAuth como barrera y la decisión de acceso debajo.
+  const [profileEnvironment, financeContext, canAccessAdmin] = await Promise.all([
+    getFinanceEasyProfileRuntime(),
+    getFinanceEasyRuntimeContext(),
+    canAccessAdminPanel(session.user, usuarioId =>
+      prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
+    ),
   ])
   const easyOnly = profileEnvironment !== null && await isEasyOnlyFinanceUser(Number(session.user.id))
-  const canAccessAdmin = await canAccessAdminPanel(session.user, usuarioId =>
-    prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
-  )
   if (!canAccessAdmin && !easyOnly) {
     redirect('/empleado')
   }
