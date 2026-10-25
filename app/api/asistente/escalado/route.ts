@@ -6,6 +6,7 @@ import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { esMismoOrigen, ipSolicitud, jsonPrivado, leerJsonLimitado } from '@/lib/asistente/http'
 import { consumirRateLimit, hmacAsistente } from '@/lib/asistente/rate-limit'
 import { conversacionPublicaSegura } from '@/lib/asistente/responder'
+import { redactarPIILocal } from '@/lib/asistente/pii'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
   const dentroHorario = dentroHorarioHumano(configuracion.horario)
   try {
     await prisma.$transaction(async (tx) => {
-      const escalado = await tx.asistenteEscalado.create({ data: { conversacionId: conversacion.id, motivo: entrada.data.motivo, dentroHorario, contactoNombre: null, contactoTelefono: null, contactoEmail: null, preferencia: entrada.data.preferencia || null, franja: entrada.data.franja?.trim() || null, consentimiento: entrada.data.consentimiento } })
+      const escalado = await tx.asistenteEscalado.create({ data: { conversacionId: conversacion.id, motivo: entrada.data.motivo, dentroHorario, contactoNombre: null, contactoTelefono: null, contactoEmail: null, preferencia: entrada.data.preferencia || null, franja: entrada.data.franja?.trim() ? redactarPIILocal(entrada.data.franja.trim(), true) : null, consentimiento: entrada.data.consentimiento } })
       if (entrada.data.consentimiento) {
         const borrarDespues = new Date()
         borrarDespues.setMonth(borrarDespues.getMonth() + configuracion.retencionMeses)
