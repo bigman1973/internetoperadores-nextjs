@@ -89,7 +89,7 @@ function moduloConDefault(valor: unknown): any {
 
 /** Carga responder.ts con un único seam: un alcance interno ya autenticado. */
 async function cargarRespondedorInterno(prisma: any): Promise<(entrada: any) => Promise<any>> {
-  const [config, guard, horario, pii, provider, retrieval, texto] = await Promise.all([
+  const [config, guard, horario, pii, provider, retrieval, texto, relevance] = await Promise.all([
     import('@/lib/asistente/config'),
     import('@/lib/asistente/guard'),
     import('@/lib/asistente/horario'),
@@ -97,6 +97,7 @@ async function cargarRespondedorInterno(prisma: any): Promise<(entrada: any) => 
     import('@/lib/asistente/provider'),
     import('@/lib/asistente/retrieval'),
     import('@/lib/asistente/text'),
+    import('@/lib/asistente/relevance'),
   ])
   const fuente = fs.readFileSync(path.join(RAIZ, 'lib/asistente/responder.ts'), 'utf8')
   const compilado = ts.transpileModule(fuente, {
@@ -112,6 +113,7 @@ async function cargarRespondedorInterno(prisma: any): Promise<(entrada: any) => 
     '@/lib/asistente/provider': provider,
     '@/lib/asistente/retrieval': retrieval,
     '@/lib/asistente/text': texto,
+    '@/lib/asistente/relevance': relevance,
   }
   const exports: any = {}
   new Function('require', 'exports', compilado)(

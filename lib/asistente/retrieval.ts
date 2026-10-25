@@ -3,11 +3,24 @@ import net from 'node:net'
 import prisma from '@/lib/prisma'
 import type { AlcanceAsistente } from '@/lib/asistente/acl'
 import { normalizar } from '@/lib/asistente/text'
-import { fetchInterno, urlInternaSegura } from '@/lib/asistente/network'
+import { urlInternaSegura } from '@/lib/asistente/network'
+import { esAlcanceSoloPublico, filtrarCandidatosPublicos, reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
 
-export type FragmentoRecuperado = { id: string; documentoId: string; versionId: string; titulo: string; contenido: string; urlFuente: string | null; puntuacion: number }
+export type FragmentoRecuperado = {
+  id: string
+  documentoId: string
+  versionId: string
+  titulo: string
+  contenido: string
+  urlFuente: string | null
+  puntuacion: number
+  /** Sólo se usa como segunda defensa de aptitud en el canal público. */
+  origen?: string | null
+  tipo?: string | null
+}
 
-function limiteSeguro(valor: number | undefined): number { return Math.max(1, Math.min(20, Number.isInteger(valor) ? Number(valor) : 6)) }
+/** El chat sólo entrega hasta tres fuentes distintas; normalmente el reranker deja una o dos. */
+function limiteSeguro(valor: number | undefined): number { return Math.max(1, Math.min(3, Number.isInteger(valor) ? Number(valor) : 3)) }
 
 // Términos interrogativos o de forma no identifican por sí solos una fuente.
 // Se descartan antes de buscar para que una pregunta sin contexto conserve el
@@ -47,44 +60,10 @@ export function urlEmbeddingsInternaParaChat(valor: string | undefined): URL | n
   return null
 }
 
-async function consultaFts(terminos: string, alcance: AlcanceAsistente, limite: number, operador: 'web' | 'plain'): Promise<FragmentoRecuperado[]> {
-  const consulta = operador === 'web'
-    ? Prisma.sql`websearch_to_tsquery('spanish', ${terminos})`
-    : Prisma.sql`plainto_tsquery('spanish', ${terminos})`
-  const { espacios, roles, tenant, todoInterno } = filtroAlcance(alcance)
-  return prisma.$queryRaw<FragmentoRecuperado[]>(Prisma.sql`
-    WITH q AS (SELECT ${consulta} AS tsq)
-    SELECT f.id::text AS "id", f.documento_id::text AS "documentoId", f.version_id::text AS "versionId",
-           f.titulo AS "titulo", f.contenido AS "contenido", f.url_fuente AS "urlFuente",
-           ts_rank_cd(f.tsv, q.tsq) AS "puntuacion"
-      FROM asistente_fragmentos f
-      JOIN asistente_documentos d ON d.id = f.documento_id
-      CROSS JOIN q
-     WHERE f.activo = true
-       AND d.estado = 'PUBLICADO'
-       AND f.espacio = ANY(${espacios}::text[])
-       AND (f.espacio <> 'INTERNO' OR ${todoInterno} OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
-       AND (f.espacio <> 'CLIENTE' OR f.tenant_cliente_id = ${tenant})
-       AND f.tsv @@ q.tsq
-     ORDER BY "puntuacion" DESC, f.created_at DESC
-     LIMIT ${limite}
-  `)
-}
-
-function coseno(a: number[], b: number[]): number {
-  if (a.length !== b.length || a.length === 0) return 0
-  let punto = 0, aa = 0, bb = 0
-  for (let i = 0; i < a.length; i += 1) { punto += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i] }
-  return aa && bb ? punto / Math.sqrt(aa * bb) : 0
-}
-
 /**
- * Tercer intento para preguntas naturales («¿cuánto tarda la instalación?»),
- * donde exigir todas las palabras no encuentra nada: OR de los lexemas, pero
- * el ranking prima las coincidencias del contenido sobre las del título. La
- * consulta ya descartó términos genéricos antes de llegar aquí, por lo que una
- * formulación natural puede recuperar evidencia literal sin abrir respuestas a
- * consultas ambiguas. Mantiene exactamente los filtros de espacio/rol/cliente.
+ * Recupera únicamente filas permitidas. La ACL de espacio, roles y tenant es
+ * parte de ESTA consulta SQL y se ejecuta antes del ranking local: el
+ * reranker no recibe contenido privado para decidir si ocultarlo después.
  */
 async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, limite: number): Promise<FragmentoRecuperado[]> {
   const { espacios, roles, tenant, todoInterno } = filtroAlcance(alcance)
@@ -98,7 +77,7 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
       SELECT c.* FROM (
         SELECT f.id::text AS "id", f.documento_id::text AS "documentoId", f.version_id::text AS "versionId",
                f.titulo AS "titulo", f.contenido AS "contenido", f.url_fuente AS "urlFuente",
-               ts_rank_cd(f.tsv, q.tsq) AS "puntuacion",
+               d.origen AS "origen", d.tipo AS "tipo", ts_rank_cd(f.tsv, q.tsq) AS "puntuacion",
              (SELECT count(*) FROM unnest(tsvector_to_array(to_tsvector('spanish', translate(lower(f.contenido), 'áéíóúüñ', 'aeiouun')))) t WHERE EXISTS (SELECT 1 FROM unnest(q.prefijos) p WHERE t = p OR length(p) >= 5 AND t LIKE p || '%'))::int AS "coincidenciasContenido",
              (SELECT count(*) FROM unnest(tsvector_to_array(to_tsvector('spanish', translate(lower(f.titulo), 'áéíóúüñ', 'aeiouun')))) t WHERE EXISTS (SELECT 1 FROM unnest(q.prefijos) p WHERE t = p OR length(p) >= 5 AND t LIKE p || '%'))::int AS "coincidenciasTitulo",
              q.n::int AS "n", f.created_at AS "creado"
@@ -108,58 +87,34 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
        WHERE q.tsq IS NOT NULL
          AND f.activo = true
          AND d.estado = 'PUBLICADO'
+         AND d.espacio = f.espacio
+         AND (d.espacio <> 'INTERNO' OR ${todoInterno} OR cardinality(d.roles) = 0 OR d.roles <@ ${roles}::text[])
+         AND (d.espacio <> 'CLIENTE' OR d.tenant_cliente_id = ${tenant})
+         AND (d.espacio <> 'PUBLICO' OR (d.tenant_cliente_id IS NULL AND f.tenant_cliente_id IS NULL))
          AND f.espacio = ANY(${espacios}::text[])
          AND (f.espacio <> 'INTERNO' OR ${todoInterno} OR cardinality(f.roles) = 0 OR f.roles <@ ${roles}::text[])
          AND (f.espacio <> 'CLIENTE' OR f.tenant_cliente_id = ${tenant})
          AND f.tsv @@ q.tsq
     ) c
-     -- Una sola coincidencia en el cuerpo suele ser incidental (por ejemplo,
-     -- «satélite» en una pregunta astronómica). Un título sí es suficiente
-     -- porque identifica explícitamente el ámbito de la fuente.
-     WHERE c."coincidenciasContenido" >= 2 OR c."coincidenciasTitulo" >= 1
-     -- El título es el resumen aprobado de la fuente: pesa más que una palabra
-     -- incidental del cuerpo (por ejemplo «monitorización» de soporte frente a
-     -- una pregunta específicamente sobre respaldo).
+     -- Una señal de cuerpo permite recuperar atributos como monitorización.
+     -- La aceptación temática estricta se hace después sobre filas SQL-ACL.
+     WHERE c."coincidenciasContenido" >= 1 OR c."coincidenciasTitulo" >= 1
      ORDER BY (c."coincidenciasTitulo" * 3 + c."coincidenciasContenido") DESC, c."puntuacion" DESC, c."creado" DESC
      LIMIT ${limite}
   `)
-  return filas.map(({ id, documentoId, versionId, titulo, contenido, urlFuente, coincidenciasContenido, coincidenciasTitulo, n }) => ({
+  return filas.map(({ id, documentoId, versionId, titulo, contenido, urlFuente, origen, tipo, coincidenciasContenido, coincidenciasTitulo, n }) => ({
     id,
     documentoId,
     versionId,
     titulo,
     contenido,
     urlFuente,
-    // El título es un resumen aprobado del documento y, por tanto, es una
-    // señal de intención más fuerte que una coincidencia aislada del cuerpo.
+    origen,
+    tipo,
+    // Señal de recuperación únicamente; el orden final procede del reranker
+    // local que contrasta intención y tópico.
     puntuacion: n > 0 ? (Number(coincidenciasContenido) + Number(coincidenciasTitulo) * 3) / Number(n) : 0,
   }))
-}
-
-async function embeddingConsulta(consulta: string): Promise<number[] | null> {
-  const base = urlEmbeddingsInternaParaChat(process.env.ASSISTANT_EMBEDDINGS_URL)
-  if (!base) return null
-  const url = new URL('/v1/embeddings', base)
-  try {
-    const respuesta = await fetchInterno(url, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', ...(process.env.ASSISTANT_EMBEDDINGS_API_KEY ? { authorization: `Bearer ${process.env.ASSISTANT_EMBEDDINGS_API_KEY}` } : {}) }, body: JSON.stringify({ input: [consulta] }) })
-    if (!respuesta.ok) return null
-    const datos = await respuesta.json() as { data?: Array<{ embedding?: unknown }> }
-    const vector = datos.data?.[0]?.embedding
-    return Array.isArray(vector) && vector.length <= 2048 && vector.every(numero => typeof numero === 'number' && Number.isFinite(numero)) ? vector : null
-  } catch { return null }
-}
-
-async function reordenarHibrido(fragmentos: FragmentoRecuperado[], consulta: string): Promise<FragmentoRecuperado[]> {
-  const vector = await embeddingConsulta(consulta)
-  if (!vector || fragmentos.length < 2) return fragmentos
-  try {
-    const ids = fragmentos.map(fragmento => fragmento.id)
-    const filas = await prisma.$queryRaw<Array<{ id: string; embedding: number[] | null }>>(Prisma.sql`
-      SELECT id::text AS "id", embedding FROM asistente_fragmentos WHERE id = ANY(${ids}::uuid[])
-    `)
-    const porId = new Map(filas.map(fila => [fila.id, fila.embedding || []]))
-    return [...fragmentos].sort((a, b) => coseno((porId.get(b.id) || []) as number[], vector) - coseno((porId.get(a.id) || []) as number[], vector))
-  } catch { return fragmentos }
 }
 
 export async function buscar(consulta: string, alcance: AlcanceAsistente, opciones: { limite?: number } = {}): Promise<FragmentoRecuperado[]> {
@@ -168,9 +123,12 @@ export async function buscar(consulta: string, alcance: AlcanceAsistente, opcion
   if (normalizada.length < 2 || !contextual) return []
   const limite = limiteSeguro(opciones.limite)
   const terminos = contextual.split(' ').slice(0, 12).join(' ')
-  const cobertura = await consultaCobertura(terminos, alcance, limite)
-  // La cobertura ya busca todos los lexemas con el mismo filtro ACL. No se
-  // mezcla ts_rank_cd (otra escala) para que una coincidencia parcial no
-  // desplace a una fuente con más evidencia literal.
-  return reordenarHibrido(cobertura, normalizada)
+
+  // El margen de candidatos es siempre SQL-ACL; se usa sólo para permitir que
+  // el reranker descarte coincidencias accidentales antes de entregar fuentes.
+  const autorizadas = await consultaCobertura(terminos, alcance, 80)
+  // La política compartida filtra el contenido y exige procedencia certificada
+  // en tarifas públicas; la ACL de documento y fragmento ya se aplicó en SQL.
+  const aptas = esAlcanceSoloPublico(alcance.espacios) ? filtrarCandidatosPublicos(autorizadas) : autorizadas
+  return reordenarCandidatosLocalmente(normalizada, aptas, limite)
 }

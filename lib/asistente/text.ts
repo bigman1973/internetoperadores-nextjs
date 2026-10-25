@@ -17,7 +17,11 @@ export function normalizar(valor: string): string {
 export function consultaParaRecuperacion(valor: string): string {
   const sinMarcadores = String(valor ?? '').replace(/\[[A-Z_]+\]/g, ' ').replace(/\s+/g, ' ').trim()
   const inicioPregunta = sinMarcadores.lastIndexOf('¿')
-  return inicioPregunta >= 0 ? sinMarcadores.slice(inicioPregunta).trim() : sinMarcadores
+  // «Si se cae mi fibra, ¿cómo entra el respaldo?» conserva el antecedente.
+  // Sólo una declaración anonimizada anterior permite acotar a la pregunta.
+  const prefijoOriginal = String(valor ?? '').split('¿').slice(0, -1).join('¿')
+  return inicioPregunta >= 0 && /\[[A-Z_]+\]/.test(prefijoOriginal)
+    ? sinMarcadores.slice(inicioPregunta).trim() : sinMarcadores
 }
 
 export function textoPlano(valor: string): string {
