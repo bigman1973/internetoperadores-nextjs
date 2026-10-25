@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import dynamic from 'next/dynamic';
+import { useState, useRef, type ComponentType } from 'react';
+import type { UsuarioInitialData } from './usuariosInitialData';
+import {
+  loadPermisosUsuarioModal,
+  loadPerfilEditorModal,
+  loadUsuarioEditorModal,
+} from './UsuariosModalLoaders';
 
-const PermisosUsuarioModal = dynamic(() => import('./PermisosUsuarioModal'), { ssr: false });
-const UsuarioEditorModal = dynamic(() => import('../../app/admin/usuarios/UsuarioEditorModal'), { ssr: false });
-const PerfilEditorModal = dynamic(() => import('../../app/admin/usuarios/PerfilEditorModal'), { ssr: false });
+type ModalComponent = ComponentType<any>;
 
 interface Usuario {
   id: number;
@@ -45,15 +48,14 @@ const ROLES = [
   { value: 'VISOR', label: 'Visor (Solo Portal)', color: 'bg-gray-100 text-gray-800' },
 ];
 
-export default function UsuariosAdminClient() {
+export default function UsuariosAdminClient({ initialUsuarios }: { initialUsuarios: UsuarioInitialData[] }) {
   const [activeTab, setActiveTab] = useState<'usuarios' | 'perfiles'>('usuarios');
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>(initialUsuarios);
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
   const [perfilesLoaded, setPerfilesLoaded] = useState(false);
   const [perfilesLoading, setPerfilesLoading] = useState(false);
   const perfilesRequestRef = useRef<Promise<void> | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<Usuario | null>(null);
   const [formData, setFormData] = useState({
@@ -69,6 +71,9 @@ export default function UsuariosAdminClient() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [permisosUser, setPermisosUser] = useState<{id: number, nombre: string} | null>(null);
+  const [PermisosUsuarioModal, setPermisosUsuarioModal] = useState<ModalComponent | null>(null);
+  const [UsuarioEditorModal, setUsuarioEditorModal] = useState<ModalComponent | null>(null);
+  const [PerfilEditorModal, setPerfilEditorModal] = useState<ModalComponent | null>(null);
 
   // Perfiles editor state
   const [showPerfilModal, setShowPerfilModal] = useState(false);
@@ -80,22 +85,6 @@ export default function UsuariosAdminClient() {
     color: '#6366f1',
     permisos: [] as Array<{ areaCodigo: string; lectura: boolean; escritura: boolean }>,
   });
-
-  useEffect(() => {
-    const fetchInitialUsuarios = async () => {
-      try {
-        const res = await fetch('/api/admin/usuarios');
-        const data = await res.json();
-        setUsuarios(data.usuarios || []);
-      } catch (err) {
-        console.error('Error fetching usuarios:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchInitialUsuarios();
-  }, []);
 
   const fetchUsuarios = async () => {
     try {
@@ -147,14 +136,18 @@ export default function UsuariosAdminClient() {
   };
 
   const openCreateModal = async () => {
+    const modal = loadUsuarioEditorModal();
     setEditingUser(null);
     setFormData({ email: '', nombre: '', password: '', rol: 'VISOR', roles: [], activo: true, perfilId: '' });
     setError('');
     await fetchPerfiles();
+    const { default: UsuarioModal } = await modal;
+    setUsuarioEditorModal(() => UsuarioModal);
     setShowModal(true);
   };
 
   const openEditModal = async (user: Usuario) => {
+    const modal = loadUsuarioEditorModal();
     setEditingUser(user);
     setFormData({
       email: user.email,
@@ -167,7 +160,16 @@ export default function UsuariosAdminClient() {
     });
     setError('');
     await fetchPerfiles();
+    const { default: UsuarioModal } = await modal;
+    setUsuarioEditorModal(() => UsuarioModal);
     setShowModal(true);
+  };
+
+  const openPermisosModal = async (user: Usuario) => {
+    setPermisosUser({ id: user.id, nombre: user.nombre });
+    setPermisosUsuarioModal(() => null);
+    const { default: PermisosModal } = await loadPermisosUsuarioModal();
+    setPermisosUsuarioModal(() => PermisosModal);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -296,13 +298,17 @@ export default function UsuariosAdminClient() {
 
   // --- Perfiles ---
   const openCreatePerfil = async () => {
+    const modal = loadPerfilEditorModal();
     await fetchAreas();
     setEditingPerfil(null);
     setPerfilForm({ nombre: '', descripcion: '', color: '#6366f1', permisos: [] });
+    const { default: PerfilModal } = await modal;
+    setPerfilEditorModal(() => PerfilModal);
     setShowPerfilModal(true);
   };
 
   const openEditPerfil = async (perfil: Perfil) => {
+    const modal = loadPerfilEditorModal();
     await fetchAreas();
     setEditingPerfil(perfil);
     setPerfilForm({
@@ -311,6 +317,8 @@ export default function UsuariosAdminClient() {
       color: perfil.color,
       permisos: perfil.permisos || [],
     });
+    const { default: PerfilModal } = await modal;
+    setPerfilEditorModal(() => PerfilModal);
     setShowPerfilModal(true);
   };
 
@@ -435,28 +443,6 @@ export default function UsuariosAdminClient() {
       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   };
-
-  if (loading) {
-    return (
-      <div className="space-y-6" aria-busy="true" aria-live="polite">
-        <div className="sm:flex sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">USUARIOS Y PERMISOS</h1>
-            <p className="mt-1 text-sm text-gray-500">Gestión de usuarios, roles y perfiles de permisos.</p>
-          </div>
-          <div className="mt-4 h-11 w-40 rounded-md bg-gray-100 sm:mt-0" />
-        </div>
-        <div className="border-b border-gray-200"><div className="h-11 w-72 rounded-t bg-gray-100" /></div>
-        <div className="h-24 rounded-md border border-blue-100 bg-blue-50" />
-        <div className="min-h-[24rem] overflow-x-auto rounded-lg border border-gray-200 bg-white shadow">
-          <div className="min-w-[800px] divide-y divide-gray-200">
-            <div className="h-12 bg-gray-50" />
-            {[...Array(5)].map((_, index) => <div key={index} className="h-20 animate-pulse bg-gray-50/50" />)}
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -618,7 +604,7 @@ export default function UsuariosAdminClient() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
-                        onClick={() => setPermisosUser({ id: user.id, nombre: user.nombre })}
+                        onClick={() => openPermisosModal(user)}
                         className="mr-3 inline-flex min-h-11 min-w-11 items-center text-indigo-600 hover:text-indigo-900"
                       >
                         Permisos
@@ -731,7 +717,7 @@ export default function UsuariosAdminClient() {
       )}
 
       {/* Modal Crear/Editar Usuario */}
-      {showModal && (
+      {showModal && UsuarioEditorModal && (
         <UsuarioEditorModal
           editingUser={editingUser}
           formData={formData}
@@ -744,13 +730,13 @@ export default function UsuariosAdminClient() {
           onFormDataChange={setFormData}
           onOpenPermisos={(user) => {
             setShowModal(false);
-            setPermisosUser({ id: user.id, nombre: user.nombre });
+            openPermisosModal(user);
           }}
         />
       )}
 
       {/* Modal Crear/Editar Perfil */}
-      {showPerfilModal && (
+      {showPerfilModal && PerfilEditorModal && (
         <PerfilEditorModal
           editingPerfil={editingPerfil}
           areas={areas}
@@ -767,7 +753,7 @@ export default function UsuariosAdminClient() {
       )}
 
       {/* Modal Permisos Granulares */}
-      {permisosUser && (
+      {permisosUser && PermisosUsuarioModal && (
         <PermisosUsuarioModal
           usuarioId={permisosUser.id}
           usuarioNombre={permisosUser.nombre}
