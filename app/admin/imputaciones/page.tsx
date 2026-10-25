@@ -396,7 +396,7 @@ export default function ImputacionesAdminPage() {
           </div>
 
           {(filtroCategoria === '' || filtroCategoria === 'Comercial') && (
-            <section className="min-h-[940px] space-y-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 sm:min-h-[700px] sm:p-5 xl:min-h-[510px]">
+            <section className="min-h-[940px] space-y-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 sm:min-h-[700px] sm:p-5 xl:min-h-[650px]">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Lectura contextual de la actividad comercial</h2>
