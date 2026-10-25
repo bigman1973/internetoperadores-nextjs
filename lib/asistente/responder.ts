@@ -167,7 +167,9 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
       fuentes = resultado.fuentes
       modoRespuesta = resultado.modo === 'local' ? 'local' : 'extractivo'
       if ('datoNoPublicado' in resultado && resultado.datoNoPublicado) {
-        sinFuente = true; motivo = 'SIN_RESPUESTA'; escalar = true
+        // Hay evidencia citada, pero no concreta el dato: se ofrece humano y
+        // se registra el hueco sin etiquetar las fuentes presentes como ausentes.
+        motivo = 'SIN_RESPUESTA'; escalar = true
         await guardarHueco(textoAnon, canal, conversacionId, mensajes.id)
       }
     }
