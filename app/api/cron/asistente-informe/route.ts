@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { generarInformeSiProcede } from '@/lib/asistente/informes'
+import { ejecutarInformesProgramados } from '@/lib/asistente/informes'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -16,6 +16,6 @@ export async function GET(req: Request) {
   if (process.env.ASSISTANT_CRON_ENABLED !== 'true' || !autorizado(req.headers.get('authorization'), process.env.CRON_SECRET)) {
     return new NextResponse(null, { status: 404 })
   }
-  const resultado = await generarInformeSiProcede('DIARIO', new Date(), 'cron')
-  return NextResponse.json({ ok: true, generado: resultado.generado })
+  const resultados = await ejecutarInformesProgramados(new Date(), 'cron:endpoint')
+  return NextResponse.json({ ok: true, informes: resultados.map(resultado => ({ tipo: resultado.tipo, generado: resultado.generado, motivo: resultado.motivo })) }, { headers: { 'cache-control': 'no-store' } })
 }

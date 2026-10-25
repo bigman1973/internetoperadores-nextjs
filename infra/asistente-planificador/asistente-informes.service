@@ -1,0 +1,23 @@
+# Plantilla: no está instalada ni habilitada por este repositorio.
+# Requiere host persistente autorizado y /etc/internetoperadores/asistente-informes.env (0600).
+[Unit]
+Description=Internet Operadores - generador local de informes del asistente (staging)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=internetoperadores
+Group=internetoperadores
+WorkingDirectory=/opt/internetoperadores/current
+Environment=NODE_ENV=production
+Environment=ASSISTANT_MODE=extractivo
+Environment=ASSISTANT_REPORT_EXECUTION_TARGET=staging
+EnvironmentFile=/etc/internetoperadores/asistente-informes.env
+ExecStart=/usr/bin/env ./node_modules/.bin/tsx scripts/asistente/ejecutar-informes.ts --target=staging
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/internetoperadores/current
+UMask=0077

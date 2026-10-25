@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
-import path from 'node:path'
 import { Client } from 'pg'
 import { config as cargarEntorno } from 'dotenv'
 
-cargarEntorno({ path: '/home/ubuntu/asistente-ia-20261025/pruebas/.env.aprendizaje' })
+cargarEntorno({ path: '/home/ubuntu/asistente-fases-20261025/pruebas/.env.local-informes', override: true })
 const url = process.env.ASSISTANT_TEST_DATABASE_URL
 if (!url) throw new Error('ASSISTANT_TEST_DATABASE_URL_REQUERIDA')
+const destino = new URL(url)
+if (destino.hostname !== '127.0.0.1' || destino.pathname !== '/asistente_fases_informes') throw new Error('INFORMES_DB_GUARD')
 process.env.DATABASE_URL = url
 process.env.ASSISTANT_MODE = 'extractivo'
 process.env.ASSISTANT_PUBLIC_ENABLED = 'true'
@@ -22,7 +23,7 @@ async function recrearEsquema() {
   try {
     await cliente.query('DROP SCHEMA public CASCADE')
     await cliente.query('CREATE SCHEMA public')
-    await cliente.query(fs.readFileSync(path.join(process.cwd(), 'prisma/migrations/20261025_asistente_ia/migration.sql'), 'utf8'))
+    await cliente.query(fs.readFileSync('/home/ubuntu/asistente-fases-20261025/pruebas/esquema_base_local.sql', 'utf8'))
   } finally { await cliente.end() }
 }
 
@@ -37,8 +38,8 @@ async function main() {
   const { cambiarEstadoPropuestaInforme, generarInformeSiProcede } = await import('@/lib/asistente/informes')
   const cron = await import('@/app/api/cron/asistente-informe/route')
   try {
-    const identidad = await prisma.$queryRaw<Array<{ db: string }>>`SELECT current_database() AS db`
-    assert.ok(identidad[0]?.db, 'la prueba usa una BD local configurada')
+    const identidad = await prisma.$queryRaw<Array<{ db: string; host: string }>>`SELECT current_database() AS db, inet_server_addr()::text AS host`
+    assert.deepEqual(identidad[0], { db: 'asistente_fases_informes', host: '127.0.0.1/32' }, 'la prueba usa exclusivamente la BD local asignada')
 
     // Hueco -> propuesta extractiva -> aprobación humana -> respuesta con cita del nuevo documento.
     const fuente = await indexarFuente({
@@ -55,13 +56,15 @@ async function main() {
     await prisma.asistenteDocumento.update({ where: { id: fuente.documentoId! }, data: { estado: 'ARCHIVADO' } })
     const aprobada = await decidirPropuestaAprendizaje({ id: propuesta.id, accion: 'aprobar', actorId: 7, espacio: 'PUBLICO' })
     assert.equal(aprobada.estado, 'APROBADA')
+    assert.equal(aprobada.slaMenosDeCincoMinutos, true)
+    assert.ok(aprobada.duracionIndexadoMs >= 0 && aprobada.duracionIndexadoMs < 5 * 60_000)
     const documento = await prisma.asistenteDocumento.findUniqueOrThrow({ where: { id: aprobada.documentoId! }, select: { tipo: true, estado: true, espacio: true } })
     assert.deepEqual(documento, { tipo: 'APRENDIZAJE', estado: 'PUBLICADO', espacio: 'PUBLICO' })
     assert.equal((await prisma.asistenteHueco.findUniqueOrThrow({ where: { id: hueco.id } })).estado, 'RESUELTO')
     const chat = await responderMensaje({ mensaje: pregunta, contexto: 'PUBLICO', visitanteHash: 'visitante-prueba-aprendizaje' })
     assert.equal(chat.sinFuente, false)
     assert.ok(chat.fuentes.some(cita => cita.documentoId === aprobada.documentoId), 'el chat cita el documento aprobado de inmediato')
-    console.log('OK hueco → propuesta → aprobación → cita inmediata')
+    console.log(`OK hueco → propuesta → aprobación → cita inmediata; SLA de indexación real ${aprobada.duracionIndexadoMs} ms (<5 min)`)
 
     // Un descarte no publica ningún documento.
     const huecoDescartado = await prisma.asistenteHueco.create({ data: { preguntaAnon: '¿Qué significa el código cuarzo?', preguntaNorm: 'que significa el codigo cuarzo', canal: 'PUBLICO' } })
@@ -103,15 +106,31 @@ async function main() {
     const candidata = informe27.informe?.propuestas.find((fila: any) => fila.titulo.includes('amatista'))
     assert.ok(candidata, 'se deriva una propuesta por hueco recurrente')
     await cambiarEstadoPropuestaInforme(candidata!.id, 'DESCARTADA', 7)
+    const decisionAuditada = await prisma.asistenteInformePropuesta.findUniqueOrThrow({ where: { id: candidata!.id }, select: { estado: true, decididoPor: true, decidedAt: true } })
+    assert.equal(decisionAuditada.estado, 'DESCARTADA')
+    assert.equal(decisionAuditada.decididoPor, 7)
+    assert.ok(decisionAuditada.decidedAt, 'la decisión conserva su auditoría mínima')
+    await assert.rejects(() => cambiarEstadoPropuestaInforme(candidata!.id, 'HECHA', 7), /PROPUESTA_NO_PENDIENTE/)
     await prisma.asistenteHueco.create({ data: { preguntaAnon: preguntaRepetida, preguntaNorm: preguntaRepetida, canal: 'CLIENTE', createdAt: new Date('2026-10-27T10:00:00Z'), updatedAt: new Date('2026-10-27T10:00:00Z') } })
     const informe28 = await generarInformeSiProcede('DIARIO', new Date('2026-10-28T10:00:00Z'), 7)
     assert.ok(!informe28.informe?.propuestas.some((fila: any) => fila.titulo.includes('amatista')), 'una huella descartada no reaparece')
-    console.log('OK huella descartada no reaparece')
+    console.log('OK decisión auditada, terminal y huella descartada no reaparece')
 
     // Sin bandera habilitadora, el cron queda deliberadamente inerte.
     const respuestaCron = await cron.GET(new Request('http://localhost/api/cron/asistente-informe'))
     assert.equal(respuestaCron.status, 404)
-    console.log('OK cron inerte sin flag')
+    process.env.ASSISTANT_CRON_ENABLED = 'true'
+    process.env.CRON_SECRET = 'secreto-cron-sintetico'
+    const sinSecreto = await cron.GET(new Request('http://localhost/api/cron/asistente-informe'))
+    assert.equal(sinSecreto.status, 404)
+    const conSecreto = await cron.GET(new Request('http://localhost/api/cron/asistente-informe', { headers: { authorization: 'Bearer secreto-cron-sintetico' } }))
+    assert.equal(conSecreto.status, 200)
+    const cuerpoCron = await conSecreto.json() as { ok?: boolean; informes?: unknown[] }
+    assert.equal(cuerpoCron.ok, true)
+    assert.equal(Array.isArray(cuerpoCron.informes), true)
+    delete process.env.ASSISTANT_CRON_ENABLED
+    delete process.env.CRON_SECRET
+    console.log('OK cron inerte sin flag y endpoint protegido por secreto cuando se habilita')
     console.log('TEST_ASISTENTE_APRENDIZAJE_DB_OK')
   } finally { await prisma.$disconnect() }
 }

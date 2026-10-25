@@ -17,5 +17,10 @@ export async function PATCH(req: Request, contexto: { params: Promise<{ id: stri
   const cuerpo = await leerJsonLimitado(req)
   const entrada = cuerpo.ok ? esquema.safeParse(cuerpo.datos) : { success: false as const }
   if (!entrada.success) return jsonPrivado({ error: 'Solicitud inválida' }, 400)
-  try { return jsonPrivado({ ok: true, propuesta: await cambiarEstadoPropuestaInforme(id, entrada.data.estado, acceso.actor.id) }) } catch { return jsonPrivado({ error: 'Propuesta no encontrada' }, 404) }
+  try {
+    return jsonPrivado({ ok: true, propuesta: await cambiarEstadoPropuestaInforme(id, entrada.data.estado, acceso.actor.id) })
+  } catch (error) {
+    const codigo = error instanceof Error ? error.message : ''
+    return jsonPrivado({ error: codigo === 'PROPUESTA_NO_PENDIENTE' ? 'La propuesta ya tiene una decisión registrada' : 'Propuesta no encontrada' }, codigo === 'PROPUESTA_NO_PENDIENTE' ? 409 : 404)
+  }
 }

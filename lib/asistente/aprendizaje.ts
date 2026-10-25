@@ -113,13 +113,14 @@ export async function decidirPropuestaAprendizaje(entrada: { id: string; accion:
       }
       return actualizada
     })
-    return { ...resultado, documentoId: null }
+    return { ...resultado, documentoId: null, duracionIndexadoMs: null, slaMenosDeCincoMinutos: null }
   }
 
   const pregunta = await redactarPII(textoPlano(entrada.pregunta ?? propuesta.pregunta).slice(0, 1600), { incluirCodigoPostal: true })
   const respuesta = await redactarPII(textoPlano(entrada.respuesta ?? propuesta.respuestaPropuesta).slice(0, 6000), { incluirCodigoPostal: false })
   if (!pregunta.trim() || !respuesta.trim()) throw new Error('RESPUESTA_REQUERIDA')
   const espacio = entrada.espacio || 'INTERNO'
+  const inicioIndexado = Date.now()
   const resultadoIndice = await indexarFuente({
     titulo: `Aprendizaje: ${pregunta.slice(0, 180)}`,
     contenido: respuesta,
@@ -128,6 +129,7 @@ export async function decidirPropuestaAprendizaje(entrada: { id: string; accion:
     urlFuente: null,
   }, entrada.actorId, { espacio, estado: 'PUBLICADO' })
   if (!resultadoIndice.documentoId) throw new Error('INDEXADO_NO_DISPONIBLE')
+  const duracionIndexadoMs = Date.now() - inicioIndexado
   // indexarFuente crea los fragmentos y los activa de forma síncrona; este tipo
   // identifica el origen aprobado sin alterar el contenido ni su publicación.
   await prisma.asistenteDocumento.update({ where: { id: resultadoIndice.documentoId }, data: { tipo: 'APRENDIZAJE', updatedAt: ahora } })
@@ -144,7 +146,7 @@ export async function decidirPropuestaAprendizaje(entrada: { id: string; accion:
     }
     return tx.asistentePropuestaAprendizaje.findUniqueOrThrow({ where: { id: propuesta.id }, select: { id: true, estado: true, documentoId: true, decidedAt: true } })
   })
-  return resultado
+  return { ...resultado, duracionIndexadoMs, slaMenosDeCincoMinutos: duracionIndexadoMs < 5 * 60_000 }
 }
 
 export async function cambiarEstadoHueco(id: string, estado: 'DESCARTADO' | 'NUEVO') {
