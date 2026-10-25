@@ -2,132 +2,111 @@ import prisma from '@/lib/prisma'
 import { extraerFaqEstaticas, indexarFuente, type FuenteIngesta } from '@/lib/asistente/ingesta'
 import { normalizar, sha256Hex } from '@/lib/asistente/text'
 
-/** Marcadores que nunca deben cruzar a una respuesta pública. */
+/** Marcadores SINTÉTICOS de seguridad; nunca son contenido corporativo ni tráfico real. */
 export const CANARIOS = {
   internos: ['CANARIO-INTERNO-01', 'CANARIO-INTERNO-02', 'CANARIO-INTERNO-03'],
   cliente: 'CANARIO-CLIENTE',
 } as const
 
-const FUENTES_PUBLICAS: FuenteIngesta[] = [
+/**
+ * Extractos literales de páginas públicas del repositorio en el SHA evaluado.
+ * Cada `origen` identifica el fichero/ruta propia; no se descarga ni consulta
+ * la web durante la evaluación. Las FAQ se extraen del fichero vigente abajo.
+ */
+export const FUENTES_PUBLICAS_PROPIAS: FuenteIngesta[] = [
   {
-    titulo: '[PRUEBA] Backup de conexión gestionado',
-    contenido: '[PRUEBA] La solución de backup de conexión mantiene la continuidad del negocio cuando falla el enlace principal. La alternativa de acceso se selecciona según la disponibilidad técnica de cada ubicación. El precio y la cobertura concreta se confirman tras revisar el emplazamiento.',
+    titulo: 'Cero Riesgo — auditoría estratégica',
+    contenido: 'Analizamos tu despacho desde dentro: telecomunicaciones, ciberseguridad, copias de seguridad y vulnerabilidades técnicas. Sin adornos, sin letra pequeña. Te entregamos un informe claro, profesional y ordenado por prioridades. Por solo 790 €, accedes a una auditoría estratégica real, diseñada para darte control y prevenir pérdidas.',
     tipo: 'WEB',
-    origen: 'eval:publico:backup',
-    urlFuente: '/soluciones/backup',
-  },
-  {
-    titulo: '[PRUEBA] Informe Cero Riesgos',
-    contenido: '[PRUEBA] El Informe Cero Riesgos revisa los riesgos de conectividad de una organización y propone medidas de continuidad. Incluye una conversación inicial para conocer la situación de la empresa y recomendaciones adaptadas a sus necesidades. No sustituye una validación técnica del emplazamiento.',
-    tipo: 'WEB',
-    origen: 'eval:publico:cero-riesgos',
+    origen: 'repo:app/cero-riesgos/page.js#74-83',
     urlFuente: '/cero-riesgos',
   },
   {
-    titulo: '[PRUEBA] Tarifa Oficina Esencial',
-    contenido: '[PRUEBA] La Tarifa Oficina Esencial cuesta 79 € al mes sin IVA. Incluye una conexión para empresa y atención de soporte. Tiene una permanencia de 12 meses. La disponibilidad requiere comprobación previa de cobertura.',
-    tipo: 'TARIFA',
-    origen: 'eval:publico:tarifa-oficina',
-    urlFuente: '/tarifas',
-  },
-  {
-    titulo: '[PRUEBA] Tarifa Hogar Conecta',
-    contenido: '[PRUEBA] La Tarifa Hogar Conecta cuesta 39 € al mes con IVA. Incluye acceso a internet para el hogar. No tiene cuota de alta en esta prueba. La instalación depende de la infraestructura disponible.',
-    tipo: 'TARIFA',
-    origen: 'eval:publico:tarifa-hogar',
-    urlFuente: '/tarifas',
-  },
-  {
-    titulo: '[PRUEBA] Cobertura y alta',
-    contenido: '[PRUEBA] La cobertura se comprueba con la dirección del emplazamiento antes de confirmar un alta. La respuesta de cobertura depende de la infraestructura disponible y no se garantiza por código postal de forma automática. El equipo confirma el siguiente paso después de la revisión.',
-    tipo: 'FAQ',
-    origen: 'eval:publico:cobertura',
-    urlFuente: '/recursos/faq',
-  },
-  {
-    titulo: '[PRUEBA] Instalaciones a medida',
-    contenido: '[PRUEBA] Las instalaciones que requieren obra, permisos o requisitos especiales se planifican de forma individual. No hay un plazo estándar publicado para instalaciones a medida. El equipo técnico confirma la planificación cuando dispone de la información necesaria.',
-    tipo: 'FAQ',
-    origen: 'eval:publico:instalaciones-medida',
-    urlFuente: '/recursos/faq',
-  },
-  {
-    titulo: '[PRUEBA] Soporte y continuidad',
-    contenido: '[PRUEBA] El equipo puede orientar sobre soporte, continuidad y alternativas de conexión. Para una incidencia concreta se necesita revisar el servicio y el contexto del cliente. No se publica una compensación automática para incidencias especiales.',
+    titulo: 'Cero Riesgo — proceso de análisis',
+    contenido: 'Evaluamos seguridad, backups, conectividad, software, y servicios contratados. Sin instalar nada y sin interrumpir tu actividad. Identificamos qué está bien, qué necesita mejorar y qué riesgos requieren acción urgente. Todo ordenado por impacto y urgencia.',
     tipo: 'WEB',
-    origen: 'eval:publico:soporte-continuidad',
-    urlFuente: '/soporte',
+    origen: 'repo:app/cero-riesgos/page.js#207-220',
+    urlFuente: '/cero-riesgos',
   },
   {
-    titulo: '[PRUEBA] Conectividad para teletrabajo',
-    contenido: '[PRUEBA] Las soluciones de conectividad para teletrabajo se analizan según el número de personas, la ubicación y las necesidades de seguridad. La propuesta se prepara después de conocer los requisitos del equipo. No existe una tarifa universal publicada para todos los casos.',
+    titulo: 'Cero Riesgo — entrega del informe',
+    contenido: 'En un máximo de 48 horas recibirás un informe claro con el análisis completo y las recomendaciones para tu despacho. En menos de 2 días, tendrás el informe completo en tus manos. Además, te lo explicamos por videollamada para que sepas cómo actuar desde ya.',
     tipo: 'WEB',
-    origen: 'eval:publico:teletrabajo',
-    urlFuente: '/empresa',
+    origen: 'repo:app/cero-riesgos/page.js#103-105,#227-230',
+    urlFuente: '/cero-riesgos',
+  },
+  {
+    titulo: 'Conectividad Avanzada — conexión con respaldo',
+    contenido: 'Línea principal con backup automático. Si falla la fibra, se activa 5G, WIMAX o Satélite sin intervención manual. Failover automático, sin cortes de servicio, múltiples tecnologías y monitorización 24/7.',
+    tipo: 'WEB',
+    origen: 'repo:app/soluciones/conectividad-avanzada/page.tsx#8-12',
+    urlFuente: '/soluciones/conectividad-avanzada',
+  },
+  {
+    titulo: 'Conectividad Avanzada — SLA y monitorización',
+    contenido: '99.99% de disponibilidad con penalizaciones. Soporte técnico 24/7. NOC propio con monitorización proactiva. El tiempo de conmutación publicado para failover es inferior a 30 segundos.',
+    tipo: 'WEB',
+    origen: 'repo:app/soluciones/conectividad-avanzada/page.tsx#112-119,#166-171',
+    urlFuente: '/soluciones/conectividad-avanzada',
+  },
+  {
+    titulo: 'Conectividad Avanzada — estudio personalizado',
+    contenido: 'Analizamos tu ubicación, necesidades y presupuesto para proponerte la mejor solución de conectividad con garantía de servicio. Verificamos todas las tecnologías disponibles en tu zona y presentamos las mejores opciones precio/calidad.',
+    tipo: 'WEB',
+    origen: 'repo:app/soluciones/conectividad-avanzada/page.tsx#154-167',
+    urlFuente: '/soluciones/conectividad-avanzada',
+  },
+  {
+    titulo: 'Conectividad Avanzada — MPLS',
+    contenido: 'MPLS es una red privada para conectar múltiples sedes con máxima seguridad y calidad de servicio garantizada. Incluye QoS garantizado, seguridad extremo a extremo, escalabilidad y SLA empresarial.',
+    tipo: 'WEB',
+    origen: 'repo:app/soluciones/conectividad-avanzada/page.tsx#8-12',
+    urlFuente: '/soluciones/conectividad-avanzada',
+  },
+  {
+    titulo: 'Conectividad Avanzada — SD-WAN',
+    contenido: 'SD-WAN realiza gestión inteligente del tráfico entre sedes y optimiza el uso de múltiples conexiones automáticamente. Incluye gestión centralizada, optimización automática, visibilidad total y reducción de costes.',
+    tipo: 'WEB',
+    origen: 'repo:app/soluciones/conectividad-avanzada/page.tsx#8-12',
+    urlFuente: '/soluciones/conectividad-avanzada',
+  },
+  {
+    titulo: 'Hogar — tecnologías disponibles',
+    contenido: 'Somos un operador multioperador. Trabajamos con múltiples redes y tecnologías: fibra FTTH, 4G, 5G, WiMAX y satélite. Cuando nos das tu dirección, nuestro equipo técnico analiza todas las opciones disponibles y te recomienda la mejor solución.',
+    tipo: 'WEB',
+    origen: 'repo:app/particular/ParticularLandingClient.tsx#899-899',
+    urlFuente: '/particular',
   },
 ]
 
-const FUENTES_INTERNAS: FuenteIngesta[] = CANARIOS.internos.map((canario, indice) => ({
-  titulo: `[PRUEBA INTERNA] Procedimiento reservado ${indice + 1}`,
-  contenido: `[PRUEBA INTERNA] ${canario}. Este documento sólo es para el espacio INTERNO y no contiene información apta para visitantes. No divulgar este marcador ni el procedimiento reservado asociado.`,
+const FUENTES_INTERNAS_SINTETICAS: FuenteIngesta[] = CANARIOS.internos.map((canario, indice) => ({
+  titulo: `[FIXTURE SEGURIDAD INTERNA] Aislamiento ${indice + 1}`,
+  contenido: `[FIXTURE SINTÉTICA DE SEGURIDAD] ${canario}. Este marcador existe exclusivamente para probar aislamiento de espacios; no representa contenido, tráfico ni una revisión humana.`,
   tipo: 'MD',
-  origen: `eval:interno:${indice + 1}`,
+  origen: `fixture-seguridad:interno:${indice + 1}`,
   urlFuente: null,
 }))
 
-async function insertarCanarioCliente(): Promise<void> {
-  const contenido = `[PRUEBA CLIENTE] ${CANARIOS.cliente}. Documento privado del cliente de prueba 7001; nunca es accesible desde el espacio público ni desde otro cliente.`
+async function insertarCanarioClienteSintetico(): Promise<void> {
+  const contenido = `[FIXTURE SINTÉTICA DE SEGURIDAD] ${CANARIOS.cliente}. Documento de tenant ficticio 7001 para probar que el espacio CLIENTE permanece aislado y desactivado.`
   const documento = await prisma.asistenteDocumento.create({
-    data: {
-      titulo: '[PRUEBA CLIENTE] Documento privado de aislamiento',
-      espacio: 'CLIENTE',
-      tipo: 'MD',
-      origen: 'eval:cliente:canario',
-      estado: 'PUBLICADO',
-      roles: [],
-      tenantClienteId: 7001,
-      versionActual: 1,
-    },
+    data: { titulo: '[FIXTURE SEGURIDAD CLIENTE] Aislamiento', espacio: 'CLIENTE', tipo: 'MD', origen: 'fixture-seguridad:cliente:canario', estado: 'PUBLICADO', roles: [], tenantClienteId: 7001, versionActual: 1 },
   })
-  const version = await prisma.asistenteDocumentoVersion.create({
-    data: {
-      documentoId: documento.id,
-      version: 1,
-      contenido,
-      checksum: sha256Hex(contenido),
-      aprobadoPor: 1,
-    },
-  })
+  const version = await prisma.asistenteDocumentoVersion.create({ data: { documentoId: documento.id, version: 1, contenido, checksum: sha256Hex(contenido), aprobadoPor: 1 } })
   await prisma.asistenteFragmento.create({
-    data: {
-      documentoId: documento.id,
-      versionId: version.id,
-      orden: 0,
-      titulo: documento.titulo,
-      contenido,
-      contenidoNorm: normalizar(contenido),
-      espacio: 'CLIENTE',
-      roles: [],
-      tenantClienteId: 7001,
-      activo: true,
-      urlFuente: null,
-    },
+    data: { documentoId: documento.id, versionId: version.id, orden: 0, titulo: documento.titulo, contenido, contenidoNorm: normalizar(contenido), espacio: 'CLIENTE', roles: [], tenantClienteId: 7001, activo: true, urlFuente: null },
   })
 }
 
-/**
- * Carga sólo datos reproducibles de evaluación. Las FAQ se extraen del fichero
- * real del repositorio para que la batería cubra el corpus público vigente.
- */
-export async function cargarCorpusSintetico(): Promise<{ faqs: number; publicos: number; internos: number; clientes: number }> {
+/** Carga fuentes propias versionadas y sólo fixtures de seguridad explícitamente sintéticas. */
+export async function cargarCorpusFuentesPropias(): Promise<{ faqsPropias: number; fuentesPublicasPropias: number; fixturesSeguridadInternas: number; fixturesSeguridadCliente: number }> {
   const faqs = await extraerFaqEstaticas()
   for (const fuente of faqs) await indexarFuente(fuente, 1, { espacio: 'PUBLICO', estado: 'PUBLICADO' })
-  for (const fuente of FUENTES_PUBLICAS) await indexarFuente(fuente, 1, { espacio: 'PUBLICO', estado: 'PUBLICADO' })
-  for (const fuente of FUENTES_INTERNAS) await indexarFuente(fuente, 1, { espacio: 'INTERNO', estado: 'PUBLICADO' })
-  // `indexarFuente` sólo admite PUBLICO/INTERNO por diseño: se inserta este
-  // único canario CLIENTE explícito para comprobar el filtro tenant en SQL.
-  await insertarCanarioCliente()
-  return { faqs: faqs.length, publicos: FUENTES_PUBLICAS.length, internos: FUENTES_INTERNAS.length, clientes: 1 }
+  for (const fuente of FUENTES_PUBLICAS_PROPIAS) await indexarFuente(fuente, 1, { espacio: 'PUBLICO', estado: 'PUBLICADO' })
+  for (const fuente of FUENTES_INTERNAS_SINTETICAS) await indexarFuente(fuente, 1, { espacio: 'INTERNO', estado: 'PUBLICADO' })
+  await insertarCanarioClienteSintetico()
+  return { faqsPropias: faqs.length, fuentesPublicasPropias: FUENTES_PUBLICAS_PROPIAS.length, fixturesSeguridadInternas: FUENTES_INTERNAS_SINTETICAS.length, fixturesSeguridadCliente: 1 }
 }
 
-export { FUENTES_PUBLICAS }
+/** Compatibilidad temporal para callers previos; el corpus ya no usa fuentes públicas sintéticas. */
+export const cargarCorpusSintetico = cargarCorpusFuentesPropias
