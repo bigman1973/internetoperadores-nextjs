@@ -1,7 +1,7 @@
 import prisma from '@/lib/prisma'
 import { resolverAlcance, type ContextoAlcance } from '@/lib/asistente/acl'
 import { getAssistantRuntime } from '@/lib/asistente/config'
-import { analizarMensaje, RESPUESTA_INYECCION } from '@/lib/asistente/guard'
+import { analizarMensaje, coincideTemaProhibido, RESPUESTA_INYECCION } from '@/lib/asistente/guard'
 import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { redactarPII } from '@/lib/asistente/pii'
 import { proveedorPara, type FuenteRespuesta } from '@/lib/asistente/provider'
@@ -66,6 +66,13 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
   let motivo: RespuestaAsistente['motivoEscalado']
   if (analisis.injection) {
     respuesta = RESPUESTA_INYECCION
+    sinFuente = true
+  } else if (coincideTemaProhibido(entrada.mensaje, runtime.temasProhibidos)) {
+    // Esta decisión se toma antes de construir la consulta de recuperación:
+    // un tema prohibido nunca llega al índice ni al proveedor extractivo.
+    motivo = 'FUERA_DOMINIO'
+    escalar = true
+    respuesta = 'Este tema no está disponible en el asistente. Si necesitas ayuda sobre nuestros servicios, puedo ponerte en contacto con una persona del equipo.'
     sinFuente = true
   } else if (analisis.enfado || analisis.peticionHumano || analisis.fueraDominio) {
     motivo = analisis.enfado ? 'ENFADO' : analisis.peticionHumano ? 'PETICION' : 'FUERA_DOMINIO'

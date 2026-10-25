@@ -41,4 +41,20 @@ export function analizarMensaje(texto: string, maximo = 1500): AnalisisMensaje {
   }
 }
 
+/**
+ * Los temas se administran sólo en configuración de servidor. Se comparan como
+ * frases normalizadas completas (no como expresiones regulares) para que un
+ * valor de configuración no cambie la gramática de la guardia ni coincida
+ * dentro de otra palabra.
+ */
+export function coincideTemaProhibido(texto: string, temas: readonly unknown[]): boolean {
+  const mensaje = ` ${normalizar(texto)} `
+  if (mensaje.trim().length < 2) return false
+  return temas.some((tema) => {
+    if (typeof tema !== 'string') return false
+    const frase = normalizar(tema).slice(0, 160)
+    return frase.length >= 2 && mensaje.includes(` ${frase} `)
+  })
+}
+
 export const RESPUESTA_INYECCION = 'No puedo ayudar con instrucciones internas, datos de otras personas ni cambios de seguridad. Puedo responder dudas sobre los servicios de Internet Operadores.'

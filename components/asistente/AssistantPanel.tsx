@@ -93,6 +93,14 @@ function apiError(status: number, code?: string): string {
   return 'No hemos podido enviar tu consulta. Comprueba tu conexión e inténtalo de nuevo.'
 }
 
+function escalationApiError(status: number, code?: string): string {
+  if (code === 'CONTACTO_SEGURO_NO_CONFIGURADO') return 'Ahora no podemos guardar tus datos de contacto de forma segura. No se ha enviado la solicitud; puedes intentarlo más tarde o usar la página de contacto.'
+  if (status === 400) return 'Revisa los datos y el consentimiento antes de enviar la solicitud.'
+  if (status === 429) return 'Hemos recibido muchas solicitudes. Espera unos minutos antes de volver a intentarlo.'
+  if (status === 503) return 'El servicio de contacto no está disponible ahora. No se ha enviado la solicitud.'
+  return 'No hemos podido enviar tu solicitud. No se ha registrado ningún contacto; comprueba los datos e inténtalo de nuevo.'
+}
+
 async function bodyJson(response: Response): Promise<Record<string, unknown> | null> {
   try {
     const data = await response.json()
@@ -209,6 +217,7 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
   const [escalationErrors, setEscalationErrors] = useState<FieldErrors>({})
   const [escalationSending, setEscalationSending] = useState(false)
   const [escalationResult, setEscalationResult] = useState('')
+  const [escalationFailed, setEscalationFailed] = useState(false)
   const [lead, setLead] = useState<LeadInput>(() => emptyLead())
   const [leadErrors, setLeadErrors] = useState<FieldErrors>({})
   const [leadSending, setLeadSending] = useState(false)
@@ -446,6 +455,7 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
     setEscalation(emptyEscalation(reason))
     setEscalationErrors({})
     setEscalationResult('')
+    setEscalationFailed(false)
     setView('escalation')
   }
 
@@ -455,6 +465,7 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
     setEscalationErrors(errors)
     if (Object.keys(errors).length) return
     setEscalationSending(true)
+    setEscalationFailed(false)
     try {
       const response = await fetch('/api/asistente/escalado', {
         method: 'POST',
@@ -471,11 +482,16 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
         }),
       })
       const payload = await bodyJson(response)
-      if (!response.ok) throw new Error('ESCALATION_FAILED')
+      if (!response.ok) {
+        setEscalationFailed(true)
+        setEscalationResult(escalationApiError(response.status, typeof payload?.codigo === 'string' ? payload.codigo : undefined))
+        return
+      }
       if (typeof payload?.conversacionId === 'string' && payload.conversacionId.length <= 100) setConversationId(payload.conversacionId)
-      setEscalationResult(typeof payload?.mensaje === 'string' ? payload.mensaje : insideHours ? 'Hemos recibido tu solicitud. Te llamaremos ahora o en breve.' : 'Hemos recibido tu solicitud de devolución de llamada.')
+      setEscalationResult(typeof payload?.mensaje === 'string' ? payload.mensaje : insideHours ? 'Hemos registrado tu solicitud para que el equipo pueda atenderte.' : 'Hemos registrado tu solicitud. Te responderemos en horario de atención.')
     } catch {
-      setEscalationResult('No hemos podido enviar tu solicitud. Comprueba los datos e inténtalo de nuevo.')
+      setEscalationFailed(true)
+      setEscalationResult('No hemos podido enviar tu solicitud. No se ha registrado ningún contacto; comprueba los datos e inténtalo de nuevo.')
     } finally {
       setEscalationSending(false)
     }
@@ -547,13 +563,13 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
   }
 
   const privacyHref = safeSourceUrl(config?.privacidadUrl || '/politica-privacidad', typeof window === 'undefined' ? undefined : window.location.origin) || '/politica-privacidad'
-  const screenTitle = view === 'chat' ? 'Asistente virtual' : view === 'escalation' ? 'Hablar con una persona' : 'Cuéntanos qué necesitas'
+  const screenTitle = view === 'chat' ? 'Asistente de IA' : view === 'escalation' ? 'Hablar con una persona' : 'Cuéntanos qué necesitas'
 
   const chatContent = useMemo(() => (
     <>
       <div className="border-b border-orange-100 bg-orange-50 px-4 py-3 text-xs leading-5 text-slate-700">
         <p>
-          {config?.aviso?.trim() || 'Asistente automático. No compartas datos sensibles.'}{' '}
+          {config?.aviso?.trim() || 'Estás hablando con un asistente de IA. No compartas datos sensibles; una persona puede ayudarte siempre que lo necesites.'}{' '}
           <a href={privacyHref} className="font-semibold text-orange-800 underline decoration-orange-400 underline-offset-2 hover:text-orange-950">
             Política de privacidad
           </a>
@@ -592,24 +608,24 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
                     {message.ctas.map((cta, index) => {
                       const href = ctaHref(cta, typeof window === 'undefined' ? undefined : window.location.origin)
                       if (cta.tipo === 'LEAD') {
-                        return <button key={`${message.id}-cta-${index}`} type="button" onClick={showLead} className="min-h-9 rounded-lg border border-orange-300 bg-white px-3 text-xs font-semibold text-orange-800 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">{cta.texto}</button>
+                        return <button key={`${message.id}-cta-${index}`} type="button" onClick={showLead} className="min-h-11 rounded-lg border border-orange-300 bg-white px-3 text-xs font-semibold text-orange-800 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">{cta.texto}</button>
                       }
-                      return href ? <a key={`${message.id}-cta-${index}`} href={href} className="inline-flex min-h-9 items-center rounded-lg border border-orange-300 bg-white px-3 text-xs font-semibold text-orange-800 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">{cta.texto}</a> : null
+                      return href ? <a key={`${message.id}-cta-${index}`} href={href} className="inline-flex min-h-11 items-center rounded-lg border border-orange-300 bg-white px-3 text-xs font-semibold text-orange-800 hover:bg-orange-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">{cta.texto}</a> : null
                     })}
                   </div>
                 ) : null}
                 {message.rol === 'asistente' && message.mensajeId && !message.valoracion ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                     <span className="text-slate-600">¿Te ha resultado útil?</span>
-                    <button type="button" onClick={() => void submitFeedback(message.mensajeId as string, true)} disabled={feedbackSending} className="min-h-8 rounded-md border border-slate-300 bg-white px-2 text-slate-700 hover:border-orange-400 hover:text-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50" aria-label="La respuesta ha sido útil">👍</button>
-                    <button type="button" onClick={() => { setFeedbackMessageId(message.mensajeId as string); setFeedbackComment('') }} disabled={feedbackSending} className="min-h-8 rounded-md border border-slate-300 bg-white px-2 text-slate-700 hover:border-orange-400 hover:text-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50" aria-label="La respuesta no ha sido útil">👎</button>
+                    <button type="button" onClick={() => void submitFeedback(message.mensajeId as string, true)} disabled={feedbackSending} className="min-h-11 min-w-11 rounded-md border border-slate-300 bg-white px-2 text-slate-700 hover:border-orange-400 hover:text-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50" aria-label="La respuesta ha sido útil">👍</button>
+                    <button type="button" onClick={() => { setFeedbackMessageId(message.mensajeId as string); setFeedbackComment('') }} disabled={feedbackSending} className="min-h-11 min-w-11 rounded-md border border-slate-300 bg-white px-2 text-slate-700 hover:border-orange-400 hover:text-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50" aria-label="La respuesta no ha sido útil">👎</button>
                   </div>
                 ) : null}
                 {message.rol === 'asistente' && message.mensajeId && feedbackMessageId === message.mensajeId ? (
                   <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3 text-left">
                     <label className="block text-xs font-medium text-slate-700" htmlFor={`comentario-${message.id}`}>¿Qué podríamos mejorar? (opcional)</label>
                     <textarea id={`comentario-${message.id}`} value={feedbackComment} maxLength={500} rows={2} onChange={(event) => setFeedbackComment(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200" />
-                    <div className="mt-2 flex items-center justify-between gap-2"><span className="text-xs text-slate-500">{messageCounter(feedbackComment, 500).length}/500</span><button type="button" onClick={() => void submitFeedback(message.mensajeId as string, false, feedbackComment)} disabled={feedbackSending} className="min-h-9 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{feedbackSending ? 'Enviando…' : 'Enviar opinión'}</button></div>
+                    <div className="mt-2 flex items-center justify-between gap-2"><span className="text-xs text-slate-500">{messageCounter(feedbackComment, 500).length}/500</span><button type="button" onClick={() => void submitFeedback(message.mensajeId as string, false, feedbackComment)} disabled={feedbackSending} className="min-h-11 rounded-lg bg-primary px-3 text-xs font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{feedbackSending ? 'Enviando…' : 'Enviar opinión'}</button></div>
                   </div>
                 ) : null}
               </article>
@@ -625,12 +641,12 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
           <textarea ref={textareaRef} id="asistente-mensaje" value={draft} maxLength={maxChars} rows={2} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage() } }} placeholder="Escribe tu consulta…" disabled={sending} className="w-full resize-none rounded-xl border border-slate-300 px-3 py-2 text-base text-slate-950 placeholder:text-slate-400 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200 disabled:bg-slate-100 sm:text-sm" />
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className={`text-xs ${counter.remaining < 0 ? 'font-semibold text-red-700' : 'text-slate-500'}`} aria-live="polite">{counter.length}/{maxChars}</span>
-            <button type="submit" disabled={sending || !draft.trim() || !counter.valid} className="min-h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:bg-slate-400">{sending ? 'Consultando…' : 'Enviar'}</button>
+            <button type="submit" disabled={sending || !draft.trim() || !counter.valid} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:cursor-not-allowed disabled:bg-slate-400">{sending ? 'Consultando…' : 'Enviar'}</button>
           </div>
         </form>
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2 text-xs">
-          <button type="button" onClick={() => showEscalation()} className="min-h-8 font-semibold text-orange-800 underline decoration-orange-300 underline-offset-2 hover:text-orange-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Hablar con una persona</button>
-          <button type="button" onClick={clearConversation} className="min-h-8 text-slate-600 underline underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Borrar conversación</button>
+          <button type="button" onClick={() => showEscalation()} className="min-h-11 font-semibold text-orange-800 underline decoration-orange-300 underline-offset-2 hover:text-orange-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Hablar con una persona</button>
+          <button type="button" onClick={clearConversation} className="min-h-11 text-slate-600 underline underline-offset-2 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Borrar conversación</button>
         </div>
       </div>
     </>
@@ -652,14 +668,14 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
         {config && restored && view === 'chat' ? chatContent : null}
         {config && restored && view === 'escalation' ? (
           <form onSubmit={submitEscalation} className="min-h-0 flex-1 overflow-y-auto p-4" noValidate>
-            {escalationResult ? <div className="rounded-xl bg-green-50 p-3 text-sm leading-5 text-green-900" role="status">{escalationResult}<button type="button" onClick={() => setView('chat')} className="mt-3 block min-h-9 font-semibold text-green-900 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Volver al asistente</button></div> : <>
+            {escalationResult ? <div className={`rounded-xl p-3 text-sm leading-5 ${escalationFailed ? 'bg-red-50 text-red-900' : 'bg-green-50 text-green-900'}`} role={escalationFailed ? 'alert' : 'status'}>{escalationResult}<button type="button" onClick={() => setView('chat')} className={`mt-3 block min-h-11 font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 ${escalationFailed ? 'text-red-900' : 'text-green-900'}`}>Volver al asistente</button></div> : <>
               <p className="mb-4 text-sm leading-5 text-slate-700">{insideHours ? 'Estamos en horario de atención. Déjanos tus datos y te llamaremos ahora o en breve.' : 'Ahora no estamos en horario de atención. Indica una franja y te devolveremos la llamada.'}</p>
               <div className="space-y-3"><TextInput label="Nombre" autoComplete="name" value={escalation.nombre} error={escalationErrors.nombre} onChange={(event) => setEscalation({ ...escalation, nombre: event.target.value })} /><TextInput label="Teléfono" type="tel" autoComplete="tel" value={escalation.telefono} error={escalationErrors.telefono || escalationErrors.contacto} onChange={(event) => setEscalation({ ...escalation, telefono: event.target.value })} /><TextInput label="Email" type="email" autoComplete="email" value={escalation.email} error={escalationErrors.email} onChange={(event) => setEscalation({ ...escalation, email: event.target.value })} />
-                <fieldset><legend className="text-sm font-medium text-slate-800">¿Cómo prefieres que te atendamos?</legend><div className="mt-1 flex gap-4"><label className="flex min-h-10 items-center gap-2 text-sm"><input type="radio" name="preferencia" checked={escalation.preferencia === 'LLAMADA'} onChange={() => setEscalation({ ...escalation, preferencia: 'LLAMADA' })} /> Llamada</label><label className="flex min-h-10 items-center gap-2 text-sm"><input type="radio" name="preferencia" checked={escalation.preferencia === 'EMAIL'} onChange={() => setEscalation({ ...escalation, preferencia: 'EMAIL' })} /> Email</label></div></fieldset>
+                <fieldset><legend className="text-sm font-medium text-slate-800">¿Cómo prefieres que te atendamos?</legend><div className="mt-1 flex gap-4"><label className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="preferencia" checked={escalation.preferencia === 'LLAMADA'} onChange={() => setEscalation({ ...escalation, preferencia: 'LLAMADA' })} /> Llamada</label><label className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="preferencia" checked={escalation.preferencia === 'EMAIL'} onChange={() => setEscalation({ ...escalation, preferencia: 'EMAIL' })} /> Email</label></div></fieldset>
                 {!insideHours ? <TextInput label="Franja preferida" placeholder="Ej.: mañana de 10:00 a 12:00" value={escalation.franja} error={escalationErrors.franja} onChange={(event) => setEscalation({ ...escalation, franja: event.target.value })} /> : null}
-                <label className="flex gap-2 rounded-lg bg-orange-50 p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={escalation.consentimiento} onChange={(event) => setEscalation({ ...escalation, consentimiento: event.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-orange-600" />Consiento que Internet Operadores trate estos datos para atender mi solicitud de contacto.</label><FieldError>{escalationErrors.consentimiento}</FieldError>
+                <label className="flex min-h-11 gap-2 rounded-lg bg-orange-50 p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={escalation.consentimiento} onChange={(event) => setEscalation({ ...escalation, consentimiento: event.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-orange-600" />Consiento que Internet Operadores trate estos datos para atender mi solicitud de contacto.</label><p className="-mt-2 text-xs text-slate-700">Consulta la <a href={privacyHref} className="font-semibold text-orange-800 underline">política de privacidad</a>.</p><FieldError>{escalationErrors.consentimiento}</FieldError>
               </div>
-              <div className="mt-5 flex gap-3"><button type="button" onClick={() => setView('chat')} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Cancelar</button><button type="submit" disabled={escalationSending} className="min-h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{escalationSending ? 'Enviando…' : 'Solicitar contacto'}</button></div>
+              <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={() => setView('chat')} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Cancelar</button><button type="submit" disabled={escalationSending} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{escalationSending ? 'Enviando…' : 'Solicitar contacto'}</button></div>
             </>}
           </form>
         ) : null}
@@ -667,19 +683,19 @@ export default function AssistantPanel({ launcherRef, onClose, onUnavailable }: 
           <form onSubmit={submitLead} className="min-h-0 flex-1 overflow-y-auto p-4" noValidate>
             {leadResult ? <div className="rounded-xl bg-green-50 p-3 text-sm leading-5 text-green-900" role="status">{leadResult}<button type="button" onClick={() => setView('chat')} className="mt-3 block min-h-9 font-semibold text-green-900 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Volver al asistente</button></div> : <>
               <p className="mb-4 text-sm leading-5 text-slate-700">Con estos datos prepararemos una recomendación inicial sin compromiso.</p>
-              <div className="space-y-3"><fieldset><legend className="text-sm font-medium text-slate-800">¿Para quién es?</legend><div className="mt-1 flex gap-4"><label className="flex min-h-10 items-center gap-2 text-sm"><input type="radio" name="tipo" checked={lead.tipo === 'EMPRESA'} onChange={() => setLead({ ...lead, tipo: 'EMPRESA' })} /> Empresa</label><label className="flex min-h-10 items-center gap-2 text-sm"><input type="radio" name="tipo" checked={lead.tipo === 'HOGAR'} onChange={() => setLead({ ...lead, tipo: 'HOGAR' })} /> Hogar</label></div><FieldError>{leadErrors.tipo}</FieldError></fieldset>
+              <div className="space-y-3"><fieldset><legend className="text-sm font-medium text-slate-800">¿Para quién es?</legend><div className="mt-1 flex gap-4"><label className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="tipo" checked={lead.tipo === 'EMPRESA'} onChange={() => setLead({ ...lead, tipo: 'EMPRESA' })} /> Empresa</label><label className="flex min-h-11 items-center gap-2 text-sm"><input type="radio" name="tipo" checked={lead.tipo === 'HOGAR'} onChange={() => setLead({ ...lead, tipo: 'HOGAR' })} /> Hogar</label></div><FieldError>{leadErrors.tipo}</FieldError></fieldset>
                 <TextInput label="Código postal" inputMode="numeric" autoComplete="postal-code" value={lead.codigoPostal} error={leadErrors.codigoPostal} onChange={(event) => setLead({ ...lead, codigoPostal: event.target.value })} />
                 <TextInput label="Conexión actual" placeholder="Ej.: fibra de 300 Mb" value={lead.conexionActual} error={leadErrors.conexionActual} onChange={(event) => setLead({ ...lead, conexionActual: event.target.value })} />
-                <fieldset><legend className="text-sm font-medium text-slate-800">¿Qué necesitas mejorar?</legend><div className="mt-1 grid grid-cols-2 gap-1">{PROBLEMS.map((problem) => <label key={problem} className="flex min-h-9 items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={lead.problemas.includes(problem)} onChange={() => toggleProblem(problem)} />{problem}</label>)}</div><FieldError>{leadErrors.problemas}</FieldError></fieldset>
+                <fieldset><legend className="text-sm font-medium text-slate-800">¿Qué necesitas mejorar?</legend><div className="mt-1 grid grid-cols-2 gap-1">{PROBLEMS.map((problem) => <label key={problem} className="flex min-h-11 items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={lead.problemas.includes(problem)} onChange={() => toggleProblem(problem)} />{problem}</label>)}</div><FieldError>{leadErrors.problemas}</FieldError></fieldset>
                 <TextInput label="Número de usuarios" type="number" min="1" max="100000" inputMode="numeric" value={lead.usuarios} error={leadErrors.usuarios} onChange={(event) => setLead({ ...lead, usuarios: event.target.value })} />
                 <label className="block text-sm font-medium text-slate-800">Urgencia<select value={lead.urgencia} onChange={(event) => setLead({ ...lead, urgencia: event.target.value as LeadInput['urgencia'] })} aria-invalid={Boolean(leadErrors.urgencia)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-950 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-200"><option value="">Selecciona una opción</option><option value="ALTA">Alta</option><option value="MEDIA">Media</option><option value="BAJA">Baja</option></select><FieldError>{leadErrors.urgencia}</FieldError></label>
                 <TextInput label="Nombre" autoComplete="name" value={lead.nombre} error={leadErrors.nombre} onChange={(event) => setLead({ ...lead, nombre: event.target.value })} />
                 <TextInput label="Email" type="email" autoComplete="email" value={lead.email} error={leadErrors.email || leadErrors.contacto} onChange={(event) => setLead({ ...lead, email: event.target.value })} />
                 <TextInput label="Teléfono" type="tel" autoComplete="tel" value={lead.telefono} error={leadErrors.telefono} onChange={(event) => setLead({ ...lead, telefono: event.target.value })} />
                 {lead.tipo === 'EMPRESA' ? <TextInput label="Empresa" autoComplete="organization" value={lead.empresa} error={leadErrors.empresa} onChange={(event) => setLead({ ...lead, empresa: event.target.value })} /> : null}
-                <label className="flex gap-2 rounded-lg bg-orange-50 p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={lead.consentimiento} onChange={(event) => setLead({ ...lead, consentimiento: event.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-orange-600" />Consiento que Internet Operadores trate estos datos para atender mi solicitud y elaborar una recomendación. Versión: {lead.consentimientoVersion || 'pendiente'}.</label><FieldError>{leadErrors.consentimiento || leadErrors.consentimientoVersion}</FieldError>
+                <label className="flex min-h-11 gap-2 rounded-lg bg-orange-50 p-3 text-xs leading-5 text-slate-700"><input type="checkbox" checked={lead.consentimiento} onChange={(event) => setLead({ ...lead, consentimiento: event.target.checked })} className="mt-0.5 h-4 w-4 shrink-0 accent-orange-600" />Consiento que Internet Operadores trate estos datos para atender mi solicitud y elaborar una recomendación. Versión: {lead.consentimientoVersion || 'pendiente'}.</label><p className="-mt-2 text-xs text-slate-700">Consulta la <a href={privacyHref} className="font-semibold text-orange-800 underline">política de privacidad</a>.</p><FieldError>{leadErrors.consentimiento || leadErrors.consentimientoVersion}</FieldError>
               </div>
-              <div className="mt-5 flex gap-3"><button type="button" onClick={() => setView('chat')} className="min-h-10 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Cancelar</button><button type="submit" disabled={leadSending} className="min-h-10 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{leadSending ? 'Enviando…' : 'Enviar solicitud'}</button></div>
+              <div className="mt-5 flex flex-wrap gap-3"><button type="button" onClick={() => setView('chat')} className="min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Cancelar</button><button type="submit" disabled={leadSending} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-semibold text-white hover:bg-orange-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50">{leadSending ? 'Enviando…' : 'Enviar solicitud'}</button><button type="button" onClick={() => showEscalation()} className="min-h-11 text-sm font-semibold text-orange-800 underline decoration-orange-300 underline-offset-2 hover:text-orange-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500">Hablar con una persona</button></div>
             </>}
           </form>
         ) : null}

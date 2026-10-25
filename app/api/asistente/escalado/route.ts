@@ -16,10 +16,15 @@ export async function POST(req: Request) {
   if (!(await consumirRateLimit(`escalado:${ipSolicitud(req)}`, new Date(), 5)).permitido) return jsonPrivado({ codigo: 'RATE_LIMIT' }, 429)
   const cuerpo = await leerJsonLimitado(req); const entrada = cuerpo.ok ? esquema.safeParse(cuerpo.datos) : { success: false as const }
   if (!entrada.success) return jsonPrivado({ codigo: 'CUERPO_INVALIDO' }, 400)
+  // Los campos de contacto no se guardan en claro. Hasta que captación aporte
+  // su helper compartido cifrado, se rechaza la captura en vez de fingir éxito.
+  if (entrada.data.consentimiento && (entrada.data.nombre || entrada.data.telefono || entrada.data.email)) {
+    return jsonPrivado({ codigo: 'CONTACTO_SEGURO_NO_CONFIGURADO' }, 503)
+  }
   // Sólo la conversación del mismo visitante; si no existe (escalado antes de chatear) se crea una nueva.
   const conversacion = { id: await conversacionPublicaSegura(entrada.data.conversacionId, hmacAsistente(ipSolicitud(req)), configuracion.retencionMeses) }
   const dentroHorario = dentroHorarioHumano(configuracion.horario)
-  await prisma.asistenteEscalado.create({ data: { conversacionId: conversacion.id, motivo: entrada.data.motivo, dentroHorario, contactoNombre: entrada.data.consentimiento ? entrada.data.nombre?.trim() || null : null, contactoTelefono: entrada.data.consentimiento ? entrada.data.telefono?.trim() || null : null, contactoEmail: entrada.data.consentimiento ? entrada.data.email?.trim() || null : null, preferencia: entrada.data.consentimiento ? entrada.data.preferencia || null : null, franja: entrada.data.consentimiento ? entrada.data.franja?.trim() || null : null, consentimiento: entrada.data.consentimiento } })
+  await prisma.asistenteEscalado.create({ data: { conversacionId: conversacion.id, motivo: entrada.data.motivo, dentroHorario, contactoNombre: null, contactoTelefono: null, contactoEmail: null, preferencia: null, franja: null, consentimiento: false } })
   await prisma.asistenteConversacion.update({ where: { id: conversacion.id }, data: { estado: 'ESCALADA', escaladoMotivo: entrada.data.motivo, updatedAt: new Date() } })
   return jsonPrivado({ ok: true, conversacionId: conversacion.id, dentroHorario, mensaje: dentroHorario ? 'Hemos registrado tu solicitud para que el equipo pueda atenderte.' : 'Hemos registrado tu solicitud. Te responderemos en horario de atención.' })
 }

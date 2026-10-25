@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { consultaParaRecuperacion, normalizar, trocear } from '@/lib/asistente/text'
 import { redactarPIILocal, luhn } from '@/lib/asistente/pii'
-import { analizarMensaje } from '@/lib/asistente/guard'
+import { analizarMensaje, coincideTemaProhibido } from '@/lib/asistente/guard'
 import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { assistantClientEnabled, assistantPublicEnabled, envAssistantMode } from '@/lib/asistente/public-flag'
 import { puntuarLead } from '@/lib/asistente/leads'
@@ -34,6 +34,13 @@ prueba('guardia de inyección y preguntas legítimas', () => {
   for (const ataque of ataques) assert.equal(analizarMensaje(ataque).injection, true, ataque)
   const legitimas = ['¿Qué cobertura tenéis en mi zona?', '¿Cuánto tarda una instalación?', 'Necesito una conexión de backup', '¿Tenéis fibra para empresa?', '¿Qué incluye el soporte?', 'Hola', 'Quiero saber precios publicados', '¿Cómo contacto con soporte?', 'Busco internet para mi negocio', '¿Ofrecéis móvil?', '¿Tenéis soluciones para teletrabajo?', '¿Cómo funciona el failover?', 'Necesito una llamada', '¿Dónde está la política de privacidad?', '¿Qué permanencia tiene la tarifa?']
   for (const pregunta of legitimas) assert.equal(analizarMensaje(pregunta).injection, false, pregunta)
+})
+
+prueba('temas prohibidos configurados se comparan como frases seguras', () => {
+  assert.equal(coincideTemaProhibido('Necesito ayuda con criptomonedas', ['Criptomonedas']), true)
+  assert.equal(coincideTemaProhibido('Necesito cobertura de fibra', ['criptomonedas', 42, '']), false)
+  assert.equal(coincideTemaProhibido('Busco microcriptomonedas para un ejemplo', ['criptomonedas']), false)
+  assert.equal(coincideTemaProhibido('Consulta sobre bolsa internacional', ['bolsa INTERNACIONAL']), true)
 })
 
 prueba('activación, horario, lead y proveedor extractivo', () => {

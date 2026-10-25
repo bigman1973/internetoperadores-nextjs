@@ -36,6 +36,15 @@ function horarioSeguro(valor: unknown): HorarioHumano {
   return { zona: entrada.zona === 'Europe/Madrid' ? entrada.zona : 'Europe/Madrid', dias: dias.length ? dias : HORARIO_POR_DEFECTO.dias, inicio: hora(entrada.inicio, '09:00'), fin: hora(entrada.fin, '18:00') }
 }
 
+function temasProhibidosSeguros(valor: unknown): string[] {
+  if (!Array.isArray(valor)) return []
+  return valor
+    .filter((tema): tema is string => typeof tema === 'string')
+    .map(tema => tema.trim().slice(0, 160))
+    .filter(tema => tema.length >= 2)
+    .slice(0, 50)
+}
+
 export async function getAssistantRuntime(): Promise<AssistantRuntime> {
   const modoEntorno = envAssistantMode()
   const porDefecto: AssistantRuntime = {
@@ -63,7 +72,7 @@ export async function getAssistantRuntime(): Promise<AssistantRuntime> {
       maxChars: porDefecto.maxChars,
       horario: horarioSeguro(configuracion.horarioHumano),
       bienvenida: configuracion.bienvenida?.trim().slice(0, 1200) || BIENVENIDA_POR_DEFECTO,
-      temasProhibidos: Array.isArray(configuracion.temasProhibidos) ? configuracion.temasProhibidos.slice(0, 50) : [],
+      temasProhibidos: temasProhibidosSeguros(configuracion.temasProhibidos),
       retencionMeses: Math.max(1, Math.min(120, configuracion.retencionMeses || porDefecto.retencionMeses)),
       consentimientoVersion: configuracion.consentimientoVersion?.trim().slice(0, 120) || porDefecto.consentimientoVersion,
     }
