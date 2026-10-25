@@ -107,7 +107,7 @@ El widget se presenta como **Asistente de IA**, enlaza a la política de privaci
 
 # 4. Leads: origen ASISTENTE, proyección en Leads y contacto cifrado
 
-Los leads del asistente pertenecen al módulo existente **Leads** y se identifican con el origen **`ASISTENTE`**. No se abre un CRM externo, no se duplica la entidad comercial y no se fuerza el flujo especializado de captaciones web. El adaptador/proyección final en `/admin/leads` forma parte de la integración del padre: hasta que se compruebe allí, una bandeja aislada no acredita la integración de Leads.
+Los leads del asistente pertenecen al módulo existente **Leads** y se identifican con el origen **`ASISTENTE`**. No se abre un CRM externo, no se duplica la entidad comercial y no se fuerza el flujo especializado de captaciones web. El adaptador/proyección final en `/admin/leads` forma parte de la integración del equipo de desarrollo: hasta que se compruebe allí, una bandeja aislada no acredita la integración de Leads.
 
 El resumen de necesidad, la prioridad (`CALIENTE`, `TEMPLADO` o `FRÍO`) y el estado operativo se muestran sin convertirlos en datos de contacto. La atención puede utilizar los estados `NUEVO`, `CONTACTADO`, `CERRADO` y `DESCARTADO` dentro del procedimiento aprobado, manteniendo trazabilidad. No se envían correos, SMS ni notificaciones externas desde este flujo.
 

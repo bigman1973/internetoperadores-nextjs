@@ -15,7 +15,7 @@ p { text-align: justify; margin-bottom: 12px; } code { font-size:9.5pt; backgrou
   <h1>Checklist conjunta de paso<br>a producción</h1>
   <h2>Puertas separadas de rendimiento e IA para la revisión y autorización exclusiva de Víctor</h2>
   <p class="edition">Borrador de control · 25 de octubre de 2026</p>
-  <div class="warning-box"><strong>No es una autorización:</strong> esta lista registra evidencias y bloqueos actuales. No confirma que las fases hayan terminado, no activa producción y no sustituye el OK expreso de Víctor, la validación del padre ni las aprobaciones técnicas y jurídicas.</div>
+  <div class="warning-box"><strong>No es una autorización:</strong> esta lista registra evidencias y bloqueos actuales. No confirma que las fases hayan terminado, no activa producción y no sustituye el OK expreso de Víctor, la validación del equipo de desarrollo ni las aprobaciones técnicas y jurídicas.</div>
 </div>
 
 <div class="toc-page">
@@ -41,7 +41,7 @@ Esta lista debe completarse con evidencia fechada, responsable, entorno, revisi�
 
 <div class="highlight-box"><strong>Regla de decisión:</strong> cualquier fallo, valor no medido, aprobación pendiente, evidencia incompleta o discrepancia entre entorno y documentación mantiene la activación en pausa. No se sustituye una prueba por una promesa, un mock, una captura sin contexto ni un resultado de laboratorio presentado como métrica de campo.</div>
 
-El padre actualizará cifras, revisiones y enlaces de evidencia después de sus integraciones/validaciones. Los números de este borrador son la última evidencia aportada a fecha de redacción; deben reemplazarse por el recibo final que Víctor vaya a aprobar, sin ocultar sus límites.
+El equipo responsable actualizará cifras, revisiones y enlaces de evidencia después de sus integraciones/validaciones. Los números de este borrador son la última evidencia aportada a fecha de redacción; deben reemplazarse por el recibo final que Víctor vaya a aprobar, sin ocultar sus límites.
 
 | Campo que debe acompañar cada decisión | Registrar |
 |---|---|
