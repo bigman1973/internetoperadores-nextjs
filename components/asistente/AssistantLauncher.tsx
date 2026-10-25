@@ -19,6 +19,9 @@ export default function AssistantLauncher() {
   const [Panel, setPanel] = useState<PanelComponent | null>(null)
   const [open, setOpen] = useState(false)
   const [unavailable, setUnavailable] = useState(false)
+  const [hydrated, setHydrated] = useState(false)
+
+  useEffect(() => setHydrated(true), [])
 
   const excluded = isAssistantExcludedPath(pathname)
 
@@ -73,6 +76,7 @@ export default function AssistantLauncher() {
       <button
         ref={launcherRef}
         type="button"
+        disabled={!hydrated}
         aria-label={open ? 'Cerrar asistente' : 'Abrir asistente virtual'}
         aria-expanded={open}
         aria-haspopup="dialog"
