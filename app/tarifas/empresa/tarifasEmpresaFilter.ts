@@ -5,6 +5,12 @@ export interface TarifaEmpresaBusqueda {
   categoria: string;
 }
 
+export interface ResultadoOrdenableTarifaEmpresa<T> {
+  elemento: T;
+  visibles: number;
+  primerIndice: number;
+}
+
 export function normalizaBusquedaTarifaEmpresa(termino: string) {
   return termino.trim().toLowerCase();
 }
@@ -19,4 +25,16 @@ export function coincideTarifaEmpresa(tarifa: TarifaEmpresaBusqueda, termino: st
 
   return [tarifa.nombre, tarifa.descripcion, tarifa.velocidad, tarifa.categoria]
     .some((valor) => valor.includes(termino));
+}
+
+/**
+ * Conserva el orden público del catálogo tras filtrar: más coincidencias primero
+ * y, cuando empatan, la tarifa que aparecía antes en el catálogo original.
+ */
+export function ordenaResultadosTarifaEmpresa<T>(
+  resultados: ResultadoOrdenableTarifaEmpresa<T>[],
+) {
+  return [...resultados].sort(
+    (a, b) => b.visibles - a.visibles || a.primerIndice - b.primerIndice,
+  );
 }

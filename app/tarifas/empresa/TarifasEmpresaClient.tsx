@@ -2,7 +2,11 @@
 
 import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { coincideTarifaEmpresa, normalizaBusquedaTarifaEmpresa } from './tarifasEmpresaFilter';
+import {
+  coincideTarifaEmpresa,
+  normalizaBusquedaTarifaEmpresa,
+  ordenaResultadosTarifaEmpresa,
+} from './tarifasEmpresaFilter';
 import { iconoCategoria } from './tarifasEmpresaShared';
 
 interface CategoriaResumen {
@@ -37,83 +41,149 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
   const busqueda = useDeferredValue(busquedaEntrada);
   const [tarifasVisibles, setTarifasVisibles] = useState(total);
   const [refreshing, setRefreshing] = useState(false);
+  const [filtrando, setFiltrando] = useState(false);
   const seHaFiltrado = useRef(false);
   const catalogoCacheado = useRef<SeccionCatalogo[] | null>(null);
+  const trabajoFiltro = useRef(0);
 
   useEffect(() => {
     const termino = normalizaBusquedaTarifaEmpresa(busqueda);
     const tieneFiltro = categoriaSeleccionada !== 'TODAS' || Boolean(termino);
+    const trabajoActual = ++trabajoFiltro.current;
+    let fotograma: number | undefined;
+
+    const cancelar = () => {
+      if (fotograma !== undefined) cancelAnimationFrame(fotograma);
+    };
+    const sigueVigente = () => trabajoFiltro.current === trabajoActual;
 
     // En la carga inicial no se toca el catálogo estático: el navegador puede
     // pintar el HTML completo sin recorrer ni reconciliar miles de nodos.
     if (!tieneFiltro && !seHaFiltrado.current) {
       setTarifasVisibles(total);
-      return;
+      setFiltrando(false);
+      return cancelar;
     }
 
     const catalogo = document.getElementById('tarifas-empresa-catalogo');
     const sinResultados = document.getElementById('tarifas-empresa-sin-resultados');
-    if (!catalogo || !sinResultados) return;
-
-    // El catálogo es HTML estable del servidor. Se crea su índice sólo al
-    // primer filtro para no recorrer miles de nodos en cada pulsación. Un
-    // router.refresh puede sustituir ese HTML, por lo que se invalida sólo en
-    // ese caso antes de volver a indexarlo.
-    if (catalogoCacheado.current?.some(({ elemento }) => !catalogo.contains(elemento))) {
-      catalogoCacheado.current = null;
+    if (!catalogo || !sinResultados) {
+      setFiltrando(false);
+      return cancelar;
     }
-    catalogoCacheado.current ??= Array.from(
-      catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'),
-    ).map((seccion) => ({
-      elemento: seccion,
-      categoria: seccion.dataset.tarifasCategoria || '',
-      tarifas: Array.from(seccion.querySelectorAll<HTMLElement>('[data-tarifa]')).map((elemento) => ({
-        elemento,
-        nombre: elemento.dataset.tarifaNombre || '',
-        descripcion: elemento.dataset.tarifaDescripcion || '',
-        velocidad: elemento.dataset.tarifaVelocidad || '',
-        categoria: elemento.dataset.tarifaCategoria || '',
-        indice: Number(elemento.dataset.tarifaIndice),
-      })),
-    }));
 
-    let tarifasVisiblesAhora = 0;
-    const resultadosOrdenables: { elemento: HTMLElement; visibles: number; primerIndice: number }[] = [];
-    for (const seccion of catalogoCacheado.current) {
-      let visiblesEnSeccion = 0;
-      let primerIndice = Number.POSITIVE_INFINITY;
+    const programa = (callback: FrameRequestCallback) => {
+      fotograma = requestAnimationFrame(callback);
+    };
 
-      for (const tarifa of seccion.tarifas) {
-        const coincideCategoria = categoriaSeleccionada === 'TODAS' || seccion.categoria === categoriaSeleccionada;
-        const coincide = coincideCategoria && coincideTarifaEmpresa(tarifa, termino);
-        const debeOcultarse = !coincide;
-        if (tarifa.elemento.hidden !== debeOcultarse) tarifa.elemento.hidden = debeOcultarse;
-        if (coincide) {
-          visiblesEnSeccion += 1;
-          primerIndice = Math.min(primerIndice, tarifa.indice);
-        }
+    // La escritura de hidden puede requerir style/layout de cientos de nodos
+    // visibles. Se coopera con el navegador entre lotes y se muestra el estado
+    // de actualización; no se demora ni se descarta ninguna coincidencia.
+    setFiltrando(true);
+    programa(() => {
+      if (!sigueVigente()) return;
+
+      // El catálogo es HTML estable del servidor. Se crea su índice sólo al
+      // primer filtro para no recorrer sus descendientes en cada pulsación. Un
+      // router.refresh puede sustituir ese HTML, por lo que se invalida antes
+      // de volver a indexarlo.
+      if (catalogoCacheado.current?.some(({ elemento }) => !catalogo.contains(elemento))) {
+        catalogoCacheado.current = null;
       }
+      catalogoCacheado.current ??= Array.from(
+        catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'),
+      ).map((seccion) => ({
+        elemento: seccion,
+        categoria: seccion.dataset.tarifasCategoria || '',
+        tarifas: Array.from(seccion.querySelectorAll<HTMLElement>('[data-tarifa]')).map((elemento) => ({
+          elemento,
+          nombre: elemento.dataset.tarifaNombre || '',
+          descripcion: elemento.dataset.tarifaDescripcion || '',
+          velocidad: elemento.dataset.tarifaVelocidad || '',
+          categoria: elemento.dataset.tarifaCategoria || '',
+          indice: Number(elemento.dataset.tarifaIndice),
+        })),
+      }));
 
-      const debeOcultarse = visiblesEnSeccion === 0;
-      if (seccion.elemento.hidden !== debeOcultarse) seccion.elemento.hidden = debeOcultarse;
-      tarifasVisiblesAhora += visiblesEnSeccion;
-      resultadosOrdenables.push({ elemento: seccion.elemento, visibles: visiblesEnSeccion, primerIndice });
-    }
+      seHaFiltrado.current = true;
+      const resultadosOrdenables = catalogoCacheado.current.map((seccion) => ({
+        elemento: seccion.elemento,
+        visibles: 0,
+        primerIndice: Number.POSITIVE_INFINITY,
+      }));
+      let indiceSeccion = 0;
+      let indiceTarifa = 0;
 
-    // Mantiene la ordenación original por coincidencias y primer índice.
-    // El índice evita recorrer de nuevo los descendientes; sólo se mueve el
-    // HTML si la secuencia visual/teclado realmente tiene que cambiar.
-    const ordenadas = [...resultadosOrdenables].sort((a, b) => b.visibles - a.visibles || a.primerIndice - b.primerIndice);
-    const actuales = Array.from(catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'));
-    if (ordenadas.some((resultado, index) => resultado.elemento !== actuales[index])) {
-      const fragmento = document.createDocumentFragment();
-      for (const resultado of ordenadas) fragmento.append(resultado.elemento);
-      catalogo.append(fragmento);
-    }
+      const procesarLote = () => {
+        if (!sigueVigente()) return;
 
-    sinResultados.hidden = tarifasVisiblesAhora !== 0;
-    setTarifasVisibles(tarifasVisiblesAhora);
-    seHaFiltrado.current = tieneFiltro;
+        const limite = performance.now() + 8;
+        let tarifasProcesadas = 0;
+        while (
+          indiceSeccion < catalogoCacheado.current!.length
+          && tarifasProcesadas < 12
+          && performance.now() < limite
+        ) {
+          const seccion = catalogoCacheado.current![indiceSeccion];
+          const resultado = resultadosOrdenables[indiceSeccion];
+          const coincideCategoria = categoriaSeleccionada === 'TODAS' || seccion.categoria === categoriaSeleccionada;
+
+          while (
+            indiceTarifa < seccion.tarifas.length
+            && tarifasProcesadas < 12
+            && performance.now() < limite
+          ) {
+            const tarifa = seccion.tarifas[indiceTarifa++];
+            tarifasProcesadas += 1;
+            const coincide = coincideCategoria && coincideTarifaEmpresa(tarifa, termino);
+            const debeOcultarse = !coincide;
+            if (tarifa.elemento.hidden !== debeOcultarse) tarifa.elemento.hidden = debeOcultarse;
+            if (coincide) {
+              resultado.visibles += 1;
+              resultado.primerIndice = Math.min(resultado.primerIndice, tarifa.indice);
+            }
+          }
+
+          if (indiceTarifa < seccion.tarifas.length) break;
+
+          const debeOcultarse = resultado.visibles === 0;
+          if (seccion.elemento.hidden !== debeOcultarse) seccion.elemento.hidden = debeOcultarse;
+          indiceSeccion += 1;
+          indiceTarifa = 0;
+        }
+
+        if (indiceSeccion < catalogoCacheado.current!.length) {
+          programa(procesarLote);
+          return;
+        }
+
+        programa(() => {
+          if (!sigueVigente()) return;
+
+          // Mantiene la ordenación original por coincidencias y primer índice.
+          // Sólo se mueve el HTML si la secuencia visual/teclado cambia de verdad.
+          const ordenadas = ordenaResultadosTarifaEmpresa(resultadosOrdenables);
+          const actuales = Array.from(catalogo.querySelectorAll<HTMLElement>('[data-tarifas-categoria]'));
+          if (ordenadas.some((resultado, index) => resultado.elemento !== actuales[index])) {
+            const fragmento = document.createDocumentFragment();
+            for (const resultado of ordenadas) fragmento.append(resultado.elemento);
+            catalogo.append(fragmento);
+          }
+
+          const tarifasVisiblesAhora = resultadosOrdenables.reduce(
+            (acumulado, resultado) => acumulado + resultado.visibles,
+            0,
+          );
+          sinResultados.hidden = tarifasVisiblesAhora !== 0;
+          setTarifasVisibles(tarifasVisiblesAhora);
+          setFiltrando(false);
+        });
+      };
+
+      programa(procesarLote);
+    });
+
+    return cancelar;
   }, [busqueda, categoriaSeleccionada, total]);
 
   const handleRefresh = async () => {
@@ -160,8 +230,12 @@ export default function TarifasEmpresaClient({ categorias, total }: Props) {
                 </select>
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-500">
-                  Mostrando <span className="font-bold text-orange-600">{tarifasVisibles}</span> tarifas
+                <p className="text-sm text-gray-500" aria-live="polite" aria-atomic="true">
+                  {filtrando ? (
+                    'Actualizando resultados…'
+                  ) : (
+                    <>Mostrando <span className="font-bold text-orange-600">{tarifasVisibles}</span> tarifas</>
+                  )}
                 </p>
                 <button
                   type="button"

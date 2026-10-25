@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
-import { coincideTarifaEmpresa, normalizaBusquedaTarifaEmpresa, type TarifaEmpresaBusqueda } from '../app/tarifas/empresa/tarifasEmpresaFilter'
+import {
+  coincideTarifaEmpresa,
+  normalizaBusquedaTarifaEmpresa,
+  ordenaResultadosTarifaEmpresa,
+  type TarifaEmpresaBusqueda,
+} from '../app/tarifas/empresa/tarifasEmpresaFilter'
 
 const tarifa: TarifaEmpresaBusqueda = {
   nombre: 'fibra oficina pro',
@@ -18,7 +23,20 @@ function run() {
   assert.equal(coincideTarifaEmpresa(tarifa, 'móvil'), false, 'No incluye una tarifa sin coincidencia.')
   assert.equal(coincideTarifaEmpresa({ ...tarifa, descripcion: '', velocidad: '' }, 'fibra'), true, 'Tolera atributos de búsqueda vacíos.')
 
-  console.log(JSON.stringify({ ok: true, fixture: 'synthetic', cases: 8 }))
+  const ordenadas = ordenaResultadosTarifaEmpresa([
+    { elemento: 'ultima', visibles: 1, primerIndice: 9 },
+    { elemento: 'primera', visibles: 3, primerIndice: 6 },
+    { elemento: 'empate-antes', visibles: 1, primerIndice: 2 },
+    { elemento: 'empate-despues', visibles: 1, primerIndice: 7 },
+    { elemento: 'sin-resultados', visibles: 0, primerIndice: Number.POSITIVE_INFINITY },
+  ])
+  assert.deepEqual(
+    ordenadas.map(({ elemento }) => elemento),
+    ['primera', 'empate-antes', 'empate-despues', 'ultima', 'sin-resultados'],
+    'Preserva la ordenación funcional por coincidencias y primer índice.',
+  )
+
+  console.log(JSON.stringify({ ok: true, fixture: 'synthetic', cases: 9 }))
 }
 
 run()
