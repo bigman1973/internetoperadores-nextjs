@@ -14,14 +14,14 @@ export default function TopBar() {
   }
 
   const segmentClass = (target: 'empresa' | 'particular') =>
-    `min-h-9 rounded-full px-3 text-xs font-semibold transition-colors sm:text-sm ${
+    `min-h-11 rounded-full px-3 text-xs font-semibold transition-colors sm:text-sm ${
       segment === target
         ? 'bg-white text-orange-600 shadow-sm ring-1 ring-black/5'
         : 'text-gray-500 hover:text-gray-800'
     }`
 
   const utilityLinkClass =
-    'inline-flex min-h-10 items-center justify-center rounded-full px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 sm:min-h-9 sm:text-sm'
+    'inline-flex min-h-11 items-center justify-center rounded-full px-2.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 sm:text-sm'
 
   return (
     <div className="border-b border-gray-100 bg-white text-sm">
@@ -37,7 +37,7 @@ export default function TopBar() {
           </div>
           <Link
             href="/login"
-            className="inline-flex min-h-10 items-center justify-center rounded-full bg-orange-50 px-3 text-xs font-semibold text-orange-700 sm:hidden"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-orange-50 px-3 text-xs font-semibold text-orange-700 sm:hidden"
           >
             Área cliente
           </Link>
@@ -45,7 +45,7 @@ export default function TopBar() {
 
         <a
           href="tel:900730034"
-          className="hidden min-h-9 items-center gap-1.5 text-gray-700 transition-colors hover:text-orange-600 md:flex"
+          className="hidden min-h-11 items-center gap-1.5 text-gray-700 transition-colors hover:text-orange-600 md:flex"
         >
           <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />

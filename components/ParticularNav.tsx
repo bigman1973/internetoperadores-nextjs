@@ -32,7 +32,9 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
             <img
               src="/logo_transparent.png"
               alt="Internet Operadores"
-              className="h-12 sm:h-14 lg:h-16"
+              width="247"
+              height="119"
+              className="h-12 w-auto sm:h-14 lg:h-16"
             />
           </Link>
 
@@ -56,7 +58,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
           {/* Right side: Cart + CTA */}
           <div className="hidden md:flex items-center gap-4">
             {/* Shopping bag icon */}
-            <Link href="/carrito" className="relative p-2 text-gray-600 hover:text-orange-600 transition-colors">
+            <Link href="/carrito" className="relative flex min-h-11 min-w-11 items-center justify-center p-2 text-gray-600 hover:text-orange-600 transition-colors">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
@@ -70,7 +72,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
             {/* Comprobar Cobertura */}
             <Link
               href="/recursos/herramientas/cobertura-fibra"
-              className="bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors text-sm"
+              className="inline-flex min-h-11 items-center bg-orange-600 hover:bg-orange-700 text-white px-5 py-2.5 rounded-lg font-semibold transition-colors text-sm"
             >
               Comprobar Cobertura
             </Link>
@@ -78,7 +80,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
 
           {/* Mobile: Cart + Hamburger */}
           <div className="flex md:hidden items-center gap-3">
-            <Link href="/carrito" className="relative p-2 text-gray-600">
+            <Link href="/carrito" className="relative flex min-h-11 min-w-11 items-center justify-center p-2 text-gray-600">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={1.8} viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
@@ -90,7 +92,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
             </Link>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="text-gray-700 focus:outline-none"
+              className="flex min-h-11 min-w-11 items-center justify-center text-gray-700 focus:outline-none"
               aria-label="Toggle menu"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -111,7 +113,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
               <Link
                 key={item.key}
                 href={item.href}
-                className="block text-gray-700 hover:text-orange-600 font-medium py-2"
+                className="flex min-h-11 items-center text-gray-700 hover:text-orange-600 font-medium py-2"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 {item.nombre}
@@ -120,7 +122,7 @@ export default function ParticularNav({ currentPage = '' }: ParticularNavProps) 
 
             <Link
               href="/recursos/herramientas/cobertura-fibra"
-              className="block bg-orange-600 text-white text-center px-5 py-3 rounded-lg font-semibold mt-3"
+              className="flex min-h-11 items-center justify-center bg-orange-600 text-white text-center px-5 py-3 rounded-lg font-semibold mt-3"
               onClick={() => setMobileMenuOpen(false)}
             >
               Comprobar Cobertura
