@@ -1,0 +1,12 @@
+# Una referencia por línea: nombre lógico=imagen@sha256:<digest completo>.
+# No se aceptan tags móviles durante la preparación.
+caddy=caddy@sha256:REEMPLAZAR_DIGEST_CADDY_2_10_0_ALPINE
+asistente-rag=io-assistant-rag@sha256:REEMPLAZAR_DIGEST_IMAGEN_LOCAL
+vllm=vllm/vllm-openai@sha256:REEMPLAZAR_DIGEST_V0_13_0
+redis=redis@sha256:REEMPLAZAR_DIGEST_7_4_1_ALPINE
+langfuse-web=langfuse/langfuse@sha256:REEMPLAZAR_DIGEST_3_55_0
+langfuse-worker=langfuse/langfuse-worker@sha256:REEMPLAZAR_DIGEST_3_55_0
+langfuse-db=postgres@sha256:REEMPLAZAR_DIGEST_17_4_ALPINE
+clickhouse=clickhouse/clickhouse-server@sha256:REEMPLAZAR_DIGEST_24_8_14_ALPINE
+minio=minio/minio@sha256:REEMPLAZAR_DIGEST_RELEASE_2024_10_13
+netprobe=busybox@sha256:REEMPLAZAR_DIGEST_1_36_1

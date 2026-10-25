@@ -1,0 +1,17 @@
+# Formato compatible con `sha256sum -c`, relativo a offline-bundle/.
+# Preparar y revisar por dos personas en la estación conectada.
+# El instalador rechaza el marcador REEMPLAZAR.
+REEMPLAZAR_SHA256  images/caddy.oci.tar
+REEMPLAZAR_SHA256  images/asistente-rag.oci.tar
+REEMPLAZAR_SHA256  images/vllm.oci.tar
+REEMPLAZAR_SHA256  images/redis.oci.tar
+REEMPLAZAR_SHA256  images/langfuse-web.oci.tar
+REEMPLAZAR_SHA256  images/langfuse-worker.oci.tar
+REEMPLAZAR_SHA256  images/langfuse-db.oci.tar
+REEMPLAZAR_SHA256  images/clickhouse.oci.tar
+REEMPLAZAR_SHA256  images/minio.oci.tar
+REEMPLAZAR_SHA256  images/netprobe.oci.tar
+REEMPLAZAR_SHA256  models/Qwen3-32B-AWQ/MODEL_MANIFEST.json
+REEMPLAZAR_SHA256  models/bge-m3/MODEL_MANIFEST.json
+REEMPLAZAR_SHA256  models/bge-reranker-v2-m3/MODEL_MANIFEST.json
+REEMPLAZAR_SHA256  models/es_core_news_lg/MODEL_MANIFEST.json
