@@ -8,7 +8,7 @@ export function easyOnlyRequestAllowed(path: string, method: string, search: URL
   if (path === '/api/admin/finanzas/modo-facil/perfil') return SAFE.has(method)
   if (path === '/api/admin/finanzas/modo-facil/tarjetas') return SAFE.has(method)
   if (path === '/api/admin/finanzas/modo-facil/reglas') return ['GET','HEAD','POST'].includes(method)
-  if (['/api/admin/finanzas/modo-facil/foto','/api/admin/finanzas/modo-facil/deshacer','/api/admin/finanzas/modo-facil/terceros','/api/admin/finanzas/modo-facil/terceros/bloque'].includes(path)) return ['GET','HEAD','POST'].includes(method)
+  if (['/api/admin/finanzas/modo-facil/foto','/api/admin/finanzas/modo-facil/deshacer','/api/admin/finanzas/modo-facil/terceros','/api/admin/finanzas/modo-facil/terceros/bloque','/api/admin/finanzas/modo-facil/cobros'].includes(path)) return ['GET','HEAD','POST'].includes(method)
   if (path === '/api/admin/finanzas/modo-facil/para-pedir') return SAFE.has(method)
   if (/^\/api\/admin\/finanzas\/modo-facil\/documentos\/[A-Za-z0-9_-]{1,100}\/archivo$/.test(path)) return SAFE.has(method)
   if (/^\/api\/admin\/finanzas\/movimientos\/[A-Za-z0-9_-]{1,100}\/archivos$/.test(path)) {

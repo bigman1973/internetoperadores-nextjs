@@ -274,6 +274,7 @@ export const IMPERSONATION_ROUTE_MATRIX: readonly MatrixRule[] = [
   financeRead('finance-easy-file-api', /^\/api\/admin\/finanzas\/modo-facil\/documentos\/[A-Za-z0-9_-]{1,100}\/archivo$/, [B4]),
   financeRead('finance-easy-third-parties-api', '/api/admin/finanzas/modo-facil/terceros', [B4]),
   financeRead('finance-easy-third-parties-batch-api', '/api/admin/finanzas/modo-facil/terceros/bloque', [B4]),
+  financeRead('finance-easy-collections-api', '/api/admin/finanzas/modo-facil/cobros', [B4]),
 ]
 
 /**
@@ -287,6 +288,7 @@ const MANUAL_BODY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   '/api/admin/finanzas/modo-facil/reglas': ['crear', 'desactivar'],
   '/api/admin/finanzas/modo-facil/terceros': ['confirmar', 'revertir'],
   '/api/admin/finanzas/modo-facil/terceros/bloque': ['aceptar_seleccionados', 'deshacer_lote'],
+  '/api/admin/finanzas/modo-facil/cobros': ['confirmar_bloque', 'deshacer_bloque'],
 }
 
 function controlEndpointAllowed(path: string, method: string, action: ImpersonationBodyAction): boolean {

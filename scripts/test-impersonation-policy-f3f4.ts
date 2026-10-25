@@ -59,6 +59,13 @@ test('F3: reviewed finance reads and manual writes carry exact target permission
   assert.deepEqual(write.permission, { areas: ['admin.finanzas.conciliacion'], required: 'escritura', allowLegacyFinanceRole: true })
   assert.equal(impersonationRouteDecision('/api/admin/finanzas/modo-facil', 'POST', new URLSearchParams(), 88, 'automatico').allowed, false)
   assert.equal(impersonationRouteDecision('/api/admin/finanzas/modo-facil', 'POST').allowed, false)
+
+  const cobrosRead = impersonationRouteDecision('/api/admin/finanzas/modo-facil/cobros', 'GET')
+  assert.equal(cobrosRead.allowed, true)
+  const cobrosWrite = impersonationRouteDecision('/api/admin/finanzas/modo-facil/cobros', 'POST', new URLSearchParams(), 88, 'confirmar_bloque')
+  assert.equal(cobrosWrite.allowed, true)
+  if (cobrosWrite.allowed) assert.deepEqual(cobrosWrite.permission, { areas: ['admin.finanzas.conciliacion'], required: 'escritura', allowLegacyFinanceRole: true })
+  assert.equal(impersonationRouteDecision('/api/admin/finanzas/modo-facil/cobros', 'POST', new URLSearchParams(), 88, 'automatico').allowed, false)
 })
 
 test('el control durante actuación deja pasar sólo salida y replay de inicio, no otras mutaciones', () => {

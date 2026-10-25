@@ -1,5 +1,6 @@
 export type EasyAccessProfile = Readonly<{
   easyOnly: boolean;
+  canWrite: boolean;
   canManageAutomation: boolean;
   environment: 'staging' | 'production';
 }>;
@@ -16,12 +17,17 @@ export function parseEasyAccessProfile(value: unknown): EasyAccessProfile {
     throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
   const raw = value as Record<string, unknown>;
-  if (typeof raw.easyOnly !== 'boolean' || typeof raw.canManageAutomation !== 'boolean' || (raw.environment !== 'staging' && raw.environment !== 'production')) {
+  if (typeof raw.easyOnly !== 'boolean' || typeof raw.canWrite !== 'boolean' || typeof raw.canManageAutomation !== 'boolean' || (raw.environment !== 'staging' && raw.environment !== 'production')) {
     throw new Error('No se ha podido comprobar el perfil de acceso.');
   }
   // This is a server-derived capability. The browser neither elevates it from a
   // role nor changes it according to an URL/environment supplied by the client.
-  return { easyOnly: raw.easyOnly, canManageAutomation: raw.canManageAutomation, environment: raw.environment };
+  return { easyOnly: raw.easyOnly, canWrite: raw.canWrite, canManageAutomation: raw.canManageAutomation, environment: raw.environment };
+}
+
+/** Sólo el servidor puede confirmar que el permiso de escritura sigue vigente. */
+export function mayWriteEasyWorkspace(profile: EasyAccessProfile | null | undefined): boolean {
+  return profile?.canWrite === true;
 }
 
 /** La ausencia o el error de perfil conservan la vista sencilla, sin datos avanzados momentáneos. */
