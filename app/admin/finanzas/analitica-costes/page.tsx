@@ -560,7 +560,7 @@ export default function AnaliticaCostesPage() {
             <MetricCard label="Facturas negativas" value={kpis.negativas.toLocaleString('es-ES')} detail="Se mantienen con su signo" tone={kpis.negativas > 0 ? 'amber' : 'slate'} />
           </div>
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-700" aria-live="polite">
+          <div className="min-h-[640px] rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-700 sm:min-h-[360px] xl:min-h-[250px]" aria-live="polite">
             Cargando indicadores del filtro aplicado…
           </div>
         )}

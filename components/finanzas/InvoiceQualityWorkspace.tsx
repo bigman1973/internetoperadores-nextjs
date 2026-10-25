@@ -535,7 +535,7 @@ export default function InvoiceQualityWorkspace() {
 
     {error && <div role="alert" className="m-3 flex flex-col gap-2 rounded border-2 border-red-700 bg-red-50 p-3 text-sm font-bold text-red-950 sm:flex-row sm:items-center sm:justify-between"><span>{error}</span><button type="button" onClick={() => setRefresh(value => value + 1)} className="w-fit underline decoration-2 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-red-800">Reintentar</button></div>}
 
-    <div id={`quality-panel-${tab}`} role="tabpanel" className="min-h-28">
+    <div id={`quality-panel-${tab}`} role="tabpanel" className={loading && !currentPage.items.length ? 'min-h-[600px]' : 'min-h-28'}>
       {loading && !currentPage.items.length ? <p className="px-4 py-8 text-center text-sm font-bold text-slate-800">Cargando inventario de calidad…</p> : tab === 'copias' ? <CopyRows items={inventory.copias.items} /> : <ReviewRows items={inventory.cuarentena.items} canWriteB2={canWriteB2} onReview={setSelected} />}
       <Pagination page={currentPage.page} total={currentPage.total} totalPages={currentPage.totalPages} onPage={next => { if (tab === 'copias') setInventory(value => ({ ...value, copias: { ...value.copias, page: next } })); else setInventory(value => ({ ...value, cuarentena: { ...value.cuarentena, page: next } })); }} disabled={loading} label={`Paginación de ${tabs.find(item => item.id === tab)?.label || 'facturas'}`} />
     </div>

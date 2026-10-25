@@ -188,7 +188,7 @@ export default function DailyTimesheetOverview({ referenceDate, employeeId, onRe
       </div>
 
       {loading ? (
-        <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-gray-500"><ArrowPathIcon className="h-5 w-5 animate-spin" /> Calculando jornadas y ausencias…</div>
+        <div className={`flex ${data ? 'min-h-56' : 'min-h-[640px] lg:min-h-[760px]'} items-center justify-center gap-2 text-sm text-gray-500`}><ArrowPathIcon className="h-5 w-5 animate-spin" /> Calculando jornadas y ausencias…</div>
       ) : error ? (
         <div className="m-4 flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <span>{error}</span>
