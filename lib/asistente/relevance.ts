@@ -323,8 +323,12 @@ export function reordenarCandidatosLocalmente<T extends FuenteParaRelevancia>(co
     .sort((a, b) => b.evaluacion.puntuacion - a.evaluacion.puntuacion || b.evaluacion.contenido - a.evaluacion.contenido || b.evaluacion.titulo - a.evaluacion.titulo || (b.fuente.puntuacion || 0) - (a.fuente.puntuacion || 0))
     .filter(({ fuente }) => {
       const clave = claveSinDuplicado(fuente)
-      if (vistas.has(clave)) return false
+      // Una FAQ heredada y la misma FAQ de la extracción completa pueden
+      // tener documento distinto: su texto idéntico no aporta otra fuente.
+      const evidencia = `texto:${normalizar(fuente.urlFuente || '')}|${normalizar(fuente.titulo)}|${normalizar(fuente.contenido)}`
+      if (vistas.has(clave) || vistas.has(evidencia)) return false
       vistas.add(clave)
+      vistas.add(evidencia)
       return true
     })
     .slice(0, Math.max(1, Math.min(3, limite)))

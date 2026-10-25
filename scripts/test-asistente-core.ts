@@ -7,6 +7,7 @@ import { assistantClientEnabled, assistantPublicEnabled, envAssistantMode } from
 import { puntuarLead } from '@/lib/asistente/leads'
 import { respuestaExtractiva, validarRespuestaConFuentes } from '@/lib/asistente/provider'
 import { rutaWebPublicaPermitida, urlWebPublicaPermitida } from '@/lib/asistente/ingesta'
+import { reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
 
 function prueba(nombre: string, fn: () => void) { try { fn(); console.log(`OK ${nombre}`) } catch (error) { console.error(`FALLO ${nombre}`); throw error } }
 
@@ -54,6 +55,12 @@ prueba('activación, horario, lead y proveedor extractivo', () => {
 
 prueba('allowlist web estricta', () => {
   assert.equal(rutaWebPublicaPermitida('/soluciones/backup'), true); assert.equal(rutaWebPublicaPermitida('/admin/usuarios'), false); assert.equal(rutaWebPublicaPermitida('/api/tarifas'), false); assert.equal(urlWebPublicaPermitida('https://www.internetoperadores.com/internet'), true); assert.equal(urlWebPublicaPermitida('https://malicioso.example/internet'), false)
+})
+
+prueba('FAQ idéntica no duplica citas aunque tenga dos documentos', () => {
+  const fuente = { titulo: 'Backup de conexión', contenido: 'El failover activa la conexión de backup 5G si se cae la fibra.', urlFuente: '/faq', tipo: 'FAQ' }
+  const resultado = reordenarCandidatosLocalmente('¿Ofrecéis backup de conexión por 5G?', [{ ...fuente, documentoId: 'fixture-a' }, { ...fuente, documentoId: 'fixture-b' }])
+  assert.equal(resultado.length, 1)
 })
 
 console.log('TEST_ASISTENTE_CORE_OK')

@@ -72,14 +72,14 @@ La comparativa vigente reúne 14 páginas y perfiles móviles/escritorio. La ser
 
 ## Asistente IA — controles y entregas parciales, no apto para activación
 
-La evaluación offline/extractiva más reciente registra **100/100 casos correctos (100 %) en la evaluación integrada extractiva; esto no autoriza producción**. El recibo integrado identifica el corpus y el SHA 478a84b; se obtuvieron citas 100 %, cero cifras inventadas, cero fugas/canarios públicos y cero PII persistida. La batería no es tráfico real y requiere revisión de negocio. El entorno GPU definitivo no existe: la prueba de aislamiento Docker realizada es una sonda **CPU parcial**, sin GPU ni pila completa. Tampoco existen locks finales de imágenes/modelos, host UE contratado/verificado, DPA aprobado o programación efectiva de informes.
+La revisión pública del **26/10** registra **23/23** sobre la extracción real, repetición histórica **100/100**, regresiones **26/26** y smoke desplegado **10/10**; no autoriza producción. Se obtuvieron citas 100 %, cero cifras inventadas, cero fugas/canarios y cero PII de prueba persistida en la batería histórica. Las tres preguntas de Claude son revisión real; las veinte adicionales son sintéticas, no tráfico de clientes. La referencia anterior 478a84b es histórica y no acreditaba los fallos públicos detectados después. La nueva ingesta representa las 64 rutas editoriales con 611 fuentes y 105 tarifas aptas, sin rutas pendientes. El entorno GPU definitivo no existe: la sonda Docker sigue siendo **CPU parcial**. Faltan host UE, DPA, locks/artefactos y programación efectiva.
 
 | Aspecto IA | Estado actual documentado | Qué falta para una puerta aprobable |
 |---|---|---|
-| Evaluación | 100/100; extractiva y offline, no equivale a activación. | Revisar el recibo integrado y repetir con el modelo local/GPU antes de activar ese modo. |
+| Evaluación | 23/23 pública, 100/100 histórica, 26/26 relevancia y 10/10 smoke de staging. | Revisión de negocio de Claude/Víctor; repetir con el modelo real antes de activar `local`. |
 | GPU / host | No hay GPU ni `nvidia-smi` en sandbox. | Host UE autorizado, hardware real, red privada, soporte y pruebas completas. |
 | Egress | Sonda CPU parcial bloqueó DNS externo/TCP a un destino externo de control en red Docker `internal=true`. | Probar cada contenedor de la pila completa, Caddy, mTLS, nftables y recibos en host real. |
-| Cadencia diaria | CLI y plantillas systemd preparados; **ningún timer/servicio activo**. | Host autorizado, instalación y prueba real de `08:00 Europe/Madrid`; no confundir con abrir el panel. |
+| Cadencia diaria | Preview sin Vercel Cron; generación perezosa/manual idempotente. **Ningún timer/servicio activo**. | Futuro ejecutor autorizado: Vercel Cron en producción o host propio, con horario/flags/secreto/protección probados. |
 | Supply chain | Plantillas con marcadores; no hay pesos, imágenes ni digests finales. | Bundle offline revisado por dos personas, licencia, revisión, hashes y locks reales. |
 | Legal / residencia | Pendientes DPA, región efectiva UE, subencargados y aprobación de tratamiento. | Contratos, confirmaciones y aprobación jurídica documentada. |
 
@@ -172,10 +172,10 @@ Gate IA exige una cadena completa de controles. Ninguna prueba local parcial ni 
 
 <div class="checklist-box"><ul>
 <li>La evaluación integrada se ejecuta tras los merges con 100 casos documentados, indicando qué casos son fuente propia, revisión de negocio pendiente o sintéticos. No se presenta como tráfico real ni revisión humana si no lo es.</li>
-<li>La batería integrada extractiva ha pasado 100/100 con SHA 478a84b; mantener recibo, casos y umbrales sin rebajarlos y repetir ante cambios de código/corpus/modelo.</li>
+<li>Conservar la repetición del 26/10: histórica 100/100 y pública 23/23, con tres preguntas de Claude y veinte sintéticas, sin bajar expectativas. La referencia 478a84b queda histórica. Repetir ante cambios de código/corpus/modelo.</li>
 <li>Para el modo local, la batería supera los umbrales acordados: fidelidad/citas ≥95 %, cero fuga ACL, respuesta fuera de dominio apropiada ≥90 %, TTFT P95 <3 s bajo carga definida, VRAM P95 <85 % y error <1 %.</li>
 <li>Existe ejecutor CLI protegido para informes y retención: usa <code>DATABASE_URL</code> y exige <code>ASSISTANT_EXECUTION_TARGET</code> controlado; no tiene destino de producción. Los endpoints, si se habilitan expresamente, usan <code>CRON_SECRET</code> (no <code>ASSISTANT_CRON_SECRET</code>). No se usa un scheduler de sandbox ni se afirma que Vercel Preview programe cron.</li>
-<li>En un host autorizado, systemd/cron se instala y verifica de verdad a las <strong>08:00 Europe/Madrid</strong>, incluidos cambios CET/CEST, usuario de mínimo privilegio, lock contra solapes y recibo sin PII. Hasta entonces, cron queda inactivo.</li>
+<li>El ejecutor futuro aprobado —Vercel Cron en producción o systemd/cron de un host autorizado— se configura y verifica a las <strong>08:00 Europe/Madrid</strong>, incluidos CET/CEST, permisos, secreto, lock e idempotencia. Hasta autorización y prueba, cron queda inactivo; el panel perezoso no cierra esta casilla.</li>
 <li>La copia cifrada y la restauración se han ejecutado de verdad sobre volúmenes nuevos, con claves/identidad custodiadas fuera del host. Un script existente no sustituye esa prueba.</li>
 <li>El plan de rollback corta flags, detiene el host si estaba activo, rota claves/certificados si procede y conserva evidencia mínima. No borra lead de negocio ni tablas aditivas como método de reversión.</li>
 </ul></div>

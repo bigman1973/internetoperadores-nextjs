@@ -48,7 +48,7 @@ Este manual explica cómo utilizar y revisar el asistente privado integrado en s
 
 El estado de referencia es `ASSISTANT_MODE=extractivo` en staging y `ASSISTANT_MODE=desactivado` fuera de staging hasta que se cumplan los controles técnicos, jurídicos y de aprobación. El espacio Cliente permanece desactivado. No hay envío de correos, SMS, webhooks ni sincronización externa del asistente.
 
-<div class="tip-box"><strong>Validación en staging:</strong> evaluación extractiva 100/100, captación/proyección a Leads 20/20, widget móvil y foco 32/32. Comparación local adicional con CPU ×4: INP de apertura/cierre 56–80 ms; LCP activado/apagado +0,32 % (3 muestras por variante). No equivale a p75 de campo, evaluación GPU ni programación real de las 08:00.</div>
+<div class="tip-box"><strong>Revisión pública del 26/10:</strong> 23/23 preguntas (tres exactas de Claude y veinte sintéticas derivadas de fuentes propias), repetición histórica 100/100 y regresiones locales 26/26. Smoke de staging 10/10, sin tarifas de mayoristas ni fuentes ante peticiones internas. La ingesta cubre 64 rutas editoriales con 611 fuentes y 6 catálogos dinámicos con 105 tarifas aptas. Las pruebas anteriores de captación 20/20 y foco 32/32 son evidencias distintas; no se presentan como repetidas en esta corrección. El rendimiento 56–80 ms / +0,32 % es laboratorio histórico, no p75 de campo. No acredita GPU, producción ni cron real.</div>
 
 ## Cómo interpretar las instrucciones
 
@@ -184,13 +184,13 @@ Los ejemplos deben permanecer anonimizados. Los leads calientes se agregan por e
 ## Estado de programación y decisiones de propuestas
 
 - No hay correo de informes: `ASSISTANT_EMAIL_ENABLED=false`.
-- La programación efectiva de staging está **bloqueada**: Vercel Preview no ejecuta cron y no existe host persistente autorizado.
-- Se ha preparado un ejecutor CLI protegido y plantillas systemd con calendario `08:00 Europe/Madrid`, pero **no hay servicio/timer instalado, habilitado ni activo**. El CLI usa `DATABASE_URL` y exige el objetivo de ejecución controlado `ASSISTANT_EXECUTION_TARGET`; no admite producción. Abrir el panel no es una programación.
+- En staging **Vercel Cron no está activo**: Preview no ejecuta sus cron. El informe se genera perezosamente e idempotentemente al abrir el panel después de las 08:00 o mediante la acción manual; abrir el panel no es una ejecución programada.
+- Se ha preparado un ejecutor CLI protegido y plantillas systemd con calendario `08:00 Europe/Madrid`, pero **no hay servicio/timer instalado, habilitado ni activo**. El CLI usa `DATABASE_URL` y exige `ASSISTANT_EXECUTION_TARGET`; no admite producción. Un host propio no es técnicamente obligatorio para una producción futura: Vercel Cron puede valorarse con autorización explícita, schedule, flags, secreto y protección verificados. No se ha activado esa alternativa.
 - Los endpoints de informe y retención, cuando se habiliten expresamente, se protegen con `CRON_SECRET`; no existe `ASSISTANT_CRON_SECRET` ni se debe crear una variable alternativa para este flujo.
 - La generación manual autorizada no equivale a una tarea diaria activa.
 - Una propuesta puede registrarse como aceptada, descartada o hecha por una persona autorizada; no debe repetirse después de un descarte. Estas acciones no autorizan cambios automáticos en conocimiento ni en producción.
 
-<div class="warning-box"><strong>Comprobación pendiente:</strong> antes de usar una cadencia real debe verificarse un host autorizado, el calendario efectivo con cambio CET/CEST, el lock/idempotencia, los permisos, el secreto del endpoint y el recibo de ejecución sin PII. No crear un sustituto en el sandbox ni afirmar cron activo.</div>
+<div class="warning-box"><strong>Comprobación pendiente:</strong> antes de usar una cadencia real debe verificarse el ejecutor autorizado, el calendario efectivo con cambio CET/CEST, el lock/idempotencia, los permisos, el secreto del endpoint y el recibo de ejecución sin PII. No crear un sustituto en el sandbox ni afirmar cron activo.</div>
 
 # 9. Configuración, retención y derechos
 
@@ -225,7 +225,7 @@ El patrón técnico es: (1) solicitar una **previsualización** no destructiva, 
 
 Ante una incidencia, primero se corta la exposición mediante `ASSISTANT_PUBLIC_ENABLED=false` y `ASSISTANT_MODE=desactivado` en el entorno afectado. Después se redespliega la versión anterior conocida y validada. No se ejecutan `DROP` ni borrados masivos de tablas aditivas para volver atrás, y no se eliminan leads de negocio como parte del rollback.
 
-La evaluación offline actual del asistente registra **100/100 casos (100 %) y resultado NO APTO**. Los problemas de recuperación/cita siguen pendientes de corrección e integración; no se anticipa el resultado de la siguiente ejecución. El modo local también sigue bloqueado por ausencia de host GPU, pesos fijados, pruebas completas de red/ACL/latencia y aprobaciones UE/jurídicas.
+La corrección pública del 26/10 registra **23/23**, repetición histórica **100/100** y smoke desplegado **10/10**. Sustituye el resultado público inicial 13/23 y las referencias contradictorias anteriores a «100/100 NO APTO». Está preparada para revisión funcional de staging, **no aprobada para producción**. El modo local sigue bloqueado por ausencia de host GPU, pesos fijados, pruebas completas de red/ACL/latencia y aprobaciones UE/jurídicas. La retirada conservadora archivó 155 tarifas antiguas con evidencia y conserva 13 no acreditadas, excluidas del chat por falta de origen certificado; no modifica precios ni datos de negocio.
 
 <div class="warning-box"><strong>Escalar antes de continuar:</strong> falta de fuente, fuga de permisos, PII visible, consentimiento inválido, ausencia de clave de contacto, cron no verificado, telemetría activada o cualquier intento de activar producción son motivos de parada y revisión con el responsable técnico, seguridad y, cuando corresponda, DPO/asesoría.</div>
 
