@@ -5,7 +5,7 @@ import { analizarMensaje, coincideTemaProhibido, RESPUESTA_INYECCION } from '@/l
 import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { redactarPII } from '@/lib/asistente/pii'
 import { proveedorPara, type FuenteRespuesta } from '@/lib/asistente/provider'
-import { buscar } from '@/lib/asistente/retrieval'
+import { buscar, type FragmentoRecuperado } from '@/lib/asistente/retrieval'
 import { consultaParaRecuperacion, normalizar } from '@/lib/asistente/text'
 
 export type CtaAsistente = { tipo: 'INFORME_CERO_RIESGOS' | 'BACKUP_CONEXION' | 'CONTACTO' | 'LEAD'; texto: string; url?: string }
@@ -24,6 +24,67 @@ function respuestaHumana(motivo: 'PETICION' | 'ENFADO' | 'FUERA_DOMINIO', dentro
   if (motivo === 'ENFADO') return dentro ? 'Siento que la experiencia no haya sido buena. Voy a dejar constancia para que una persona pueda ayudarte.' : 'Siento que la experiencia no haya sido buena. Puedes dejarnos tus datos de contacto y te responderemos en horario de atención.'
   if (motivo === 'FUERA_DOMINIO') return 'Puedo ayudarte con servicios de conectividad, móvil, soporte y soluciones de Internet Operadores. Para otra consulta, puedes contactar con nuestro equipo.'
   return dentro ? 'De acuerdo, puedo derivarte con una persona del equipo. Si nos dejas una forma de contacto, te atenderemos.' : 'De acuerdo, puedes dejarnos una forma de contacto y te responderemos en horario de atención.'
+}
+
+type TipoDatoSolicitado = 'NUMERO' | 'FECHA' | 'PRECIO' | 'PORCENTAJE' | 'VELOCIDAD' | null
+
+function tipoDatoSolicitado(pregunta: string): TipoDatoSolicitado {
+  const consulta = normalizar(pregunta)
+  if (/\b(?:precio|coste|tarifa|cuota|importe)\b/.test(consulta)) return 'PRECIO'
+  if (/\b(?:descuento|rebaja|porcentaje|por ciento|disponibilidad)\b/.test(consulta)) return 'PORCENTAJE'
+  if (/\bvelocidad\b/.test(consulta)) return 'VELOCIDAD'
+  if (/\b(?:fecha|cuando)\b/.test(consulta)) return 'FECHA'
+  if (/\b(?:cuanto|cuanta|cuantos|cuantas|maximo|maxima|numero|plazo|tiempo|conmutacion)\b/.test(consulta)) return 'NUMERO'
+  return null
+}
+
+function contieneTipoDato(texto: string, tipo: Exclude<TipoDatoSolicitado, null>): boolean {
+  const normalizado = normalizar(texto)
+  if (tipo === 'PRECIO') return /\b\d+(?:[.,]\d+)?\s*€/.test(normalizado)
+  if (tipo === 'PORCENTAJE') return /\b\d+(?:[.,]\d+)?\s*%/.test(normalizado)
+  if (tipo === 'VELOCIDAD') return /\b\d+(?:[.,]\d+)?\s*(?:mbps|gbps)/.test(normalizado)
+  if (tipo === 'FECHA') return /\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b|\b(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/.test(normalizado)
+  return /\b\d+(?:[.,]\d+)?\b/.test(normalizado)
+}
+
+function terminosTema(pregunta: string): string[] {
+  const noTematicos = new Set(['cual', 'cuales', 'como', 'cuanto', 'cuanta', 'cuantos', 'cuantas', 'de', 'el', 'en', 'es', 'exacta', 'exacto', 'fecha', 'fijo', 'garantizada', 'garantizado', 'la', 'las', 'los', 'maxima', 'maximo', 'ofrece', 'ofrecemos', 'precio', 'publica', 'publicado', 'que', 'se', 'tarifa', 'tiene', 'una', 'un', 'velocidad'])
+  return normalizar(pregunta).split(' ').filter(termino => termino.length > 1 && !noTematicos.has(termino))
+}
+
+function fuenteParaDatoPublicado(pregunta: string, fuentes: FuenteRespuesta[]): FuenteRespuesta | null {
+  const tipo = tipoDatoSolicitado(pregunta)
+  if (!tipo) return fuentes[0] || null
+  const tema = terminosTema(pregunta)
+  const candidatas = fuentes
+    .map(fuente => ({ fuente, texto: normalizar(`${fuente.titulo} ${fuente.fragmento}`) }))
+    .filter(({ texto }) => contieneTipoDato(texto, tipo))
+    .map(({ fuente, texto }) => ({ fuente, coincidenciasTema: tema.filter(termino => texto.includes(termino)).length }))
+    .filter(candidata => candidata.coincidenciasTema > 0)
+    .sort((a, b) => b.coincidenciasTema - a.coincidenciasTema || a.fuente.n - b.fuente.n)
+  return candidatas[0]?.fuente || null
+}
+
+/** En modo extractivo se citan fragmentos literales, sin resumir cifras, plazos ni condiciones. */
+function respuestaExtractivaLiteral(pregunta: string, fragmentos: FragmentoRecuperado[]): { respuesta: string; fuentes: FuenteRespuesta[]; modo: 'extractivo' } {
+  const fuentes = fragmentos.slice(0, 4).map((fragmento, indice) => ({
+    n: indice + 1,
+    titulo: fragmento.titulo,
+    url: fragmento.urlFuente,
+    fragmento: fragmento.contenido.slice(0, 900),
+    documentoId: fragmento.documentoId,
+    versionId: fragmento.versionId,
+  }))
+  const referencias = fuentes.map(fuente => `[${fuente.n}]`).join(' ')
+  const fuenteDato = fuenteParaDatoPublicado(pregunta, fuentes)
+  if (!fuenteDato) return { respuesta: `La documentación disponible no concreta ese dato. ${referencias}`, fuentes, modo: 'extractivo' }
+  // Se reproduce sólo el fragmento más pertinente. Las otras fuentes quedan
+  // citadas como relacionadas sin introducir en la respuesta cifras, plazos o
+  // condiciones que no responden a la pregunta.
+  const contenido = tipoDatoSolicitado(pregunta)
+    ? fuenteDato.fragmento
+    : fuentes.map(fuente => `${fuente.fragmento} [${fuente.n}]`).join(' ')
+  return { respuesta: `Según nuestra documentación: ${contenido} ${referencias}`, fuentes, modo: 'extractivo' }
 }
 
 async function conversacionSegura(id: string | undefined, canal: 'PUBLICO' | 'INTERNO' | 'CLIENTE', usuarioId: number | null, visitanteHash: string | null, retencionMeses: number): Promise<string> {
@@ -64,6 +125,7 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
   let sinFuente = false
   let escalar = false
   let motivo: RespuestaAsistente['motivoEscalado']
+  let modoRespuesta: RespuestaAsistente['modo'] = runtime.modo === 'local' ? 'local' : 'extractivo'
   if (analisis.injection) {
     respuesta = RESPUESTA_INYECCION
     sinFuente = true
@@ -95,14 +157,20 @@ export async function responderMensaje(entrada: { mensaje: string; conversacionI
       escalar = true
       await guardarHueco(textoAnon, canal, conversacionId, mensajes.id)
     } else {
-      const proveedor = proveedorPara(runtime.modo)
-      const resultado = await proveedor!.responder(entrada.mensaje, fragmentos)
+      // El modo extractivo no reescribe los fragmentos: conserva evidencia
+      // literal. El proveedor local recibe la pregunta anonimizada y la
+      // configuración aprobada; si cae al fallback informa su modo real.
+      const proveedorConfigurado = proveedorPara as unknown as (modo: 'extractivo' | 'local' | 'desactivado', opciones?: { modelo?: string | null; tono?: string }) => NonNullable<ReturnType<typeof proveedorPara>>
+      const resultado = runtime.modo === 'extractivo'
+        ? respuestaExtractivaLiteral(textoAnon, fragmentos)
+        : await proveedorConfigurado(runtime.modo, { modelo: runtime.modelo, tono: runtime.tono }).responder(textoAnon, fragmentos)
       respuesta = resultado.respuesta
       fuentes = resultado.fuentes
+      modoRespuesta = resultado.modo === 'local' ? 'local' : 'extractivo'
     }
   }
   const almacenada = await redactarPII(respuesta, { incluirCodigoPostal: false })
   const asistente = await prisma.asistenteMensaje.create({ data: { conversacionId, rol: 'asistente', textoAnon: almacenada, fuentes: fuentes.map(({ n, titulo, url, documentoId, versionId }) => ({ n, titulo, url, documentoId, versionId })), sinFuente, intent: motivo || null } })
   await prisma.asistenteConversacion.update({ where: { id: conversacionId }, data: { mensajes: { increment: 1 }, estado: escalar ? 'ESCALADA' : 'ABIERTA', escaladoMotivo: motivo || null, updatedAt: new Date() } })
-  return { conversacionId, mensajeId: asistente.id, respuesta, fuentes, sinFuente, escalar, ...(motivo ? { motivoEscalado: motivo } : {}), ctas: ctasPara(entrada.mensaje, sinFuente), modo: runtime.modo }
+  return { conversacionId, mensajeId: asistente.id, respuesta, fuentes, sinFuente, escalar, ...(motivo ? { motivoEscalado: motivo } : {}), ctas: ctasPara(entrada.mensaje, sinFuente), modo: modoRespuesta }
 }

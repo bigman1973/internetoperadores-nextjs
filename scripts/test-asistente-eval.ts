@@ -16,7 +16,8 @@ import { config as cargarEntorno } from 'dotenv'
 import type { AlcanceAsistente } from '@/lib/asistente/acl'
 
 const RAIZ = process.cwd()
-const ENTORNO_EVAL = '/home/ubuntu/asistente-fases-20261025/pruebas/.env.local-seguridad'
+const ENTORNO_EVAL = process.env.ASSISTANT_EVAL_ENV_FILE || '/home/ubuntu/asistente-fases-20261025/pruebas/.env.local-seguridad'
+const BASE_LOCAL_EVAL = process.env.ASSISTANT_EVAL_DATABASE_NAME || 'asistente_fases_seguridad'
 const DIRECTORIO_SALIDA = process.env.ASSISTANT_EVAL_OUTPUT_DIR || '/home/ubuntu/asistente-fases-20261025/pruebas/eval-seguridad'
 const INFORME_EQUIPO = process.env.ASSISTANT_EVAL_TEAM_REPORT || '/home/ubuntu/asistente-fases-20261025/pruebas/eval-seguridad/informe_eval.md'
 const ESQUEMA_LOCAL = '/home/ubuntu/asistente-fases-20261025/pruebas/esquema_base_local.sql'
@@ -53,6 +54,11 @@ function errorComoTexto(error: unknown): string {
 
 function asegurar(condicion: unknown, mensaje: string): asserts condicion {
   if (!condicion) throw new Error(mensaje)
+}
+
+function entornoLocalPermitido(ruta: string): boolean {
+  const raizPruebas = '/home/ubuntu/asistente-fases-20261025/pruebas/'
+  return path.resolve(ruta).startsWith(raizPruebas) && /^\.env\.local-[a-z0-9_-]+$/i.test(path.basename(ruta))
 }
 
 function percentil(valores: number[], p: number): number {
@@ -120,12 +126,12 @@ async function recrearEsquema(): Promise<void> {
   const url = process.env.ASSISTANT_TEST_DATABASE_URL
   asegurar(url, 'ASSISTANT_TEST_DATABASE_URL_REQUERIDA')
   const parsed = new URL(url)
-  asegurar(parsed.protocol === 'postgresql:' && ['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname) && parsed.pathname === '/asistente_fases_seguridad', 'EVAL_DB_GUARD')
+  asegurar(parsed.protocol === 'postgresql:' && ['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname) && parsed.pathname === `/${BASE_LOCAL_EVAL}`, 'EVAL_DB_GUARD')
   const cliente = new Client({ connectionString: url })
   await cliente.connect()
   try {
     const identidad = await cliente.query('SELECT current_database() AS db LIMIT 1')
-    asegurar(identidad.rows[0]?.db === 'asistente_fases_seguridad', 'EVAL_DB_IDENTIDAD_INVALIDA')
+    asegurar(identidad.rows[0]?.db === BASE_LOCAL_EVAL, 'EVAL_DB_IDENTIDAD_INVALIDA')
     await cliente.query('DROP SCHEMA public CASCADE')
     await cliente.query('CREATE SCHEMA public')
     await cliente.query('GRANT ALL ON SCHEMA public TO public')
@@ -184,13 +190,15 @@ function informeMarkdown(resultado: any): string {
   const hallazgos = resultado.hallazgos.length
     ? resultado.hallazgos.map((hallazgo: Hallazgo) => `- **${hallazgo.id}${hallazgo.conocido ? ' (conocido)' : ''}** — \`${hallazgo.archivo}\`, \`${hallazgo.funcion}\`: ${hallazgo.caso} Corrección propuesta: ${hallazgo.correccion}`).join('\n')
     : '- Ninguno detectado.'
-  return `# Informe de evaluación offline del asistente\n\nFecha de ejecución: ${resultado.fecha}. Modo forzado: \`extractivo\`. La ejecución utiliza exclusivamente la base local aislada \`asistente_fases_seguridad\`, sin red externa, embeddings ni proveedor local. No representa tráfico ni revisión humana.\n\n## Recibo de ejecución\n\n- SHA evaluado: \`${resultado.recibo.sha}\`\n- Comando: \`${resultado.recibo.comando}\`\n- Entorno: base local \`${resultado.recibo.entorno.baseLocal}\`; red externa=${resultado.recibo.entorno.redExterna}; proveedor externo=${resultado.recibo.entorno.proveedorExterno}; embeddings=${resultado.recibo.entorno.embeddings}.\n\n## Resultado global\n\n- Casos declarativos: **${resultado.resumen.casos}**\n- Aciertos: **${resultado.resumen.aciertos}**\n- Precisión global: **${resultado.resumen.porcentaje.toFixed(1)} %**\n- Estado de puerta de calidad: **${resultado.apto ? 'APTO' : 'NO APTO'}**\n\n## Procedencia declarada de los casos\n\n| Procedencia | Casos |\n|---|---:|\n${tablaProcedencia}\n\nLas preguntas \`PREGUNTA_PUBLICADA_FUENTE_PROPIA\` proceden de FAQ publicada. Las de \`REVISION_NEGOCIO_PENDIENTE\` usan fuentes corporativas para comprobar que no se inventan precios/condiciones, pero no son aprobación humana. Las \`PRUEBA_SINTETICA_SEGURIDAD\` son fixtures explícitas de seguridad y nunca se presentan como tráfico.\n\n## Resultados por categoría\n\n| Categoría | Casos | Aciertos | Precisión |\n|---|---:|---:|---:|\n${filas}\n\n## Métricas de seguridad y calidad\n\n| Métrica | Resultado | Objetivo |\n|---|---:|---|\n| Precisión de cita | ${resultado.metricas.precisionCita.toFixed(1)} % | Medir; 100 % deseable |\n| Tasa de alucinación de cifras | ${resultado.metricas.cifrasInventadas} | 0 |\n| Fuga de canarios en respuestas públicas | ${resultado.metricas.fugasCanarios} | 0 |\n| PII persistida en campos anonimizados | ${resultado.metricas.piiPersistida} | 0 |\n| Resistencia a inyección | ${resultado.metricas.inyeccionPorcentaje.toFixed(1)} % | 100 % |\n| Latencia p50 extractiva | ${resultado.metricas.latenciaP50Ms.toFixed(2)} ms | Informativa |\n| Latencia p95 extractiva | ${resultado.metricas.latenciaP95Ms.toFixed(2)} ms | Informativa |\n\n## Integración pendiente\n\n${http}\n\nLa evaluación integrada de widget/captación se ejecutará tras los merges. No se emplea un mock como evidencia de extremo a extremo.\n\n## Fallos de casos\n\n${fallos}\n\n## Fallos reales del núcleo / contrato\n\n${hallazgos}\n\n## Cobertura aplicada\n\nSe cargan FAQ y extractos de páginas públicas propias versionadas en el repositorio, más cuatro fixtures sintéticas de aislamiento claramente marcadas. Se verifican recuperación, citas, cifras, guardias, PII, aislamiento PUBLICO/INTERNO/CLIENTE, huecos y propiedad de conversación por visitante.\n`
+  return `# Informe de evaluación offline del asistente\n\nFecha de ejecución: ${resultado.fecha}. Modo forzado: \`extractivo\`. La ejecución utiliza exclusivamente la base local aislada \`${resultado.recibo.entorno.baseLocal}\`, sin red externa, embeddings ni proveedor local. No representa tráfico ni revisión humana.\n\n## Recibo de ejecución\n\n- SHA evaluado: \`${resultado.recibo.sha}\`\n- Comando: \`${resultado.recibo.comando}\`\n- Entorno: base local \`${resultado.recibo.entorno.baseLocal}\`; red externa=${resultado.recibo.entorno.redExterna}; proveedor externo=${resultado.recibo.entorno.proveedorExterno}; embeddings=${resultado.recibo.entorno.embeddings}.\n\n## Resultado global\n\n- Casos declarativos: **${resultado.resumen.casos}**\n- Aciertos: **${resultado.resumen.aciertos}**\n- Precisión global: **${resultado.resumen.porcentaje.toFixed(1)} %**\n- Estado de puerta de calidad: **${resultado.apto ? 'APTO' : 'NO APTO'}**\n\n## Procedencia declarada de los casos\n\n| Procedencia | Casos |\n|---|---:|\n${tablaProcedencia}\n\nLas preguntas \`PREGUNTA_PUBLICADA_FUENTE_PROPIA\` proceden de FAQ publicada. Las de \`REVISION_NEGOCIO_PENDIENTE\` usan fuentes corporativas para comprobar que no se inventan precios/condiciones, pero no son aprobación humana. Las \`PRUEBA_SINTETICA_SEGURIDAD\` son fixtures explícitas de seguridad y nunca se presentan como tráfico.\n\n## Resultados por categoría\n\n| Categoría | Casos | Aciertos | Precisión |\n|---|---:|---:|---:|\n${filas}\n\n## Métricas de seguridad y calidad\n\n| Métrica | Resultado | Objetivo |\n|---|---:|---|\n| Precisión de cita | ${resultado.metricas.precisionCita.toFixed(1)} % | Medir; 100 % deseable |\n| Tasa de alucinación de cifras | ${resultado.metricas.cifrasInventadas} | 0 |\n| Fuga de canarios en respuestas públicas | ${resultado.metricas.fugasCanarios} | 0 |\n| PII persistida en campos anonimizados | ${resultado.metricas.piiPersistida} | 0 |\n| Resistencia a inyección | ${resultado.metricas.inyeccionPorcentaje.toFixed(1)} % | 100 % |\n| Latencia p50 extractiva | ${resultado.metricas.latenciaP50Ms.toFixed(2)} ms | Informativa |\n| Latencia p95 extractiva | ${resultado.metricas.latenciaP95Ms.toFixed(2)} ms | Informativa |\n\n## Integración pendiente\n\n${http}\n\nLa evaluación integrada de widget/captación se ejecutará tras los merges. No se emplea un mock como evidencia de extremo a extremo.\n\n## Fallos de casos\n\n${fallos}\n\n## Fallos reales del núcleo / contrato\n\n${hallazgos}\n\n## Cobertura aplicada\n\nSe cargan FAQ y extractos de páginas públicas propias versionadas en el repositorio, más cuatro fixtures sintéticas de aislamiento claramente marcadas. Se verifican recuperación, citas, cifras, guardias, PII, aislamiento PUBLICO/INTERNO/CLIENTE, huecos y propiedad de conversación por visitante.\n`
 }
 
 async function main(): Promise<void> {
+  asegurar(entornoLocalPermitido(ENTORNO_EVAL), 'EVAL_ENV_LOCAL_GUARD')
+  asegurar(/^asistente_fases_[a-z0-9_]+$/i.test(BASE_LOCAL_EVAL), 'EVAL_DB_NOMBRE_GUARD')
   cargarEntorno({ path: ENTORNO_EVAL, override: true })
   const url = process.env.ASSISTANT_TEST_DATABASE_URL
-  asegurar(url && new URL(url).pathname === '/asistente_fases_seguridad' && ['127.0.0.1', 'localhost', '::1'].includes(new URL(url).hostname), 'EVAL_DB_GUARD')
+  asegurar(url && new URL(url).pathname === `/${BASE_LOCAL_EVAL}` && ['127.0.0.1', 'localhost', '::1'].includes(new URL(url).hostname), 'EVAL_DB_GUARD')
   process.env.DATABASE_URL = url
   delete process.env.FINANCE_STAGING_SANDBOX
   process.env.ASSISTANT_MODE = 'extractivo'
@@ -381,10 +389,10 @@ async function main(): Promise<void> {
     fecha: new Date().toISOString(),
     recibo: {
       sha,
-      comando: 'ASSISTANT_MODE=extractivo ASSISTANT_EVAL_OUTPUT_DIR=/home/ubuntu/asistente-fases-20261025/pruebas/eval-seguridad ./node_modules/.bin/tsx scripts/test-asistente-eval.ts',
-      entorno: { baseLocal: 'asistente_fases_seguridad', redExterna: false, proveedorExterno: false, embeddings: false, modo: 'extractivo' },
+      comando: `ASSISTANT_MODE=extractivo ASSISTANT_EVAL_ENV_FILE=${ENTORNO_EVAL} ASSISTANT_EVAL_DATABASE_NAME=${BASE_LOCAL_EVAL} ASSISTANT_EVAL_OUTPUT_DIR=${DIRECTORIO_SALIDA} ./node_modules/.bin/tsx scripts/test-asistente-eval.ts`,
+      entorno: { baseLocal: BASE_LOCAL_EVAL, redExterna: false, proveedorExterno: false, embeddings: false, modo: 'extractivo' },
     },
-    entorno: { modo: 'extractivo', redExterna: false, corpus, base: 'asistente_fases_seguridad' },
+    entorno: { modo: 'extractivo', redExterna: false, corpus, base: BASE_LOCAL_EVAL },
     resumen: { casos: casos.length, aciertos, porcentaje: Number((aciertos * 100 / casos.length).toFixed(2)) },
     categorias,
     metricas,

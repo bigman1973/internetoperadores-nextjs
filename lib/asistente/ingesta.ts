@@ -245,7 +245,12 @@ export async function indexarFuente(fuente: FuenteIngesta, actorId?: number, opc
   const titulo = redactarPIILocal(textoPlano(fuente.titulo).slice(0, 500), true)
   const contenido = redactarPIILocal(limiteTexto(fuente.contenido), true)
   const checksum = sha256Hex(contenido)
-  const anterior = await prisma.asistenteDocumento.findFirst({ where: { origen: fuente.origen }, include: { versiones: { orderBy: { version: 'desc' }, take: 1 } } })
+  // Una página puede aportar varios extractos aprobados con títulos distintos.
+  // El origen identifica la página, pero el documento de conocimiento se
+  // identifica por la pareja origen+título para no desactivar otros extractos.
+  const anterior = fuente.origen
+    ? await prisma.asistenteDocumento.findFirst({ where: { origen: fuente.origen, titulo }, include: { versiones: { orderBy: { version: 'desc' }, take: 1 } } })
+    : null
   if (anterior?.versiones[0]?.checksum === checksum) return { creado: false, documentoId: anterior.id, estado: anterior.estado }
   const espacio = anterior ? anterior.espacio : (opciones.espacio || 'INTERNO')
   const roles = anterior ? anterior.roles : (espacio === 'INTERNO' ? (opciones.roles || []) : [])

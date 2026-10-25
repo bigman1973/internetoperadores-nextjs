@@ -9,6 +9,21 @@ export type FragmentoRecuperado = { id: string; documentoId: string; versionId: 
 
 function limiteSeguro(valor: number | undefined): number { return Math.max(1, Math.min(20, Number.isInteger(valor) ? Number(valor) : 6)) }
 
+// Términos interrogativos o de forma no identifican por sí solos una fuente.
+// Se descartan antes de buscar para que una pregunta sin contexto conserve el
+// fallback seguro, en lugar de convertir una coincidencia genérica en respuesta.
+const TERMINOS_SIN_CONTEXTO = new Set([
+  'a', 'al', 'ante', 'como', 'con', 'cual', 'cuales', 'cuando', 'cuanto', 'cuanta', 'cuantos', 'cuantas', 'de', 'del', 'donde', 'el', 'en', 'es', 'esa', 'ese', 'esta', 'este', 'hay', 'la', 'las', 'lo', 'los', 'mi', 'mis', 'no', 'o', 'para', 'por', 'que', 'se', 'segun', 'si', 'sobre', 'su', 'sus', 'un', 'una', 'unos', 'unas',
+  'contacto', 'contactar', 'concreto', 'concreta', 'dato', 'disponible', 'disponibles', 'documentacion', 'exacta', 'exacto', 'fijo', 'forma', 'formas', 'incluye', 'informacion', 'informe', 'maxima', 'maximo', 'opcion', 'opciones', 'pagina', 'pregunta', 'publicada', 'publicado', 'puedo', 'puedes', 'puede', 'pueden', 'universal',
+])
+
+function terminosConContexto(consulta: string): string {
+  return normalizar(consulta)
+    .split(' ')
+    .filter(termino => termino.length > 1 && !TERMINOS_SIN_CONTEXTO.has(termino))
+    .join(' ')
+}
+
 function filtroAlcance(alcance: AlcanceAsistente) {
   return {
     espacios: alcance.espacios,
@@ -66,23 +81,26 @@ function coseno(a: number[], b: number[]): number {
 /**
  * Tercer intento para preguntas naturales («¿cuánto tarda la instalación?»),
  * donde exigir todas las palabras no encuentra nada: OR de los lexemas, pero
- * el fragmento debe contener al menos la mitad (mínimo 2 si hay 3 o más) para
- * no citar fragmentos poco relacionados. Mismos filtros de espacio/rol/cliente.
- * La puntuación es la proporción de términos cubiertos (0–1).
+ * el ranking prima las coincidencias del contenido sobre las del título. La
+ * consulta ya descartó términos genéricos antes de llegar aquí, por lo que una
+ * formulación natural puede recuperar evidencia literal sin abrir respuestas a
+ * consultas ambiguas. Mantiene exactamente los filtros de espacio/rol/cliente.
  */
 async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, limite: number): Promise<FragmentoRecuperado[]> {
   const { espacios, roles, tenant, todoInterno } = filtroAlcance(alcance)
-  const filas = await prisma.$queryRaw<Array<FragmentoRecuperado & { coincidencias: number; n: number }>>(Prisma.sql`
+  const filas = await prisma.$queryRaw<Array<FragmentoRecuperado & { coincidenciasContenido: number; coincidenciasTitulo: number; n: number }>>(Prisma.sql`
     WITH lex AS (SELECT tsvector_to_array(to_tsvector('spanish', ${terminos})) AS l),
          q AS (SELECT l, cardinality(l) AS n,
+                      ARRAY(SELECT CASE WHEN length(x) >= 6 THEN left(x, 5) ELSE x END FROM unnest(l) x) AS prefijos,
                       CASE WHEN cardinality(l) = 0 THEN NULL
-                           ELSE to_tsquery('simple', array_to_string(ARRAY(SELECT quote_literal(x) FROM unnest(l) x), ' | ')) END AS tsq
+                           ELSE to_tsquery('simple', array_to_string(ARRAY(SELECT quote_literal(CASE WHEN length(x) >= 6 THEN left(x, 5) ELSE x END) || CASE WHEN length(x) >= 6 THEN ':*' ELSE '' END FROM unnest(l) x), ' | ')) END AS tsq
                  FROM lex)
-    SELECT c.* FROM (
-      SELECT f.id::text AS "id", f.documento_id::text AS "documentoId", f.version_id::text AS "versionId",
-             f.titulo AS "titulo", f.contenido AS "contenido", f.url_fuente AS "urlFuente",
-             ts_rank_cd(f.tsv, q.tsq) AS "puntuacion",
-             (SELECT count(*) FROM unnest(tsvector_to_array(f.tsv)) t WHERE t = ANY(q.l))::int AS "coincidencias",
+      SELECT c.* FROM (
+        SELECT f.id::text AS "id", f.documento_id::text AS "documentoId", f.version_id::text AS "versionId",
+               f.titulo AS "titulo", f.contenido AS "contenido", f.url_fuente AS "urlFuente",
+               ts_rank_cd(f.tsv, q.tsq) AS "puntuacion",
+             (SELECT count(*) FROM unnest(tsvector_to_array(to_tsvector('spanish', translate(lower(f.contenido), 'áéíóúüñ', 'aeiouun')))) t WHERE EXISTS (SELECT 1 FROM unnest(q.prefijos) p WHERE t = p OR length(p) >= 5 AND t LIKE p || '%'))::int AS "coincidenciasContenido",
+             (SELECT count(*) FROM unnest(tsvector_to_array(to_tsvector('spanish', translate(lower(f.titulo), 'áéíóúüñ', 'aeiouun')))) t WHERE EXISTS (SELECT 1 FROM unnest(q.prefijos) p WHERE t = p OR length(p) >= 5 AND t LIKE p || '%'))::int AS "coincidenciasTitulo",
              q.n::int AS "n", f.created_at AS "creado"
         FROM asistente_fragmentos f
         JOIN asistente_documentos d ON d.id = f.documento_id
@@ -95,11 +113,27 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
          AND (f.espacio <> 'CLIENTE' OR f.tenant_cliente_id = ${tenant})
          AND f.tsv @@ q.tsq
     ) c
-     WHERE c."coincidencias" >= GREATEST(CASE WHEN c."n" >= 3 THEN 2 ELSE 1 END, CEIL(c."n" * 0.5))
-     ORDER BY c."coincidencias" DESC, c."puntuacion" DESC, c."creado" DESC
+     -- Una sola coincidencia en el cuerpo suele ser incidental (por ejemplo,
+     -- «satélite» en una pregunta astronómica). Un título sí es suficiente
+     -- porque identifica explícitamente el ámbito de la fuente.
+     WHERE c."coincidenciasContenido" >= 2 OR c."coincidenciasTitulo" >= 1
+     -- El título es el resumen aprobado de la fuente: pesa más que una palabra
+     -- incidental del cuerpo (por ejemplo «monitorización» de soporte frente a
+     -- una pregunta específicamente sobre respaldo).
+     ORDER BY (c."coincidenciasTitulo" * 3 + c."coincidenciasContenido") DESC, c."puntuacion" DESC, c."creado" DESC
      LIMIT ${limite}
   `)
-  return filas.map(({ id, documentoId, versionId, titulo, contenido, urlFuente, coincidencias, n }) => ({ id, documentoId, versionId, titulo, contenido, urlFuente, puntuacion: n > 0 ? Number(coincidencias) / Number(n) : 0 }))
+  return filas.map(({ id, documentoId, versionId, titulo, contenido, urlFuente, coincidenciasContenido, coincidenciasTitulo, n }) => ({
+    id,
+    documentoId,
+    versionId,
+    titulo,
+    contenido,
+    urlFuente,
+    // El título es un resumen aprobado del documento y, por tanto, es una
+    // señal de intención más fuerte que una coincidencia aislada del cuerpo.
+    puntuacion: n > 0 ? (Number(coincidenciasContenido) + Number(coincidenciasTitulo) * 3) / Number(n) : 0,
+  }))
 }
 
 async function embeddingConsulta(consulta: string): Promise<number[] | null> {
@@ -130,10 +164,13 @@ async function reordenarHibrido(fragmentos: FragmentoRecuperado[], consulta: str
 
 export async function buscar(consulta: string, alcance: AlcanceAsistente, opciones: { limite?: number } = {}): Promise<FragmentoRecuperado[]> {
   const normalizada = normalizar(consulta)
-  if (normalizada.length < 2) return []
+  const contextual = terminosConContexto(consulta)
+  if (normalizada.length < 2 || !contextual) return []
   const limite = limiteSeguro(opciones.limite)
-  let resultados = await consultaFts(normalizada, alcance, limite, 'web')
-  if (resultados.length === 0) resultados = await consultaFts(normalizada.split(' ').filter(Boolean).slice(0, 12).join(' '), alcance, limite, 'plain')
-  if (resultados.length === 0) resultados = await consultaCobertura(normalizada.split(' ').filter(Boolean).slice(0, 12).join(' '), alcance, limite)
-  return reordenarHibrido(resultados, normalizada)
+  const terminos = contextual.split(' ').slice(0, 12).join(' ')
+  const cobertura = await consultaCobertura(terminos, alcance, limite)
+  // La cobertura ya busca todos los lexemas con el mismo filtro ACL. No se
+  // mezcla ts_rank_cd (otra escala) para que una coincidencia parcial no
+  // desplace a una fuente con más evidencia literal.
+  return reordenarHibrido(cobertura, normalizada)
 }
