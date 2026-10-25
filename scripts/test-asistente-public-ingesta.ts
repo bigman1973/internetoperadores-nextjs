@@ -106,6 +106,7 @@ async function main() {
   assert.ok(listadoTiposUso!.contenido.length <= 900, 'cada registro de lista respeta el máximo de un fragmento público')
   assert.equal(corpus.filter(fuente => fuente.urlFuente === '/recursos/herramientas/estimador-ancho-banda' && ['Videoconferencia', 'Telefonía VoIP', 'Backup en la nube'].includes(fuente.titulo)).length, 0, 'los elementos de la lista no se convierten en títulos aislados')
   assert.ok(corpus.every(fuente => fuente.origen.startsWith('publico:repo:') && fuente.huella.length === 64), 'cada fuente conserva origen y huella verificables')
+  assert.equal(new Set(corpus.map(fuente => `${fuente.origen}\n${fuente.titulo}`)).size, corpus.length, 'rutas con componente compartido no colisionan al indexar por origen y título')
   const auditoria = auditarCoberturaCorpusPublico(corpus)
   assert.equal(auditoria.filter(entrada => entrada.estado === 'CERO_FUENTES_A_REVISAR').length, 0, 'toda ruta editorial debe extraer fuentes o dejar una justificación explícita')
   assert.equal(auditoria.filter(entrada => entrada.estado === 'CERO_FUENTES_JUSTIFICADO').length, 0, 'ninguna ruta editorial declarada queda sin una fuente local')

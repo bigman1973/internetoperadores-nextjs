@@ -684,7 +684,11 @@ export async function extraerCorpusPublicoLocal(raiz = process.cwd()): Promise<F
         // producto interno. No se indexa por estar en JSX: pasa la misma
         // política que se aplicará posteriormente a tarifas y demás fuentes.
         if (esPlaceholderEditorial(titulo, contenido) || !fuenteAptaParaPublico({ titulo, contenido, tipo: entrada.tipo })) continue
-        const origen = `publico:repo:${archivo}#capitulo-${capitulo.indice}`
+        const origenBase = `publico:repo:${archivo}#capitulo-${capitulo.indice}`
+        // La raíz y una ruta propia pueden renderizar el mismo componente.
+        // No deben colisionar al indexar por origen+título ni perder su URL.
+        const origen = salida.some(fuente => fuente.origen === origenBase && fuente.urlFuente !== entrada.ruta)
+          ? `${origenBase}:ruta-${encodeURIComponent(entrada.ruta)}` : origenBase
         salida.push({
           titulo,
           contenido,
