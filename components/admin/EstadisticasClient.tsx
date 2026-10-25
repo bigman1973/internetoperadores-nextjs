@@ -48,14 +48,21 @@ export default function EstadisticasClient() {
   const chartClientesRef = useRef<HTMLCanvasElement>(null)
   const chartSegmentosRef = useRef<HTMLCanvasElement>(null)
   const chartsRef = useRef<any[]>([])
+  const chartLoadingRef = useRef(false)
 
   // Cargar Chart.js
   useEffect(() => {
     if (!datosMensual && !datosClientes && !datosCategorias) return
     if (typeof window !== 'undefined' && !window.Chart) {
+      if (chartLoadingRef.current) return
+      chartLoadingRef.current = true
       const script = document.createElement('script')
       script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'
-      script.onload = () => setChartLoaded(true)
+      script.onload = () => {
+        chartLoadingRef.current = false
+        setChartLoaded(true)
+      }
+      script.onerror = () => { chartLoadingRef.current = false }
       document.head.appendChild(script)
     } else {
       setChartLoaded(true)
