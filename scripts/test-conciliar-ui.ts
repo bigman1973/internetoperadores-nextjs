@@ -1,0 +1,77 @@
+const { readFileSync } = require('node:fs');
+const { resolve } = require('node:path');
+
+const root = process.cwd();
+const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
+const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
+const contract = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-contract.ts'), 'utf8');
+
+function required(source, name, fragments) {
+  for (const fragment of fragments) {
+    if (!source.includes(fragment)) throw new Error(`${name}: falta el comportamiento esperado: ${fragment}`);
+  }
+}
+
+required(page, 'página', [
+  "assertPrototypeStaging()",
+  "requireB4FinanceAccess('lectura'",
+  'getServerSession(authOptions)',
+  'notFound()',
+  '<ConciliarWorkspace />',
+  "Roboto } from 'next/font/google'",
+  "variable: '--font-conciliar'",
+  'className={roboto.variable}',
+]);
+
+required(contract, 'contrato de cliente', [
+  "export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS']",
+  "export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO']",
+  'parseConciliarReadResponse',
+  'parseConciliarActionResponse',
+  'parseConciliarUndoResponse',
+  'safeDocumentHref',
+  'safeFinanceHref',
+  'escapeSpreadsheet',
+  "value.startsWith('/')",
+  "value.startsWith('//')",
+  'conciliar\\/archivo\\/',
+  'decisionHash',
+  'opaqueId',
+]);
+
+required(workspace, 'espacio de trabajo', [
+  "const API = '/api/admin/finanzas/conciliar'",
+  "action: 'confirmar'",
+  "action: 'deshacer'",
+  "action: 'pedir'",
+  'AbortController',
+  'readController.current?.abort()',
+  'response.status === 409',
+  'Reintenta exactamente la misma acción',
+  'Todos los verdes visibles',
+  'Confirmar seleccionados',
+  'Exportar a Excel',
+  "await import('xlsx')",
+  'MAX_EXPORT_ROWS',
+  'escapeSpreadsheet(',
+  'sandbox=""',
+  'safeDocumentHref(',
+  'safeFinanceHref(',
+  'aria-live="polite"',
+  'role="tablist"',
+  'role="tabpanel"',
+  'fontFamily: \'var(--font-conciliar), Arial, Helvetica, sans-serif\'',
+  '#FF5300',
+  '#2D2A26',
+  "useActuation()",
+  "'x-io-acting-session': activeActuation.sessionId",
+]);
+
+if (/fetch\([^)]*https?:\/\//.test(workspace)) throw new Error('La UI no debe llamar a una URL externa.');
+if (/window\.open\(/.test(workspace)) throw new Error('La UI no debe abrir documentos sin control de URL.');
+if (/import\s+(?!type\s*\{)[^;]+from\s+['"]@\/lib\/finanzas\/conciliar-contract['"]/.test(contract)) throw new Error('El contrato de navegador sólo puede importar tipos del contrato servidor.');
+if (/node:crypto|createHash/.test(contract)) throw new Error('El contrato de navegador no puede incluir crypto de Node.');
+if (!/for \(let pageOffset = 0; pageOffset < data\.total; pageOffset \+= EXPORT_PAGE_SIZE\)/.test(workspace)) throw new Error('La exportación debe paginar todas las filas filtradas.');
+if (!/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un cambio de proyección debe eliminar selecciones ocultas.');
+
+console.log('OK: UI Conciliar validada estáticamente (sin red, BD, build ni tsc).');
