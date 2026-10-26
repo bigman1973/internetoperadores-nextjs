@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/reconciliation-auth'
 import { B4ServiceError, confirmarB4, createDocumentoB4, deshacerB4, readConciliacionB4 } from '@/lib/finanzas/reconciliation-db'
+import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 64 * 1024
@@ -120,10 +121,12 @@ export async function POST(req: NextRequest) {
     }
     if (action === 'confirmar') {
       const result = await confirmarB4(access.actor.id, body.value)
+      scheduleConciliarProjectionRefresh(access.actor.id)
       return privateJson({ ok: true, ...result })
     }
     if (action === 'deshacer') {
       const result = await deshacerB4(access.actor.id, body.value)
+      scheduleConciliarProjectionRefresh(access.actor.id)
       return privateJson({ ok: true, ...result })
     }
     return privateJson({ error: 'Acción B4 no admitida' }, 400)

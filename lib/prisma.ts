@@ -22,7 +22,9 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  // Los errores SQL pueden incluir la fila completa, incluso durante un rollback.
+  // En el sandbox financiero sólo se exponen los códigos minimizados del servicio.
+  log: process.env.FINANCE_STAGING_SANDBOX === '1' ? [] : process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 })
 // Next server chunks can evaluate this module independently in production.
 // Persisting the client prevents a global "installed" marker from accidentally
@@ -256,6 +258,8 @@ const NON_CALL_KEYWORDS = new Set([
 const REVIEWED_READ_FUNCTIONS = new Set([
   'abs', 'array_agg', 'array_remove', 'b4_importe_bancario_centimos', 'bool_and', 'btrim', 'concat_ws',
   'count', 'current_database', 'date_trunc', 'hashtextextended', 'json_agg', 'jsonb_build_object',
+  // pg_catalog IMMUTABLE, no SECURITY DEFINER: verificado en staging el 26/10.
+  'jsonb_array_elements', 'jsonb_typeof',
   'length', 'lower', 'max', 'min', 'regexp_replace', 'right', 'row_to_json', 'sum', 'to_regclass',
   'unnest', 'upper', 'coalesce', 'nullif', 'greatest', 'least', 'cast', 'extract', 'trim',
 ])
@@ -319,6 +323,9 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
   if (!template) return 'unknown'
   const tokens = tokenizeReviewedSql(template)
   if (!tokens || tokens.length === 0) return 'unknown'
+  // Sólo este literal de control de snapshot: no habilita current_setting con
+  // parámetros, nombres diferentes, expresiones adicionales ni varias órdenes.
+  if (/^\s*SELECT\s+lower\s*\(\s*current_setting\s*\(\s*'transaction_isolation'\s*\)\s*\)\s+AS\s+isolation\s*$/i.test(template)) return 'read_only'
   const canonical = canonicalTokens(tokens)
   if (canonical === 'set transaction read only') return 'transaction_read_only'
   if (REVIEWED_ADVISORY_LOCK.test(canonical)) return 'advisory_lock'

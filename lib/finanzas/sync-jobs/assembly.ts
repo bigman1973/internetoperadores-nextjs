@@ -32,6 +32,7 @@ import { SyncProviderError } from './providers/onedrive/types'
 import { createIspIssuedInvoiceProvider } from './providers/isp/isp-issued-invoice-provider'
 import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas'
 import { validarResultadoOcrNuevo } from '@/lib/finanzas/invoice-quality'
+import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 
 /**
  * Existing B1 helpers retain the project-owned Microsoft credential and strict
@@ -463,6 +464,7 @@ export function financeSyncWorkerCronRoute() {
     if (!validCronBearer(req.headers.get('authorization'), process.env.CRON_SECRET)) {
       return privateJson({ error: 'UNAUTHORIZED' }, 401)
     }
+    let imported = false
     try {
       if (!await p2RouteAvailable()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
       if (!productionBackgroundConfigured()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
@@ -471,9 +473,13 @@ export function financeSyncWorkerCronRoute() {
       const systemActorId = await requireProductionSystemActor()
       const runtime = await createP2RouteRuntime({ systemActorId })
       if (!runtime.productionBackgroundEnabled()) return privateJson({ error: 'SYNC_DISABLED' }, 503)
-      return privateJson(await runtime.service.runBudgetedWorker({ budgetMs: 220_000, itemLimit: 80, inventoryPageLimit: 16 }))
+      const result = await runtime.service.runBudgetedWorker({ budgetMs: 220_000, itemLimit: 80, inventoryPageLimit: 16 })
+      imported = result.appliedItems > 0
+      return privateJson(result)
     } catch {
       return privateJson({ error: 'SYNC_WORKER_FAILED' }, 503)
+    } finally {
+      if (imported) scheduleConciliarProjectionRefresh(null)
     }
   }
 }

@@ -7,6 +7,7 @@ import { easyErrorResponse, confirmEasyReconciliation, readEasyReconciliation } 
 import { parseEasyReadInput } from '@/lib/finanzas/easy-reconciliation-core'
 import { readEasyStepCounters } from '@/lib/finanzas/easy-counterparty-db'
 import { readEasyCollectionsForMovements } from '@/lib/finanzas/easy-collections-db'
+import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 
 export const dynamic = 'force-dynamic'
 const MAX_JSON_BYTES = 16 * 1024
@@ -69,7 +70,9 @@ export async function POST(req: NextRequest) {
     if (!sameOrigin(req)) return privateJson({ error: 'Origen de la solicitud no válido' }, 403)
     const body = await readBoundedJson(req)
     if ('response' in body) return body.response
-    return privateJson(await confirmEasyReconciliation(access.actor.id, body.value))
+    const result = await confirmEasyReconciliation(access.actor.id, body.value)
+    scheduleConciliarProjectionRefresh(access.actor.id)
+    return privateJson(result)
   } catch (error) { return errorResponse(error) }
 }
 export async function PUT() { return privateJson({ error: 'Método no permitido' }, 405) }

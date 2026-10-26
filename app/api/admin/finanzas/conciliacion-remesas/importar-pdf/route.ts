@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { listFolderByPath, downloadFileById } from '@/lib/microsoft-graph'
 import { parsearPdfRemesaISP } from '@/lib/finanzas/parsers/remesa-ispgestion'
 import { parsearPdfRemesaSantander } from '@/lib/finanzas/parsers/remesa-santander'
+import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const XLSX = require('xlsx')
 
@@ -253,6 +254,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo inválido. Usar: remesas, recibos_devueltos, devoluciones' }, { status: 400 })
     }
 
+    const sessionActorId = Number(session.user?.id)
+    const actor = Number.isSafeInteger(sessionActorId) && sessionActorId > 0
+      ? await prisma.usuarioAdmin.findUnique({ where: { id: sessionActorId }, select: { id: true, activo: true } })
+      : null
+    const actorId = actor?.activo ? actor.id : null
+
     // Leer todos los buffers
     const buffers: Array<{ buffer: Buffer; name: string }> = []
     for (const file of files) {
@@ -260,11 +267,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (tipo === 'remesas') {
-      return await procesarRemesas(buffers)
+      return await procesarRemesas(buffers, actorId)
     } else if (tipo === 'devoluciones') {
       return await procesarDevoluciones(buffers[0].buffer, buffers[0].name)
     } else {
-      return await procesarRecibosDevueltos(buffers[0].buffer, buffers[0].name)
+      return await procesarRecibosDevueltos(buffers[0].buffer, buffers[0].name, actorId)
     }
   } catch (error) {
     console.error('Error importando archivo:', error)
@@ -283,7 +290,7 @@ export async function POST(request: NextRequest) {
 // 5. Doble cotejo con PDF Santander de OneDrive
 // 6. Calcula pendiente de abonar
 // ============================================================
-async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>) {
+async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>, actorId: number | null) {
   // Concatenar todas las filas de todos los archivos XLS
   const todasLasFilasBanco: Array<{
     fecha: string
@@ -679,6 +686,7 @@ async function procesarRemesas(archivos: Array<{ buffer: Buffer; name: string }>
     cotejo = ` Doble cotejo: ${pdfsSantander.length} PDFs Santander leídos (${totalSubRemesasSantander} sub-remesas).`
   }
 
+  if (actorId !== null) scheduleConciliarProjectionRefresh(actorId)
   return NextResponse.json({
     ok: true,
     tipo: 'remesas',
@@ -727,7 +735,7 @@ async function procesarDevoluciones(buffer: Buffer, nombreArchivo: string) {
 // Procesar XLSX de Recibos Devueltos (detalle con clientes)
 // ACUMULATIVO: se puede subir varias veces, no duplica
 // ============================================================
-async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
+async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string, actorId: number | null) {
   const recibos = parseRecibosDevueltosXLSX(buffer)
 
   if (recibos.length === 0) {
@@ -843,6 +851,7 @@ async function procesarRecibosDevueltos(buffer: Buffer, nombreArchivo: string) {
     importados++
   }
 
+  if (actorId !== null && (importados > 0 || actualizados > 0)) scheduleConciliarProjectionRefresh(actorId)
   return NextResponse.json({
     ok: true,
     tipo: 'recibos_devueltos',
