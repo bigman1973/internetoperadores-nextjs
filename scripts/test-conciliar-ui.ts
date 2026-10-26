@@ -17,7 +17,7 @@ required(page, 'página', [
   "requireB4FinanceAccess('lectura'",
   'getServerSession(authOptions)',
   'notFound()',
-  '<ConciliarWorkspace />',
+  'initialTab={initialTab} initialQuery={initialQuery}',
   "Roboto } from 'next/font/google'",
   "variable: '--font-conciliar'",
   'className={roboto.variable}',
