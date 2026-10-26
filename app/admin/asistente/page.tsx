@@ -80,8 +80,8 @@ export default async function ResumenAsistentePage() {
       <section aria-labelledby="avisos-asistente" className="rounded-xl border border-amber-200 bg-amber-50 p-4">
         <h2 id="avisos-asistente" className="text-sm font-semibold text-amber-900">Avisos de activación</h2>
         <ul className="mt-2 space-y-1 text-sm text-amber-900">
-          <li>Widget público: activo sólo en staging</li>
-          <li>Espacio Cliente: desactivado</li>
+          <li>Widget público: {resumen.runtime.publicEnabled ? 'activo' : 'desactivado'}</li>
+          <li>Espacio Cliente: {resumen.runtime.clientEnabled ? 'activo' : 'desactivado'}</li>
         </ul>
       </section>
 

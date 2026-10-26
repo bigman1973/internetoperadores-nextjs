@@ -13,12 +13,12 @@ const source = fs.readFileSync('middleware.js', 'utf8')
   .replace('export const config', 'const config') + '\nthis.run = middleware;'
 let checks = 0
 function check(condition: unknown) { assert.ok(condition); checks++ }
-async function run(path: string, options: { method?: string; headers?: Record<string, string>; body?: string; cookie?: boolean; production?: boolean } = {}) {
+async function run(path: string, options: { method?: string; headers?: Record<string, string>; body?: string; cookie?: boolean; production?: boolean; env?: Record<string, string> } = {}) {
   const origin = options.production ? 'https://www.internetoperadores.com' : 'https://staging.internetoperadores.com'
   const request = new Request(origin + path, { method: options.method || 'GET', headers: options.headers, body: options.body }) as any
   request.nextUrl = new URL(request.url)
   request.cookies = { getAll: () => options.cookie ? [{ name: 'staging-auth', value: 'authenticated' }] : [], get: (key: string) => key === 'staging-auth' && options.cookie ? { value: 'authenticated' } : undefined }
-  const context: any = { process: { env: { VERCEL_ENV: options.production ? 'production' : 'preview' } }, Set, Map, Buffer, Headers, URL, NextResponse, atob, console, ...access }
+  const context: any = { process: { env: { VERCEL_ENV: options.production ? 'production' : 'preview', ...(options.env || {}) } }, Set, Map, Buffer, Headers, URL, NextResponse, atob, console, ...access }
   vm.createContext(context)
   vm.runInContext(source, context)
   return context.run(request) as Promise<NextResponse>
@@ -74,8 +74,16 @@ async function main() {
   for (const unsafe of ['https://other.invalid', '//other.invalid', '/\\other.invalid', '/%5Cother.invalid', '/%2Fother.invalid', '/api/cron/finance-sync-daily', '/acceso-staging', '/%0aevil']) check(access.safeStagingReturn(unsafe) === '/')
   check(access.safeStagingReturn('/tarifas/empresa?busqueda=fibra') === '/tarifas/empresa?busqueda=fibra')
   check(!access.stagingAccessHtml('/?x="<script>').includes('<script>'))
-  const cron = await run('/api/cron/asistente-informe')
-  check(cron.headers.get('x-middleware-next') === '1') // Handler mantiene su secreto/flag; no ejecutado.
+  const cronPreview = await run('/api/cron/asistente-informe', { env: { FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', ASSISTANT_CRON_ENABLED: 'true', ASSISTANT_MODE: 'extractivo', NODE_ENV: 'production' } })
+  check(cronPreview.status === 403)
+  const cronStaging = await run('/api/cron/asistente-informe', { production: true, env: { FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', ASSISTANT_CRON_ENABLED: 'true', ASSISTANT_MODE: 'extractivo', NODE_ENV: 'production', FINANCE_STAGING_SANDBOX: '1' } })
+  check(cronStaging.status === 403)
+  const cronReadOnly = await run('/api/cron/asistente-informe', { production: true, env: { FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', ASSISTANT_CRON_ENABLED: 'true', ASSISTANT_MODE: 'extractivo', NODE_ENV: 'production', FINANCE_DEPLOYMENT_READ_ONLY: '1' } })
+  check(cronReadOnly.status === 403)
+  const cronWrongMethod = await run('/api/cron/asistente-informe', { method: 'POST', production: true, env: { FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', ASSISTANT_CRON_ENABLED: 'true', ASSISTANT_MODE: 'extractivo', NODE_ENV: 'production' } })
+  check(cronWrongMethod.status === 403)
+  const cronProduction = await run('/api/cron/asistente-informe', { production: true, env: { FINANCE_EXTERNAL_ACTIONS_DISABLED: '1', ASSISTANT_CRON_ENABLED: 'true', ASSISTANT_MODE: 'extractivo', NODE_ENV: 'production' } })
+  check(cronProduction.headers.get('x-middleware-next') === '1') // El handler aún exige horario y Bearer CRON_SECRET.
   console.log(`STAGING_ACCESS_TEST_OK: ${checks} comprobaciones sintéticas, sin red ni BD`)
 }
 main().catch(error => { console.error(error.name, error.message, `comprobaciones previas: ${checks}`); process.exitCode = 1 })

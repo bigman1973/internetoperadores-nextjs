@@ -426,7 +426,18 @@ export async function middleware(request) {
     const externalPath = path.startsWith('/api/cron/')
       || path.toLowerCase().split('/').some(segment => segment.startsWith('sync') || segment.startsWith('sincroniz'))
       || isOutboundMailOrCommunicationPath(path);
-    if (externalPath && !isAuthorizedP2Path(path)) return blockedBoundary(
+    // Excepción cerrada: este informe sólo consulta/agrega datos anonimizados
+    // locales. No abre ningún cron financiero, Preview, staging ni solo lectura;
+    // el handler conserva Bearer CRON_SECRET y la guardia horaria Madrid.
+    const assistantReportCronAllowed = path === '/api/cron/asistente-informe'
+      && request.method === 'GET'
+      && process.env.ASSISTANT_CRON_ENABLED === 'true'
+      && process.env.ASSISTANT_MODE === 'extractivo'
+      && process.env.NODE_ENV === 'production'
+      && process.env.VERCEL_ENV === 'production'
+      && process.env.FINANCE_STAGING_SANDBOX !== '1'
+      && process.env.FINANCE_DEPLOYMENT_READ_ONLY !== '1';
+    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',
     );

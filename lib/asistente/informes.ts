@@ -1,12 +1,14 @@
-import { Prisma } from '@prisma/client'
+import { Prisma, type PrismaClient } from '@prisma/client'
 import { randomUUID } from 'node:crypto'
 import prisma from '@/lib/prisma'
 import { fechaLocalMadrid, obtenerMetricasAnalitica, rangoEntreFechasLocales, inicioDiaMadrid, type MetricasAnalitica, type RangoAnalitica } from '@/lib/asistente/analitica'
 import { redactarPIILocal } from '@/lib/asistente/pii'
 import { normalizar, sha256Hex } from '@/lib/asistente/text'
+import { fuenteAptaParaPublico } from '@/lib/asistente/public-policy'
 
 export type TipoInformeAsistente = 'DIARIO' | 'SEMANAL' | 'MENSUAL'
 export type ActorInforme = number | string | { id: number }
+type ClienteInforme = PrismaClient | Prisma.TransactionClient
 
 type PeriodoInforme = { fechaLocal: string; desdeLocal: string; hastaExclusivaLocal: string }
 type CandidataInforme = { tipo: string; objeto: string; titulo: string; detalle: string; impacto: number; esfuerzo: number }
@@ -97,10 +99,10 @@ function primeraOracion(texto: string): string {
  * No llama a embeddings, proveedores ni servicios de IA y tampoco mezcla
  * contenido de Cliente o Interno en los informes accesibles por el panel.
  */
-async function fundamentosPublicos(pregunta: string): Promise<FuenteFundamento[]> {
+async function fundamentosPublicos(pregunta: string, cliente: ClienteInforme = prisma): Promise<FuenteFundamento[]> {
   const consulta = normalizar(pregunta).split(' ').filter(Boolean).slice(0, 12).join(' ')
   if (consulta.length < 2) return []
-  const filas = await prisma.$queryRaw<Array<{ documentoId: string; titulo: string; contenido: string; url: string | null }>>(Prisma.sql`
+  const filas = await cliente.$queryRaw<Array<{ documentoId: string; titulo: string; contenido: string; tipo: string; origen: string | null; url: string | null }>>(Prisma.sql`
     WITH lex AS (SELECT tsvector_to_array(to_tsvector('spanish', ${consulta})) AS l),
     q AS (
       SELECT l, cardinality(l) AS n,
@@ -109,25 +111,33 @@ async function fundamentosPublicos(pregunta: string): Promise<FuenteFundamento[]
         FROM lex
     ), coincidencias AS (
       SELECT f.documento_id::text AS "documentoId", f.titulo, f.contenido, f.url_fuente AS url,
+             d.tipo, d.origen,
              ts_rank_cd(f.tsv, q.tsq) AS puntuacion,
              (SELECT count(*) FROM unnest(tsvector_to_array(f.tsv)) t WHERE t = ANY(q.l))::int AS total_coincidencias,
              q.n
         FROM asistente_fragmentos f
         JOIN asistente_documentos d ON d.id = f.documento_id
+        JOIN asistente_documento_versiones v ON v.id = f.version_id AND v.documento_id = d.id
         CROSS JOIN q
        WHERE q.tsq IS NOT NULL
          AND f.activo = true
          AND d.estado = 'PUBLICADO'
          AND f.espacio = 'PUBLICO'
+         AND d.espacio = 'PUBLICO'
+         AND v.version = d.version_actual
+         AND f.tenant_cliente_id IS NULL AND d.tenant_cliente_id IS NULL
+         AND cardinality(f.roles) = 0 AND cardinality(d.roles) = 0
          AND f.tsv @@ q.tsq
     )
-    SELECT "documentoId", titulo, contenido, url
+    SELECT "documentoId", titulo, contenido, tipo, origen, url
       FROM coincidencias
      WHERE total_coincidencias >= CASE WHEN n >= 3 THEN 2 ELSE 1 END
      ORDER BY total_coincidencias DESC, puntuacion DESC
-     LIMIT 2
+     LIMIT 20
   `)
-  return filas.map(fila => ({
+  // La ACL ya se aplica dentro de SQL; esta política adicional nunca amplía
+  // permisos y excluye catálogos internos o tarifas históricas no certificadas.
+  return filas.filter(fila => fuenteAptaParaPublico(fila) && (fila.tipo !== 'TARIFA' || /^publico:tarifa:[^\s]+$/.test(fila.origen || ''))).slice(0, 2).map(fila => ({
     documentoId: fila.documentoId,
     titulo: redactarPIILocal(fila.titulo, false).slice(0, 240),
     fragmento: redactarPIILocal(primeraOracion(fila.contenido), false),
@@ -135,8 +145,8 @@ async function fundamentosPublicos(pregunta: string): Promise<FuenteFundamento[]
   }))
 }
 
-async function temasDelPeriodo(rango: RangoAnalitica): Promise<TemaInforme[]> {
-  const filas = await prisma.$queryRaw<Array<{ preguntaNorm: string; ejemplo: string; veces: unknown; canales: string[] }>>(Prisma.sql`
+async function temasDelPeriodo(rango: RangoAnalitica, cliente: ClienteInforme = prisma): Promise<TemaInforme[]> {
+  const filas = await cliente.$queryRaw<Array<{ preguntaNorm: string; ejemplo: string; veces: unknown; canales: string[] }>>(Prisma.sql`
     SELECT pregunta_norm AS "preguntaNorm", min(pregunta_anon) AS ejemplo,
            sum(veces)::int AS veces, array_agg(DISTINCT canal ORDER BY canal) AS canales
       FROM asistente_huecos
@@ -154,8 +164,8 @@ async function temasDelPeriodo(rango: RangoAnalitica): Promise<TemaInforme[]> {
   }))
 }
 
-async function ejemplosDelPeriodo(rango: RangoAnalitica): Promise<string[]> {
-  const filas = await prisma.$queryRaw<Array<{ texto: string }>>(Prisma.sql`
+async function ejemplosDelPeriodo(rango: RangoAnalitica, cliente: ClienteInforme = prisma): Promise<string[]> {
+  const filas = await cliente.$queryRaw<Array<{ texto: string }>>(Prisma.sql`
     SELECT m.texto_anon AS texto
       FROM asistente_mensajes m
       JOIN asistente_conversaciones c ON c.id = m.conversacion_id
@@ -168,7 +178,7 @@ async function ejemplosDelPeriodo(rango: RangoAnalitica): Promise<string[]> {
   return filas.map(fila => redactarPIILocal(fila.texto, true).replace(/\s+/g, ' ').trim().slice(0, 500)).filter(Boolean)
 }
 
-async function objecionesDelPeriodo(rango: RangoAnalitica): Promise<ObjecionInforme[]> {
+async function objecionesDelPeriodo(rango: RangoAnalitica, cliente: ClienteInforme = prisma): Promise<ObjecionInforme[]> {
   const reglas: Array<{ categoria: ObjecionInforme['categoria']; patron: string }> = [
     { categoria: 'PRECIO', patron: '%precio%|%caro%|%coste%|%tarifa%' },
     { categoria: 'COBERTURA', patron: '%cobertura%|%fibra%|%zona%' },
@@ -177,7 +187,7 @@ async function objecionesDelPeriodo(rango: RangoAnalitica): Promise<ObjecionInfo
   ]
   const resultados: ObjecionInforme[] = []
   for (const regla of reglas) {
-    const filas = await prisma.$queryRaw<Array<{ total: unknown; ejemplo: string | null }>>(Prisma.sql`
+    const filas = await cliente.$queryRaw<Array<{ total: unknown; ejemplo: string | null }>>(Prisma.sql`
       SELECT count(*)::int AS total, min(m.texto_anon) AS ejemplo
         FROM asistente_mensajes m
         JOIN asistente_conversaciones c ON c.id = m.conversacion_id
@@ -194,8 +204,8 @@ async function objecionesDelPeriodo(rango: RangoAnalitica): Promise<ObjecionInfo
 }
 
 /** Sólo agrega puntuación y estado: nunca selecciona nombre, teléfono, correo ni otro PII del lead. */
-async function leadsCalientesPendientes(rango: RangoAnalitica): Promise<{ total: number; porEstado: EstadoLeadPendiente[] }> {
-  const filas = await prisma.$queryRaw<Array<{ estado: string; total: unknown }>>(Prisma.sql`
+async function leadsCalientesPendientes(rango: RangoAnalitica, cliente: ClienteInforme = prisma): Promise<{ total: number; porEstado: EstadoLeadPendiente[] }> {
+  const filas = await cliente.$queryRaw<Array<{ estado: string; total: unknown }>>(Prisma.sql`
     SELECT estado, count(*)::int AS total
       FROM asistente_leads
      WHERE puntuacion = 'CALIENTE'
@@ -208,19 +218,19 @@ async function leadsCalientesPendientes(rango: RangoAnalitica): Promise<{ total:
   return { total: porEstado.reduce((suma, fila) => suma + fila.total, 0), porEstado }
 }
 
-async function datosCompletos(rango: RangoAnalitica, hastaExclusivaLocal: string): Promise<DatosInforme> {
+async function datosCompletos(rango: RangoAnalitica, hastaExclusivaLocal: string, cliente: ClienteInforme = prisma): Promise<DatosInforme> {
   const desde7 = sumarDias(hastaExclusivaLocal, -7)
   const desde30 = sumarDias(hastaExclusivaLocal, -30)
   const [periodo, ultimos7Dias, ultimos30Dias, temas, ejemplosAnonimos, objeciones, leads] = await Promise.all([
-    obtenerMetricasAnalitica(rango),
-    obtenerMetricasAnalitica(rangoEntreFechasLocales(desde7, hastaExclusivaLocal)),
-    obtenerMetricasAnalitica(rangoEntreFechasLocales(desde30, hastaExclusivaLocal)),
-    temasDelPeriodo(rango),
-    ejemplosDelPeriodo(rango),
-    objecionesDelPeriodo(rango),
-    leadsCalientesPendientes(rango),
+    obtenerMetricasAnalitica(rango, cliente),
+    obtenerMetricasAnalitica(rangoEntreFechasLocales(desde7, hastaExclusivaLocal), cliente),
+    obtenerMetricasAnalitica(rangoEntreFechasLocales(desde30, hastaExclusivaLocal), cliente),
+    temasDelPeriodo(rango, cliente),
+    ejemplosDelPeriodo(rango, cliente),
+    objecionesDelPeriodo(rango, cliente),
+    leadsCalientesPendientes(rango, cliente),
   ])
-  const conFundamentos = await Promise.all(temas.slice(0, 5).map(async tema => ({ tema, fuentes: await fundamentosPublicos(tema.ejemploAnonimo) })))
+  const conFundamentos = await Promise.all(temas.slice(0, 5).map(async tema => ({ tema, fuentes: await fundamentosPublicos(tema.ejemploAnonimo, cliente) })))
   const huecos: RespuestaFundada[] = conFundamentos.map(({ tema, fuentes }) => ({
     pregunta: tema.ejemploAnonimo,
     propuesta: fuentes.length
@@ -274,12 +284,12 @@ function candidatas(datos: MetricasAnalitica): CandidataInforme[] {
   return resultado
 }
 
-async function guardarPropuestas(informeId: string, datos: MetricasAnalitica): Promise<void> {
+async function guardarPropuestas(informeId: string, datos: MetricasAnalitica, cliente: ClienteInforme = prisma): Promise<void> {
   for (const candidata of candidatas(datos)) {
     const marca = huella(candidata.tipo, candidata.objeto)
-    const descartada = await prisma.asistenteInformePropuesta.findFirst({ where: { huella: marca, estado: 'DESCARTADA' }, select: { id: true } })
+    const descartada = await cliente.asistenteInformePropuesta.findFirst({ where: { huella: marca, estado: 'DESCARTADA' }, select: { id: true } })
     if (descartada) continue
-    await prisma.asistenteInformePropuesta.upsert({
+    await cliente.asistenteInformePropuesta.upsert({
       where: { informeId_huella: { informeId, huella: marca } },
       create: { informeId, huella: marca, titulo: candidata.titulo.slice(0, 500), detalle: candidata.detalle.slice(0, 2000), impacto: candidata.impacto, esfuerzo: candidata.esfuerzo, prioridad: prioridad(candidata.impacto, candidata.esfuerzo) },
       update: {},
@@ -293,13 +303,14 @@ const seleccionInforme = {
 }
 
 /** Genera una vez por tipo/fecha local; la restricción única de base arbitra ejecuciones concurrentes. */
-export async function generarInformeSiProcede(tipo: TipoInformeAsistente, ahora: Date, actor: ActorInforme, opciones: { forzar?: boolean } = {}) {
+export async function generarInformeSiProcede(tipo: TipoInformeAsistente, ahora: Date, actor: ActorInforme, opciones: { forzar?: boolean; cliente?: ClienteInforme } = {}) {
   const periodo = periodoPara(tipo, ahora, Boolean(opciones.forzar))
   if (!periodo) return { generado: false, motivo: 'AUN_NO_PROCEDE' as const, informe: null }
   const rango = rangoEntreFechasLocales(periodo.desdeLocal, periodo.hastaExclusivaLocal)
-  const datos = await datosCompletos(rango, periodo.hastaExclusivaLocal)
+  const cliente = opciones.cliente || prisma
+  const datos = await datosCompletos(rango, periodo.hastaExclusivaLocal, cliente)
   const idNuevo = randomUUID()
-  const insertados = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+  const insertados = await cliente.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO asistente_informes (id, tipo, fecha_local, periodo_inicio, periodo_fin, datos, generado_por)
     VALUES (CAST(${idNuevo} AS uuid), ${tipo}, CAST(${periodo.fechaLocal} AS date), ${rango.desde}, ${rango.hasta}, ${JSON.stringify(datos)}::jsonb, ${actorTexto(actor)})
     ON CONFLICT (tipo, fecha_local) DO NOTHING
@@ -307,19 +318,23 @@ export async function generarInformeSiProcede(tipo: TipoInformeAsistente, ahora:
   `)
   const id = insertados[0]?.id
   if (!id) {
-    const existente = await prisma.asistenteInforme.findFirst({ where: { tipo, fechaLocal: inicioDiaMadrid(periodo.fechaLocal) }, select: seleccionInforme })
+    const existente = await cliente.asistenteInforme.findFirst({ where: { tipo, fechaLocal: inicioDiaMadrid(periodo.fechaLocal) }, select: seleccionInforme })
     return { generado: false, motivo: 'YA_EXISTE' as const, informe: existente || null }
   }
-  await guardarPropuestas(id, datos.periodo)
-  const informe = await prisma.asistenteInforme.findUniqueOrThrow({ where: { id }, select: seleccionInforme })
+  await guardarPropuestas(id, datos.periodo, cliente)
+  const informe = await cliente.asistenteInforme.findUniqueOrThrow({ where: { id }, select: seleccionInforme })
   return { generado: true, motivo: 'GENERADO' as const, informe }
 }
 
 /** Punto único para CLI y endpoint protegido: diario, semanal y mensual cuando corresponde en Madrid. */
 export async function ejecutarInformesProgramados(ahora: Date, actor: ActorInforme) {
-  const resultados = []
-  for (const tipo of ['DIARIO', 'SEMANAL', 'MENSUAL'] as const) resultados.push({ tipo, ...(await generarInformeSiProcede(tipo, ahora, actor)) })
-  return resultados
+  return prisma.$transaction(async tx => {
+    const bloqueo = await tx.$queryRaw<Array<{ adquirido: boolean }>>(Prisma.sql`SELECT pg_try_advisory_xact_lock(hashtext('asistente:informes:programados:v1')) AS adquirido`)
+    if (!bloqueo[0]?.adquirido) return []
+    const resultados = []
+    for (const tipo of ['DIARIO', 'SEMANAL', 'MENSUAL'] as const) resultados.push({ tipo, ...(await generarInformeSiProcede(tipo, ahora, actor, { cliente: tx })) })
+    return resultados
+  })
 }
 
 /** La primera decisión es terminal y conserva actor/fecha como auditoría mínima sin PII. */
