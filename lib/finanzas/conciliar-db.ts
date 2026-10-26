@@ -186,7 +186,7 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
       SELECT COUNT(*) AS total FROM conciliar_proyecciones p WHERE p.tab=${input.tab} AND ${shared}
     `),
     db().$queryRaw<Array<{ tab: string; color: string; total: bigint | number | string; amount: bigint | number | string }>>(Prisma.sql`
-      SELECT p.tab,p.color,COUNT(*) AS total,COALESCE(SUM(p.pendiente_centimos::bigint),0) AS amount
+      SELECT p.tab,p.color,COUNT(*) AS total,COALESCE(SUM(p.pendiente_centimos::bigint),0)::text AS amount
       FROM conciliar_proyecciones p WHERE ${shared} GROUP BY p.tab,p.color
     `),
     db().$queryRaw<Array<{ id: string; banco: string; alias: string | null }>>(Prisma.sql`

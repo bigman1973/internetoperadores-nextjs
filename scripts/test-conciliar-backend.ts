@@ -100,3 +100,8 @@ test('huella: los campos opcionales ausentes coinciden con la serialización JSO
   assert.notEqual(conciliarHash({ a: 1, optional: null }), conciliarHash({ a: 1 }));
   assert.throws(() => conciliarHash([undefined]));
 });
+
+test('SQL: SUM(bigint) de PostgreSQL se entrega como texto de céntimos exactos', () => {
+  const source=readFileSync(resolve(process.cwd(),'lib/finanzas/conciliar-db.ts'),'utf8');
+  assert.match(source,/COALESCE\(SUM\(p\.pendiente_centimos::bigint\),0\)::text AS amount/);
+});
