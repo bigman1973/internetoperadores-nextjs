@@ -6,7 +6,7 @@ import { dentroHorarioHumano } from '@/lib/asistente/horario'
 import { redactarPII } from '@/lib/asistente/pii'
 import { proveedorPara, type FuenteRespuesta } from '@/lib/asistente/provider'
 import { buscar, type FragmentoRecuperado } from '@/lib/asistente/retrieval'
-import { filtrarCandidatosPublicos } from '@/lib/asistente/relevance'
+import { filtrarCandidatosPublicos, intencionAtencionPublica } from '@/lib/asistente/relevance'
 import { consultaParaRecuperacion, normalizar } from '@/lib/asistente/text'
 
 export type CtaAsistente = { tipo: 'INFORME_CERO_RIESGOS' | 'BACKUP_CONEXION' | 'CONTACTO' | 'LEAD'; texto: string; url?: string }
@@ -15,6 +15,11 @@ export type RespuestaAsistente = { conversacionId: string; mensajeId: string; re
 function ctasPara(texto: string, sinFuente: boolean): CtaAsistente[] {
   const normalizada = normalizar(texto)
   const ctas: CtaAsistente[] = [{ tipo: 'CONTACTO', texto: 'Hablar con una persona', url: '/contacto' }]
+  if (!sinFuente && intencionAtencionPublica(texto) === 'COBERTURA_DIRECCION') {
+    // LEAD abre la cualificación existente (empresa/hogar y CP) con contacto
+    // consentido. No ejecuta un comprobador simulado ni confirma cobertura.
+    return [{ tipo: 'LEAD', texto: 'Solicitar comprobación de cobertura' }, ...ctas]
+  }
   if (/empresa|negocio|riesgo|seguridad|continuidad/.test(normalizada)) ctas.unshift({ tipo: 'INFORME_CERO_RIESGOS', texto: 'Conoce el Informe Cero Riesgos', url: '/cero-riesgos' })
   if (/backup|respaldo|caida|caida|failover|continuidad/.test(normalizada)) ctas.unshift({ tipo: 'BACKUP_CONEXION', texto: 'Soluciones de backup de conexión', url: '/soluciones' })
   if (sinFuente) ctas.push({ tipo: 'LEAD', texto: 'Cuéntanos qué necesitas', url: '/contacto' })
@@ -101,6 +106,13 @@ export function respuestaExtractivaLiteral(pregunta: string, fragmentos: Fragmen
   // entregasen candidatos ya visibles; INTERNO no se filtra con política web.
   const fuentes = citaDesde(canal === 'PUBLICO' ? filtrarCandidatosPublicos(fragmentos) : fragmentos)
   if (!fuentes.length) return { respuesta: 'No tengo esa información en nuestra documentación. Si quieres, puedo ponerte en contacto con una persona.', fuentes: [], modo: 'extractivo', datoNoPublicado: true }
+  const atencion = canal === 'PUBLICO' ? intencionAtencionPublica(pregunta) : null
+  if (atencion) {
+    // Estas FAQ explican el procedimiento/horario. No se usa una cifra de
+    // instalación para responder disponibilidad ni un guardia como horario.
+    const fuente = fuentes[0]
+    return { respuesta: `Según nuestra documentación: ${fuente.fragmento} [${fuente.n}]`, fuentes: [fuente], modo: 'extractivo' }
+  }
   const fuenteDato = fuenteParaDatoPublicado(pregunta, fuentes)
   if (!fuenteDato) {
     // Las candidatas ya están filtradas por intención: citar evidencia del

@@ -7,7 +7,7 @@ import { assistantClientEnabled, assistantPublicEnabled, envAssistantMode } from
 import { puntuarLead } from '@/lib/asistente/leads'
 import { respuestaExtractiva, validarRespuestaConFuentes } from '@/lib/asistente/provider'
 import { rutaWebPublicaPermitida, urlWebPublicaPermitida } from '@/lib/asistente/ingesta'
-import { reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
+import { consultaAtencionPublica, intencionAtencionPublica, reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
 
 function prueba(nombre: string, fn: () => void) { try { fn(); console.log(`OK ${nombre}`) } catch (error) { console.error(`FALLO ${nombre}`); throw error } }
 
@@ -61,6 +61,23 @@ prueba('FAQ idéntica no duplica citas aunque tenga dos documentos', () => {
   const fuente = { titulo: 'Backup de conexión', contenido: 'El failover activa la conexión de backup 5G si se cae la fibra.', urlFuente: '/faq', tipo: 'FAQ' }
   const resultado = reordenarCandidatosLocalmente('¿Ofrecéis backup de conexión por 5G?', [{ ...fuente, documentoId: 'fixture-a' }, { ...fuente, documentoId: 'fixture-b' }])
   assert.equal(resultado.length, 1)
+})
+
+prueba('cobertura por dirección no se confunde con plazo de instalación', () => {
+  for (const pregunta of ['¿Tenéis fibra en Lleida?', '¿Hay fibra en Girona?', '¿Llega la fibra a mi casa?', '¿Tengo cobertura de fibra?']) assert.equal(intencionAtencionPublica(pregunta), 'COBERTURA_DIRECCION')
+  for (const pregunta of ['¿Cuánto tarda la instalación de fibra?', '¿Qué información pide el comprobador de cobertura?', '¿Ofrecéis backup 5G?']) assert.equal(intencionAtencionPublica(pregunta), null)
+  assert.equal(consultaAtencionPublica('¿Tenéis fibra en Zaragoza?'), 'cobertura fibra dirección código postal')
+  const fuentes = [{ titulo: 'Cobertura de fibra', contenido: 'La cobertura depende de la dirección; necesitamos el código postal para comprobarla.', tipo: 'FAQ' }, { titulo: 'Instalación de fibra', contenido: 'En zonas con cobertura la instalación tarda de 5 a 15 días.', tipo: 'FAQ' }]
+  const respuesta = reordenarCandidatosLocalmente('¿Tenéis fibra en Lleida?', fuentes)
+  assert.equal(respuesta.length, 1); assert.equal(respuesta[0].titulo, 'Cobertura de fibra')
+})
+
+prueba('horario de atención no equivale a servicio de guardias', () => {
+  for (const pregunta of ['¿Cuál es vuestro horario?', '¿A qué hora abrís?', '¿Hasta qué hora atendéis?']) assert.equal(intencionAtencionPublica(pregunta), 'HORARIO_ATENCION')
+  for (const pregunta of ['¿Qué atención se publica para una incidencia fuera de horario?', '¿Qué incluye el soporte 24/7?', '¿Qué horario tienen las Guardias IT?']) assert.equal(intencionAtencionPublica(pregunta), null)
+  const fuentes = [{ titulo: 'Horario de atención', contenido: 'Horario de atención de lunes a viernes, 09:00 a 18:00, hora peninsular.', tipo: 'FAQ' }, { titulo: 'Guardias IT', contenido: 'Servicio de técnicos fuera de horario 24/7.', tipo: 'WEB' }]
+  const respuesta = reordenarCandidatosLocalmente('¿Cuál es vuestro horario?', fuentes)
+  assert.equal(respuesta.length, 1); assert.equal(respuesta[0].titulo, 'Horario de atención')
 })
 
 console.log('TEST_ASISTENTE_CORE_OK')

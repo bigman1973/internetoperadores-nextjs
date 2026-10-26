@@ -4,7 +4,7 @@ import prisma from '@/lib/prisma'
 import type { AlcanceAsistente } from '@/lib/asistente/acl'
 import { normalizar } from '@/lib/asistente/text'
 import { urlInternaSegura } from '@/lib/asistente/network'
-import { esAlcanceSoloPublico, filtrarCandidatosPublicos, reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
+import { consultaAtencionPublica, esAlcanceSoloPublico, filtrarCandidatosPublicos, reordenarCandidatosLocalmente } from '@/lib/asistente/relevance'
 
 export type FragmentoRecuperado = {
   id: string
@@ -119,7 +119,8 @@ async function consultaCobertura(terminos: string, alcance: AlcanceAsistente, li
 
 export async function buscar(consulta: string, alcance: AlcanceAsistente, opciones: { limite?: number } = {}): Promise<FragmentoRecuperado[]> {
   const normalizada = normalizar(consulta)
-  const contextual = terminosConContexto(consulta)
+  const soloPublico = esAlcanceSoloPublico(alcance.espacios)
+  const contextual = terminosConContexto(soloPublico ? consultaAtencionPublica(consulta) : consulta)
   if (normalizada.length < 2 || !contextual) return []
   const limite = limiteSeguro(opciones.limite)
   const terminos = contextual.split(' ').slice(0, 12).join(' ')

@@ -17,7 +17,8 @@ export type FuenteParaRelevancia = {
   puntuacion?: number
 }
 
-type IntencionTema = 'CERO_RIESGOS' | 'RESPALDO_CONEXION' | 'GENERAL'
+type IntencionAtencion = 'COBERTURA_DIRECCION' | 'HORARIO_ATENCION' | 'CONTACTO_GENERAL' | 'CONTRATACION'
+type IntencionTema = 'CERO_RIESGOS' | 'RESPALDO_CONEXION' | IntencionAtencion | 'GENERAL'
 type PerfilConsulta = {
   terminos: string[]
   identificadores: string[]
@@ -112,6 +113,41 @@ function conceptosDe(tokensConsulta: readonly string[]): string[] {
     .map(([concepto]) => concepto)
 }
 
+/** Intenciones operativas públicas, sin asumir una ciudad, cobertura o plan. */
+export function intencionAtencionPublica(consulta: string): IntencionAtencion | null {
+  const texto = normalizar(consulta)
+  const servicioEspecifico = /\b(?:guardias?|incidencias?|averias?|emergencias?|24\/7|24h)\b/.test(texto)
+  if (!servicioEspecifico && /\b(?:horario|hora abris|hora cerrais|cuando abris|cuando cerrais|a que hora|hasta que hora|cuando atendeis|cuando puedo llamar)\b/.test(texto)) return 'HORARIO_ATENCION'
+  if (!servicioEspecifico && !/\b(?:soporte tecnico|precio|coste|cuesta|tarifa)\b/.test(texto) && /\b(?:telefono|numero.*llamar)\b/.test(texto)) return 'CONTACTO_GENERAL'
+  if (/\b(?:como.*contrat(?:ar|o)|como.*(?:doy|dar|solicito|solicitar).*alta)\b/.test(texto)) return 'CONTRATACION'
+  // Los campos de una herramienta, un plazo de instalación o un backup son
+  // preguntas distintas. El resto pregunta disponibilidad, no su confirmación.
+  const otraOperacion = /\b(?:comprobador|herramienta|campos|informacion pide|plazo|tarda|instalacion|backup|respaldo|failover|router|velocidad|precio|tarifa|corte|caida|falla|interrumpe|continuidad|reserva)\b/.test(texto)
+  if (!otraOperacion && !/\b(?:movil|5g|4g|wimax|satelite)\b/.test(texto) && (/\bcobertura\b/.test(texto)
+    || /\b(?:teneis|hay|ofreceis|disponible|disponibilidad|llega|llegais)\b.*\bfibra\b/.test(texto)
+    || /\bfibra\b.*\b(?:en|llega|disponible|a mi)\b/.test(texto))) return 'COBERTURA_DIRECCION'
+  return null
+}
+
+/** Traduce la intención a señales editoriales, no a fuentes inventadas. */
+export function consultaAtencionPublica(consulta: string): string {
+  const intencion = intencionAtencionPublica(consulta)
+  if (intencion === 'COBERTURA_DIRECCION') return 'cobertura fibra dirección código postal'
+  if (intencion === 'HORARIO_ATENCION') return 'horario atención lunes viernes peninsular'
+  if (intencion === 'CONTACTO_GENERAL') return 'teléfono contacto información atención general'
+  if (intencion === 'CONTRATACION') return 'contratar servicios contacto condiciones'
+  return consulta
+}
+
+function fuenteDeAtencion(intencion: ReturnType<typeof intencionAtencionPublica>, fuente: FuenteParaRelevancia): boolean {
+  const texto = normalizar(`${fuente.titulo} ${fuente.contenido}`)
+  if (intencion === 'COBERTURA_DIRECCION') return /\bcobertura\b/.test(texto) && /\bdireccion\b/.test(texto) && /\b(?:depende|comprobar|verificar)\b/.test(texto) && /\bcodigo postal\b/.test(texto)
+  if (intencion === 'HORARIO_ATENCION') return /\bhorario de atencion\b/.test(texto) && /\blunes\b/.test(texto) && /\bviernes\b/.test(texto) && /\bpeninsular\b/.test(texto)
+  if (intencion === 'CONTACTO_GENERAL') return /\btelefono de contacto\b/.test(texto) && /\batencion general\b/.test(texto) && /\b\d{3}\s\d{3}\s\d{3}\b/.test(texto)
+  if (intencion === 'CONTRATACION') return /\bcontratar\b/.test(normalizar(fuente.titulo)) && /\bcontacto\b/.test(texto) && /\bcondiciones\b/.test(texto)
+  return false
+}
+
 function perfilDe(consulta: string): PerfilConsulta {
   const todos = tokens(consulta)
   const terminos = todos.filter(termino => !PALABRAS_FUNCIONALES.has(termino) && (termino.length > 2 || termino === '5g' || termino === '4g'))
@@ -126,12 +162,12 @@ function perfilDe(consulta: string): PerfilConsulta {
   return {
     terminos,
     identificadores,
-    intencion: ceroRiesgos ? 'CERO_RIESGOS' : respaldoExplicito || falloDeRed ? 'RESPALDO_CONEXION' : 'GENERAL',
+    intencion: intencionAtencionPublica(consulta) || (ceroRiesgos ? 'CERO_RIESGOS' : respaldoExplicito || falloDeRed ? 'RESPALDO_CONEXION' : 'GENERAL'),
     pideDefinicion,
     pidePrecio,
     // Tecnologías inequívocas: oficinas o tráfico no sustituyen el producto.
     // Estas anclas no añaden rutas ni contenido a la recuperación.
-    anclas: terminos.filter(termino => ['mpls', 'sd-wan', 'exagrid', 'wildix'].includes(termino)
+    anclas: terminos.filter(termino => ['mpls', 'sd-wan', 'exagrid', 'wildix', 'comprobador'].includes(termino)
       || (['router', 'vpn'].includes(termino) && conceptosDe(terminos).includes('configuracion'))),
     conceptos: conceptosDe(todos),
   }
@@ -252,6 +288,9 @@ function evaluarFuente(perfil: PerfilConsulta, fuente: FuenteParaRelevancia, fre
     // de red y su activación.
     acepta = fuenteRespaldo
     bonoTema = fuenteRespaldo ? 8 : 0
+  } else if (['COBERTURA_DIRECCION', 'HORARIO_ATENCION', 'CONTACTO_GENERAL', 'CONTRATACION'].includes(perfil.intencion)) {
+    acepta = fuenteDeAtencion(perfil.intencion as IntencionAtencion, fuente)
+    bonoTema = acepta ? 100 : 0
   } else {
     // Un título puede ser una etiqueta genérica de página. Se acepta una fuente
     // por dos señales de cuerpo, una coincidencia temática más un concepto, o
@@ -264,6 +303,8 @@ function evaluarFuente(perfil: PerfilConsulta, fuente: FuenteParaRelevancia, fre
   if (perfil.intencion === 'GENERAL' && contieneAlguno(perfil.terminos, ['auditar', 'evaluar', 'evalua', 'analizar', 'analisis'])) {
     acepta = acepta && contieneAlguno(todo, CONCEPTOS.auditoria)
   }
+  if (perfil.intencion === 'GENERAL' && contieneAlguno(perfil.terminos, ['tecnologia'])) acepta = acepta && contieneAlguno(todo, ['tecnologia'])
+  if (perfil.intencion === 'GENERAL' && perfil.terminos.includes('ftth')) acepta = acepta && todo.includes('ftth')
   if (perfil.anclas.length && !perfil.anclas.every(ancla => todo.includes(ancla))) acepta = false
 
   const ponderadaTitulo = puntuacionPonderada(perfil.terminos, titulo, frecuencias, totalTema)
