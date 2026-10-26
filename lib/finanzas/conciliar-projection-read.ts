@@ -134,9 +134,9 @@ function filters(input: Omit<ConciliarGetInput, 'tab'>): Prisma.Sql {
     // Search text is literal. % and _ must not silently broaden a user query.
     const pattern = `%${input.q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')}%`
     pieces.push(Prisma.sql`(
-      p.id=${input.q} OR p.movimiento_id=${input.q} OR p.concepto ILIKE ${pattern} ESCAPE '\\' OR COALESCE(p.banco,'') ILIKE ${pattern} ESCAPE '\\' OR COALESCE(p.cuenta,'') ILIKE ${pattern} ESCAPE '\\'
-      OR COALESCE(p.grupo,'') ILIKE ${pattern} ESCAPE '\\' OR COALESCE(p.documento->>'referencia','') ILIKE ${pattern} ESCAPE '\\'
-      OR COALESCE(p.documento->>'tercero','') ILIKE ${pattern} ESCAPE '\\' OR CAST(p.importe_centimos AS text) ILIKE ${pattern} ESCAPE '\\'
+      p.id=${input.q} OR p.movimiento_id=${input.q} OR p.concepto ILIKE ${pattern} OR COALESCE(p.banco,'') ILIKE ${pattern} OR COALESCE(p.cuenta,'') ILIKE ${pattern}
+      OR COALESCE(p.grupo,'') ILIKE ${pattern} OR COALESCE(p.documento->>'referencia','') ILIKE ${pattern}
+      OR COALESCE(p.documento->>'tercero','') ILIKE ${pattern} OR CAST(p.importe_centimos AS text) ILIKE ${pattern}
     )`)
   }
   return pieces.length ? Prisma.join(pieces, ' AND ') : Prisma.sql`TRUE`
