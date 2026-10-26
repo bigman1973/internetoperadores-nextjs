@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import fs from 'node:fs/promises'
 import { fuenteAptaParaPublico, motivoFuenteNoAptaParaPublico } from '@/lib/asistente/public-policy'
-import { esTarifaPublicaComercial } from '@/lib/asistente/ingesta'
+import { esTarifaPublicaComercial, redactarContenidoFuente, type FuenteIngesta } from '@/lib/asistente/ingesta'
 import { auditarCoberturaCorpusPublico, coberturaManifestCorpusPublico, extraerCapitulosJsx, extraerCorpusPublicoLocal, motivoExclusionArchivoPagina } from '@/lib/asistente/web-corpus'
 
 function rutaDeArchivoPagina(archivo: string): string {
@@ -10,6 +11,12 @@ function rutaDeArchivoPagina(archivo: string): string {
 }
 
 async function main() {
+  const contactoPrueba: FuenteIngesta = { titulo: 'Contacto', tipo: 'FAQ', origen: 'publico:repo:app/recursos/faq/page.tsx#fixture', urlFuente: '/recursos/faq', contenido: 'Teléfono público 900 730 034. Visitante: 600000000, prueba@example.test, CP 50001.' }
+  const contactoRedactado = redactarContenidoFuente(contactoPrueba, 'PUBLICO')
+  assert.ok(contactoRedactado.includes('900 730 034'))
+  assert.doesNotMatch(contactoRedactado, /600000000|prueba@example.test|50001/)
+  assert.doesNotMatch(redactarContenidoFuente(contactoPrueba, 'INTERNO'), /900 730 034/)
+  assert.doesNotMatch(redactarContenidoFuente({ ...contactoPrueba, origen: 'archivo:fixture' }, 'PUBLICO'), /900 730 034/)
   // Contrato compartido: bloquea nombres mayoristas/catálogo, pero no impide
   // temas comerciales legítimos como respaldo 5G o centralita IP.
   const bloqueadas = [
@@ -88,6 +95,13 @@ async function main() {
   assert.ok(cero.some(fuente => fuente.titulo.includes('Entrega en 48 h') && /En menos de 2 días, tendrás el informe completo/i.test(fuente.contenido)), 'la entrega publicada del paso 04 se conserva bajo su encabezado visible')
   assert.ok(cero.some(fuente => /telecomunicaciones, ciberseguridad, copias de seguridad y vulnerabilidades técnicas/i.test(fuente.contenido)), 'se conserva el alcance publicado')
   assert.ok(corpus.some(fuente => fuente.urlFuente === '/recursos/faq' && /backup \(5G, WIMAX o Satélite/i.test(fuente.contenido)), 'FAQ de backup se indexa')
+  assert.ok(corpus.some(fuente => fuente.urlFuente === '/recursos/faq' && fuente.titulo === '¿Tenéis cobertura de fibra en mi ciudad o dirección?' && /depende de la dirección exacta/.test(fuente.contenido) && /¿Cuál es tu código postal\?/.test(fuente.contenido) && /no garantiza cobertura/.test(fuente.contenido)), 'cobertura pide CP y no garantiza disponibilidad')
+  assert.ok(corpus.some(fuente => fuente.urlFuente === '/recursos/faq' && fuente.titulo === '¿Cuál es vuestro horario de atención?' && /lunes a viernes, de 09:00 a 18:00 \(hora peninsular\)/.test(fuente.contenido) && /servicios específicos/.test(fuente.contenido)), 'horario general distingue la garantía de servicio 24/7')
+  assert.ok(corpus.some(fuente => fuente.urlFuente === '/recursos/faq' && fuente.titulo === '¿Qué incluye el soporte 24/7?' && /24\/7 contratado/.test(fuente.contenido)), 'soporte 24/7 delimitado al servicio contratado')
+  assert.ok(corpus.some(fuente => fuente.urlFuente === '/contacto' && fuente.titulo === 'Teléfono' && /09:00–18:00 \(hora peninsular\)/.test(fuente.contenido)), 'contacto mantiene el horario aprobado')
+  assert.ok(corpus.some(fuente => fuente.urlFuente === '/particular' && /09:00 a 18:00 \(hora peninsular\)/.test(fuente.contenido)), 'particulares mantienen el horario aprobado')
+  const faqVisible = await fs.readFile('app/recursos/faq/page.tsx', 'utf8')
+  assert.doesNotMatch(faqVisible, /disponible 24\/7|wa\.me\/34600000000/, 'no queda un 24/7 general o enlace ficticio en FAQ')
   assert.ok(corpus.some(fuente => fuente.urlFuente === '/condiciones-generales'), 'condiciones legales se indexan')
   assert.ok(corpus.some(fuente => fuente.urlFuente === '/politica-privacidad'), 'privacidad se indexa')
   assert.ok(corpus.some(fuente => fuente.urlFuente === '/politica-cookies'), 'cookies se indexa')

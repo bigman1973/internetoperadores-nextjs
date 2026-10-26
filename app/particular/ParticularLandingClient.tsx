@@ -809,7 +809,7 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
             </Link>
           </div>
           <p className="mt-8 text-orange-200 text-sm">
-            Llamada gratuita. Lunes a viernes de 9:00 a 20:00.
+            Llamada gratuita. Lunes a viernes de 09:00 a 18:00 (hora peninsular).
           </p>
         </div>
       </section>

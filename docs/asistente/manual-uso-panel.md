@@ -81,6 +81,14 @@ La conversación, la analítica y los informes no son un repositorio libre de da
 
 El widget se presenta como **Asistente de IA**, enlaza a la política de privacidad y mantiene visible la alternativa de hablar con una persona. Debe cargarse de forma diferida, conservar foco accesible y funcionar en los anchos móviles previstos. La comprobación visual y E2E del widget queda pendiente de ejecución por el integrador con un entorno y herramientas autorizados; no se usa este manual como sustituto de dicha prueba.
 
+## Cobertura y atención — ajuste del 26/10
+
+Ante «¿Tenéis fibra en Lleida?» o en otra ciudad, la FAQ explica que la disponibilidad depende de la dirección exacta y pide el código postal como orientación, no como garantía. **Solicitar comprobación de cobertura** abre la cualificación existente (empresa/hogar y CP) y mantiene el consentimiento antes del contacto. **Hablar con una persona** sigue visible. El asistente no consulta cobertura externa, no ejecuta el comprobador simulado y no confirma disponibilidad ni instalación por ciudad o CP.
+
+El horario de atención general publicado es **lunes a viernes, 09:00–18:00, hora peninsular**, igual que el horario predeterminado del widget. La garantía 24/7 se menciona sólo para servicios específicos de soporte/guardias contratados. Las preguntas explícitas de soporte o de plazo de instalación conservan sus FAQ propias. El teléfono corporativo verificado es **900 730 034**: la ingesta permite ese literal únicamente en la FAQ pública del repositorio; otros teléfonos y datos personales siguen redactados. Preguntar cómo contratar ofrece información/contacto, sin confirmar un alta ni una fecha.
+
+La ampliación conserva por hash los 23 casos públicos anteriores y los 100 históricos; añade dos hallazgos exactos de Claude y doce variantes/ataque sintéticos, para **37 casos públicos**. No son consultas reales de clientes. Las baterías locales registran **37/37**, **100/100** y **26/26**; la revisión desplegada y la aceptación de negocio se deben contrastar con su recibo antes de cualquier decisión de producción.
+
 ## Flujo de conversación y cualificación
 
 1. La persona abre el widget y recibe el aviso de IA, el enlace de privacidad y el acceso a atención humana.

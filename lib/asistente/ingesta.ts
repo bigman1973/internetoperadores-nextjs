@@ -323,7 +323,17 @@ export type OpcionesIndexado = {
   /** Ingesta conservadora: una fuente existente nunca se actualiza. */
   soloCrearSiNoExiste?: boolean
 }
-/** Persiste sólo texto localmente anonimizado; el nombre original de archivo tampoco se conserva como origen. */
+/** Excepción explícita: contacto de empresa ya publicado, nunca un teléfono de visitante. */
+export function redactarContenidoFuente(fuente: FuenteIngesta, espacio: string): string {
+  const contenido = limiteTexto(fuente.contenido)
+  const contactoCorporativoAcreditado = espacio === 'PUBLICO' && fuente.tipo === 'FAQ'
+    && fuente.urlFuente === '/recursos/faq' && fuente.origen.startsWith('publico:repo:app/recursos/faq/page.tsx#')
+  if (!contactoCorporativoAcreditado) return redactarPIILocal(contenido, true)
+  // Segmentar evita que un marcador escrito por el usuario se convierta en
+  // un número. Sólo este literal publicado en contacto/footer queda intacto.
+  return contenido.split(/(900 730 034)/).map(parte => parte === '900 730 034' ? parte : redactarPIILocal(parte, true)).join('')
+}
+/** Persiste texto anonimizado, salvo contacto corporativo público explícitamente acreditado. */
 export async function indexarFuente(fuente: FuenteIngesta, actorId?: number, opciones: OpcionesIndexado = {}, db?: ClienteIngesta): Promise<{ creado: boolean; documentoId?: string; estado?: string }> {
   // El llamante de una ingesta compuesta inyecta su transacción para que el
   // índice, sus fragmentos y la retirada formen una única operación atómica.
@@ -334,17 +344,17 @@ export async function indexarFuente(fuente: FuenteIngesta, actorId?: number, opc
     throw new Error(`FUENTE_NO_APTA_PARA_PUBLICO:${motivoFuenteNoAptaParaPublico(fuente) || 'POLITICA'}`)
   }
   const titulo = redactarPIILocal(textoPlano(fuente.titulo).slice(0, 500), true)
-  const contenido = redactarPIILocal(limiteTexto(fuente.contenido), true)
-  const checksum = sha256Hex(contenido)
   // Una página puede aportar varios extractos aprobados con títulos distintos.
   // El origen identifica la página, pero el documento de conocimiento se
   // identifica por la pareja origen+título para no desactivar otros extractos.
   const anterior = fuente.origen
     ? await db.asistenteDocumento.findFirst({ where: { origen: fuente.origen, titulo }, include: { versiones: { orderBy: { version: 'desc' }, take: 1 } } })
     : null
+  const espacio = anterior ? anterior.espacio : (opciones.espacio || 'INTERNO')
+  const contenido = redactarContenidoFuente(fuente, espacio)
+  const checksum = sha256Hex(contenido)
   if (anterior?.versiones[0]?.checksum === checksum) return { creado: false, documentoId: anterior.id, estado: anterior.estado }
   if (anterior && opciones.soloCrearSiNoExiste) return { creado: false, documentoId: anterior.id, estado: anterior.estado }
-  const espacio = anterior ? anterior.espacio : (opciones.espacio || 'INTERNO')
   const roles = anterior ? anterior.roles : (espacio === 'INTERNO' ? (opciones.roles || []) : [])
   const estado = anterior?.estado === 'ARCHIVADO' ? 'ARCHIVADO' : (opciones.estado || 'BORRADOR')
   const publicado = estado === 'PUBLICADO'
