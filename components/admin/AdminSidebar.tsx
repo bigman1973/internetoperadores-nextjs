@@ -170,6 +170,7 @@ const navigation: NavEntry[] = [
       { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon, section: 'finanzas' },
       { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
       { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
+      { name: 'Conciliar', href: '/admin/finanzas/conciliar', icon: ArrowsRightLeftIcon, section: 'finanzas' },
       { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
       { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
       { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon, section: 'finanzas' },
@@ -238,12 +239,14 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
   const [openGroups, setOpenGroups] = useState<string[]>([])
   const { hasAccess, effectiveRole, isViewingAs } = useRole()
   const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
+  const easyHome = financeEnvironment === 'staging' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
   const visibleNavigation = navigation.map((entry): NavEntry => {
     if (!isGroup(entry) || entry.name !== 'Finanzas') return entry
     return {
       ...entry,
       children: entry.children
         .filter(child => {
+          if (child.href === '/admin/finanzas/conciliar') return financeEnvironment === 'staging'
           if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(child.href)) return financeEnvironment !== null
           // Telefonía/SOFÍA continúa aparcada en producción.
           if (child.href === '/admin/finanzas/analitica-cliente') return financeEnvironment === 'staging'
@@ -278,7 +281,7 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
   }
 
   const canAccess = (item: NavItem | NavGroup) => {
-    if (easyOnly) return !isGroup(item) && ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir'].includes(item.href)
+    if (easyOnly) return !isGroup(item) && [easyHome, '/admin/finanzas/para-pedir'].includes(item.href)
     // Para grupos, mostrar si al menos un hijo es accesible
     if (isGroup(item)) {
       const groupAccess = hasAccess(item.section || 'dashboard')
@@ -369,7 +372,7 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
     <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
       {/* Logo */}
       <div className="flex h-16 shrink-0 items-center">
-        <Link href={easyOnly ? '/admin/finanzas/modo-facil' : '/admin'} prefetch={false} className="flex items-center" onClick={onNavigate}>
+        <Link href={easyOnly ? easyHome : '/admin'} prefetch={false} className="flex items-center" onClick={onNavigate}>
           <span className="text-2xl font-bold">
             <span className="text-black">internet</span>
             <span className="text-orange-500">operadores</span>
@@ -390,7 +393,7 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
           <li>
             <ul role="list" className="-mx-2 space-y-1">
               {(easyOnly ? [
-                { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon },
+                { name: financeEnvironment === 'staging' ? 'Conciliar' : 'Modo fácil', href: easyHome, icon: ClipboardDocumentListIcon },
                 { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon },
               ] : visibleNavigation).map((entry) => {
                 if (isGroup(entry)) {

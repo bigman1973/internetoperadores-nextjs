@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { EASY_ONLY_HOME } from '@/lib/finanzas/easy-access-core'
 import { getToken } from 'next-auth/jwt'
 import type { JWT } from 'next-auth/jwt'
 import {
@@ -232,7 +233,7 @@ export async function POST(req: NextRequest) {
           })
         })()
       const cookie = await issueEffectiveSessionCookieToken(result.token)
-      const response = jsonWithCsrf({ ok: true, redirectTo: '/admin/finanzas/modo-facil', active: result.active }, result.token)
+      const response = jsonWithCsrf({ ok: true, redirectTo: EASY_ONLY_HOME, active: result.active }, result.token)
       // The ledger, not browser cookie expiry, enforces the 60 minute acting
       // limit. Retain the encrypted original proof until its real session ends
       // so an expired foreground can still submit its safe exit recovery.

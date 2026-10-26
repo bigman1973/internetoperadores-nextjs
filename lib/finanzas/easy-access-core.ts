@@ -1,8 +1,15 @@
 export const EASY_ONLY_PROFILE = 'MODO_FACIL_ONLY' as const
-export const EASY_ONLY_HOME = '/admin/finanzas/modo-facil'
+export const EASY_ONLY_HOME = process.env.FINANCE_STAGING_SANDBOX === '1' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
 const SAFE = new Set(['GET','HEAD','OPTIONS'])
 /** Allowlist, not a prefix grant: a new action does not become available silently. */
 export function easyOnlyRequestAllowed(path: string, method: string, search: URLSearchParams = new URLSearchParams(), userId?: number): boolean {
+  if (process.env.FINANCE_STAGING_SANDBOX === '1') {
+    if (path === '/admin/finanzas/conciliar') return SAFE.has(method)
+    if (path === '/api/admin/finanzas/conciliar') return ['GET','HEAD','POST'].includes(method)
+    if (path === '/api/admin/finanzas/conciliar/intereses') return ['GET','HEAD','POST'].includes(method)
+    if (path === '/api/admin/finanzas/conciliar/historial') return SAFE.has(method)
+    if (/^\/api\/admin\/finanzas\/conciliar\/(?:archivo|detalle)\/[A-Za-z0-9_-]{1,160}$/.test(path)) return SAFE.has(method)
+  }
   if (path === '/admin/finanzas/modo-facil' || path === '/admin/finanzas/para-pedir') return SAFE.has(method)
   if (path === '/api/admin/finanzas/modo-facil') return ['GET','HEAD','POST'].includes(method)
   if (path === '/api/admin/finanzas/modo-facil/perfil') return SAFE.has(method)

@@ -237,6 +237,7 @@ export const IMPERSONATION_ROUTE_MATRIX: readonly MatrixRule[] = [
   financeRead('finance-issued-invoices-page', '/admin/finanzas/facturas-emitidas', ['admin.finanzas.facturas_emitidas']),
   financeRead('finance-import-page', '/admin/finanzas/importar', [B3]),
   financeRead('finance-easy-page', '/admin/finanzas/modo-facil', [B4]),
+  financeRead('finance-conciliar-page', '/admin/finanzas/conciliar', [B4]),
   financeRead('finance-request-page', '/admin/finanzas/para-pedir', [B4]),
   financeRead('finance-movements-page', '/admin/finanzas/movimientos', [B5]),
   financeRead('finance-pending-page', '/admin/finanzas/pendientes', [B4]),
@@ -268,6 +269,10 @@ export const IMPERSONATION_ROUTE_MATRIX: readonly MatrixRule[] = [
   financeRead('finance-pending-api', /^\/api\/admin\/finanzas\/pendientes(?:\/documento)?$/, [B4]),
   financeRead('finance-b6-api', '/api/admin/finanzas/remesas/b6', [B4]),
   financeRead('finance-easy-api', '/api/admin/finanzas/modo-facil', [B4]),
+  financeRead('finance-conciliar-api', '/api/admin/finanzas/conciliar', [B4]),
+  financeRead('finance-conciliar-interests-api', '/api/admin/finanzas/conciliar/intereses', [B4]),
+  financeRead('finance-conciliar-history-api', '/api/admin/finanzas/conciliar/historial', [B4]),
+  financeRead('finance-conciliar-file-api', /^\/api\/admin\/finanzas\/conciliar\/(?:archivo|detalle)\/[A-Za-z0-9_-]{1,160}$/, [B4]),
   financeRead('finance-easy-profile-api', '/api/admin/finanzas/modo-facil/perfil', [B4]),
   financeRead('finance-easy-cards-api', '/api/admin/finanzas/modo-facil/tarjetas', [B4]),
   financeRead('finance-easy-request-api', '/api/admin/finanzas/modo-facil/para-pedir', [B4]),
@@ -289,6 +294,8 @@ const MANUAL_BODY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   '/api/admin/finanzas/modo-facil/terceros': ['confirmar', 'revertir'],
   '/api/admin/finanzas/modo-facil/terceros/bloque': ['aceptar_seleccionados', 'deshacer_lote'],
   '/api/admin/finanzas/modo-facil/cobros': ['confirmar_bloque', 'deshacer_bloque'],
+  '/api/admin/finanzas/conciliar': ['confirmar', 'deshacer', 'pedir'],
+  '/api/admin/finanzas/conciliar/intereses': ['vincular_factura_interes', 'desvincular_factura_interes'],
 }
 
 function controlEndpointAllowed(path: string, method: string, action: ImpersonationBodyAction): boolean {

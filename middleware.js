@@ -321,6 +321,7 @@ function financeAreas(pathname) {
     'conciliacion-v2': ['admin.finanzas.conciliacion'],
     'conciliacion-propuestas': ['admin.finanzas.conciliacion'],
     'modo-facil': ['admin.finanzas.conciliacion'],
+    conciliar: ['admin.finanzas.conciliacion'],
     'analitica-cliente': ['admin.finanzas.conciliacion'],
     pendientes: ['admin.finanzas.conciliacion'],
     'centros-coste': ['admin.finanzas.conciliacion'],
@@ -378,6 +379,7 @@ export async function middleware(request) {
       // perfil vivo y política. No es una excepción del motor legacy.
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
+      || (path === '/api/admin/finanzas/conciliar' && request.method === 'POST')
       || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
       || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
       || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
