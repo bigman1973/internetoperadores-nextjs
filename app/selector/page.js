@@ -12,7 +12,6 @@ export default function SelectorPage() {
               alt="Internet Operadores"
               width="247"
               height="119"
-              fetchPriority="high"
               decoding="async"
               className="h-12 w-auto sm:h-16 lg:h-20"
             />
@@ -67,6 +66,7 @@ export default function SelectorPage() {
           {/* Card Empresa (B2B) */}
           <Link
             href="/empresa"
+            prefetch={false}
             className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
             <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">
@@ -125,6 +125,7 @@ export default function SelectorPage() {
           {/* Card Particular (B2C) */}
           <Link
             href="/particular"
+            prefetch={false}
             className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-[0_10px_35px_rgba(17,24,39,0.08)] transition duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-orange-300 md:hover:-translate-y-1 md:hover:border-orange-400 md:hover:shadow-[0_18px_50px_rgba(17,24,39,0.14)]"
           >
             <div className="relative h-48 overflow-hidden sm:h-56 lg:h-64">

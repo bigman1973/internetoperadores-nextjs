@@ -50,12 +50,23 @@ export default function FinanzasDashboard() {
 
   if (loading) {
     return (
-      <div className="p-8">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="grid grid-cols-4 gap-4">
-            {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 rounded-xl"></div>)}
+      <div className="p-6 space-y-6" aria-busy="true">
+        <div className="flex items-center justify-between">
+          <div className="h-8 w-1/3 animate-pulse rounded bg-gray-200"></div>
+          <div className="flex gap-2" aria-hidden="true">
+            <div className="h-8 w-20 animate-pulse rounded-lg bg-gray-200"></div>
+            <div className="h-8 w-32 animate-pulse rounded-lg bg-gray-200"></div>
           </div>
+        </div>
+        <div className="min-h-[740px] animate-pulse rounded-xl border border-slate-200 bg-white p-4 sm:min-h-[450px] xl:min-h-[320px]">
+          <div className="h-5 w-2/5 rounded bg-gray-200"></div>
+          <div className="mt-3 h-4 w-4/5 rounded bg-gray-100"></div>
+          <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {[1, 2, 3].map(i => <div key={i} className="h-24 rounded-lg bg-gray-100"></div>)}
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-32 animate-pulse rounded-xl bg-gray-200"></div>)}
         </div>
       </div>
     );

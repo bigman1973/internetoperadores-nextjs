@@ -78,6 +78,15 @@ interface EstadoConciliacion {
   traspasosImporte: number;
 }
 
+function ConciliacionKpiSkeleton() {
+  return <div aria-busy="true" className="space-y-4">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">{Array.from({ length: 7 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-lg border bg-slate-100 p-4" />)}</div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-24 animate-pulse rounded-lg border bg-slate-100 p-4" />)}</div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-24 animate-pulse rounded-lg border bg-slate-100 p-4" />)}</div>
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{Array.from({ length: 4 }, (_, index) => <div key={index} className="h-24 animate-pulse rounded-lg border bg-slate-100 p-4" />)}</div>
+  </div>;
+}
+
 export default function ConciliacionPage() {
   const panelRef = useRef<HTMLDivElement>(null);
   const [movimientos, setMovimientos] = useState<Movimiento[]>([]);
@@ -85,6 +94,7 @@ export default function ConciliacionPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [estado, setEstado] = useState<EstadoConciliacion | null>(null);
+  const [estadoLoading, setEstadoLoading] = useState(true);
   const [conciliando, setConciliando] = useState(false);
   const [resultadoConciliacion, setResultadoConciliacion] = useState<any>(null);
   const [selectedMov, setSelectedMov] = useState<string | null>(null);
@@ -181,7 +191,7 @@ export default function ConciliacionPage() {
       const res = await fetch('/api/admin/finanzas/conciliacion');
       const json = await res.json();
       setEstado(json);
-    } catch (e) { /* silencio */ }
+    } catch (e) { /* silencio */ } finally { setEstadoLoading(false); }
   }
 
   async function fetchMovimientos() {
@@ -1053,8 +1063,9 @@ export default function ConciliacionPage() {
       </div>
 
       {/* KPIs */}
+      {!estado && estadoLoading && <ConciliacionKpiSkeleton />}
       {estado && (
-        <div className="grid grid-cols-7 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <button
             onClick={() => { setFiltroConciliado(''); setFiltroEspecial(''); setPage(1); }}
             className={`bg-white border rounded-lg p-4 text-left transition-all hover:shadow-md ${
@@ -1150,7 +1161,7 @@ export default function ConciliacionPage() {
 
       {/* KPIs Niveles de Conciliación */}
       {estado && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div onClick={() => { setFiltroEspecial(filtroEspecial === 'conProveedor' ? '' : 'conProveedor'); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroEspecial === 'conProveedor' ? 'border-blue-500 ring-2 ring-blue-200' : 'border-blue-200'}`} title="Movimientos con entidad fiscal (proveedor/cliente) identificada y vinculada">
             <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-blue-600 uppercase font-medium">Proveedor Identificado</p>
@@ -1180,7 +1191,7 @@ export default function ConciliacionPage() {
 
       {/* KPI Traspasos */}
       {estado && (estado.traspasosTotal > 0) && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div onClick={() => { setFiltroDocumento('traspaso'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroDocumento === 'traspaso' ? 'border-cyan-500 ring-2 ring-cyan-200' : 'border-cyan-200'}`} title="Todos los movimientos clasificados como traspaso entre cuentas propias">
             <div className="absolute top-2 right-2 text-gray-300 group-hover:text-gray-500"><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 16v-4m0-4h.01" /></svg></div>
             <p className="text-xs text-cyan-600 uppercase font-medium">Total Traspasos</p>
@@ -1210,7 +1221,7 @@ export default function ConciliacionPage() {
 
       {/* KPI Nóminas / Personal */}
       {estado && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div onClick={() => { setFiltroDocumento('nomina'); setFiltroEspecial(''); setFiltroConciliado(''); setPage(1); }} className={`bg-white border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md relative group ${filtroDocumento === 'nomina' ? 'border-purple-500 ring-2 ring-purple-200' : 'border-purple-200'}`} title="Todos los movimientos clasificados como nómina">
             <p className="text-xs text-purple-600 uppercase font-medium">Total Nóminas</p>
             <p className="text-2xl font-bold text-purple-700">{estado.nominasTotal}</p>

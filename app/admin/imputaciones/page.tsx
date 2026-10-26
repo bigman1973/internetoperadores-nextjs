@@ -267,39 +267,39 @@ export default function ImputacionesAdminPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Imputación de Tiempos</h1>
           <p className="text-sm text-gray-500 mt-1">Análisis de dedicación del equipo</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => { setEditingImp(null); setSelectedProyecto(null); setImputarForm(getInitialImputarForm()); setClienteSearch(''); setShowImputarForm(true); }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+            className="inline-flex min-h-11 items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
           >
             <PlusIcon className="w-4 h-4" /> Imputar horas
           </button>
           <button
             onClick={() => setTab('dashboard')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'dashboard' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'dashboard' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Dashboard
           </button>
           <button
             onClick={() => setTab('registros')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'registros' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'registros' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Registros
           </button>
           <button
             onClick={() => { setTab('pendientes'); fetchPendientes(); }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'pendientes' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'pendientes' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Pendientes {pendientes.length > 0 && <span className="ml-1 px-1.5 py-0.5 bg-red-500 text-white text-xs rounded-full">{pendientes.length}</span>}
           </button>
           <button
             onClick={() => setTab('categorias')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'categorias' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'categorias' ? 'bg-orange-600 text-white' : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'}`}
           >
             Categorías
           </button>
@@ -316,27 +316,27 @@ export default function ImputacionesAdminPage() {
 
           {/* Filtros */}
           <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              {PERIODOS.map(p => (
-                <button
-                  key={p.value}
-                  onClick={() => setPeriodo(p.value)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodo === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  {p.label}
-                </button>
+              <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
+                {PERIODOS.map(p => (
+                  <button
+                    key={p.value}
+                    onClick={() => setPeriodo(p.value)}
+                    className={`min-h-11 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${periodo === p.value ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    {p.label}
+                  </button>
               ))}
             </div>
             <input
               type="date"
               value={fecha}
               onChange={e => setFecha(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+              className="min-h-11 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
             />
             <select
               value={filtroEmpleado}
               onChange={e => setFiltroEmpleado(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+              className="min-h-11 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
             >
               <option value="">Todos los empleados</option>
               {empleados.map(e => (
@@ -346,7 +346,7 @@ export default function ImputacionesAdminPage() {
             <select
               value={filtroCategoria}
               onChange={e => setFiltroCategoria(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
+              className="min-h-11 rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900"
             >
               <option value="">Todas las categorías</option>
               {categorias.filter(c => c.activa).map(c => (
@@ -396,7 +396,7 @@ export default function ImputacionesAdminPage() {
           </div>
 
           {(filtroCategoria === '' || filtroCategoria === 'Comercial') && (
-            <section className="space-y-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 sm:p-5">
+            <section className="min-h-[940px] space-y-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/70 to-white p-4 sm:min-h-[700px] sm:p-5 xl:min-h-[650px]">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Lectura contextual de la actividad comercial</h2>
@@ -408,7 +408,17 @@ export default function ImputacionesAdminPage() {
                 </div>
               </div>
 
-              {comercialKpis.registros === 0 ? (
+              {loading ? (
+                <div className="animate-pulse space-y-4" aria-hidden="true">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[0, 1, 2, 3].map(item => <div key={item} className="h-32 rounded-xl bg-white/80 ring-1 ring-indigo-100" />)}
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    <div className="h-56 rounded-xl bg-white/80 ring-1 ring-gray-100" />
+                    <div className="h-56 rounded-xl bg-white/80 ring-1 ring-gray-100" />
+                  </div>
+                </div>
+              ) : comercialKpis.registros === 0 ? (
                 <div className="rounded-xl bg-white px-4 py-6 text-center text-sm text-gray-500 ring-1 ring-gray-100">No hay actividad comercial en el período seleccionado.</div>
               ) : (
                 <>

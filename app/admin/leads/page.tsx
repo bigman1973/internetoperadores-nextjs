@@ -1,10 +1,10 @@
 import { Metadata } from 'next';
-import LeadsPageClient from '@/components/admin/LeadsPageClient';
+import LeadsWorkspace from '@/components/admin/LeadsWorkspace';
 
 export const metadata: Metadata = {
-  title: 'Leads Migración Web | Admin',
+  title: 'Leads | Admin',
 };
 
 export default function LeadsPage() {
-  return <LeadsPageClient />;
+  return <LeadsWorkspace />;
 }

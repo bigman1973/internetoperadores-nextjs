@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { ReceiptPercentIcon, ClockIcon, DocumentTextIcon, ExclamationTriangleIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import { useImpersonation } from '@/components/empleado/ImpersonationContext';
@@ -24,18 +24,22 @@ export default function EmpleadoPage() {
   const [alertas, setAlertas] = useState<Alerta[]>([]);
   const [resumenImputaciones, setResumenImputaciones] = useState<ResumenPersonalImputaciones | null>(null);
   const [loadingAlertas, setLoadingAlertas] = useState(true);
+  // Última persona cuyos avisos ya se han pintado: recargar los de la misma
+  // persona no vuelve a mostrar el esqueleto (evita saltos de contenido).
+  const avisosCargadosDe = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchAlertas() {
       if (!isReady) return;
       try {
-        setLoadingAlertas(true);
         const query = getQueryParam();
+        if (avisosCargadosDe.current !== query) setLoadingAlertas(true);
         const res = await fetch(`/api/empleado/alertas${query ? `?${query}` : ''}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           setAlertas(data.alertas || []);
           setResumenImputaciones(data.resumenImputaciones || null);
+          avisosCargadosDe.current = query;
         }
       } catch (e) {
         console.error(e);
@@ -56,7 +60,15 @@ export default function EmpleadoPage() {
       </div>
 
       {/* Avisos prioritarios al iniciar sesión */}
-      {!loadingAlertas && alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
+      {loadingAlertas ? (
+        <div className="mb-6 min-h-[620px] animate-pulse rounded-2xl border border-slate-200 bg-white p-4 sm:min-h-[400px]" aria-label="Cargando avisos y resumen de imputaciones" role="status">
+          <div className="h-5 w-48 rounded bg-slate-200" />
+          <div className="mt-3 h-4 max-w-2xl rounded bg-slate-100" />
+          <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {[0, 1, 2, 3].map(item => <div key={item} className="h-20 rounded-xl bg-slate-100" />)}
+          </div>
+        </div>
+      ) : alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).length > 0 && (
         <div className="mb-6 space-y-3">
           {alertas.filter(alerta => !alerta.tipo.startsWith('horas_sin_imputar')).map((alerta, i) => {
             const esPeticion = alerta.tipo === 'peticiones_pendientes_validacion';
@@ -124,7 +136,8 @@ export default function EmpleadoPage() {
 
       {!loadingAlertas && resumenImputaciones && <EmployeeTimesheetSummary summary={resumenImputaciones} />}
 
-      {/* Accesos rapidos */}
+      {/* Accesos rapidos: se pintan al terminar la carga de avisos para que no se desplacen (CLS) */}
+      {!loadingAlertas && (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Link
           href="/empleado/imputaciones"
@@ -175,6 +188,7 @@ export default function EmpleadoPage() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

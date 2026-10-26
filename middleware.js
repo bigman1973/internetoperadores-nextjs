@@ -378,6 +378,13 @@ export async function middleware(request) {
       // perfil vivo y política. No es una excepción del motor legacy.
       || (['/api/admin/finanzas/modo-facil/terceros', '/api/admin/finanzas/modo-facil/automaticas', '/api/admin/finanzas/reparto-clientes'].includes(path) && request.method === 'POST')
       || (['/api/admin/finanzas/modo-facil/terceros/bloque', '/api/admin/finanzas/modo-facil/cobros'].includes(path) && request.method === 'POST')
+      || (['/api/asistente/chat', '/api/asistente/valoracion', '/api/asistente/escalado', '/api/asistente/lead'].includes(path) && request.method === 'POST')
+      || (['/api/admin/asistente/chat', '/api/admin/asistente/conocimiento', '/api/admin/asistente/conocimiento/web-publica'].includes(path) && request.method === 'POST')
+      || (/^\/api\/admin\/asistente\/conocimiento\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
+      || (path === '/api/admin/asistente/configuracion' && request.method === 'PATCH')
+      || (['/api/admin/asistente/aprendizaje', '/api/admin/asistente/informes'].includes(path) && request.method === 'POST')
+      || (['/api/admin/asistente/derechos', '/api/admin/asistente/retencion'].includes(path) && request.method === 'POST')
+      || (/^\/api\/admin\/asistente\/(leads|escalados|aprendizaje|huecos|informes\/propuestas)\/[^/]{1,100}$/.test(path) && request.method === 'PATCH')
       || path.startsWith('/api/auth/');
     if (path.startsWith('/api/cron/') || (mutating && !allowed)) {
       return NextResponse.json({ error: 'Sandbox de Finanzas: esta acción está bloqueada en staging; no se envían comunicaciones ni se ejecutan sincronizaciones ajenas a los bloques autorizados.' }, { status: 403, headers: { 'Cache-Control': 'private, no-store' } });
@@ -419,7 +426,18 @@ export async function middleware(request) {
     const externalPath = path.startsWith('/api/cron/')
       || path.toLowerCase().split('/').some(segment => segment.startsWith('sync') || segment.startsWith('sincroniz'))
       || isOutboundMailOrCommunicationPath(path);
-    if (externalPath && !isAuthorizedP2Path(path)) return blockedBoundary(
+    // Excepción cerrada: este informe sólo consulta/agrega datos anonimizados
+    // locales. No abre ningún cron financiero, Preview, staging ni solo lectura;
+    // el handler conserva Bearer CRON_SECRET y la guardia horaria Madrid.
+    const assistantReportCronAllowed = path === '/api/cron/asistente-informe'
+      && request.method === 'GET'
+      && process.env.ASSISTANT_CRON_ENABLED === 'true'
+      && process.env.ASSISTANT_MODE === 'extractivo'
+      && process.env.NODE_ENV === 'production'
+      && process.env.VERCEL_ENV === 'production'
+      && process.env.FINANCE_STAGING_SANDBOX !== '1'
+      && process.env.FINANCE_DEPLOYMENT_READ_ONLY !== '1';
+    if (externalPath && !isAuthorizedP2Path(path) && !assistantReportCronAllowed) return blockedBoundary(
       'Sincronizaciones y comunicaciones externas desactivadas en este lanzamiento; las acciones financieras manuales siguen disponibles.',
       'FINANCE_EXTERNAL_ACTIONS_DISABLED',
     );
@@ -532,43 +550,56 @@ export async function middleware(request) {
     return continueRequest(trustedHeaders);
   }
 
-  // Verificar si ya está autenticado (cookie de sesión)
+  const { STAGING_ACCESS_PATH, STAGING_ACCESS_HEADERS, stagingAccessHtml, safeStagingReturn, readStagingAccessForm } = await import('./lib/staging-access');
+  // Conservar la barrera y las credenciales existentes. No es una sesión admin.
+  const accessPage = request.nextUrl.pathname === STAGING_ACCESS_PATH;
+  const returnTo = safeStagingReturn(accessPage ? request.nextUrl.searchParams.get('next') : request.nextUrl.pathname + request.nextUrl.search);
   const authCookie = request.cookies.get('staging-auth');
   if (authCookie?.value === 'authenticated') {
+    if (accessPage) return NextResponse.redirect(new URL(returnTo, request.url), 303);
     return continueRequest(trustedHeaders);
   }
-
-  // Verificar credenciales de Basic Auth
-  const basicAuth = request.headers.get('authorization');
-
-  if (basicAuth) {
-    const authValue = basicAuth.split(' ')[1];
-    const [user, pwd] = atob(authValue).split(':');
-
-    // Credenciales de acceso (puedes cambiarlas)
-    const validUser = 'admin';
-    const validPassword = 'internetop2025';
-
-    if (user === validUser && pwd === validPassword) {
-      // Crear respuesta con cookie de autenticación
-      const response = continueRequest(trustedHeaders);
-      response.cookies.set('staging-auth', 'authenticated', {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'strict',
-        maxAge: 60 * 60 * 24 // 24 horas
-      });
-      return response;
+  const validUser = 'admin';
+  const validPassword = 'internetop2025';
+  const markAccess = response => {
+    response.cookies.set('staging-auth', 'authenticated', {
+      httpOnly: true, secure: true, sameSite: 'strict', path: '/', maxAge: 60 * 60 * 24,
+    });
+    response.headers.set('Cache-Control', 'private, no-store');
+    return response;
+  };
+  if (accessPage && request.method === 'POST') {
+    const form = await readStagingAccessForm(request);
+    if (form && form.username === validUser && form.password === validPassword) {
+      return markAccess(NextResponse.redirect(new URL(form.returnTo, request.url), 303));
     }
+    return new NextResponse(stagingAccessHtml(form?.returnTo || returnTo, true), { status: form ? 200 : 403, headers: STAGING_ACCESS_HEADERS });
   }
-
-  // Si no está autenticado, solicitar credenciales
-  return new NextResponse('Acceso restringido - Entorno de Staging', {
-    status: 401,
-    headers: {
-      'WWW-Authenticate': 'Basic realm="Staging Environment"',
-    },
-  });
+  // Mantener acceso Basic explícito para clientes existentes, pero no lanzar un
+  // desafío WWW-Authenticate que Chromium convierte en ERR_INVALID_AUTH_CREDENTIALS.
+  const basicAuth = request.headers.get('authorization');
+  const basicMatch = /^Basic[ \t]+([A-Za-z0-9+/=]+)$/i.exec(basicAuth || '');
+  if (basicMatch) {
+    try {
+      const decoded = atob(basicMatch[1]);
+      const separator = decoded.indexOf(':');
+      if (separator >= 0 && decoded.slice(0, separator) === validUser && decoded.slice(separator + 1) === validPassword) {
+        return markAccess(accessPage ? NextResponse.redirect(new URL(returnTo, request.url), 303) : continueRequest(trustedHeaders));
+      }
+    } catch { /* Credenciales mal formadas: mostrar acceso, nunca error de arranque. */ }
+  }
+  if (accessPage && (request.method === 'GET' || request.method === 'HEAD')) {
+    return new NextResponse(request.method === 'HEAD' ? null : stagingAccessHtml(returnTo), { status: 200, headers: STAGING_ACCESS_HEADERS });
+  }
+  if (request.method === 'GET' || request.method === 'HEAD') {
+    const destination = new URL(STAGING_ACCESS_PATH, request.url);
+    destination.searchParams.set('next', returnTo);
+    const response = NextResponse.redirect(destination, 307);
+    response.headers.set('Cache-Control', 'private, no-store');
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return response;
+  }
+  return new NextResponse('Acceso restringido al entorno de staging.', { status: 401, headers: { 'Cache-Control': 'private, no-store' } });
 }
 
 // Configurar qué rutas proteger

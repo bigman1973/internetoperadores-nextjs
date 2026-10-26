@@ -11,7 +11,7 @@ export default function Fansaticos() {
       {/* Hero */}
       <section className="py-16 bg-gradient-to-b from-gray-50 to-white">
         <div className="container mx-auto px-4">
-          <h1 className="text-6xl font-bold mb-6">FanSáticos</h1>
+          <h1 className="text-5xl sm:text-6xl font-bold mb-6">FanSáticos</h1>
           <h2 className="text-3xl font-semibold text-gray-800 mb-12">
             FanSáticos por destruir el miedo a que algo acabe con los negocios
           </h2>
@@ -128,7 +128,7 @@ export default function Fansaticos() {
           </p>
           <a 
             href="https://wa.me/34900730034?text=Hola,%20quiero%20destruir%20mis%20miedos%20IT%20con%20el%20servicio%20Cero%20Riesgos" 
-            className="inline-block bg-orange-500 text-white px-10 py-4 rounded text-xl font-bold hover:bg-orange-600"
+            className="inline-flex w-full max-w-full items-center justify-center whitespace-normal bg-orange-500 px-5 py-4 text-center text-xl font-bold text-white hover:bg-orange-600 sm:w-auto sm:px-10"
             target="_blank"
             rel="noopener noreferrer"
           >

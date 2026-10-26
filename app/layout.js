@@ -4,6 +4,7 @@ import SessionProvider from "../components/SessionProvider";
 import { CartProvider } from "../components/CartProvider";
 import SegmentProvider from "../components/SegmentProvider";
 import NewsletterFloat from "../components/public/NewsletterFloat";
+import AssistantMount from "../components/asistente/AssistantMount";
 import ImpersonationBanner, { ActuationProvider } from "../components/impersonation/ImpersonationBanner";
 import "./globals.css";
 
@@ -43,6 +44,7 @@ export default function RootLayout({ children }) {
               <CartProvider>
                 {children}
                 <NewsletterFloat />
+                <AssistantMount />
               </CartProvider>
             </SegmentProvider>
           </ActuationProvider>

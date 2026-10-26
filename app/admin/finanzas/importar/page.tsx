@@ -43,6 +43,18 @@ interface HistorialImportacion {
   archivoUrl: string | null;
 }
 
+function EstadoCuentasSkeleton() {
+  return <div aria-busy="true" className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+    {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-48 animate-pulse rounded-lg border-2 border-gray-200 bg-gray-100" />)}
+  </div>;
+}
+
+function HistorialImportacionesSkeleton() {
+  return <div aria-busy="true" className="space-y-3">
+    {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-8 animate-pulse rounded bg-gray-100" />)}
+  </div>;
+}
+
 export default function ImportarPage() {
   const [banco, setBanco] = useState('');
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -203,7 +215,7 @@ export default function ImportarPage() {
           </div>
         </div>
         {loadingEstado ? (
-          <div className="text-sm text-gray-400">Cargando...</div>
+          <EstadoCuentasSkeleton />
         ) : errorEstado ? (
           <div role="alert" data-testid="b3-import-account-status-error" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
             No se ha podido cargar el estado de las cuentas: {errorEstado}
@@ -278,7 +290,7 @@ export default function ImportarPage() {
           <h3 className="text-sm font-semibold text-gray-900">Últimas importaciones</h3>
         </div>
         {loadingEstado ? (
-          <div className="text-sm text-gray-400">Cargando...</div>
+          <HistorialImportacionesSkeleton />
         ) : errorEstado ? (
           <p className="text-sm text-red-700">Historial no disponible mientras no se pueda obtener el estado de las cuentas.</p>
         ) : historial.length === 0 ? (

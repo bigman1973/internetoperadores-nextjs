@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
@@ -58,6 +58,10 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
     ? esEmpleadoAprobador(impersonatedEmpleado.email, impersonatedEmpleado.categoria)
     : false;
 
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
   // Mostrar "Aprobar Tickets" si:
   // - No se está impersonando Y el usuario real es aprobador
   // - O se está impersonando Y el empleado impersonado es aprobador
@@ -84,7 +88,9 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
       {/* Mobile toggle */}
       <button
         onClick={() => setMobileOpen(!mobileOpen)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md"
+        className="fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-lg bg-white shadow-md lg:hidden"
+        aria-label={mobileOpen ? 'Cerrar menú' : 'Abrir menú'}
+        aria-expanded={mobileOpen}
       >
         {mobileOpen ? <XMarkIcon className="h-6 w-6" /> : <Bars3Icon className="h-6 w-6" />}
       </button>
@@ -98,7 +104,7 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r transform transition-transform duration-200 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-[min(88vw,20rem)] max-w-[calc(100vw-3rem)] border-r bg-white transition-transform duration-200 lg:flex lg:w-64 ${mobileOpen ? 'flex translate-x-0' : 'hidden -translate-x-full lg:translate-x-0'}`}>
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="px-6 py-5 border-b">
@@ -117,7 +123,7 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
                   key={item.href}
                   href={item.href}
                   onClick={() => setMobileOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-orange-50 text-orange-700'
                       : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
@@ -135,7 +141,7 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
                 <Link
                   href="/admin"
                   onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold bg-slate-50 text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+                  className="flex min-h-11 items-center gap-3 rounded-lg bg-slate-50 px-3 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
                 >
                   <ShieldCheckIcon className="h-5 w-5 text-slate-600" />
                   Panel Admin
@@ -159,7 +165,7 @@ export default function EmpleadoSidebar({ user, canAccessAdmin }: EmpleadoSideba
             </div>
             <button
               onClick={() => signOut({ callbackUrl: '/login' })}
-              className="mt-3 w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 rounded-lg hover:bg-red-50"
+              className="mt-3 flex min-h-11 w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
             >
               <ArrowLeftOnRectangleIcon className="h-4 w-4" />
               Cerrar sesión

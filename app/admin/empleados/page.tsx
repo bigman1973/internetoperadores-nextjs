@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import SalarySimulationPanel from '@/components/empleados/SalarySimulationPanel';
 import {
   UsersIcon,
   CurrencyEuroIcon,
@@ -16,6 +16,14 @@ import {
   HandRaisedIcon,
   AdjustmentsHorizontalIcon,
 } from '@heroicons/react/24/outline';
+
+const SalarySimulationPanel = dynamic(
+  () => import('@/components/empleados/SalarySimulationPanel'),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[420px] p-6 text-center text-sm text-gray-500">Cargando simulación salarial...</div>,
+  },
+);
 
 interface Nomina {
   id: string;
@@ -100,6 +108,107 @@ const MOTIVOS = [
   { value: 'otro', label: 'Otro' },
 ];
 
+const EUR_FORMATTER = new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' });
+const MADRID_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Europe/Madrid',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
+const MONTH_YEAR_DATE_FORMATTER = new Intl.DateTimeFormat('es-ES', { month: 'short', year: 'numeric' });
+
+function getCondicionAlCierreAnual(emp: Empleado, anio: number, hoyMadrid: string): { condicion: CondicionSalarial; esFutura: boolean } | null {
+  if (!emp.condicionesSalariales || emp.condicionesSalariales.length === 0) return null;
+  const cierreEjercicio = `${anio}-12-31`;
+  // La tabla anual representa la condición que estará vigente al cierre del ejercicio seleccionado.
+  const condicion = emp.condicionesSalariales.find(c => c.fechaEfectiva.split('T')[0] <= cierreEjercicio) || null;
+  return condicion ? { condicion, esFutura: condicion.fechaEfectiva.split('T')[0] > hoyMadrid } : null;
+}
+
+function getEmpleadoTotales(emp: Empleado) {
+  if (!emp.nominas || emp.nominas.length === 0) return null;
+  // If single month, return first nomina; if multi-month, sum all.
+  if (emp.nominas.length === 1) return emp.nominas[0];
+
+  return emp.nominas.reduce((totales, nomina) => ({
+    devengadoTotal: totales.devengadoTotal + (nomina.devengadoTotal || 0),
+    netoPercibir: totales.netoPercibir + (nomina.netoPercibir || 0),
+    irpf: totales.irpf + (nomina.irpf || 0),
+    ssTrabajador: totales.ssTrabajador + (nomina.ssTrabajador || 0),
+    ssEmpresa: totales.ssEmpresa + (nomina.ssEmpresa || 0),
+    costeTotalEmpresa: totales.costeTotalEmpresa + (nomina.costeTotalEmpresa || 0),
+  }), {
+    devengadoTotal: 0,
+    netoPercibir: 0,
+    irpf: 0,
+    ssTrabajador: 0,
+    ssEmpresa: 0,
+    costeTotalEmpresa: 0,
+  });
+}
+
+function getEntregasEmpleado(emp: Empleado) {
+  return (emp.entregasACuenta || []).reduce((totales, entrega) => {
+    const importe = Math.abs(entrega.importe || 0);
+    if (entrega.tipoEntrega === 'coste_empresa') totales.costesEmpresa += importe;
+    if (entrega.tipoEntrega === 'anticipo') totales.anticipos += importe;
+    return totales;
+  }, { costesEmpresa: 0, anticipos: 0 });
+}
+
+function getSalarioAnualSinDesplazamiento(emp: Empleado): { salarioAnual: number; meses: number; proyeccion12: number; desplazamientoTotal: number } | null {
+  if (!emp.nominas || emp.nominas.length === 0) return null;
+
+  const acumulado = emp.nominas.reduce((totales, nomina) => {
+    const coste = nomina.costeTotalEmpresa || 0;
+    const desplazamiento = nomina.gastosDesplazamiento || 0;
+    totales.salarioAnual += coste - desplazamiento;
+    totales.desplazamientoTotal += desplazamiento;
+    return totales;
+  }, { salarioAnual: 0, desplazamientoTotal: 0 });
+  const meses = emp.nominas.length;
+
+  return {
+    salarioAnual: acumulado.salarioAnual,
+    meses,
+    proyeccion12: (acumulado.salarioAnual / meses) * 12,
+    desplazamientoTotal: acumulado.desplazamientoTotal,
+  };
+}
+
+function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; mesUsado: number; anioUsado: number; proyeccion12: number } | null {
+  if (!emp.nominas || emp.nominas.length === 0) return null;
+  // Usar la nómina más reciente (último mes disponible) sin copiar ni ordenar el array recibido.
+  const ultima = emp.nominas.reduce((masReciente, nomina) => (
+    nomina.anio > masReciente.anio || (nomina.anio === masReciente.anio && nomina.mes > masReciente.mes)
+      ? nomina
+      : masReciente
+  ));
+  const devengadoMes = ultima.devengadoTotal || 0;
+  return {
+    brutoAnual: devengadoMes,
+    mesUsado: ultima.mes,
+    anioUsado: ultima.anio,
+    proyeccion12: devengadoMes * 12,
+  };
+}
+
+function getPeriodoLabel(periodo: Periodo, mesSeleccionado: number): string {
+  switch (periodo) {
+    case 'T1': return 'T1 (Ene-Mar)';
+    case 'T2': return 'T2 (Abr-Jun)';
+    case 'T3': return 'T3 (Jul-Sep)';
+    case 'T4': return 'T4 (Oct-Dic)';
+    case 'anual': return 'Acumulado Anual';
+    default: return MESES[mesSeleccionado];
+  }
+}
+
+function formatEur(val: number | null | undefined): string {
+  if (val === null || val === undefined) return '—';
+  return EUR_FORMATTER.format(val);
+}
+
 export default function AdminEmpleadosPage() {
   const { data: session } = useSession();
   const isSuperAdmin = session?.user?.role === 'SUPER_ADMIN';
@@ -153,110 +262,51 @@ export default function AdminEmpleadosPage() {
     }
   }
 
-  function getCondicionAlCierreAnual(emp: Empleado): { condicion: CondicionSalarial; esFutura: boolean } | null {
-    if (!emp.condicionesSalariales || emp.condicionesSalariales.length === 0) return null;
-    const cierreEjercicio = `${anioSeleccionado}-12-31`;
-    const hoyMadrid = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Europe/Madrid',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date());
-    // La tabla anual representa la condición que estará vigente al cierre del ejercicio seleccionado.
-    const condicion = emp.condicionesSalariales.find(c => c.fechaEfectiva.split('T')[0] <= cierreEjercicio) || null;
-    return condicion ? { condicion, esFutura: condicion.fechaEfectiva.split('T')[0] > hoyMadrid } : null;
-  }
+  const hoyMadrid = MADRID_DATE_FORMATTER.format(new Date());
+  const employeeRows = useMemo(() => empleados.map(emp => {
+    const datos = getEmpleadoTotales(emp);
+    const entregas = getEntregasEmpleado(emp);
+    const isAnnual = periodo === 'anual';
 
-  function getEmpleadoTotales(emp: Empleado) {
-    if (!emp.nominas || emp.nominas.length === 0) return null;
-    // If single month, return first nomina; if multi-month, sum all
-    if (emp.nominas.length === 1) return emp.nominas[0];
     return {
-      devengadoTotal: emp.nominas.reduce((s, n) => s + (n.devengadoTotal || 0), 0),
-      netoPercibir: emp.nominas.reduce((s, n) => s + (n.netoPercibir || 0), 0),
-      irpf: emp.nominas.reduce((s, n) => s + (n.irpf || 0), 0),
-      ssTrabajador: emp.nominas.reduce((s, n) => s + (n.ssTrabajador || 0), 0),
-      ssEmpresa: emp.nominas.reduce((s, n) => s + (n.ssEmpresa || 0), 0),
-      costeTotalEmpresa: emp.nominas.reduce((s, n) => s + (n.costeTotalEmpresa || 0), 0),
+      emp,
+      datos,
+      entregas,
+      costeTotalConExtras: (datos?.costeTotalEmpresa || 0) + entregas.costesEmpresa,
+      bruto: isAnnual ? getBrutoTrabajadorAnual(emp) : null,
+      condicionResumen: isAnnual ? getCondicionAlCierreAnual(emp, anioSeleccionado, hoyMadrid) : null,
+      salarioAnual: isAnnual ? getSalarioAnualSinDesplazamiento(emp) : null,
     };
-  }
+  }), [empleados, periodo, anioSeleccionado, hoyMadrid]);
 
-  function getEntregasEmpleado(emp: Empleado) {
-    const costesEmpresa = (emp.entregasACuenta || [])
-      .filter(e => e.tipoEntrega === 'coste_empresa')
-      .reduce((s, e) => s + Math.abs(e.importe || 0), 0);
-    const anticipos = (emp.entregasACuenta || [])
-      .filter(e => e.tipoEntrega === 'anticipo')
-      .reduce((s, e) => s + Math.abs(e.importe || 0), 0);
-    return { costesEmpresa, anticipos };
-  }
+  const annualTotals = useMemo(() => {
+    if (periodo !== 'anual') return null;
 
-  function getSalarioAnualSinDesplazamiento(emp: Empleado): { salarioAnual: number; meses: number; proyeccion12: number; desplazamientoTotal: number } | null {
-    if (!emp.nominas || emp.nominas.length === 0) return null;
-    const meses = emp.nominas.length;
-    const costeTotalSinDesplaz = emp.nominas.reduce((s, n) => {
-      const coste = n.costeTotalEmpresa || 0;
-      const desplaz = n.gastosDesplazamiento || 0;
-      return s + (coste - desplaz);
-    }, 0);
-    const desplazamientoTotal = emp.nominas.reduce((s, n) => s + (n.gastosDesplazamiento || 0), 0);
-    const mediaMensual = costeTotalSinDesplaz / meses;
-    return {
-      salarioAnual: costeTotalSinDesplaz,
-      meses,
-      proyeccion12: mediaMensual * 12,
-      desplazamientoTotal,
-    };
-  }
-
-  function getBrutoTrabajadorAnual(emp: Empleado): { brutoAnual: number; mesUsado: number; anioUsado: number; proyeccion12: number } | null {
-    if (!emp.nominas || emp.nominas.length === 0) return null;
-    // Usar la nómina más reciente (último mes disponible)
-    const sorted = [...emp.nominas].sort((a, b) => b.anio - a.anio || b.mes - a.mes);
-    const ultima = sorted[0];
-    const devengadoMes = ultima.devengadoTotal || 0;
-    return {
-      brutoAnual: devengadoMes,
-      mesUsado: ultima.mes,
-      anioUsado: ultima.anio,
-      proyeccion12: devengadoMes * 12,
-    };
-  }
-
-  function getPeriodoLabel(): string {
-    switch (periodo) {
-      case 'T1': return 'T1 (Ene-Mar)';
-      case 'T2': return 'T2 (Abr-Jun)';
-      case 'T3': return 'T3 (Jul-Sep)';
-      case 'T4': return 'T4 (Oct-Dic)';
-      case 'anual': return 'Acumulado Anual';
-      default: return MESES[mesSeleccionado];
-    }
-  }
-
-  function formatEur(val: number | null | undefined): string {
-    if (val === null || val === undefined) return '—';
-    return val.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
-  }
+    return employeeRows.reduce((totales, row) => ({
+      brutoTrabajador: totales.brutoTrabajador + (row.bruto?.proyeccion12 || 0),
+      brutoPactado: totales.brutoPactado + (row.condicionResumen?.condicion.brutoAnual || 0),
+      costeEmpresa: totales.costeEmpresa + (row.salarioAnual?.proyeccion12 || 0),
+    }), { brutoTrabajador: 0, brutoPactado: 0, costeEmpresa: 0 });
+  }, [employeeRows, periodo]);
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Costes de Personal</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Costes, nóminas y KPIs de empleados — {getPeriodoLabel()} {anioSeleccionado}
+            Costes, nóminas y KPIs de empleados — {getPeriodoLabel(periodo, mesSeleccionado)} {anioSeleccionado}
             {totales && totales.mesesConDatos > 0 && periodo !== 'mes' && (
               <span className="ml-2 text-blue-600">({totales.mesesConDatos} meses con datos)</span>
             )}
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex flex-wrap gap-2">
           {isSuperAdmin && (
             <Link
               href="/admin/empleados/escenarios-salariales"
-              className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
+              className="flex min-h-11 items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
             >
               <AdjustmentsHorizontalIcon className="h-4 w-4" />
               Escenarios salariales
@@ -264,7 +314,7 @@ export default function AdminEmpleadosPage() {
           )}
           <Link
             href="/admin/empleados/nominas"
-            className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+            className="flex min-h-11 items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
           >
             <CloudArrowUpIcon className="h-4 w-4" />
             Importar Nóminas
@@ -272,7 +322,7 @@ export default function AdminEmpleadosPage() {
           <select
             value={periodo}
             onChange={(e) => setPeriodo(e.target.value as Periodo)}
-            className="px-3 py-2 border rounded-lg text-sm"
+            className="min-h-11 px-3 py-2 border rounded-lg text-sm"
           >
             {PERIODOS.map(p => (
               <option key={p.value} value={p.value}>{p.label}</option>
@@ -282,7 +332,7 @@ export default function AdminEmpleadosPage() {
             <select
               value={mesSeleccionado}
               onChange={(e) => setMesSeleccionado(parseInt(e.target.value))}
-              className="px-3 py-2 border rounded-lg text-sm"
+              className="min-h-11 px-3 py-2 border rounded-lg text-sm"
             >
               {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(m => (
                 <option key={m} value={m}>{MESES[m]} {anioSeleccionado}</option>
@@ -292,7 +342,7 @@ export default function AdminEmpleadosPage() {
           <select
             value={filtroEstado}
             onChange={(e) => setFiltroEstado(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm"
+            className="min-h-11 px-3 py-2 border rounded-lg text-sm"
           >
             <option value="todos">Todos</option>
             <option value="ACTIVO">Activos</option>
@@ -302,7 +352,7 @@ export default function AdminEmpleadosPage() {
       </div>
 
       {/* KPI Cards - 8 cards */}
-      {totales && (
+      {totales ? (
         <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3">
           <div className="bg-white rounded-xl border p-4">
             <div className="flex items-center gap-2 mb-1">
@@ -392,20 +442,26 @@ export default function AdminEmpleadosPage() {
             <p className="text-xs text-gray-400">no suma a costes</p>
           </div>
         </div>
-      )}
+      ) : loading ? (
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-4 lg:grid-cols-8" aria-label="Cargando indicadores de personal" role="status">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map(item => <div key={item} className="h-28 animate-pulse rounded-xl border bg-white" />)}
+        </div>
+      ) : null}
 
       {/* Fórmula verificación */}
-      {totales && totales.totalCosteEmpresa > 0 && (
+      {totales && totales.totalCosteEmpresa > 0 ? (
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
           <span className="font-semibold">Verificación:</span>{' '}
           Neto ({formatEur(totales.totalNeto)}) + IRPF ({formatEur(totales.totalIRPF)}) + SS Trab ({formatEur(totales.totalSSTrabajador)}) = Devengado ({formatEur(totales.totalDevengado)})
           {' | '}
           Devengado + SS Empresa ({formatEur(totales.totalSSEmpresa)}) + Otros costes ({formatEur(totales.totalOtrosCostesEmpresa)}) = <span className="font-bold">Coste Total ({formatEur(totales.totalCosteEmpresa)})</span>
         </div>
-      )}
+      ) : loading ? (
+        <div className="h-[76px] animate-pulse rounded-xl border border-blue-100 bg-blue-50/60" aria-hidden="true" />
+      ) : null}
 
       {/* Tabla de empleados */}
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className={`bg-white rounded-xl border overflow-hidden ${loading ? 'min-h-[560px]' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
@@ -445,10 +501,7 @@ export default function AdminEmpleadosPage() {
                   </td>
                 </tr>
               ) : (
-                empleados.map((emp) => {
-                  const datos = getEmpleadoTotales(emp);
-                  const entregas = getEntregasEmpleado(emp);
-                  const costeTotalConExtras = (datos?.costeTotalEmpresa || 0) + entregas.costesEmpresa;
+                employeeRows.map(({ emp, datos, entregas, costeTotalConExtras, bruto, condicionResumen, salarioAnual }) => {
                   return (
                     <tr key={emp.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -489,7 +542,6 @@ export default function AdminEmpleadosPage() {
                         {emp.costeHoraActual ? `${emp.costeHoraActual.toFixed(2)} €` : '—'}
                       </td>
                       {periodo === 'anual' && (() => {
-                        const bruto = getBrutoTrabajadorAnual(emp);
                         if (!bruto) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
                         return (
                           <td className="px-4 py-3 text-right">
@@ -499,8 +551,6 @@ export default function AdminEmpleadosPage() {
                         );
                       })()}
                       {periodo === 'anual' && (() => {
-                        const condicionResumen = getCondicionAlCierreAnual(emp);
-                        const bruto = getBrutoTrabajadorAnual(emp);
                         if (!condicionResumen) return (
                           <td className="px-4 py-3 text-right">
                             {isSuperAdmin ? (
@@ -520,7 +570,7 @@ export default function AdminEmpleadosPage() {
                               {esFutura && <span className="rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">Próxima</span>}
                             </div>
                             <div className="text-xs text-gray-400">
-                              {esFutura ? 'aplica' : 'vigente desde'} {new Date(cond.fechaEfectiva).toLocaleDateString('es-ES', { month: 'short', year: 'numeric' })}
+                              {esFutura ? 'aplica' : 'vigente desde'} {MONTH_YEAR_DATE_FORMATTER.format(new Date(cond.fechaEfectiva))}
                             </div>
                             {isSuperAdmin && <div className="mt-1 text-xs font-semibold text-indigo-600">Simular cambio</div>}
                             {bruto && Math.abs(desviacionNomina) > 50 && (
@@ -534,16 +584,15 @@ export default function AdminEmpleadosPage() {
                         );
                       })()}
                       {periodo === 'anual' && (() => {
-                        const sal = getSalarioAnualSinDesplazamiento(emp);
-                        if (!sal) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
+                        if (!salarioAnual) return <td className="px-4 py-3 text-right text-gray-400">—</td>;
                         return (
                           <td className="px-4 py-3 text-right">
-                            <div className="font-semibold text-blue-700">{formatEur(sal.proyeccion12)}</div>
-                            {sal.meses < 12 && (
-                              <div className="text-xs text-gray-400">proy. {sal.meses} meses</div>
+                            <div className="font-semibold text-blue-700">{formatEur(salarioAnual.proyeccion12)}</div>
+                            {salarioAnual.meses < 12 && (
+                              <div className="text-xs text-gray-400">proy. {salarioAnual.meses} meses</div>
                             )}
-                            {sal.desplazamientoTotal > 0 && (
-                              <div className="text-xs text-orange-500">-{formatEur(sal.desplazamientoTotal)} desplaz.</div>
+                            {salarioAnual.desplazamientoTotal > 0 && (
+                              <div className="text-xs text-orange-500">-{formatEur(salarioAnual.desplazamientoTotal)} desplaz.</div>
                             )}
                           </td>
                         );
@@ -566,26 +615,17 @@ export default function AdminEmpleadosPage() {
                   <td className="px-4 py-3"></td>
                   {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-green-800">
-                      {formatEur(empleados.reduce((sum, emp) => {
-                        const bruto = getBrutoTrabajadorAnual(emp);
-                        return sum + (bruto ? bruto.proyeccion12 : 0);
-                      }, 0))}
+                      {formatEur(annualTotals?.brutoTrabajador)}
                     </td>
                   )}
                   {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-orange-800">
-                      {formatEur(empleados.reduce((sum, emp) => {
-                        const resumen = getCondicionAlCierreAnual(emp);
-                        return sum + (resumen ? resumen.condicion.brutoAnual : 0);
-                      }, 0))}
+                      {formatEur(annualTotals?.brutoPactado)}
                     </td>
                   )}
                   {periodo === 'anual' && (
                     <td className="px-4 py-3 text-right text-blue-800">
-                      {formatEur(empleados.reduce((sum, emp) => {
-                        const sal = getSalarioAnualSinDesplazamiento(emp);
-                        return sum + (sal ? sal.proyeccion12 : 0);
-                      }, 0))}
+                      {formatEur(annualTotals?.costeEmpresa)}
                     </td>
                   )}
                 </tr>

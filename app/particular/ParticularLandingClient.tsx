@@ -1,7 +1,6 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
 import { useState } from 'react';
 import ParticularNav from '@/components/ParticularNav';
 import ParticularFooter from '@/components/ParticularFooter';
@@ -246,11 +245,22 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
       <section className="relative overflow-hidden bg-gray-900">
         {/* Background image with overlay */}
         <div className="absolute inset-0">
-          <img
-            src="/hero-b2c-familia.png"
-            alt="Familia conectada en casa"
-            className="w-full h-full object-cover opacity-30"
-          />
+          <picture>
+            <source
+              type="image/webp"
+              srcSet="/images/hero/particular-familia-640.webp 640w, /images/hero/particular-familia-960.webp 960w, /images/hero/particular-familia-1280.webp 1280w, /images/hero/particular-familia-1920.webp 1920w"
+              sizes="100vw"
+            />
+            <img
+              src="/images/hero/particular-familia-1280.webp"
+              alt="Familia conectada en casa"
+              width="2752"
+              height="1536"
+              fetchPriority="high"
+              decoding="async"
+              className="h-full w-full object-cover opacity-30"
+            />
+          </picture>
           <div className="absolute inset-0 bg-gradient-to-r from-gray-900 via-gray-900/95 to-gray-900/70" />
         </div>
 
@@ -586,9 +596,15 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
             <div className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-lg transition-shadow">
               <div className="h-48 overflow-hidden">
                 <img
-                  src="/hero-b2c-familia.png"
+                  src="/images/hero/particular-familia-640.webp"
+                  srcSet="/images/hero/particular-familia-640.webp 640w, /images/hero/particular-familia-960.webp 960w, /images/hero/particular-familia-1280.webp 1280w"
+                  sizes="(max-width: 767px) calc(100vw - 2rem), 33vw"
                   alt="Madre e hijo estudiando online"
-                  className="w-full h-full object-cover"
+                  width="2752"
+                  height="1536"
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
                 />
               </div>
               <div className="p-6">
@@ -605,7 +621,11 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
                 <img
                   src="/teletrabajo-home.jpg"
                   alt="Teletrabajo desde casa"
-                  className="w-full h-full object-cover"
+                  width="1200"
+                  height="800"
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
                 />
               </div>
               <div className="p-6">
@@ -622,7 +642,11 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
                 <img
                   src="/hero-familia-conectada.jpg"
                   alt="Familia disfrutando de internet"
-                  className="w-full h-full object-cover"
+                  width="1200"
+                  height="800"
+                  loading="lazy"
+                  decoding="async"
+                  className="h-full w-full object-cover"
                 />
               </div>
               <div className="p-6">
@@ -785,7 +809,7 @@ export default function ParticularLandingClient({ tarifasTop }: { tarifasTop: Ta
             </Link>
           </div>
           <p className="mt-8 text-orange-200 text-sm">
-            Llamada gratuita. Lunes a viernes de 9:00 a 20:00.
+            Llamada gratuita. Lunes a viernes de 09:00 a 18:00 (hora peninsular).
           </p>
         </div>
       </section>

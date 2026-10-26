@@ -204,8 +204,11 @@ export default function ComunicadosClient() {
 
   useEffect(() => {
     fetchComunicados()
-    fetchOpciones()
-  }, [fetchComunicados, fetchOpciones])
+  }, [fetchComunicados])
+
+  useEffect(() => {
+    if (vista === 'nuevo' && !opcionesFiltro) fetchOpciones()
+  }, [vista, opcionesFiltro, fetchOpciones])
 
   useEffect(() => {
     if (vista === 'nuevo') {
@@ -401,13 +404,13 @@ export default function ComunicadosClient() {
         <div className="flex gap-2">
           <button
             onClick={() => { setVista('historial'); resetFormulario() }}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${vista === 'historial' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium ${vista === 'historial' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
           >
             Historial
           </button>
           <button
             onClick={() => setVista('nuevo')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${vista === 'nuevo' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
+            className={`min-h-11 px-4 py-2 rounded-lg text-sm font-medium ${vista === 'nuevo' ? 'bg-orange-600 text-white' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}
           >
             + Nuevo comunicado
           </button>
@@ -427,7 +430,7 @@ export default function ComunicadosClient() {
                   <button
                     key={t.value}
                     onClick={() => setTipo(t.value)}
-                    className={`p-3 rounded-lg border text-sm font-medium text-center transition-all ${
+                    className={`min-h-11 p-3 rounded-lg border text-sm font-medium text-center transition-all ${
                       tipo === t.value
                         ? 'border-orange-500 bg-orange-50 text-orange-700 ring-2 ring-orange-200'
                         : 'border-gray-200 text-gray-600 hover:border-gray-300'
@@ -538,7 +541,7 @@ export default function ComunicadosClient() {
                           : [...filtros.categorias, cat.nombre]
                         setFiltros({ ...filtros, categorias: nuevas })
                       }}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
+                      className={`min-h-11 px-3 py-1.5 rounded-full text-sm font-medium transition-all ${
                         filtros.categorias.includes(cat.nombre)
                           ? 'bg-orange-500 text-white shadow-sm'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -554,7 +557,7 @@ export default function ComunicadosClient() {
               <div className="mt-3">
                 <button
                   onClick={() => setShowTarifas(!showTarifas)}
-                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+                  className="flex min-h-11 items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
                 >
                   <span>{showTarifas ? '▼' : '▶'}</span>
                   Seleccionar tarifas individuales {filtros.tarifas.length > 0 && `(${filtros.tarifas.length} seleccionadas)`}
@@ -582,7 +585,7 @@ export default function ComunicadosClient() {
                               : [...filtros.tarifas, t.value]
                             setFiltros({ ...filtros, tarifas: nuevas })
                           }}
-                          className={`px-2 py-1 rounded text-xs font-medium transition-all ${
+                          className={`min-h-11 px-2 py-1 rounded text-xs font-medium transition-all ${
                             filtros.tarifas.includes(t.value)
                               ? 'bg-blue-500 text-white'
                               : 'bg-white text-gray-700 border border-gray-300 hover:border-blue-400'
@@ -835,8 +838,8 @@ export default function ComunicadosClient() {
               </button>
             </div>
           ) : (
-            <div className="bg-white border rounded-lg overflow-hidden">
-              <table className="w-full">
+            <div className="overflow-x-auto rounded-lg border bg-white">
+              <table className="min-w-[760px] w-full">
                 <thead className="bg-gray-50 border-b">
                   <tr>
                     <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Tipo</th>
@@ -878,7 +881,7 @@ export default function ComunicadosClient() {
                             <button
                               onClick={() => handleEnviarBorrador(c.id)}
                               disabled={sending}
-                              className="text-xs px-3 py-1.5 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50"
+                              className="min-h-11 text-xs px-3 py-1.5 bg-orange-600 text-white rounded font-medium hover:bg-orange-700 disabled:opacity-50"
                             >
                               Enviar
                             </button>

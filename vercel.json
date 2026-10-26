@@ -22,6 +22,10 @@
     {
       "path": "/api/cron/finance-sync-daily",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/asistente-informe",
+      "schedule": "0 6,7 * * *"
     }
   ]
 }

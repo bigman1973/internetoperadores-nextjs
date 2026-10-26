@@ -45,9 +45,15 @@ export default function CasoExitoPage() {
       <div className="container mx-auto px-4 sm:px-6 -mt-4 mb-12">
         <div className="max-w-4xl mx-auto">
           <div className="relative w-full h-[300px] sm:h-[400px] rounded-2xl overflow-hidden shadow-xl">
-            <img 
-              src="/images/casos-exito/industria-automocion.jpg" 
-              alt="Robots industriales en línea de producción de automoción" 
+            <img
+              src="/images/casos-exito/industria-automocion-960.webp"
+              srcSet="/images/casos-exito/industria-automocion-640.webp 640w, /images/casos-exito/industria-automocion-960.webp 960w, /images/casos-exito/industria-automocion-1280.webp 1280w, /images/casos-exito/industria-automocion-1920.webp 1920w"
+              sizes="(max-width: 768px) calc(100vw - 2rem), 896px"
+              alt="Robots industriales en línea de producción de automoción"
+              width="2560"
+              height="1707"
+              fetchPriority="high"
+              decoding="async"
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>

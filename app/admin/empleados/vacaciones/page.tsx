@@ -146,20 +146,6 @@ export default function VacacionesPage() {
     return 'bg-blue-500'
   }
 
-  if (loading) {
-    return (
-      <div className="p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-gray-200 rounded w-1/3"></div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {[1,2,3,4].map(i => <div key={i} className="h-24 bg-gray-200 rounded-lg"></div>)}
-          </div>
-          <div className="h-64 bg-gray-200 rounded-lg"></div>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -204,6 +190,17 @@ export default function VacacionesPage() {
         </div>
       )}
 
+      {loading ? (
+        <div className="min-h-[416px] animate-pulse space-y-6" role="status" aria-live="polite">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4" aria-hidden="true">
+            {[0, 1, 2, 3, 4, 5].map(item => <div key={item} className="h-24 rounded-lg bg-gray-200" />)}
+          </div>
+          <div className="h-24 rounded-lg bg-gray-200" aria-hidden="true" />
+          <div className="h-64 rounded-lg bg-gray-200" aria-hidden="true" />
+          <span className="sr-only">Cargando...</span>
+        </div>
+      ) : (
+        <>
       {/* KPIs */}
       {data?.kpis && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -364,6 +361,8 @@ export default function VacacionesPage() {
             Sincronizar ahora
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   )

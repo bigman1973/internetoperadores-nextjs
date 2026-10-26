@@ -1,7 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import PermisosUsuarioModal from './PermisosUsuarioModal';
+import { useState, useRef, type ComponentType } from 'react';
+import type { UsuarioInitialData } from './usuariosInitialData';
+import {
+  loadPermisosUsuarioModal,
+  loadPerfilEditorModal,
+  loadUsuarioEditorModal,
+} from './UsuariosModalLoaders';
+
+type ModalComponent = ComponentType<any>;
 
 interface Usuario {
   id: number;
@@ -41,12 +48,14 @@ const ROLES = [
   { value: 'VISOR', label: 'Visor (Solo Portal)', color: 'bg-gray-100 text-gray-800' },
 ];
 
-export default function UsuariosAdminClient() {
+export default function UsuariosAdminClient({ initialUsuarios }: { initialUsuarios: UsuarioInitialData[] }) {
   const [activeTab, setActiveTab] = useState<'usuarios' | 'perfiles'>('usuarios');
-  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [usuarios, setUsuarios] = useState<Usuario[]>(initialUsuarios);
   const [perfiles, setPerfiles] = useState<Perfil[]>([]);
+  const [perfilesLoaded, setPerfilesLoaded] = useState(false);
+  const [perfilesLoading, setPerfilesLoading] = useState(false);
+  const perfilesRequestRef = useRef<Promise<void> | null>(null);
   const [areas, setAreas] = useState<Area[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState<Usuario | null>(null);
   const [formData, setFormData] = useState({
@@ -62,6 +71,9 @@ export default function UsuariosAdminClient() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [permisosUser, setPermisosUser] = useState<{id: number, nombre: string} | null>(null);
+  const [PermisosUsuarioModal, setPermisosUsuarioModal] = useState<ModalComponent | null>(null);
+  const [UsuarioEditorModal, setUsuarioEditorModal] = useState<ModalComponent | null>(null);
+  const [PerfilEditorModal, setPerfilEditorModal] = useState<ModalComponent | null>(null);
 
   // Perfiles editor state
   const [showPerfilModal, setShowPerfilModal] = useState(false);
@@ -74,31 +86,6 @@ export default function UsuariosAdminClient() {
     permisos: [] as Array<{ areaCodigo: string; lectura: boolean; escritura: boolean }>,
   });
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [usersRes, perfilesRes, areasRes] = await Promise.all([
-        fetch('/api/admin/usuarios'),
-        fetch('/api/admin/permisos?action=perfiles'),
-        fetch('/api/admin/permisos?action=areas'),
-      ]);
-      const usersData = await usersRes.json();
-      const perfilesData = await perfilesRes.json();
-      const areasData = await areasRes.json();
-      setUsuarios(usersData.usuarios || []);
-      setPerfiles(perfilesData.perfiles || []);
-      setAreas(areasData.areas || []);
-    } catch (err) {
-      console.error('Error fetching data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const fetchUsuarios = async () => {
     try {
       const res = await fetch('/api/admin/usuarios');
@@ -109,24 +96,58 @@ export default function UsuariosAdminClient() {
     }
   };
 
-  const fetchPerfiles = async () => {
+  const fetchPerfiles = async (force = false) => {
+    if (!force && perfilesLoaded) return;
+    if (!force && perfilesRequestRef.current) return perfilesRequestRef.current;
+
+    const request = (async () => {
+      setPerfilesLoading(true);
+      try {
+        const res = await fetch('/api/admin/permisos?action=perfiles');
+        const data = await res.json();
+        setPerfiles(data.perfiles || []);
+        setPerfilesLoaded(true);
+      } catch (err) {
+        console.error('Error fetching perfiles:', err);
+      } finally {
+        setPerfilesLoading(false);
+      }
+    })();
+
+    perfilesRequestRef.current = request;
     try {
-      const res = await fetch('/api/admin/permisos?action=perfiles');
-      const data = await res.json();
-      setPerfiles(data.perfiles || []);
-    } catch (err) {
-      console.error('Error fetching perfiles:', err);
+      await request;
+    } finally {
+      if (perfilesRequestRef.current === request) {
+        perfilesRequestRef.current = null;
+      }
     }
   };
 
-  const openCreateModal = () => {
+  const fetchAreas = async () => {
+    if (areas.length > 0) return;
+    try {
+      const res = await fetch('/api/admin/permisos?action=areas');
+      const data = await res.json();
+      setAreas(data.areas || []);
+    } catch (err) {
+      console.error('Error fetching áreas:', err);
+    }
+  };
+
+  const openCreateModal = async () => {
+    const modal = loadUsuarioEditorModal();
     setEditingUser(null);
     setFormData({ email: '', nombre: '', password: '', rol: 'VISOR', roles: [], activo: true, perfilId: '' });
     setError('');
+    await fetchPerfiles();
+    const { default: UsuarioModal } = await modal;
+    setUsuarioEditorModal(() => UsuarioModal);
     setShowModal(true);
   };
 
-  const openEditModal = (user: Usuario) => {
+  const openEditModal = async (user: Usuario) => {
+    const modal = loadUsuarioEditorModal();
     setEditingUser(user);
     setFormData({
       email: user.email,
@@ -138,7 +159,17 @@ export default function UsuariosAdminClient() {
       perfilId: '',
     });
     setError('');
+    await fetchPerfiles();
+    const { default: UsuarioModal } = await modal;
+    setUsuarioEditorModal(() => UsuarioModal);
     setShowModal(true);
+  };
+
+  const openPermisosModal = async (user: Usuario) => {
+    setPermisosUser({ id: user.id, nombre: user.nombre });
+    setPermisosUsuarioModal(() => null);
+    const { default: PermisosModal } = await loadPermisosUsuarioModal();
+    setPermisosUsuarioModal(() => PermisosModal);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -266,13 +297,19 @@ export default function UsuariosAdminClient() {
   };
 
   // --- Perfiles ---
-  const openCreatePerfil = () => {
+  const openCreatePerfil = async () => {
+    const modal = loadPerfilEditorModal();
+    await fetchAreas();
     setEditingPerfil(null);
     setPerfilForm({ nombre: '', descripcion: '', color: '#6366f1', permisos: [] });
+    const { default: PerfilModal } = await modal;
+    setPerfilEditorModal(() => PerfilModal);
     setShowPerfilModal(true);
   };
 
-  const openEditPerfil = (perfil: Perfil) => {
+  const openEditPerfil = async (perfil: Perfil) => {
+    const modal = loadPerfilEditorModal();
+    await fetchAreas();
     setEditingPerfil(perfil);
     setPerfilForm({
       nombre: perfil.nombre,
@@ -280,6 +317,8 @@ export default function UsuariosAdminClient() {
       color: perfil.color,
       permisos: perfil.permisos || [],
     });
+    const { default: PerfilModal } = await modal;
+    setPerfilEditorModal(() => PerfilModal);
     setShowPerfilModal(true);
   };
 
@@ -300,7 +339,7 @@ export default function UsuariosAdminClient() {
         }),
       });
       setShowPerfilModal(false);
-      fetchPerfiles();
+      fetchPerfiles(true);
       setSuccessMsg(editingPerfil ? 'Perfil actualizado' : 'Perfil creado');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
@@ -318,7 +357,7 @@ export default function UsuariosAdminClient() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'eliminar_perfil', id: perfil.id }),
       });
-      fetchPerfiles();
+      fetchPerfiles(true);
       setSuccessMsg('Perfil eliminado');
       setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err) {
@@ -384,6 +423,15 @@ export default function UsuariosAdminClient() {
     });
   };
 
+  const toggleExpandedPerfilArea = (areaCodigo: string) => {
+    setExpandedPerfilAreas(prev => {
+      const next = new Set(prev);
+      if (next.has(areaCodigo)) next.delete(areaCodigo);
+      else next.add(areaCodigo);
+      return next;
+    });
+  };
+
   const getRolBadge = (rol: string) => {
     const rolInfo = ROLES.find(r => r.value === rol);
     return rolInfo || { label: rol, color: 'bg-gray-100 text-gray-800' };
@@ -395,14 +443,6 @@ export default function UsuariosAdminClient() {
       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-600 border-r-transparent"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -418,7 +458,7 @@ export default function UsuariosAdminClient() {
           {activeTab === 'usuarios' && (
             <button
               onClick={openCreateModal}
-              className="inline-flex items-center rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500"
+              className="inline-flex min-h-11 items-center rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500"
             >
               <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -429,7 +469,7 @@ export default function UsuariosAdminClient() {
           {activeTab === 'perfiles' && (
             <button
               onClick={openCreatePerfil}
-              className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
+              className="inline-flex min-h-11 items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500"
             >
               <svg className="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -452,7 +492,7 @@ export default function UsuariosAdminClient() {
         <nav className="-mb-px flex gap-6">
           <button
             onClick={() => setActiveTab('usuarios')}
-            className={`py-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+            className={`min-h-11 py-3 px-1 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'usuarios'
                 ? 'border-orange-500 text-orange-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -466,8 +506,11 @@ export default function UsuariosAdminClient() {
             </span>
           </button>
           <button
-            onClick={() => setActiveTab('perfiles')}
-            className={`py-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+            onClick={() => {
+              setActiveTab('perfiles');
+              fetchPerfiles();
+            }}
+            className={`min-h-11 py-3 px-1 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'perfiles'
                 ? 'border-indigo-500 text-indigo-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -502,8 +545,8 @@ export default function UsuariosAdminClient() {
 
       {/* TAB: Usuarios */}
       {activeTab === 'usuarios' && (
-        <div className="overflow-hidden rounded-lg bg-white shadow border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
+        <div className="overflow-x-auto rounded-lg bg-white shadow border border-gray-200">
+          <table className="min-w-[800px] divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuario</th>
@@ -545,7 +588,7 @@ export default function UsuariosAdminClient() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleToggleActive(user)}
-                        className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium cursor-pointer ${
+                        className={`inline-flex min-h-11 items-center rounded-full px-2.5 py-0.5 text-xs font-medium cursor-pointer ${
                           user.activo ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                         }`}
                       >
@@ -561,20 +604,20 @@ export default function UsuariosAdminClient() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
-                        onClick={() => setPermisosUser({ id: user.id, nombre: user.nombre })}
-                        className="text-indigo-600 hover:text-indigo-900 mr-3"
+                        onClick={() => openPermisosModal(user)}
+                        className="mr-3 inline-flex min-h-11 min-w-11 items-center text-indigo-600 hover:text-indigo-900"
                       >
                         Permisos
                       </button>
                       <button
                         onClick={() => openEditModal(user)}
-                        className="text-orange-600 hover:text-orange-900 mr-3"
+                        className="mr-3 inline-flex min-h-11 min-w-11 items-center text-orange-600 hover:text-orange-900"
                       >
                         Editar
                       </button>
                       <button
                         onClick={() => handleDelete(user)}
-                        className="text-red-600 hover:text-red-900"
+                        className="inline-flex min-h-11 min-w-11 items-center text-red-600 hover:text-red-900"
                       >
                         Eliminar
                       </button>
@@ -597,7 +640,11 @@ export default function UsuariosAdminClient() {
             </p>
           </div>
 
-          {perfiles.length === 0 ? (
+          {perfilesLoading ? (
+            <div className="text-center py-12 bg-white rounded-lg border border-gray-200 text-sm text-gray-500">
+              Cargando perfiles de permisos...
+            </div>
+          ) : perfiles.length === 0 ? (
             <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
               <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth="1" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
@@ -670,407 +717,43 @@ export default function UsuariosAdminClient() {
       )}
 
       {/* Modal Crear/Editar Usuario */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onClick={() => setShowModal(false)}></div>
-            <div className="relative w-full max-w-md transform overflow-hidden rounded-lg bg-white p-6 shadow-xl transition-all">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
-              </h3>
-
-              {error && (
-                <div className="mb-4 rounded-md bg-red-50 p-3">
-                  <p className="text-sm text-red-800">{error}</p>
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Nombre</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.nombre}
-                    onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Email</label>
-                  <input
-                    type="email"
-                    required
-                    disabled={!!editingUser}
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">
-                    Contraseña {editingUser && '(dejar vacío para no cambiar)'}
-                  </label>
-                  <input
-                    type="password"
-                    required={!editingUser}
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                    placeholder={editingUser ? '••••••••' : ''}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Rol Principal</label>
-                  <select
-                    value={formData.rol}
-                    onChange={(e) => {
-                      const newRol = e.target.value;
-                      setFormData({
-                        ...formData,
-                        rol: newRol,
-                        roles: newRol === 'VISOR' ? [] : (formData.roles.includes(newRol) ? formData.roles : [...formData.roles, newRol]),
-                      });
-                    }}
-                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-orange-500 focus:ring-orange-500"
-                  >
-                    {ROLES.map((rol) => (
-                      <option key={rol.value} value={rol.value}>{rol.label}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500">
-                    Visor = solo portal empleado. Para acceso admin, selecciona otro rol o aplica un perfil.
-                  </p>
-                </div>
-
-                {formData.rol !== 'VISOR' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Roles Adicionales</label>
-                    <div className="space-y-2">
-                      {ROLES.filter(r => r.value !== 'SUPER_ADMIN' && r.value !== 'VISOR').map((rol) => (
-                        <label key={rol.value} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={formData.roles.includes(rol.value)}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setFormData({ ...formData, roles: [...formData.roles, rol.value] });
-                              } else {
-                                setFormData({ ...formData, roles: formData.roles.filter(r => r !== rol.value) });
-                              }
-                            }}
-                            className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-                          />
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${rol.color}`}>
-                            {rol.label}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Aplicar perfil de permisos */}
-                {perfiles.length > 0 && (
-                  <div className="pt-3 border-t border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Aplicar Perfil de Permisos
-                    </label>
-                    <select
-                      value={formData.perfilId}
-                      onChange={(e) => setFormData({ ...formData, perfilId: e.target.value })}
-                      className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                    >
-                      <option value="">— Sin cambios en permisos —</option>
-                      {perfiles.map(p => (
-                        <option key={p.id} value={p.id}>{p.nombre} ({p.permisos?.filter(pp => pp.lectura).length || 0} áreas)</option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Al seleccionar un perfil, se reemplazarán los permisos granulares actuales del usuario.
-                    </p>
-                  </div>
-                )}
-
-                {editingUser && (
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      id="activo"
-                      checked={formData.activo}
-                      onChange={(e) => setFormData({ ...formData, activo: e.target.checked })}
-                      className="h-4 w-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
-                    />
-                    <label htmlFor="activo" className="ml-2 text-sm text-gray-700">Usuario activo</label>
-                  </div>
-                )}
-
-                {editingUser && (
-                  <div className="pt-4 border-t border-gray-200">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowModal(false);
-                        setPermisosUser({ id: editingUser.id, nombre: editingUser.nombre });
-                      }}
-                      className="w-full rounded-md bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-700 shadow-sm ring-1 ring-inset ring-indigo-200 hover:bg-indigo-100 flex items-center justify-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-                      </svg>
-                      Gestionar Permisos Granulares
-                    </button>
-                  </div>
-                )}
-
-                <div className="flex justify-end gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500 disabled:opacity-50"
-                  >
-                    {saving ? 'Guardando...' : (editingUser ? 'Actualizar' : 'Crear Usuario')}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
+      {showModal && UsuarioEditorModal && (
+        <UsuarioEditorModal
+          editingUser={editingUser}
+          formData={formData}
+          perfiles={perfiles}
+          roles={ROLES}
+          saving={saving}
+          error={error}
+          onClose={() => setShowModal(false)}
+          onSubmit={handleSubmit}
+          onFormDataChange={setFormData}
+          onOpenPermisos={(user) => {
+            setShowModal(false);
+            openPermisosModal(user);
+          }}
+        />
       )}
 
       {/* Modal Crear/Editar Perfil */}
-      {showPerfilModal && (
-        <div className="fixed inset-0 z-50 overflow-y-auto">
-          <div className="flex min-h-full items-center justify-center p-4">
-            <div className="fixed inset-0 bg-gray-500 bg-opacity-75" onClick={() => setShowPerfilModal(false)}></div>
-            <div className="relative w-full max-w-2xl max-h-[85vh] flex flex-col transform overflow-hidden rounded-2xl bg-white shadow-2xl">
-              {/* Header */}
-              <div className="px-6 py-5 border-b bg-gradient-to-r from-indigo-50 to-purple-50 flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-gray-900">
-                    {editingPerfil ? 'Editar Perfil' : 'Nuevo Perfil de Permisos'}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-0.5">Configura a qué secciones tendrá acceso este perfil</p>
-                </div>
-                <button onClick={() => setShowPerfilModal(false)} className="p-2 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* Form fields */}
-              <div className="px-6 py-4 border-b">
-                <div className="grid grid-cols-12 gap-4">
-                  <div className="col-span-4">
-                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Nombre</label>
-                    <input
-                      type="text"
-                      value={perfilForm.nombre}
-                      onChange={e => setPerfilForm({ ...perfilForm, nombre: e.target.value })}
-                      placeholder="Ej: Técnico Draxton"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 font-medium focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                    />
-                  </div>
-                  <div className="col-span-6">
-                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Descripción</label>
-                    <input
-                      type="text"
-                      value={perfilForm.descripcion}
-                      onChange={e => setPerfilForm({ ...perfilForm, descripcion: e.target.value })}
-                      placeholder="Ej: Acceso a GGCC Draxton y personal"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 focus:border-indigo-500 focus:ring-indigo-500 bg-white"
-                    />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1.5">Color</label>
-                    <input
-                      type="color"
-                      value={perfilForm.color}
-                      onChange={e => setPerfilForm({ ...perfilForm, color: e.target.value })}
-                      className="w-full h-[42px] rounded-lg border border-gray-300 cursor-pointer"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Leyenda compacta */}
-              <div className="px-6 py-2.5 bg-indigo-50/50 border-b flex items-center justify-between">
-                <div className="flex items-center gap-4 text-xs text-gray-600">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                    Ver = acceso de lectura
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                    Editar = crear, modificar y eliminar
-                  </span>
-                </div>
-                <span className="text-[10px] text-gray-400">Los subapartados heredan del padre</span>
-              </div>
-
-              {/* Áreas - Árbol recursivo */}
-              <div className="flex-1 overflow-y-auto px-4 py-3">
-                <div className="space-y-1.5">
-                  {areas.filter(a => !a.padre).map(area => {
-                    const renderAreaRecursive = (areaItem: Area, depth: number): React.ReactNode => {
-                      const children = areas.filter(a => a.padre === areaItem.codigo);
-                      const permiso = perfilForm.permisos.find(p => p.areaCodigo === areaItem.codigo);
-                      const hasRead = permiso?.lectura || false;
-                      const hasWrite = permiso?.escritura || false;
-                      const isExpanded = expandedPerfilAreas.has(areaItem.codigo);
-                      const displayName = areaItem.nombre.includes(' > ') ? areaItem.nombre.split(' > ').pop() : areaItem.nombre;
-                      const isRoot = depth === 0;
-                      const indent = depth * 20;
-
-                      return (
-                        <div key={areaItem.id}>
-                          <div
-                            className={`flex items-center gap-2 rounded-lg transition-all ${
-                              isRoot
-                                ? `px-4 py-3 ${hasRead ? 'bg-indigo-50/60 border border-indigo-200' : 'bg-white border border-gray-200'}`
-                                : `px-3 py-2 ${hasRead ? 'bg-white/80' : 'hover:bg-gray-50/50'}`
-                            }`}
-                            style={{ marginLeft: isRoot ? 0 : `${indent}px` }}
-                          >
-                            {/* Expand/collapse */}
-                            {children.length > 0 ? (
-                              <button
-                                onClick={() => setExpandedPerfilAreas(prev => {
-                                  const next = new Set(prev);
-                                  if (next.has(areaItem.codigo)) next.delete(areaItem.codigo);
-                                  else next.add(areaItem.codigo);
-                                  return next;
-                                })}
-                                className={`p-1 rounded-md transition-colors ${
-                                  isRoot
-                                    ? 'text-indigo-500 hover:bg-indigo-100'
-                                    : 'text-gray-400 hover:text-indigo-600 hover:bg-indigo-50'
-                                }`}
-                              >
-                                <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth="2.5" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                                </svg>
-                              </button>
-                            ) : (
-                              <span className="w-[26px] flex justify-center">
-                                <span className="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
-                              </span>
-                            )}
-
-                            {/* Nombre */}
-                            <div className="flex-1 min-w-0 flex items-center gap-2">
-                              <span className={`${
-                                isRoot ? 'text-sm font-bold text-gray-900' : `text-xs ${hasRead ? 'text-gray-800 font-medium' : 'text-gray-500'}`
-                              }`}>
-                                {displayName}
-                              </span>
-                              {children.length > 0 && (
-                                <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                                  isRoot ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-500'
-                                }`}>
-                                  {children.length}
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Botones de permiso */}
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => togglePerfilPermiso(areaItem.codigo, 'lectura')}
-                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                                  hasRead
-                                    ? 'bg-blue-100 text-blue-700 shadow-sm'
-                                    : 'bg-gray-100 text-gray-400 hover:bg-blue-50 hover:text-blue-600'
-                                }`}
-                              >
-                                Ver
-                              </button>
-                              <button
-                                onClick={() => togglePerfilPermiso(areaItem.codigo, 'escritura')}
-                                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
-                                  hasWrite
-                                    ? 'bg-green-100 text-green-700 shadow-sm'
-                                    : 'bg-gray-100 text-gray-400 hover:bg-green-50 hover:text-green-600'
-                                }`}
-                              >
-                                Editar
-                              </button>
-                              {children.length > 0 && (
-                                <button
-                                  onClick={() => togglePerfilGrupo(areaItem.codigo, 'escritura', true)}
-                                  className="p-1 rounded-md bg-indigo-50 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-100 transition-colors"
-                                  title="Dar acceso completo a este grupo y todos sus subapartados"
-                                >
-                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Hijos recursivos */}
-                          {children.length > 0 && isExpanded && (
-                            <div className={`${isRoot ? 'mt-1 ml-4 pl-3 border-l-2 border-indigo-100' : 'mt-0.5 ml-3 pl-2 border-l border-gray-200'} space-y-0.5`}>
-                              {children.map(child => renderAreaRecursive(child, depth + 1))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    };
-                    return renderAreaRecursive(area, 0);
-                  })}
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="px-6 py-4 border-t bg-gray-50 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-medium">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                      {perfilForm.permisos.filter(p => p.lectura).length} secciones
-                    </span>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-50 text-green-700 text-xs font-medium">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" /></svg>
-                      {perfilForm.permisos.filter(p => p.escritura).length} editables
-                    </span>
-                  </div>
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setShowPerfilModal(false)}
-                    className="px-4 py-2.5 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={handleSavePerfil}
-                    disabled={saving || !perfilForm.nombre.trim()}
-                    className="px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors shadow-sm"
-                  >
-                    {saving ? 'Guardando...' : (editingPerfil ? 'Guardar Cambios' : 'Crear Perfil')}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+      {showPerfilModal && PerfilEditorModal && (
+        <PerfilEditorModal
+          editingPerfil={editingPerfil}
+          areas={areas}
+          expandedPerfilAreas={expandedPerfilAreas}
+          perfilForm={perfilForm}
+          saving={saving}
+          onClose={() => setShowPerfilModal(false)}
+          onPerfilFormChange={setPerfilForm}
+          onToggleExpanded={toggleExpandedPerfilArea}
+          onTogglePermiso={togglePerfilPermiso}
+          onToggleGrupo={togglePerfilGrupo}
+          onSave={handleSavePerfil}
+        />
       )}
 
       {/* Modal Permisos Granulares */}
-      {permisosUser && (
+      {permisosUser && PermisosUsuarioModal && (
         <PermisosUsuarioModal
           usuarioId={permisosUser.id}
           usuarioNombre={permisosUser.nombre}

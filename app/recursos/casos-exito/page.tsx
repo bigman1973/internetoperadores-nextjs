@@ -11,7 +11,10 @@ const casos = [
     descripcion: 'Fabricante multinacional con sedes en Europa, Centroamérica y Asia. Cada centro tiene más de 10 robots industriales donde un solo robot supera los 10 millones de euros. Consultoría, WiFi Ruckus y SD-WAN con SLA 99,9%.',
     resultados: ['0 incidencias críticas', 'SLA 99,9%', 'Red industrial certificada'],
     soluciones: ['Infraestructura de Red', 'WiFi Ruckus', 'SD-WAN'],
-    imagen: '/images/casos-exito/industria-automocion.jpg',
+    imagenOptimizada: '/images/casos-exito/industria-automocion-640.webp',
+    srcSet: '/images/casos-exito/industria-automocion-640.webp 640w, /images/casos-exito/industria-automocion-960.webp 960w, /images/casos-exito/industria-automocion-1280.webp 1280w, /images/casos-exito/industria-automocion-1920.webp 1920w',
+    width: 2560,
+    height: 1707,
     destacado: true
   },
   {
@@ -21,7 +24,10 @@ const casos = [
     descripcion: 'Implementación de red WiFi profesional con puntos de acceso Ruckus que soporta más de 800 dispositivos simultáneos sin degradación de servicio, cubriendo habitaciones, zonas comunes y áreas de eventos.',
     resultados: ['800+ dispositivos simultáneos', '99.9% uptime', 'Satisfacción huéspedes +35%'],
     soluciones: ['Infraestructura de Red', 'WiFi Ruckus'],
-    imagen: '/images/casos-exito/hosteleria-hotel.jpg',
+    imagenOptimizada: '/images/casos-exito/hosteleria-hotel-640.webp',
+    srcSet: '/images/casos-exito/hosteleria-hotel-640.webp 640w, /images/casos-exito/hosteleria-hotel-850.webp 850w',
+    width: 850,
+    height: 1000,
     destacado: false
   },
   {
@@ -31,7 +37,10 @@ const casos = [
     descripcion: 'Unificación de la conectividad de 25 tiendas bajo una única plataforma SD-WAN, eliminando 8 proveedores diferentes y garantizando conexión de respaldo automática para TPVs y ERP.',
     resultados: ['-35% costes conectividad', '99,9% disponibilidad', '1 único interlocutor'],
     soluciones: ['SD-WAN', 'Conectividad Avanzada', '4G/5G Backup'],
-    imagen: '/images/casos-exito/retail-tiendas.jpg',
+    imagenOptimizada: '/images/casos-exito/retail-tiendas-640.webp',
+    srcSet: '/images/casos-exito/retail-tiendas-640.webp 640w, /images/casos-exito/retail-tiendas-960.webp 960w, /images/casos-exito/retail-tiendas-1280.webp 1280w',
+    width: 1781,
+    height: 1155,
     destacado: false
   },
   {
@@ -41,7 +50,10 @@ const casos = [
     descripcion: 'Implementación de ExaGrid con Retention Time-Lock para una administración pública del sector sanitario tras sufrir un ciberataque con robo de datos. Proyecto en fase de implementación.',
     resultados: ['Protección anti-ransomware', 'RTO <2 horas', 'Cumplimiento ENS Alto'],
     soluciones: ['ExaGrid', 'Backup Empresarial', 'Ciberseguridad'],
-    imagen: '/images/casos-exito/sector-publico-sanidad.jpg',
+    imagenOptimizada: '/images/casos-exito/sector-publico-sanidad-640.webp',
+    srcSet: '/images/casos-exito/sector-publico-sanidad-640.webp 640w, /images/casos-exito/sector-publico-sanidad-960.webp 960w, /images/casos-exito/sector-publico-sanidad-1280.webp 1280w, /images/casos-exito/sector-publico-sanidad-1920.webp 1920w',
+    width: 2560,
+    height: 1469,
     destacado: true,
     enCurso: true
   },
@@ -52,7 +64,10 @@ const casos = [
     descripcion: 'Implementación de Wildix para unificar las comunicaciones de un despacho de abogados con 4 oficinas, integrando voz, vídeo, chat y CRM jurídico en una única plataforma.',
     resultados: ['1 número para 4 oficinas', '-40% costes telefonía', '+25% satisfacción clientes'],
     soluciones: ['Comunicaciones Unificadas', 'Wildix', 'UCaaS'],
-    imagen: '/images/casos-exito/servicios-profesionales.jpg',
+    imagenOptimizada: '/images/casos-exito/servicios-profesionales-640.webp',
+    srcSet: '/images/casos-exito/servicios-profesionales-640.webp 640w, /images/casos-exito/servicios-profesionales-960.webp 960w, /images/casos-exito/servicios-profesionales-1280.webp 1280w, /images/casos-exito/servicios-profesionales-1920.webp 1920w',
+    width: 2560,
+    height: 1707,
     destacado: false
   }
 ];
@@ -118,9 +133,15 @@ export default function CasosExitoPage() {
                   <div className="flex flex-col lg:flex-row">
                     {/* Imagen */}
                     <div className="lg:w-80 h-48 lg:h-auto relative flex-shrink-0">
-                      <img 
-                        src={caso.imagen} 
+                      <img
+                        src={caso.imagenOptimizada}
+                        srcSet={caso.srcSet}
+                        sizes="(max-width: 1023px) calc(100vw - 2rem), 320px"
                         alt={caso.titulo}
+                        width={caso.width}
+                        height={caso.height}
+                        loading="lazy"
+                        decoding="async"
                         className="w-full h-full object-cover"
                       />
                       {caso.enCurso && (

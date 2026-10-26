@@ -16,14 +16,18 @@ export default async function EmpleadoLayout({
   const canAccessAdmin = await canAccessAdminPanel(session.user, usuarioId =>
     prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
   )
+  // Sólo reserva altura (evita el salto del contenido); el banner decide en cliente si se muestra.
+  const reservarBanner = !(session as any).impersonation && ['SUPER_ADMIN', 'GERENTE'].includes(String(session.user.role || ''))
   return (
-    <SessionProvider>
+    <SessionProvider session={session}>
       <ImpersonationProvider>
-        <div className="min-h-screen bg-gray-50 text-gray-900">
+        <div className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
           <EmpleadoSidebar user={session.user} canAccessAdmin={canAccessAdmin} />
-          <div className="lg:pl-64">
-            <main className="p-4 sm:p-6 lg:p-8">
-              <ImpersonationBannerWrapper />
+          <div className="min-w-0 lg:pl-64">
+            <main className="min-w-0 p-4 sm:p-6 lg:p-8">
+              <div className={reservarBanner ? 'min-h-[52px]' : undefined}>
+                <ImpersonationBannerWrapper />
+              </div>
               {children}
             </main>
           </div>

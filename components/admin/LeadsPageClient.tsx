@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useDeferredValue } from 'react';
 import Link from 'next/link';
 import { SEGMENTO_CRM_CONFIG, type SegmentoCrmValue } from '../../lib/crm-segmentos';
 
@@ -72,7 +72,7 @@ const prioridadColor: Record<string, string> = {
   BAJA: 'bg-gray-100 text-gray-700',
 };
 
-export default function LeadsPageClient() {
+export default function LeadsPageClient({ integrada = false }: { integrada?: boolean }) {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [stats, setStats] = useState<Stats[]>([]);
   const [loading, setLoading] = useState(true);
@@ -80,6 +80,7 @@ export default function LeadsPageClient() {
   const [filtroPrioridad, setFiltroPrioridad] = useState('');
   const [filtroSector, setFiltroSector] = useState('');
   const [buscar, setBuscar] = useState('');
+  const buscarDiferido = useDeferredValue(buscar);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -87,7 +88,7 @@ export default function LeadsPageClient() {
     if (filtroEstado) params.set('estado', filtroEstado);
     if (filtroPrioridad) params.set('prioridad', filtroPrioridad);
     if (filtroSector) params.set('sector', filtroSector);
-    if (buscar) params.set('buscar', buscar);
+    if (buscarDiferido) params.set('buscar', buscarDiferido);
 
     try {
       const res = await fetch(`/api/admin/leads?${params.toString()}`);
@@ -99,7 +100,7 @@ export default function LeadsPageClient() {
     } finally {
       setLoading(false);
     }
-  }, [filtroEstado, filtroPrioridad, filtroSector, buscar]);
+  }, [filtroEstado, filtroPrioridad, filtroSector, buscarDiferido]);
 
   useEffect(() => {
     fetchLeads();
@@ -126,13 +127,14 @@ export default function LeadsPageClient() {
   const cerrados = stats.filter(s => s.estado === 'CERRADO_GANADO').reduce((sum, s) => sum + s._count.id, 0);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+    <div className={integrada ? '' : 'p-4 sm:p-6 max-w-7xl mx-auto'}>
+      {!integrada && <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Leads Migración Web</h1>
           <p className="text-sm text-gray-500 mt-1">Gestión de solicitudes del formulario de migración web</p>
         </div>
-      </div>
+      </div>}
+      {integrada && <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4"><h2 className="text-xl font-bold text-gray-900">Leads de migración web</h2><p className="mt-1 text-sm text-gray-600">Gestión de solicitudes del formulario de migración web existente.</p></div>}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -164,7 +166,7 @@ export default function LeadsPageClient() {
               placeholder="Empresa, contacto, email..."
               value={buscar}
               onChange={(e) => setBuscar(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
@@ -172,7 +174,7 @@ export default function LeadsPageClient() {
             <select
               value={filtroEstado}
               onChange={(e) => setFiltroEstado(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border rounded-lg px-3 py-2 text-sm"
             >
               {ESTADOS.map(e => <option key={e.value} value={e.value}>{e.label}</option>)}
             </select>
@@ -182,7 +184,7 @@ export default function LeadsPageClient() {
             <select
               value={filtroPrioridad}
               onChange={(e) => setFiltroPrioridad(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border rounded-lg px-3 py-2 text-sm"
             >
               {PRIORIDADES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
@@ -192,7 +194,7 @@ export default function LeadsPageClient() {
             <select
               value={filtroSector}
               onChange={(e) => setFiltroSector(e.target.value)}
-              className="w-full border rounded-lg px-3 py-2 text-sm"
+              className="min-h-11 w-full border rounded-lg px-3 py-2 text-sm"
             >
               {SECTORES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
@@ -274,13 +276,13 @@ export default function LeadsPageClient() {
                       <div className="flex items-center gap-2">
                         <Link
                           href={`/admin/leads/${lead.id}`}
-                          className="text-orange-600 hover:text-orange-700 text-sm font-medium"
+                          className="inline-flex min-h-11 items-center text-orange-600 hover:text-orange-700 text-sm font-medium"
                         >
                           Ver detalle →
                         </Link>
                         <button
                           onClick={() => handleDeleteLead(lead.id, lead.nombreEmpresa)}
-                          className="text-red-400 hover:text-red-600 transition-colors"
+                          className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-400 hover:text-red-600 transition-colors"
                           title="Eliminar lead"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>

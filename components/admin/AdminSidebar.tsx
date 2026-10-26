@@ -38,6 +38,10 @@ import {
   StarIcon,
   ArrowsRightLeftIcon,
   AcademicCapIcon,
+  ChatBubbleLeftRightIcon,
+  SparklesIcon,
+  LightBulbIcon,
+  BookOpenIcon,
   ChatBubbleLeftEllipsisIcon,
   BuildingLibraryIcon,
   CircleStackIcon,
@@ -83,6 +87,7 @@ interface NavItem {
   href: string
   icon: any
   section?: string // Sección para verificar permisos
+  exact?: boolean // Sólo activo en su ruta exacta (no en subrutas)
   subitems?: NavItem[] // Subapartados de una sección con página propia
 }
 
@@ -135,6 +140,22 @@ const navigation: NavEntry[] = [
       { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon, section: 'leads' },
       { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon, section: 'leads' },
       { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon, section: 'leads' },
+    ],
+  },
+  {
+    name: 'Asistente IA',
+    icon: SparklesIcon,
+    section: 'asistente',
+    children: [
+      { name: 'Resumen', href: '/admin/asistente', icon: ChartBarIcon, section: 'asistente', exact: true },
+      { name: 'Chat interno', href: '/admin/asistente/chat', icon: ChatBubbleLeftRightIcon, section: 'asistente.chat' },
+      { name: 'Conocimiento', href: '/admin/asistente/conocimiento', icon: BookOpenIcon, section: 'asistente.conocimiento' },
+      { name: 'Conversaciones', href: '/admin/asistente/conversaciones', icon: QueueListIcon, section: 'asistente.conversaciones' },
+      { name: 'Leads del asistente', href: '/admin/asistente/leads', icon: InboxStackIcon, section: 'asistente.leads' },
+      { name: 'Aprendizaje', href: '/admin/asistente/aprendizaje', icon: LightBulbIcon, section: 'asistente.aprendizaje' },
+      { name: 'Analítica', href: '/admin/asistente/analitica', icon: ArrowTrendingUpIcon, section: 'asistente.analitica' },
+      { name: 'Informes y propuestas', href: '/admin/asistente/informes', icon: DocumentTextIcon, section: 'asistente.propuestas' },
+      { name: 'Configuración', href: '/admin/asistente/configuracion', icon: CogIcon, section: 'asistente.configuracion' },
     ],
   },
   { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon, section: 'comunicados' },
@@ -276,8 +297,8 @@ function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onN
     // Verificar permisos del item hijo
     if (!easyOnly && item.section && !hasAccess(item.section)) return null
 
-    const isActive = pathname === item.href || 
-      (item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
+    const isActive = pathname === item.href ||
+      (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
       (item.href === '/admin' && pathname === '/admin')
     
     return (

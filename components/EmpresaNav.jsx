@@ -1,6 +1,6 @@
 'use client'
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useCart } from './CartProvider';
 import TopBar from './TopBar';
 
@@ -40,8 +40,12 @@ export default function EmpresaNav({ currentPage = '' }) {
   const [recursosOpen, setRecursosOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [seccionesActivas, setSeccionesActivas] = useState([]);
+  const seccionesSolicitadas = useRef(false);
 
-  useEffect(() => {
+  const cargarSeccionesActivas = useCallback(() => {
+    if (seccionesSolicitadas.current) return;
+    seccionesSolicitadas.current = true;
+
     fetch('/api/secciones-activas')
       .then(res => res.json())
       .then(data => setSeccionesActivas(data.secciones || []))
@@ -60,7 +64,9 @@ export default function EmpresaNav({ currentPage = '' }) {
               <img 
                 src="/logo_transparent.png" 
                 alt="Internet Operadores" 
-                className="h-12 sm:h-14 lg:h-16"
+                width="247"
+                height="119"
+                className="h-12 w-auto sm:h-14 lg:h-16"
               />
             </Link>
             
@@ -69,7 +75,10 @@ export default function EmpresaNav({ currentPage = '' }) {
               {/* Contrata Dropdown (dinámico) */}
               <div 
                 className="relative"
-                onMouseEnter={() => setContrataOpen(true)}
+                onMouseEnter={() => {
+                  cargarSeccionesActivas();
+                  setContrataOpen(true);
+                }}
                 onMouseLeave={() => setContrataOpen(false)}
               >
                 <Link 
@@ -242,7 +251,7 @@ export default function EmpresaNav({ currentPage = '' }) {
 
             {/* CTA Buttons */}
             <div className="hidden lg:flex gap-3 items-center">
-              <Link href="/carrito" className="relative p-2 hover:scale-110 transition-transform">
+              <Link href="/carrito" className="relative flex min-h-11 min-w-11 items-center justify-center p-2 hover:scale-110 transition-transform">
                 <svg className="w-7 h-7" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
                   {/* Carrito */}
                   <path d="M4 4h2.5l.5 2.5M9 14h10.5l4-9H7.5M9 14l-2-7.5M9 14l-2.5 2.5c-.6.6-.2 1.7.7 1.7H18" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -258,17 +267,17 @@ export default function EmpresaNav({ currentPage = '' }) {
                   </span>
                 )}
               </Link>
-              <Link href="/demo" className="px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-sm">
+              <Link href="/demo" className="inline-flex min-h-11 items-center px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg hover:bg-orange-50 transition-all font-semibold text-sm">
                 Ver Demo
               </Link>
-              <Link href="/contacto" className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm">
+              <Link href="/contacto" className="inline-flex min-h-11 items-center px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold text-sm">
                 Contactar
               </Link>
             </div>
 
             {/* Mobile Cart + Menu Button */}
             <div className="flex lg:hidden items-center gap-1">
-              <Link href="/carrito" className="relative p-2 hover:scale-110 transition-transform">
+              <Link href="/carrito" className="relative flex min-h-11 min-w-11 items-center justify-center p-2 hover:scale-110 transition-transform">
                 <svg className="w-7 h-7" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
                   {/* Carrito */}
                   <path d="M4 4h2.5l.5 2.5M9 14h10.5l4-9H7.5M9 14l-2-7.5M9 14l-2.5 2.5c-.6.6-.2 1.7.7 1.7H18" stroke="#ea580c" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
@@ -285,8 +294,12 @@ export default function EmpresaNav({ currentPage = '' }) {
                 )}
               </Link>
             <button 
-              className="p-2"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="flex min-h-11 min-w-11 items-center justify-center p-2"
+              onClick={() => {
+                cargarSeccionesActivas();
+                setMobileMenuOpen(!mobileMenuOpen);
+              }}
+              aria-label="Abrir menú de navegación"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenuOpen ? (
@@ -305,20 +318,20 @@ export default function EmpresaNav({ currentPage = '' }) {
               <div className="flex flex-col gap-2">
                 {/* Mobile Contrata */}
                 <div className="py-2">
-                  <Link href="/productos" className="text-orange-600 font-semibold">Contrata</Link>
+                  <Link href="/productos" className="flex min-h-11 items-center text-orange-600 font-semibold">Contrata</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
                     {seccionesActivas.map((seccion) => (
                       <Link 
                         key={seccion.href}
                         href={seccion.href} 
-                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                        className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
                         {seccion.nombre}
                       </Link>
                     ))}
                     <Link 
                       href="/contrata/migracion-web" 
-                      className="block py-1 text-sm text-gray-600 hover:text-orange-600 font-medium"
+                      className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-600 font-medium"
                     >
                       🌐 Migración Web
                     </Link>
@@ -327,13 +340,13 @@ export default function EmpresaNav({ currentPage = '' }) {
                 
                 {/* Mobile Soluciones */}
                 <div className="py-2">
-                  <Link href="/soluciones" className="text-orange-600 font-semibold">Soluciones</Link>
+                  <Link href="/soluciones" className="flex min-h-11 items-center text-orange-600 font-semibold">Soluciones</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
                     {soluciones.map((solucion) => (
                       <Link 
                         key={solucion.href}
                         href={solucion.href} 
-                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                        className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
                         {solucion.nombre}
                       </Link>
@@ -343,13 +356,13 @@ export default function EmpresaNav({ currentPage = '' }) {
 
                 {/* Mobile Sectores */}
                 <div className="py-2">
-                  <Link href="/sectores" className="text-orange-600 font-semibold">Sectores</Link>
+                  <Link href="/sectores" className="flex min-h-11 items-center text-orange-600 font-semibold">Sectores</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
                     {sectores.map((sector) => (
                       <Link 
                         key={sector.href}
                         href={sector.href} 
-                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                        className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
                         {sector.nombre}
                       </Link>
@@ -359,13 +372,13 @@ export default function EmpresaNav({ currentPage = '' }) {
 
                 {/* Mobile Recursos */}
                 <div className="py-2">
-                  <Link href="/recursos" className="text-orange-600 font-semibold">Recursos</Link>
+                  <Link href="/recursos" className="flex min-h-11 items-center text-orange-600 font-semibold">Recursos</Link>
                   <div className="pl-4 mt-2 space-y-2 border-l-2 border-orange-200">
                     {recursos.map((recurso) => (
                       <Link 
                         key={recurso.href}
                         href={recurso.href} 
-                        className="block py-1 text-sm text-gray-600 hover:text-orange-600"
+                        className="flex min-h-11 items-center py-1 text-sm text-gray-600 hover:text-orange-600"
                       >
                         {recurso.nombre}
                       </Link>
@@ -374,16 +387,16 @@ export default function EmpresaNav({ currentPage = '' }) {
                 </div>
 
                 {/* Mobile Empresa & Partners */}
-                <Link href="/empresa" className="py-2 text-orange-600 font-semibold">Empresa</Link>
-                <Link href="/partners" className="py-2 text-orange-600 font-semibold">Partners</Link>
+                <Link href="/empresa" className="flex min-h-11 items-center py-2 text-orange-600 font-semibold">Empresa</Link>
+                <Link href="/partners" className="flex min-h-11 items-center py-2 text-orange-600 font-semibold">Partners</Link>
 
 
                 {/* Mobile CTAs */}
                 <div className="flex gap-2 mt-4 pt-4 border-t">
-                  <Link href="/demo" className="flex-1 text-center px-4 py-2 border-2 border-orange-600 text-orange-600 rounded-lg font-semibold text-sm">
+                  <Link href="/demo" className="flex min-h-11 flex-1 items-center justify-center px-4 py-2 text-center border-2 border-orange-600 text-orange-600 rounded-lg font-semibold text-sm">
                     Ver Demo
                   </Link>
-                  <Link href="/contacto" className="flex-1 text-center px-4 py-2 bg-orange-600 text-white rounded-lg font-semibold text-sm">
+                  <Link href="/contacto" className="flex min-h-11 flex-1 items-center justify-center px-4 py-2 text-center bg-orange-600 text-white rounded-lg font-semibold text-sm">
                     Contactar
                   </Link>
                 </div>

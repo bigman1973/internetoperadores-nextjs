@@ -44,9 +44,15 @@ export default function CasoExitoPage() {
       <div className="container mx-auto px-4 sm:px-6 -mt-4 mb-12">
         <div className="max-w-4xl mx-auto">
           <div className="relative w-full h-[300px] sm:h-[400px] rounded-2xl overflow-hidden shadow-xl">
-            <img 
-              src="/images/casos-exito/retail-tiendas.jpg" 
-              alt="Interior de tienda de moda moderna" 
+            <img
+              src="/images/casos-exito/retail-tiendas-960.webp"
+              srcSet="/images/casos-exito/retail-tiendas-640.webp 640w, /images/casos-exito/retail-tiendas-960.webp 960w, /images/casos-exito/retail-tiendas-1280.webp 1280w"
+              sizes="(max-width: 768px) calc(100vw - 2rem), 896px"
+              alt="Interior de tienda de moda moderna"
+              width="1781"
+              height="1155"
+              fetchPriority="high"
+              decoding="async"
               className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent"></div>

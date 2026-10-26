@@ -2,23 +2,17 @@
 
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import type { ReorderTarifa } from '../../app/admin/tarifas/ReorderTarifasModal'
 import {
   PlusIcon, MagnifyingGlassIcon, ArrowPathIcon,
   ChevronDownIcon, ChevronRightIcon, ChevronUpIcon,
   PencilIcon, TrashIcon, DocumentDuplicateIcon,
   StarIcon, PhoneIcon, GlobeAltIcon, DevicePhoneMobileIcon, TvIcon,
   TableCellsIcon, Squares2X2Icon,
-  EyeIcon, EyeSlashIcon, Bars3Icon, ArrowsUpDownIcon
+  EyeIcon, EyeSlashIcon, ArrowsUpDownIcon
 } from '@heroicons/react/24/outline'
 import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid'
-import {
-  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
-  type DragEndEvent
-} from '@dnd-kit/core'
-import {
-  arrayMove, SortableContext, verticalListSortingStrategy, useSortable
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 interface Tarifa {
   id: number
@@ -127,6 +121,32 @@ function formatCurrency(val: number): string {
   return val.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 }
 
+function CategoryCardsSkeleton() {
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8" aria-hidden="true">
+      {Array.from({ length: 20 }, (_, index) => (
+        <div key={index} className="min-h-[72px] animate-pulse rounded-lg border border-gray-200 bg-gray-50 px-3 py-2.5">
+          <div className="h-3 w-3/4 rounded bg-gray-200" />
+          <div className="mt-3 h-5 w-1/2 rounded bg-gray-200" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function TarifaResultsSkeleton() {
+  return (
+    <div className="space-y-4" aria-live="polite" aria-label="Cargando tarifas">
+      {Array.from({ length: 10 }, (_, index) => (
+        <div key={index} className="min-h-[76px] animate-pulse rounded-lg border border-gray-200 bg-white px-5 py-4">
+          <div className="h-4 w-2/5 rounded bg-gray-200" />
+          <div className="mt-3 h-3 w-3/5 rounded bg-gray-100" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function ServiceBadges({ tarifa }: { tarifa: Tarifa }) {
   return (
     <div className="flex flex-wrap gap-1">
@@ -147,7 +167,7 @@ function WebToggle({ checked, onChange, label, colorOn, colorOff }: {
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onChange() }}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-all ${
+      className={`inline-flex min-h-11 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition-all ${
         checked ? colorOn : colorOff
       }`}
       title={checked ? `Quitar de ${label}` : `Publicar en ${label}`}
@@ -176,7 +196,7 @@ function SeccionSelector({ value, onChange, disabled }: {
       onChange={(e) => { e.stopPropagation(); onChange(e.target.value || null) }}
       onClick={(e) => e.stopPropagation()}
       disabled={disabled}
-      className={`rounded text-[11px] font-medium py-0.5 px-1 border transition-all ${
+      className={`min-h-11 rounded px-1 text-[11px] font-medium border transition-all ${
         disabled
           ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
           : value
@@ -211,7 +231,7 @@ function SeccionEmpresaSelector({ value, onChange, disabled }: {
       onChange={(e) => { e.stopPropagation(); onChange(e.target.value || null) }}
       onClick={(e) => e.stopPropagation()}
       disabled={disabled}
-      className={`rounded text-[11px] font-medium py-0.5 px-1 border transition-all ${
+      className={`min-h-11 rounded px-1 text-[11px] font-medium border transition-all ${
         disabled
           ? 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
           : value
@@ -232,8 +252,13 @@ function SeccionEmpresaSelector({ value, onChange, disabled }: {
 
 type ViewMode = 'grouped' | 'list'
 
+const ReorderTarifasModal = dynamic(() => import('../../app/admin/tarifas/ReorderTarifasModal'), {
+  ssr: false,
+})
+
 export default function TarifasPageClient() {
   const [stats, setStats] = useState<{ total: number; activas: number; categorias: CategoriaStats[] } | null>(null)
+  const [statsLoading, setStatsLoading] = useState(true)
   const [viewMode, setViewMode] = useState<ViewMode>('grouped')
   const [search, setSearch] = useState('')
   const [searchInput, setSearchInput] = useState('')
@@ -266,13 +291,8 @@ export default function TarifasPageClient() {
   const [reorderMode, setReorderMode] = useState(false)
   const [reorderCategory, setReorderCategory] = useState<string | null>(null)
   const [reorderSubcategory, setReorderSubcategory] = useState<string | null>(null)
-  const [reorderTarifas, setReorderTarifas] = useState<Tarifa[]>([])
+  const [reorderTarifas, setReorderTarifas] = useState<ReorderTarifa[]>([])
   const [savingOrder, setSavingOrder] = useState(false)
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor)
-  )
 
   const startReorder = (cat: string) => {
     const grupo = grupos.find(g => g.categoria === cat)
@@ -291,16 +311,6 @@ export default function TarifasPageClient() {
     if (!grupo) return
     setReorderSubcategory(subcat)
     setReorderTarifas(grupo.tarifas.filter(t => (t.subcategoria || 'Sin subcategoría') === subcat))
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setReorderTarifas(prev => {
-      const oldIndex = prev.findIndex(t => t.id === active.id)
-      const newIndex = prev.findIndex(t => t.id === over.id)
-      return arrayMove(prev, oldIndex, newIndex)
-    })
   }
 
   const saveReorder = async () => {
@@ -374,7 +384,7 @@ export default function TarifasPageClient() {
     try {
       const res = await fetch('/api/admin/tarifas?modo=stats')
       if (res.ok) setStats(await res.json())
-    } catch (err) { console.error(err) }
+    } catch (err) { console.error(err) } finally { setStatsLoading(false) }
   }
 
   const fetchData = async () => {
@@ -641,17 +651,17 @@ export default function TarifasPageClient() {
                       autoFocus
                       disabled={savingNombreComercial.has(tarifa.id)}
                     />
-                    <button onClick={() => handleNombreComercialSave(tarifa.id)} className="text-green-600 hover:text-green-800" title="Guardar">
+                    <button onClick={() => handleNombreComercialSave(tarifa.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-600 hover:text-green-800" title="Guardar">
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     </button>
-                    <button onClick={handleNombreComercialCancel} className="text-red-500 hover:text-red-700" title="Cancelar">
+                    <button onClick={handleNombreComercialCancel} className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-500 hover:text-red-700" title="Cancelar">
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
                 ) : (
                   <button
                     onClick={() => handleNombreComercialEdit(tarifa)}
-                    className={`text-xs px-1.5 py-0.5 rounded transition-all hover:bg-orange-100 ${
+                    className={`inline-flex min-h-11 items-center text-xs px-1.5 py-0.5 rounded transition-all hover:bg-orange-100 ${
                       tarifa.nombreComercial && tarifa.nombreComercial !== tarifa.nombre
                         ? 'text-orange-600 font-medium bg-orange-50'
                         : 'text-gray-400 hover:text-orange-600'
@@ -697,10 +707,10 @@ export default function TarifasPageClient() {
                 {subcategoriaInput && !(subcategoriasDisponibles[categoriaInput] || []).includes(subcategoriaInput) && !(SUBCATEGORIAS_POR_CATEGORIA[categoriaInput] || []).includes(subcategoriaInput) && <option value={subcategoriaInput}>{subcategoriaInput}</option>}
               </select>
               <div className="flex gap-1">
-                <button onClick={(e) => handleCategoriaSave(tarifa.id, e)} className="text-green-600 hover:text-green-800" title="Guardar">
+                <button onClick={(e) => handleCategoriaSave(tarifa.id, e)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-600 hover:text-green-800" title="Guardar">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                 </button>
-                <button onClick={(e) => handleCategoriaCancel(e)} className="text-red-500 hover:text-red-700" title="Cancelar">
+                <button onClick={(e) => handleCategoriaCancel(e)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-500 hover:text-red-700" title="Cancelar">
                   <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
                 {savingCategoria.has(tarifa.id) && <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-orange-500"></div>}
@@ -709,7 +719,7 @@ export default function TarifasPageClient() {
           ) : (
             <button
               onClick={(e) => handleCategoriaEdit(tarifa, e)}
-              className="text-left group hover:bg-gray-100 rounded px-1 py-0.5 transition-all"
+              className="group inline-flex min-h-11 items-center rounded px-1 py-0.5 text-left transition-all hover:bg-gray-100"
               title="Editar categoría y subcategoría"
             >
               <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${getCatColor(tarifa.categoria)}`}>{tarifa.categoria}</span>
@@ -778,18 +788,18 @@ export default function TarifasPageClient() {
         </td>
         <td className="px-4 py-3 whitespace-nowrap">
           <button onClick={(e) => { e.stopPropagation(); handleToggleActiva(tarifa.id) }}
-            className={`inline-flex items-center gap-x-1.5 rounded-full px-2 py-1 text-xs font-semibold ${tarifa.activa ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+            className={`inline-flex min-h-11 items-center gap-x-1.5 rounded-full px-2 py-1 text-xs font-semibold ${tarifa.activa ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
             {tarifa.activa ? <><EyeIcon className="h-3 w-3" />Activa</> : <><EyeSlashIcon className="h-3 w-3" />Inactiva</>}
           </button>
         </td>
         <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
           <div className="flex items-center justify-end gap-x-2" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => handleToggleDestacada(tarifa.id)} className="text-gray-400 hover:text-yellow-500" title="Destacar">
+            <button onClick={() => handleToggleDestacada(tarifa.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-gray-400 hover:text-yellow-500" title="Destacar">
               {tarifa.destacada ? <StarIconSolid className="h-5 w-5 text-yellow-400" /> : <StarIcon className="h-5 w-5" />}
             </button>
-            <Link href={`/admin/tarifas/${tarifa.id}/editar`} className="text-orange-600 hover:text-orange-900" title="Editar"><PencilIcon className="h-5 w-5" /></Link>
-            <button onClick={() => handleDuplicate(tarifa.id)} className="text-blue-600 hover:text-blue-900" title="Duplicar"><DocumentDuplicateIcon className="h-5 w-5" /></button>
-            <button onClick={() => handleDelete(tarifa.id)} className="text-red-600 hover:text-red-900" title="Eliminar"><TrashIcon className="h-5 w-5" /></button>
+            <Link href={`/admin/tarifas/${tarifa.id}/editar`} className="inline-flex min-h-11 min-w-11 items-center justify-center text-orange-600 hover:text-orange-900" title="Editar"><PencilIcon className="h-5 w-5" /></Link>
+            <button onClick={() => handleDuplicate(tarifa.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-blue-600 hover:text-blue-900" title="Duplicar"><DocumentDuplicateIcon className="h-5 w-5" /></button>
+            <button onClick={() => handleDelete(tarifa.id)} className="inline-flex min-h-11 min-w-11 items-center justify-center text-red-600 hover:text-red-900" title="Eliminar"><TrashIcon className="h-5 w-5" /></button>
           </div>
         </td>
       </tr>
@@ -860,24 +870,24 @@ export default function TarifasPageClient() {
           <h1 className="text-2xl font-bold text-gray-900">Tarifas</h1>
           <p className="mt-1 text-sm text-gray-500">Gestiona el catálogo completo de tarifas ({stats?.total || 0} tarifas, {stats?.activas || 0} activas)</p>
         </div>
-        <div className="mt-4 sm:mt-0 flex gap-3">
+        <div className="mt-4 flex flex-wrap gap-3 sm:mt-0">
           <button onClick={handleSync} disabled={syncing}
-            className="inline-flex items-center gap-x-2 rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50">
+            className="inline-flex min-h-11 items-center gap-x-2 rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 disabled:opacity-50">
             <ArrowPathIcon className={`h-5 w-5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Sincronizando...' : 'Sincronizar ISP Gestión'}
           </button>
-          <Link href="/admin/tarifas/nueva" className="inline-flex items-center gap-x-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500">
+          <Link href="/admin/tarifas/nueva" className="inline-flex min-h-11 items-center gap-x-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500">
             <PlusIcon className="h-5 w-5" /> Nueva Tarifa
           </Link>
         </div>
       </div>
 
       {/* Category cards */}
-      {stats && stats.categorias.length > 0 && (
+      {stats ? stats.categorias.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-2">
           {stats.categorias.map(cat => (
             <button key={cat.categoria} onClick={() => { setCategoria(categoria === cat.categoria ? '' : cat.categoria); setPage(1) }}
-              className={`rounded-lg border px-3 py-2.5 text-left transition-all hover:shadow-md ${
+              className={`min-h-[72px] rounded-lg border px-3 py-2.5 text-left transition-all hover:shadow-md ${
                 categoria === cat.categoria
                   ? 'ring-2 ring-orange-500 shadow-md ' + getCatColor(cat.categoria)
                   : getCatColor(cat.categoria) + ' hover:opacity-90'
@@ -890,7 +900,7 @@ export default function TarifasPageClient() {
             </button>
           ))}
         </div>
-      )}
+      ) : statsLoading ? <CategoryCardsSkeleton /> : null}
 
       {/* Filters */}
       <div className="rounded-lg bg-white shadow border border-gray-200 p-5">
@@ -901,13 +911,13 @@ export default function TarifasPageClient() {
               <div className="absolute inset-y-0 left-0 flex items-center pl-3"><MagnifyingGlassIcon className="h-5 w-5 text-gray-400" /></div>
               <input type="text" value={searchInput} onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="Nombre de tarifa..."
-                className="block w-full rounded-md border-gray-300 pl-10 pr-3 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
+                className="block min-h-11 w-full rounded-md border-gray-300 pl-10 pr-3 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm" />
             </div>
           </form>
           <div className="w-full lg:w-40">
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipo Cliente</label>
             <select value={tipoCliente} onChange={(e) => { setTipoCliente(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block min-h-11 w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               <option value="PARTICULAR">Particular</option>
               <option value="EMPRESA">Empresa</option>
@@ -916,7 +926,7 @@ export default function TarifasPageClient() {
           <div className="w-full lg:w-48">
             <label className="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
             <select value={categoria} onChange={(e) => { setCategoria(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block min-h-11 w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todas</option>
               {stats?.categorias.map(c => <option key={c.categoria} value={c.categoria}>{c.categoria} ({c.total})</option>)}
             </select>
@@ -924,7 +934,7 @@ export default function TarifasPageClient() {
           <div className="w-full lg:w-36">
             <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
             <select value={estado} onChange={(e) => { setEstado(e.target.value); setPage(1) }}
-              className="block w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
+              className="block min-h-11 w-full rounded-md border-gray-300 py-2 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm">
               <option value="">Todos</option>
               <option value="activa">Activas</option>
               <option value="inactiva">Inactivas</option>
@@ -933,17 +943,17 @@ export default function TarifasPageClient() {
               <option value="web-ambas">Publicada Web (cualquiera)</option>
             </select>
           </div>
-          <div className="flex gap-2">
-            <button onClick={handleSearch} className="bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-orange-500">Buscar</button>
-            <button onClick={clearFilters} className="bg-white text-gray-700 px-4 py-2 rounded-md text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleSearch} className="min-h-11 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500">Buscar</button>
+            <button onClick={clearFilters} className="min-h-11 rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</button>
           </div>
-          <div className="flex rounded-md shadow-sm">
+          <div className="flex flex-wrap rounded-md shadow-sm">
             <button onClick={() => { setViewMode('grouped'); setPage(1) }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-l-md border ${viewMode === 'grouped' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+              className={`inline-flex min-h-11 items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-l-md border ${viewMode === 'grouped' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
               <Squares2X2Icon className="h-4 w-4" /> Por Categoría
             </button>
             <button onClick={() => { setViewMode('list'); setPage(1) }}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-r-md border -ml-px ${viewMode === 'list' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+              className={`inline-flex min-h-11 items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-r-md border -ml-px ${viewMode === 'list' ? 'bg-orange-50 text-orange-700 border-orange-300 z-10' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
               <TableCellsIcon className="h-4 w-4" /> Lista Plana
             </button>
           </div>
@@ -953,20 +963,17 @@ export default function TarifasPageClient() {
         {(search || tipoCliente || categoria || estado) && (
           <div className="mt-3 flex flex-wrap gap-2 items-center">
             <span className="text-xs text-gray-500">Filtros activos:</span>
-            {search && <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">Búsqueda: &quot;{search}&quot; <button onClick={() => { setSearch(''); setSearchInput('') }} className="text-orange-500 hover:text-orange-700">&times;</button></span>}
-            {tipoCliente && <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{tipoCliente} <button onClick={() => setTipoCliente('')} className="text-blue-500 hover:text-blue-700">&times;</button></span>}
-            {categoria && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getCatColor(categoria)}`}>{categoria} <button onClick={() => setCategoria('')} className="hover:opacity-70">&times;</button></span>}
-            {estado && <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">{estado === 'activa' ? 'Activas' : estado === 'inactiva' ? 'Inactivas' : estado === 'web-particular' ? 'Web Part.' : estado === 'web-empresa' ? 'Web Emp.' : 'Web (cualquiera)'} <button onClick={() => setEstado('')} className="text-green-500 hover:text-green-700">&times;</button></span>}
+            {search && <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-0.5 text-xs font-medium text-orange-700">Búsqueda: &quot;{search}&quot; <button onClick={() => { setSearch(''); setSearchInput('') }} className="inline-flex min-h-11 min-w-11 items-center justify-center text-orange-500 hover:text-orange-700">&times;</button></span>}
+            {tipoCliente && <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{tipoCliente} <button onClick={() => setTipoCliente('')} className="inline-flex min-h-11 min-w-11 items-center justify-center text-blue-500 hover:text-blue-700">&times;</button></span>}
+            {categoria && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getCatColor(categoria)}`}>{categoria} <button onClick={() => setCategoria('')} className="inline-flex min-h-11 min-w-11 items-center justify-center hover:opacity-70">&times;</button></span>}
+            {estado && <span className="inline-flex items-center gap-1 rounded-full bg-green-50 px-2.5 py-0.5 text-xs font-medium text-green-700">{estado === 'activa' ? 'Activas' : estado === 'inactiva' ? 'Inactivas' : estado === 'web-particular' ? 'Web Part.' : estado === 'web-empresa' ? 'Web Emp.' : 'Web (cualquiera)'} <button onClick={() => setEstado('')} className="inline-flex min-h-11 min-w-11 items-center justify-center text-green-500 hover:text-green-700">&times;</button></span>}
           </div>
         )}
       </div>
 
       {/* Loading */}
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-          <span className="ml-3 text-gray-500">Cargando tarifas...</span>
-        </div>
+        <TarifaResultsSkeleton />
       ) : (
         <>
           {/* GROUPED VIEW */}
@@ -1067,115 +1074,32 @@ export default function TarifasPageClient() {
 
           {/* Pagination (list view only) */}
           {viewMode === 'list' && listTotalPages > 1 && (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-gray-700">Página {page} de {listTotalPages} ({listTotal} tarifas)</p>
               <div className="flex gap-x-2">
-                {page > 1 && <button onClick={() => setPage(page - 1)} className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50">Anterior</button>}
-                {page < listTotalPages && <button onClick={() => setPage(page + 1)} className="rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-500">Siguiente</button>}
+                {page > 1 && <button onClick={() => setPage(page - 1)} className="min-h-11 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50">Anterior</button>}
+                {page < listTotalPages && <button onClick={() => setPage(page + 1)} className="min-h-11 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-500">Siguiente</button>}
               </div>
             </div>
           )}
         </>
       )}
 
-      {/* Modal de reordenación */}
+      {/* Modal de reordenación, descargado sólo al solicitarlo. */}
       {reorderMode && reorderCategory && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] flex flex-col">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900">Reordenar tarifas</h3>
-                  <p className="text-sm text-gray-500 mt-1">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border ${getCatColor(reorderCategory)}`}>{reorderCategory}</span>
-                  </p>
-                </div>
-                <button onClick={cancelReorder} className="text-gray-400 hover:text-gray-600">
-                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-              {/* Subcategoría tabs */}
-              {(() => {
-                const grupo = grupos.find(g => g.categoria === reorderCategory)
-                if (!grupo) return null
-                const subcats = Array.from(new Set(grupo.tarifas.map(t => t.subcategoria || 'Sin subcategoría')))
-                if (subcats.length <= 1) return null
-                return (
-                  <div className="flex flex-wrap gap-1 mt-3">
-                    {subcats.map(sub => (
-                      <button
-                        key={sub}
-                        onClick={() => changeReorderSubcategory(sub)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                          reorderSubcategory === sub
-                            ? 'bg-orange-600 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {sub}
-                      </button>
-                    ))}
-                  </div>
-                )
-              })()}
-            </div>
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              <p className="text-xs text-gray-400 mb-3">Arrastra para cambiar el orden. El orden se aplica en todas las vistas web.</p>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                <SortableContext items={reorderTarifas.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                  {reorderTarifas.map((tarifa, idx) => (
-                    <SortableReorderItem key={tarifa.id} tarifa={tarifa} index={idx} />
-                  ))}
-                </SortableContext>
-              </DndContext>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
-              <button onClick={cancelReorder} className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cancelar
-              </button>
-              <button onClick={saveReorder} disabled={savingOrder} className="px-4 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-500 disabled:opacity-50">
-                {savingOrder ? 'Guardando...' : 'Guardar orden'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ReorderTarifasModal
+          category={reorderCategory}
+          categoryClassName={getCatColor(reorderCategory)}
+          subcategory={reorderSubcategory}
+          categoryTarifas={grupos.find(grupo => grupo.categoria === reorderCategory)?.tarifas || []}
+          tarifas={reorderTarifas}
+          saving={savingOrder}
+          onSubcategoryChange={changeReorderSubcategory}
+          onTarifasChange={setReorderTarifas}
+          onCancel={cancelReorder}
+          onSave={saveReorder}
+        />
       )}
-    </div>
-  )
-}
-
-// Sortable item component for reorder modal
-function SortableReorderItem({ tarifa, index }: { tarifa: Tarifa; index: number }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tarifa.id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-  }
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className={`flex items-center gap-3 p-3 mb-2 rounded-lg border ${
-        isDragging ? 'bg-orange-50 border-orange-300 shadow-lg' : 'bg-white border-gray-200 hover:border-gray-300'
-      }`}
-    >
-      <button {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-600">
-        <Bars3Icon className="h-5 w-5" />
-      </button>
-      <span className="text-xs font-bold text-gray-400 w-6 text-center">{index + 1}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{tarifa.nombre}</p>
-        {tarifa.nombreComercial && <p className="text-xs text-orange-600 truncate">{tarifa.nombreComercial}</p>}
-      </div>
-      <div className="text-right flex-shrink-0">
-        <p className="text-sm font-semibold text-gray-900">{tarifa.precioConIva.toFixed(2)} €</p>
-        <div className="flex gap-1 justify-end mt-0.5">
-          {tarifa.publicarWebParticular && <span className="inline-flex items-center rounded-full bg-blue-100 text-blue-600 px-1.5 py-0 text-[10px] font-medium">P</span>}
-          {tarifa.publicarWebEmpresa && <span className="inline-flex items-center rounded-full bg-orange-100 text-orange-600 px-1.5 py-0 text-[10px] font-medium">E</span>}
-        </div>
-      </div>
     </div>
   )
 }

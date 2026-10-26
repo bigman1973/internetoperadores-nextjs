@@ -194,11 +194,14 @@ export default function EmpleadoGastosPage() {
     return new Date(f).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
   }
 
+  const supervisorEsperado = session?.user?.role === 'SUPER_ADMIN' || session?.user?.role === 'GERENTE';
+  const reservarVistaSupervisor = loading ? supervisorEsperado : verTodos;
+
   return (
     <div className="max-w-5xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className={reservarVistaSupervisor ? 'min-h-[84px] sm:min-h-0' : undefined}>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ReceiptPercentIcon className="h-7 w-7 text-orange-600" />
             {verTodos ? 'Tickets de Gasto - Todos los empleados' : 'Mis Tickets de Gasto'}
@@ -209,7 +212,7 @@ export default function EmpleadoGastosPage() {
         </div>
         <button
           onClick={() => setShowUpload(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
+          className="flex min-h-11 items-center gap-2 px-4 py-2.5 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors shadow-sm"
         >
           <PlusIcon className="h-5 w-5" />
           Subir Ticket
@@ -217,29 +220,33 @@ export default function EmpleadoGastosPage() {
       </div>
 
       {/* Filtro por empleado (solo SUPER_ADMIN) */}
-      {verTodos && (
-        <div className="mb-4 flex items-center gap-3">
-          <label className="text-sm font-medium text-gray-700">Filtrar por empleado:</label>
-          <select
-            value={filtroEmpleado}
-            onChange={(e) => setFiltroEmpleado(e.target.value)}
-            className="px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400 min-w-[250px]"
-          >
-            <option value="">Todos los empleados</option>
-            {empleados.map(u => (
-              <option key={u.id} value={u.email}>{u.name || u.email}</option>
-            ))}
-          </select>
-          {filtroEmpleado && (
-            <button
-              onClick={() => setFiltroEmpleado('')}
-              className="text-sm text-orange-600 hover:underline"
-            >
-              Limpiar filtro
-            </button>
+      {reservarVistaSupervisor ? (
+        <div className="min-h-[92px] sm:min-h-[60px]">
+          {verTodos && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="text-sm font-medium text-gray-700">Filtrar por empleado:</label>
+              <select
+                value={filtroEmpleado}
+                onChange={(e) => setFiltroEmpleado(e.target.value)}
+                className="min-h-11 min-w-[250px] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+              >
+                <option value="">Todos los empleados</option>
+                {empleados.map(u => (
+                  <option key={u.id} value={u.email}>{u.name || u.email}</option>
+                ))}
+              </select>
+              {filtroEmpleado && (
+                <button
+                  onClick={() => setFiltroEmpleado('')}
+                  className="text-sm text-orange-600 hover:underline"
+                >
+                  Limpiar filtro
+                </button>
+              )}
+            </div>
           )}
         </div>
-      )}
+      ) : null}
 
       {/* Resumen rápido */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -268,7 +275,7 @@ export default function EmpleadoGastosPage() {
       </div>
 
       {/* Tabla de tickets */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${loading ? 'min-h-[249px]' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
@@ -327,7 +334,7 @@ export default function EmpleadoGastosPage() {
                       </td>
                       <td className="px-4 py-3 text-center">
                         {g.archivoUrl && (
-                          <a href={g.archivoUrl} target="_blank" rel="noopener noreferrer" className="p-1 rounded hover:bg-gray-100 inline-block">
+                          <a href={g.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-gray-100">
                             <EyeIcon className="h-4 w-4 text-gray-500" />
                           </a>
                         )}
@@ -347,7 +354,7 @@ export default function EmpleadoGastosPage() {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-lg font-bold text-gray-900">Subir Ticket de Gasto</h2>
-              <button onClick={resetForm} className="p-1 rounded-full hover:bg-gray-100">
+              <button onClick={resetForm} className="flex min-h-11 min-w-11 items-center justify-center rounded-full hover:bg-gray-100">
                 <XMarkIcon className="h-5 w-5 text-gray-500" />
               </button>
             </div>
@@ -391,7 +398,7 @@ export default function EmpleadoGastosPage() {
                       <button
                         type="button"
                         onClick={() => cameraInputRef.current?.click()}
-                        className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors"
+                        className="flex min-h-28 flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors"
                       >
                         <CameraIcon className="h-8 w-8 text-orange-500" />
                         <span className="text-sm font-medium text-gray-700">Hacer foto</span>
@@ -399,7 +406,7 @@ export default function EmpleadoGastosPage() {
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors"
+                        className="flex min-h-28 flex-col items-center gap-2 p-4 border-2 border-dashed rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-colors"
                       >
                         <ArrowUpTrayIcon className="h-8 w-8 text-orange-500" />
                         <span className="text-sm font-medium text-gray-700">Archivo</span>
@@ -438,7 +445,7 @@ export default function EmpleadoGastosPage() {
                     }}
                     onFocus={() => { setShowClienteDropdown(true); buscarClientes(clienteSearch); }}
                     placeholder="Buscar cliente o seleccionar Internet Operadores..."
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                    className="min-h-11 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                   />
                   {clienteNombre && (
                     <p className="text-xs text-green-600 mt-1">Seleccionado: {clienteNombre}</p>
@@ -454,7 +461,7 @@ export default function EmpleadoGastosPage() {
                             setClienteSearch(c.nombre);
                             setShowClienteDropdown(false);
                           }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-orange-50 ${
+                          className={`min-h-11 w-full text-left px-3 py-2 text-sm hover:bg-orange-50 ${
                             c.esEstructura ? 'font-medium text-orange-700 bg-orange-25' : 'text-gray-700'
                           }`}
                         >
@@ -475,7 +482,7 @@ export default function EmpleadoGastosPage() {
                     value={proyecto}
                     onChange={(e) => setProyecto(e.target.value)}
                     placeholder="Nombre del proyecto (opcional)"
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                    className="min-h-11 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                   />
                 </div>
 
@@ -522,7 +529,7 @@ export default function EmpleadoGastosPage() {
                     value={concepto}
                     onChange={(e) => setConcepto(e.target.value)}
                     placeholder="Breve descripción del gasto"
-                    className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
+                    className="min-h-11 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-orange-200 focus:border-orange-400"
                   />
                   <p className="text-xs text-gray-400 mt-1">El OCR extraerá el concepto automáticamente si lo dejas vacío</p>
                 </div>
@@ -531,7 +538,7 @@ export default function EmpleadoGastosPage() {
                 <button
                   type="submit"
                   disabled={!selectedFile || !clienteNombre || uploading}
-                  className="w-full py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="min-h-11 w-full py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Enviar para aprobación
                 </button>

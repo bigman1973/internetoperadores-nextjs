@@ -118,10 +118,10 @@ export default function AprobarTicketsPage() {
       </div>
 
       {/* Resumen */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 gap-4 mb-6 sm:grid-cols-3">
         <button
           onClick={() => setFiltroEstado('PENDIENTE_APROBACION')}
-          className={`bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'PENDIENTE_APROBACION' ? 'ring-2 ring-orange-300' : ''}`}
+          className={`min-h-24 bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'PENDIENTE_APROBACION' ? 'ring-2 ring-orange-300' : ''}`}
         >
           <div className="flex items-center gap-2">
             <ClockIcon className="h-5 w-5 text-amber-500" />
@@ -131,7 +131,7 @@ export default function AprobarTicketsPage() {
         </button>
         <button
           onClick={() => setFiltroEstado('APROBADO')}
-          className={`bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'APROBADO' ? 'ring-2 ring-orange-300' : ''}`}
+          className={`min-h-24 bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'APROBADO' ? 'ring-2 ring-orange-300' : ''}`}
         >
           <div className="flex items-center gap-2">
             <CheckCircleIcon className="h-5 w-5 text-green-500" />
@@ -141,7 +141,7 @@ export default function AprobarTicketsPage() {
         </button>
         <button
           onClick={() => setFiltroEstado('RECHAZADO')}
-          className={`bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'RECHAZADO' ? 'ring-2 ring-orange-300' : ''}`}
+          className={`min-h-24 bg-white rounded-xl border p-4 text-left transition-colors ${filtroEstado === 'RECHAZADO' ? 'ring-2 ring-orange-300' : ''}`}
         >
           <div className="flex items-center gap-2">
             <XCircleIcon className="h-5 w-5 text-red-500" />
@@ -152,7 +152,7 @@ export default function AprobarTicketsPage() {
       </div>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
+      <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${loading ? 'min-h-[340px]' : ''}`}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b">
@@ -209,7 +209,7 @@ export default function AprobarTicketsPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       {g.archivoUrl && (
-                        <a href={g.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex p-1.5 rounded hover:bg-gray-100">
+                        <a href={g.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded hover:bg-gray-100">
                           <EyeIcon className="h-4 w-4 text-gray-500" />
                         </a>
                       )}
@@ -220,14 +220,14 @@ export default function AprobarTicketsPage() {
                           <button
                             onClick={() => aprobar(g.id)}
                             disabled={procesando === g.id}
-                            className="px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                            className="min-h-11 px-3 py-1.5 text-xs font-medium bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                           >
                             Aprobar
                           </button>
                           <button
                             onClick={() => setShowRechazoModal(g.id)}
                             disabled={procesando === g.id}
-                            className="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-50"
+                            className="min-h-11 px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 disabled:opacity-50"
                           >
                             Rechazar
                           </button>
@@ -270,19 +270,19 @@ export default function AprobarTicketsPage() {
               onChange={(e) => setMotivoRechazo(e.target.value)}
               placeholder="Motivo del rechazo..."
               rows={3}
-              className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400"
+              className="min-h-11 w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-200 focus:border-red-400"
             />
             <div className="flex gap-2 mt-4">
               <button
                 onClick={() => { setShowRechazoModal(null); setMotivoRechazo(''); }}
-                className="flex-1 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
+                className="min-h-11 flex-1 py-2 border rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={() => rechazar(showRechazoModal)}
                 disabled={!motivoRechazo.trim()}
-                className="flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
+                className="min-h-11 flex-1 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50"
               >
                 Confirmar rechazo
               </button>

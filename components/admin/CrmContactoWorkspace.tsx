@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeftIcon,
@@ -32,11 +33,13 @@ import CrmContactoDataEditor, {
   type CrmContactPropertyDefinition,
   type CrmContactSaveResult,
 } from './CrmContactoDataEditor'
-import CrmContactoSettings from './CrmContactoSettings'
-import CrmActivityComposer, { type CrmActivityType } from './CrmActivityComposer'
-import CrmCallComposer from './CrmCallComposer'
-import CrmCompanyPicker from './CrmCompanyPicker'
+import type { CrmActivityType } from './CrmActivityComposer'
 import { useRole } from './RoleContext'
+
+const CrmContactoSettings = dynamic(() => import('./CrmContactoSettings'), { loading: () => <PanelLoading label="Cargando ajustes…" /> })
+const CrmActivityComposer = dynamic(() => import('./CrmActivityComposer'), { loading: () => <PanelLoading label="Cargando formulario de actividad…" /> })
+const CrmCallComposer = dynamic(() => import('./CrmCallComposer'), { loading: () => <PanelLoading label="Cargando formulario de llamada…" /> })
+const CrmCompanyPicker = dynamic(() => import('./CrmCompanyPicker'), { loading: () => <PanelLoading label="Cargando selector de empresa…" /> })
 
 
 type Deal = {
@@ -438,6 +441,10 @@ export default function CrmContactoWorkspace({ contact, statusNotice, customer, 
 
 function Panel({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <section className={`rounded-2xl border border-slate-200/80 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] ${className}`}>{children}</section>
+}
+
+function PanelLoading({ label }: { label: string }) {
+  return <div role="status" aria-label={label} className="min-h-11 animate-pulse rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-500">{label}</div>
 }
 
 function AdvancedEditorSkeleton() {

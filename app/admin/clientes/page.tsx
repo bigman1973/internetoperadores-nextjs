@@ -6,8 +6,6 @@ import Link from 'next/link'
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline'
 import ClientesTable from '../../../components/admin/ClientesTable'
 import SyncClientesButton from '../../../components/admin/SyncClientesButton'
-import { Prisma } from '@prisma/client'
-
 interface SearchParams {
   search?: string
   newsletter?: string
@@ -222,6 +220,56 @@ async function getClientes(searchParams: SearchParams) {
       orderBy: { nombre: 'asc' },
       skip,
       take: pageSize,
+      // ClientesTable sólo usa estos datos. Evitar serializar el registro completo
+      // (incluido passwordHash y otros campos que no se muestran) reduce el trabajo
+      // de la consulta, el payload de React Flight y la hidratación inicial.
+      select: {
+        id: true,
+        email: true,
+        ispGestionId: true,
+        nombre: true,
+        ultimoAcceso: true,
+        newsletterSuscrito: true,
+        createdAt: true,
+        updatedAt: true,
+        clienteIdIsp: true,
+        codigo: true,
+        nif: true,
+        cif: true,
+        personaFisica: true,
+        segmentoCrm: true,
+        segmentoCrmActualizadoPor: true,
+        nombreComercial: true,
+        telefono: true,
+        movil: true,
+        fax: true,
+        web: true,
+        movilSms: true,
+        tipoCalle: true,
+        domicilio: true,
+        numero: true,
+        piso: true,
+        puerta: true,
+        municipio: true,
+        localidad: true,
+        codigoPostal: true,
+        provincia: true,
+        pais: true,
+        cuentaCargo: true,
+        formaPago: true,
+        tipoIva: true,
+        facturaElectronica: true,
+        facturaMail: true,
+        facturaPapel: true,
+        representante: true,
+        nifRepresentante: true,
+        activo: true,
+        baneado: true,
+        fechaAlta: true,
+        fechaBaja: true,
+        idioma: true,
+        recibePublicidad: true,
+      },
     }),
     prisma.clienteWeb.count({ where }),
     prisma.clienteWeb.count({ where: { activo: true } }),
@@ -348,7 +396,7 @@ async function getClientes(searchParams: SearchParams) {
 
   // Contar activos con facturación: contratos activos O facturas emitidas en el año en curso
   const anioActual = new Date().getFullYear()
-  const [allContratosActivos, facturasAnioActual] = await Promise.all([
+  const [allContratosActivos, facturasAnioActual, allClientesActivos] = await Promise.all([
     prisma.contratoServicio.findMany({
       where: { activo: true },
       select: { clienteId: true },
@@ -359,13 +407,13 @@ async function getClientes(searchParams: SearchParams) {
       select: { codigoCliente: true },
       distinct: ['codigoCliente'],
     }),
+    prisma.clienteWeb.findMany({
+      where: { activo: true },
+      select: { clienteIdIsp: true, personaFisica: true, codigo: true },
+    }),
   ])
   const idsConContratosGlobal = new Set(allContratosActivos.map(c => c.clienteId))
   const codigosConFacturas = new Set(facturasAnioActual.map(f => f.codigoCliente))
-  const allClientesActivos = await prisma.clienteWeb.findMany({
-    where: { activo: true },
-    select: { clienteIdIsp: true, personaFisica: true, codigo: true },
-  })
   const clientesConFactList = allClientesActivos.filter(c => 
     (c.clienteIdIsp && idsConContratosGlobal.has(c.clienteIdIsp)) ||
     (c.codigo && codigosConFacturas.has(c.codigo))
@@ -398,11 +446,11 @@ export default async function ClientesPage({
             Gestiona los clientes registrados en la plataforma
           </p>
         </div>
-        <div className="mt-4 sm:mt-0 flex gap-x-3">
+        <div className="mt-4 flex flex-wrap gap-3 sm:mt-0">
           <SyncClientesButton />
           <Link
             href="/admin/clientes/nuevo"
-            className="inline-flex items-center gap-x-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500"
+            className="inline-flex min-h-11 items-center gap-x-2 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-500"
           >
             <PlusIcon className="h-5 w-5" />
             Nuevo Cliente
@@ -454,7 +502,7 @@ export default async function ClientesPage({
                     id="search"
                     defaultValue={resolvedSearchParams.search}
                     placeholder="Nombre, email, NIF, CIF, teléfono, municipio..."
-                    className="block w-full rounded-md border-gray-300 pl-10 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                    className="block min-h-11 w-full rounded-md border-gray-300 pl-10 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                   />
                 </div>
               </div>
@@ -464,7 +512,7 @@ export default async function ClientesPage({
                   id="estado"
                   name="estado"
                   defaultValue={estadoActual}
-                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block min-h-11 w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="activo">Solo Activos</option>
                   <option value="activo_con_fact">Activos con facturación</option>
@@ -479,7 +527,7 @@ export default async function ClientesPage({
                   id="segmento"
                   name="segmento"
                   defaultValue={resolvedSearchParams.segmento}
-                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block min-h-11 w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todas</option>
                   <option value="PARTICULAR">Particulares</option>
@@ -493,7 +541,7 @@ export default async function ClientesPage({
                   id="tipo"
                   name="tipo"
                   defaultValue={resolvedSearchParams.tipo}
-                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block min-h-11 w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="fisica">Persona Física</option>
@@ -506,7 +554,7 @@ export default async function ClientesPage({
                   id="facturacion"
                   name="facturacion"
                   defaultValue={resolvedSearchParams.facturacion}
-                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block min-h-11 w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="mensual">Mensual</option>
@@ -521,7 +569,7 @@ export default async function ClientesPage({
                   id="newsletter"
                   name="newsletter"
                   defaultValue={resolvedSearchParams.newsletter}
-                  className="mt-1 block w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="mt-1 block min-h-11 w-full rounded-md border-gray-300 text-gray-900 focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">Todos</option>
                   <option value="suscrito">Suscritos</option>
@@ -529,9 +577,9 @@ export default async function ClientesPage({
                 </select>
               </div>
             </div>
-            <div className="flex gap-x-3">
-              <button type="submit" className="bg-orange-600 text-white px-4 py-2 rounded-md text-sm font-semibold hover:bg-orange-500">Aplicar Filtros</button>
-              <Link href="/admin/clientes" className="bg-white text-gray-900 px-4 py-2 rounded-md text-sm font-semibold ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</Link>
+            <div className="flex flex-wrap gap-3">
+              <button type="submit" className="min-h-11 rounded-md bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-500">Aplicar Filtros</button>
+              <Link href="/admin/clientes" className="inline-flex min-h-11 items-center rounded-md bg-white px-4 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50">Limpiar</Link>
             </div>
           </form>
         </div>
@@ -541,7 +589,7 @@ export default async function ClientesPage({
 
       {/* Paginación */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between rounded-lg bg-white shadow border border-gray-200 px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-white shadow border border-gray-200 px-4 py-3">
           <p className="text-sm text-gray-700">
             Mostrando <span className="font-medium">{(page - 1) * 30 + 1}</span> a{' '}
             <span className="font-medium">{Math.min(page * 30, total)}</span> de{' '}
@@ -551,7 +599,7 @@ export default async function ClientesPage({
             {page > 1 && (
               <Link
                 href={`/admin/clientes?${new URLSearchParams({ ...resolvedSearchParams, page: (page - 1).toString() }).toString()}`}
-                className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50"
+                className="inline-flex min-h-11 items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50"
               >
                 Anterior
               </Link>
@@ -559,7 +607,7 @@ export default async function ClientesPage({
             {page < totalPages && (
               <Link
                 href={`/admin/clientes?${new URLSearchParams({ ...resolvedSearchParams, page: (page + 1).toString() }).toString()}`}
-                className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50"
+                className="inline-flex min-h-11 items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 ring-1 ring-gray-300 hover:bg-gray-50"
               >
                 Siguiente
               </Link>

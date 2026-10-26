@@ -22,7 +22,8 @@ export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
     'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
     'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
     'estadisticas', 'usuarios', 'subida-precios', 'personal',
-    'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios'
+    'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios',
+    'asistente', 'asistente.chat', 'asistente.conocimiento', 'asistente.conversaciones', 'asistente.leads', 'asistente.aprendizaje', 'asistente.analitica', 'asistente.propuestas', 'asistente.configuracion'
   ],
   MARKETING: [
     'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'
@@ -76,6 +77,15 @@ const SECTION_TO_AREA: Record<string, string> = {
   'historial': 'admin.historial',
   'configuracion': 'admin.configuracion',
   'portal-empleado': 'admin',
+  'asistente': 'admin.asistente',
+  'asistente.chat': 'admin.asistente.chat',
+  'asistente.conocimiento': 'admin.asistente.conocimiento',
+  'asistente.conversaciones': 'admin.asistente.conversaciones',
+  'asistente.leads': 'admin.asistente.leads',
+  'asistente.aprendizaje': 'admin.asistente.aprendizaje',
+  'asistente.analitica': 'admin.asistente.analitica',
+  'asistente.propuestas': 'admin.asistente.propuestas',
+  'asistente.configuracion': 'admin.asistente.configuracion',
 }
 
 // Interfaz de permisos granulares

@@ -1,10 +1,13 @@
 'use client';
 
-import PrivateMovementFiles from '@/components/finanzas/reconciliation-v2/PrivateMovementFiles';
+import dynamic from 'next/dynamic';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { FunnelIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 import { CATEGORIAS_MOVIMIENTO, TIPOS_MOVIMIENTO } from '@/lib/finanzas/movement-catalog';
 import BankImportWarnings, { type ContinuidadSaldo } from '@/components/finanzas/BankImportWarnings';
+
+// Sólo se muestra después de pulsar una fila; no forma parte del listado inicial.
+const PrivateMovementFiles = dynamic(() => import('@/components/finanzas/reconciliation-v2/PrivateMovementFiles'));
 
 interface Movimiento {
   id: string;
@@ -140,7 +143,7 @@ export default function MovimientosPage() {
             {total === null ? 'Total no disponible' : `${total.toLocaleString('es-ES')} movimientos`}
           </p>
         </div>
-        <a href="/admin/finanzas/estado-cuentas" className="inline-flex w-fit rounded-lg border-2 border-slate-700 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2">
+        <a href="/admin/finanzas/estado-cuentas" className="inline-flex min-h-11 w-fit items-center rounded-lg border-2 border-slate-700 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2">
           Ver cobertura de extractos
         </a>
       </header>
@@ -164,29 +167,29 @@ export default function MovimientosPage() {
       <section aria-label="Filtros de movimientos" className="flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4">
         <FunnelIcon className="h-5 w-5 text-slate-700" aria-hidden="true" />
         <label className="sr-only" htmlFor="cuenta">Cuenta</label>
-        <select id="cuenta" data-testid="b3-filter-cuenta" value={filtros.cuentaId} onChange={event => { setFiltros({ ...filtros, cuentaId: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="cuenta" data-testid="b3-filter-cuenta" value={filtros.cuentaId} onChange={event => { setFiltros({ ...filtros, cuentaId: event.target.value }); setPage(1); }} className="min-h-11 min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todas las cuentas</option>
           {cuentas.map(cuenta => <option key={cuenta.id || cuenta.banco} value={cuenta.id || ''}>{cuenta.banco}{cuenta.alias ? ` (${cuenta.alias})` : ''}</option>)}
         </select>
         <label className="sr-only" htmlFor="categoria">Categoría</label>
-        <select id="categoria" data-testid="b3-filter-categoria" value={filtros.categoria} onChange={event => { setFiltros({ ...filtros, categoria: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="categoria" data-testid="b3-filter-categoria" value={filtros.categoria} onChange={event => { setFiltros({ ...filtros, categoria: event.target.value }); setPage(1); }} className="min-h-11 min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todas las categorías</option>
           {CATEGORIAS.map(categoria => <option key={categoria} value={categoria}>{categoria}</option>)}
         </select>
         <label className="sr-only" htmlFor="conciliado">Estado de conciliación</label>
-        <select id="conciliado" value={filtros.conciliado} onChange={event => { setFiltros({ ...filtros, conciliado: event.target.value }); setPage(1); }} className="min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
+        <select id="conciliado" value={filtros.conciliado} onChange={event => { setFiltros({ ...filtros, conciliado: event.target.value }); setPage(1); }} className="min-h-11 min-w-0 max-w-full w-full sm:w-auto rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950">
           <option value="">Todos los estados</option>
           <option value="true">Conciliados existentes</option>
           <option value="false">Pendientes existentes</option>
         </select>
         <label className="text-sm font-medium text-slate-900" htmlFor="desde">Desde</label>
-        <input id="desde" type="date" value={filtros.desde} onChange={event => { setFiltros({ ...filtros, desde: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
+        <input id="desde" type="date" value={filtros.desde} onChange={event => { setFiltros({ ...filtros, desde: event.target.value }); setPage(1); }} className="min-h-11 rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
         <label className="text-sm font-medium text-slate-900" htmlFor="hasta">Hasta</label>
-        <input id="hasta" type="date" value={filtros.hasta} onChange={event => { setFiltros({ ...filtros, hasta: event.target.value }); setPage(1); }} className="rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
+        <input id="hasta" type="date" value={filtros.hasta} onChange={event => { setFiltros({ ...filtros, hasta: event.target.value }); setPage(1); }} className="min-h-11 rounded-lg border-2 border-slate-500 px-3 py-2 text-sm text-slate-950" />
       </section>
 
-      <section className="overflow-hidden rounded-xl border bg-white" aria-label="Listado de movimientos">
-        <div className="overflow-x-auto">
+      <section className="min-h-[24rem] overflow-hidden rounded-xl border bg-white" aria-label="Listado de movimientos">
+        <div className="min-h-[24rem] overflow-x-auto">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="border-b bg-slate-100 text-slate-950">
               <tr>
@@ -213,25 +216,25 @@ export default function MovimientosPage() {
                   <Fragment key={movimiento.id}><tr className="align-top hover:bg-slate-50">
                     <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-800">{formatFecha(movimiento.fechaOperacion)}</td>
                     <td className="px-4 py-3"><span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-medium text-slate-950">{movimiento.cuenta?.banco || 'Cuenta no disponible'}</span></td>
-                    <td className="max-w-sm px-4 py-3 text-slate-950" title={movimiento.concepto}>{movimiento.concepto}<button type="button" aria-expanded={archivosAbiertos===movimiento.id} onClick={()=>setArchivosAbiertos(archivosAbiertos===movimiento.id?null:movimiento.id)} className="mt-2 block text-xs font-semibold text-orange-800 underline">Archivos y justificantes</button></td>
+                    <td className="max-w-sm px-4 py-3 text-slate-950" title={movimiento.concepto}>{movimiento.concepto}<button type="button" aria-expanded={archivosAbiertos===movimiento.id} onClick={()=>setArchivosAbiertos(archivosAbiertos===movimiento.id?null:movimiento.id)} className="mt-2 block min-h-11 text-xs font-semibold text-orange-800 underline">Archivos y justificantes</button></td>
                     <td className={`whitespace-nowrap px-4 py-3 text-right font-bold ${movimiento.importe >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>{formatEUR(movimiento.importe)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-slate-900">{movimiento.saldo === null || movimiento.saldo === undefined ? 'Sin saldo' : formatEUR(movimiento.saldo)}</td>
                     <td className="px-4 py-3">
                       {categoria.isUnknown ? (
                         <span data-testid="b3-categoria-historica" className="inline-flex items-center gap-1 rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-950"><InformationCircleIcon className="h-4 w-4" aria-hidden="true" />Histórico sin normalizar: {categoria.raw || 'Sin categoría'}</span>
                       ) : editando === movimiento.id ? (
-                        <select aria-label="Categoría cerrada" defaultValue={movimiento.categoria || ''} onChange={event => void actualizarCategoria(movimiento.id, event.target.value)} onBlur={() => setEditando(null)} autoFocus className="w-full rounded border-2 border-slate-600 px-2 py-1 text-xs text-slate-950">
+                        <select aria-label="Categoría cerrada" defaultValue={movimiento.categoria || ''} onChange={event => void actualizarCategoria(movimiento.id, event.target.value)} onBlur={() => setEditando(null)} autoFocus className="min-h-11 w-full rounded border-2 border-slate-600 px-2 py-1 text-xs text-slate-950">
                           <option value="" disabled>Selecciona categoría</option>
                           {CATEGORIAS.map(item => <option key={item} value={item}>{item}</option>)}
                         </select>
                       ) : (
-                        <button type="button" onClick={() => setEditando(movimiento.id)} className="rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-950 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2">
+                        <button type="button" onClick={() => setEditando(movimiento.id)} className="min-h-11 rounded bg-blue-100 px-2 py-1 text-xs font-bold text-blue-950 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-800 focus:ring-offset-2">
                           {movimiento.categoria || 'Sin categoría'}
                         </button>
                       )}
                     </td>
                     <td className="px-4 py-3">{tipo.isUnknown ? <span data-testid="b3-tipo-historico" className="rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-950">Histórico sin normalizar: {tipo.raw || 'Sin tipo'}</span> : <span className="text-xs text-slate-900">{movimiento.tipoPago || 'Sin tipo'}</span>}</td>
-                  </tr>{archivosAbiertos===movimiento.id && <tr><td colSpan={7} className="p-3"><PrivateMovementFiles movimientoId={movimiento.id} compact /><a href={`/admin/finanzas/conciliacion-v2?movimientoId=${encodeURIComponent(movimiento.id)}`} className="mt-2 inline-block text-sm font-semibold text-orange-800 underline">Abrir conciliación de este movimiento</a></td></tr>}</Fragment>
+                  </tr>{archivosAbiertos===movimiento.id && <tr><td colSpan={7} className="p-3"><PrivateMovementFiles movimientoId={movimiento.id} compact /><a href={`/admin/finanzas/conciliacion-v2?movimientoId=${encodeURIComponent(movimiento.id)}`} className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-orange-800 underline">Abrir conciliación de este movimiento</a></td></tr>}</Fragment>
                 );
               })}
             </tbody>
@@ -241,8 +244,8 @@ export default function MovimientosPage() {
           <nav aria-label="Paginación de movimientos" className="flex items-center justify-between border-t px-4 py-3">
             <p className="text-xs text-slate-800">Mostrando {(page - 1) * 50 + 1}–{Math.min(page * 50, total)} de {total}</p>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} className="rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Anterior</button>
-              <button type="button" onClick={() => setPage(current => current + 1)} disabled={page * 50 >= total} className="rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Siguiente</button>
+              <button type="button" onClick={() => setPage(current => Math.max(1, current - 1))} disabled={page === 1} className="min-h-11 rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Anterior</button>
+              <button type="button" onClick={() => setPage(current => current + 1)} disabled={page * 50 >= total} className="min-h-11 rounded border-2 border-slate-700 px-3 py-1 text-sm font-semibold disabled:opacity-50">Siguiente</button>
             </div>
           </nav>
         )}

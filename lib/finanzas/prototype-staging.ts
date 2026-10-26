@@ -1,3 +1,4 @@
+import { cache } from 'react'
 import prisma from '@/lib/prisma'
 
 const STAGING_DATABASE = 'io_staging_finanzas'
@@ -126,12 +127,12 @@ function runtimeInputFromProcess(): FinanceEasyRuntimeInput {
   }
 }
 
-async function liveIdentity(): Promise<{ databaseName: string; databaseUser: string } | null> {
+const liveIdentity = cache(async function liveIdentity(): Promise<{ databaseName: string; databaseUser: string } | null> {
   const rows = await prisma.$queryRaw<Array<{ database_name: string; database_user: string }>>`
     SELECT current_database() AS database_name, current_user AS database_user LIMIT 1
   `
   return rows.length === 1 ? { databaseName: rows[0].database_name, databaseUser: rows[0].database_user } : null
-}
+})
 
 function expectedIdentity(runtime: FinanceEasyRuntime) {
   return runtime === 'staging'

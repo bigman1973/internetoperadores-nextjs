@@ -318,7 +318,7 @@ export default function ContactoPage() {
                   <a href="tel:+34900730034" className="text-xl font-bold text-orange-600 hover:text-orange-700">
                     900 730 034
                   </a>
-                  <p className="text-sm text-gray-500 mt-1">Lunes a Viernes, 9:00 - 19:00</p>
+                  <p className="text-sm text-gray-500 mt-1">Lunes a viernes, 09:00–18:00 (hora peninsular)</p>
                 </div>
 
                 {/* WhatsApp */}

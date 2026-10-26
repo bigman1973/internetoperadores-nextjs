@@ -260,6 +260,16 @@ export default function GastosExtrasPage() {
       </div>
 
       {/* KPIs */}
+      {loading && (
+        <div className="grid grid-cols-2 gap-4 mb-6 md:grid-cols-6" aria-busy="true">
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="min-h-[92px] animate-pulse rounded-xl border bg-white p-4">
+              <div className="h-3 w-3/5 rounded bg-gray-200"></div>
+              <div className="mt-3 h-7 w-1/2 rounded bg-gray-100"></div>
+            </div>
+          ))}
+        </div>
+      )}
       {!loading && (
         <div className={`grid gap-4 mb-6 ${tab === 'gastos' ? 'grid-cols-2 md:grid-cols-6' : 'grid-cols-2 md:grid-cols-4'}`}>
           {tab === 'gastos' ? (<>
@@ -311,6 +321,14 @@ export default function GastosExtrasPage() {
       )}
 
       {/* Desglose por empleado */}
+      {loading && (
+        <div className="min-h-[220px] animate-pulse rounded-xl border bg-white p-4 mb-6 md:min-h-[264px]" aria-hidden="true">
+          <div className="h-5 w-32 rounded bg-gray-200"></div>
+          <div className="mt-4 space-y-3">
+            {[1, 2, 3].map(i => <div key={i} className="h-4 rounded bg-gray-100"></div>)}
+          </div>
+        </div>
+      )}
       {!loading && kpis.porEmpleado && kpis.porEmpleado.length > 0 && !filtroEmpleado && (
         <div className="bg-white border rounded-xl p-4 mb-6">
           <h3 className="font-semibold text-gray-900 mb-3">Por empleado</h3>
@@ -332,7 +350,12 @@ export default function GastosExtrasPage() {
 
       {/* Tabla */}
       {loading ? (
-        <div className="text-center py-12 text-gray-500">Cargando...</div>
+        <div className="min-h-[120px] animate-pulse overflow-x-auto rounded-xl border bg-white md:min-h-[216px]" aria-busy="true">
+          <div className="h-12 border-b bg-gray-50"></div>
+          <div className="space-y-3 p-4">
+            {[1, 2].map(i => <div key={i} className="h-4 rounded bg-gray-100"></div>)}
+          </div>
+        </div>
       ) : tab === 'gastos' ? (
         <div className="bg-white border rounded-xl overflow-x-auto">
           <table className="w-full text-sm">

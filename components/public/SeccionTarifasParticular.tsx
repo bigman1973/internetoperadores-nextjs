@@ -1,4 +1,3 @@
-'use client';
 import Link from 'next/link';
 import TarifaCard from './TarifaCard';
 
@@ -75,7 +74,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
           <div className="max-w-7xl mx-auto px-4 lg:px-8">
             <div className="flex items-center justify-between h-16 sm:h-20">
               <Link href="/particular" className="flex items-center">
-                <img src="/logo_transparent.png" alt="Internet Operadores" className="h-10 sm:h-12 lg:h-14" />
+                <img src="/logo_transparent.png" alt="Internet Operadores" width="247" height="119" className="h-10 w-auto sm:h-12 lg:h-14" />
               </Link>
               <nav className="hidden md:flex items-center gap-8">
                 <Link href="/internet" className={`text-base font-medium transition-colors ${seccion === 'internet' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Internet</Link>
@@ -83,9 +82,24 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
                 <Link href="/packs" className={`text-base font-medium transition-colors ${seccion === 'packs' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Packs</Link>
                 <Link href="/mas-vendido" className={`text-base font-medium transition-colors ${seccion === 'mas-vendido' ? 'text-orange-500' : 'text-gray-700 hover:text-orange-500'}`}>Más Vendido</Link>
               </nav>
-              <Link href="#cobertura" className="px-6 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm">
-                Comprobar Cobertura
-              </Link>
+              <div className="flex items-center gap-2">
+                <Link href="#cobertura" className="inline-flex min-h-11 items-center px-6 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-all shadow-sm">
+                  Comprobar Cobertura
+                </Link>
+                <details className="relative md:hidden">
+                  <summary className="flex min-h-11 min-w-11 list-none items-center justify-center rounded-lg border border-gray-200 text-gray-700 marker:hidden [&::-webkit-details-marker]:hidden" aria-label="Abrir menú de navegación">
+                    <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                    </svg>
+                  </summary>
+                  <nav className="absolute right-0 top-full z-50 mt-2 flex w-52 flex-col rounded-lg border border-gray-200 bg-white p-2 shadow-lg" aria-label="Navegación principal móvil">
+                    <Link href="/internet" className={`flex min-h-11 items-center rounded-md px-3 text-sm font-medium transition-colors ${seccion === 'internet' ? 'bg-orange-50 text-orange-500' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-500'}`}>Internet</Link>
+                    <Link href="/movil" className={`flex min-h-11 items-center rounded-md px-3 text-sm font-medium transition-colors ${seccion === 'movil' ? 'bg-orange-50 text-orange-500' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-500'}`}>Móvil</Link>
+                    <Link href="/packs" className={`flex min-h-11 items-center rounded-md px-3 text-sm font-medium transition-colors ${seccion === 'packs' ? 'bg-orange-50 text-orange-500' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-500'}`}>Packs</Link>
+                    <Link href="/mas-vendido" className={`flex min-h-11 items-center rounded-md px-3 text-sm font-medium transition-colors ${seccion === 'mas-vendido' ? 'bg-orange-50 text-orange-500' : 'text-gray-700 hover:bg-orange-50 hover:text-orange-500'}`}>Más Vendido</Link>
+                  </nav>
+                </details>
+              </div>
             </div>
           </div>
         </div>
@@ -128,7 +142,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
                 <div className="text-center mt-12">
                   <Link
                     href={`/tarifas/particular?seccion=${seccion}`}
-                    className="inline-flex items-center gap-2 px-8 py-4 border-2 border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors text-lg"
+                    className="inline-flex min-h-11 items-center gap-2 px-8 py-4 border-2 border-orange-500 text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors text-lg"
                   >
                     Ver todas las tarifas ({totalTarifas})
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -141,7 +155,7 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
           ) : (
             <div className="text-center py-12">
               <p className="text-gray-500 text-lg mb-6">Estamos preparando nuestras tarifas de {titulo.toLowerCase()}.</p>
-              <Link href="/contacto" className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
+              <Link href="/contacto" className="inline-flex min-h-11 items-center px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
                 Contactar para más información
               </Link>
             </div>
@@ -155,10 +169,10 @@ export default function SeccionTarifasParticular({ titulo, subtitulo, descripcio
           <h2 className="text-3xl font-bold text-white mb-4">¿No encuentras lo que buscas?</h2>
           <p className="text-gray-400 text-lg mb-8">Contacta con nosotros y te ayudaremos a encontrar la tarifa perfecta para ti.</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a href="tel:+34900730034" className="px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
+            <a href="tel:+34900730034" className="inline-flex min-h-11 items-center px-8 py-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors text-lg">
               Llamar: 900 730 034
             </a>
-            <Link href="/contacto" className="px-8 py-4 border-2 border-white text-white rounded-lg font-semibold hover:bg-white/10 transition-colors text-lg">
+            <Link href="/contacto" className="inline-flex min-h-11 items-center px-8 py-4 border-2 border-white text-white rounded-lg font-semibold hover:bg-white/10 transition-colors text-lg">
               Contactar
             </Link>
           </div>

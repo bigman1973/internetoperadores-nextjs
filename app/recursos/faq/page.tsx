@@ -19,6 +19,10 @@ const faqs = [
       {
         pregunta: '¿Qué velocidades ofrecéis para empresas?',
         respuesta: 'Ofrecemos conexiones simétricas desde 100 Mbps hasta 10 Gbps, dependiendo de las necesidades de tu empresa y la infraestructura disponible en tu zona.'
+      },
+      {
+        pregunta: '¿Tenéis cobertura de fibra en mi ciudad o dirección?',
+        respuesta: 'La cobertura de fibra depende de la dirección exacta, no sólo de la ciudad. No podemos confirmar disponibilidad sin comprobarla. ¿Cuál es tu código postal? Puedes solicitar una comprobación de cobertura indicando el código postal y si es para empresa u hogar, o hablar con una persona. El código postal orienta la consulta, pero no garantiza cobertura; el equipo necesitará verificar la dirección antes de confirmarla.'
       }
     ]
   },
@@ -27,11 +31,23 @@ const faqs = [
     preguntas: [
       {
         pregunta: '¿Qué incluye el soporte 24/7?',
-        respuesta: 'Nuestro soporte 24/7 incluye atención telefónica con técnicos especializados, monitorización proactiva de tu conexión, y respuesta a incidencias en menos de 4 horas para clientes empresa.'
+        respuesta: 'El servicio de soporte 24/7 contratado incluye atención telefónica con técnicos especializados, monitorización proactiva de tu conexión, y respuesta a incidencias en menos de 4 horas para clientes empresa, según las condiciones de su servicio. No es el horario de atención general.'
       },
       {
         pregunta: '¿Cómo puedo contactar con soporte técnico?',
-        respuesta: 'Puedes contactarnos por teléfono (disponible 24/7), WhatsApp, email o a través del área de cliente. Para emergencias, recomendamos siempre el teléfono.'
+        respuesta: 'Puedes contactarnos por teléfono, WhatsApp, email o a través del área de cliente. La atención general es de lunes a viernes, 09:00–18:00 (hora peninsular); para incidencias con soporte 24/7 contratado, utiliza el canal y las condiciones de tu servicio. Para emergencias, recomendamos siempre el teléfono.'
+      },
+      {
+        pregunta: '¿Cuál es vuestro horario de atención?',
+        respuesta: 'Nuestro horario de atención es de lunes a viernes, de 09:00 a 18:00 (hora peninsular). La garantía de servicio 24/7 corresponde a servicios específicos de soporte o guardias contratados; no significa que la atención general esté abierta las 24 horas. Fuera del horario de atención puedes dejarnos una solicitud para que el equipo la revise en horario laboral.'
+      },
+      {
+        pregunta: '¿Cuál es vuestro teléfono de contacto?',
+        respuesta: 'Nuestro teléfono de contacto para información y atención general es el 900 730 034. También puedes usar la página de contacto o la opción Hablar con una persona del asistente. Una solicitud de contacto no implica una llamada inmediata.'
+      },
+      {
+        pregunta: '¿Cómo puedo contratar vuestros servicios?',
+        respuesta: 'Puedes consultar las tarifas públicas para empresa o particular y solicitar información desde la página de contacto o hablando con una persona. Para contratar fibra, el equipo debe comprobar primero la cobertura de la dirección y concretar las condiciones del servicio. La consulta del asistente o una solicitud de contacto no confirma una contratación, un alta ni una fecha de instalación.'
       }
     ]
   },
@@ -179,15 +195,15 @@ export default function FAQPage() {
           <div className="max-w-4xl mx-auto text-center">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">¿No encuentras lo que buscas?</h2>
             <p className="text-base sm:text-lg text-gray-300 mb-6">
-              Nuestro equipo de soporte está disponible 24/7 para ayudarte.
+              Atención general de lunes a viernes, 09:00–18:00 (hora peninsular). El soporte 24/7 corresponde al servicio contratado.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <a href="tel:+34900730034" className="px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-all font-semibold">
                 Llamar a Soporte
               </a>
-              <a href="https://wa.me/34600000000" className="px-6 py-3 border-2 border-white text-white rounded-lg hover:bg-white hover:text-gray-900 transition-all font-semibold">
-                WhatsApp
-              </a>
+              <Link href="/contacto" className="px-6 py-3 border-2 border-white text-white rounded-lg hover:bg-white hover:text-gray-900 transition-all font-semibold">
+                Contactar con el equipo
+              </Link>
             </div>
           </div>
         </div>

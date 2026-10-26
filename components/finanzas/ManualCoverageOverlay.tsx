@@ -33,7 +33,7 @@ export default function ManualCoverageOverlay({ consumer }: { consumer: 'B5' | '
   }, [])
 
   if (error) return <section role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid={`coverage-overlay-${consumer.toLowerCase()}-error`}><strong>Cobertura manual no disponible.</strong> {error} No se presupone cobertura ni se sustituyen fechas.</section>
-  if (!data) return <section aria-busy="true" className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600"><span className="sr-only">Cargando corte manual de cobertura</span>Comprobando cobertura manual…</section>
+  if (!data) return <section aria-busy="true" className="min-h-[740px] rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:min-h-[450px] xl:min-h-[320px]"><span className="sr-only">Cargando corte manual de cobertura</span>Comprobando cobertura manual…</section>
 
   const pending = data.coverage.activeAccountCount - data.coverage.accountsWithKnownCutoff
   const known = pending === 0 && data.coverage.activeAccountCount > 0

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   ArrowPathIcon,
   CalendarDaysIcon,
@@ -13,7 +14,14 @@ import {
 } from '@heroicons/react/24/outline';
 import { InfoTip } from '@/components/imputaciones/CommercialContextFields';
 import type { BalanceDia, BalanceEmpleado } from '@/lib/imputaciones-diarias';
-import WeeklyEmployeeEfficiencyChart from '@/components/imputaciones/WeeklyEmployeeEfficiencyChart';
+
+const WeeklyEmployeeEfficiencyChart = dynamic(
+  () => import('@/components/imputaciones/WeeklyEmployeeEfficiencyChart'),
+  {
+    ssr: false,
+    loading: () => <div className="min-h-[300px] animate-pulse rounded-2xl border border-slate-200 bg-slate-50" aria-hidden="true" />,
+  },
+);
 
 interface DailyBalanceResponse {
   periodo: {
@@ -180,7 +188,7 @@ export default function DailyTimesheetOverview({ referenceDate, employeeId, onRe
       </div>
 
       {loading ? (
-        <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-gray-500"><ArrowPathIcon className="h-5 w-5 animate-spin" /> Calculando jornadas y ausencias…</div>
+        <div className={`flex ${data ? 'min-h-56' : 'min-h-[640px] lg:min-h-[760px]'} items-center justify-center gap-2 text-sm text-gray-500`}><ArrowPathIcon className="h-5 w-5 animate-spin" /> Calculando jornadas y ausencias…</div>
       ) : error ? (
         <div className="m-4 flex items-center justify-between gap-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
           <span>{error}</span>
