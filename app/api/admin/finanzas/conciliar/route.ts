@@ -5,9 +5,8 @@ import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/pr
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { HttpGuardError, readJsonLimited, sameOrigin } from '@/lib/finanzas/sync-jobs/api-guards'
 import { ConciliarValidationError, parseConciliarCommand, parseConciliarGetInput, type ConciliarCommand } from '@/lib/finanzas/conciliar-contract'
-import { conciliarActionErrorResponse, runConciliarAction } from '@/lib/finanzas/conciliar-actions'
-import { conciliarDbErrorResponse, readConciliarProjection, readConciliarRow } from '@/lib/finanzas/conciliar-db'
-import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
+import { conciliarDbErrorResponse } from '@/lib/finanzas/conciliar-errors'
+import { readConciliarProjection, readConciliarRow } from '@/lib/finanzas/conciliar-projection-read'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -16,7 +15,7 @@ export const maxDuration = 180
 const MAX_JSON_BYTES = 16 * 1024
 const MAX_QUERY_BYTES = 1024
 
-function errorResponse(error: unknown) {
+async function errorResponse(error: unknown) {
   if (error instanceof PrototypeStagingError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof ConciliarValidationError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof HttpGuardError) {
@@ -26,6 +25,7 @@ function errorResponse(error: unknown) {
           : { error: 'El cuerpo JSON es obligatorio.', codigo: error.code }
     return privateJson(body, error.status)
   }
+  const { conciliarActionErrorResponse } = await import('@/lib/finanzas/conciliar-actions')
   const action = conciliarActionErrorResponse(error)
   if (action.status !== 500 || action.body.codigo !== 'CONCILIAR_ACCION_FALLIDA') return privateJson(action.body, action.status)
   const read = conciliarDbErrorResponse(error)
@@ -128,6 +128,10 @@ export async function POST(request: NextRequest) {
     // Parse here as well as in the action service: malformed input cannot reach it
     // and the route retains the exact command needed to normalize the UI response.
     const parsed = parseConciliarCommand(command)
+    const [{ runConciliarAction }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
+      import('@/lib/finanzas/conciliar-actions'),
+      import('@/lib/finanzas/conciliar-refresh'),
+    ])
     const result = await runConciliarAction(access.actor.id, parsed)
     scheduleConciliarProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))
