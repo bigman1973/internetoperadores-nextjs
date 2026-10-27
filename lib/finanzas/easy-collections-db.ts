@@ -571,11 +571,16 @@ async function undoTx(base: Prisma.TransactionClient, actorId: number, command: 
   return { ok: true as const, bloqueId: command.bloqueId, revertidas: proposalIds.size, idempotente: false as const }
 }
 
-/** Variante para pruebas con transacción propiedad del llamador. */
-export async function runEasyCollectionsActionTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
+export function throwEmbeddedEasyCollectionsError(error: unknown, preserveSerializableP2034: boolean): never {
+  if (preserveSerializableP2034 && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw error
+  return throwKnown(error)
+}
+
+/** Variante con transacción propiedad del llamador. El opt-in interno nunca acepta errores de negocio como retry. */
+export async function runEasyCollectionsActionTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown, options?: Readonly<{ preserveSerializableP2034: boolean }>) {
   const command = parseEasyCollectionsCommand(raw)
-  await assertFinanceEasyRuntime()
-  try { return command.action === 'confirmar_bloque' ? await confirmTx(tx, actorId, command) : await undoTx(tx, actorId, command) } catch (error) { throwKnown(error) }
+  await assertFinanceEasyRuntime(tx)
+  try { return command.action === 'confirmar_bloque' ? await confirmTx(tx, actorId, command) : await undoTx(tx, actorId, command) } catch (error) { throwEmbeddedEasyCollectionsError(error, options?.preserveSerializableP2034 === true) }
 }
 export async function runEasyCollectionsAction(actorId: number, raw: unknown) {
   const command = parseEasyCollectionsCommand(raw)

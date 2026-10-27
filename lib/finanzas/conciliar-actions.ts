@@ -233,7 +233,7 @@ async function confirmCollectionProposal(tx: Tx, actorId: number, operationId: s
   const selection = { propuestaId: source.propuestaId, movimientoId: source.movimientoId, fingerprint: source.proposalFingerprint }
   const result: any = await runEasyCollectionsActionTx(tx, actorId, {
     action: 'confirmar_bloque', confirmacion: true, idempotencyKey: uuidKey('CONCILIAR_COLLECTION', operationId, row.id), previewToken: signEasyCollectionsPreview(actorId, [selection]), items: [selection],
-  })
+  }, { preserveSerializableP2034: true })
   return { proposalBlockId: String(result.bloqueId), result: { state: 'confirmada', movimientoId: source.movimientoId, proposalBlockId: String(result.bloqueId) } }
 }
 
@@ -351,7 +351,7 @@ async function undoB4Leg(tx: Tx, actorId: number, operationId: string, ordinal: 
 async function undoCollectionLeg(tx: Tx, actorId: number, operationId: string, ordinal: number, leg: any) {
   const result: any = await runEasyCollectionsActionTx(tx, actorId, {
     action: 'deshacer_bloque', confirmacion: true, idempotencyKey: uuidKey('CONCILIAR_COLLECTION_UNDO', operationId, leg.rowId), bloqueId: leg.proposalBlockId,
-  })
+  }, { preserveSerializableP2034: true })
   await appendLeg(tx, operationId, { ordinal, rowId: leg.rowId, movimientoId: leg.movimientoId ?? null, proposalBlockId: String(result.bloqueId), result: { state: 'deshecha', proposalBlockId: String(result.bloqueId) } })
 }
 
