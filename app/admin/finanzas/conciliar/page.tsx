@@ -10,6 +10,7 @@ import { readConciliarProjection } from '@/lib/finanzas/conciliar-projection-rea
 
 const roboto = Roboto({ subsets: ['latin'], weight: ['400', '500', '700', '900'], display: 'swap', variable: '--font-conciliar' });
 export const dynamic = 'force-dynamic';
+export const preferredRegion = 'sfo1';
 
 function calendarDate(value: unknown): string | null {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;

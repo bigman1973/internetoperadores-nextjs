@@ -11,6 +11,7 @@ import { readConciliarProjection, readConciliarRow } from '@/lib/finanzas/concil
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 export const maxDuration = 180
+export const preferredRegion = 'sfo1'
 
 const MAX_JSON_BYTES = 16 * 1024
 const MAX_QUERY_BYTES = 1024
