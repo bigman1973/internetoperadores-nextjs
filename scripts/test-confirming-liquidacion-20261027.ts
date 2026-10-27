@@ -133,3 +133,88 @@ test('PDF Caixa + XLS sintéticos: el neto XLS sin IVA no se convierte en abono 
   assert.equal(xls.lineas[0].gastosFinancieros, undefined)
   assert.equal(xls.procedencia?.netoXlsSinIva, 'TABLA_XLS_SIN_IVA_EXPLICITO')
 })
+
+
+test('BBVA sintético: recompone el número sólo en su celda física sin duplicar filas', () => {
+  const pages = liquidacionPages()
+  pages[0] = pages[0].flatMap(value => value.text === 'DRAX26/901'
+    ? [item('DRAX26', 40, value.y, 34), item('/', 77, value.y, 4), item('901', 84, value.y, 18)]
+    : [value])
+  const parsed = parseBBVALiquidacionTextAndPositions({ text: liquidacionText(), pages })
+  assert.equal(parsed.cuadre?.estado, 'CUADRA')
+  assert.equal(parsed.lineas.length, 2)
+  assert.equal(parsed.lineas[0].numFactura, 'DRAX26/901')
+})
+
+test('BBVA sintético: un resumen sin detalle no se declara liquidación íntegra cuadrada', () => {
+  const parsed = parseBBVALiquidacionTextAndPositions({ text: liquidacionText(), pages: [] })
+  assert.equal(parsed.cuadre?.estado, 'NO_VERIFICABLE')
+})
+
+function caixaSynthetic(neto = '980,00'): string {
+  return ['Cliente CLIENTE SINTETICO', 'Fecha liquidación', '03 mar 26',
+    'Importe factura', '1.000,00 €', 'Intereses', '17,00 €',
+    'Comisiones', '2,50 €', 'Importe neto', `${neto} €`,
+    'IVA comisiones', '0,50 €'].join('\n')
+}
+
+test('Caixa sintético: etiquetas reales plurales, fecha abreviada y neto con IVA explícito', () => {
+  const parsed = parseCaixaBankPDFText(caixaSynthetic())
+  assert.equal(parsed.tipoDocumento, 'LIQUIDACION')
+  assert.equal(parsed.fechaLiquidacion, '03/03/2026')
+  assert.equal(parsed.totalComisiones, 2.5)
+  assert.equal(parsed.totalIvaComision, 0.5)
+  assert.equal(parsed.cuadre?.estado, 'CUADRA')
+  assert.equal(parsed.cuadre?.diferenciaCentimos, 0)
+  assert.equal(parsed.totalDeducir, undefined)
+})
+
+test('Caixa sintético: una diferencia de un céntimo es descuadre, sin tolerancia', () => {
+  const parsed = parseCaixaBankPDFText(caixaSynthetic('979,99'))
+  assert.equal(parsed.cuadre?.estado, 'DESCUADRE')
+  assert.equal(parsed.cuadre?.diferenciaCentimos, 1)
+})
+
+test('Caixa sintético: IVA comisiones no rellena una comisión ausente ni por diferencia', () => {
+  const parsed = parseCaixaBankPDFText(caixaSynthetic().replace('Comisiones\n2,50 €\n', ''))
+  assert.equal(parsed.totalComisiones, undefined)
+  assert.equal(parsed.totalIvaComision, 0.5)
+  assert.equal(parsed.cuadre?.estado, 'NO_VERIFICABLE')
+})
+
+test('Caixa sintético: el porcentaje de IVA no es un importe de IVA', () => {
+  const parsed = parseCaixaBankPDFText(caixaSynthetic().replace('IVA comisiones\n0,50 €', 'IVA comisiones 21,00%'))
+  assert.equal(parsed.totalIvaComision, undefined)
+  assert.equal(parsed.totalComisiones, 2.5)
+  assert.equal(parsed.cuadre?.estado, 'NO_VERIFICABLE')
+})
+
+test('Caixa sintético: fecha civil inválida no se publica como fecha de liquidación', () => {
+  const parsed = parseCaixaBankPDFText(caixaSynthetic().replace('03 mar 26', '31 feb 26'))
+  assert.equal(parsed.fechaLiquidacion, undefined)
+})
+
+test('Soporte sintético Outlook: detalle de facturas no se convierte en liquidación bancaria', () => {
+  const parsed = parseCaixaBankPDFText('Outlook\nDesde EMISOR SINTETICO\nOs paso detalle de las facturas\nDRAX26/905', { fileName: 'Confirming Caixa Sintetico.pdf' })
+  assert.equal(parsed.tipoDocumento, 'DETALLE_FACTURAS')
+  assert.equal(parsed.netoBancario, undefined)
+  assert.equal(parsed.totalComisiones, undefined)
+  assert.equal(parsed.cuadre?.estado, 'NO_APLICA')
+})
+
+test('Caixa sintético: aviso de cesión sin resumen no acredita un abono', () => {
+  const parsed = parseCaixaBankPDFText('CESIÓN DE CRÉDITOS\nDOCUMENTO NO NEGOCIABLE\nEste documento es un aviso')
+  assert.equal(parsed.tipoDocumento, 'AVISO_CESION')
+  assert.equal(parsed.cuadre?.estado, 'NO_APLICA')
+})
+
+test('XLS sintético: normaliza fechas abreviadas de las celdas y no del nombre', () => {
+  const sheet = XLSX.utils.json_to_sheet([{ 'Núm. factura': 'DRAX26/906', 'Fecha factura': '15 abr 26', 'Fecha vencimiento': '01 sep 26', 'Importe factura': '100,00', 'Importe neto': '99,00' }])
+  const workbook = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(workbook, sheet, 'Synthetic')
+  const parsed = parseCaixaBankXLS(XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }), 'Confirming Caixa 20.12.2026.xlsx')
+  assert.equal(parsed.tipoDocumento, 'DETALLE_FACTURAS')
+  assert.equal(parsed.lineas[0].fechaFactura, '15-04-2026')
+  assert.equal(parsed.lineas[0].fechaVencimiento, '01-09-2026')
+  assert.equal(parsed.netoBancario, undefined)
+})

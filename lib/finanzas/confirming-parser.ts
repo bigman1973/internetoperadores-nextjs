@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 import pdfParse from 'pdf-parse';
 import * as XLSX from 'xlsx';
 
-export type ConfirmingTipoDocumento = 'AVISO_CESION' | 'LIQUIDACION';
+export type ConfirmingTipoDocumento = 'AVISO_CESION' | 'LIQUIDACION' | 'DETALLE_FACTURAS' | 'NO_CLASIFICADO';
 export type ConfirmingOrigenDocumento = 'BBVA_PDF' | 'CAIXABANK_PDF' | 'CAIXABANK_XLS';
 export type ConfirmingEstadoCuadre = 'CUADRA' | 'DESCUADRE' | 'NO_VERIFICABLE' | 'NO_APLICA';
 
@@ -250,6 +250,7 @@ async function extractBBVACesionPositionedPages(buffer: Buffer): Promise<BBVACes
 type BBVALiquidacionColumns = {
   headerY: number;
   facturaX: number;
+  facturaEndX: number;
   comisionX: number;
   nominalX: number;
   tipoX: number;
@@ -302,15 +303,17 @@ function extraerColumnasLiquidacionBBVA(page: readonly BBVACesionPositionalText[
     if (!/NUM\.?\s*FACTURA/.test(normalized) || !/COMISS/.test(normalized) || !/INTERES/.test(normalized) || !/IMPORT/.test(normalized)) continue;
 
     const factura = sorted.find((item) => /NUM\.?/.test(normalizarEtiquetaPDF(item.text)));
+    const referencia = sorted.find((item) => /REFERENCIA/.test(normalizarEtiquetaPDF(item.text)));
     const comision = sorted.find((item) => /COMISS/.test(normalizarEtiquetaPDF(item.text)));
     const nominal = sorted.find((item) => /INTERES/.test(normalizarEtiquetaPDF(item.text)));
     const tipo = sorted.find((item) => /TIPUS/.test(normalizarEtiquetaPDF(item.text)));
     const interes = sorted.find((item) => normalizarEtiquetaPDF(item.text) === 'IMPORT');
-    if (!factura || !comision || !nominal || !tipo || !interes) continue;
+    if (!factura || !referencia || !comision || !nominal || !tipo || !interes) continue;
 
     return {
       headerY: factura.y,
       facturaX: factura.x,
+      facturaEndX: referencia.x,
       comisionX: comision.x + comision.width / 2,
       // La cabecera "Interès" está a la derecha del valor nominal; se usa su
       // columna física como ancla, no su literal económico.
@@ -343,10 +346,14 @@ export function extractBBVALiquidacionLines(pages: readonly (readonly BBVACesion
     const columns = extraerColumnasLiquidacionBBVA(page);
     if (!columns) continue;
 
-    for (const facturaItem of page) {
-      const numFactura = normalizarFacturaBBVACesion(facturaItem.text);
-      if (!numFactura || facturaItem.y >= columns.headerY - BBVA_LIQUIDACION_ROW_TOLERANCE) continue;
+    const seenRows = new Set<number>();
+    for (const facturaItem of page.filter(item => item.x >= columns.facturaX - 2 && item.x < columns.facturaEndX)) {
+      if (facturaItem.y >= columns.headerY - BBVA_LIQUIDACION_ROW_TOLERANCE || [...seenRows].some(y => Math.abs(y - facturaItem.y) <= BBVA_LIQUIDACION_ROW_TOLERANCE)) continue;
       const row = page.filter((item) => Math.abs(item.y - facturaItem.y) <= BBVA_LIQUIDACION_ROW_TOLERANCE);
+      const facturaCell = row.filter(item => item.x >= columns.facturaX - 2 && item.x < columns.facturaEndX).sort((a, b) => a.x - b.x).map(item => item.text).join(' ');
+      const numFactura = normalizarFacturaBBVACesion(facturaCell);
+      if (!numFactura) continue;
+      seenRows.add(facturaItem.y);
       const importe = importeDeColumna(row, columns.nominalX);
       const comision = importeDeColumna(row, columns.comisionX);
       const intereses = importeDeColumna(row, columns.interesX);
@@ -397,9 +404,9 @@ function extraerResumenLiquidacionBBVA(text: string): BBVALiquidacionResumen {
   };
 }
 
-function calcularCuadreLiquidacion(resumen: BBVALiquidacionResumen, lineas: readonly ConfirmingLineaParsed[]): ConfirmingCuadre {
+function calcularCuadreLiquidacion(resumen: BBVALiquidacionResumen, lineas: readonly ConfirmingLineaParsed[], requiereDetalle = true): ConfirmingCuadre {
   const allGlobal = [resumen.totalRemesa, resumen.totalComisiones, resumen.totalIvaComision, resumen.totalIntereses, resumen.netoBancario]
-    .every((value) => typeof value === 'number');
+    .every((value) => typeof value === 'number' && Number.isFinite(value));
   const diferenciaCentimos = allGlobal
     ? importeACentimos(resumen.totalRemesa) - importeACentimos(resumen.totalIntereses!) - importeACentimos(resumen.totalComisiones!) - importeACentimos(resumen.totalIvaComision!) - importeACentimos(resumen.netoBancario!)
     : undefined;
@@ -419,7 +426,7 @@ function calcularCuadreLiquidacion(resumen: BBVALiquidacionResumen, lineas: read
     .filter((value): value is number => value !== undefined);
 
   return {
-    estado: diferencias.some((value) => value !== 0) ? 'DESCUADRE' : allGlobal ? 'CUADRA' : 'NO_VERIFICABLE',
+    estado: diferencias.some((value) => value !== 0) ? 'DESCUADRE' : allGlobal && (!requiereDetalle || lineas.length > 0) ? 'CUADRA' : 'NO_VERIFICABLE',
     diferenciaCentimos,
     diferenciaDeducirCentimos,
     diferenciaNominalLineasCentimos,
@@ -584,8 +591,11 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
   // el nominal como otro concepto.
   const positionedPages = await extractBBVACesionPositionedPages(buffer);
   const cesionLineas = extractBBVACesionNominalLines(positionedPages);
-  const cesionSinLiquidacion = /CESION\s+DE\s+CREDITOS/.test(normalizarEtiquetaPDF(text))
-    && !/LIQUIDACIO[N]?\s+(?:DE\s+)?BESTRETES|LIQUIDACION\s+DE\s+ANTICIPOS/.test(normalizarEtiquetaPDF(text));
+  // Algunas fuentes fragmentan palabras en caracteres separados. El título
+  // compacto sigue siendo documental, no una clasificación por nombre.
+  const tituloCompacto = normalizarEtiquetaPDF(text).replace(/\s/g, '');
+  const cesionSinLiquidacion = /CESIONDECREDITOS|CESSIODECREDITS|CESIODECREDITS/.test(tituloCompacto)
+    && !/LIQUIDACIO[N]?DEBESTRETES|LIQUIDACIONDEANTICIPOS/.test(tituloCompacto);
   if (cesionLineas.length > 0 || cesionSinLiquidacion) {
     return {
       banco: 'BBVA',
@@ -716,7 +726,7 @@ export function parseCaixaBankXLS(buffer: Buffer, fileName?: string): Confirming
   
   return {
     banco: 'CaixaBank',
-    tipoDocumento: 'LIQUIDACION',
+    tipoDocumento: 'DETALLE_FACTURAS',
     procedencia: {
       documento: 'CAIXABANK_XLS',
       resumen: 'TABLA_XLS',
@@ -742,6 +752,23 @@ export function parseCaixaBankXLS(buffer: Buffer, fileName?: string): Confirming
  * Parsea un PDF de CaixaBank (datos generales del anticipo)
  * NO contiene detalle de facturas individuales (eso está en el XLS)
  */
+function fechaLiquidacionCaixa(text: string): string | undefined {
+  const flat = text.replace(/\s+/g, ' ');
+  const labelled = flat.match(/(?:Fecha|Data)\s+(?:de\s+)?liquidaci[oó]n?\s*:?\s*(\d{1,2}(?:[\/-]\d{1,2}[\/-]\d{2,4}|\s+[a-záéíóú]{3,10}\.?\s+\d{2,4}))/i)?.[1];
+  if (!labelled) return undefined;
+  const numeric = labelled.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2}|\d{4})$/);
+  const written = labelled.match(/^(\d{1,2})\s+([a-záéíóú]{3,10})\.?\s+(\d{2}|\d{4})$/i);
+  const months: Record<string, number> = { ene: 1, enero: 1, gen: 1, gener: 1, feb: 2, febrero: 2, febrer: 2, mar: 3, marzo: 3, marc: 3, abr: 4, abril: 4, apr: 4, may: 5, mayo: 5, maig: 5, jun: 6, junio: 6, juny: 6, jul: 7, julio: 7, juliol: 7, ago: 8, agosto: 8, agost: 8, sep: 9, sept: 9, set: 9, septiembre: 9, setembre: 9, oct: 10, octubre: 10, nov: 11, noviembre: 11, novembre: 11, dic: 12, diciembre: 12, des: 12, desembre: 12 };
+  const day = Number(numeric?.[1] ?? written?.[1]);
+  const month = numeric ? Number(numeric[2]) : months[(written?.[2] ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()];
+  const rawYear = numeric?.[3] ?? written?.[3];
+  if (!rawYear || !month || !day) return undefined;
+  const year = Number(rawYear) + (rawYear.length === 2 ? 2000 : 0);
+  const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const parsed = new Date(`${iso}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}` : undefined;
+}
+
 export function parseCaixaBankPDFText(text: string, input: { fileName?: string; sourceHash?: string } = {}): ConfirmingParseResult {
   let totalRemesa = 0;
   let cliente: string | undefined;
@@ -749,17 +776,20 @@ export function parseCaixaBankPDFText(text: string, input: { fileName?: string; 
   
   const clienteMatch = text.match(/Cliente\s*\n?\s*(.+)/i);
   if (clienteMatch) cliente = clienteMatch[1].trim();
-  const fechaLiquidacion = text.match(/(?:Fecha|Data)\s+de\s+liquidaci[oó]\s*:?\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})/i)?.[1]
-    ?.replace(/-/g, '/');
+  const fechaLiquidacion = fechaLiquidacionCaixa(text);
   const cuentaAbono = text.match(/Cuenta\s+(?:de\s+)?abono\s*:?\s*([^\r\n]+)/i)?.[1]?.trim();
 
   totalRemesa = extraerImporteEtiquetado(text, /Importe\s+factura\s*([\d.,]+)\s*€?/i) ?? 0;
   const netoBancario = extraerImporteEtiquetado(text, /Importe\s+neto\s*([\d.,]+)\s*€?/i);
-  const totalIntereses = extraerImporteEtiquetado(text, /Intereses?\s*([\d.,]+)\s*€?/i);
-  const totalComisiones = extraerImporteEtiquetado(text, /Comisi[oó]n(?:es)?\s*([\d.,]+)\s*€?/i);
+  const totalIntereses = extraerImporteEtiquetado(text, /Intereses\s*([\d.,]+)\s*€?/i);
+  const ivaPattern = /IVA(?:\s+(?:s\/|sobre))?(?:\s+comisi[oó]n(?:es)?)?(?:\s*\(\s*[\d.,]+\s*%\s*\))?\s*([\d.]+,\d{2})(?!\s*%)/gi;
+  // La etiqueta fiscal contiene la palabra comisión, pero no es la comisión.
+  // Retirar únicamente esa fila de la búsqueda evita rellenar un concepto ausente.
+  const commissionText = text.replace(/\s+/g, ' ').replace(ivaPattern, ' ');
+  const totalComisiones = extraerImporteEtiquetado(commissionText, /(?:^|\s)Comisi[oó]n(?:es)?\s*(\d+(?:\.\d{3})*(?:,\d{2})?)(?![\d.,]|\s*%)/i);
   // Si el PDF no declara esta fila, el campo permanece ausente: no se deduce
   // por aplicar porcentaje ni por comparar el neto con el nominal.
-  const totalIvaComision = extraerImporteEtiquetado(text, /IVA(?:\s+(?:s\/)?\s*comisi[oó]n)?\s*([\d.,]+)\s*€?/i);
+  const totalIvaComision = extraerImporteEtiquetado(text, /IVA(?:\s+(?:s\/|sobre))?(?:\s+comisi[oó]n(?:es)?)?(?:\s*\(\s*[\d.,]+\s*%\s*\))?\s*([\d.]+,\d{2})(?!\s*%)/i);
   const totalDeducir = extraerImporteEtiquetado(text, /(?:Total\s+)?(?:a\s+)?deducir\s*([\d.,]+)\s*€?/i);
 
   if (!fechaDocumento && input.fileName) {
@@ -769,9 +799,17 @@ export function parseCaixaBankPDFText(text: string, input: { fileName?: string; 
     }
   }
   
+  const summaryPresent = totalRemesa > 0 && netoBancario !== undefined;
+  const compact = normalizarEtiquetaPDF(text).replace(/\s/g, '');
+  const tipoDocumento: ConfirmingTipoDocumento = /CESIONDECREDITOS|CESSIODECREDITS|CESIODECREDITS/.test(compact) && !summaryPresent ? 'AVISO_CESION'
+    : summaryPresent ? 'LIQUIDACION'
+      : /(?:OUTLOOK|DESDE|ENVIADO)/.test(normalizarEtiquetaPDF(text)) && /(?:OS\s+PASO\s+DETALLE|DETALLE\s+DE\s+LAS\s+FACTURAS)/.test(normalizarEtiquetaPDF(text)) ? 'DETALLE_FACTURAS' : 'NO_CLASIFICADO';
+  const cuadre = tipoDocumento === 'LIQUIDACION'
+    ? calcularCuadreLiquidacion({ totalRemesa, totalComisiones, totalIvaComision, totalIntereses, totalDeducir, netoBancario }, [], false)
+    : { estado: 'NO_APLICA' as const };
   return {
     banco: 'CaixaBank',
-    tipoDocumento: 'LIQUIDACION',
+    tipoDocumento,
     procedencia: {
       documento: 'CAIXABANK_PDF',
       resumen: 'ETIQUETAS_PDF',
@@ -793,7 +831,7 @@ export function parseCaixaBankPDFText(text: string, input: { fileName?: string; 
     totalDeducir,
     // Sólo se expone un total si aparece como concepto documental explícito.
     totalGastosFinancieros: totalDeducir,
-    cuadre: { estado: 'NO_VERIFICABLE' },
+    cuadre,
     lineas: [],
     rawText: text.substring(0, 500),
   };
@@ -844,13 +882,16 @@ function parseFechaExcel(valor: any): string | undefined {
   
   if (typeof valor === 'number') {
     const date = new Date((valor - 25569) * 86400 * 1000);
-    const day = String(date.getDate()).padStart(2, '0');
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const year = date.getFullYear();
+    if (!Number.isFinite(date.getTime())) return undefined;
+    const day = String(date.getUTCDate()).padStart(2, '0');
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const year = date.getUTCFullYear();
     return `${day}-${month}-${year}`;
   }
   
   const str = String(valor).trim();
+  const abbreviated = fechaLiquidacionCaixa(`Fecha liquidación ${str}`);
+  if (abbreviated) return abbreviated.replace(/\//g, '-');
   const match = str.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (match) {
     return `${match[1].padStart(2, '0')}-${match[2].padStart(2, '0')}-${match[3]}`;
