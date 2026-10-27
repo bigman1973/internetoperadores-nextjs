@@ -4,7 +4,7 @@ import ts from 'typescript'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
 
 // Sólo clasifica plantillas de código: las interpolaciones nunca se evalúan.
-const files=fs.readdirSync('lib/finanzas').filter(name=>name.startsWith('conciliar-')&&name.endsWith('.ts')).map(name=>path.join('lib/finanzas',name))
+const files=[...fs.readdirSync('lib/finanzas').filter(name=>name.startsWith('conciliar-')&&name.endsWith('.ts')).map(name=>path.join('lib/finanzas',name)), 'lib/finanzas/easy-reconciliation-db.ts', 'lib/finanzas/reconciliation-db.ts', 'lib/finanzas/easy-counterparty-db.ts']
 let reviewed=0,unknown=0
 for(const file of files){
  const source=ts.createSourceFile(file,fs.readFileSync(file,'utf8'),ts.ScriptTarget.Latest,true)

@@ -449,7 +449,7 @@ async function collectionWhoTx(tx: QueryDb, ids: readonly string[], tablesReady:
     FROM propuestas p
     LEFT JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
-    ) composicion(valor) ON true
+    ) AS composicion(valor) ON true
     LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
     GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
     ORDER BY p.movimiento_id ASC
@@ -524,7 +524,7 @@ async function collectionWhoForInputTx(tx: QueryDb, input: CounterpartyReadInput
     FROM propuestas p
     LEFT JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
-    ) composicion(valor) ON true
+    ) AS composicion(valor) ON true
     LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
     GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
     ORDER BY p.movimiento_id ASC
