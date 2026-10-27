@@ -15,7 +15,10 @@ function required(source, name, fragments) {
 required(page, 'página', [
   "assertPrototypeStaging()",
   "requireB4FinanceAccess('lectura'",
-  'getServerSession(authOptions)',
+  "requireAuth('admin')",
+  'readConciliarProjection(input)',
+  'initialData={initialData}',
+  'initialCutoff={initialCutoff}',
   'notFound()',
   'initialTab={initialTab} initialQuery={initialQuery}',
   "Roboto } from 'next/font/google'",

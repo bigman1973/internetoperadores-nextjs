@@ -37,6 +37,8 @@ export type ConciliarReadResponse = Readonly<{
   cuentas: readonly ConciliarAccount[];
   stale: boolean;
   staleReason: string | null;
+  cutoffDate: string;
+  historicSummary: Readonly<{ count: number; amountCentimos: number }>;
 }>;
 
 export type ConciliarConfirmItem = ServerConciliarConfirmItem;
@@ -114,6 +116,13 @@ function date(value: unknown, field: string, nullable = false): string | null {
   const parsed = text(value, field, 32);
   if (!DATE.test(parsed)) throw new Error(`La respuesta no incluye ${field} correctamente.`);
   return parsed;
+}
+function cutoff(value: unknown): string {
+  if (value === undefined) return '2026-01-01'; // compatibilidad de fixtures antiguas
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('La respuesta no incluye cutoffDate correctamente.');
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new Error('La respuesta no incluye cutoffDate correctamente.');
+  return value;
 }
 function tab(value: unknown, field: string): ConciliarTab {
   if (!CONCILIAR_TABS.includes(value as ConciliarTab)) throw new Error(`La respuesta no incluye ${field} correctamente.`);
@@ -218,6 +227,11 @@ export function parseConciliarReadResponse(value: unknown): ConciliarReadRespons
     cuentas: accounts,
     stale: raw.stale === true,
     staleReason: typeof raw.staleReason === 'string' ? raw.staleReason.slice(0, 900) : null,
+    cutoffDate: cutoff(raw.cutoffDate),
+    historicSummary: raw.historicSummary === undefined ? { count: 0, amountCentimos: 0 } : {
+      count: integer(object(raw.historicSummary, 'historicSummary').count, 'historicSummary.count', true),
+      amountCentimos: integer(object(raw.historicSummary, 'historicSummary').amountCentimos, 'historicSummary.amountCentimos'),
+    },
   };
 }
 

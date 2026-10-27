@@ -9,6 +9,7 @@ import {
   type ConciliarProjectionSource,
   type ConciliarRow,
   type ConciliarTab,
+  CONCILIAR_DEFAULT_CUTOFF,
   textoSeguro,
 } from './conciliar-contract'
 import { conciliarDecisionHash, isoDay, safeInteger } from './conciliar-core'
@@ -152,31 +153,99 @@ function summaryZero(tab: ConciliarTab): MutableConciliarTabSummary {
 }
 function count(value: unknown): number { const parsed = safeInteger(value); return parsed === null || parsed < 0 ? 0 : parsed }
 
-export async function readConciliarProjection(input: ConciliarGetInput) {
-  const shared = filters(input)
-  const [rows, totalRows, summaryRows, accounts, stateRows] = await Promise.all([
-    db().$queryRaw<ProjectionSqlRow[]>(Prisma.sql`
-      SELECT p.* FROM conciliar_proyecciones p
-      WHERE p.tab=${input.tab} AND ${shared}
-      ORDER BY CASE p.color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
-        abs(p.importe_centimos::bigint) DESC,p.fecha DESC,p.id ASC
+/**
+ * PostgreSQL entrega los agregados JSON como objetos para el adaptador habitual
+ * de Prisma, aunque algunos adaptadores de pruebas los representan como texto.
+ * Esta frontera es deliberadamente estricta: una respuesta incompleta no se
+ * convierte en una cola vacía que pudiera inducir una decisión errónea.
+ */
+function jsonRecords(value: unknown, field: string): ProjectionSqlRow[] {
+  const parsed = typeof value === 'string' ? (() => { try { return JSON.parse(value) } catch { return null } })() : value
+  if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) {
+    fail(409, 'PROYECCION_CORRUPTA', `${field} no conserva un resultado verificable.`)
+  }
+  return parsed as ProjectionSqlRow[]
+}
+
+type ProjectionReadBundle = Readonly<{
+  rows: unknown
+  total: unknown
+  summaries: unknown
+  historicSummary: unknown
+  accounts: unknown
+  state: unknown
+}>
+
+/**
+ * La portada necesita página, total, pestañas, cuentas y estado de la misma
+ * foto. Hacer cinco viajes independientes aumenta la apertura fría y permite
+ * mezclar fotos distintas si un rebuild entra entre ellos. Esta única SELECT
+ * mantiene la consulta de proyección sin DML y materializa el filtro una vez.
+ */
+async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql): Promise<ProjectionReadBundle> {
+  const cutoff = input.cutoffDate ?? CONCILIAR_DEFAULT_CUTOFF
+  // El corte es sólo de presentación: la foto persistida no se reescribe. Las
+  // Emitidas sin fecha verificable no se reclasifican silenciosamente porque la
+  // proyección sólo conserva fechas de calendario válidas.
+  const activeScope = Prisma.sql`(p.tab<>'EMITIDAS' OR p.fecha>=CAST(${cutoff} AS date))`
+  const pageScope = input.historic
+    ? Prisma.sql`p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)`
+    : Prisma.sql`p.tab=${input.tab} AND ${activeScope}`
+  const result = await db().$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
+    WITH filtered AS (
+      SELECT p.* FROM conciliar_proyecciones p WHERE ${shared}
+    ), active AS (
+      SELECT p.* FROM filtered p WHERE ${activeScope}
+    ), scoped AS (
+      SELECT p.* FROM filtered p WHERE ${pageScope}
+    ), page AS (
+      SELECT * FROM scoped
+      ORDER BY CASE color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
+        abs(importe_centimos::bigint) DESC,fecha DESC,id ASC
       LIMIT ${input.limit} OFFSET ${input.offset}
-    `),
-    db().$queryRaw<Array<{ total: bigint | number | string }>>(Prisma.sql`
-      SELECT COUNT(*) AS total FROM conciliar_proyecciones p WHERE p.tab=${input.tab} AND ${shared}
-    `),
-    db().$queryRaw<Array<{ tab: string; color: string; total: bigint | number | string; amount: bigint | number | string }>>(Prisma.sql`
-      SELECT p.tab,p.color,COUNT(*) AS total,COALESCE(SUM(p.pendiente_centimos::bigint),0)::text AS amount
-      FROM conciliar_proyecciones p WHERE ${shared} GROUP BY p.tab,p.color
-    `),
-    db().$queryRaw<Array<{ id: string; banco: string; alias: string | null }>>(Prisma.sql`
-      SELECT id,banco,alias FROM cuentas_bancarias WHERE activa=true ORDER BY banco ASC,alias ASC NULLS LAST,id ASC LIMIT 100
-    `),
-    db().$queryRaw<Array<{ dirtyAt: Date | null; dirtyReason: string | null; rebuiltAt: Date | null; projectionVersion: bigint | number | string }>>(Prisma.sql`
+    ), summary AS (
+      SELECT tab,color,COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
+      FROM active GROUP BY tab,color
+    ), historic_summary AS (
+      SELECT COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
+      FROM filtered p WHERE p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)
+    ), account_rows AS (
+      SELECT id,banco,alias FROM cuentas_bancarias WHERE activa=true
+      ORDER BY banco ASC,alias ASC NULLS LAST,id ASC LIMIT 100
+    ), state AS (
       SELECT dirty_at AS "dirtyAt",dirty_reason AS "dirtyReason",rebuilt_at AS "rebuiltAt",projection_version AS "projectionVersion"
       FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
-    `),
-  ])
+    )
+    SELECT
+      COALESCE((SELECT json_agg(row_to_json(page) ORDER BY CASE color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
+        abs(importe_centimos::bigint) DESC,fecha DESC,id ASC) FROM page),'[]'::json) AS rows,
+      COALESCE((SELECT COUNT(*)::text FROM scoped),'0') AS total,
+      COALESCE((SELECT json_agg(row_to_json(summary) ORDER BY tab ASC,color ASC) FROM summary),'[]'::json) AS summaries,
+      (SELECT row_to_json(historic_summary) FROM historic_summary) AS "historicSummary",
+      COALESCE((SELECT json_agg(row_to_json(account_rows) ORDER BY banco ASC,alias ASC NULLS LAST,id ASC) FROM account_rows),'[]'::json) AS accounts,
+      (SELECT row_to_json(state) FROM state) AS state
+  `)
+  if (result.length !== 1) fail(503, 'PROYECCION_NO_DISPONIBLE', 'No se pudo leer la foto de conciliación.')
+  return result[0]
+}
+
+export async function readConciliarProjection(input: ConciliarGetInput) {
+  const cutoff = input.cutoffDate ?? CONCILIAR_DEFAULT_CUTOFF
+  const shared = filters(input)
+  const bundle = await readProjectionBundle(input, shared)
+  const rows = jsonRecords(bundle.rows, 'Las filas')
+  const summaryRows = jsonRecords(bundle.summaries, 'El resumen') as Array<{ tab: string; color: string; total: bigint | number | string; amount: bigint | number | string }>
+  const accounts = jsonRecords(bundle.accounts, 'Las cuentas') as Array<{ id: string; banco: string; alias: string | null }>
+  const historic = json(bundle.historicSummary)
+  const historicCount = safeInteger(historic.total)
+  if (historicCount === null || historicCount < 0) fail(409, 'PROYECCION_CORRUPTA', 'El histórico no conserva un conteo verificable.')
+  const historicSummary = { count: historicCount, amountCentimos: cents(historic.amount, 'El histórico') }
+  const state = bundle.state === null || bundle.state === undefined ? undefined : json(bundle.state) as {
+    dirtyAt?: Date | string | null
+    dirtyReason?: string | null
+    rebuiltAt?: Date | string | null
+    projectionVersion?: bigint | number | string
+  }
   const summaries = new Map<ConciliarTab, MutableConciliarTabSummary>(CONCILIAR_TABS.map(tab => [tab, summaryZero(tab)]))
   for (const row of summaryRows) {
     if (!(CONCILIAR_TABS as readonly string[]).includes(row.tab) || !(CONCILIAR_COLORS as readonly string[]).includes(row.color)) continue
@@ -187,18 +256,20 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
     item.count += count(row.total)
     item.amountCentimos += amountCentimos
   }
-  const state = stateRows[0]
   // An initial dirty migration has no trustworthy page timestamp. Returning null
   // would be rejected by the browser contract and could look like an empty queue.
-  if (!state?.rebuiltAt) fail(503, 'PROYECCION_NO_PREPARADA', 'La conciliación se está preparando por primera vez. Vuelve a intentarlo en unos instantes.')
+  const rebuiltAt = state?.rebuiltAt instanceof Date ? state.rebuiltAt : state?.rebuiltAt ? new Date(state.rebuiltAt) : null
+  if (!rebuiltAt || !Number.isFinite(rebuiltAt.getTime())) fail(503, 'PROYECCION_NO_PREPARADA', 'La conciliación se está preparando por primera vez. Vuelve a intentarlo en unos instantes.')
   return {
     tabs: CONCILIAR_TABS.map(tab => summaries.get(tab)!), rows: rows.map(projectionRow).map(({ source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row }) => row),
-    total: count(totalRows[0]?.total), limit: input.limit, offset: input.offset,
-    updatedAt: state.rebuiltAt.toISOString(),
-    projectionVersion: state ? count(state.projectionVersion) : 0,
+    total: count(bundle.total), limit: input.limit, offset: input.offset,
+    updatedAt: rebuiltAt.toISOString(),
+    projectionVersion: count(state?.projectionVersion),
     stale: !!state?.dirtyAt,
     staleReason: state?.dirtyAt ? 'Hay cambios pendientes de actualizar. Las filas no se confirmarán sin volver a comprobarlas.' : null,
     cuentas: accounts.map(row => ({ id: row.id, banco: row.banco, cuenta: row.alias })),
+    cutoffDate: cutoff,
+    historicSummary,
   }
 }
 

@@ -32,7 +32,7 @@ type Receipt = Readonly<{
   status: 'done' | 'asked' | 'undone' | 'failed';
   createdAt: number;
 }>;
-type OpenDocument = Readonly<{ rowId: string; title: string; href: string; explanation: string | null }> | null;
+type OpenDocument = Readonly<{ rowId: string; title: string; href: string | null; explanation: string | null; movement: ConciliarRow }> | null;
 
 /** Una respuesta 2xx malformada no prueba que la acción no haya llegado al servidor. */
 class UncertainResultError extends Error {}
@@ -105,12 +105,14 @@ function humanUpdatedAt(value: string): string {
   return new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
 
-function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; limit: number; offset: number }>): URLSearchParams {
+function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; historic?: boolean; limit: number; offset: number }>): URLSearchParams {
   const params = new URLSearchParams({ tab: input.tab, limit: String(input.limit), offset: String(input.offset) });
   if (input.from) params.set('desde', input.from);
   if (input.to) params.set('hasta', input.to);
   if (input.accountId) params.set('cuentaId', input.accountId);
   if (input.query.trim()) params.set('q', input.query.trim().slice(0, 120));
+  params.set('cutoffDate', input.cutoffDate);
+  if (input.historic) params.set('historic', '1');
   return params;
 }
 
@@ -153,8 +155,15 @@ function Guide({ invoicePending }: { invoicePending: boolean }) {
 function DocumentPreview({ document, onClose }: { document: NonNullable<OpenDocument>; onClose: () => void }) {
   return <aside className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-label={`Documento: ${document.title}`}>
     <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 dark:border-slate-700"><p className="min-w-0 truncate text-sm font-bold text-[#2D2A26] dark:text-white">{document.title}</p><button type="button" onClick={onClose} className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#FF5300] dark:text-slate-300 dark:hover:bg-slate-800" aria-label="Cerrar documento"><XMarkIcon className="h-5 w-5" aria-hidden="true" /></button></header>
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 px-3 py-3 text-xs leading-5">
+      <dt>Movimiento</dt><dd className="break-words font-semibold">{document.movement.concepto}</dd>
+      <dt>Fecha e importe</dt><dd>{formatDate(document.movement.fecha)} · {formatMoney(document.movement.importeCentimos)}</dd>
+      <dt>Documento</dt><dd className="break-words">{document.movement.documento?.referencia || '—'}</dd>
+      {document.movement.documento && <><dt>Emisión e importe</dt><dd>{formatDate(document.movement.documento.fecha)} · {formatMagnitude(document.movement.documento.importeCentimos)}</dd></>}
+      <dt>Diferencia</dt><dd className={document.movement.diferenciaCentimos ? 'font-bold text-amber-800 dark:text-amber-300' : ''}>{formatMoney(document.movement.diferenciaCentimos)}</dd>
+    </dl>
     {document.explanation && <p className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950 dark:border-amber-900 dark:bg-amber-950/45 dark:text-amber-100">{document.explanation}</p>}
-    <iframe title={`Vista previa de ${document.title}`} src={document.href} sandbox="" referrerPolicy="same-origin" className="h-[520px] w-full bg-slate-100 dark:bg-slate-800" />
+    {document.href ? <iframe title={`Vista previa de ${document.title}`} src={document.href} sandbox="" referrerPolicy="same-origin" className="h-[520px] w-full bg-slate-100 dark:bg-slate-800" /> : <p className="px-3 py-4 text-xs text-slate-600 dark:text-slate-300">No hay un PDF descargable verificado para esta propuesta. La información anterior permite revisar la diferencia sin darla por confirmada.</p>}
   </aside>;
 }
 
@@ -196,21 +205,23 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
   const isRed = row.color === 'ROJO';
   const canConfirm = isGreen && row.seleccionable;
   const action = canConfirm ? <button type="button" disabled={busy} onClick={onConfirm} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-1 disabled:opacity-50">Confirmar</button>
-    : row.color === 'AMBAR' && documentHref ? <button type="button" disabled={busy} onClick={() => onOpen(row)} className="min-h-9 rounded-md border border-amber-400 bg-white px-2.5 py-1.5 text-xs font-extrabold text-amber-900 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-900 dark:text-amber-100">Abrir</button>
+    : row.color === 'AMBAR' ? <button type="button" disabled={busy} onClick={() => onOpen(row)} className="min-h-9 rounded-md border border-amber-400 bg-white px-2.5 py-1.5 text-xs font-extrabold text-amber-900 hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-500 dark:bg-slate-900 dark:text-amber-100">Abrir</button>
       : isRed && row.movimientoId ? <button type="button" disabled={busy} onClick={onAsk} className="min-h-9 rounded-md border border-red-300 bg-white px-2.5 py-1.5 text-xs font-extrabold text-red-800 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 dark:bg-slate-900 dark:text-red-100">Pedir</button>
         : <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{row.movimientoId ? 'Revisar' : 'Pendiente'}</span>;
   const account = [row.banco, row.cuenta].filter(Boolean).join(' · ') || 'Cuenta no disponible';
-  const documentLabel = row.documento ? `${row.documento.referencia}${row.documento.tercero ? ` · ${row.documento.tercero}` : ''}` : row.motivo;
+  const documentLabel = row.documento?.referencia || '—';
+  const documentInfo = row.documento ? `${row.documento.tercero || ''} · ${formatMagnitude(row.documento.importeCentimos)} · ${formatDate(row.documento.fecha)}` : 'Sin documento propuesto';
   return <article data-testid="conciliar-row" data-row-id={row.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-slate-100 px-2 py-2 hover:bg-orange-50/40 dark:border-slate-800 dark:hover:bg-orange-950/15 xl:grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] xl:gap-3 xl:px-3">
     <div className="hidden min-w-0 xl:block"><span className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2 py-1 text-xs font-bold ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span></div>
     <p className="min-w-0 text-xs font-semibold text-slate-600 dark:text-slate-300" title={formatDate(row.fecha)}><span className={`mb-0.5 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold xl:hidden ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span><span className="block whitespace-nowrap">{formatDate(row.fecha)}</span></p>
     <div className="min-w-0"><p className="truncate text-sm font-bold text-[#2D2A26] dark:text-white" title={row.concepto}>{row.concepto}</p><p className="truncate text-xs text-slate-500 dark:text-slate-400 xl:hidden" title={`${account} · ${documentLabel}`}>{account} · {documentLabel}</p><div className="xl:hidden"><MovementJump row={row} />{row.diferenciaCentimos !== 0 && <p className="text-xs text-amber-800 dark:text-amber-300">Diferencia: {formatMoney(row.diferenciaCentimos)}</p>}</div></div>
     <p className="hidden truncate text-xs text-slate-600 dark:text-slate-300 xl:block" title={account}>{account}</p>
-    <div className="hidden min-w-0 xl:block"><p className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={documentLabel}>{documentLabel}</p>{row.documento && <p className="truncate text-xs text-slate-500 dark:text-slate-400">{formatMoney(row.documento.importeCentimos)} · {formatDate(row.documento.fecha)}</p>}<MovementJump row={row} /></div>
+    <div className="hidden min-w-0 xl:block"><p data-testid="conciliar-document-reference" className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100" title={`${documentLabel} · ${documentInfo}`}>{documentLabel}</p><MovementJump row={row} /></div>
     <div className="hidden text-right xl:block"><p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] dark:text-white">{formatMoney(row.importeCentimos)}</p>{row.diferenciaCentimos !== 0 && <p className="whitespace-nowrap text-xs font-semibold tabular-nums text-amber-800 dark:text-amber-300">Dif. {formatMoney(row.diferenciaCentimos)}</p>}</div>
-    <div className="hidden min-w-0 xl:block"><p className="truncate text-xs text-slate-600 dark:text-slate-300" title={row.motivo}>{row.motivo}</p><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></div>
+    <div className="hidden min-w-0 xl:block"><button type="button" onClick={() => onOpen(row)} title={row.motivo} aria-label="Ver nota completa" className="line-clamp-2 text-left text-xs leading-4 text-slate-600 underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] dark:text-slate-300">{row.motivo}</button><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></div>
     <p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] dark:text-white xl:hidden">{formatMoney(row.importeCentimos)}</p>
     <div className="flex items-center justify-end gap-1.5">{canConfirm && <input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} aria-label={`Seleccionar ${row.concepto}`} disabled={busy} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600 disabled:opacity-50" />}{action}</div>
+    <button type="button" onClick={() => onOpen(row)} title={row.motivo} className="col-span-full line-clamp-2 text-left text-xs text-slate-600 underline decoration-dotted underline-offset-2 dark:text-slate-300 xl:hidden">{row.motivo}</button>
     {receipt && <p className="col-span-full truncate px-1 text-xs xl:hidden"><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></p>}
   </article>;
 }
@@ -220,17 +231,25 @@ function RecentHistory({ receipts, busy, onUndo }: { receipts: readonly Receipt[
   return <section aria-label="Actividad reciente" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><div className="flex items-baseline justify-between gap-3"><h2 className="font-bold text-[#2D2A26] dark:text-white">Actividad reciente</h2><p className="text-xs text-slate-500 dark:text-slate-400">En esta sesión</p></div><ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800">{receipts.slice(0, 8).map((receipt) => <li key={receipt.key} className="flex min-w-0 items-center justify-between gap-3 py-2"><div className="min-w-0"><p className="truncate text-sm font-semibold text-[#2D2A26] dark:text-white">{receipt.label}</p><p className="truncate text-xs text-slate-600 dark:text-slate-300">{receipt.status === 'undone' ? 'Deshecho' : receipt.status === 'failed' ? 'No hecho' : receipt.message}</p></div>{receipt.status !== 'undone' && receipt.operationId && <button type="button" disabled={busy} onClick={() => onUndo(receipt)} className="shrink-0 text-sm font-bold text-[#FF5300] underline underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50">Deshacer</button>}</li>)}</ul></section>;
 }
 
-export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '' }: { initialTab?: ConciliarTab; initialQuery?: string }) {
+export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialData }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialData?: unknown }) {
   const { active: activeActuation } = useActuation();
+  const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
   const [tab, setTab] = useState<ConciliarTab>(initialTab);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [accountId, setAccountId] = useState('');
   const [queryInput, setQueryInput] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery);
+  const [cutoffDate, setCutoffDate] = useState(initialCutoff);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showInterestInvoices, setShowInterestInvoices] = useState(false);
+  const [historicData, setHistoricData] = useState<ConciliarReadResponse | null>(null);
+  const [historicLoading, setHistoricLoading] = useState(false);
+  const [historicOpen, setHistoricOpen] = useState(false);
+  const [historicOffset, setHistoricOffset] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [data, setData] = useState<ConciliarReadResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ConciliarReadResponse | null>(initialParsed);
+  const [loading, setLoading] = useState(initialParsed === null);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
@@ -245,8 +264,10 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const detailController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
   const refreshAttempts = useRef(0);
+  const historicController = useRef<AbortController | null>(null);
 
-  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, limit: PAGE_SIZE, offset }), [accountId, from, offset, query, tab, to]);
+  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, limit: PAGE_SIZE, offset }), [accountId, from, offset, query, tab, to, cutoffDate]);
+  const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && row.seleccionable), [rows]);
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
@@ -278,7 +299,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     }
   }, [requestInput]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    // El HTML ya incluye las filas autorizadas. No borrarlas para pedir lo mismo
+    // después de hidratar ni arrancar una segunda consulta en StrictMode.
+    if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
+    void load();
+  }, [load, requestInput]);
   useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); exportController.current?.abort(); }, []);
 
   useEffect(() => {
@@ -295,6 +321,29 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const changeAccount = useCallback((next: string) => { setAccountId(next); setOffset(0); }, []);
   const changeDate = useCallback((kind: 'from' | 'to', value: string) => { if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, []);
   const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setQuery(queryInput.trim().slice(0, 120)); setOffset(0); }, [queryInput]);
+  const changeCutoff = useCallback((value: string) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    const date = new Date(`${value}T00:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return;
+    setCutoffDate(value); setOffset(0); setHistoricOffset(0); setHistoricData(null);
+    // Una fecha de presentación, no autorización ni estado de cobro.
+    document.cookie = `io_conciliar_cutoff=${value}; Path=/admin/finanzas/conciliar; SameSite=Lax; Secure; Max-Age=31536000`;
+  }, []);
+
+  useEffect(() => {
+    if (!historicOpen || tab !== 'EMITIDAS') return;
+    const controller = new AbortController(); historicController.current?.abort(); historicController.current = controller;
+    setHistoricLoading(true);
+    const params = buildQuery({ ...requestInput, tab: 'EMITIDAS', historic: true, offset: historicOffset });
+    void fetch(`${API}?${params}`, { cache: 'no-store', signal: controller.signal }).then(async (response) => {
+      const raw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudieron leer las facturas anteriores.'));
+      if (!controller.signal.aborted) setHistoricData(parseConciliarReadResponse(raw));
+    }).catch((error: unknown) => {
+      if (!controller.signal.aborted) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudieron leer las facturas anteriores.') : 'No se pudieron leer las facturas anteriores.' });
+    }).finally(() => { if (!controller.signal.aborted) setHistoricLoading(false); });
+    return () => controller.abort();
+  }, [historicOpen, historicOffset, requestInput, tab, data?.updatedAt]);
 
   const addReceipt = useCallback((receipt: Receipt) => {
     setReceipts((current) => [receipt, ...current.filter((item) => item.key !== receipt.key && item.rowId !== receipt.rowId)].slice(0, 20));
@@ -315,7 +364,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       setReceipts((current) => [...current.filter((receipt) => !persisted.some((item) => item.operationId === receipt.operationId)), ...persisted].sort((left, right) => right.createdAt - left.createdAt).slice(0, 20));
     } catch { /* El historial secundario no bloquea la lectura de las cuatro pestañas. */ }
   }, []);
-  useEffect(() => { void loadHistory(); }, [loadHistory]);
+  useEffect(() => { if (showHistory) void loadHistory(); }, [loadHistory, showHistory]);
 
   const finishOutcomes = useCallback((response: ConciliarActionResponse, action: 'confirmar' | 'pedir', rowLabels: ReadonlyMap<string, string>) => {
     for (const outcome of response.outcomes) {
@@ -362,8 +411,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setReceipts((current) => current.map((item) => item.operationId === result.operationId ? { ...item, status: result.undone ? 'undone' : item.status, message: safeOutcomeMessage(result.message, 'Acción deshecha.') } : item));
         setRetry(null);
         setNotice({ tone: result.undone ? 'success' : 'info', text: safeOutcomeMessage(result.message, result.undone ? 'Acción deshecha.' : 'La acción ya no se puede deshacer.') });
-        await load(true, true);
-        await loadHistory();
+        void load(true, true);
+        if (showHistory) void loadHistory();
         return;
       }
       let result;
@@ -379,8 +428,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const succeeded = result.outcomes.filter((outcome) => outcome.ok).length;
       const failed = result.outcomes.length - succeeded;
       setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : payload.action === 'pedir' ? 'Añadido a Para pedir. No se ha enviado ningún aviso.' : 'Hecho. Puedes deshacerlo aquí o desde la actividad reciente.' });
-      await load(true, true);
-      await loadHistory();
+      void load(true, true);
+      if (showHistory) void loadHistory();
     } catch (error) {
       if (isUncertain(error)) {
         setRetry({ payload, label });
@@ -389,7 +438,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
     } finally { setSending(false); }
-  }, [activeActuation, finishOutcomes, load, loadHistory, rows, sending]);
+  }, [activeActuation, finishOutcomes, load, loadHistory, rows, sending, showHistory]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
     if (mutationsBlocked) return;
@@ -415,8 +464,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const detail = parseConciliarDetailResponse(raw);
       if (sequence !== detailSequence.current || detail.id !== row.id) return;
       const href = safeDocumentHref(detail.documento?.href ?? null);
-      if (!href) throw new Error('El documento ya no está disponible. Actualiza la lista y vuelve a intentarlo.');
-      setOpenDocument({ rowId: detail.id, title: detail.documento?.referencia || 'Documento', href, explanation: detail.detail || detail.motivo });
+      setOpenDocument({ rowId: detail.id, title: detail.documento?.referencia || 'Detalle del movimiento', href, explanation: detail.detail || detail.motivo, movement: detail });
     } catch (error) {
       if (sequence !== detailSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
       setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo abrir el detalle de este documento.') : 'No se pudo abrir el detalle de este documento.' });
@@ -446,7 +494,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const collected: ConciliarRow[] = [];
       let snapshot: string | null = null;
       for (let pageOffset = 0; pageOffset < data.total; pageOffset += EXPORT_PAGE_SIZE) {
-        const params = buildQuery({ tab, from, to, accountId, query, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
+        const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
         const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal: controller.signal });
         const raw: unknown = await response.json().catch(() => null);
         if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo leer una página para exportar.'));
@@ -486,7 +534,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (exportController.current === controller) exportController.current = null;
       setExporting(false);
     }
-  }, [accountId, data, exporting, from, query, tab, to]);
+  }, [accountId, data, exporting, from, query, tab, to, cutoffDate]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<ConciliarColor, Map<string, ConciliarRow[]>>();
@@ -516,6 +564,11 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
     <section className="rounded-xl border border-slate-200 bg-white p-2 shadow-sm dark:border-slate-700 dark:bg-slate-900"><div role="tablist" aria-label="Bandejas de conciliación" className="grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-4">{data ? CONCILIAR_TABS.map((item) => { const summary = data.tabs.find((candidate) => candidate.tab === item); return summary ? <SummaryTab key={item} summary={summary} active={tab === item} onClick={() => changeTab(item)} /> : null; }) : CONCILIAR_TABS.map((item) => <div key={item} className="h-32 animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />)}</div></section>
 
+    <section aria-label="Fecha de corte de emitidas" className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+      <p className="max-w-3xl text-slate-600 dark:text-slate-300">Emitidas cuenta sólo las facturas desde el corte. Las anteriores se conservan aparte: no damos por pendiente un cobro antiguo que nunca se confirmó aquí.</p>
+      <label className="shrink-0 font-semibold">Fecha de corte<input type="date" value={cutoffDate} onChange={(event) => changeCutoff(event.target.value)} className="ml-2 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-600 dark:bg-slate-950" /></label>
+    </section>
+
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-[minmax(160px,1fr)_145px_145px_210px_auto] md:items-end"><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button></form></section>
 
     <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
@@ -523,8 +576,18 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => setOffset(Math.max(0, data.offset - data.limit))} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => setOffset(data.offset + data.limit)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Siguiente<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
+    {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+      <summary className="cursor-pointer text-sm font-semibold">Anteriores a la fecha de corte · {data.historicSummary.count.toLocaleString('es-ES')} facturas · {formatMagnitude(data.historicSummary.amountCentimos)}</summary>
+      <p className="py-2 text-xs text-slate-600 dark:text-slate-300">No cuentan en el resumen. Su cobro histórico no consta confirmado en este panel; esto no prueba que el cliente deba ese importe.</p>
+      {historicLoading ? <Skeleton /> : historicData && <>
+        {historicData.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={false} receipt={undefined} busy={mutationsBlocked} onSelect={() => undefined} onConfirm={() => undefined} onAsk={() => undefined} onOpen={openDetail} onUndo={() => undefined} />)}
+        <div className="flex items-center justify-between gap-2 pt-3 text-xs"><span>{historicData.total ? historicData.offset + 1 : 0}–{Math.min(historicData.total, historicData.offset + historicData.rows.length)} de {historicData.total}</span><div className="flex gap-2"><button type="button" disabled={historicOffset === 0} onClick={() => setHistoricOffset(Math.max(0, historicOffset - PAGE_SIZE))} className="min-h-9 rounded border px-2 disabled:opacity-50">Anteriores</button><button type="button" disabled={historicOffset + historicData.rows.length >= historicData.total} onClick={() => setHistoricOffset(historicOffset + PAGE_SIZE)} className="min-h-9 rounded border px-2 disabled:opacity-50">Siguientes</button></div></div>
+      </>}
+    </details>}
+
     <RecentHistory receipts={receipts} busy={mutationsBlocked} onUndo={undoReceipt} />
-    <ConfirmingInterestInvoices />
+    <button type="button" onClick={() => setShowHistory(true)} className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold dark:border-slate-700">{showHistory ? 'Historial cargado' : 'Ver historial de confirmaciones'}</button>
+    <details onToggle={(event) => setShowInterestInvoices(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"><summary className="cursor-pointer text-sm font-semibold">Facturas bancarias de intereses de confirming</summary>{showInterestInvoices && <ConfirmingInterestInvoices />}</details>
     <p className="px-1 text-xs text-slate-500 dark:text-slate-400">Las confirmaciones se hacen una vez, quedan registradas y se pueden deshacer. Pedir sólo añade la fila a la lista interna; no envía correos ni notificaciones.</p>
   </main>;
 }

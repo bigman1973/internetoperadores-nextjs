@@ -16,7 +16,7 @@ test('los enlaces conservan tab/q validados por servidor sin aceptar importes',(
 test('el lector mantiene céntimos enteros y no importa motores pesados de mutación',()=>{
  const reader=read('lib/finanzas/conciliar-projection-read.ts')
  const route=read('app/api/admin/finanzas/conciliar/route.ts')
- assert.match(reader,/COALESCE\(SUM\(p\.pendiente_centimos::bigint\),0\)::text AS amount/)
+ assert.match(reader,/COALESCE\(SUM\((?:p\.)?pendiente_centimos::bigint\),0\)::text AS amount/)
  assert.doesNotMatch(reader,/from ['"][^'"]*conciliar-(actions|db|confirming)['"]/) 
  assert.doesNotMatch(route,/^import .*from ['"][^'"]*conciliar-(actions|db|refresh)['"]/m)
  assert.match(route,/await import\('@\/lib\/finanzas\/conciliar-actions'\)/)

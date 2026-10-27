@@ -44,13 +44,36 @@ function requireMovement(source: ConciliarProjectionSource): string {
   return source.movimientoId
 }
 
-async function assertCleanProjection(tx: Tx): Promise<void> {
+async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean }> {
   const rows = await tx.$queryRaw<Array<{ dirtyAt: Date | null }>>(Prisma.sql`
-    SELECT dirty_at AS "dirtyAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR SHARE
+    SELECT dirty_at AS "dirtyAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
   `)
   if (!rows.length) fail(503, 'CONCILIAR_MIGRATION_PENDING', 'La proyección de Conciliar aún no está preparada.')
-  // Una invalidación no caduca todas las decisiones. Cada fuente se vuelve a
-  // comprobar bajo bloqueo en su motor B4; las que cambiaron se rechazan.
+  // El trigger B4 marca esta misma fila dirty. FOR UPDATE se toma antes de
+  // tocar fuentes para que dos acciones no retengan FOR SHARE y después ambas
+  // intenten escalar a exclusivo al disparar el trigger. Las mutaciones ajenas
+  // posteriores esperan y dejan dirty al terminar; una marca previa se conserva.
+  return { wasDirty: rows[0].dirtyAt !== null }
+}
+
+/**
+ * Confirmar una comisión sólo elimina su fila: no modifica ninguna factura,
+ * propuesta, nómina ni fila derivada. Si la foto estaba limpia al comenzar y
+ * las únicas patas son comisiones, la retirada anterior deja una proyección
+ * exacta en el mismo commit. Limpiar la marca evita reconstruir ~6k filas para
+ * ese caso acotado. Una foto que ya venía dirty nunca se declara limpia aquí.
+ */
+async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, kinds: ReadonlySet<ConciliarProjectionSource['kind']>): Promise<boolean> {
+  if (stateAtStart.wasDirty || kinds.size !== 1 || !kinds.has('COMISION_BANCARIA')) return false
+  const updated = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
+    UPDATE estado_proyeccion_conciliar
+       SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1
+     WHERE singleton=true AND dirty_at IS NOT NULL
+     RETURNING projection_version AS "projectionVersion"
+  `)
+  // All B4 changes are trigger-invalidated. An empty result is still safe: it
+  // means no dirty marker remains; this path never clears a pre-existing one.
+  return updated.length === 1
 }
 
 async function lockOperationOrReplay(tx: Tx, actorId: number, action: 'CONFIRMAR' | 'PEDIR' | 'DESHACER', idempotencyKey: string, requestHash: string, parentId?: string): Promise<{ replay: true; id: string; result: Record<string, unknown> } | { replay: false; id: string }> {
@@ -310,13 +333,15 @@ async function requireLiveWrite(actorId: number) {
 async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
-  await assertCleanProjection(tx)
+  const stateAtStart = await projectionStateAtActionStart(tx)
   const outcomes: Array<Record<string, unknown>> = []
   const movementIds = new Set<string>()
+  const kinds = new Set<ConciliarProjectionSource['kind']>()
   for (let index = 0; index < command.items.length; index += 1) {
     const item = command.items[index]
     const row = await readConciliarRowForAction(tx, item.id)
     rowMustMatch(row, item.decisionHash)
+    kinds.add(row.source.kind)
     const movementId = requireMovement(row.source)
     if (movementIds.has(movementId)) fail(422, 'MOVIMIENTO_REPETIDO', 'La selección incluye el mismo movimiento más de una vez.')
     movementIds.add(movementId)
@@ -334,7 +359,8 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
     const removedIds = row.source.kind === 'TRANSFERENCIA_PROPIA' && row.source.movimientoParId ? [movementId, row.source.movimientoParId] : [movementId]
     await tx.$executeRaw(Prisma.sql`DELETE FROM conciliar_proyecciones WHERE movimiento_id IN (${Prisma.join(removedIds)})`)
   }
-  const result = { ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, refreshedAt: new Date().toISOString() }
+  const projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, kinds)
+  const result = { ok: true, outcomes, applied: command.items.length, failed: 0, reversible: true, projectionSynchronized, refreshedAt: new Date().toISOString() }
   await complete(tx, receipt.id, 'APLICADA', result)
   return { operationId: receipt.id, idempotent: false, ...result }
 }
@@ -342,7 +368,7 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
 async function ask(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'pedir' }>) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'PEDIR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
-  await assertCleanProjection(tx)
+  await projectionStateAtActionStart(tx)
   const row = await readConciliarRowForAction(tx, command.id)
   if (row.decisionHash !== command.decisionHash) fail(409, 'DECISION_CAMBIADA', 'Esta fila cambió desde que abriste la página. Pulsa Actualizar y vuelve a pedir el documento.')
   if (row.color !== 'ROJO') fail(422, 'FILA_NO_PEDIBLE', 'Sólo se puede pedir documentación cuando realmente falta el papel.')
