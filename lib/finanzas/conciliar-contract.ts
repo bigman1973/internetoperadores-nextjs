@@ -64,22 +64,29 @@ export type ConciliarGetInput = Readonly<{
   offset: number
 }>
 
+/** Una vista normalizada sólo sirve para devolver la foto posterior exacta.
+ * No participa en la decisión financiera ni identifica fuentes de cobro. */
+export type ConciliarResponseView = ConciliarGetInput
+
 export type ConciliarConfirmItem = Readonly<{ id: string; decisionHash: string }>
 export type ConciliarConfirmCommand = Readonly<{
   action: 'confirmar'
   idempotencyKey: string
   items: readonly ConciliarConfirmItem[]
+  responseView?: ConciliarResponseView
 }>
 export type ConciliarUndoCommand = Readonly<{
   action: 'deshacer'
   operationId: string
   idempotencyKey: string
+  responseView?: ConciliarResponseView
 }>
 export type ConciliarAskCommand = Readonly<{
   action: 'pedir'
   id: string
   decisionHash: string
   idempotencyKey: string
+  responseView?: ConciliarResponseView
 }>
 export type ConciliarCommand = ConciliarConfirmCommand | ConciliarUndoCommand | ConciliarAskCommand
 
@@ -157,6 +164,44 @@ function positiveInteger(value: string, field: string, min: number, max: number)
   return parsed
 }
 
+function responseView(raw: unknown): ConciliarResponseView {
+  const value = object(raw, 'responseView no es válida.')
+  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo']
+  if (Object.keys(value).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'responseView contiene campos no admitidos.')
+  if (typeof value.tab !== 'string' || typeof value.limit !== 'number' || typeof value.offset !== 'number'
+    || typeof value.cutoffDate !== 'string' || typeof value.historic !== 'boolean') {
+    fail(400, 'VALIDATION_ERROR', 'responseView no conserva una vista normalizada.')
+  }
+  const strings: Record<string, string | null | undefined> = {
+    tab: value.tab,
+    desde: value.desde === undefined ? undefined : typeof value.desde === 'string' ? value.desde : null,
+    hasta: value.hasta === undefined ? undefined : typeof value.hasta === 'string' ? value.hasta : null,
+    cuentaId: value.cuentaId === undefined ? undefined : typeof value.cuentaId === 'string' ? value.cuentaId : null,
+    q: value.q === undefined ? undefined : typeof value.q === 'string' ? value.q : null,
+    cutoffDate: value.cutoffDate,
+    historic: value.historic ? '1' : '0',
+    emitidasGrupo: value.emitidasGrupo === undefined ? undefined : typeof value.emitidasGrupo === 'string' ? value.emitidasGrupo : null,
+    limit: String(value.limit),
+    offset: String(value.offset),
+  }
+  if ((value.desde !== undefined && strings.desde === null) || (value.hasta !== undefined && strings.hasta === null)
+    || (value.cuentaId !== undefined && strings.cuentaId === null) || (value.q !== undefined && strings.q === null)
+    || (value.emitidasGrupo !== undefined && strings.emitidasGrupo === null)
+    || !Number.isSafeInteger(value.limit) || !Number.isSafeInteger(value.offset)) {
+    fail(400, 'VALIDATION_ERROR', 'responseView no conserva una vista normalizada.')
+  }
+  return parseConciliarGetInput(strings)
+}
+
+function commandKeys(root: JsonRecord, required: readonly string[]): JsonRecord {
+  const allowed = [...required, 'responseView']
+  const actual = Object.keys(root)
+  if (actual.some(key => !allowed.includes(key)) || required.some(key => !Object.prototype.hasOwnProperty.call(root, key))) {
+    fail(400, 'VALIDATION_ERROR', 'La solicitud contiene campos no admitidos.')
+  }
+  return root
+}
+
 export function parseConciliarGetInput(raw: Readonly<Record<string, string | null | undefined>>): ConciliarGetInput {
   const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo']
   if (Object.keys(raw).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'La consulta contiene campos no admitidos.')
@@ -197,18 +242,18 @@ function parseConfirmItems(raw: unknown): readonly ConciliarConfirmItem[] {
 export function parseConciliarCommand(raw: unknown): ConciliarCommand {
   const root = object(raw)
   if (root.action === 'confirmar') {
-    const value = exactKeys(root, ['action', 'idempotencyKey', 'items'])
-    return { action: 'confirmar', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items) }
+    const value = commandKeys(root, ['action', 'idempotencyKey', 'items'])
+    return { action: 'confirmar', idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), items: parseConfirmItems(value.items), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   if (root.action === 'deshacer') {
-    const value = exactKeys(root, ['action', 'operationId', 'idempotencyKey'])
-    return { action: 'deshacer', operationId: uuid(value.operationId, 'operationId'), idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey') }
+    const value = commandKeys(root, ['action', 'operationId', 'idempotencyKey'])
+    return { action: 'deshacer', operationId: uuid(value.operationId, 'operationId'), idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   if (root.action === 'pedir') {
-    const value = exactKeys(root, ['action', 'id', 'decisionHash', 'idempotencyKey'])
+    const value = commandKeys(root, ['action', 'id', 'decisionHash', 'idempotencyKey'])
     const decisionHash = text(value.decisionHash, 'decisionHash', 64).toLowerCase()
     if (!SHA256.test(decisionHash)) fail(400, 'VALIDATION_ERROR', 'decisionHash no es válido.')
-    return { action: 'pedir', id: text(value.id, 'id', 240), decisionHash, idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey') }
+    return { action: 'pedir', id: text(value.id, 'id', 240), decisionHash, idempotencyKey: uuid(value.idempotencyKey, 'idempotencyKey'), ...(value.responseView === undefined ? {} : { responseView: responseView(value.responseView) }) }
   }
   fail(400, 'VALIDATION_ERROR', 'La acción no es válida.')
 }

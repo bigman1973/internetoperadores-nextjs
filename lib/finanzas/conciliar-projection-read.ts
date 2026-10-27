@@ -193,7 +193,7 @@ type ProjectionReadBundle = Readonly<{
  * mezclar fotos distintas si un rebuild entra entre ellos. Esta única SELECT
  * mantiene la consulta de proyección sin DML y materializa el filtro una vez.
  */
-async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql): Promise<ProjectionReadBundle> {
+async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql, client: Pick<Tx, '$queryRaw'> = db()): Promise<ProjectionReadBundle> {
   const cutoff = input.cutoffDate ?? CONCILIAR_DEFAULT_CUTOFF
   // El corte es sólo de presentación: la foto persistida no se reescribe. Las
   // Emitidas sin fecha verificable no se reclasifican silenciosamente porque la
@@ -206,7 +206,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
   const scopedRows = input.tab === 'EMITIDAS' && !input.historic
     ? Prisma.sql`SELECT p.* FROM active_emitidas p WHERE ${emitidasScope}`
     : Prisma.sql`SELECT p.* FROM filtered p WHERE ${pageScope}`
-  const result = await db().$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
+  const result = await client.$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
     WITH filtered AS (
       SELECT p.* FROM conciliar_proyecciones p WHERE ${shared}
     ), active AS (
@@ -260,10 +260,10 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
   return result[0]
 }
 
-export async function readConciliarProjection(input: ConciliarGetInput) {
+async function projectionResponse(input: ConciliarGetInput, client: Pick<Tx, '$queryRaw'>) {
   const cutoff = input.cutoffDate ?? CONCILIAR_DEFAULT_CUTOFF
   const shared = filters(input)
-  const bundle = await readProjectionBundle(input, shared)
+  const bundle = await readProjectionBundle(input, shared, client)
   const rows = jsonRecords(bundle.rows, 'Las filas')
   const summaryRows = jsonRecords(bundle.summaries, 'El resumen') as Array<{ tab: string; color: string; total: bigint | number | string; amount: bigint | number | string }>
   const emitidasGroupRows = jsonRecords(bundle.emitidasGroups, 'Los grupos de Emitidas') as Array<{ group: string; total: bigint | number | string; amount: bigint | number | string }>
@@ -319,6 +319,16 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
     emitidasGroups: CONCILIAR_EMITIDAS_GROUPS.map(group => emitidasGroups.get(group)!),
     historicSummary,
   }
+}
+
+/** Reads page, totals and state from the caller's current SERIALIZABLE snapshot.
+ * It performs no authorization, mutation or refresh scheduling. */
+export async function readConciliarProjectionTx(tx: Prisma.TransactionClient, input: ConciliarGetInput) {
+  return projectionResponse(input, tx as Tx)
+}
+
+export async function readConciliarProjection(input: ConciliarGetInput) {
+  return projectionResponse(input, db())
 }
 
 export async function readConciliarRow(id: string) {

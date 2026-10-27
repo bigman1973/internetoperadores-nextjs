@@ -130,6 +130,29 @@ function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: strin
   return params;
 }
 
+/** UI state becomes a closed, normalized response view. It is presentation only:
+ * rows, amounts, IDs and authority remain exclusively server-derived. */
+function responseViewFor(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; emitidasGrupo: ConciliarEmitidasGroup | ''; limit: number; offset: number }>) {
+  return {
+    tab: input.tab,
+    ...(input.from ? { desde: input.from } : {}),
+    ...(input.to ? { hasta: input.to } : {}),
+    ...(input.accountId ? { cuentaId: input.accountId } : {}),
+    ...(input.query.trim() ? { q: input.query.trim().slice(0, 120) } : {}),
+    cutoffDate: input.cutoffDate,
+    historic: false,
+    ...(input.tab === 'EMITIDAS' && input.emitidasGrupo ? { emitidasGrupo: input.emitidasGrupo } : {}),
+    limit: input.limit,
+    offset: input.offset,
+  };
+}
+function responseViewKey(view: Readonly<{ tab: ConciliarTab; desde?: string; hasta?: string; cuentaId?: string; q?: string; cutoffDate?: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup; limit: number; offset: number }>): string {
+  return buildQuery({
+    tab: view.tab, from: view.desde ?? '', to: view.hasta ?? '', accountId: view.cuentaId ?? '', query: view.q ?? '',
+    cutoffDate: view.cutoffDate ?? '2026-01-01', historic: view.historic ?? false, emitidasGrupo: view.emitidasGrupo ?? '', limit: view.limit, offset: view.offset,
+  }).toString();
+}
+
 function colorWidth(summary: ConciliarSummary, color: ConciliarColor): number {
   const total = CONCILIAR_COLORS.reduce((sum, item) => sum + Math.abs(summary.colors[item].amountCentimos), 0);
   if (total === 0) return 0;
@@ -332,6 +355,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [exporting, setExporting] = useState(false);
   const readController = useRef<AbortController | null>(null);
   const readSequence = useRef(0);
+  const activeViewKey = useRef('');
   const exportController = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
@@ -341,6 +365,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const historicController = useRef<AbortController | null>(null);
 
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: PAGE_SIZE, offset }), [accountId, emitidasGrupo, from, offset, query, tab, to, cutoffDate]);
+  activeViewKey.current = buildQuery(requestInput).toString();
   const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && row.seleccionable), [rows]);
@@ -462,6 +487,21 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
   const post = useCallback(async (payload: ConciliarMutationPayload, label: string) => {
     if (sending) return;
+    // A retry retains its original view/idempotency payload; a first attempt gets
+    // the exact normalized view that was visibly rendered when it was sent.
+    const command: ConciliarMutationPayload = payload.responseView ? payload : { ...payload, responseView: responseViewFor(requestInput) };
+    const commandViewKey = command.responseView ? responseViewKey(command.responseView) : null;
+    const adoptProjection = (projection: ConciliarReadResponse | undefined): boolean => {
+      if (!projection || !commandViewKey || commandViewKey !== activeViewKey.current) return false;
+      // Cancel an earlier GET of the old projection; it must not overwrite this
+      // same-transaction snapshot with a stale pre-action response.
+      readSequence.current += 1;
+      readController.current?.abort();
+      setData(projection);
+      setSelected(new Set());
+      setOpenDocument((current) => current && !projection.rows.some((row) => row.id === current.rowId) ? null : current);
+      return true;
+    };
     setSending(true);
     try {
       const response = await fetch(API, {
@@ -470,7 +510,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
           'Content-Type': 'application/json',
           ...(activeActuation ? { 'x-io-acting-session': activeActuation.sessionId } : {}),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(command),
       });
       const raw: unknown = await response.json().catch(() => null);
       if (response.status === 409) {
@@ -480,7 +520,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       }
       if (!response.ok) {
         const message = friendlyError(raw, 'No se pudo completar la acción.');
-        if (response.status >= 500) { setRetry({ payload, label }); setNotice({ tone: 'error', text: `No pudimos comprobar el resultado. Reintenta exactamente la misma acción antes de continuar. ${message}` }); }
+        if (response.status >= 500) { setRetry({ payload: command, label }); setNotice({ tone: 'error', text: `No pudimos comprobar el resultado. Reintenta exactamente la misma acción antes de continuar. ${message}` }); }
         else setNotice({ tone: 'error', text: message });
         return;
       }
@@ -490,7 +530,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
         setReceipts((current) => current.map((item) => item.operationId === result.operationId ? { ...item, status: result.undone ? 'undone' : item.status, message: safeOutcomeMessage(result.message, 'Acción deshecha.') } : item));
         setRetry(null);
         setNotice({ tone: result.undone ? 'success' : 'info', text: safeOutcomeMessage(result.message, result.undone ? 'Acción deshecha.' : 'La acción ya no se puede deshacer.') });
-        void load(true, true);
+        if (!adoptProjection(result.projection)) void load(true, true);
         if (showHistory) void loadHistory();
         return;
       }
@@ -507,17 +547,17 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const succeeded = result.outcomes.filter((outcome) => outcome.ok).length;
       const failed = result.outcomes.length - succeeded;
       setNotice({ tone: failed ? 'info' : 'success', text: failed ? `${succeeded} hecha(s); ${failed} necesita(n) revisión. Consulta la actividad reciente.` : payload.action === 'pedir' ? 'Añadido a Para pedir. No se ha enviado ningún aviso.' : 'Hecho. Puedes deshacerlo aquí o desde la actividad reciente.' });
-      void load(true, true);
+      if (!adoptProjection(result.projection)) void load(true, true);
       if (showHistory) void loadHistory();
     } catch (error) {
       if (isUncertain(error)) {
-        setRetry({ payload, label });
+        setRetry({ payload: command, label });
         setNotice({ tone: 'error', text: 'No pudimos comprobar el resultado. Reintenta exactamente la misma acción antes de continuar.' });
       } else {
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
     } finally { setSending(false); }
-  }, [activeActuation, finishOutcomes, load, loadHistory, rows, sending, showHistory]);
+  }, [activeActuation, finishOutcomes, load, loadHistory, requestInput, rows, sending, showHistory]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
     if (mutationsBlocked || remesaPreviewLoading) return;

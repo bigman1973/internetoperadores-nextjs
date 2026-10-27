@@ -14,7 +14,7 @@ export const EASY_COLLECTIONS_METHODS = [
 export const EASY_COLLECTIONS_LEVELS = ['EXACTA', 'REVISAR'] as const
 export const EASY_COLLECTIONS_STATES = ['JUSTIFICADO', 'NO_REQUIERE'] as const
 export const EASY_COLLECTIONS_DOCUMENT_TYPES = ['FACTURA_EMITIDA', 'REMESA'] as const
-export const EASY_COLLECTIONS_DIFFERENCE_REASONS = ['COMISION', 'INTERESES', 'REDONDEO'] as const
+export const EASY_COLLECTIONS_DIFFERENCE_REASONS = ['COMISION', 'INTERESES', 'IVA_COMISION', 'REDONDEO'] as const
 
 export type EasyCollectionMethod = typeof EASY_COLLECTIONS_METHODS[number]
 export type EasyCollectionLevel = typeof EASY_COLLECTIONS_LEVELS[number]

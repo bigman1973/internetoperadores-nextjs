@@ -279,7 +279,7 @@ async function remittanceDetailInvoicesTx(tx: QueryDb, ids: readonly string[]): 
 function lineView(item: CheckedProposal) {
   return item.lineas.map(line => line.tipo === 'DOCUMENTO'
     ? { tipo: 'DOCUMENTO', referencia: line.tipoDocumento === 'REMESA' ? `Remesa ${line.sourceId}` : `Factura emitida ${line.sourceId}`, importeCentimos: line.importeCentimos }
-    : { tipo: 'DIFERENCIA', referencia: line.motivoDiferencia === 'COMISION' ? 'Diferencia por comisión' : line.motivoDiferencia === 'INTERESES' ? 'Diferencia por intereses' : 'Diferencia por redondeo', importeCentimos: line.importeCentimos })
+    : { tipo: 'DIFERENCIA', referencia: line.motivoDiferencia === 'COMISION' ? 'Diferencia por comisión' : line.motivoDiferencia === 'INTERESES' ? 'Diferencia por intereses' : line.motivoDiferencia === 'IVA_COMISION' ? 'IVA de la comisión' : 'Diferencia por redondeo', importeCentimos: line.importeCentimos })
 }
 function sortPreview(items: readonly CheckedProposal[]): CheckedProposal[] {
   return [...items].sort((left, right) => Math.abs(right.importeMovimientoCentimos) - Math.abs(left.importeMovimientoCentimos) || left.movimientoId.localeCompare(right.movimientoId))

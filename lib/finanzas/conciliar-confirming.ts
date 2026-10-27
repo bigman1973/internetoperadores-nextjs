@@ -5,6 +5,14 @@ import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { archivoRecibidaControlado } from '@/lib/finanzas/archivo-fuente-controlada'
 import {
+  applyDocumentedConfirmingLiquidationSupport,
+  ConfirmingLiquidationRuntimeError,
+  readConfirmingLiquidationCandidates,
+  tryUndoDocumentedConfirmingLiquidationSupport,
+  type ConfirmingLiquidationRuntimeCandidate,
+  type ConfirmingLiquidationSupportResult,
+} from './confirming-liquidation-runtime'
+import {
   buildConciliarConfirmingCandidates,
   centsFromExactDecimal,
   hashConfirmingInterestSource,
@@ -49,7 +57,10 @@ export type ReadConciliarConfirmingCandidatesOptions = Readonly<{
   limit?: number
 }>
 
-export type ReadConciliarConfirmingCandidatesResult = Readonly<ConciliarConfirmingCoreResult & {
+export type ReadConciliarConfirmingCandidatesResult = Readonly<{
+  candidates: readonly ConfirmingLiquidationRuntimeCandidate[]
+  documentosBloqueados: readonly []
+  warningCodes: readonly string[]
   modo: 'LIMITADO' | 'ALL_REBUILD'
   movimientosLeidos: number
   movimientosTruncados: boolean
@@ -313,15 +324,63 @@ export async function readConciliarConfirmingCandidates(
   db: ConfirmingQueryClient,
   options: ReadConciliarConfirmingCandidatesOptions = {},
 ): Promise<ReadConciliarConfirmingCandidatesResult> {
-  return withReadTransaction(db, async (tx) => {
+  // C11 sustituye la lectura C9 para cualquier candidato nuevo. El runtime lee
+  // exclusivamente liquidaciones persistidas current/latest y las revalida con
+  // FI, capacidad B4, cuenta depositaria y movimiento vivos. No parsea ni abre
+  // PDF/XLS/Graph en ejecución. C9 sólo sobrevive como soporte de undo histórico.
+  const c11 = await readConfirmingLiquidationCandidates(db, options)
+  const c11Movements = new Set(c11.candidates.map((candidate) => candidate.movimientoId))
+  const legacy = await withReadTransaction(db, async (tx) => {
     const [{ documents, lines, invoices, b4 }, movementRead] = await Promise.all([
       readStoredDocumentalData(tx),
       readMovements(tx, options),
     ])
-    const core = buildConciliarConfirmingCandidates({ documentos: documents, lineas: lines, facturasEmitidas: invoices, documentosB4: b4, movimientos: movementRead.movements })
-    return { ...core, modo: movementRead.modo, movimientosLeidos: movementRead.movements.length, movimientosTruncados: movementRead.truncados, noEscrituras: true }
+    return { core: buildConciliarConfirmingCandidates({ documentos: documents, lineas: lines, facturasEmitidas: invoices, documentosB4: b4, movimientos: movementRead.movements }), movementRead }
   })
+  // Si una liquidación C11 ya describe el abono, no se muestra un candidato C9
+  // paralelo. Si no existe C11, el legado se conserva sólo como diagnóstico ámbar
+  // con razón explícita: nunca aporta líneas B4 ni un hash confirmable.
+  const blockedLegacy: ConfirmingLiquidationRuntimeCandidate[] = legacy.core.candidates
+    .filter((candidate) => !c11Movements.has(candidate.movimientoId))
+    .map((candidate) => ({
+      evidenceSchema: 'C9_BLOQUEADO' as const,
+      id: `c9-bloqueado:${candidate.id}`,
+      liquidacionId: `C9:${candidate.confirmingId}`,
+      liquidacionVersion: 0,
+      movimientoId: candidate.movimientoId,
+      confirmingId: candidate.confirmingId,
+      fechaDocumento: candidate.fechaDocumento,
+      fechaLiquidacion: null,
+      grupoBusqueda: candidate.grupoBusqueda,
+      sociedadDocumento: candidate.sociedadDocumento,
+      estado: 'BLOQUEADO_EVIDENCIA_C11_AUSENTE' as const,
+      bloqueos: [...new Set([...candidate.bloqueos, 'EVIDENCIA_C11_AUSENTE_PARA_CONFIRMING_C9'])].sort(),
+      requiereConfirmacionHumana: true as const,
+      noEscrituras: true as const,
+      bancoDepositario: candidate.bancoDepositario,
+      cuentaDepositaria: candidate.cuentaDepositaria,
+      cuentaDepositariaId: null,
+      importeMovimientoCentimos: candidate.importeMovimientoCentimos,
+      totalFacturasCentimos: candidate.totalFacturasCentimos,
+      totalInteresesExplicitosCentimos: candidate.totalInteresesExplicitosCentimos,
+      totalComisionesExplicitasCentimos: candidate.totalComisionesExplicitasCentimos,
+      totalIvaComisionCentimos: null,
+      totalLineasB4Centimos: null,
+      lineasB4: [],
+      facturas: candidate.facturas,
+      gastosFinancierosHistoricosIgnorados: false as const,
+      soportesIntereses: [],
+      sourceHash: candidate.sourceHash ?? '0'.repeat(64),
+    }))
+  return {
+    ...c11,
+    candidates: [...c11.candidates, ...blockedLegacy].sort((left, right) => left.movimientoId.localeCompare(right.movimientoId) || left.id.localeCompare(right.id)),
+    warningCodes: [...new Set([...c11.warningCodes, ...legacy.core.warningCodes, 'C9_LEGACY_BLOQUEADO_SIN_EVIDENCIA_C11'])].sort(),
+  }
 }
+
+export { applyDocumentedConfirmingLiquidationSupport, tryUndoDocumentedConfirmingLiquidationSupport }
+export type { ConfirmingLiquidationSupportResult }
 
 export type ApplyDocumentedConfirmingInterestSupportInput = Readonly<{
   action: 'aplicar'
@@ -679,8 +738,24 @@ export async function undoDocumentedConfirmingInterestSupport(
   db: ConfirmingQueryClient,
   actorId: number,
   raw: unknown,
-): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestSupportResult }>> {
+): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestSupportResult | ConfirmingLiquidationSupportResult }>> {
   const input = parseUndoDocumentedConfirmingInterestSupport(raw)
+  // Wrapper conservado para los recibos de Conciliar del refactor C9/C10. Un
+  // UUID que pertenece a C11 no toca tablas C10: tras revertir B4 se registra
+  // exclusivamente su recibo append-only de revocación C11. El caller de
+  // acciones no depende de la forma concreta del resultado de soporte.
+  try {
+    const c11 = await tryUndoDocumentedConfirmingLiquidationSupport(db, actorId, {
+      soporteId: input.loteId,
+      version: input.version,
+      motivo: input.motivo,
+      idempotencyKey: input.idempotencyKey,
+    })
+    if (c11) return c11
+  } catch (error) {
+    if (error instanceof ConfirmingLiquidationRuntimeError) fail(error.status, error.code, error.message)
+    throw error
+  }
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_UNDO_V1', actorId, input })
   return withWriteTransaction(db, async (tx) => {
     await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)

@@ -1529,6 +1529,142 @@ model ConfirmingLinea {
   @@map("confirming_lineas")
 }
 
+// C11: evidencia inmutable y versionada de liquidación confirming. Estas tablas
+// no son DocumentoConciliable ni sustituyen las líneas B4; mantienen la fuente
+// PDF/XLS, el resumen explícito y el detalle nominal que una confirmación humana
+// debe volver a validar. Las relaciones se conservan como IDs para que el acceso
+// runtime siga pasando por el adaptador controlado y las guardas SQL.
+model LiquidacionConfirmingDocumental {
+  id                       String @id @default(uuid()) @db.Uuid
+  confirmingId             String @map("confirming_id")
+  liquidacionKey           String @map("liquidacion_key")
+  version                  Int
+  banco                    BancoLiquidacionConfirming
+  tipoDocumento            TipoDocumentoLiquidacionConfirming @map("tipo_documento")
+  estadoDocumental         EstadoEvidenciaLiquidacionConfirming @map("estado_documental")
+  fechaLiquidacion         DateTime @db.Date @map("fecha_liquidacion")
+  cuentaDepositariaId      String @map("cuenta_depositaria_id")
+  nominalCentimos          Int @map("nominal_centimos")
+  interesesCentimos        Int @map("intereses_centimos")
+  comisionCentimos         Int @map("comision_centimos")
+  ivaComisionCentimos      Int @map("iva_comision_centimos")
+  deduccionTotalCentimos   Int? @map("deduccion_total_centimos")
+  netoBancarioCentimos     Int @map("neto_bancario_centimos")
+  fuenteHash               String @db.Char(64) @map("fuente_hash")
+  fuenteSnapshot           Json @map("fuente_snapshot")
+  actorRealId              Int @map("actor_real_id")
+  actorEfectivoId          Int @map("actor_efectivo_id")
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([confirmingId, liquidacionKey, version])
+  @@index([confirmingId, createdAt])
+  @@index([cuentaDepositariaId, fechaLiquidacion])
+  @@map("liquidaciones_confirming_documentales")
+}
+
+model DocumentoLiquidacionConfirming {
+  id                       String @id @default(uuid()) @db.Uuid
+  liquidacionId            String @db.Uuid @map("liquidacion_id")
+  facturaRecibidaId         String @map("factura_recibida_id")
+  rol                      RolDocumentoLiquidacionConfirming
+  hashBinario              String @db.Char(64) @map("hash_binario")
+  procedencia              ProcedenciaDocumentoLiquidacionConfirming
+  archivoControladoId      String @map("archivo_controlado_id")
+  oneDriveDriveId          String? @map("onedrive_drive_id")
+  oneDriveItemId           String? @map("onedrive_item_id")
+  nombreOriginal           String? @map("nombre_original")
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([liquidacionId, rol])
+  @@index([facturaRecibidaId])
+  @@map("documentos_liquidacion_confirming")
+}
+
+model LineaLiquidacionConfirming {
+  id                       String @id @default(uuid()) @db.Uuid
+  liquidacionId            String @db.Uuid @map("liquidacion_id")
+  confirmingLineaId        String? @map("confirming_linea_id")
+  facturaEmitidaId         String @map("factura_emitida_id")
+  numeroFactura            String @map("numero_factura")
+  nominalCentimos          Int @map("nominal_centimos")
+  fechaEmision             DateTime @db.Date @map("fecha_emision")
+  fechaVencimiento         DateTime? @db.Date @map("fecha_vencimiento")
+  interesesExplicitosCentimos Int? @map("intereses_explicitos_centimos")
+  comisionExplicitaCentimos Int? @map("comision_explicita_centimos")
+  fuenteSnapshot           Json @map("fuente_snapshot")
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([liquidacionId, facturaEmitidaId])
+  @@index([facturaEmitidaId])
+  @@index([confirmingLineaId])
+  @@map("lineas_liquidacion_confirming")
+}
+
+model SoporteLiquidacionConfirming {
+  id                       String @id @default(uuid()) @db.Uuid
+  liquidacionId            String @db.Uuid @map("liquidacion_id")
+  movimientoId             String @map("movimiento_id")
+  operacionB4Id            String @db.Uuid @map("operacion_b4_id")
+  vinculoInteresesId       String? @db.Uuid @map("vinculo_intereses_id")
+  vinculoComisionId        String? @db.Uuid @map("vinculo_comision_id")
+  vinculoIvaComisionId     String? @db.Uuid @map("vinculo_iva_comision_id")
+  estado                   EstadoSoporteLiquidacionConfirming @default(CONFIRMADO)
+  fuenteHash               String @db.Char(64) @map("fuente_hash")
+  fuenteSnapshot           Json @map("fuente_snapshot")
+  actorRealId              Int @map("actor_real_id")
+  actorEfectivoId          Int @map("actor_efectivo_id")
+  confirmadoAt             DateTime @default(now()) @map("confirmado_at")
+  version                  Int @default(1)
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([operacionB4Id])
+  @@index([movimientoId, estado])
+  @@index([liquidacionId, estado])
+  @@map("soportes_liquidacion_confirming")
+}
+
+model RevocacionSoporteLiquidacionConfirming {
+  id                       String @id @default(uuid()) @db.Uuid
+  soporteId                String @db.Uuid @map("soporte_id")
+  actorRealId              Int @map("actor_real_id")
+  actorEfectivoId          Int @map("actor_efectivo_id")
+  versionSoporte           Int @map("version_soporte")
+  motivo                   String
+  idempotencyKey           String @map("idempotency_key")
+  payloadHash              String @db.Char(64) @map("payload_hash")
+  snapshot                 Json
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([actorRealId, idempotencyKey])
+  @@unique([soporteId, versionSoporte])
+  @@index([soporteId, createdAt])
+  @@map("revocaciones_soporte_liquidacion_confirming")
+}
+
+model AuditoriaLiquidacionConfirming {
+  id                       String @id @default(uuid()) @db.Uuid
+  liquidacionId            String? @db.Uuid @map("liquidacion_id")
+  soporteId                String? @db.Uuid @map("soporte_id")
+  actorRealId              Int @map("actor_real_id")
+  actorEfectivoId          Int @map("actor_efectivo_id")
+  accion                   AccionAuditoriaLiquidacionConfirming
+  idempotencyKey           String @map("idempotency_key")
+  payloadHash              String @db.Char(64) @map("payload_hash")
+  snapshot                 Json
+  transactionId            BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt                DateTime @default(now()) @map("created_at")
+
+  @@unique([actorRealId, idempotencyKey])
+  @@index([liquidacionId, createdAt])
+  @@index([soporteId, createdAt])
+  @@map("auditorias_liquidacion_confirming")
+}
+
 model Gasto {
   adjuntoPendienteB5 AdjuntoPendienteB5? @relation("AdjuntoPendienteB5Gasto")
   id              String   @id @default(uuid())
@@ -1652,6 +1788,34 @@ enum TipoSoporteFinanciero {
 enum EstadoSoporteConfirmingDraxton {
   CONFIRMADO
   REVOCADO
+}
+enum BancoLiquidacionConfirming {
+  BBVA
+  CAIXABANK
+}
+enum TipoDocumentoLiquidacionConfirming {
+  LIQUIDACION
+  AVISO_CESION
+}
+enum EstadoEvidenciaLiquidacionConfirming {
+  CUADRA
+  REQUIERE_REVISION_DOCUMENTAL
+}
+enum RolDocumentoLiquidacionConfirming {
+  LIQUIDACION_PDF
+  DETALLE_FACTURAS_XLS
+  AVISO_CESION_PDF
+}
+enum ProcedenciaDocumentoLiquidacionConfirming {
+  ARCHIVO_DESCARGADO_CONTROLADO
+}
+enum EstadoSoporteLiquidacionConfirming {
+  CONFIRMADO
+}
+enum AccionAuditoriaLiquidacionConfirming {
+  CARGA_EVIDENCIA
+  CONFIRMACION_SOPORTE
+  REVOCACION_SOPORTE
 }
 enum AccionAuditoriaSoporteConfirmingDraxton {
   CONFIRMACION
@@ -4124,6 +4288,7 @@ enum TipoLineaVinculo {
 enum MotivoDiferencia {
   COMISION
   INTERESES
+  IVA_COMISION
   REDONDEO
 }
 

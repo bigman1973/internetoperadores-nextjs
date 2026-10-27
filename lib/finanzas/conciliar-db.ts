@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
+import type { InvoiceSettlement } from '@/lib/finanzas/bank-invoicing-core'
 import { archivoRecibidaControlado, bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { driveItemDesdeArchivoUrlNominaControlada } from '@/lib/finanzas/nominas-propuestas-db'
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
@@ -30,7 +31,7 @@ import { cents, day, document, exactMoney, json, nullableText, object, projectio
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
-export { readConciliarHistory, readConciliarProjection, readConciliarRow, readConciliarRowForAction } from './conciliar-projection-read'
+export { readConciliarHistory, readConciliarProjection, readConciliarProjectionTx, readConciliarRow, readConciliarRowForAction } from './conciliar-projection-read'
 // The thin reader retains the exact aggregate: COALESCE(SUM(p.pendiente_centimos::bigint),0)::text AS amount
 
 /** No Prisma schema edit is needed for Conciliar's additive migration. */
@@ -155,7 +156,7 @@ export async function resolveConciliarProjectionFile(rowId: string): Promise<Rea
 
 // ---------------------- Rebuild and refresh projection ---------------------
 
-type RebuildRow = Omit<ConciliarProjectionPayload, 'row'> & {
+export type RebuildRow = Omit<ConciliarProjectionPayload, 'row'> & {
   tab: ConciliarTab
   row: Omit<ConciliarRow, 'decisionHash'>
   cuentaId: string | null
@@ -274,6 +275,9 @@ function proposalComposition(raw: unknown): Array<{ facturaEmitidaId: string | n
     return [{ facturaEmitidaId: invoice, numFactura: nullableText(value.numFactura, 240), cliente: nullableText(value.cliente, 300), importeCentimos: amount, vencimiento: typeof value.vencimiento === 'string' ? value.vencimiento.slice(0, 10) : null }]
   })
 }
+export function proposalCompositionInvoiceIds(raw: unknown): string[] {
+  return [...new Set(proposalComposition(raw).flatMap(item => item.facturaEmitidaId ? [item.facturaEmitidaId] : []))].sort()
+}
 
 type ProposalLine = Readonly<{ tipo: 'DOCUMENTO' | 'DIFERENCIA'; tipoDocumento?: 'FACTURA_EMITIDA' | 'REMESA'; sourceId?: string; importeCentimos: number; motivoDiferencia?: string }>
 function proposalLines(raw: unknown): ProposalLine[] | null {
@@ -351,6 +355,92 @@ function collectionProposalStatus(input: Readonly<{
   return { green: true, reason: isRemittanceMethod(proposal.metodo) ? 'La remesa y todos sus recibos cierran exactamente con el ingreso.' : 'Importe, cliente y facturas de la propuesta coinciden.', composition, lines, remesaIds }
 }
 
+type InvoiceCandidate = Readonly<{ movementId: string; color: ConciliarColor; rowId: string; propuestaId: string | null }>
+/** Índice canónico de fechas procedente de la población B7 completa.  Tanto el
+ * rebuild como los parches parciales deben usarlo: releer sólo FacturaEmitida
+ * puede convertir una FI excluida/no económica en una propuesta verde distinta
+ * de la que produciría el rebuild. */
+export type ConciliarInvoiceDateIndex = ReadonlyMap<string, string | null>
+
+/** Constructor único de EMITIDAS para rebuild y delta.  El estado monetario
+ * procede siempre de calculateBankInvoicing; una propuesta sólo colorea el
+ * candidato de revisión y nunca altera pendienteCentimos. */
+export function emittedProjection(settlement: InvoiceSettlement, candidate: InvoiceCandidate | undefined): RebuildRow | null {
+  if (settlement.paymentState === 'COBRADA_CALCULADA') return null
+  const target = settlement.targetCents, pending = settlement.remainingCents
+  const color: ConciliarColor = pending === null || target === null || settlement.paymentState === 'PENDIENTE_COBRO_REVISION' ? 'AMBAR' : 'ROJO'
+  const reason = pending === null ? 'No se puede comprobar el saldo de esta factura con la evidencia bancaria disponible.'
+    : settlement.paymentState === 'PENDIENTE_COBRO_REVISION' ? 'La factura tiene una asignación que requiere revisión; no se considera cobrada.'
+      : 'Factura emitida pendiente de cobro documental.'
+  const rowColor = candidate?.color === 'VERDE' ? 'VERDE' : candidate ? 'AMBAR' : color
+  const rowReason = candidate?.color === 'VERDE' ? 'Hay un cobro que coincide; ábrelo para confirmarlo.' : candidate ? 'Hay un cobro propuesto que necesita revisión.' : reason
+  return projection('EMITIDAS', baseRow({
+    id: rowId('EMITIDAS', `PENDIENTE_FACTURA_EMITIDA:${settlement.invoiceId}`), movimientoId: candidate?.movementId ?? null,
+    fecha: settlement.fechaISO ?? '1970-01-01', concepto: settlement.numFactura ?? 'Factura emitida', banco: null, cuenta: null,
+    importeCentimos: pending ?? 0, pendienteCentimos: pending ?? 0, color: rowColor, grupo: 'FACTURAS_EMITIDAS', motivo: rowReason,
+    documento: target === null ? null : { referencia: settlement.numFactura ?? `Factura ${settlement.invoiceId}`, tercero: settlement.cliente, importeCentimos: target, fecha: settlement.fechaISO, href: null },
+    propuesta: candidate?.propuestaId ?? null, seleccionable: false, diferenciaCentimos: 0,
+    linksMovimiento: candidate ? [{ id: candidate.rowId, href: `/admin/finanzas/conciliar?tab=COBROS&q=${encodeURIComponent(settlement.numFactura ?? '')}`, etiqueta: 'Abrir el cobro propuesto' }] : undefined,
+    detail: settlement.reasons.join(' · ').slice(0, 1_600) || null,
+  }), { kind: 'PENDIENTE_FACTURA_EMITIDA', facturaEmitidaId: settlement.invoiceId, ...(candidate ? { movimientoId: candidate.movementId } : {}) } as ConciliarProjectionSource, null)
+}
+
+/** Constructor único para un cobro propuesto. Todas las entradas son fuentes
+ * vivas leídas por el llamador; ni la fila anterior ni sus hashes participan. */
+export function collectionProjectionForMovement(movement: any, proposalRow: any | undefined, invoiceDates: ConciliarInvoiceDateIndex): RebuildRow {
+  const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
+  const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
+  const cuentaId = String(movement.cuentaId), banco = nullableText(movement.banco, 300), cuenta = nullableText(movement.cuenta, 300)
+  const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
+  const one = status.composition.length === 1 ? status.composition[0] : null
+  const documentValue = one && one.importeCentimos !== null ? { referencia: one.numFactura ?? 'Factura emitida', tercero: one.cliente, importeCentimos: one.importeCentimos, fecha: one.facturaEmitidaId ? invoiceDates.get(one.facturaEmitidaId) ?? null : null, href: null } : null
+  const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
+  const remesaSeal = remesaProposal ? remittanceSealForProposal({ propuestaId: String(proposalRow.propuestaId), movimientoId: id, fingerprint: String(proposalRow.fingerprint), metodo: String(proposalRow.metodo), importeMovimientoCentimos: amount, lineas: proposalRow.lineas, composicion: proposalRow.composicion }) : null
+  const green = status.green && (!remesaProposal || remesaSeal !== null)
+  const color: ConciliarColor = green ? 'VERDE' : proposalRow ? 'AMBAR' : 'ROJO'
+  const motivo = remesaProposal && !remesaSeal ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.' : green ? status.reason : proposalRow
+    ? status.reason
+    : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: false })
+  const source: ConciliarProjectionSource = proposalRow
+    ? { kind: 'COBRO_PROPUESTA', movimientoId: id, propuestaId: String(proposalRow.propuestaId), proposalFingerprint: String(proposalRow.fingerprint), ...(remesaSeal ? { remesaId: remesaSeal.remesaId, proposalCompositionHash: remesaSeal.compositionHash } : {}), versionB4: cents(movement.versionB4, 'La versión') }
+    : { kind: 'COBRO_PROPUESTA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }
+  return projection('COBROS', baseRow({
+    id: rowId('COBROS', `COBRO_PROPUESTA:${id}:${String(proposalRow?.propuestaId ?? 'SIN_PROPUESTA')}`), movimientoId: id, fecha, concepto, banco, cuenta,
+    importeCentimos: amount, pendienteCentimos: amount, color, grupo: proposalRow ? nullableText(proposalRow.metodo, 120) : null, motivo, documento: documentValue,
+    propuesta: proposalRow ? String(proposalRow.propuestaId) : null, seleccionable: green, diferenciaCentimos: green ? 0 : amount - (proposalLineTotal(status.lines) ?? amount),
+    detail: proposalRow ? compactCompositionDetail(status.composition) ?? textoSeguro(proposalRow.explicacion).slice(0, 1_600) : null,
+  }), source, cuentaId)
+}
+
+export async function confirmingProjectionForMovement(tx: Tx, movement: any, candidate: any): Promise<RebuildRow> {
+  const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
+  const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
+  const cuentaId = String(movement.cuentaId), banco = nullableText(movement.banco, 300), cuenta = nullableText(movement.cuenta, 300)
+  const exact = candidate.estado === 'LISTO_PARA_CONFIRMACION_B4'
+    && candidate.totalLineasB4Centimos === amount
+    && candidate.sourceHash !== null
+  const documents = candidate.facturas
+  const single = documents.length === 1 ? documents[0] : null
+  const opaqueId = rowId('COBROS', `COBRO_CONFIRMING:${id}:${candidate.confirmingId}`)
+  const confirmingFile = await resolveStoredConfirmingFile(tx as unknown as ConfirmingQueryClient, candidate.confirmingId)
+  const documentValue = candidate.totalFacturasCentimos !== null ? {
+    referencia: single ? single.numeroFacturaEmitida ?? single.numeroDocumento : `Confirming · ${documents.length} facturas`,
+    tercero: single?.sociedadFactura ?? 'Grupo Draxton', importeCentimos: candidate.totalFacturasCentimos,
+    fecha: candidate.fechaDocumento, href: candidateFileHref(opaqueId, !!confirmingFile),
+  } : null
+  return projection('COBROS', baseRow({
+    id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount,
+    color: exact ? 'VERDE' : 'AMBAR', grupo: 'CONFIRMING_DRAXTON',
+    motivo: exact ? 'El documento de confirming, sus facturas y las deducciones indicadas cierran exactamente.' : 'El confirming necesita revisión antes de confirmarlo.',
+    documento: documentValue, propuesta: `confirming:${candidate.confirmingId}`, seleccionable: exact,
+    diferenciaCentimos: exact ? 0 : amount - (candidate.totalLineasB4Centimos ?? 0),
+    detail: candidate.gastosFinancierosHistoricosIgnorados ? 'Sólo se han usado las deducciones que aparecen expresamente en el documento.' : null,
+  }), {
+    kind: 'COBRO_CONFIRMING', movimientoId: id, confirmingId: candidate.confirmingId,
+    confirmingSourceHash: candidate.sourceHash ?? undefined, versionB4: cents(movement.versionB4, 'La versión'),
+  }, cuentaId)
+}
+
 const PROJECTION_INSERT_BATCH = 500
 async function assertProjectionSnapshot(tx: Tx): Promise<void> {
   // The advisory lock serializes rebuilds from imports, confirmations and explicit
@@ -374,7 +464,7 @@ function projectionInsertValue(item: RebuildRow) {
   }
 }
 
-async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Promise<void> {
+export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Promise<void> {
   for (let start = 0; start < rows.length; start += PROJECTION_INSERT_BATCH) {
     const batch = rows.slice(start, start + PROJECTION_INSERT_BATCH).map(projectionInsertValue)
     await tx.$executeRaw(Prisma.sql`
@@ -536,7 +626,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     receivedByCounterparty.set(counterparty, [...(receivedByCounterparty.get(counterparty) ?? []), invoice])
   }
   const confirmingByMovement = new Map(confirming.candidates.map(item => [item.movimientoId, item]))
-  const invoiceCandidate = new Map<string, { movementId: string; color: ConciliarColor; rowId: string; propuestaId: string | null }>()
+  const invoiceCandidate = new Map<string, InvoiceCandidate>()
   const receivedInvoicePaymentCandidates = new Map<string, ReceivedInvoicePendingPaymentCandidate[]>()
 
   for (const movement of movements) {
@@ -562,51 +652,17 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     if (amount > 0) {
       const confirmingCandidate = confirmingByMovement.get(id)
       if (confirmingCandidate) {
-        const exact = confirmingCandidate.estado === 'LISTO_PARA_CONFIRMACION_B4'
-          && confirmingCandidate.totalLineasB4Centimos === amount
-          && confirmingCandidate.sourceHash !== null
-        const documents = confirmingCandidate.facturas
-        const single = documents.length === 1 ? documents[0] : null
-        const opaqueId = rowId('COBROS', `COBRO_CONFIRMING:${id}:${confirmingCandidate.confirmingId}`)
-        const confirmingFile = await resolveStoredConfirmingFile(tx as unknown as ConfirmingQueryClient, confirmingCandidate.confirmingId)
-        const documentValue = confirmingCandidate.totalFacturasCentimos !== null ? {
-          referencia: single ? single.numeroFacturaEmitida ?? single.numeroDocumento : `Confirming · ${documents.length} facturas`,
-          tercero: single?.sociedadFactura ?? 'Grupo Draxton',
-          importeCentimos: confirmingCandidate.totalFacturasCentimos,
-          fecha: confirmingCandidate.fechaDocumento,
-          href: candidateFileHref(opaqueId, !!confirmingFile),
-        } : null
-        rows.push(projection('COBROS', baseRow({
-          id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount,
-          color: exact ? 'VERDE' : 'AMBAR', grupo: 'CONFIRMING_DRAXTON',
-          motivo: exact ? 'El documento de confirming, sus facturas y las deducciones indicadas cierran exactamente.' : 'El confirming necesita revisión antes de confirmarlo.',
-          documento: documentValue, propuesta: `confirming:${confirmingCandidate.confirmingId}`, seleccionable: exact,
-          diferenciaCentimos: exact ? 0 : amount - (confirmingCandidate.totalLineasB4Centimos ?? 0),
-          detail: confirmingCandidate.gastosFinancierosHistoricosIgnorados ? 'Sólo se han usado las deducciones que aparecen expresamente en el documento.' : null,
-        }), {
-          kind: 'COBRO_CONFIRMING', movimientoId: id, confirmingId: confirmingCandidate.confirmingId,
-          confirmingSourceHash: confirmingCandidate.sourceHash ?? undefined, versionB4: cents(movement.versionB4, 'La versión'),
-        }, cuentaId))
+        rows.push(await confirmingProjectionForMovement(tx, movement, confirmingCandidate))
         continue
       }
       const proposalRow = proposalByMovement.get(id)
-      const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
-      const one = status.composition.length === 1 ? status.composition[0] : null
-      const documentValue = one && one.importeCentimos !== null ? { referencia: one.numFactura ?? 'Factura emitida', tercero: one.cliente, importeCentimos: one.importeCentimos, fecha: one.facturaEmitidaId ? invoiceDates.get(one.facturaEmitidaId) ?? null : null, href: null } : null
-      const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
-      const remesaSeal = remesaProposal ? remittanceSealForProposal({ propuestaId: String(proposalRow.propuestaId), movimientoId: id, fingerprint: String(proposalRow.fingerprint), metodo: String(proposalRow.metodo), importeMovimientoCentimos: amount, lineas: proposalRow.lineas, composicion: proposalRow.composicion }) : null
-      const green = status.green && (!remesaProposal || remesaSeal !== null)
-      const color: ConciliarColor = green ? 'VERDE' : proposalRow ? 'AMBAR' : 'ROJO'
-      const motivo = remesaProposal && !remesaSeal ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.' : green ? status.reason : proposalRow
-        ? status.reason
-        : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: false })
-      const source: ConciliarProjectionSource = proposalRow ? { kind: 'COBRO_PROPUESTA', movimientoId: id, propuestaId: String(proposalRow.propuestaId), proposalFingerprint: String(proposalRow.fingerprint), ...(remesaSeal ? { remesaId: remesaSeal.remesaId, proposalCompositionHash: remesaSeal.compositionHash } : {}), versionB4: cents(movement.versionB4, 'La versión') } : { kind: 'COBRO_PROPUESTA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }
-      const opaqueId = rowId('COBROS', `COBRO_PROPUESTA:${id}:${String(proposalRow?.propuestaId ?? 'SIN_PROPUESTA')}`)
-      rows.push(projection('COBROS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: proposalRow ? nullableText(proposalRow.metodo, 120) : null, motivo, documento: documentValue, propuesta: proposalRow ? String(proposalRow.propuestaId) : null, seleccionable: green, diferenciaCentimos: green ? 0 : amount - (proposalLineTotal(status.lines) ?? amount), detail: proposalRow ? compactCompositionDetail(status.composition) ?? textoSeguro(proposalRow.explicacion).slice(0, 1_600) : null }), source, cuentaId))
-      if (proposalRow) for (const item of status.composition) {
+      const proposalStatus = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
+      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates)
+      rows.push(collection)
+      if (proposalRow) for (const item of proposalStatus.composition) {
         if (!item.facturaEmitidaId) continue
         const prior = invoiceCandidate.get(item.facturaEmitidaId)
-        if (!prior || conciliarColorRank(color) < conciliarColorRank(prior.color)) invoiceCandidate.set(item.facturaEmitidaId, { movementId: id, color, rowId: opaqueId, propuestaId: String(proposalRow.propuestaId) })
+        if (!prior || conciliarColorRank(collection.row.color) < conciliarColorRank(prior.color)) invoiceCandidate.set(item.facturaEmitidaId, { movementId: id, color: collection.row.color, rowId: collection.row.id, propuestaId: String(proposalRow.propuestaId) })
       }
       continue
     }
@@ -690,16 +746,8 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   }
 
   for (const settlement of bank.invoices) {
-    if (settlement.paymentState === 'COBRADA_CALCULADA') continue
-    const target = settlement.targetCents, pending = settlement.remainingCents
-    const color: ConciliarColor = pending === null || target === null || settlement.paymentState === 'PENDIENTE_COBRO_REVISION' ? 'AMBAR' : 'ROJO'
-    const reason = pending === null ? 'No se puede comprobar el saldo de esta factura con la evidencia bancaria disponible.'
-      : settlement.paymentState === 'PENDIENTE_COBRO_REVISION' ? 'La factura tiene una asignación que requiere revisión; no se considera cobrada.'
-        : 'Factura emitida pendiente de cobro documental.'
-    const candidate = invoiceCandidate.get(settlement.invoiceId)
-    const rowColor = candidate?.color === 'VERDE' ? 'VERDE' : candidate ? 'AMBAR' : color
-    const rowReason = candidate?.color === 'VERDE' ? 'Hay un cobro que coincide; ábrelo para confirmarlo.' : candidate ? 'Hay un cobro propuesto que necesita revisión.' : reason
-    rows.push(projection('EMITIDAS', baseRow({ id: rowId('EMITIDAS', `PENDIENTE_FACTURA_EMITIDA:${settlement.invoiceId}`), movimientoId: candidate?.movementId ?? null, fecha: settlement.fechaISO ?? '1970-01-01', concepto: settlement.numFactura ?? 'Factura emitida', banco: null, cuenta: null, importeCentimos: pending ?? 0, pendienteCentimos: pending ?? 0, color: rowColor, grupo: 'FACTURAS_EMITIDAS', motivo: rowReason, documento: target === null ? null : { referencia: settlement.numFactura ?? `Factura ${settlement.invoiceId}`, tercero: settlement.cliente, importeCentimos: target, fecha: settlement.fechaISO, href: null }, propuesta: candidate?.propuestaId ?? null, seleccionable: false, diferenciaCentimos: 0, linksMovimiento: candidate ? [{ id: candidate.rowId, href: `/admin/finanzas/conciliar?tab=COBROS&q=${encodeURIComponent(settlement.numFactura ?? '')}`, etiqueta: 'Abrir el cobro propuesto' }] : undefined, detail: settlement.reasons.join(' · ').slice(0, 1_600) || null }), { kind: 'PENDIENTE_FACTURA_EMITIDA', facturaEmitidaId: settlement.invoiceId, ...(candidate ? { movimientoId: candidate.movementId } : {}) } as ConciliarProjectionSource, null))
+    const row = emittedProjection(settlement, invoiceCandidate.get(settlement.invoiceId))
+    if (row) rows.push(row)
   }
 
   for (const invoice of invoices) {

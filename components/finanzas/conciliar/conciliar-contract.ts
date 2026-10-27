@@ -67,12 +67,16 @@ export type ConciliarActionResponse = Readonly<{
   operationId?: string;
   outcomes: readonly ConciliarOutcome[];
   refreshedAt: string;
+  projectionSynchronized: boolean;
+  projection?: ConciliarReadResponse;
 }>;
 export type ConciliarUndoResponse = Readonly<{
   operationId: string;
   undone: boolean;
   message: string;
   refreshedAt: string;
+  projectionSynchronized: boolean;
+  projection?: ConciliarReadResponse;
 }>;
 /** Vista previa sellada por el servidor. Las filas son la composición completa,
  * nunca la muestra compacta que usan las tarjetas de la cola. */
@@ -363,16 +367,24 @@ export function parseConciliarActionResponse(value: unknown): ConciliarActionRes
   const outcomes = array(raw.outcomes, 'outcomes').map(parseOutcome);
   if (outcomes.length < 1 || outcomes.length > 100) throw new Error('La respuesta de la acción está incompleta.');
   const operationId = raw.operationId === undefined ? undefined : parseOperationId(raw.operationId, 'operationId');
-  return { ...(operationId ? { operationId } : {}), outcomes, refreshedAt: text(raw.refreshedAt, 'refreshedAt', 80) };
+  const projectionSynchronized = raw.projectionSynchronized === true;
+  const projection = raw.projection === undefined ? undefined : parseConciliarReadResponse(raw.projection);
+  if (projection && !projectionSynchronized) throw new Error('La respuesta no puede incluir una proyección no sincronizada.');
+  return { ...(operationId ? { operationId } : {}), outcomes, refreshedAt: text(raw.refreshedAt, 'refreshedAt', 80), projectionSynchronized, ...(projection ? { projection } : {}) };
 }
 
 export function parseConciliarUndoResponse(value: unknown): ConciliarUndoResponse {
   const raw = object(value, 'respuesta de deshacer');
+  const projectionSynchronized = raw.projectionSynchronized === true;
+  const projection = raw.projection === undefined ? undefined : parseConciliarReadResponse(raw.projection);
+  if (projection && !projectionSynchronized) throw new Error('La respuesta no puede incluir una proyección no sincronizada.');
   return {
     operationId: parseOperationId(raw.operationId, 'operationId'),
     undone: boolean(raw.undone, 'undone'),
     message: text(raw.message, 'message', 900),
     refreshedAt: text(raw.refreshedAt, 'refreshedAt', 80),
+    projectionSynchronized,
+    ...(projection ? { projection } : {}),
   };
 }
 

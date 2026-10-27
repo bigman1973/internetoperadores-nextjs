@@ -83,6 +83,8 @@ function normalizeOutcome(value: unknown, fallbackId: string, defaultOperationId
 function actionResponse(command: ConciliarCommand, result: unknown) {
   const raw = result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : {}
   const resultOperationId = operationId(raw.operationId)
+  const projectionSynchronized = raw.projectionSynchronized === true
+  const projection = projectionSynchronized && command.responseView ? readResponse(raw.projection) : undefined
   if (command.action === 'deshacer') {
     const undone = raw.ok === true
     return {
@@ -92,6 +94,8 @@ function actionResponse(command: ConciliarCommand, result: unknown) {
       undone,
       message: undone ? 'La acción se ha deshecho.' : text(raw.message, 'La acción ya no se puede deshacer.'),
       refreshedAt: refreshedAt(),
+      projectionSynchronized,
+      ...(projection ? { projection } : {}),
     }
   }
   const candidates = Array.isArray(raw.outcomes) ? raw.outcomes : command.action === 'pedir'
@@ -99,7 +103,7 @@ function actionResponse(command: ConciliarCommand, result: unknown) {
     : []
   const outcomes = candidates.map(item => normalizeOutcome(item, command.action === 'pedir' ? command.id : 'fila', resultOperationId))
   if (outcomes.length === 0) throw new Error('CONCILIAR_ACTION_RESPONSE_INCOMPLETE')
-  return { ...(resultOperationId ? { operationId: resultOperationId } : {}), outcomes, refreshedAt: refreshedAt() }
+  return { ...(resultOperationId ? { operationId: resultOperationId } : {}), outcomes, refreshedAt: refreshedAt(), projectionSynchronized, ...(projection ? { projection } : {}) }
 }
 
 /** GET is projection-only: it never rebuilds, creates documents, sends requests or writes B4/B5. */
@@ -139,7 +143,7 @@ export async function POST(request: NextRequest) {
     phase('action-start')
     const result = await runConciliarAction(access.actor.id, parsed)
     phase('action-finished')
-    scheduleConciliarProjectionRefresh(access.actor.id)
+    if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) scheduleConciliarProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))
   } catch (error) {
     phase('controlled-error')

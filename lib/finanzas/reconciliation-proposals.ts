@@ -26,7 +26,7 @@ export type TipoDocumentoB4 =
   | 'TICKET'
   | 'TRASPASO';
 export type OrigenFactura = 'FI' | 'FR';
-export type MotivoDiferenciaB4 = 'COMISION' | 'INTERESES' | 'REDONDEO';
+export type MotivoDiferenciaB4 = 'COMISION' | 'INTERESES' | 'IVA_COMISION' | 'REDONDEO';
 export type EstadoPropuesta =
   | 'LISTA_PARA_CONFIRMACION_B4'
   | 'NECESITA_EVIDENCIA_MANUAL'
@@ -247,7 +247,7 @@ export type ResultadoValidacion<T> =
   | { ok: true; value: T }
   | { ok: false; errores: readonly string[] };
 
-const MOTIVOS_DIFERENCIA: readonly MotivoDiferenciaB4[] = ['COMISION', 'INTERESES', 'REDONDEO'];
+const MOTIVOS_DIFERENCIA: readonly MotivoDiferenciaB4[] = ['COMISION', 'INTERESES', 'IVA_COMISION', 'REDONDEO'];
 const TIPOS_FACTURA: readonly TipoDocumentoB4[] = ['FACTURA_EMITIDA', 'FACTURA_RECIBIDA'];
 /** Patrón heredado estable (p. ej. Drax/CLL), sólo como pista literal. */
 const REF_FACTURA_LEGACY = /\b([A-Za-z]{2,12}\d{2}\/\d{1,12})\b/g;

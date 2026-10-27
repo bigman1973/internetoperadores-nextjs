@@ -38,7 +38,7 @@ const MAX_LIMIT = 100
 type JsonRecord = Record<string, unknown>
 export type B4Line =
   | { tipo: 'DOCUMENTO'; documentoConciliableId: string; importeCentimos: number; centroCosteFinanzasId?: string | null }
-  | { tipo: 'DIFERENCIA'; motivoDiferencia: 'COMISION' | 'INTERESES' | 'REDONDEO'; importeCentimos: number }
+  | { tipo: 'DIFERENCIA'; motivoDiferencia: 'COMISION' | 'INTERESES' | 'IVA_COMISION' | 'REDONDEO'; importeCentimos: number }
 
 export class B4ServiceError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) {
