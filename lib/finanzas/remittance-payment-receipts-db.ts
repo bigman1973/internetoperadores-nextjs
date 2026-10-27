@@ -286,11 +286,14 @@ async function insertReceipt(tx: Tx, input: Readonly<{
     INSERT INTO recibos_cobro_remesa_b7(id,schema_version,estado,remesa_id,movimiento_id,vinculo_b4_id,operacion_b4_id,auditoria_asociacion_b6_id,propuesta_id,proposal_fingerprint,composition_hash,actor_id,idempotency_key,request_hash,source_hash,snapshot_solicitud,snapshot_resultado)
     VALUES(CAST(${id} AS uuid),${B7_REMESA_RECEIPT_SCHEMA_VERSION},'CONFIRMADO'::"EstadoReciboCobroRemesaB7",${input.plan.remesaId},${input.plan.movimientoId},CAST(${input.vinculoB4Id} AS uuid),CAST(${input.operacionB4Id} AS uuid),CAST(${input.auditoriaB6Id} AS uuid),CAST(${input.plan.propuestaId} AS uuid),${input.plan.proposalFingerprint},${input.plan.compositionHash},${input.actorId},CAST(${input.idempotencyKey} AS uuid),${input.requestHash},${sourceHash},CAST(${JSON.stringify(input.snapshotSolicitud)} AS jsonb),CAST(${JSON.stringify(input.snapshotResultado)} AS jsonb))
   `)
-  for (let index = 0; index < input.plan.allocations.length; index += 1) {
-    const line = input.plan.allocations[index]
+  const batchSize = 250
+  for (let start = 0; start < input.plan.allocations.length; start += batchSize) {
+    const values = input.plan.allocations.slice(start, start + batchSize).map((line, index) =>
+      Prisma.sql`(CAST(${id} AS uuid),${start + index + 1},${line.facturaEmitidaId},${line.facturaISPId},${line.importeCentimos},${line.sourceHash},CAST(${JSON.stringify(line.snapshot)} AS jsonb))`,
+    )
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO lineas_recibo_cobro_remesa_b7(recibo_id,ordinal,factura_emitida_id,factura_isp_id,importe_centimos,source_hash,snapshot)
-      VALUES(CAST(${id} AS uuid),${index + 1},${line.facturaEmitidaId},${line.facturaISPId},${line.importeCentimos},${line.sourceHash},CAST(${JSON.stringify(line.snapshot)} AS jsonb))
+      VALUES ${Prisma.join(values)}
     `)
   }
   return id
