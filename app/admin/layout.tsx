@@ -18,7 +18,12 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode
 }) {
+  const start = performance.now()
+  const trace = (phase: string) => {
+    if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('conciliar-layout-timing', { phase, elapsedMs: Math.round(performance.now() - start) })
+  }
   const session = await requireAuth('admin')
+  trace('session')
   // Las tres lecturas posteriores a la autenticación son independientes y no mutan
   // estado. Mantenemos requireAuth como barrera y la decisión de acceso debajo.
   const [profileEnvironment, financeContext, canAccessAdmin] = await Promise.all([
@@ -28,7 +33,9 @@ export default async function AdminLayout({
       prisma.permisoUsuario.count({ where: { usuarioId, lectura: true } }),
     ),
   ])
+  trace('environment-and-access')
   const easyOnly = profileEnvironment !== null && await isEasyOnlyFinanceUser(Number(session.user.id))
+  trace('profile')
   if (!canAccessAdmin && !easyOnly) {
     redirect('/empleado')
   }

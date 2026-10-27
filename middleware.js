@@ -134,6 +134,21 @@ async function impersonationBoundary(request) {
     }
   }
   try {
+    // Vía acotada a Conciliar en staging. Un JWT descifrado sin envelope de
+    // actuación no necesita cargar sus servicios de sesión/auditoría. Cualquier
+    // claim presente o cabecera de formulario esperada conserva el flujo completo.
+    const projectionOnly = process.env.FINANCE_STAGING_SANDBOX === '1'
+      && ['/admin/finanzas/conciliar', '/api/admin/finanzas/conciliar'].includes(request.nextUrl.pathname)
+      && request.headers.get(EXPECTED_IMPERSONATION_SESSION_HEADER) === null;
+    if (projectionOnly) {
+      const { getToken } = await import('next-auth/jwt');
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
+      if (token?.impersonation === undefined || token?.impersonation === null) {
+        const headers = new Headers(request.headers);
+        headers.delete(IMPERSONATION_HEADER);
+        return { headers };
+      }
+    }
     const [{ getToken }, policy, acting, context] = await Promise.all([
       import('next-auth/jwt'), import('@/lib/impersonation-policy'), import('@/lib/impersonation'), import('@/lib/impersonation-context'),
     ]);
@@ -352,7 +367,14 @@ function financeAreas(pathname) {
 }
 
 export async function middleware(request) {
+  const timingStart = performance.now();
+  const traceTiming = phase => {
+    if (process.env.FINANCE_STAGING_SANDBOX === '1' && ['/admin/finanzas/conciliar', '/api/admin/finanzas/conciliar'].includes(request.nextUrl.pathname)) {
+      console.info('conciliar-boundary-timing', { phase, elapsedMs: Math.round(performance.now() - timingStart) });
+    }
+  };
   const actingBoundary = await impersonationBoundary(request);
+  traceTiming('acting');
   if (actingBoundary.response) return actingBoundary.response;
   // No early return: the profile and financial middleware below must evaluate
   // every acting request with its effective target JWT.
@@ -414,7 +436,15 @@ export async function middleware(request) {
       ]);
       const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET, cookieName: configuredSessionCookieName() });
       const userId = Number(token?.id);
-      if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0 && await isEasyOnlyFinanceUser(userId)) {
+      let easyOnly = false;
+      if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0) {
+        const compactProjectionProfile = process.env.FINANCE_STAGING_SANDBOX === '1'
+          && ['/admin/finanzas/conciliar', '/api/admin/finanzas/conciliar'].includes(path);
+        easyOnly = compactProjectionProfile
+          ? await (await import('@/lib/finanzas/conciliar-boundary-profile')).isConciliarEasyOnlyProfile(userId)
+          : await isEasyOnlyFinanceUser(userId);
+      }
+      if (easyOnly) {
         // Estado/salida son el único escape para una identidad efectiva mínima.
         if (path !== '/api/admin/actuar-como' && !easyOnlyRequestAllowed(path, request.method, request.nextUrl.searchParams, userId)) {
           if (path.startsWith('/api/')) return blockedBoundary('Este perfil sólo permite Modo fácil y Para pedir.', 'EASY_ONLY_ACCESS');
@@ -425,6 +455,7 @@ export async function middleware(request) {
       return NextResponse.json({ error: 'No se pudo verificar el perfil de acceso.' }, { status: 503, headers: { 'Cache-Control': 'private, no-store' } });
     }
   }
+  traceTiming('profile');
 
   // Bloqueo externo independiente: no impide confirmar documentación manual.
   if (process.env.FINANCE_EXTERNAL_ACTIONS_DISABLED === '1' && path.startsWith('/api/') && !isNextAuthOrLoginPath(path)) {
@@ -540,6 +571,7 @@ export async function middleware(request) {
       console.error('Error verificando acceso financiero:', error);
       return NextResponse.json({ error: 'No se pudo verificar el acceso' }, { status: 503 });
     }
+    traceTiming('financial');
     return continueRequest(trustedHeaders);
   }
 
