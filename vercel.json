@@ -2,6 +2,10 @@
   "version": 2,
   "framework": "nextjs",
   "cleanUrls": true,
+  "functions": {
+    "app/admin/finanzas/conciliar/page.tsx": { "regions": ["sfo1"] },
+    "app/api/admin/finanzas/conciliar/route.ts": { "regions": ["sfo1"] }
+  },
   "crons": [
     {
       "path": "/api/cron/abandoned-carts",
