@@ -1,6 +1,10 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import {
+  decideAdminPermissionSeedLoad,
+  type AdminPermissionSsrSeed,
+} from '@/lib/admin-permissions-ssr-contract'
 
 // Roles disponibles en el sistema
 export const ROLES_DISPONIBLES = [
@@ -90,7 +94,7 @@ const SECTION_TO_AREA: Record<string, string> = {
 
 // Interfaz de permisos granulares
 interface PermisoGranular {
-  areaId: string
+  areaId?: string
   codigo: string
   lectura: boolean
   escritura: boolean
@@ -147,16 +151,30 @@ export function RoleProvider({
   userRole, 
   userRoles,
   userId,
+  initialPermissions,
+  initialPermissionsLoaded,
+  skipPermissionLoad,
 }: { 
   children: React.ReactNode
   userRole: string
   userRoles: string[]
   userId?: number
+  /** Foto serializada sólo para el actor efectivo de la respuesta SSR actual. */
+  initialPermissions?: readonly AdminPermissionSsrSeed[]
+  initialPermissionsLoaded?: boolean
+  /** MODO_FACIL_ONLY no monta ProtectedRoute y no debe competir con un GET inútil. */
+  skipPermissionLoad?: boolean
 }) {
-  const [viewAsRole, setViewAsRole] = useState<RolId | null>(null)
+  const [viewAsRole, setViewAsRoleState] = useState<RolId | null>(null)
   const [viewingUser, setViewingUser] = useState<UsuarioSimulado | null>(null)
-  const [permisosGranulares, setPermisosGranulares] = useState<PermisoGranular[]>([])
-  const [permisosLoaded, setPermisosLoaded] = useState(false)
+  const [permisosGranulares, setPermisosGranulares] = useState<PermisoGranular[]>(() =>
+    (initialPermissions || []).map(permission => ({ ...permission })),
+  )
+  const [permisosLoaded, setPermisosLoaded] = useState(initialPermissionsLoaded === true)
+  // Una previsualización es local y no cambia la sesión. Tras usarla no se puede
+  // restaurar una ACL serializada al hidratar: incluso al volver al actor inicial
+  // se consulta de nuevo la API, que vuelve a validar la sesión.
+  const [initialSeedInvalidated, setInitialSeedInvalidated] = useState(false)
   
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
   const isViewingAsUser = isSuperAdmin && viewingUser !== null
@@ -167,26 +185,45 @@ export function RoleProvider({
     : (viewAsRole ? viewAsRole : (userRole as RolId))
 
   const effectiveUserId = isViewingAsUser ? viewingUser!.id : (userId || null)
+  const isPrivilegedRealRole = !isViewingAs && (userRole === 'SUPER_ADMIN' || userRole === 'GERENTE')
 
   // ¿Tiene permisos granulares asignados? (con al menos 1 lectura=true)
   const tienePermisosGranulares = permisosGranulares.some(p => p.lectura || p.escritura)
 
-  // Cargar permisos granulares del usuario efectivo
+  // Cargar permisos granulares del usuario efectivo. La foto SSR sólo evita el
+  // GET inicial del mismo actor, no concede permisos a una API ni sobrevive a
+  // una previsualización local.
   useEffect(() => {
-    const uid = isViewingAsUser ? viewingUser!.id : userId
-    if (!uid) return
+    const mode = decideAdminPermissionSeedLoad({
+      // userId ya existía en el contrato del provider; identifica al actor
+      // inicial de esta respuesta sin exponer un identificador adicional.
+      actorId: userId,
+      effectiveUserId,
+      initialPermissionsLoaded,
+      skipPermissionLoad,
+      isPrivilegedRealRole,
+      isViewingAs,
+      initialSeedInvalidated,
+    })
 
-    // SUPER_ADMIN sin simulación no necesita cargar permisos
-    if (isSuperAdmin && !isViewingAs) {
-      setPermisosGranulares([])
+    if (mode === 'idle') return
+
+    if (mode === 'seed' || mode === 'skip' || mode === 'privileged') {
+      setPermisosGranulares(mode === 'seed' ? (initialPermissions || []).map(permission => ({ ...permission })) : [])
       setPermisosLoaded(true)
       return
     }
 
+    const uid = effectiveUserId
+    if (!uid) return
+    const controller = new AbortController()
+    let current = true
+    setPermisosGranulares([])
     setPermisosLoaded(false)
-    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`)
+    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
+        if (!current) return
         if (data.permisos) {
           setPermisosGranulares(data.permisos.map((p: any) => ({
             areaId: p.areaId,
@@ -198,15 +235,26 @@ export function RoleProvider({
         setPermisosLoaded(true)
       })
       .catch(err => {
+        if (!current || controller.signal.aborted) return
         console.error('Error cargando permisos granulares:', err)
         setPermisosLoaded(true)
       })
-  }, [userId, viewingUser, isViewingAs, isViewingAsUser, isSuperAdmin])
+    return () => {
+      current = false
+      controller.abort()
+    }
+  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId])
+
+  const setViewAsRole = useCallback((role: RolId | null) => {
+    if (role !== null) setInitialSeedInvalidated(true)
+    setViewAsRoleState(role)
+  }, [])
 
   const setViewAsUser = useCallback((user: UsuarioSimulado | null) => {
+    if (user) setInitialSeedInvalidated(true)
     setViewingUser(user)
     if (user) {
-      setViewAsRole(null)
+      setViewAsRoleState(null)
     }
   }, [])
 
