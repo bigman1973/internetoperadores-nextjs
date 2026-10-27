@@ -29,3 +29,13 @@ test('database receipt cannot accept later lines or duplicate direct confirmatio
  assert.match(sql,/DEFERRABLE INITIALLY DEFERRED/)
  assert.doesNotMatch(sql,/UPDATE facturas|DELETE FROM|TRUNCATE TABLE|DROP TABLE/)
 })
+
+test('versioned remittance owns a native B4 leg, never a phantom legacy proposal block',()=>{
+ const source=text('lib/finanzas/conciliar-actions.ts')
+ const branch=source.slice(source.indexOf('if (receiptSource) {'),source.indexOf('const result: any = await runEasyCollectionsActionTx',source.indexOf('if (receiptSource) {')))
+ assert.match(branch,/operationB4Id: String\(result\.operationB4Id\)/)
+ assert.match(branch,/reciboCobroRemesaB7Id: String\(result\.reciboId\)/)
+ assert.doesNotMatch(branch,/proposalBlockId:/)
+ assert.match(source,/await requireLiveWrite\(actorId\)/)
+ assert.match(source,/runConciliarTransactionCommand\(asTx\(base\), actorId, command\)/)
+})

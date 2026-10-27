@@ -272,10 +272,9 @@ async function confirmCollectionProposal(tx: Tx, actorId: number, operationId: s
       fail(409, 'DECISION_CAMBIADA', 'La remesa asociada cambió; actualiza la lista.')
     }
     return {
-      proposalBlockId: operationId,
       operationB4Id: String(result.operationB4Id),
       result: {
-        state: 'confirmada', movimientoId: source.movimientoId, proposalBlockId: operationId,
+        state: 'confirmada', movimientoId: source.movimientoId,
         reciboCobroRemesaB7Id: String(result.reciboId), remesaId: receiptSource.remesaId,
       },
     }
@@ -496,15 +495,21 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
   return { operationId: source.id, idempotent: false, ...result }
 }
 
+/** Internal transaction seam, also exercised against a local restore with
+ * mandatory rollback. The public host below always performs the same live
+ * staging/access checks before opening the SERIALIZABLE transaction. All
+ * business services still revalidate the effective actor inside this tx. */
+export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown) {
+  const command = parseConciliarCommand(raw)
+  if (command.action === 'confirmar') return confirm(tx, actorId, command)
+  if (command.action === 'pedir') return ask(tx, actorId, command)
+  return undo(tx, actorId, command)
+}
+
 export async function runConciliarAction(actorId: number, raw: unknown) {
   const command = parseConciliarCommand(raw)
   await requireLiveWrite(actorId)
-  const txSerializable = () => db().$transaction(async base => {
-    const tx = asTx(base)
-    if (command.action === 'confirmar') return confirm(tx, actorId, command)
-    if (command.action === 'pedir') return ask(tx, actorId, command)
-    return undo(tx, actorId, command)
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+  const txSerializable = () => db().$transaction(async base => runConciliarTransactionCommand(asTx(base), actorId, command), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable)
 }
 
