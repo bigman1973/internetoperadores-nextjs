@@ -5,6 +5,7 @@ export const CONCILIAR_MAX_OFFSET = 100_000
 export const CONCILIAR_MAX_QUERY = 120
 export const CONCILIAR_MAX_ITEMS = 100
 export const CONCILIAR_SCHEMA = 'CONCILIAR_V1' as const
+export const CONCILIAR_DEFAULT_CUTOFF = '2026-01-01' as const
 
 export type ConciliarTab = typeof CONCILIAR_TABS[number]
 export type ConciliarColor = typeof CONCILIAR_COLORS[number]
@@ -54,6 +55,8 @@ export type ConciliarGetInput = Readonly<{
   hasta?: string
   cuentaId?: string
   q?: string
+  cutoffDate?: string
+  historic?: boolean
   limit: number
   offset: number
 }>
@@ -150,18 +153,22 @@ function positiveInteger(value: string, field: string, min: number, max: number)
 }
 
 export function parseConciliarGetInput(raw: Readonly<Record<string, string | null | undefined>>): ConciliarGetInput {
-  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset']
+  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic']
   if (Object.keys(raw).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'La consulta contiene campos no admitidos.')
   const tab = raw.tab ?? 'COBROS'
   if (!(CONCILIAR_TABS as readonly string[]).includes(tab)) fail(400, 'VALIDATION_ERROR', 'La pestaña no es válida.')
   const desde = day(raw.desde, 'desde'), hasta = day(raw.hasta, 'hasta')
   if (desde && hasta && desde > hasta) fail(400, 'VALIDATION_ERROR', 'desde no puede ser posterior a hasta.')
+  const cutoffDate = day(raw.cutoffDate, 'cutoffDate') ?? CONCILIAR_DEFAULT_CUTOFF
+  if (raw.historic != null && raw.historic !== '' && raw.historic !== '0' && raw.historic !== '1') fail(400, 'VALIDATION_ERROR', 'La opción de facturas anteriores no es válida.')
+  const historic = raw.historic === '1'
+  if (historic && tab !== 'EMITIDAS') fail(400, 'VALIDATION_ERROR', 'Las facturas anteriores sólo se consultan en Emitidas.')
   const cuentaId = raw.cuentaId === null || raw.cuentaId === undefined || raw.cuentaId === '' ? undefined : text(raw.cuentaId, 'cuentaId', 160)
   const q = raw.q === null || raw.q === undefined || raw.q === '' ? undefined : raw.q.trim()
   if (q !== undefined && (!q || q.length > CONCILIAR_MAX_QUERY)) fail(400, 'VALIDATION_ERROR', 'La búsqueda no es válida.')
   const limit = positiveInteger(raw.limit ?? '50', 'limit', 1, CONCILIAR_MAX_LIMIT)
   const offset = positiveInteger(raw.offset ?? '0', 'offset', 0, CONCILIAR_MAX_OFFSET)
-  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), limit, offset }
+  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), cutoffDate, historic, limit, offset }
 }
 
 function parseConfirmItems(raw: unknown): readonly ConciliarConfirmItem[] {
@@ -226,7 +233,9 @@ export function referenciasFacturaCitadas(textoBanco: unknown): readonly string[
   const bare = /(?:^|[^A-Z0-9])([A-Z]{2,12}\s*\d{2,}(?:\s*[/-]\s*\d{1,10})?)(?=$|[^A-Z0-9])/g
   for (const match of normalized.matchAll(bare)) {
     const raw = match[1].replace(/\s+/g, '')
-    if (/^(?:REMESA|RECIBO|SUBREMESA)\d/.test(raw)) continue
+    // FACTURA 260007 ya se extrajo como 260007 arriba. FACTURA no es una
+    // segunda serie emisora; no debe convertir una referencia exacta en empate.
+    if (/^(?:REMESA|RECIBO|SUBREMESA|FACTURA|FACT|FRA|NUMERO|NUM)\d/.test(raw)) continue
     const reference = normalizarReferenciaFactura(raw)
     if (reference && reference.length >= 4) result.add(reference)
   }

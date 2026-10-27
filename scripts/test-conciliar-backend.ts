@@ -29,10 +29,14 @@ function withEnvironment<T>(values: Record<string, string | undefined>, run: () 
 
 test('fixture sintética: GET conserva filtros acotados, fecha exacta y paginación', () => {
   const actual = parseConciliarGetInput({ tab: 'PAGOS', desde: '2026-10-01', hasta: '2026-10-31', cuentaId: 'cuenta-sintetica-01', q: 'Factura sintética', limit: '100', offset: '0' })
-  assert.deepEqual(actual, { tab: 'PAGOS', desde: '2026-10-01', hasta: '2026-10-31', cuentaId: 'cuenta-sintetica-01', q: 'Factura sintética', limit: 100, offset: 0 })
+  assert.deepEqual(actual, { tab: 'PAGOS', desde: '2026-10-01', hasta: '2026-10-31', cuentaId: 'cuenta-sintetica-01', q: 'Factura sintética', cutoffDate: '2026-01-01', historic: false, limit: 100, offset: 0 })
   throwsValidation(() => parseConciliarGetInput({ tab: 'PAGOS', extra: 'origen-cliente' }), 400)
   throwsValidation(() => parseConciliarGetInput({ desde: '2026-02-30' }), 400)
   throwsValidation(() => parseConciliarGetInput({ limit: '101' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ cutoffDate: '2026-02-30' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'PAGOS', historic: '1' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'EMITIDAS', historic: 'yes' }), 400)
+  assert.equal(parseConciliarGetInput({ tab: 'EMITIDAS', historic: '1', cutoffDate: '2026-02-01' }).historic, true)
 })
 
 test('fixture sintética: POST confirmar usa sólo identidad opaca y hash de decisión', () => {

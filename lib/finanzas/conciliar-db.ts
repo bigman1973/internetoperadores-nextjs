@@ -24,7 +24,7 @@ import {
   referenciasFacturaCitadas,
   textoSeguro,
 } from './conciliar-contract'
-import { conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
+import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
 
@@ -180,11 +180,11 @@ export function receivedInvoicePendingSettlement(input: Readonly<{ totalCentimos
   return { targetCentimos, pendingCentimos }
 }
 
-export type ReceivedInvoicePaymentCandidate = Readonly<{ rowId: string; color: ConciliarColor }>
-export function receivedInvoicePendingCandidate(candidates: readonly ReceivedInvoicePaymentCandidate[]): Readonly<{
+export type ReceivedInvoicePendingPaymentCandidate = Readonly<{ rowId: string; color: ConciliarColor }>
+export function receivedInvoicePendingCandidate(candidates: readonly ReceivedInvoicePendingPaymentCandidate[]): Readonly<{
   color: ConciliarColor
   motivo: string
-  candidate: ReceivedInvoicePaymentCandidate | null
+  candidate: ReceivedInvoicePendingPaymentCandidate | null
 }> {
   if (candidates.length === 0) return { color: 'ROJO', motivo: 'Aún no consta un pago confirmado.', candidate: null }
   if (candidates.length > 1) return { color: 'AMBAR', motivo: 'Hay varios pagos propuestos para esta factura; revísalos antes de confirmar.', candidate: null }
@@ -227,7 +227,7 @@ async function liveCollectionProposals(tx: Tx) {
 }
 async function receivedInvoices(tx: Tx) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
-    SELECT fr.id::text AS id,fr.num_factura AS referencia,fr.proveedor,fr.fecha::date::text AS fecha,fr.total::text AS total_text,
+    SELECT fr.id::text AS id,fr.num_factura AS referencia,fr.proveedor,fr.fecha::date::text AS fecha,fr.fecha_vencimiento::date::text AS vencimiento,fr.total::text AS total_text,
       fr.onedrive_drive_id AS "driveId",fr.onedrive_item_id AS "itemId",fr.archivo_onedrive AS archivo,
       d.id::text AS "documentoId",d.importe_objetivo_centimos AS "objetivoCentimos",d.activo AS "documentoActivo",COALESCE(a.asignado,0)::bigint AS asignado
     FROM facturas_recibidas fr
@@ -489,16 +489,15 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const proposalByMovement = new Map<string, any>()
   for (const proposal of proposals) if (!proposalByMovement.has(String(proposal.movimientoId))) proposalByMovement.set(String(proposal.movimientoId), proposal)
   const invoiceDates = new Map(bank.invoices.map(item => [item.invoiceId, item.fechaISO]))
-  const receivedByAmount = new Map<number, any[]>()
+  const receivedByCounterparty = new Map<string, any[]>()
   for (const invoice of invoices) {
-    const total = exactMoney(invoice.total_text)
-    if (total === null || total === 0) continue
-    const amount = -total
-    receivedByAmount.set(amount, [...(receivedByAmount.get(amount) ?? []), invoice])
+    const total = exactMoney(invoice.total_text), counterparty = conciliarExactCounterparty(invoice.proveedor)
+    if (total === null || total === 0 || counterparty === null) continue
+    receivedByCounterparty.set(counterparty, [...(receivedByCounterparty.get(counterparty) ?? []), invoice])
   }
   const confirmingByMovement = new Map(confirming.candidates.map(item => [item.movimientoId, item]))
   const invoiceCandidate = new Map<string, { movementId: string; color: ConciliarColor; rowId: string; propuestaId: string | null }>()
-  const receivedInvoicePaymentCandidates = new Map<string, ReceivedInvoicePaymentCandidate[]>()
+  const receivedInvoicePaymentCandidates = new Map<string, ReceivedInvoicePendingPaymentCandidate[]>()
 
   for (const movement of movements) {
     const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
@@ -587,20 +586,51 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: payrollFile ? 'VERDE' : 'AMBAR', grupo: 'NOMINAS', motivo: payrollFile ? 'Empleado, mes y líquido de la nómina coinciden con la transferencia.' : 'La nómina coincide, pero falta su archivo controlado.', documento: doc, propuesta: null, seleccionable: payrollFile, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_NOMINA', movimientoId: id, nominaId: String(payrollSource.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       continue
     }
-    const candidates = (receivedByAmount.get(amount) ?? []).filter(candidate => typeof candidate.fecha === 'string' && candidate.fecha <= fecha && conciliarAliasesMatch(aliases, [candidate.proveedor]))
-    if (candidates.length === 1) {
-      const invoice = candidates[0], total = exactMoney(invoice.total_text)!
+    const matchingReceived = new Map<string, any>()
+    for (const alias of aliases) {
+      const normalized = conciliarExactCounterparty(alias)
+      if (!normalized) continue
+      for (const invoice of receivedByCounterparty.get(normalized) ?? []) matchingReceived.set(String(invoice.id), invoice)
+    }
+    const receivedMatch = classifyReceivedInvoicePaymentCandidates({
+      importeBancoCentimos: amount,
+      fechaBanco: fecha,
+      conceptoBanco: concepto,
+      candidates: [...matchingReceived.values()].flatMap(invoice => {
+        const total = exactMoney(invoice.total_text)
+        if (total === null || total === 0) return []
+        return [{
+          id: String(invoice.id), referencia: nullableText(invoice.referencia, 300),
+          fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null,
+          vencimiento: typeof invoice.vencimiento === 'string' ? invoice.vencimiento : null,
+          importeDocumentoCentimos: -total,
+          matchesCounterparty: true, source: invoice,
+        }]
+      }),
+    })
+    if (receivedMatch.kind !== 'NONE') {
+      const invoice = receivedMatch.candidate.source, total = exactMoney(invoice.total_text)!
       const file = archivoRecibidaControlado({ oneDriveDriveId: invoice.driveId, oneDriveItemId: invoice.itemId, archivoOneDrive: invoice.archivo }) !== null
       const opaqueId = rowId('PAGOS', `PAGO_FACTURA_RECIBIDA:${id}:${String(invoice.id)}`)
       const evalExact = evaluarDocumentoExacto({ importeBancoCentimos: amount, importeDocumentoCentimos: -total, fechaBanco: fecha, fechaDocumento: typeof invoice.fecha === 'string' ? invoice.fecha : null, conceptoBanco: concepto, referenciaDocumento: String(invoice.referencia ?? 'Factura recibida'), unicoTercero: true })
-      const green = evalExact.color === 'VERDE' && file
+      const green = receivedMatch.kind === 'EXACT' && evalExact.color === 'VERDE' && file
       const color: ConciliarColor = green ? 'VERDE' : 'AMBAR'
-      rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: green ? evalExact.motivo : file ? evalExact.motivo : 'La factura coincide, pero falta su PDF controlado para poder confirmarla.', documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: evalExact.diferenciaCentimos, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, facturaRecibidaId: String(invoice.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+      const amountDifference = amount - -total
+      const referenceDiscrepancy = receivedMatch.kind === 'REVIEW' && receivedMatch.reason === 'REFERENCIA_DISCREPANTE'
+      const discrepancy = receivedMatch.kind === 'REVIEW'
+        ? amountDifference !== 0
+          ? 'La candidata es del mismo proveedor, pero el importe no coincide exactamente; revísala antes de confirmar.'
+          : referenceDiscrepancy
+            ? 'La candidata es del mismo proveedor, pero no hay una referencia de factura documental exacta; revísala antes de confirmar.'
+            : 'Hay varias candidatas del mismo proveedor; revísalas antes de confirmar.'
+        : null
+      const dueHint = typeof invoice.vencimiento === 'string' ? ` Vencimiento: ${invoice.vencimiento}.` : ''
+      rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: green ? evalExact.motivo : discrepancy ?? (file ? evalExact.motivo : 'La factura coincide, pero falta su PDF controlado para poder confirmarla.'), documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: amountDifference, detail: discrepancy ? `${discrepancy}${dueHint}` : dueHint.trim() || null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, facturaRecibidaId: String(invoice.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       const invoiceId = String(invoice.id)
       receivedInvoicePaymentCandidates.set(invoiceId, [...(receivedInvoicePaymentCandidates.get(invoiceId) ?? []), { rowId: opaqueId, color }])
       continue
     }
-    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: candidates.length > 0 || payrollCandidates.length > 1 ? 'AMBAR' : 'ROJO', grupo: null, motivo: candidates.length > 0 ? 'Hay varios documentos del proveedor que podrían corresponder al pago.' : payrollCandidates.length > 1 ? 'Hay varias nóminas posibles; revisa empleado y mes.' : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: /\b(?:TARJETA|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(concepto) }), documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: payrollCandidates.length > 1 ? 'AMBAR' : 'ROJO', grupo: null, motivo: payrollCandidates.length > 1 ? 'Hay varias nóminas posibles; revisa empleado y mes.' : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: /\b(?:TARJETA|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(concepto) }), documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
   }
 
   for (const settlement of bank.invoices) {
