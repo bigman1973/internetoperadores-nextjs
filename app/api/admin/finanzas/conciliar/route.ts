@@ -140,7 +140,17 @@ export async function POST(request: NextRequest) {
     phase('action-finished')
     scheduleConciliarProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))
-  } catch (error) { phase('controlled-error'); return errorResponse(error) }
+  } catch (error) {
+    phase('controlled-error')
+    if (process.env.FINANCE_STAGING_SANDBOX === '1') {
+      const technical = error as { code?: unknown; message?: unknown; meta?: { code?: unknown } }
+      const guard = /^IMPERSONATION_[A-Z_]{1,80}$/.test(String(technical?.message ?? '')) ? String(technical.message) : 'OTHER'
+      const code = /^[A-Z0-9_]{1,50}$/.test(String(technical?.code ?? '')) ? String(technical.code) : 'NONE'
+      const sqlstate = /^[A-Z0-9]{5}$/.test(String(technical?.meta?.code ?? '')) ? String(technical.meta?.code) : 'NONE'
+      console.info('CONCILIAR_ERROR_CODE', JSON.stringify({ guard, code, sqlstate }))
+    }
+    return errorResponse(error)
+  }
 }
 
 export async function PUT() { return privateJson({ error: 'Método no permitido.' }, 405) }
