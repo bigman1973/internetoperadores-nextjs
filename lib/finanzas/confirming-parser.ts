@@ -43,6 +43,161 @@ export interface ConfirmingParseResult {
 }
 
 /**
+ * Item textual con posición PDF. Se limita deliberadamente a lo necesario para
+ * asociar una fila de factura con una cabecera de columna documental.
+ */
+export interface BBVACesionPositionalText {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+}
+
+type PdfTextItem = {
+  str?: unknown;
+  transform?: unknown;
+  width?: unknown;
+}
+
+type PdfPageData = {
+  getTextContent: (options: {
+    normalizeWhitespace: boolean;
+    disableCombineTextItems: boolean;
+  }) => Promise<{ items: PdfTextItem[] }>;
+}
+
+const BBVA_CESION_ROW_TOLERANCE = 2.5;
+
+function normalizarEtiquetaPDF(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function normalizarFacturaBBVACesion(value: string): string | null {
+  const match = value.match(/DRAX\s*\d{0,2}\s*\/\s*\d{1,3}/i);
+  if (!match) return null;
+  let normalized = match[0].replace(/\s+/g, '').toUpperCase();
+  if (/^DRAX\/\d/.test(normalized)) normalized = normalized.replace('DRAX/', 'DRAX26/');
+  return normalized;
+}
+
+function importeDesdeTokenPDF(value: string): number | null {
+  if (!/^\d{1,3}(?:\.\d{3})*,\d{2}$/.test(value)) return null;
+  const parsed = parseImporteEspanol(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Reconoce exclusivamente el aviso BBVA de cesión de créditos. En ese formato
+ * la única magnitud económica por factura que puede extraerse es el nominal de
+ * la columna explícita IMPORTE/(EUR). No contiene liquidación, intereses ni
+ * comisión por línea, por lo que esos campos permanecen ausentes.
+ */
+export function extractBBVACesionNominalLines(pages: readonly (readonly BBVACesionPositionalText[])[]): ConfirmingLineaParsed[] {
+  const documentText = normalizarEtiquetaPDF(pages.flat().map((item) => item.text).join(' '));
+  if (!/CESION\s+DE\s+CREDITOS/.test(documentText)) return [];
+
+  const lineas: ConfirmingLineaParsed[] = [];
+  for (const page of pages) {
+    const amountHeader = page.find((item) => normalizarEtiquetaPDF(item.text).includes('IMPORTE'));
+    // PDF.js puede dividir la cabecera en dos items ("NUM." y "FACTURA").
+    // Se recompone únicamente dentro de la misma banda y, por tanto, no se usa
+    // texto de filas ni de páginas diferentes como prueba de estructura.
+    const headerBands = new Map<number, BBVACesionPositionalText[]>();
+    for (const item of page) {
+      const band = Math.round(item.y / BBVA_CESION_ROW_TOLERANCE);
+      const items = headerBands.get(band) ?? [];
+      items.push(item);
+      headerBands.set(band, items);
+    }
+    const hasInvoiceHeader = [...headerBands.values()].some((items) =>
+      /NUM\.?\s*FACTURA/.test(normalizarEtiquetaPDF(
+        [...items].sort((left, right) => left.x - right.x).map((item) => item.text).join(' '),
+      )),
+    );
+    if (!amountHeader || !hasInvoiceHeader) continue;
+
+    // Los importes se alinean a la derecha dentro de la columna cuyo encabezado
+    // empieza en amountHeader.x. El margen derecho admite dicha alineación, pero
+    // nunca atraviesa la columna siguiente de fecha de pago.
+    const amountMinX = amountHeader.x - 4;
+    const amountMaxX = amountHeader.x + amountHeader.width + 40;
+    for (const invoiceItem of page) {
+      const numFactura = normalizarFacturaBBVACesion(invoiceItem.text);
+      if (!numFactura) continue;
+      const amounts = page.flatMap((item) => {
+        if (Math.abs(item.y - invoiceItem.y) > BBVA_CESION_ROW_TOLERANCE) return [];
+        const centerX = item.x + item.width / 2;
+        if (centerX < amountMinX || centerX > amountMaxX) return [];
+        const importe = importeDesdeTokenPDF(item.text.trim());
+        return importe === null ? [] : [importe];
+      });
+      // Una fila sólo es inequívoca si tiene exactamente un importe dentro de la
+      // columna nominal. Totales y otros tokens quedan fuera por la coordenada y.
+      if (amounts.length !== 1) continue;
+
+      const fechaFactura = page
+        .filter((item) => Math.abs(item.y - invoiceItem.y) <= BBVA_CESION_ROW_TOLERANCE)
+        .filter((item) => item.x > invoiceItem.x + invoiceItem.width && item.x < amountHeader.x)
+        .map((item) => item.text.trim())
+        .find((item) => /^\d{2}[\/-]\d{2}[\/-]\d{4}$/.test(item));
+
+      lineas.push({
+        numFactura,
+        importe: amounts[0],
+        fechaFactura: fechaFactura?.replace(/\//g, '-'),
+      });
+    }
+  }
+  return lineas;
+}
+
+async function extractBBVACesionPositionedPages(buffer: Buffer): Promise<BBVACesionPositionalText[][]> {
+  const positioned = await pdfParse(buffer, {
+    pagerender: async (pageData: PdfPageData): Promise<string> => {
+      const textContent = await pageData.getTextContent({
+        normalizeWhitespace: false,
+        disableCombineTextItems: false,
+      });
+      const items = textContent.items.flatMap((item): BBVACesionPositionalText[] => {
+        const text = typeof item.str === 'string' ? item.str.trim() : '';
+        const transform = Array.isArray(item.transform) ? item.transform : [];
+        const x = transform[4];
+        const y = transform[5];
+        const width = item.width;
+        if (!text || typeof x !== 'number' || typeof y !== 'number' || typeof width !== 'number') return [];
+        return [{ text, x, y, width }];
+      });
+      return JSON.stringify(items);
+    },
+  });
+
+  return positioned.text
+    .split('\n')
+    .flatMap((line): BBVACesionPositionalText[][] => {
+      const candidate = line.trim();
+      if (!candidate.startsWith('[')) return [];
+      try {
+        const parsed: unknown = JSON.parse(candidate);
+        if (!Array.isArray(parsed)) return [];
+        const page = parsed.flatMap((item): BBVACesionPositionalText[] => {
+          if (!item || typeof item !== 'object') return [];
+          const value = item as Partial<BBVACesionPositionalText>;
+          if (typeof value.text !== 'string' || typeof value.x !== 'number' || typeof value.y !== 'number' || typeof value.width !== 'number') return [];
+          return [{ text: value.text, x: value.x, y: value.y, width: value.width }];
+        });
+        return [page];
+      } catch {
+        return [];
+      }
+    });
+}
+
+/**
  * Detecta el tipo de archivo de confirming por su nombre
  */
 export function detectarTipoConfirming(fileName: string): 'bbva_pdf' | 'caixa_xls' | 'caixa_pdf' | 'unknown' {
@@ -68,9 +223,16 @@ export function detectarTipoConfirming(fileName: string): 'bbva_pdf' | 'caixa_xl
 }
 
 /**
- * Parsea un PDF de Confirming BBVA ("Liquidació de bestretes")
+ * Parsea un PDF de Confirming BBVA.
  * 
- * Estructura del documento:
+ * Distingue dos formatos documentales incompatibles:
+ * - "Cesión de créditos": tabla nominal de facturas. No liquida ni declara
+ *   intereses/comisiones por línea; se extrae únicamente IMPORTE/(EUR) mediante
+ *   cabecera y coordenadas.
+ * - "Liquidació de bestretes": puede declarar conceptos financieros y conserva
+ *   el parseo histórico por texto de ese formato.
+ *
+ * Estructura de la liquidación:
  * - Página 1: Datos generales (Import nominal, comissió, interessos, TAE, Líquid a favor)
  * - Página 2: Tabla de facturas con columnas:
  *   Núm. factura | Referència | Data de pagament | Comissió | Interès(=importe) | Tipus | Import(=intereses)
@@ -131,6 +293,24 @@ export async function parseBBVACesionCreditos(buffer: Buffer, fileName?: string)
   if (!fechaDocumento) {
     const fechaLiqMatch = text.match(/Data de liquidació\s*(\d{2}\/\d{2}\/\d{4})/);
     if (fechaLiqMatch) fechaDocumento = fechaLiqMatch[1];
+  }
+
+  // El aviso de cesión contiene el nominal individual bajo una cabecera explícita
+  // pero no conceptos financieros por fila. Se procesa antes de la liquidación
+  // textual para no convertir ausencia de interés/comisión en cero ni reutilizar
+  // el nominal como otro concepto.
+  const cesionLineas = extractBBVACesionNominalLines(await extractBBVACesionPositionedPages(buffer));
+  if (cesionLineas.length > 0) {
+    return {
+      banco: 'BBVA',
+      sociedad,
+      cliente,
+      contrato,
+      fechaDocumento,
+      totalRemesa: cesionLineas.reduce((sum, line) => sum + line.importe, 0),
+      lineas: cesionLineas,
+      rawText: text.substring(0, 500),
+    };
   }
   
   // Extraer datos financieros globales
