@@ -1,45 +1,29 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { signOut, useSession } from 'next-auth/react'
 import { ArrowRightOnRectangleIcon, Bars3Icon, EyeIcon, XMarkIcon, UserIcon } from '@heroicons/react/24/outline'
 import Link from 'next/link'
-import { useSidebar } from './AdminSidebar'
+import { useSidebar } from './AdminSidebarContext'
 import { useRole, ROLES_DISPONIBLES, RolId } from './RoleContext'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useActuation } from '../impersonation/ImpersonationBanner'
+import { loadAdminUserPreviewSelector } from './AdminUserPreviewSelectorLoader'
 
-interface UsuarioListItem {
-  id: number
-  nombre: string
-  email: string
-  rol: string
-  roles: string[]
-}
+// El panel no forma parte de la ruta crítica: sólo un SUPER_ADMIN que abre
+// "Usuario..." descarga y monta su lista. El menú, banner y ACL siguen en su
+// árbol normal desde el primer render.
+const AdminUserPreviewSelector = dynamic(loadAdminUserPreviewSelector, {
+  ssr: false,
+  loading: () => <div role="status" className="absolute right-0 top-full z-50 mt-1 w-[min(18rem,calc(100vw-1.5rem))] rounded-xl border border-gray-200 bg-white px-3 py-3 text-xs text-gray-500 shadow-xl">Abriendo selector…</div>,
+})
 
 export default function AdminHeader() {
   const { data: session } = useSession()
   const { setIsOpen } = useSidebar()
   const { isSuperAdmin, isViewingAs, isViewingAsUser, viewingUser, activeRole, setViewAsRole, setViewAsUser } = useRole()
   const { canStart, isActing } = useActuation()
-  const [usuarios, setUsuarios] = useState<UsuarioListItem[]>([])
   const [showUserSelector, setShowUserSelector] = useState(false)
-  const [usersLoaded, setUsersLoaded] = useState(false)
-  const [usersLoading, setUsersLoading] = useState(false)
-  const [usersError, setUsersError] = useState(false)
-
-  // La mayoría de visitas no utiliza el visor; no competir con las consultas de la página.
-  useEffect(() => {
-    if (!isSuperAdmin || !showUserSelector || usersLoaded) return
-    const controller = new AbortController()
-    setUsersLoading(true)
-    setUsersError(false)
-    fetch('/api/admin/usuarios', { signal: controller.signal })
-      .then(res => { if (!res.ok) throw new Error('No se pudo cargar la lista de usuarios'); return res.json() })
-      .then(data => { setUsuarios(data.usuarios || []); setUsersLoaded(true) })
-      .catch(err => { if (!controller.signal.aborted) { setUsersError(true); console.error('Error cargando usuarios:', err) } })
-      .finally(() => { if (!controller.signal.aborted) setUsersLoading(false) })
-    return () => controller.abort()
-  }, [isSuperAdmin, showUserSelector, usersLoaded])
   
   return (
     <header className="sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-x-2 border-b border-gray-200 bg-white/95 px-2 py-2 shadow-sm backdrop-blur sm:gap-x-4 sm:px-6 lg:px-8">
@@ -117,28 +101,13 @@ export default function AdminHeader() {
                 </button>
 
                 {showUserSelector && (
-                  <div className="absolute right-0 top-full z-50 mt-1 max-h-[70dvh] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-xl">
-                    <div className="p-2 border-b border-gray-100">
-                      <p className="text-[10px] text-gray-500 uppercase font-semibold">Previsualización · Ver como usuario</p>
-                    </div>
-                    {!usersLoaded && !usersError && <p role="status" className="px-3 py-3 text-xs text-gray-500">Cargando usuarios…</p>}
-                    {!usersLoading && usersError && <p role="alert" className="px-3 py-3 text-xs text-red-700">No se pudieron cargar. Cierra y vuelve a abrir para reintentar.</p>}
-                    {usuarios.filter(u => u.rol !== 'SUPER_ADMIN').map(u => (
-                      <button
-                        key={u.id}
-                        onClick={() => {
-                          setViewAsUser({ id: u.id, nombre: u.nombre, email: u.email, rol: u.rol, roles: u.roles || [u.rol] })
-                          setShowUserSelector(false)
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs hover:bg-gray-50 border-b border-gray-50 ${
-                          viewingUser?.id === u.id ? 'bg-purple-50' : ''
-                        }`}
-                      >
-                        <span className="font-medium text-gray-900">{u.nombre}</span>
-                        <span className="text-gray-500 ml-2">{u.rol}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <AdminUserPreviewSelector
+                    viewingUserId={viewingUser?.id}
+                    onSelectUser={(user) => {
+                      setViewAsUser(user)
+                      setShowUserSelector(false)
+                    }}
+                  />
                 )}
               </div>
 

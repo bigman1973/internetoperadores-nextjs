@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, createContext, useContext } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { XMarkIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
@@ -48,28 +48,11 @@ import {
   ShieldCheckIcon
 } from '@heroicons/react/24/outline'
 import { useRole } from './RoleContext'
+import { useSidebar } from './AdminSidebarContext'
 
-// Context para compartir el estado del sidebar entre componentes
-export const SidebarContext = createContext<{
-  isOpen: boolean
-  setIsOpen: (open: boolean) => void
-}>({
-  isOpen: false,
-  setIsOpen: () => {},
-})
-
-export function SidebarProvider({ children }: { children: React.ReactNode }) {
-  const [isOpen, setIsOpen] = useState(false)
-  return (
-    <SidebarContext.Provider value={{ isOpen, setIsOpen }}>
-      {children}
-    </SidebarContext.Provider>
-  )
-}
-
-export function useSidebar() {
-  return useContext(SidebarContext)
-}
+// Se conserva esta exportación para que el layout no cambie, pero la cabecera
+// puede importar sólo AdminSidebarContext sin arrastrar el árbol de navegación.
+export { SidebarProvider, SidebarContext } from './AdminSidebarContext'
 
 interface AdminSidebarProps {
   easyOnly?: boolean

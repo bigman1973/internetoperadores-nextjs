@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface } from './lib/admin-render-surface';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const IMPERSONATION_HEADER = 'x-io-impersonation-context';
@@ -379,6 +380,9 @@ export async function middleware(request) {
   // No early return: the profile and financial middleware below must evaluate
   // every acting request with its effective target JWT.
   const trustedHeaders = actingBoundary.headers;
+  // Presentation only: replace any browser value with the exact URL/flag. This
+  // hint cannot bypass the live profile, authorization or staging checks below.
+  trustedHeaders.set(ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface(request.nextUrl.pathname, process.env.FINANCE_STAGING_SANDBOX === '1'));
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);

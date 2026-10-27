@@ -5,6 +5,9 @@ const root = process.cwd();
 const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
 const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
 const contract = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-contract.ts'), 'utf8');
+const documentPreview = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarDocumentPreview.tsx'), 'utf8');
+const remesaDialog = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx'), 'utf8');
+const recentHistory = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRecentHistory.tsx'), 'utf8');
 
 function required(source, name, fragments) {
   for (const fragment of fragments) {
@@ -63,7 +66,6 @@ required(workspace, 'espacio de trabajo', [
   "await import('xlsx')",
   'MAX_EXPORT_ROWS',
   'escapeSpreadsheet(',
-  'sandbox=""',
   'safeDocumentHref(',
   'safeFinanceHref(',
   'aria-live="polite"',
@@ -87,12 +89,13 @@ required(workspace, 'espacio de trabajo', [
   "const REMESA_PREVIEW_API = '/api/admin/finanzas/conciliar/remesa-preview'",
   '`${REMESA_PREVIEW_API}?rowId=${encodeURIComponent(row.id)}`',
   'RemesaConfirmationDialog',
-  'Segunda confirmación humana de la remesa',
-  'Confirmar sólo estas',
   'remesaPreviewController.current?.abort()',
   'no se puede mezclar con otros movimientos',
 ]);
 
+required(documentPreview, 'detalle diferido', ['sandbox=""', 'referrerPolicy="same-origin"', 'document.movement.diferenciaCentimos']);
+required(remesaDialog, 'remesa diferida', ['Segunda confirmación humana de la remesa', 'Confirmar sólo estas', 'confirmation.preview.filas.slice', 'onClick={onConfirm}', 'onClick={onCancel}']);
+required(recentHistory, 'actividad diferida', ['onUndo(receipt)', '>Deshacer</button>']);
 if (/fetch\([^)]*https?:\/\//.test(workspace)) throw new Error('La UI no debe llamar a una URL externa.');
 if (/window\.open\(/.test(workspace)) throw new Error('La UI no debe abrir documentos sin control de URL.');
 if (/import\s+(?!type\s*\{)[^;]+from\s+['"]@\/lib\/finanzas\/conciliar-contract['"]/.test(contract)) throw new Error('El contrato de navegador sólo puede importar tipos del contrato servidor.');
