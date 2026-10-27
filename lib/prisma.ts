@@ -444,7 +444,9 @@ export async function verifyLiveImpersonationContext(
     // FOR SHARE prevents a concurrent explicit exit (FOR UPDATE OF s) from
     // closing this effective session between the final ledger check and the
     // business mutation. It is released only with that mutation's transaction.
-    const rows = await auditScope.run(true, () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    // PrismaPromise is lazy: it must be awaited before leaving auditScope,
+    // otherwise its middleware sees the outer scope and recursively checks itself.
+    const rows = await auditScope.run(true, async () => await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
       SELECT s.id::text
         FROM impersonation_sessions s
         JOIN usuarios_admin actor ON actor.id=s.actor_id
@@ -469,7 +471,7 @@ async function appendMutationSuccess(
   // This receipt is deliberately after next() but before the interactive
   // transaction commits. Thus it is never emitted for a failed mutation and is
   // rolled back if the callback later fails or the transaction cannot commit.
-  await auditScope.run(true, () => tx.$executeRaw(Prisma.sql`
+  await auditScope.run(true, async () => await tx.$executeRaw(Prisma.sql`
     INSERT INTO impersonation_event_log
       (id,session_id,actor_id,target_id,kind,outcome,method,path,ip,reason,model,operation,detail,created_at)
     VALUES
