@@ -7,16 +7,17 @@ import {
 } from '@heroicons/react/24/outline';
 import {
   CONCILIAR_COLORS, CONCILIAR_TABS, escapeSpreadsheet, formatDate, formatMagnitude, formatMoney,
-  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarDetailResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarUndoResponse,
+  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarDetailResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarUndoResponse,
   safeDocumentHref, safeFinanceHref, safeOutcomeMessage,
   type ConciliarActionResponse, type ConciliarColor, type ConciliarConfirmItem, type ConciliarMutationPayload,
-  type ConciliarReadResponse, type ConciliarRow, type ConciliarSummary, type ConciliarTab,
+  type ConciliarEmitidasGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarRow, type ConciliarSummary, type ConciliarTab,
 } from './conciliar-contract';
 import { useActuation } from '@/components/impersonation/ImpersonationBanner';
 import dynamic from 'next/dynamic';
 const ConfirmingInterestInvoices = dynamic(() => import('./ConfirmingInterestInvoices'), { ssr: false });
 
 const API = '/api/admin/finanzas/conciliar';
+const REMESA_PREVIEW_API = '/api/admin/finanzas/conciliar/remesa-preview';
 const PAGE_SIZE = 50;
 const EXPORT_PAGE_SIZE = 100;
 const MAX_EXPORT_ROWS = 5_000;
@@ -33,6 +34,7 @@ type Receipt = Readonly<{
   createdAt: number;
 }>;
 type OpenDocument = Readonly<{ rowId: string; title: string; href: string | null; explanation: string | null; movement: ConciliarRow }> | null;
+type RemesaConfirmation = Readonly<{ row: ConciliarRow; preview: ConciliarRemesaPreview; payload: ConciliarMutationPayload }> | null;
 
 /** Una respuesta 2xx malformada no prueba que la acción no haya llegado al servidor. */
 class UncertainResultError extends Error {}
@@ -48,6 +50,12 @@ const COLOR_COPY: Record<ConciliarColor, Readonly<{ label: string; description: 
   VERDE: { label: 'Verde · listo', description: 'Coincide y está listo para confirmar.', badge: 'border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/45 dark:text-emerald-100', dot: 'bg-emerald-600', bar: 'bg-emerald-600' },
   AMBAR: { label: 'Ámbar · revisar', description: 'Hay algo que comprobar antes de decidir.', badge: 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100', dot: 'bg-amber-500', bar: 'bg-amber-500' },
   ROJO: { label: 'Rojo · falta el papel', description: 'Falta un papel; añádelo a Para pedir.', badge: 'border-red-300 bg-red-50 text-red-950 dark:border-red-800 dark:bg-red-950/45 dark:text-red-100', dot: 'bg-red-600', bar: 'bg-red-600' },
+};
+
+const EMITIDAS_GROUP_COPY: Record<ConciliarEmitidasGroup, Readonly<{ label: string; rule: string; dot: string; active: string; idle: string }>> = {
+  CON_PROPUESTA: { label: 'Con propuesta', rule: 'Verde con propuesta', dot: 'bg-emerald-600', active: 'border-emerald-600 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950/45 dark:text-emerald-100', idle: 'border-emerald-200 bg-white text-emerald-950 hover:border-emerald-500 dark:border-emerald-900 dark:bg-slate-900 dark:text-emerald-100' },
+  PARA_REVISAR: { label: 'Para revisar', rule: 'Ámbar, incluido importe 0', dot: 'bg-amber-500', active: 'border-amber-500 bg-amber-50 text-amber-950 dark:border-amber-400 dark:bg-amber-950/45 dark:text-amber-100', idle: 'border-amber-200 bg-white text-amber-950 hover:border-amber-500 dark:border-amber-900 dark:bg-slate-900 dark:text-amber-100' },
+  SIN_PROPUESTA: { label: 'Sin propuesta', rule: 'Rojo', dot: 'bg-red-600', active: 'border-red-600 bg-red-50 text-red-950 dark:border-red-500 dark:bg-red-950/45 dark:text-red-100', idle: 'border-red-200 bg-white text-red-950 hover:border-red-500 dark:border-red-900 dark:bg-slate-900 dark:text-red-100' },
 };
 
 function groupExplanation(group: string | null): string | null {
@@ -99,13 +107,18 @@ function isUncertain(error: unknown): boolean {
   return error instanceof UncertainResultError || error instanceof TypeError || (error instanceof Error && /network|fetch|timeout|red/i.test(error.message));
 }
 
+/** Sólo abre la vista previa; el servidor comprueba tipo, fuente y remesa única. */
+function remesaHint(row: ConciliarRow): boolean {
+  return /remesa/i.test(`${row.grupo ?? ''} ${row.documento?.referencia ?? ''}`);
+}
+
 function humanUpdatedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'recién actualizada';
   return new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
 
-function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; historic?: boolean; limit: number; offset: number }>): URLSearchParams {
+function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup | ''; limit: number; offset: number }>): URLSearchParams {
   const params = new URLSearchParams({ tab: input.tab, limit: String(input.limit), offset: String(input.offset) });
   if (input.from) params.set('desde', input.from);
   if (input.to) params.set('hasta', input.to);
@@ -113,6 +126,7 @@ function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: strin
   if (input.query.trim()) params.set('q', input.query.trim().slice(0, 120));
   params.set('cutoffDate', input.cutoffDate);
   if (input.historic) params.set('historic', '1');
+  if (input.emitidasGrupo && input.tab === 'EMITIDAS' && !input.historic) params.set('emitidasGrupo', input.emitidasGrupo);
   return params;
 }
 
@@ -146,6 +160,21 @@ function SummaryTab({ summary, active, onClick }: { summary: ConciliarSummary; a
   </button>;
 }
 
+function EmitidasGroupFilters({ groups, activeGroup, onChange }: { groups: ConciliarReadResponse['emitidasGroups']; activeGroup: ConciliarEmitidasGroup | ''; onChange: (group: ConciliarEmitidasGroup) => void }) {
+  return <section aria-label="Estado de facturas emitidas" className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+    <div className="grid gap-2 sm:grid-cols-3">{groups.map((summary) => {
+      const copy = EMITIDAS_GROUP_COPY[summary.group];
+      const active = activeGroup === summary.group;
+      return <button key={summary.group} type="button" aria-pressed={active} onClick={() => onChange(summary.group)} className={`rounded-lg border p-3 text-left shadow-sm transition focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950 ${active ? copy.active : copy.idle}`}>
+        <span className="flex items-start justify-between gap-2"><span className="flex min-w-0 items-center gap-2"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${copy.dot}`} aria-hidden="true" /><span className="truncate text-sm font-extrabold">{copy.label}</span></span><span className="shrink-0 text-lg font-extrabold tabular-nums">{summary.count.toLocaleString('es-ES')}</span></span>
+        <span className="mt-1 block text-xs font-medium text-slate-600 dark:text-slate-300">{copy.rule}</span>
+        <span className="mt-2 block text-sm font-bold tabular-nums">{formatMagnitude(summary.amountCentimos)}</span>
+      </button>;
+    })}</div>
+    <p className="mt-3 text-xs text-slate-600 dark:text-slate-300">Los bloques ordenan la revisión; una propuesta no confirma el cobro ni marca la factura como cobrada.</p>
+  </section>;
+}
+
 function Guide({ invoicePending }: { invoicePending: boolean }) {
   return <section aria-label="Guía rápida" className="grid gap-2 text-sm sm:grid-cols-3">
     {CONCILIAR_COLORS.map((color) => <p key={color} className={`rounded-lg border px-3 py-2 ${COLOR_COPY[color].badge}`}><span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${COLOR_COPY[color].dot}`} aria-hidden="true" /><strong>{COLOR_COPY[color].label.split(' · ')[0]}:</strong> {invoicePending ? color === 'VERDE' ? 'Hay un movimiento que casa: ábrelo y confirma allí.' : color === 'ROJO' ? 'La factura existe, pero aún no consta su cobro o pago confirmado.' : 'Revisa el saldo o el movimiento propuesto antes de decidir.' : COLOR_COPY[color].description}</p>)}
@@ -165,6 +194,46 @@ function DocumentPreview({ document, onClose }: { document: NonNullable<OpenDocu
     {document.explanation && <p className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950 dark:border-amber-900 dark:bg-amber-950/45 dark:text-amber-100">{document.explanation}</p>}
     {document.href ? <iframe title={`Vista previa de ${document.title}`} src={document.href} sandbox="" referrerPolicy="same-origin" className="h-[520px] w-full bg-slate-100 dark:bg-slate-800" /> : <p className="px-3 py-4 text-xs text-slate-600 dark:text-slate-300">No hay un PDF descargable verificado para esta propuesta. La información anterior permite revisar la diferencia sin darla por confirmada.</p>}
   </aside>;
+}
+
+function firstFocusable(root: HTMLElement | null) {
+  return root?.querySelector<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href]') ?? null;
+}
+
+/** La segunda decisión muestra la composición entera validada; se pagina sólo su render. */
+function RemesaConfirmationDialog({ confirmation, busy, onCancel, onConfirm }: { confirmation: NonNullable<RemesaConfirmation>; busy: boolean; onCancel: () => void; onConfirm: () => void }) {
+  const dialog = useRef<HTMLElement | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const [page, setPage] = useState(0);
+  const pageSize = 100;
+  const totalPages = Math.ceil(confirmation.preview.filas.length / pageSize);
+  const visibleRows = confirmation.preview.filas.slice(page * pageSize, (page + 1) * pageSize);
+  const first = page * pageSize + 1;
+  const last = Math.min(confirmation.preview.filas.length, (page + 1) * pageSize);
+  useEffect(() => {
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    window.setTimeout(() => firstFocusable(dialog.current)?.focus(), 0);
+    return () => opener.current?.focus();
+  }, []);
+  function keyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape' && !busy) { event.preventDefault(); onCancel(); return; }
+    if (event.key !== 'Tab') return;
+    const nodes = dialog.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href]');
+    if (!nodes?.length) { event.preventDefault(); return; }
+    const firstNode = nodes[0], lastNode = nodes[nodes.length - 1];
+    if (event.shiftKey && document.activeElement === firstNode) { event.preventDefault(); lastNode.focus(); }
+    if (!event.shiftKey && document.activeElement === lastNode) { event.preventDefault(); firstNode.focus(); }
+  }
+  return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-3 sm:items-center" role="presentation">
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="conciliar-remesa-confirm-title" onKeyDown={keyDown} className="max-h-[90vh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-white p-5 text-slate-950 shadow-2xl dark:bg-slate-900 dark:text-white">
+      <div className="flex items-start gap-3"><ExclamationTriangleIcon className="mt-0.5 h-6 w-6 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden="true" /><div><h2 id="conciliar-remesa-confirm-title" className="text-lg font-extrabold">Segunda confirmación humana de la remesa</h2><p className="mt-2 text-sm leading-6 text-slate-700 dark:text-slate-200">Revisa la composición completa. Confirmar asignará únicamente estas facturas a este abono; no confirma el resto de la remesa ni otras facturas.</p></div></div>
+      <dl className="mt-4 grid gap-2 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100 sm:grid-cols-3"><div><dt className="font-semibold">Remesa</dt><dd className="mt-1 font-extrabold tabular-nums">#{confirmation.preview.remesaId}</dd></div><div><dt className="font-semibold">Facturas asignadas ahora</dt><dd className="mt-1 font-extrabold tabular-nums">{confirmation.preview.totalFacturas.toLocaleString('es-ES')}</dd></div><div><dt className="font-semibold">Abono bancario</dt><dd className="mt-1 font-extrabold tabular-nums">{formatMoney(confirmation.preview.importeBancoCentimos)}</dd></div></dl>
+      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700"><table className="min-w-full text-left text-xs"><thead className="bg-slate-50 text-slate-600 dark:bg-slate-950 dark:text-slate-300"><tr><th className="p-3 font-bold">#</th><th className="p-3 font-bold">Nº de factura</th><th className="p-3 font-bold">Cliente</th><th className="p-3 font-bold">Fecha factura</th><th className="p-3 text-right font-bold">Importe</th></tr></thead><tbody>{visibleRows.map((line) => <tr key={line.ordinal} className="border-t border-slate-200 text-slate-800 dark:border-slate-700 dark:text-slate-100"><td className="p-3 tabular-nums">{line.ordinal}</td><td className="p-3 font-semibold">{line.numeroFactura}</td><td className="max-w-[22rem] truncate p-3" title={line.cliente ?? undefined}>{line.cliente ?? 'Sin cliente publicado'}</td><td className="whitespace-nowrap p-3">{line.fechaFactura ? formatDate(line.fechaFactura) : 'Sin fecha publicada'}</td><td className="whitespace-nowrap p-3 text-right tabular-nums">{formatMagnitude(line.importeCentimos)}</td></tr>)}</tbody></table></div>
+      {totalPages > 1 && <nav aria-label="Paginación de composición completa de remesa" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-slate-600 dark:text-slate-300">Mostrando {first.toLocaleString('es-ES')}–{last.toLocaleString('es-ES')} de {confirmation.preview.totalFacturas.toLocaleString('es-ES')} facturas verificadas.</span><span className="flex gap-2"><button type="button" disabled={busy || page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">Anterior</button><button type="button" disabled={busy || page >= totalPages - 1} onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))} className="min-h-10 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">Siguiente</button></span></nav>}
+      <p className="mt-4 rounded-lg bg-slate-100 p-3 text-right text-sm font-extrabold text-slate-950 dark:bg-slate-800 dark:text-white">Sólo {confirmation.preview.totalFacturas.toLocaleString('es-ES')} facturas · total {formatMoney(confirmation.preview.importeBancoCentimos)}</p>
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={onCancel} className="min-h-10 rounded-md border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100">Cancelar</button><button type="button" disabled={busy} onClick={onConfirm} className="min-h-10 rounded-md bg-emerald-700 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">{busy ? 'Confirmando…' : `Confirmar sólo estas ${confirmation.preview.totalFacturas.toLocaleString('es-ES')} facturas`}</button></div>
+    </section>
+  </div>;
 }
 
 function GroupHeader({ group, color, count }: { group: string | null; color: ConciliarColor; count: number }) {
@@ -241,6 +310,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [queryInput, setQueryInput] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery);
   const [cutoffDate, setCutoffDate] = useState(initialCutoff);
+  const [emitidasGrupo, setEmitidasGrupo] = useState<ConciliarEmitidasGroup | ''>('');
   const [showHistory, setShowHistory] = useState(false);
   const [showInterestInvoices, setShowInterestInvoices] = useState(false);
   const [historicData, setHistoricData] = useState<ConciliarReadResponse | null>(null);
@@ -257,21 +327,25 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [openDocument, setOpenDocument] = useState<OpenDocument>(null);
   const [sending, setSending] = useState(false);
   const [retry, setRetry] = useState<Retry>(null);
+  const [remesaConfirmation, setRemesaConfirmation] = useState<RemesaConfirmation>(null);
+  const [remesaPreviewLoading, setRemesaPreviewLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const readController = useRef<AbortController | null>(null);
   const readSequence = useRef(0);
   const exportController = useRef<AbortController | null>(null);
   const detailController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
+  const remesaPreviewController = useRef<AbortController | null>(null);
+  const remesaPreviewSequence = useRef(0);
   const refreshAttempts = useRef(0);
   const historicController = useRef<AbortController | null>(null);
 
-  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, limit: PAGE_SIZE, offset }), [accountId, from, offset, query, tab, to, cutoffDate]);
+  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: PAGE_SIZE, offset }), [accountId, emitidasGrupo, from, offset, query, tab, to, cutoffDate]);
   const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
   const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && row.seleccionable), [rows]);
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
-  const mutationsBlocked = sending || retry !== null;
+  const mutationsBlocked = sending || retry !== null || remesaPreviewLoading;
 
   const load = useCallback(async (silent = false, keepNotice = false) => {
     readController.current?.abort();
@@ -305,7 +379,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
     void load();
   }, [load, requestInput]);
-  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); exportController.current?.abort(); }, []);
+  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
 
   useEffect(() => {
     if (!data?.stale) { refreshAttempts.current = 0; return; }
@@ -317,10 +391,15 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     return () => window.clearTimeout(timeout);
   }, [data, load, mutationsBlocked]);
 
-  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; setTab(next); setOffset(0); setSelected(new Set()); setOpenDocument(null); }, [tab]);
+  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); setSelected(new Set()); setOpenDocument(null); }, [tab]);
   const changeAccount = useCallback((next: string) => { setAccountId(next); setOffset(0); }, []);
   const changeDate = useCallback((kind: 'from' | 'to', value: string) => { if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, []);
   const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setQuery(queryInput.trim().slice(0, 120)); setOffset(0); }, [queryInput]);
+  const changeEmitidasGrupo = useCallback((next: ConciliarEmitidasGroup) => {
+    remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
+    setEmitidasGrupo((current) => current === next ? '' : next);
+    setOffset(0); setSelected(new Set()); setOpenDocument(null);
+  }, []);
   const changeCutoff = useCallback((value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     const date = new Date(`${value}T00:00:00Z`);
@@ -334,7 +413,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (!historicOpen || tab !== 'EMITIDAS') return;
     const controller = new AbortController(); historicController.current?.abort(); historicController.current = controller;
     setHistoricLoading(true);
-    const params = buildQuery({ ...requestInput, tab: 'EMITIDAS', historic: true, offset: historicOffset });
+    const params = buildQuery({ tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, limit: PAGE_SIZE, offset: historicOffset });
     void fetch(`${API}?${params}`, { cache: 'no-store', signal: controller.signal }).then(async (response) => {
       const raw: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(friendlyError(raw, 'No se pudieron leer las facturas anteriores.'));
@@ -343,7 +422,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (!controller.signal.aborted) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudieron leer las facturas anteriores.') : 'No se pudieron leer las facturas anteriores.' });
     }).finally(() => { if (!controller.signal.aborted) setHistoricLoading(false); });
     return () => controller.abort();
-  }, [historicOpen, historicOffset, requestInput, tab, data?.updatedAt]);
+  }, [accountId, cutoffDate, from, historicOpen, historicOffset, query, tab, to, data?.updatedAt]);
 
   const addReceipt = useCallback((receipt: Receipt) => {
     setReceipts((current) => [receipt, ...current.filter((item) => item.key !== receipt.key && item.rowId !== receipt.rowId)].slice(0, 20));
@@ -441,11 +520,42 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [activeActuation, finishOutcomes, load, loadHistory, rows, sending, showHistory]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
-    if (mutationsBlocked) return;
-    const items: ConciliarConfirmItem[] = source.filter((row) => row.color === 'VERDE' && row.seleccionable).map((row) => ({ id: row.id, decisionHash: row.decisionHash }));
-    if (items.length === 0) { setNotice({ tone: 'info', text: 'No hay movimientos verdes seleccionables en esta vista.' }); return; }
-    void post({ action: 'confirmar', idempotencyKey: makeIdempotencyKey(), items }, items.length === 1 ? 'confirmación' : 'confirmación seleccionada');
-  }, [mutationsBlocked, post]);
+    if (mutationsBlocked || remesaPreviewLoading) return;
+    const confirmable = source.filter((row) => row.color === 'VERDE' && row.seleccionable);
+    const remesas = confirmable.filter(remesaHint);
+    if (confirmable.length === 0) { setNotice({ tone: 'info', text: 'No hay movimientos verdes seleccionables en esta vista.' }); return; }
+    if (remesas.length > 0 && (confirmable.length !== 1 || remesas.length !== 1)) {
+      setNotice({ tone: 'info', text: 'Revisa y confirma la remesa por separado: no se puede mezclar con otros movimientos.' });
+      return;
+    }
+    const items: ConciliarConfirmItem[] = confirmable.map((row) => ({ id: row.id, decisionHash: row.decisionHash }));
+    const payload: ConciliarMutationPayload = { action: 'confirmar', idempotencyKey: makeIdempotencyKey(), items };
+    if (remesas.length === 0) { void post(payload, items.length === 1 ? 'confirmación' : 'confirmación seleccionada'); return; }
+    const row = remesas[0];
+    remesaPreviewController.current?.abort();
+    const controller = new AbortController();
+    remesaPreviewController.current = controller;
+    const sequence = ++remesaPreviewSequence.current;
+    setRemesaPreviewLoading(true);
+    // Lectura privada dedicada; no transporta fuente, importes ni facturas.
+    // La ruta vuelve a autorizar la fila contra la propuesta vigente y actor efectivo.
+    void fetch(`${REMESA_PREVIEW_API}?rowId=${encodeURIComponent(row.id)}`, {
+      cache: 'no-store', signal: controller.signal,
+    }).then(async (response) => {
+      const raw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo revisar la composición completa de la remesa.'));
+      const preview = parseConciliarRemesaPreviewResponse(raw);
+      if (sequence !== remesaPreviewSequence.current) return;
+      setRemesaConfirmation({ row, preview, payload });
+    }).catch((error: unknown) => {
+      if (sequence === remesaPreviewSequence.current && !(error instanceof DOMException && error.name === 'AbortError')) {
+        setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo revisar la composición completa de la remesa.') : 'No se pudo revisar la composición completa de la remesa.' });
+      }
+    }).finally(() => {
+      if (sequence === remesaPreviewSequence.current) setRemesaPreviewLoading(false);
+      if (remesaPreviewController.current === controller) remesaPreviewController.current = null;
+    });
+  }, [mutationsBlocked, post, remesaPreviewLoading]);
 
   const askForDocument = useCallback((row: ConciliarRow) => {
     if (mutationsBlocked) return;
@@ -479,7 +589,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [mutationsBlocked, post]);
 
   const toggleAllVisible = useCallback((checked: boolean) => {
-    setSelected(checked ? new Set(visibleSelectable.map((row) => row.id)) : new Set());
+    // Una remesa se abre y confirma sola, tras su composición completa.
+    setSelected(checked ? new Set(visibleSelectable.filter((row) => !remesaHint(row)).map((row) => row.id)) : new Set());
   }, [visibleSelectable]);
 
   const exportAll = useCallback(async () => {
@@ -494,7 +605,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const collected: ConciliarRow[] = [];
       let snapshot: string | null = null;
       for (let pageOffset = 0; pageOffset < data.total; pageOffset += EXPORT_PAGE_SIZE) {
-        const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
+        const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
         const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal: controller.signal });
         const raw: unknown = await response.json().catch(() => null);
         if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo leer una página para exportar.'));
@@ -534,7 +645,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (exportController.current === controller) exportController.current = null;
       setExporting(false);
     }
-  }, [accountId, data, exporting, from, query, tab, to, cutoffDate]);
+  }, [accountId, data, emitidasGrupo, exporting, from, query, tab, to, cutoffDate]);
 
   const grouped = useMemo(() => {
     const buckets = new Map<ConciliarColor, Map<string, ConciliarRow[]>>();
@@ -548,6 +659,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     }
     return buckets;
   }, [rows]);
+  const emitidasGroupLabel = emitidasGrupo ? EMITIDAS_GROUP_COPY[emitidasGrupo].label : '';
 
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
     <header className="flex flex-col gap-3 border-b border-orange-100 pb-4 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
@@ -569,9 +681,11 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       <label className="shrink-0 font-semibold">Fecha de corte<input type="date" value={cutoffDate} onChange={(event) => changeCutoff(event.target.value)} className="ml-2 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm dark:border-slate-600 dark:bg-slate-950" /></label>
     </section>
 
+    {tab === 'EMITIDAS' && data && <EmitidasGroupFilters groups={data.emitidasGroups} activeGroup={emitidasGrupo} onChange={changeEmitidasGrupo} />}
+
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-[minmax(160px,1fr)_145px_145px_210px_auto] md:items-end"><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button></form></section>
 
-    <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
+    <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
       <div className={`grid min-w-0 ${openDocument ? "2xl:grid-cols-[minmax(0,1fr)_minmax(360px,.55fr)] 2xl:items-start" : ""}`}><div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{CONCILIAR_COLORS.map((color) => { const groups = grouped.get(color)!; return [...groups.entries()].map(([group, colorRows]) => <section key={`${color}-${group || 'general'}`} aria-label={`${COLOR_COPY[color].label}: ${group || 'sin grupo'}`}><GroupHeader group={group || null} color={color} count={colorRows.length} />{colorRows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>); })}</>}</div>{openDocument && <div className="border-t border-slate-200 p-3 dark:border-slate-700 xl:sticky xl:top-3 xl:border-l xl:border-t-0"><DocumentPreview document={openDocument} onClose={() => setOpenDocument(null)} /></div>}</div>
       {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => setOffset(Math.max(0, data.offset - data.limit))} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => setOffset(data.offset + data.limit)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Siguiente<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
@@ -589,5 +703,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <button type="button" onClick={() => setShowHistory(true)} className="min-h-10 rounded-md border border-slate-300 px-3 py-2 text-sm font-semibold dark:border-slate-700">{showHistory ? 'Historial cargado' : 'Ver historial de confirmaciones'}</button>
     <details onToggle={(event) => setShowInterestInvoices(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900"><summary className="cursor-pointer text-sm font-semibold">Facturas bancarias de intereses de confirming</summary>{showInterestInvoices && <ConfirmingInterestInvoices />}</details>
     <p className="px-1 text-xs text-slate-500 dark:text-slate-400">Las confirmaciones se hacen una vez, quedan registradas y se pueden deshacer. Pedir sólo añade la fila a la lista interna; no envía correos ni notificaciones.</p>
+    {remesaConfirmation && <RemesaConfirmationDialog confirmation={remesaConfirmation} busy={sending} onCancel={() => { if (!sending) setRemesaConfirmation(null); }} onConfirm={() => { if (!sending) { const current = remesaConfirmation; setRemesaConfirmation(null); void post(current.payload, 'confirmación de remesa revisada'); } }} />}
   </main>;
 }

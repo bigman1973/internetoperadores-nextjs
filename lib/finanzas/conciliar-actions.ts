@@ -7,6 +7,7 @@ import { confirmEasyReconciliationTx, inspectEasyCandidatesTx, EasyReconciliatio
 import { runEasyCollectionsActionTx, EasyCollectionsServiceError } from '@/lib/finanzas/easy-collections-db'
 import { signEasyCollectionsPreview } from '@/lib/finanzas/easy-collections-preview'
 import { derivedUuidV4 } from '@/lib/finanzas/easy-auto-core'
+import { confirmarReciboRemesaCompuestaTx, RemittancePaymentReceiptError } from '@/lib/finanzas/remittance-payment-receipts-db'
 import { applyDocumentedConfirmingInterestSupport, ConciliarConfirmingServiceError, readConciliarConfirmingCandidates, undoDocumentedConfirmingInterestSupport } from '@/lib/finanzas/conciliar-confirming'
 import { evaluarDocumentoExacto, isConciliarBankFee, parseConciliarCommand, type ConciliarCommand, type ConciliarProjectionSource } from './conciliar-contract'
 import { assignConciliarDocumentaryCounterpartyTx, undoConciliarDocumentaryCounterpartyTx } from './conciliar-counterparty'
@@ -74,6 +75,18 @@ function b4Version(value: unknown): number {
 function requireMovement(source: ConciliarProjectionSource): string {
   if (!source.movimientoId) fail(409, 'FILA_SIN_MOVIMIENTO', 'Esta fila no tiene un movimiento bancario que confirmar.')
   return source.movimientoId
+}
+function receiptSourceFields(source: ConciliarProjectionSource): Readonly<{ remesaId: number; compositionHash: string }> | null {
+  // These persisted source fields are supplied by the parent-owned projection
+  // contract/reader. Absence is deliberately not reconstructed from the browser.
+  const row = source as ConciliarProjectionSource & { remesaId?: unknown; proposalCompositionHash?: unknown }
+  return Number.isSafeInteger(row.remesaId) && Number(row.remesaId) > 0
+    && typeof row.proposalCompositionHash === 'string' && /^[a-f0-9]{64}$/.test(row.proposalCompositionHash)
+    ? { remesaId: Number(row.remesaId), compositionHash: row.proposalCompositionHash }
+    : null
+}
+function isVersionedRemittanceSource(source: ConciliarProjectionSource): boolean {
+  return source.kind === 'COBRO_PROPUESTA' && receiptSourceFields(source) !== null
 }
 
 async function projectionStateAtActionStart(tx: Tx): Promise<{ wasDirty: boolean }> {
@@ -245,6 +258,28 @@ async function confirmCollectionProposal(tx: Tx, actorId: number, operationId: s
   const source = row.source
   if (!source.propuestaId || !source.movimientoId || !source.proposalFingerprint) fail(409, 'DECISION_CAMBIADA', 'La propuesta de cobro ya no está completa. Actualiza la lista.')
   const selection = { propuestaId: source.propuestaId, movimientoId: source.movimientoId, fingerprint: source.proposalFingerprint }
+  const receiptSource = receiptSourceFields(source)
+  if (receiptSource) {
+    const receiptKey = uuidKey('CONCILIAR_COLLECTION', operationId, row.id)
+    const requestHash = conciliarRequestHash(actorId, {
+      action: 'confirmar', idempotencyKey: operationId, items: [{ id: row.id, decisionHash: row.decisionHash }],
+    })
+    const result: any = await confirmarReciboRemesaCompuestaTx(tx, actorId, {
+      selection, idempotencyKey: receiptKey, expectedCompositionHash: receiptSource.compositionHash,
+      blockId: operationId, keyHash: `conciliar:${operationId}`, requestHash,
+    })
+    if (result?.resultado?.remesaId !== receiptSource.remesaId) {
+      fail(409, 'DECISION_CAMBIADA', 'La remesa asociada cambió; actualiza la lista.')
+    }
+    return {
+      proposalBlockId: operationId,
+      operationB4Id: String(result.operationB4Id),
+      result: {
+        state: 'confirmada', movimientoId: source.movimientoId, proposalBlockId: operationId,
+        reciboCobroRemesaB7Id: String(result.reciboId), remesaId: receiptSource.remesaId,
+      },
+    }
+  }
   const result: any = await runEasyCollectionsActionTx(tx, actorId, {
     action: 'confirmar_bloque', confirmacion: true, idempotencyKey: uuidKey('CONCILIAR_COLLECTION', operationId, row.id), previewToken: signEasyCollectionsPreview(actorId, [selection]), items: [selection],
   }, { preserveSerializableP2034: true })
@@ -382,10 +417,18 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
   const outcomes: Array<Record<string, unknown>> = []
   const movementIds = new Set<string>()
   const kinds = new Set<ConciliarProjectionSource['kind']>()
-  for (let index = 0; index < command.items.length; index += 1) {
-    const item = command.items[index]
+  const selectedRows: Awaited<ReturnType<typeof readConciliarRowForAction>>[] = []
+  for (const item of command.items) {
     const row = await readConciliarRowForAction(tx, item.id)
     rowMustMatch(row, item.decisionHash)
+    selectedRows.push(row)
+  }
+  if (selectedRows.some(row => isVersionedRemittanceSource(row.source)) && selectedRows.length !== 1) {
+    fail(422, 'REMESA_REQUIERE_CONFIRMACION_INDIVIDUAL', 'Una remesa sólo puede confirmarse individualmente tras revisar su composición completa.')
+  }
+  for (let index = 0; index < command.items.length; index += 1) {
+    const item = command.items[index]
+    const row = selectedRows[index]
     kinds.add(row.source.kind)
     const movementId = requireMovement(row.source)
     if (movementIds.has(movementId)) fail(422, 'MOVIMIENTO_REPETIDO', 'La selección incluye el mismo movimiento más de una vez.')
@@ -470,7 +513,7 @@ export function conciliarActionErrorResponse(error: unknown): { status: number; 
   if (error instanceof ConciliarActionError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof ConciliarDbError) return conciliarDbErrorResponse(error)
   if (error instanceof ConciliarConfirmingServiceError) return { status: error.status, body: { error: error.message.replace(/\b(?:B[4-8]|C9|C10)\b/g, 'documental'), codigo: error.code } }
-  if (error instanceof B4ServiceError || error instanceof EasyReconciliationServiceError || error instanceof EasyCollectionsServiceError) return { status: (error as any).status ?? 409, body: { error: error.message, codigo: (error as any).code ?? 'DECISION_CAMBIADA' } }
+  if (error instanceof B4ServiceError || error instanceof EasyReconciliationServiceError || error instanceof EasyCollectionsServiceError || error instanceof RemittancePaymentReceiptError) return { status: (error as any).status ?? 409, body: { error: error.message, codigo: (error as any).code ?? 'DECISION_CAMBIADA' } }
   const code = String((error as any)?.code ?? '')
   if (['P2002', 'P2034', '40001', '40P01', '55P03'].includes(code)) return { status: 409, body: { error: 'La información cambió mientras se procesaba. Pulsa Actualizar y vuelve a intentarlo.', codigo: 'CONCURRENT_CONFLICT' } }
   return { status: 503, body: { error: 'No se pudo comprobar el resultado. Reintenta exactamente la misma acción para evitar duplicados.', codigo: 'CONCILIAR_RESULTADO_INCIERTO' } }

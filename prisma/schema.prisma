@@ -10,6 +10,9 @@ datasource db {
 }
 
 model UsuarioAdmin {
+  recibosCobroRemesaB7 ReciboCobroRemesaB7[]
+  correccionesCuentaComoActor AuditoriaCorreccionCuentaBancaria[] @relation("CorreccionCuentaActor")
+  correccionesCuentaComoEfectivo AuditoriaCorreccionCuentaBancaria[] @relation("CorreccionCuentaEfectivo")
   lotesTerceroModoFacil LoteTerceroModoFacil[]
   reversionesLoteTerceroModoFacil ReversionLoteTerceroModoFacil[]
   ejecucionesAutoModoFacil EjecucionAutoModoFacil[] @relation("EjecucionesAutoModoFacilActor")
@@ -325,6 +328,7 @@ model ContratoServicio {
 }
 
 model Factura {
+  lineasReciboCobroRemesaB7 LineaReciboCobroRemesaB7[]
   identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   remesaId Int? @map("remesa_id")
   remesa Remesa? @relation("FacturasISPRemesadasB6", fields: [remesaId], references: [id], onDelete: Restrict, onUpdate: Restrict)
@@ -365,6 +369,7 @@ model Factura {
 }
 
 model Remesa {
+  recibosCobroRemesaB7 ReciboCobroRemesaB7[]
   facturasISPRemesadasB6 Factura[] @relation("FacturasISPRemesadasB6")
   asignacionesDevolucionB6 AsignacionDevolucionRemesaB6[] @relation("AsignacionDevolucionRemesaB6Remesa")
   auditoriasB6 AuditoriaRemesaB6[] @relation("AuditoriaRemesaB6Remesa")
@@ -1143,6 +1148,7 @@ enum DestinatariosComunicado {
 // =============================================
 
 model CuentaBancaria {
+  auditoriasCorreccion AuditoriaCorreccionCuentaBancaria[]
   tercerosBancoAutoModoFacil TerceroBancoAutoModoFacil[]
   atestacionesAutoModoFacil AtestacionCuentaAutoModoFacil[]
   id          String   @id @default(uuid())
@@ -1165,7 +1171,26 @@ model CuentaBancaria {
   @@map("cuentas_bancarias")
 }
 
+model AuditoriaCorreccionCuentaBancaria {
+  id String @id @default(uuid()) @db.Uuid
+  cuentaId String @map("cuenta_id")
+  actorId Int @map("actor_id")
+  usuarioEfectivoId Int @map("usuario_efectivo_id")
+  ejecutor String @db.VarChar(80)
+  motivo String @db.VarChar(1000)
+  ibanAnterior String @map("iban_anterior") @db.VarChar(80)
+  ibanNuevo String @map("iban_nuevo") @db.VarChar(80)
+  idempotencyKey String @unique @map("idempotency_key") @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  cuenta CuentaBancaria @relation(fields:[cuentaId],references:[id],onDelete:Restrict)
+  actor UsuarioAdmin @relation("CorreccionCuentaActor",fields:[actorId],references:[id],onDelete:Restrict)
+  usuarioEfectivo UsuarioAdmin @relation("CorreccionCuentaEfectivo",fields:[usuarioEfectivoId],references:[id],onDelete:Restrict)
+  @@index([cuentaId,createdAt],map:"correccion_cuenta_audit_fecha_idx")
+  @@map("auditorias_correccion_cuenta_bancaria")
+}
+
 model MovimientoBancario {
+  recibosCobroRemesaB7 ReciboCobroRemesaB7[]
   patasLoteTerceroModoFacil PataLoteTerceroModoFacil[]
   pataReciboAutoModoFacil PataReciboAutoModoFacil?
   legadoConciliacionB4 LegadoConciliacionB4?
@@ -1693,6 +1718,7 @@ enum EstadoFacturaEmitida {
 }
 
 model FacturaEmitida {
+  lineasReciboCobroRemesaB7 LineaReciboCobroRemesaB7[]
   identidadFacturaISPEventosB7 IdentidadFacturaISPEventoB7[]
   id              String   @id @default(uuid())
   cliente         String   // Nombre del cliente
@@ -4217,6 +4243,7 @@ model TraspasoInterno {
 // Active and reversed allocations are retained. DOCUMENTO points to exactly one wrapper;
 // DIFERENCIA has no wrapper and a closed motive. The row-local matrix lives in guards.sql.
 model VinculoMovimientoDocumento {
+  reciboCobroRemesaB7 ReciboCobroRemesaB7?
   centroCosteFinanzasId String? @db.Uuid @map("centro_coste_finanzas_id")
   versionCentroCoste Int @default(0) @map("version_centro_coste")
   centroCosteFinanzas CentroCosteFinanzas? @relation("CentroCosteFinanzasB8Vinculos", fields:[centroCosteFinanzasId], references:[id], onDelete:Restrict, onUpdate:Restrict)
@@ -4248,6 +4275,7 @@ model VinculoMovimientoDocumento {
 
 // Idempotency is deliberately scoped to the real UsuarioAdmin Int identity and request key.
 model OperacionJustificacionB4 {
+  recibosCobroRemesaB7 ReciboCobroRemesaB7[]
   patasAutoReversionResultado PataReversionAutoModoFacil[] @relation("PataAutoReversionResultado")
   patasAutoReversionOriginal PataReversionAutoModoFacil[] @relation("PataAutoReversionOriginal")
   pataReciboAutoModoFacil PataReciboAutoModoFacil?
@@ -4491,6 +4519,7 @@ model AsignacionDevolucionRemesaB6 {
 }
 
 model AuditoriaRemesaB6 {
+  recibosCobroRemesaB7 ReciboCobroRemesaB7[]
   id                 String                  @id @default(uuid()) @db.Uuid
   actorId            Int                     @map("actor_id")
   remesaId           Int                     @map("remesa_id")
@@ -5570,4 +5599,61 @@ model AsistenteRateLimit {
   @@id([claveHash, ventana])
   @@index([ventana])
   @@map("asistente_rate_limit")
+}
+
+// Evidencia por ABONO bancario, no por remesa completa. No altera estados ISP.
+enum EstadoReciboCobroRemesaB7 {
+  CONFIRMADO
+}
+model ReciboCobroRemesaB7 {
+  id String @id @default(uuid()) @db.Uuid
+  schemaVersion String @default("B7_REMESA_RECIBO_V1") @map("schema_version")
+  estado EstadoReciboCobroRemesaB7 @default(CONFIRMADO)
+  remesaId Int @map("remesa_id")
+  movimientoId String @map("movimiento_id")
+  vinculoB4Id String @unique @map("vinculo_b4_id") @db.Uuid
+  operacionB4Id String @map("operacion_b4_id") @db.Uuid
+  auditoriaAsociacionB6Id String @map("auditoria_asociacion_b6_id") @db.Uuid
+  // FK SQL a modo_facil_propuestas_cobro: el módulo de propuestas usa SQL raw.
+  propuestaId String @map("propuesta_id") @db.Uuid
+  proposalFingerprint String @map("proposal_fingerprint") @db.Char(64)
+  compositionHash String @map("composition_hash") @db.Char(64)
+  actorId Int @map("actor_id")
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+  requestHash String @map("request_hash") @db.Char(64)
+  sourceHash String @map("source_hash") @db.Char(64)
+  snapshotSolicitud Json @map("snapshot_solicitud")
+  snapshotResultado Json @map("snapshot_resultado")
+  transactionId BigInt @default(dbgenerated("txid_current()")) @map("transaction_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  remesa Remesa @relation(fields:[remesaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  movimiento MovimientoBancario @relation(fields:[movimientoId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  vinculoB4 VinculoMovimientoDocumento @relation(fields:[vinculoB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  operacionB4 OperacionJustificacionB4 @relation(fields:[operacionB4Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  auditoriaAsociacionB6 AuditoriaRemesaB6 @relation(fields:[auditoriaAsociacionB6Id],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actor UsuarioAdmin @relation(fields:[actorId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  lineas LineaReciboCobroRemesaB7[]
+  @@unique([actorId,idempotencyKey],map:"recibo_remesa_b7_actor_key_uk")
+  @@index([remesaId,createdAt(sort:Desc)],map:"recibos_cobro_remesa_b7_remesa_created_idx")
+  @@index([movimientoId],map:"recibos_cobro_remesa_b7_movimiento_idx")
+  @@map("recibos_cobro_remesa_b7")
+}
+model LineaReciboCobroRemesaB7 {
+  reciboId String @map("recibo_id") @db.Uuid
+  ordinal Int
+  facturaEmitidaId String @map("factura_emitida_id")
+  facturaISPId Int @map("factura_isp_id")
+  importeCentimos Int @map("importe_centimos")
+  sourceHash String @map("source_hash") @db.Char(64)
+  snapshot Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  recibo ReciboCobroRemesaB7 @relation(fields:[reciboId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  facturaEmitida FacturaEmitida @relation(fields:[facturaEmitidaId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  facturaISP Factura @relation(fields:[facturaISPId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@id([reciboId,ordinal])
+  @@unique([reciboId,facturaEmitidaId])
+  @@unique([reciboId,facturaISPId])
+  @@index([facturaEmitidaId],map:"lineas_recibo_remesa_b7_fi_idx")
+  @@index([facturaISPId],map:"lineas_recibo_remesa_b7_isp_idx")
+  @@map("lineas_recibo_cobro_remesa_b7")
 }

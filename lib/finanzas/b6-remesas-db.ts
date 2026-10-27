@@ -76,7 +76,8 @@ type MoneyView = Readonly<{
   codigoFuente: string | null
 }>
 
-async function requireTransactionActor(tx:Tx,actorId:number){
+/** Rechecked inside every SERIALIZABLE host transaction; never trusts a caller role. */
+export async function requireB6TransactionActorTx(tx:Tx,actorId:number){
  if(!Number.isSafeInteger(actorId)||actorId<1)b6Fail(403,'ACTOR_NO_AUTORIZADO','Actor financiero no autorizado.')
  await tx.$queryRaw`SELECT id FROM usuarios_admin WHERE id=${actorId} FOR SHARE`
  const admin=await tx.usuarioAdmin.findUnique({where:{id:actorId},select:{id:true,activo:true,rol:true,roles:true}})
@@ -282,17 +283,12 @@ async function insertAudit(
   return id
 }
 
-/**
- * POST asociar_facturas. Reads current source only after a first remesa row lock
- * and an idempotency replay probe; direct SQL UPDATE preserves facturas.updated_at.
- */
-export async function confirmarAsociacionFacturasRemesaB6(actorId: number, raw: unknown) {
+/** Transaction-owned B6 association; deliberately never opens a nested transaction. */
+export async function confirmarAsociacionFacturasRemesaB6Tx(base: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseAsociarFacturasInput(raw)
   const stableRequestHash = requestHash(input)
-  await assertFinanceRuntimeReady()
-  return (prisma as PrismaClient).$transaction(async (base) => {
-    const tx = base as Tx
-    await requireTransactionActor(tx,actorId)
+  const tx = base as Tx
+  await requireB6TransactionActorTx(tx,actorId)
     await advisoryRemesaLock(tx, input.remesaId)
     const remesaRow = await lockRemesa(tx, input.remesaId) // minimal row lock before replay lookup
     const replay = idempotentReplay(await priorAudit(tx, actorId, input.idempotencyKey), 'ASOCIACION_FACTURAS_CONFIRMADA', stableRequestHash)
@@ -362,7 +358,17 @@ export async function confirmarAsociacionFacturasRemesaB6(actorId: number, raw: 
       snapshotSolicitud: input, snapshotResultado: result,
     })
     return { idempotente: false, auditoriaId: auditId, resultado: result }
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+}
+/**
+ * POST asociar_facturas. Reads current source only after a first remesa row lock
+ * and an idempotency replay probe; direct SQL UPDATE preserves facturas.updated_at.
+ */
+export async function confirmarAsociacionFacturasRemesaB6(actorId: number, raw: unknown) {
+  await assertFinanceRuntimeReady()
+  return (prisma as PrismaClient).$transaction(
+    (tx) => confirmarAsociacionFacturasRemesaB6Tx(tx, actorId, raw),
+    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+  )
 }
 
 async function lockRefundLinkAfterBank(tx: Tx, vinculoId: string): Promise<LinkLockedRow> {
@@ -438,7 +444,7 @@ export async function confirmarAsociacionDevolucionRemesaB6(actorId: number, raw
   await assertFinanceRuntimeReady()
   return (prisma as PrismaClient).$transaction(async (base) => {
     const tx = base as Tx
-    await requireTransactionActor(tx,actorId)
+    await requireB6TransactionActorTx(tx,actorId)
     // Required B4 order: bank advisory lock -> physical bank row -> B4 wrapper.
     const importeBancoTexto = await advisoryAndMovementLock(tx, input.movimientoId)
     const replay = idempotentReplay(await priorAudit(tx, actorId, input.idempotencyKey), 'DEVOLUCION_ASOCIADA', stableRequestHash)
@@ -447,6 +453,14 @@ export async function confirmarAsociacionDevolucionRemesaB6(actorId: number, raw
     const link = await lockRefundLinkAfterBank(tx, input.vinculoId)
     const remesa = await lockRemesa(tx, input.remesaId)
     const factura = await lockRefundFactura(tx, input.facturaISPId)
+    const receiptV1 = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id::text AS id FROM recibos_cobro_remesa_b7
+      WHERE remesa_id=${input.remesaId} AND schema_version='B7_REMESA_RECIBO_V1'
+      ORDER BY id ASC LIMIT 1 FOR KEY SHARE
+    `)
+    if (receiptV1.length) {
+      b6Fail(409, 'DEVOLUCION_REQUIERE_RECIBO_REMESA_VERSIONADO', 'Una remesa con recibos B7 parciales requiere devolución versionada; B6 no puede repartirla.')
+    }
     const existing = await existingRefundState(tx, input.facturaISPId, input.vinculoId)
     const linesForSameRemesa = await refundLineCount(tx, input.movimientoId, input.remesaId)
     if (linesForSameRemesa !== 1) {

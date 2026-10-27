@@ -27,6 +27,7 @@ import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesContainDocume
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
+import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 export { readConciliarHistory, readConciliarProjection, readConciliarRow, readConciliarRowForAction } from './conciliar-projection-read'
@@ -592,12 +593,14 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
       const one = status.composition.length === 1 ? status.composition[0] : null
       const documentValue = one && one.importeCentimos !== null ? { referencia: one.numFactura ?? 'Factura emitida', tercero: one.cliente, importeCentimos: one.importeCentimos, fecha: one.facturaEmitidaId ? invoiceDates.get(one.facturaEmitidaId) ?? null : null, href: null } : null
-      const green = status.green
+      const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
+      const remesaSeal = remesaProposal ? remittanceSealForProposal({ propuestaId: String(proposalRow.propuestaId), movimientoId: id, fingerprint: String(proposalRow.fingerprint), metodo: String(proposalRow.metodo), importeMovimientoCentimos: amount, lineas: proposalRow.lineas, composicion: proposalRow.composicion }) : null
+      const green = status.green && (!remesaProposal || remesaSeal !== null)
       const color: ConciliarColor = green ? 'VERDE' : proposalRow ? 'AMBAR' : 'ROJO'
-      const motivo = green ? status.reason : proposalRow
+      const motivo = remesaProposal && !remesaSeal ? 'La remesa necesita una composición íntegra de sus facturas antes de confirmarla.' : green ? status.reason : proposalRow
         ? status.reason
         : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: false })
-      const source: ConciliarProjectionSource = proposalRow ? { kind: 'COBRO_PROPUESTA', movimientoId: id, propuestaId: String(proposalRow.propuestaId), proposalFingerprint: String(proposalRow.fingerprint), versionB4: cents(movement.versionB4, 'La versión') } : { kind: 'COBRO_PROPUESTA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }
+      const source: ConciliarProjectionSource = proposalRow ? { kind: 'COBRO_PROPUESTA', movimientoId: id, propuestaId: String(proposalRow.propuestaId), proposalFingerprint: String(proposalRow.fingerprint), ...(remesaSeal ? { remesaId: remesaSeal.remesaId, proposalCompositionHash: remesaSeal.compositionHash } : {}), versionB4: cents(movement.versionB4, 'La versión') } : { kind: 'COBRO_PROPUESTA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }
       const opaqueId = rowId('COBROS', `COBRO_PROPUESTA:${id}:${String(proposalRow?.propuestaId ?? 'SIN_PROPUESTA')}`)
       rows.push(projection('COBROS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: proposalRow ? nullableText(proposalRow.metodo, 120) : null, motivo, documento: documentValue, propuesta: proposalRow ? String(proposalRow.propuestaId) : null, seleccionable: green, diferenciaCentimos: green ? 0 : amount - (proposalLineTotal(status.lines) ?? amount), detail: proposalRow ? compactCompositionDetail(status.composition) ?? textoSeguro(proposalRow.explicacion).slice(0, 1_600) : null }), source, cuentaId))
       if (proposalRow) for (const item of status.composition) {

@@ -39,6 +39,19 @@ test('fixture sintética: GET conserva filtros acotados, fecha exacta y paginaci
   assert.equal(parseConciliarGetInput({ tab: 'EMITIDAS', historic: '1', cutoffDate: '2026-02-01' }).historic, true)
 })
 
+test('fixture sintética: los grupos de Emitidas son filtros cerrados de la cola activa', () => {
+  const selected = parseConciliarGetInput({ tab: 'EMITIDAS', emitidasGrupo: 'CON_PROPUESTA', desde: '2026-10-01', hasta: '2026-10-31', cuentaId: 'cuenta-sintetica-01', q: 'Factura sintética', cutoffDate: '2026-02-01', limit: '50', offset: '100' })
+  assert.deepEqual(selected, { tab: 'EMITIDAS', emitidasGrupo: 'CON_PROPUESTA', desde: '2026-10-01', hasta: '2026-10-31', cuentaId: 'cuenta-sintetica-01', q: 'Factura sintética', cutoffDate: '2026-02-01', historic: false, limit: 50, offset: 100 })
+  assert.equal(parseConciliarGetInput({ tab: 'EMITIDAS', emitidasGrupo: 'PARA_REVISAR' }).emitidasGrupo, 'PARA_REVISAR')
+  assert.equal(parseConciliarGetInput({ tab: 'EMITIDAS', emitidasGrupo: 'SIN_PROPUESTA' }).emitidasGrupo, 'SIN_PROPUESTA')
+  assert.equal(parseConciliarGetInput({ tab: 'EMITIDAS', emitidasGrupo: '' }).emitidasGrupo, undefined)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'EMITIDAS', emitidasGrupo: 'para_revisar' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'COBROS', emitidasGrupo: 'CON_PROPUESTA' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'PAGOS', emitidasGrupo: 'PARA_REVISAR' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'RECIBIDAS', emitidasGrupo: 'SIN_PROPUESTA' }), 400)
+  throwsValidation(() => parseConciliarGetInput({ tab: 'EMITIDAS', historic: '1', emitidasGrupo: 'CON_PROPUESTA' }), 400)
+})
+
 test('fixture sintética: POST confirmar usa sólo identidad opaca y hash de decisión', () => {
   const a = 'a'.repeat(64), b = 'b'.repeat(64)
   const parsed = parseConciliarCommand({

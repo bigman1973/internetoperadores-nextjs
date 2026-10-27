@@ -1,5 +1,6 @@
 export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const
 export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO'] as const
+export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA'] as const
 export const CONCILIAR_MAX_LIMIT = 100
 export const CONCILIAR_MAX_OFFSET = 100_000
 export const CONCILIAR_MAX_QUERY = 120
@@ -9,6 +10,7 @@ export const CONCILIAR_DEFAULT_CUTOFF = '2026-01-01' as const
 
 export type ConciliarTab = typeof CONCILIAR_TABS[number]
 export type ConciliarColor = typeof CONCILIAR_COLORS[number]
+export type ConciliarEmitidasGroup = typeof CONCILIAR_EMITIDAS_GROUPS[number]
 export type ConciliarAction = 'confirmar' | 'deshacer' | 'pedir'
 
 export type ConciliarDocument = Readonly<{
@@ -57,6 +59,7 @@ export type ConciliarGetInput = Readonly<{
   q?: string
   cutoffDate?: string
   historic?: boolean
+  emitidasGrupo?: ConciliarEmitidasGroup
   limit: number
   offset: number
 }>
@@ -88,6 +91,8 @@ export type ConciliarProjectionSource = Readonly<{
   transferFingerprint?: string
   propuestaId?: string
   proposalFingerprint?: string
+  proposalCompositionHash?: string
+  remesaId?: number
   confirmingId?: string
   confirmingSourceHash?: string
   facturaEmitidaId?: string
@@ -153,7 +158,7 @@ function positiveInteger(value: string, field: string, min: number, max: number)
 }
 
 export function parseConciliarGetInput(raw: Readonly<Record<string, string | null | undefined>>): ConciliarGetInput {
-  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic']
+  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo']
   if (Object.keys(raw).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'La consulta contiene campos no admitidos.')
   const tab = raw.tab ?? 'COBROS'
   if (!(CONCILIAR_TABS as readonly string[]).includes(tab)) fail(400, 'VALIDATION_ERROR', 'La pestaña no es válida.')
@@ -163,12 +168,16 @@ export function parseConciliarGetInput(raw: Readonly<Record<string, string | nul
   if (raw.historic != null && raw.historic !== '' && raw.historic !== '0' && raw.historic !== '1') fail(400, 'VALIDATION_ERROR', 'La opción de facturas anteriores no es válida.')
   const historic = raw.historic === '1'
   if (historic && tab !== 'EMITIDAS') fail(400, 'VALIDATION_ERROR', 'Las facturas anteriores sólo se consultan en Emitidas.')
+  const emitidasGrupo = raw.emitidasGrupo === null || raw.emitidasGrupo === undefined || raw.emitidasGrupo === '' ? undefined : raw.emitidasGrupo
+  if (emitidasGrupo !== undefined && !(CONCILIAR_EMITIDAS_GROUPS as readonly string[]).includes(emitidasGrupo)) fail(400, 'VALIDATION_ERROR', 'El grupo de Emitidas no es válido.')
+  if (emitidasGrupo !== undefined && tab !== 'EMITIDAS') fail(400, 'VALIDATION_ERROR', 'El grupo sólo se puede consultar en Emitidas.')
+  if (historic && emitidasGrupo !== undefined) fail(400, 'VALIDATION_ERROR', 'Las facturas anteriores no se pueden filtrar por grupo.')
   const cuentaId = raw.cuentaId === null || raw.cuentaId === undefined || raw.cuentaId === '' ? undefined : text(raw.cuentaId, 'cuentaId', 160)
   const q = raw.q === null || raw.q === undefined || raw.q === '' ? undefined : raw.q.trim()
   if (q !== undefined && (!q || q.length > CONCILIAR_MAX_QUERY)) fail(400, 'VALIDATION_ERROR', 'La búsqueda no es válida.')
   const limit = positiveInteger(raw.limit ?? '50', 'limit', 1, CONCILIAR_MAX_LIMIT)
   const offset = positiveInteger(raw.offset ?? '0', 'offset', 0, CONCILIAR_MAX_OFFSET)
-  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), cutoffDate, historic, limit, offset }
+  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), ...(emitidasGrupo ? { emitidasGrupo: emitidasGrupo as ConciliarEmitidasGroup } : {}), cutoffDate, historic, limit, offset }
 }
 
 function parseConfirmItems(raw: unknown): readonly ConciliarConfirmItem[] {

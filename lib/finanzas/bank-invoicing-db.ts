@@ -8,6 +8,7 @@ import {
   type BankInvoicingResult,
   type CanonicalInvoiceInput,
   type ExplicitRemittanceInput,
+  type RemittancePaymentReceiptInput,
   type RemittanceMemberInput,
   type RemittanceRefundInput,
 } from './bank-invoicing-core'
@@ -26,6 +27,9 @@ import {
   type B6FacturaFuente,
   type B6RemesaFuente,
 } from './b6-source-fingerprint'
+
+const B7_READ_MAX_ROWS = 25_000
+const B7_READ_LIMIT = B7_READ_MAX_ROWS + 1
 
 /**
  * Deliberately small read-only surface. The host supplies its existing Prisma
@@ -132,6 +136,37 @@ type RemittanceAuditRow = {
   snapshotSolicitud: unknown
   snapshotResultado: unknown
 }
+type ReceiptRow = {
+  remittanceId: number
+  receiptId: string
+  sourceHash: string | null
+  proposalFingerprint: string | null
+  compositionHash: string | null
+  snapshotSchemaValid: boolean | null
+  bankDateISO: string | null
+  lineId: string | null
+  movementId: string | null
+  signedCents: number | bigint | string | null
+  active: boolean | null
+  documentActive: boolean | null
+  documentKind: string | null
+  wrapperTargetCents: number | bigint | string | null
+  operationApplied: boolean | null
+  operationReverted: boolean | null
+  movementJustified: boolean | null
+  physicalBankCents: number | bigint | string | null
+  sumAllActiveCents: number | bigint | string | null
+  activeDocumentLineCount: number | bigint | string | null
+  allActiveLinesApplied: boolean | null
+}
+type ReceiptLineRow = {
+  receiptId: string
+  invoiceId: string | null
+  facturaISPId: number | null
+  cents: number | bigint | string | null
+  sourceHash: string | null
+  snapshotSchemaValid: boolean | null
+}
 type CoverageRow = {
   activeAccountCount: number | bigint | string
   accountsWithKnownCutoff: number | bigint | string
@@ -155,6 +190,9 @@ function asCount(value: unknown): number {
   const result = asSafeInteger(value)
   if (result === null || result < 0) throw new Error('B7_READ_COUNT_INVALIDO')
   return result
+}
+function assertCompleteBoundedPopulation(label: string, rows: readonly unknown[]): void {
+  if (rows.length >= B7_READ_LIMIT) throw new Error(`B7_READ_${label}_DEMASIADO_GRANDE`)
 }
 
 function dateISO(value: string | Date | null): string | null {
@@ -181,6 +219,7 @@ const INVOICES_SQL = `
     fe.factura_isp_id AS "facturaISPId"
   FROM facturas_emitidas fe
   ORDER BY fe.fecha DESC, fe.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /**
@@ -213,6 +252,8 @@ const DIRECT_DOCUMENT_LINES_SQL = `
   ) closure ON TRUE
   WHERE v.activo AND v.tipo_linea = 'DOCUMENTO'::"TipoLineaVinculo"
     AND d.tipo = 'FACTURA_EMITIDA'::"TipoDocumentoConciliable"
+  ORDER BY v.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /** Differences are read separately and only affect cash, never documentary debt. */
@@ -236,6 +277,8 @@ const DIFFERENCES_SQL = `
     WHERE x.movimiento_id = v.movimiento_id AND x.activo
   ) closure ON TRUE
   WHERE v.tipo_linea = 'DIFERENCIA'::"TipoLineaVinculo"
+  ORDER BY v.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /**
@@ -261,6 +304,7 @@ const REMITTANCE_MEMBERS_SQL = `
     WHERE d.tipo = 'REMESA'::"TipoDocumentoConciliable" AND d.remesa_id = r.id
   ) wrapper ON TRUE
   ORDER BY r.id ASC, f.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /** Immutable B6 association facts. No dynamic/user SQL enters this constant SELECT. */
@@ -272,6 +316,7 @@ const REMITTANCE_AUDITS_SQL = `
   WHERE a.accion = 'ASOCIACION_FACTURAS_CONFIRMADA'::"AccionAuditoriaRemesaB6"
     AND a.actor_id IS NOT NULL
   ORDER BY a.remesa_id ASC, a.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /** Sólo vínculos REMESA activos; la historia anulada se conserva, pero no acredita ni invalida cobros vigentes. */
@@ -301,6 +346,8 @@ const REMITTANCE_LINES_SQL = `
   ) closure ON TRUE
   WHERE v.activo AND v.tipo_linea = 'DOCUMENTO'::"TipoLineaVinculo"
     AND d.tipo = 'REMESA'::"TipoDocumentoConciliable"
+  ORDER BY v.id ASC
+  LIMIT ${B7_READ_LIMIT}
 `
 
 /**
@@ -335,6 +382,52 @@ const REMITTANCE_REFUNDS_SQL = `
     LEFT JOIN operaciones_justificacion_b4 ox ON ox.id = x.operacion_creacion_id
     WHERE x.movimiento_id = v.movimiento_id AND x.activo
   ) closure ON TRUE
+  ORDER BY a.id ASC
+  LIMIT ${B7_READ_LIMIT}
+`
+
+/** B7 V1 receipt headers are immutable; B4 state is deliberately read live. */
+const REMITTANCE_RECEIPTS_SQL = `
+  SELECT
+    r.remesa_id AS "remittanceId", r.id::text AS "receiptId", r.source_hash AS "sourceHash",
+    r.proposal_fingerprint AS "proposalFingerprint", r.composition_hash AS "compositionHash",
+    (r.schema_version='B7_REMESA_RECIBO_V1' AND r.estado='CONFIRMADO'::"EstadoReciboCobroRemesaB7"
+      AND r.snapshot_solicitud->>'schemaVersion'='B7_REMESA_RECIBO_V1'
+      AND r.snapshot_resultado->>'schemaVersion'='B7_REMESA_RECIBO_V1') AS "snapshotSchemaValid",
+    m.fecha_operacion::date::text AS "bankDateISO",
+    v.id::text AS "lineId", v.movimiento_id AS "movementId", v.importe_centimos AS "signedCents",
+    v.activo AS "active", d.activo AS "documentActive", d.tipo::text AS "documentKind", d.importe_objetivo_centimos AS "wrapperTargetCents",
+    (o.estado='APLICADA'::"EstadoOperacionB4") AS "operationApplied", (o.revertida_at IS NOT NULL) AS "operationReverted",
+    (e.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento") AS "movementJustified", b4_importe_bancario_centimos(m.importe) AS "physicalBankCents",
+    closure.sum_active AS "sumAllActiveCents", closure.document_count AS "activeDocumentLineCount", closure.all_active_lines_applied AS "allActiveLinesApplied"
+  FROM recibos_cobro_remesa_b7 r
+  LEFT JOIN vinculos_movimiento_documento v ON v.id=r.vinculo_b4_id
+  LEFT JOIN documentos_conciliables d ON d.id=v.documento_conciliable_id
+  LEFT JOIN operaciones_justificacion_b4 o ON o.id=v.operacion_creacion_id
+  LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=v.movimiento_id
+  LEFT JOIN movimientos_bancarios m ON m.id=v.movimiento_id
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(SUM(x.importe_centimos),0)::bigint AS sum_active,
+      COUNT(*) FILTER (WHERE x.tipo_linea='DOCUMENTO'::"TipoLineaVinculo")::integer AS document_count,
+      BOOL_AND(COALESCE(ox.estado = 'APLICADA'::"EstadoOperacionB4" AND ox.revertida_at IS NULL, FALSE)) AS all_active_lines_applied
+    FROM vinculos_movimiento_documento x
+    LEFT JOIN operaciones_justificacion_b4 ox ON ox.id = x.operacion_creacion_id
+    WHERE x.movimiento_id=v.movimiento_id AND x.activo
+  ) closure ON TRUE
+  ORDER BY r.remesa_id,r.id
+  LIMIT ${B7_READ_LIMIT}
+`
+
+const REMITTANCE_RECEIPT_LINES_SQL = `
+  SELECT l.recibo_id::text AS "receiptId",l.factura_emitida_id AS "invoiceId",l.factura_isp_id AS "facturaISPId",
+    l.importe_centimos AS cents,l.source_hash AS "sourceHash",
+    (l.snapshot->>'schemaVersion'='B7_REMESA_RECIBO_V1'
+      AND l.snapshot->'facturaEmitida'->>'id'=l.factura_emitida_id
+      AND (l.snapshot->'facturaISP'->>'id')::integer=l.factura_isp_id
+      AND (l.snapshot->>'importeCentimos')::integer=l.importe_centimos) AS "snapshotSchemaValid"
+  FROM lineas_recibo_cobro_remesa_b7 l
+  ORDER BY l.recibo_id,l.ordinal
+  LIMIT ${B7_READ_LIMIT}
 `
 
 // La cobertura usa el corte manual más reciente o el corte explícito importado. No se
@@ -382,6 +475,21 @@ function docLine(row: DirectRow | RemittanceLineRow): B4DocumentLineInput {
     physicalBankCents: asSafeInteger(row.physicalBankCents), sumAllActiveCents: asSafeInteger(row.sumAllActiveCents),
     activeDocumentLineCount: asSafeInteger(row.activeDocumentLineCount),
     allActiveLinesApplied: row.allActiveLinesApplied === true,
+  }
+}
+
+/** Receipt headers retain a live B4 proof but may be inactive after deshacer. */
+function receiptDocumentLine(row: ReceiptRow): B4DocumentLineInput {
+  return {
+    lineId: row.lineId ?? '', movementId: row.movementId ?? '', remittanceId: String(row.remittanceId),
+    signedCents: asSafeInteger(row.signedCents), active: row.active === true,
+    documentActive: row.documentActive === true,
+    documentKind: row.documentKind === 'REMESA' ? 'REMESA' : 'FACTURA_EMITIDA',
+    wrapperTargetCents: asSafeInteger(row.wrapperTargetCents),
+    operationApplied: row.operationApplied === true, operationReverted: row.operationReverted === true,
+    movementJustified: row.movementJustified === true,
+    physicalBankCents: asSafeInteger(row.physicalBankCents), sumAllActiveCents: asSafeInteger(row.sumAllActiveCents),
+    activeDocumentLineCount: asSafeInteger(row.activeDocumentLineCount), allActiveLinesApplied: row.allActiveLinesApplied === true,
   }
 }
 
@@ -482,6 +590,8 @@ function remittancesFromRows(
   lines: RemittanceLineRow[],
   refunds: RefundRow[],
   audits: RemittanceAuditRow[],
+  receiptRows: ReceiptRow[],
+  receiptLineRows: ReceiptLineRow[],
 ): ExplicitRemittanceInput[] {
   const memberRowsByRemittance = new Map<number, RemittanceMemberRow[]>()
   for (const row of members) {
@@ -533,7 +643,7 @@ function remittancesFromRows(
         wrapperCount: asSafeInteger(row.wrapperCount),
         humanConfirmedAssociation,
         humanAssociationStale: !humanConfirmedAssociation,
-        members: [], bankDocumentLines: [], refunds: [],
+        members: [], bankDocumentLines: [], refunds: [], paymentReceipts: [],
       }
       result.set(row.remittanceId, item)
     }
@@ -543,6 +653,7 @@ function remittancesFromRows(
       invoiceId: row.invoiceId ?? null,
       facturaISPSourceTotalText: row.facturaISPSourceTotalText,
       facturaEmitidaSourceTotalText: row.facturaEmitidaSourceTotalText,
+      facturaISPFechaISO: dateISO(row.facturaISPFechaISO),
     })
   }
   // A wrapper line with no source-membership cannot allocate FI and is deliberately
@@ -561,6 +672,35 @@ function remittancesFromRows(
       allActiveLinesApplied: row.allActiveLinesApplied === true,
     })
   }
+  const receiptLinesByReceipt = new Map<string, ReceiptLineRow[]>()
+  for (const line of receiptLineRows) {
+    const group = receiptLinesByReceipt.get(line.receiptId) ?? []
+    group.push(line)
+    receiptLinesByReceipt.set(line.receiptId, group)
+  }
+  for (const row of receiptRows) {
+    const remittance = result.get(row.remittanceId)
+    // Never synthesise a remittance/FI relation from a receipt. If its current
+    // source remittance is not readable, it is not payment evidence.
+    if (!remittance) continue
+    const receipt: RemittancePaymentReceiptInput = {
+      receiptId: row.receiptId,
+      sourceHash: row.sourceHash,
+      proposalFingerprint: row.proposalFingerprint,
+      compositionHash: row.compositionHash,
+      snapshotSchemaValid: row.snapshotSchemaValid === true,
+      bankDateISO: dateISO(row.bankDateISO),
+      b4Line: receiptDocumentLine(row),
+      lines: (receiptLinesByReceipt.get(row.receiptId) ?? []).map(line => ({
+        invoiceId: line.invoiceId,
+        facturaISPId: line.facturaISPId,
+        cents: asSafeInteger(line.cents),
+        sourceHash: line.sourceHash,
+        snapshotSchemaValid: line.snapshotSchemaValid === true,
+      })),
+    }
+    remittance.paymentReceipts!.push(receipt)
+  }
   return [...result.values()]
 }
 
@@ -576,7 +716,7 @@ export async function readBankInvoicingPopulation(
   if (!options.enabled) throw new Error('B7_READ_DISABLED')
   await options.assertIsolatedStaging()
 
-  const [invoiceRows, directRows, differenceRows, memberRows, remittanceLines, refundRows, coverageRows, remittanceAudits] = await Promise.all([
+  const [invoiceRows, directRows, differenceRows, memberRows, remittanceLines, refundRows, coverageRows, remittanceAudits, receiptRows, receiptLineRows] = await Promise.all([
     db.$queryRawUnsafe<InvoiceRow[]>(INVOICES_SQL),
     db.$queryRawUnsafe<DirectRow[]>(DIRECT_DOCUMENT_LINES_SQL),
     db.$queryRawUnsafe<DifferenceRow[]>(DIFFERENCES_SQL),
@@ -585,7 +725,19 @@ export async function readBankInvoicingPopulation(
     db.$queryRawUnsafe<RefundRow[]>(REMITTANCE_REFUNDS_SQL),
     db.$queryRawUnsafe<CoverageRow[]>(COVERAGE_SQL),
     db.$queryRawUnsafe<RemittanceAuditRow[]>(REMITTANCE_AUDITS_SQL),
+    db.$queryRawUnsafe<ReceiptRow[]>(REMITTANCE_RECEIPTS_SQL),
+    db.$queryRawUnsafe<ReceiptLineRow[]>(REMITTANCE_RECEIPT_LINES_SQL),
   ])
+  assertCompleteBoundedPopulation('FACTURAS_EMITIDAS', invoiceRows)
+  assertCompleteBoundedPopulation('B4_DIRECTO', directRows)
+  assertCompleteBoundedPopulation('B4_DIFERENCIAS', differenceRows)
+  assertCompleteBoundedPopulation('MIEMBROS_REMESA', memberRows)
+  assertCompleteBoundedPopulation('B4_REMESA', remittanceLines)
+  assertCompleteBoundedPopulation('DEVOLUCIONES_REMESA', refundRows)
+  assertCompleteBoundedPopulation('AUDITORIAS_REMESA', remittanceAudits)
+  assertCompleteBoundedPopulation('RECIBOS_REMESA', receiptRows)
+  assertCompleteBoundedPopulation('LINEAS_RECIBO_REMESA', receiptLineRows)
+  if (coverageRows.length > 1) throw new Error('B7_READ_COBERTURA_INEXACTA')
   const invoices: CanonicalInvoiceInput[] = invoiceRows.map((row) => ({
     id: row.id, sourceTotalText: row.sourceTotalText, b2Economic: row.b2Economic === true,
     numFactura: row.numFactura, cliente: row.cliente, fechaISO: dateISO(row.fechaISO),
@@ -595,7 +747,7 @@ export async function readBankInvoicingPopulation(
     invoices,
     directDocumentLines: directRows.map(docLine),
     differenceLines: differenceRows.map(differenceLine),
-    explicitRemittances: remittancesFromRows(memberRows, remittanceLines, refundRows, remittanceAudits),
+    explicitRemittances: remittancesFromRows(memberRows, remittanceLines, refundRows, remittanceAudits, receiptRows, receiptLineRows),
     bankCoverage: coverage(coverageRows[0]),
   })
 }

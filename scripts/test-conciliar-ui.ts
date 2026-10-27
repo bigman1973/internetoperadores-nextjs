@@ -30,11 +30,17 @@ required(contract, 'contrato de cliente', [
   "export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS']",
   "export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO']",
   'parseConciliarReadResponse',
+  'parseConciliarRemesaPreviewResponse',
+  'preview.remesaDetalle',
+  'totalFacturas > 2_000',
+  'La composición de remesa no cierra exactamente el importe bancario.',
   'parseConciliarActionResponse',
   'parseConciliarUndoResponse',
   'safeDocumentHref',
   'safeFinanceHref',
   'escapeSpreadsheet',
+  "export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA']",
+  'emitidasGroups: parseEmitidasGroups(raw.emitidasGroups)',
   "value.startsWith('/')",
   "value.startsWith('//')",
   'conciliar\\/archivo\\/',
@@ -63,11 +69,28 @@ required(workspace, 'espacio de trabajo', [
   'aria-live="polite"',
   'role="tablist"',
   'role="tabpanel"',
+  'aria-label="Estado de facturas emitidas"',
+  'Con propuesta',
+  'Para revisar',
+  'Sin propuesta',
+  'aria-pressed={active}',
+  'emitidasGrupo',
+  "params.set('emitidasGrupo', input.emitidasGrupo)",
+  'setEmitidasGrupo((current) => current === next ? \'\' : next)',
+  'setOffset(0); setSelected(new Set()); setOpenDocument(null);',
+  'una propuesta no confirma el cobro ni marca la factura como cobrada',
   'fontFamily: \'var(--font-conciliar), Arial, Helvetica, sans-serif\'',
   '#FF5300',
   '#2D2A26',
   "useActuation()",
   "'x-io-acting-session': activeActuation.sessionId",
+  "const REMESA_PREVIEW_API = '/api/admin/finanzas/conciliar/remesa-preview'",
+  '`${REMESA_PREVIEW_API}?rowId=${encodeURIComponent(row.id)}`',
+  'RemesaConfirmationDialog',
+  'Segunda confirmación humana de la remesa',
+  'Confirmar sólo estas',
+  'remesaPreviewController.current?.abort()',
+  'no se puede mezclar con otros movimientos',
 ]);
 
 if (/fetch\([^)]*https?:\/\//.test(workspace)) throw new Error('La UI no debe llamar a una URL externa.');
@@ -76,5 +99,7 @@ if (/import\s+(?!type\s*\{)[^;]+from\s+['"]@\/lib\/finanzas\/conciliar-contract[
 if (/node:crypto|createHash/.test(contract)) throw new Error('El contrato de navegador no puede incluir crypto de Node.');
 if (!/for \(let pageOffset = 0; pageOffset < data\.total; pageOffset \+= EXPORT_PAGE_SIZE\)/.test(workspace)) throw new Error('La exportación debe paginar todas las filas filtradas.');
 if (!/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un cambio de proyección debe eliminar selecciones ocultas.');
+if (!/tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, limit: PAGE_SIZE, offset: historicOffset/.test(workspace)) throw new Error('La consulta histórica no debe heredar emitidasGrupo.');
+if (/onConfirm=.*EmitidasGroupFilters|onAsk=.*EmitidasGroupFilters/.test(workspace)) throw new Error('Las tarjetas de Emitidas sólo pueden filtrar; no pueden mutar.');
 
 console.log('OK: UI Conciliar validada estáticamente (sin red, BD, build ni tsc).');

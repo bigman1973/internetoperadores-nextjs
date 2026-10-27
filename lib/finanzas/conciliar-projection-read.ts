@@ -2,9 +2,11 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
 import {
   CONCILIAR_COLORS,
+  CONCILIAR_EMITIDAS_GROUPS,
   CONCILIAR_TABS,
   type ConciliarColor,
   type ConciliarDocument,
+  type ConciliarEmitidasGroup,
   type ConciliarGetInput,
   type ConciliarProjectionSource,
   type ConciliarRow,
@@ -92,6 +94,8 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('movimientoId') ? { movimientoId: scalar('movimientoId') } : {}),
     ...(scalar('propuestaId') ? { propuestaId: scalar('propuestaId') } : {}),
     ...(scalar('proposalFingerprint') ? { proposalFingerprint: scalar('proposalFingerprint') } : {}),
+    ...(typeof row.proposalCompositionHash === 'string' && /^[a-f0-9]{64}$/.test(row.proposalCompositionHash) ? { proposalCompositionHash: row.proposalCompositionHash } : {}),
+    ...(integer('remesaId') !== undefined && integer('remesaId')! > 0 ? { remesaId: integer('remesaId') } : {}),
     ...(scalar('confirmingId') ? { confirmingId: scalar('confirmingId') } : {}),
     ...(scalar('confirmingSourceHash') ? { confirmingSourceHash: scalar('confirmingSourceHash') } : {}),
     ...(scalar('facturaEmitidaId') ? { facturaEmitidaId: scalar('facturaEmitidaId') } : {}),
@@ -148,6 +152,11 @@ type MutableConciliarTabSummary = {
   amountCentimos: number
   colors: Record<ConciliarColor, { count: number; amountCentimos: number }>
 }
+type ConciliarEmitidasGroupSummary = {
+  group: ConciliarEmitidasGroup
+  count: number
+  amountCentimos: number
+}
 function summaryZero(tab: ConciliarTab): MutableConciliarTabSummary {
   return { tab, count: 0, amountCentimos: 0, colors: { VERDE: { count: 0, amountCentimos: 0 }, AMBAR: { count: 0, amountCentimos: 0 }, ROJO: { count: 0, amountCentimos: 0 } } }
 }
@@ -171,6 +180,8 @@ type ProjectionReadBundle = Readonly<{
   rows: unknown
   total: unknown
   summaries: unknown
+  emitidasGroups: unknown
+  invalidEmitidasGroups: unknown
   historicSummary: unknown
   accounts: unknown
   state: unknown
@@ -191,13 +202,26 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
   const pageScope = input.historic
     ? Prisma.sql`p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)`
     : Prisma.sql`p.tab=${input.tab} AND ${activeScope}`
+  const emitidasScope = input.emitidasGrupo ? Prisma.sql`p.emitidas_group=${input.emitidasGrupo}` : Prisma.sql`TRUE`
+  const scopedRows = input.tab === 'EMITIDAS' && !input.historic
+    ? Prisma.sql`SELECT p.* FROM active_emitidas p WHERE ${emitidasScope}`
+    : Prisma.sql`SELECT p.* FROM filtered p WHERE ${pageScope}`
   const result = await db().$queryRaw<ProjectionReadBundle[]>(Prisma.sql`
     WITH filtered AS (
       SELECT p.* FROM conciliar_proyecciones p WHERE ${shared}
     ), active AS (
       SELECT p.* FROM filtered p WHERE ${activeScope}
+    ), active_emitidas AS (
+      SELECT p.*,
+        CASE
+          WHEN p.color='VERDE' AND p.propuesta IS NOT NULL THEN 'CON_PROPUESTA'
+          WHEN p.color='AMBAR' THEN 'PARA_REVISAR'
+          WHEN p.color='ROJO' THEN 'SIN_PROPUESTA'
+          ELSE NULL
+        END AS emitidas_group
+      FROM active p WHERE p.tab='EMITIDAS'
     ), scoped AS (
-      SELECT p.* FROM filtered p WHERE ${pageScope}
+      ${scopedRows}
     ), page AS (
       SELECT * FROM scoped
       ORDER BY CASE color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
@@ -206,6 +230,11 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), summary AS (
       SELECT tab,color,COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM active GROUP BY tab,color
+    ), emitidas_groups AS (
+      SELECT emitidas_group AS "group",COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
+      FROM active_emitidas WHERE emitidas_group IS NOT NULL GROUP BY emitidas_group
+    ), invalid_emitidas_groups AS (
+      SELECT COUNT(*)::text AS total FROM active_emitidas WHERE emitidas_group IS NULL
     ), historic_summary AS (
       SELECT COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM filtered p WHERE p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)
@@ -221,6 +250,8 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
         abs(importe_centimos::bigint) DESC,fecha DESC,id ASC) FROM page),'[]'::json) AS rows,
       COALESCE((SELECT COUNT(*)::text FROM scoped),'0') AS total,
       COALESCE((SELECT json_agg(row_to_json(summary) ORDER BY tab ASC,color ASC) FROM summary),'[]'::json) AS summaries,
+      COALESCE((SELECT json_agg(row_to_json(emitidas_groups) ORDER BY "group" ASC) FROM emitidas_groups),'[]'::json) AS "emitidasGroups",
+      (SELECT total FROM invalid_emitidas_groups) AS "invalidEmitidasGroups",
       (SELECT row_to_json(historic_summary) FROM historic_summary) AS "historicSummary",
       COALESCE((SELECT json_agg(row_to_json(account_rows) ORDER BY banco ASC,alias ASC NULLS LAST,id ASC) FROM account_rows),'[]'::json) AS accounts,
       (SELECT row_to_json(state) FROM state) AS state
@@ -235,7 +266,11 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
   const bundle = await readProjectionBundle(input, shared)
   const rows = jsonRecords(bundle.rows, 'Las filas')
   const summaryRows = jsonRecords(bundle.summaries, 'El resumen') as Array<{ tab: string; color: string; total: bigint | number | string; amount: bigint | number | string }>
+  const emitidasGroupRows = jsonRecords(bundle.emitidasGroups, 'Los grupos de Emitidas') as Array<{ group: string; total: bigint | number | string; amount: bigint | number | string }>
   const accounts = jsonRecords(bundle.accounts, 'Las cuentas') as Array<{ id: string; banco: string; alias: string | null }>
+  const invalidEmitidasGroups = safeInteger(bundle.invalidEmitidasGroups)
+  if (invalidEmitidasGroups === null || invalidEmitidasGroups < 0) fail(409, 'PROYECCION_CORRUPTA', 'La clasificación de Emitidas no conserva un conteo verificable.')
+  if (invalidEmitidasGroups > 0) fail(409, 'PROYECCION_CORRUPTA', 'Hay facturas emitidas activas sin una clasificación verificable.')
   const historic = json(bundle.historicSummary)
   const historicCount = safeInteger(historic.total)
   if (historicCount === null || historicCount < 0) fail(409, 'PROYECCION_CORRUPTA', 'El histórico no conserva un conteo verificable.')
@@ -256,6 +291,18 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
     item.count += count(row.total)
     item.amountCentimos += amountCentimos
   }
+  const emitidasGroups = new Map<ConciliarEmitidasGroup, ConciliarEmitidasGroupSummary>(CONCILIAR_EMITIDAS_GROUPS.map(group => [group, { group, count: 0, amountCentimos: 0 }]))
+  const seenEmitidasGroups = new Set<ConciliarEmitidasGroup>()
+  for (const row of emitidasGroupRows) {
+    if (!(CONCILIAR_EMITIDAS_GROUPS as readonly string[]).includes(row.group) || seenEmitidasGroups.has(row.group as ConciliarEmitidasGroup)) {
+      fail(409, 'PROYECCION_CORRUPTA', 'Los grupos de Emitidas no conservan una clasificación verificable.')
+    }
+    const group = row.group as ConciliarEmitidasGroup
+    const groupCount = safeInteger(row.total)
+    if (groupCount === null || groupCount < 0) fail(409, 'PROYECCION_CORRUPTA', 'Los grupos de Emitidas no conservan un conteo verificable.')
+    emitidasGroups.set(group, { group, count: groupCount, amountCentimos: cents(row.amount, 'Los grupos de Emitidas') })
+    seenEmitidasGroups.add(group)
+  }
   // An initial dirty migration has no trustworthy page timestamp. Returning null
   // would be rejected by the browser contract and could look like an empty queue.
   const rebuiltAt = state?.rebuiltAt instanceof Date ? state.rebuiltAt : state?.rebuiltAt ? new Date(state.rebuiltAt) : null
@@ -269,6 +316,7 @@ export async function readConciliarProjection(input: ConciliarGetInput) {
     staleReason: state?.dirtyAt ? 'Hay cambios pendientes de actualizar. Las filas no se confirmarán sin volver a comprobarlas.' : null,
     cuentas: accounts.map(row => ({ id: row.id, banco: row.banco, cuenta: row.alias })),
     cutoffDate: cutoff,
+    emitidasGroups: CONCILIAR_EMITIDAS_GROUPS.map(group => emitidasGroups.get(group)!),
     historicSummary,
   }
 }

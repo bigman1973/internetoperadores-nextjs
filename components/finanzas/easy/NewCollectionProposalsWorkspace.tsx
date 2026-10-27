@@ -17,6 +17,8 @@ type Level = 'EXACTA' | 'REVISAR';
 type Notice = Readonly<{ tone: 'error' | 'success' | 'info'; text: string }> | null;
 type CollectionLine = Readonly<{ tipo: 'DOCUMENTO' | 'DIFERENCIA'; referencia: string; importeCentimos: number }>;
 type Composition = Readonly<{ numFactura: string; cliente: string; importeCentimos: number; vencimiento: string | null; facturaEmitidaId: string | null }>;
+type RemittanceDetailLine = Readonly<{ ordinal: number; numeroFactura: string; cliente: string | null; fechaFactura: string | null; importeCentimos: number }>;
+type RemittanceDetail = Readonly<{ remesaId: number; totalFacturas: number; importeBancoCentimos: number; compositionHash: string; filas: readonly RemittanceDetailLine[] }>;
 type TwinMovement = Readonly<{ movimientoId: string; fecha: string; cuentaAlias: string | null; concepto: string; importeCentimos: number }>;
 type Proposal = Readonly<{
   propuestaId: string;
@@ -34,6 +36,7 @@ type Proposal = Readonly<{
   composicion: readonly Composition[];
   composicionTotal: number;
   composicionImporteCentimos: number;
+  preview: Readonly<{ remesaDetalle: RemittanceDetail | null }>;
   par: TwinMovement | null;
   fingerprint: string;
   seleccionable: boolean;
@@ -50,11 +53,13 @@ type CollectionRead = Readonly<{
   previewToken: string;
   bloquesRecientes: readonly RecentBlock[];
 }>;
-type Selection = Readonly<Pick<Proposal, 'propuestaId' | 'movimientoId' | 'fingerprint' | 'fecha' | 'concepto' | 'importeMovimientoCentimos' | 'etiquetaMetodo' | 'nivel'>>;
+type Selection = Readonly<Pick<Proposal, 'propuestaId' | 'movimientoId' | 'fingerprint' | 'fecha' | 'concepto' | 'importeMovimientoCentimos' | 'etiquetaMetodo' | 'nivel' | 'metodo' | 'preview'>>;
 type ConfirmPayload = Readonly<{ action: 'confirmar_bloque'; confirmacion: true; idempotencyKey: string; previewToken: string; items: readonly Readonly<{ propuestaId: string; movimientoId: string; fingerprint: string }>[] }>;
 type UndoPayload = Readonly<{ action: 'deshacer_bloque'; confirmacion: true; idempotencyKey: string; bloqueId: string }>;
-type PendingAction = Readonly<{ kind: 'confirm'; payload: ConfirmPayload; rows: readonly Selection[] }> | Readonly<{ kind: 'undo'; payload: UndoPayload; block: RecentBlock }>;
-type Confirmation = Extract<PendingAction, { kind: 'confirm' }>;
+type Confirmation = Readonly<{ kind: 'confirm'; payload: ConfirmPayload; rows: readonly Selection[]; remesaDetalle: RemittanceDetail | null }>;
+type PendingAction = Confirmation | Readonly<{ kind: 'undo'; payload: UndoPayload; block: RecentBlock }>;
+
+const REMITTANCE_METHODS = new Set(['REMESA_VENCIMIENTO', 'REMESA_UNION', 'REMESA_RESIDUO']);
 
 class RequestFailure extends Error {
   constructor(message: string, readonly uncertain: boolean) { super(message); }
@@ -121,6 +126,50 @@ function parseComposition(value: unknown, field: string): Composition {
     facturaEmitidaId: raw.facturaEmitidaId === null ? null : text(raw.facturaEmitidaId, `${field}.facturaEmitidaId`),
   };
 }
+function remittanceMethod(value: string): boolean { return REMITTANCE_METHODS.has(value); }
+function parseRemittanceDetail(value: unknown, field: string): RemittanceDetail | null {
+  if (value === null) return null;
+  const raw = record(value, field);
+  const remesaId = nonNegative(raw.remesaId, `${field}.remesaId`);
+  const totalFacturas = nonNegative(raw.totalFacturas, `${field}.totalFacturas`);
+  const importeBancoCentimos = integer(raw.importeBancoCentimos, `${field}.importeBancoCentimos`);
+  const compositionHash = fingerprint(raw.compositionHash, `${field}.compositionHash`);
+  const lines = values(raw.filas, `${field}.filas`);
+  if (remesaId < 1 || totalFacturas < 1 || totalFacturas > 2_000 || importeBancoCentimos <= 0 || lines.length !== totalFacturas) {
+    throw new Error(`La respuesta no incluye ${field} completo y verificable.`);
+  }
+  const ordinals = new Set<number>();
+  let total = 0;
+  const filas = lines.map((valueForLine, index): RemittanceDetailLine => {
+    const line = record(valueForLine, `${field}.filas[${index}]`);
+    const ordinal = nonNegative(line.ordinal, `${field}.filas[${index}].ordinal`);
+    const importeCentimos = integer(line.importeCentimos, `${field}.filas[${index}].importeCentimos`);
+    if (ordinal < 1 || ordinal > totalFacturas || ordinals.has(ordinal) || importeCentimos <= 0) {
+      throw new Error(`La respuesta no incluye ${field}.filas comprobables.`);
+    }
+    ordinals.add(ordinal);
+    total += importeCentimos;
+    if (!Number.isSafeInteger(total)) throw new Error(`La composición de ${field} supera un total verificable.`);
+    const fechaFactura = line.fechaFactura === undefined || line.fechaFactura === null ? null : text(line.fechaFactura, `${field}.filas[${index}].fechaFactura`);
+    if (fechaFactura !== null && !/^\d{4}-\d{2}-\d{2}$/.test(fechaFactura)) throw new Error(`La respuesta no incluye ${field}.filas[${index}].fechaFactura válida.`);
+    return {
+      ordinal,
+      numeroFactura: text(line.numeroFactura, `${field}.filas[${index}].numeroFactura`),
+      cliente: line.cliente === undefined || line.cliente === null ? null : text(line.cliente, `${field}.filas[${index}].cliente`),
+      fechaFactura,
+      importeCentimos,
+    };
+  });
+  if (ordinals.size !== totalFacturas || total !== importeBancoCentimos) throw new Error(`La composición de ${field} no cierra el importe bancario.`);
+  return { remesaId, totalFacturas, importeBancoCentimos, compositionHash, filas: filas.sort((left, right) => left.ordinal - right.ordinal) };
+}
+function parseProposalPreview(value: unknown, field: string, metodo: string): Proposal['preview'] {
+  if (value === undefined && !remittanceMethod(metodo)) return { remesaDetalle: null };
+  const raw = record(value, `${field}.preview`);
+  const remesaDetalle = parseRemittanceDetail(raw.remesaDetalle, `${field}.preview.remesaDetalle`);
+  if (remittanceMethod(metodo) !== Boolean(remesaDetalle)) throw new Error(`La respuesta no incluye ${field}.preview coherente con su método.`);
+  return { remesaDetalle };
+}
 function parseTwin(value: unknown, field: string): TwinMovement | null {
   if (value === null) return null;
   const raw = record(value, field);
@@ -138,6 +187,11 @@ function parseProposal(value: unknown, index: number): Proposal {
   const composition = values(raw.composicion, `${field}.composicion`).map((item, itemIndex) => parseComposition(item, `${field}.composicion[${itemIndex}]`));
   const compositionTotal = nonNegative(raw.composicionTotal, `${field}.composicionTotal`);
   if (composition.length > 60 || composition.length > compositionTotal) throw new Error(`La respuesta no incluye ${field}.composicion válida.`);
+  const metodo = text(raw.metodo, `${field}.metodo`);
+  const preview = parseProposalPreview(raw.preview, field, metodo);
+  if (preview.remesaDetalle && (preview.remesaDetalle.totalFacturas !== compositionTotal || preview.remesaDetalle.importeBancoCentimos !== integer(raw.importeMovimientoCentimos, `${field}.importeMovimientoCentimos`))) {
+    throw new Error(`La composición completa de ${field} no coincide con el cobro.`);
+  }
   return {
     propuestaId: uuid(raw.propuestaId, `${field}.propuestaId`),
     movimientoId: text(raw.movimientoId, `${field}.movimientoId`),
@@ -146,7 +200,7 @@ function parseProposal(value: unknown, index: number): Proposal {
     cuentaAlias: nullableText(raw.cuentaAlias, `${field}.cuentaAlias`),
     concepto: typeof raw.concepto === 'string' ? raw.concepto : (() => { throw new Error(`La respuesta no incluye ${field}.concepto comprobable.`); })(),
     importeMovimientoCentimos: integer(raw.importeMovimientoCentimos, `${field}.importeMovimientoCentimos`),
-    metodo: text(raw.metodo, `${field}.metodo`),
+    metodo,
     etiquetaMetodo: text(raw.etiquetaMetodo, `${field}.etiquetaMetodo`),
     nivel: level(raw.nivel, `${field}.nivel`),
     explicacion: text(raw.explicacion, `${field}.explicacion`),
@@ -154,6 +208,7 @@ function parseProposal(value: unknown, index: number): Proposal {
     composicion: composition,
     composicionTotal: compositionTotal,
     composicionImporteCentimos: integer(raw.composicionImporteCentimos, `${field}.composicionImporteCentimos`),
+    preview,
     par: parseTwin(raw.par, `${field}.par`),
     fingerprint: fingerprint(raw.fingerprint, `${field}.fingerprint`),
     seleccionable: boolean(raw.seleccionable, `${field}.seleccionable`),
@@ -202,7 +257,7 @@ export function replaceCollectionSelection(current: Readonly<Record<string, Sele
   return Object.fromEntries(fresh.filter((item) => Boolean(current[item.propuestaId])).map((item) => [item.propuestaId, selectionFrom(item)]));
 }
 function selectionFrom(item: Proposal): Selection {
-  return { propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint, fecha: item.fecha, concepto: item.concepto, importeMovimientoCentimos: item.importeMovimientoCentimos, etiquetaMetodo: item.etiquetaMetodo, nivel: item.nivel };
+  return { propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint, fecha: item.fecha, concepto: item.concepto, importeMovimientoCentimos: item.importeMovimientoCentimos, etiquetaMetodo: item.etiquetaMetodo, nivel: item.nivel, metodo: item.metodo, preview: item.preview };
 }
 function frozen<T extends object>(value: T): Readonly<T> { return Object.freeze(value); }
 export function buildCollectionConfirmPayload(idempotencyKey: unknown, token: unknown, selected: readonly Selection[]): ConfirmPayload | null {
@@ -226,6 +281,7 @@ function firstFocusable(root: HTMLElement | null) {
 function ConfirmationDialog({ action, busy, onCancel, onConfirm }: Readonly<{ action: Confirmation; busy: boolean; onCancel: () => void; onConfirm: () => void }>) {
   const dialog = useRef<HTMLElement | null>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const [page, setPage] = useState(0);
   useEffect(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     window.setTimeout(() => firstFocusable(dialog.current)?.focus(), 0);
@@ -242,12 +298,19 @@ function ConfirmationDialog({ action, busy, onCancel, onConfirm }: Readonly<{ ac
   }
   const total = action.rows.reduce((sum, item) => sum + item.importeMovimientoCentimos, 0);
   const reviewingOne = action.rows.length === 1 && action.rows[0].nivel === 'REVISAR';
+  const remesa = action.remesaDetalle;
+  const linesPerPage = 100;
+  const totalPages = remesa ? Math.ceil(remesa.filas.length / linesPerPage) : 0;
+  const visibleLines = remesa ? remesa.filas.slice(page * linesPerPage, (page + 1) * linesPerPage) : [];
+  const firstLine = remesa ? page * linesPerPage + 1 : 0;
+  const lastLine = remesa ? Math.min(remesa.filas.length, (page + 1) * linesPerPage) : 0;
   return <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/60 p-3 sm:items-center" role="presentation">
-    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="collection-confirm-title" onKeyDown={keyDown} className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
-      <div className="flex items-start gap-3"><ShieldCheckIcon className="mt-0.5 h-6 w-6 shrink-0 text-emerald-700" aria-hidden="true" /><div><h2 id="collection-confirm-title" className="text-lg font-extrabold text-slate-950">Confirmar cobros seleccionados</h2><p className="mt-2 text-sm leading-6 text-slate-700">Nada se guardará hasta pulsar «Confirmar».</p>{reviewingOne && <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-950">Revisa que la factura sea la correcta antes de confirmar.</p>}</div></div>
+    <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="collection-confirm-title" onKeyDown={keyDown} className={`max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl ${remesa ? 'max-w-6xl' : 'max-w-xl'}`}>
+      <div className="flex items-start gap-3"><ShieldCheckIcon className="mt-0.5 h-6 w-6 shrink-0 text-emerald-700" aria-hidden="true" /><div><h2 id="collection-confirm-title" className="text-lg font-extrabold text-slate-950">{remesa ? 'Segunda confirmación humana de la remesa' : 'Confirmar cobros seleccionados'}</h2><p className="mt-2 text-sm leading-6 text-slate-700">Nada se guardará hasta pulsar «Confirmar».</p>{reviewingOne && !remesa && <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-950">Revisa que la factura sea la correcta antes de confirmar.</p>}</div></div>
       <ul className="mt-4 divide-y divide-slate-200 rounded-xl border border-slate-200" aria-label="Cobros que se van a confirmar">{action.rows.map((item) => <li key={item.propuestaId} className="flex flex-wrap items-start justify-between gap-2 p-3"><div className="min-w-0"><p className="font-bold text-slate-950">{displayDate(item.fecha)} · {item.etiquetaMetodo}</p><p className="mt-1 truncate text-sm text-slate-600" title={item.concepto}>{item.concepto || 'Sin concepto indicado'}</p></div><p className="shrink-0 font-extrabold tabular-nums text-slate-950">{cents(item.importeMovimientoCentimos)}</p></li>)}</ul>
-      <p className="mt-4 rounded-lg bg-slate-100 p-3 text-right text-sm font-bold text-slate-950">{action.rows.length} {action.rows.length === 1 ? 'cobro' : 'cobros'} · total {cents(total)}</p>
-      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={onCancel} className="min-h-10 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Cancelar</button><button type="button" disabled={busy} onClick={onConfirm} className="min-h-10 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">{busy ? 'Guardando…' : 'Confirmar'}</button></div>
+      {remesa && <section className="mt-4" aria-labelledby="remittance-composition-title"><div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm leading-6 text-amber-950"><h3 id="remittance-composition-title" className="font-extrabold">Composición completa verificada</h3><p className="mt-1">Se han cargado las {remesa.totalFacturas.toLocaleString('es-ES')} facturas de esta remesa, sin muestra compacta. Confirma sólo estas facturas y este abono de {cents(remesa.importeBancoCentimos)}; no se confirma el resto de la remesa.</p></div><div className="mt-3 overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-full text-left text-xs"><thead className="bg-slate-50 text-slate-600"><tr><th className="p-3 font-bold">#</th><th className="p-3 font-bold">Nº de factura</th><th className="p-3 font-bold">Cliente</th><th className="p-3 font-bold">Fecha factura</th><th className="p-3 text-right font-bold">Importe</th></tr></thead><tbody>{visibleLines.map((line) => <tr key={line.ordinal} className="border-t border-slate-200 text-slate-800"><td className="p-3 tabular-nums">{line.ordinal}</td><td className="p-3 font-semibold">{line.numeroFactura}</td><td className="max-w-[20rem] truncate p-3" title={line.cliente ?? undefined}>{line.cliente || 'Sin cliente publicado'}</td><td className="whitespace-nowrap p-3">{line.fechaFactura ? displayDate(line.fechaFactura) : 'Sin fecha publicada'}</td><td className="whitespace-nowrap p-3 text-right tabular-nums">{cents(line.importeCentimos)}</td></tr>)}</tbody></table></div>{totalPages > 1 && <nav aria-label="Paginación de composición completa de remesa" className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm"><span className="text-slate-700">Mostrando {firstLine.toLocaleString('es-ES')}–{lastLine.toLocaleString('es-ES')} de {remesa.totalFacturas.toLocaleString('es-ES')} facturas verificadas.</span><span className="flex gap-2"><button type="button" disabled={busy || page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Anterior</button><button type="button" disabled={busy || page >= totalPages - 1} onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Siguiente</button></span></nav>}<p className="mt-3 rounded-lg bg-slate-100 p-3 text-right text-sm font-bold text-slate-950">{remesa.totalFacturas.toLocaleString('es-ES')} facturas verificadas · total {cents(remesa.importeBancoCentimos)}</p></section>}
+      {!remesa && <p className="mt-4 rounded-lg bg-slate-100 p-3 text-right text-sm font-bold text-slate-950">{action.rows.length} {action.rows.length === 1 ? 'cobro' : 'cobros'} · total {cents(total)}</p>}
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><button type="button" disabled={busy} onClick={onCancel} className="min-h-10 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Cancelar</button><button type="button" disabled={busy} onClick={onConfirm} className="min-h-10 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">{busy ? 'Guardando…' : remesa ? `Confirmar sólo estas ${remesa.totalFacturas.toLocaleString('es-ES')} facturas` : 'Confirmar'}</button></div>
     </section>
   </div>;
 }
@@ -261,8 +324,15 @@ function pageRange(total: number, offset: number, limit: number) {
 // se pinta en móvil y en escritorio: la tabla sólo se monta al abrirla.
 function CompositionDetails({ item }: Readonly<{ item: Proposal }>) {
   const [open, setOpen] = useState(false);
+  const [page, setPage] = useState(0);
+  const remesa = item.preview.remesaDetalle;
+  const linesPerPage = 100;
+  const totalPages = remesa ? Math.ceil(remesa.filas.length / linesPerPage) : 0;
+  const visibleRemesaLines = remesa ? remesa.filas.slice(page * linesPerPage, (page + 1) * linesPerPage) : [];
+  const firstLine = remesa ? page * linesPerPage + 1 : 0;
+  const lastLine = remesa ? Math.min(remesa.filas.length, (page + 1) * linesPerPage) : 0;
   const remaining = item.composicionTotal - item.composicion.length;
-  return <details onToggle={(event) => setOpen(event.currentTarget.open)} className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary>{open && <><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{invoice.vencimiento ? displayDate(invoice.vencimiento) : 'Sin vencimiento'}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</>}</details>;
+  return <details onToggle={(event) => { setOpen(event.currentTarget.open); if (!event.currentTarget.open) setPage(0); }} className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-2 text-sm"><summary className="cursor-pointer font-bold text-emerald-900 focus:outline-none focus:ring-2 focus:ring-emerald-600">Ver facturas ({item.composicionTotal})</summary>{open && (remesa ? <><p className="mt-2 rounded-md bg-amber-50 p-2 text-xs font-semibold leading-5 text-amber-950">Composición completa verificada: estas son las únicas facturas que se asignarían a este abono de {cents(remesa.importeBancoCentimos)}.</p><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">#</th><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Fecha</th><th className="pb-2 text-right font-bold">Importe</th></tr></thead><tbody>{visibleRemesaLines.map((invoice) => <tr key={invoice.ordinal} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 tabular-nums">{invoice.ordinal}</td><td className="py-2 pr-3 font-semibold">{invoice.numeroFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente ?? undefined}>{invoice.cliente || 'Sin cliente publicado'}</td><td className="whitespace-nowrap py-2 pr-3">{invoice.fechaFactura ? displayDate(invoice.fechaFactura) : 'Sin fecha publicada'}</td><td className="whitespace-nowrap py-2 text-right tabular-nums">{cents(invoice.importeCentimos)}</td></tr>)}</tbody></table></div>{totalPages > 1 && <nav aria-label="Paginación de vista previa completa de remesa" className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs"><span>{firstLine.toLocaleString('es-ES')}–{lastLine.toLocaleString('es-ES')} de {remesa.totalFacturas.toLocaleString('es-ES')} facturas verificadas</span><span className="flex gap-2"><button type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))} className="min-h-9 rounded border border-slate-300 bg-white px-2 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Anterior</button><button type="button" disabled={page >= totalPages - 1} onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))} className="min-h-9 rounded border border-slate-300 bg-white px-2 font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:opacity-50">Siguiente</button></span></nav>}</> : <><div className="mt-3 overflow-x-auto"><table className="min-w-full text-left text-xs"><thead className="text-slate-600"><tr><th className="pr-3 pb-2 font-bold">Nº de factura</th><th className="pr-3 pb-2 font-bold">Cliente</th><th className="pr-3 pb-2 font-bold">Importe</th><th className="pb-2 font-bold">Vencimiento</th></tr></thead><tbody>{item.composicion.map((invoice, index) => <tr key={`${invoice.numFactura}-${invoice.facturaEmitidaId ?? index}`} className="border-t border-slate-200 text-slate-800"><td className="py-2 pr-3 font-semibold">{invoice.numFactura}</td><td className="max-w-[15rem] truncate py-2 pr-3" title={invoice.cliente}>{invoice.cliente}</td><td className="whitespace-nowrap py-2 pr-3 tabular-nums">{cents(invoice.importeCentimos)}</td><td className="whitespace-nowrap py-2">{invoice.vencimiento ? displayDate(invoice.vencimiento) : 'Sin vencimiento'}</td></tr>)}</tbody></table></div>{remaining > 0 && <p className="mt-2 text-xs font-semibold text-slate-700">y {remaining} más · total {cents(item.composicionImporteCentimos)}</p>}</>)}</details>;
 }
 function contentSummary(item: Proposal) {
   if (item.composicionTotal === 0) return null;
@@ -345,7 +415,10 @@ export default function NewCollectionProposalsWorkspace({ enabled, disabled = fa
       const next = { ...current };
       if (next[item.propuestaId]) delete next[item.propuestaId];
       else {
-        if (levelFilter === 'REVISAR') return { [item.propuestaId]: selectionFrom(item) };
+        // El servidor confirma una remesa de una en una. Su etiqueta sólo abre
+        // la revisión: nunca se usa para inferir facturas ni para confirmar.
+        if (levelFilter === 'REVISAR' || remittanceMethod(item.metodo)) return { [item.propuestaId]: selectionFrom(item) };
+        if (Object.values(next).some((selectedItem) => remittanceMethod(selectedItem.metodo))) return next;
         if (Object.keys(next).length >= COLLECTION_PROPOSALS_MAX_BLOCK) return next;
         next[item.propuestaId] = selectionFrom(item);
       }
@@ -354,14 +427,19 @@ export default function NewCollectionProposalsWorkspace({ enabled, disabled = fa
   }
   function selectFirst() {
     if (actionBusy || !profileChecked) return;
-    const available = rows.filter((item) => item.seleccionable).slice(0, levelFilter === 'REVISAR' ? 1 : COLLECTION_PROPOSALS_MAX_BLOCK);
+    const available = rows.filter((item) => item.seleccionable && !remittanceMethod(item.metodo)).slice(0, levelFilter === 'REVISAR' ? 1 : COLLECTION_PROPOSALS_MAX_BLOCK);
     setSelected(Object.fromEntries(available.map((item) => [item.propuestaId, selectionFrom(item)])));
   }
   function requestConfirmation() {
     if (actionBusy || !profileChecked || !data || chosen.length === 0) return;
+    const selectedRemittances = chosen.filter((item) => remittanceMethod(item.metodo));
+    if (selectedRemittances.length > 0 && (chosen.length !== 1 || selectedRemittances.length !== 1 || !selectedRemittances[0].preview.remesaDetalle)) {
+      setNotice({ tone: 'error', text: 'La remesa debe revisarse sola con su composición completa antes de confirmar.' });
+      return;
+    }
     const payload = buildCollectionConfirmPayload(makeIdempotencyKey(), data.previewToken, chosen);
     if (!payload) { setNotice({ tone: 'error', text: 'La selección ya no está disponible. Actualiza la lista y vuelve a revisarla.' }); return; }
-    setConfirmation({ kind: 'confirm', payload, rows: chosen.map(selectionFrom) });
+    setConfirmation({ kind: 'confirm', payload, rows: chosen.map(selectionFrom), remesaDetalle: selectedRemittances[0]?.preview.remesaDetalle ?? null });
   }
   function requestUndo(block: RecentBlock) {
     if (actionBusy || !profileChecked) return;

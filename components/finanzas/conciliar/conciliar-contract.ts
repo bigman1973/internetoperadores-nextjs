@@ -7,6 +7,7 @@ import type {
   ConciliarConfirmCommand,
   ConciliarConfirmItem as ServerConciliarConfirmItem,
   ConciliarDocument as ServerConciliarDocument,
+  ConciliarEmitidasGroup as ServerConciliarEmitidasGroup,
   ConciliarMovementLink as ServerConciliarMovementLink,
   ConciliarRow as ServerConciliarRow,
   ConciliarTab as ServerConciliarTab,
@@ -16,9 +17,11 @@ import type {
 
 export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const;
 export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO'] as const;
+export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA'] as const;
 
 export type ConciliarTab = ServerConciliarTab;
 export type ConciliarColor = ServerConciliarColor;
+export type ConciliarEmitidasGroup = ServerConciliarEmitidasGroup;
 export type ConciliarDocument = ServerConciliarDocument;
 export type ConciliarMovementLink = ServerConciliarMovementLink;
 /** La API hace opcional linksMovimiento; el parser siempre lo normaliza a lista. */
@@ -26,6 +29,11 @@ export type ConciliarRow = Readonly<Omit<ServerConciliarRow, 'linksMovimiento'> 
 export type ConciliarSummary = ConciliarTabSummary;
 
 export type ConciliarAccount = Readonly<{ id: string; banco: string; cuenta: string | null }>;
+export type ConciliarEmitidasGroupSummary = Readonly<{
+  group: ConciliarEmitidasGroup;
+  count: number;
+  amountCentimos: number;
+}>;
 
 export type ConciliarReadResponse = Readonly<{
   tabs: readonly ConciliarSummary[];
@@ -38,6 +46,7 @@ export type ConciliarReadResponse = Readonly<{
   stale: boolean;
   staleReason: string | null;
   cutoffDate: string;
+  emitidasGroups: readonly ConciliarEmitidasGroupSummary[];
   historicSummary: Readonly<{ count: number; amountCentimos: number }>;
 }>;
 
@@ -64,6 +73,22 @@ export type ConciliarUndoResponse = Readonly<{
   undone: boolean;
   message: string;
   refreshedAt: string;
+}>;
+/** Vista previa sellada por el servidor. Las filas son la composición completa,
+ * nunca la muestra compacta que usan las tarjetas de la cola. */
+export type ConciliarRemesaPreviewLine = Readonly<{
+  ordinal: number;
+  numeroFactura: string;
+  cliente: string | null;
+  fechaFactura: string | null;
+  importeCentimos: number;
+}>;
+export type ConciliarRemesaPreview = Readonly<{
+  remesaId: number;
+  totalFacturas: number;
+  importeBancoCentimos: number;
+  compositionHash: string;
+  filas: readonly ConciliarRemesaPreviewLine[];
 }>;
 
 type UnknownRecord = Record<string, unknown>;
@@ -117,6 +142,12 @@ function date(value: unknown, field: string, nullable = false): string | null {
   if (!DATE.test(parsed)) throw new Error(`La respuesta no incluye ${field} correctamente.`);
   return parsed;
 }
+function optionalDate(value: unknown, field: string): string | null {
+  return value === undefined || value === null ? null : date(value, field)!;
+}
+function optionalText(value: unknown, field: string, max = 2_000): string | null {
+  return value === undefined || value === null ? null : text(value, field, max);
+}
 function cutoff(value: unknown): string {
   if (value === undefined) return '2026-01-01'; // compatibilidad de fixtures antiguas
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('La respuesta no incluye cutoffDate correctamente.');
@@ -131,6 +162,10 @@ function tab(value: unknown, field: string): ConciliarTab {
 function color(value: unknown, field: string): ConciliarColor {
   if (!CONCILIAR_COLORS.includes(value as ConciliarColor)) throw new Error(`La respuesta no incluye ${field} correctamente.`);
   return value as ConciliarColor;
+}
+function emitidasGroup(value: unknown, field: string): ConciliarEmitidasGroup {
+  if (!CONCILIAR_EMITIDAS_GROUPS.includes(value as ConciliarEmitidasGroup)) throw new Error(`La respuesta no incluye ${field} correctamente.`);
+  return value as ConciliarEmitidasGroup;
 }
 
 function parseDocument(value: unknown, field: string): ConciliarDocument | null {
@@ -203,6 +238,25 @@ function parseSummary(value: unknown, index: number): ConciliarSummary {
   };
 }
 
+function parseEmitidasGroups(value: unknown): readonly ConciliarEmitidasGroupSummary[] {
+  const source = array(value, 'emitidasGroups');
+  if (source.length !== CONCILIAR_EMITIDAS_GROUPS.length) throw new Error('El resumen de grupos Emitidas está incompleto.');
+  const groups = source.map((valueForGroup, index): ConciliarEmitidasGroupSummary => {
+    const raw = object(valueForGroup, `emitidasGroups[${index}]`);
+    return {
+      group: emitidasGroup(raw.group, `emitidasGroups[${index}].group`),
+      count: integer(raw.count, `emitidasGroups[${index}].count`, true),
+      amountCentimos: integer(raw.amountCentimos, `emitidasGroups[${index}].amountCentimos`),
+    };
+  });
+  if (new Set(groups.map((group) => group.group)).size !== CONCILIAR_EMITIDAS_GROUPS.length) throw new Error('El resumen de grupos Emitidas está duplicado.');
+  return CONCILIAR_EMITIDAS_GROUPS.map((group) => {
+    const summary = groups.find((candidate) => candidate.group === group);
+    if (!summary) throw new Error('El resumen de grupos Emitidas está incompleto.');
+    return summary;
+  });
+}
+
 /** Rechaza respuestas incompletas: la UI nunca convierte datos desconocidos en ceros. */
 export function parseConciliarReadResponse(value: unknown): ConciliarReadResponse {
   const raw = object(value, 'respuesta');
@@ -228,6 +282,7 @@ export function parseConciliarReadResponse(value: unknown): ConciliarReadRespons
     stale: raw.stale === true,
     staleReason: typeof raw.staleReason === 'string' ? raw.staleReason.slice(0, 900) : null,
     cutoffDate: cutoff(raw.cutoffDate),
+    emitidasGroups: parseEmitidasGroups(raw.emitidasGroups),
     historicSummary: raw.historicSummary === undefined ? { count: 0, amountCentimos: 0 } : {
       count: integer(object(raw.historicSummary, 'historicSummary').count, 'historicSummary.count', true),
       amountCentimos: integer(object(raw.historicSummary, 'historicSummary').amountCentimos, 'historicSummary.amountCentimos'),
@@ -238,6 +293,57 @@ export function parseConciliarReadResponse(value: unknown): ConciliarReadRespons
 /** La lectura lateral devuelve una única fila autorizada, no una nueva cola. */
 export function parseConciliarDetailResponse(value: unknown): ConciliarRow {
   return parseRow(value, 'detalle');
+}
+
+/**
+ * El lector de remesas sólo acepta la composición completa que devuelve la
+ * lectura privada. Si el servidor devuelve una muestra, una suma insegura o
+ * una fila desconocida, la UI no ofrece confirmar.
+ */
+export function parseConciliarRemesaPreviewResponse(value: unknown): ConciliarRemesaPreview {
+  const response = object(value, 'vista previa de remesa');
+  const preview = object(response.preview, 'preview');
+  const raw = object(preview.remesaDetalle, 'preview.remesaDetalle');
+  const remesaId = integer(raw.remesaId, 'preview.remesaDetalle.remesaId', true);
+  const totalFacturas = integer(raw.totalFacturas, 'preview.remesaDetalle.totalFacturas', true);
+  const importeBancoCentimos = integer(raw.importeBancoCentimos, 'preview.remesaDetalle.importeBancoCentimos');
+  if (remesaId < 1 || totalFacturas < 1 || totalFacturas > 2_000 || importeBancoCentimos <= 0) {
+    throw new Error('La vista previa de remesa no conserva totales verificables.');
+  }
+  const filas = array(raw.filas, 'preview.remesaDetalle.filas');
+  if (filas.length !== totalFacturas || filas.length > 2_000) {
+    throw new Error('La vista previa de remesa está incompleta; no se puede confirmar.');
+  }
+  const ordinals = new Set<number>();
+  let total = 0;
+  const parsed = filas.map((valueForLine, index): ConciliarRemesaPreviewLine => {
+    const line = object(valueForLine, `preview.remesaDetalle.filas[${index}]`);
+    const ordinal = integer(line.ordinal, `preview.remesaDetalle.filas[${index}].ordinal`, true);
+    const importeCentimos = integer(line.importeCentimos, `preview.remesaDetalle.filas[${index}].importeCentimos`);
+    if (ordinal < 1 || ordinal > totalFacturas || ordinals.has(ordinal) || importeCentimos <= 0) {
+      throw new Error('La vista previa de remesa contiene filas no verificables.');
+    }
+    ordinals.add(ordinal);
+    total += importeCentimos;
+    if (!Number.isSafeInteger(total)) throw new Error('La composición de remesa supera un total verificable.');
+    return {
+      ordinal,
+      numeroFactura: text(line.numeroFactura, `preview.remesaDetalle.filas[${index}].numeroFactura`, 320),
+      cliente: optionalText(line.cliente, `preview.remesaDetalle.filas[${index}].cliente`, 320),
+      fechaFactura: optionalDate(line.fechaFactura, `preview.remesaDetalle.filas[${index}].fechaFactura`),
+      importeCentimos,
+    };
+  });
+  if (ordinals.size !== totalFacturas || total !== importeBancoCentimos) {
+    throw new Error('La composición de remesa no cierra exactamente el importe bancario.');
+  }
+  return {
+    remesaId,
+    totalFacturas,
+    importeBancoCentimos,
+    compositionHash: decisionHash(raw.compositionHash, 'preview.remesaDetalle.compositionHash'),
+    filas: parsed.sort((left, right) => left.ordinal - right.ordinal),
+  };
 }
 
 function parseOutcome(value: unknown, index: number): ConciliarOutcome {
