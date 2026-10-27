@@ -331,11 +331,14 @@ export async function readConciliarConfirmingCandidates(
   const c11 = await readConfirmingLiquidationCandidates(db, options)
   const c11Movements = new Set(c11.candidates.map((candidate) => candidate.movimientoId))
   const legacy = await withReadTransaction(db, async (tx) => {
-    const [{ documents, lines, invoices, b4 }, movementRead] = await Promise.all([
-      readStoredDocumentalData(tx),
-      readMovements(tx, options),
-    ])
-    return { core: buildConciliarConfirmingCandidates({ documentos: documents, lineas: lines, facturasEmitidas: invoices, documentosB4: b4, movimientos: movementRead.movements }), movementRead }
+    const movementRead = await readMovements(tx, options)
+    const uncoveredMovements = movementRead.movements.filter(movement => !c11Movements.has(movement.id))
+    // C9 is diagnostic only and cannot contribute to any of these C11 decisions.
+    // Filtering before the legacy matcher avoids its obsolete subset search,
+    // without caching or skipping any live C11 validation.
+    if (!uncoveredMovements.length) return { core: { candidates: [], warningCodes: [] }, movementRead }
+    const { documents, lines, invoices, b4 } = await readStoredDocumentalData(tx)
+    return { core: buildConciliarConfirmingCandidates({ documentos: documents, lineas: lines, facturasEmitidas: invoices, documentosB4: b4, movimientos: uncoveredMovements }), movementRead }
   })
   // Si una liquidación C11 ya describe el abono, no se muestra un candidato C9
   // paralelo. Si no existe C11, el legado se conserva sólo como diagnóstico ámbar

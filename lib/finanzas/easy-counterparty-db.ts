@@ -166,13 +166,14 @@ type CollectionWho = Readonly<{
   confirmada: boolean
 }>
 
-function addCandidate(target: Candidate[], movimientoId: string, tipoTercero: CounterpartyType, origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>, sourceIdentity: string | null, etiqueta: string, autoIdentify = false) {
+function addCandidate(target: Candidate[], movimientoId: string, tipoTercero: CounterpartyType, origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>, sourceIdentity: string | null, etiqueta: string, autoIdentify = false, seenHashes?: Set<string>) {
   if (!sourceIdentity) return
   const seed: CounterpartyCandidateSeed = { movimientoId, tipoTercero, origen, sourceIdentity }
   const hash = counterpartyCandidateHash(seed)
-  const existing = target.find(item => counterpartyCandidateHash(item.seed) === hash)
+  const existing = seenHashes ? seenHashes.has(hash) : target.find(item => counterpartyCandidateHash(item.seed) === hash)
   if (existing) return
   target.push({ seed, etiqueta, autoIdentify })
+  seenHashes?.add(hash)
 }
 function candidatesForMovement(row: MovementRow): Candidate[] {
   const candidates: Candidate[] = []
@@ -885,21 +886,24 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
     ORDER BY cw.nombre ASC,cw.id ASC,cs.id ASC LIMIT ${limit}
   `)
   const candidates: Candidate[] = []
+  // This index belongs to this one catalogue read, never to another request or
+  // actor. The previous find() rehashed every prior entry for every insertion.
+  const seenHashes = new Set<string>()
   for (const row of entityRows) {
     const type = String(row.tipo)
     const mapped: CounterpartyType = type === 'CLIENTE' ? 'CLIENTE' : type === 'PROVEEDOR' ? 'PROVEEDOR' : 'BANCO'
     const kind = type === 'CLIENTE' ? 'Cliente fiscal registrado' : type === 'PROVEEDOR' ? 'Proveedor fiscal registrado' : 'Administración registrada'
-    addCandidate(candidates, movimientoId, mapped, 'ENTIDAD_FISCAL', `EF:${String(row.id)}`, evidenceLabel(clean(row.razon_social), kind, clean(row.nif_cif)))
+    addCandidate(candidates, movimientoId, mapped, 'ENTIDAD_FISCAL', `EF:${String(row.id)}`, evidenceLabel(clean(row.razon_social), kind, clean(row.nif_cif)), false, seenHashes)
   }
   for (const row of employeeRows) {
-    addCandidate(candidates, movimientoId, 'EMPLEADO', 'EMPLEADO', `EMPLEADO:${String(row.id)}`, evidenceLabel(clean(row.nombre_completo), 'Empleado registrado', clean(row.nif)))
+    addCandidate(candidates, movimientoId, 'EMPLEADO', 'EMPLEADO', `EMPLEADO:${String(row.id)}`, evidenceLabel(clean(row.nombre_completo), 'Empleado registrado', clean(row.nif)), false, seenHashes)
   }
   for (const row of clientRows) {
     const external = clean(row.cliente_id_isp) ?? clean(row.isp_gestion_id)
     if (!external) continue
     const name = clean(row.nombre_comercial) ?? clean(row.nombre)
     const nif = clean(row.cif) ?? clean(row.nif)
-    addCandidate(candidates, movimientoId, 'CLIENTE', 'CLIENTE_CONTRATO_ACTUAL', `CLIENTE_WEB_CONTRATO:${String(row.cliente_web_id)}:${String(row.contrato_id)}:${String(row.contrato_cliente_id)}:${external}`, evidenceLabel(name, 'Cliente registrado', nif))
+    addCandidate(candidates, movimientoId, 'CLIENTE', 'CLIENTE_CONTRATO_ACTUAL', `CLIENTE_WEB_CONTRATO:${String(row.cliente_web_id)}:${String(row.contrato_id)}:${String(row.contrato_cliente_id)}:${external}`, evidenceLabel(name, 'Cliente registrado', nif), false, seenHashes)
   }
   if (withAccountProof) {
     const accountRows = await tx.$queryRaw<Array<any>>(Prisma.sql`
@@ -914,7 +918,7 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
     `)
     for (const row of accountRows) {
       const account = clean(row.alias) ?? clean(row.banco) ?? 'Cuenta registrada'
-      addCandidate(candidates, movimientoId, 'CUENTA_PROPIA', 'CUENTA_PROPIA_ACTUAL', `CUENTA_ATESTADA:${String(row.id)}:${String(row.atestacion_id)}`, `${account} · cuenta registrada`)
+      addCandidate(candidates, movimientoId, 'CUENTA_PROPIA', 'CUENTA_PROPIA_ACTUAL', `CUENTA_ATESTADA:${String(row.id)}:${String(row.atestacion_id)}`, `${account} · cuenta registrada`, false, seenHashes)
     }
   }
   return dedupeCandidates(candidates).sort((left, right) => left.etiqueta.localeCompare(right.etiqueta, 'es')).slice(0, limit)
