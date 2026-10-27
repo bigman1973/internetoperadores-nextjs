@@ -53,6 +53,20 @@ function guardStateFor(client: PrismaClient): PrismaGuardState {
 const auditScope = new AsyncLocalStorage<boolean>()
 /** The callback wrapper below makes this client available to Prisma $use. */
 const transactionScope = new AsyncLocalStorage<Prisma.TransactionClient>()
+type MutationAuditReceipt = Readonly<{
+  context: TrustedImpersonationContext
+  model: string | undefined
+  action: string
+}>
+type MutationAuditScope = {
+  tx: Prisma.TransactionClient
+  receipts: MutationAuditReceipt[]
+}
+/**
+ * Scoped to one interactive transaction only. It never stores permissions or a
+ * live-session decision: every guarded statement still calls the verifier.
+ */
+const mutationAuditScope = new AsyncLocalStorage<MutationAuditScope>()
 
 export function currentImpersonationTransactionClient(): Prisma.TransactionClient | null {
   return transactionScope.getStore() ?? null
@@ -71,6 +85,24 @@ export function runWithImpersonationTransactionClient<T>(
 }
 
 /**
+ * Keep one immutable SUCCESS receipt per guarded write, but issue their INSERT
+ * together at the end of the same successful interactive transaction. This
+ * removes only redundant network round trips; an exception skips the flush and
+ * the surrounding transaction rolls back exactly as with individual receipts.
+ */
+export async function runWithImpersonationMutationAuditScope<T>(
+  tx: Prisma.TransactionClient,
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  const scope: MutationAuditScope = { tx, receipts: [] }
+  return mutationAuditScope.run(scope, async () => {
+    const result = await callback()
+    await appendQueuedMutationSuccesses(tx, scope.receipts)
+    return result
+  })
+}
+
+/**
  * Prisma middleware does not itself expose the interactive transaction client.
  * Wrap callback transactions once so a business receipt written after next()
  * uses the exact same PostgreSQL transaction and rolls back with the mutation.
@@ -85,7 +117,9 @@ function installImpersonationTransactionWrapper(client: PrismaClient): void {
     if (typeof input !== 'function') return (baseTransaction as any)(input, ...rest)
     const callback = input as (tx: Prisma.TransactionClient) => unknown
     return (baseTransaction as any)(
-      (tx: Prisma.TransactionClient) => runWithImpersonationTransactionClient(tx, () => callback(tx)),
+      (tx: Prisma.TransactionClient) => runWithImpersonationTransactionClient(tx, () =>
+        runWithImpersonationMutationAuditScope(tx, async () => await callback(tx)),
+      ),
       ...rest,
     )
   }) as PrismaClient['$transaction']
@@ -468,16 +502,31 @@ async function appendMutationSuccess(
   model: string | undefined,
   action: string,
 ): Promise<void> {
+  const scope = mutationAuditScope.getStore()
+  if (scope?.tx === tx) {
+    scope.receipts.push({ context, model, action })
+    return
+  }
+  await appendQueuedMutationSuccesses(tx, [{ context, model, action }])
+}
+
+async function appendQueuedMutationSuccesses(
+  tx: Prisma.TransactionClient,
+  receipts: readonly MutationAuditReceipt[],
+): Promise<void> {
+  if (!receipts.length) return
   // This receipt is deliberately after next() but before the interactive
-  // transaction commits. Thus it is never emitted for a failed mutation and is
-  // rolled back if the callback later fails or the transaction cannot commit.
+  // transaction commits. Thus every row is absent after a failed mutation and
+  // rolls back if the callback later fails or the transaction cannot commit.
+  const values = receipts.map(({ context, model, action }) => Prisma.sql`
+    (gen_random_uuid(),${context.sessionId}::uuid,${context.actorId},${context.targetId},'BUSINESS_MUTATION','SUCCESS',
+     ${context.method},${context.path},${context.ip},${context.reason},${model?.slice(0, 120) ?? 'RAW'},${action.slice(0, 80)},
+     ${JSON.stringify({ source: 'prisma-middleware', action: context.action, ipSource: context.ipSource })}::jsonb,CURRENT_TIMESTAMP)
+  `)
   await auditScope.run(true, async () => await tx.$executeRaw(Prisma.sql`
     INSERT INTO impersonation_event_log
       (id,session_id,actor_id,target_id,kind,outcome,method,path,ip,reason,model,operation,detail,created_at)
-    VALUES
-      (gen_random_uuid(),${context.sessionId}::uuid,${context.actorId},${context.targetId},'BUSINESS_MUTATION','SUCCESS',
-       ${context.method},${context.path},${context.ip},${context.reason},${model?.slice(0, 120) ?? 'RAW'},${action.slice(0, 80)},
-       ${JSON.stringify({ source: 'prisma-middleware', action: context.action, ipSource: context.ipSource })}::jsonb,CURRENT_TIMESTAMP)
+    VALUES ${Prisma.join(values)}
   `))
 }
 

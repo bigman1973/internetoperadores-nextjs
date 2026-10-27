@@ -26,6 +26,37 @@ export class ConciliarActionError extends Error {
 }
 const fail = (status: number, code: string, message: string): never => { throw new ConciliarActionError(status, code, message) }
 
+const SERIALIZABLE_P2034_RETRY_DELAYS_MS = [25, 50] as const
+type SerializableRetryDelay = (milliseconds: number) => Promise<void>
+
+const waitForSerializableRetry: SerializableRetryDelay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
+
+function isRetryableSerializableP2034(error: unknown): boolean {
+  if (
+    error instanceof PrototypeStagingError ||
+    error instanceof ConciliarActionError ||
+    error instanceof ConciliarDbError ||
+    error instanceof B4ServiceError ||
+    error instanceof EasyReconciliationServiceError ||
+    error instanceof EasyCollectionsServiceError ||
+    error instanceof ConciliarConfirmingServiceError
+  ) return false
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034'
+}
+
+/** Replays only a Prisma-rolled-back SERIALIZABLE transaction; callers keep
+ * validation, ACL checks and all non-transactional work outside this callback. */
+export async function retryConciliarSerializableP2034<T>(transaction: () => Promise<T>, delay: SerializableRetryDelay = waitForSerializableRetry): Promise<T> {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      return await transaction()
+    } catch (error) {
+      if (!isRetryableSerializableP2034(error) || retry >= SERIALIZABLE_P2034_RETRY_DELAYS_MS.length) throw error
+      await delay(SERIALIZABLE_P2034_RETRY_DELAYS_MS[retry])
+    }
+  }
+}
+
 function json(value: unknown): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
   if (typeof value === 'string') try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {} } catch { return {} }
@@ -407,17 +438,13 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
 export async function runConciliarAction(actorId: number, raw: unknown) {
   const command = parseConciliarCommand(raw)
   await requireLiveWrite(actorId)
-  try {
-    return await db().$transaction(async base => {
-      const tx = asTx(base)
-      if (command.action === 'confirmar') return confirm(tx, actorId, command)
-      if (command.action === 'pedir') return ask(tx, actorId, command)
-      return undo(tx, actorId, command)
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
-  } catch (error) {
-    if (error instanceof ConciliarActionError || error instanceof ConciliarDbError || error instanceof B4ServiceError || error instanceof EasyReconciliationServiceError || error instanceof EasyCollectionsServiceError) throw error
-    throw error
-  }
+  const txSerializable = () => db().$transaction(async base => {
+    const tx = asTx(base)
+    if (command.action === 'confirmar') return confirm(tx, actorId, command)
+    if (command.action === 'pedir') return ask(tx, actorId, command)
+    return undo(tx, actorId, command)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+  return retryConciliarSerializableP2034(txSerializable)
 }
 
 export function conciliarActionErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
