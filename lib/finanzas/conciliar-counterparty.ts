@@ -291,7 +291,7 @@ export async function assignConciliarDocumentaryCounterpartyTx(
   if (!movementId || !text(input.source.movimientoId) || input.source.movimientoId !== movementId) return noAssignment(movementId, 'FILA_SIN_MOVIMIENTO')
   if (!validActorId(input.actorId)) throw new Error('CONCILIAR_COUNTERPARTY_ACTOR_INVALIDO')
   if (!operationId) throw new Error('CONCILIAR_COUNTERPARTY_OPERATION_INVALIDA')
-  const access = await requireB4ActorAccess(input.actorId, 'escritura')
+  const access = await requireB4ActorAccess(input.actorId, 'escritura', work)
   if ('response' in access) throw new EasyCounterpartyServiceError(access.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó la decisión P1 documental.')
   if (!isDocumentaryCounterpartySource(input.source)) return noAssignment(movementId, 'FUENTE_SIN_IDENTIDAD_DOCUMENTAL')
 

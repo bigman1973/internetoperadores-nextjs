@@ -119,7 +119,9 @@ export async function GET(request: NextRequest) {
 
 /** POST accepts only an exact closed JSON command. No browser fields select sources, amounts or file locators. */
 export async function POST(request: NextRequest) {
+  const phase = (name: string) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_POST_PHASE', name) }
   try {
+    phase('handler-start')
     await assertPrototypeStaging()
     const access = await requireB4FinanceAccess('escritura', await getServerSession(authOptions))
     if ('response' in access) return access.response
@@ -128,14 +130,17 @@ export async function POST(request: NextRequest) {
     // Parse here as well as in the action service: malformed input cannot reach it
     // and the route retains the exact command needed to normalize the UI response.
     const parsed = parseConciliarCommand(command)
+    phase('command-ready')
     const [{ runConciliarAction }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
       import('@/lib/finanzas/conciliar-actions'),
       import('@/lib/finanzas/conciliar-refresh'),
     ])
+    phase('action-start')
     const result = await runConciliarAction(access.actor.id, parsed)
+    phase('action-finished')
     scheduleConciliarProjectionRefresh(access.actor.id)
     return privateJson(actionResponse(parsed, result))
-  } catch (error) { return errorResponse(error) }
+  } catch (error) { phase('controlled-error'); return errorResponse(error) }
 }
 
 export async function PUT() { return privateJson({ error: 'Método no permitido.' }, 405) }

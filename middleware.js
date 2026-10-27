@@ -91,6 +91,8 @@ async function impersonationAction(request) {
   const declared = request.headers.get('content-length');
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > 16 * 1024)) return null;
   try {
+    const trace = process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname === '/api/admin/finanzas/conciliar';
+    if (trace) console.info('CONCILIAR_BODY_PHASE', 'clone-start');
     const reader = request.clone().body?.getReader();
     if (!reader) return null;
     const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -103,6 +105,7 @@ async function impersonationAction(request) {
       text += decoder.decode(part.value, { stream: true });
     }
     text += decoder.decode();
+    if (trace) console.info('CONCILIAR_BODY_PHASE', 'clone-finished');
     const value = JSON.parse(text);
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const action = value.action;

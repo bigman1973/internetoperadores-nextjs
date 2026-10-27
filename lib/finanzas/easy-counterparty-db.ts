@@ -1009,7 +1009,7 @@ async function confirmParsedTx(tx: Tx, actorId: number, input: CounterpartyWrite
     if (movement.decision) fail(409, 'REVERSION_REQUERIDA', 'Ya hay una decisión P1 vigente; revíertala antes de sustituirla.')
     const candidate = (await currentCandidatesForConfirmTx(tx, movement, withAccountProof)).find(item => counterpartySuggestionId(item.seed) === input.sugerenciaId)
     if (!candidate) fail(409, 'SUGERENCIA_OBSOLETA', 'La evidencia actual ya no acredita esta identificación; relea el movimiento.')
-    const live = await requireB4ActorAccess(actorId, 'escritura')
+    const live = await requireB4ActorAccess(actorId, 'escritura', tx)
     if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó la decisión P1.')
     const candidateHash = counterpartyCandidateHash(candidate.seed)
     const sourceHash = counterpartySha256({ schema: 'EASY_COUNTERPARTY_SOURCE_V1', sourceIdentity: candidate.seed.sourceIdentity })
@@ -1037,7 +1037,7 @@ async function confirmParsedTx(tx: Tx, actorId: number, input: CounterpartyWrite
   const version = await currentVersionTx(tx, movement.id)
   if (version !== input.version) fail(409, 'VERSION_CONFLICT', 'La decisión P1 cambió; relea antes de revertir.')
   if (!movement.decision || movement.decision.id !== input.decisionId) fail(409, 'DECISION_NO_VIGENTE', 'La decisión ya no está vigente o ya fue revertida.')
-  const live = await requireB4ActorAccess(actorId, 'escritura')
+  const live = await requireB4ActorAccess(actorId, 'escritura', tx)
   if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó la reversión P1.')
   const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO decisiones_tercero_modo_facil (id,movimiento_id,actor_id,accion,tipo_tercero,origen,candidato_hash,idempotency_key,request_hash,revierte_id,snapshot,created_at)
@@ -1067,10 +1067,10 @@ export async function mutateEasyCounterparty(actorId: number, raw: unknown) {
  * serializable caller's locks are never bypassed. */
 export async function mutateEasyCounterpartyTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseCounterpartyWriteInput(raw)
-  await assertFinanceEasyRuntime()
-  const access = await requireB4ActorAccess(actorId, 'escritura')
-  if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   const work = asTx(tx)
+  await assertFinanceEasyRuntime(work)
+  const access = await requireB4ActorAccess(actorId, 'escritura', work)
+  if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   if (!await decisionTableReady(work)) fail(503, 'P1_MIGRATION_PENDIENTE', 'La migración P1 de terceros aún no está aplicada en staging.')
   const withAccountProof = await accountProofTableReady(work)
   return confirmParsedTx(work, actorId, input, withAccountProof)

@@ -442,8 +442,8 @@ type Tx = ConfirmingQueryClient & {
 
 /** C10 uses the same live B4 gate as the Lorena profile.  It never opens a
  * separate ACL based on a broad finance role or a stale route permission. */
-async function assertLiveFinanceWriter(_tx: Tx, actorId: number): Promise<void> {
-  const access = await requireB4ActorAccess(actorId, 'escritura')
+async function assertLiveFinanceWriter(tx: Tx, actorId: number): Promise<void> {
+  const access = await requireB4ActorAccess(actorId, 'escritura', tx as unknown as Prisma.TransactionClient)
   if (!access.ok) fail(403, 'PERMISO_REVOCADO', 'Sin permiso financiero de escritura.')
 }
 
@@ -604,8 +604,8 @@ export async function applyDocumentedConfirmingInterestSupport(
 ): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestSupportResult }>> {
   const input = parseApplyDocumentedConfirmingInterestSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_APPLY_V1', actorId, input })
-  await assertFinanceRuntimeReady()
   return withWriteTransaction(db, async (tx) => {
+    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest:${input.movimientoId}:${input.confirmingId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)
@@ -682,8 +682,8 @@ export async function undoDocumentedConfirmingInterestSupport(
 ): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestSupportResult }>> {
   const input = parseUndoDocumentedConfirmingInterestSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_UNDO_V1', actorId, input })
-  await assertFinanceRuntimeReady()
   return withWriteTransaction(db, async (tx) => {
+    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     const lock = await tx.$queryRaw<Array<{ movimientoId: string; vinculoDiferenciaB4Id: string; importeInteresCentimos: unknown; estado: string; version: unknown }>>(Prisma.sql`
       SELECT l.movimiento_id AS "movimientoId", l.vinculo_diferencia_id::text AS "vinculoDiferenciaB4Id",
@@ -979,8 +979,8 @@ export async function applyDocumentedConfirmingInterestInvoiceSupport(
 ): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestInvoiceSupportResult }>> {
   const input = parseApplyDocumentedConfirmingInterestInvoiceSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_INVOICE_LINK_V2', actorId, input })
-  await assertFinanceRuntimeReady()
   return withWriteTransaction(db, async (tx) => {
+    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest-invoice:${input.loteId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestInvoiceSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)
@@ -1011,8 +1011,8 @@ export async function undoDocumentedConfirmingInterestInvoiceSupport(
 ): Promise<Readonly<{ idempotente: boolean; resultado: ConfirmingInterestInvoiceSupportResult }>> {
   const input = parseUndoDocumentedConfirmingInterestInvoiceSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_INVOICE_UNLINK_V2', actorId, input })
-  await assertFinanceRuntimeReady()
   return withWriteTransaction(db, async (tx) => {
+    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest-invoice:${input.loteId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestInvoiceSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)

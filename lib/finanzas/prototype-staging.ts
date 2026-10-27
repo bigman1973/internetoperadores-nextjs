@@ -1,4 +1,5 @@
 import { cache } from 'react'
+import type { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
 
 const STAGING_DATABASE = 'io_staging_finanzas'
@@ -25,6 +26,7 @@ export type FinanceEasyRuntimeContext = Readonly<{
   runtime: FinanceEasyRuntime
   stagingOnly: boolean
 }>
+export type FinanceEasyIdentityQueryClient = Pick<Prisma.TransactionClient, '$queryRaw'>
 
 export class PrototypeStagingError extends Error {
   readonly status = 404
@@ -134,6 +136,13 @@ const liveIdentity = cache(async function liveIdentity(): Promise<{ databaseName
   return rows.length === 1 ? { databaseName: rows[0].database_name, databaseUser: rows[0].database_user } : null
 })
 
+async function identityFrom(database: FinanceEasyIdentityQueryClient): Promise<{ databaseName: string; databaseUser: string } | null> {
+  const rows = await database.$queryRaw<Array<{ database_name: string; database_user: string }>>`
+    SELECT current_database() AS database_name, current_user AS database_user LIMIT 1
+  `
+  return rows.length === 1 ? { databaseName: rows[0].database_name, databaseUser: rows[0].database_user } : null
+}
+
 function expectedIdentity(runtime: FinanceEasyRuntime) {
   return runtime === 'staging'
     ? { databaseName: STAGING_DATABASE, databaseUser: STAGING_USER }
@@ -145,10 +154,10 @@ function expectedIdentity(runtime: FinanceEasyRuntime) {
  * / current_user agree. It performs one SELECT and never creates policy, links,
  * confirmations, jobs, syncs, mail, or other external side effects.
  */
-export async function getFinanceEasyRuntimeContext(): Promise<FinanceEasyRuntimeContext | null> {
+export async function getFinanceEasyRuntimeContext(identityClient?: FinanceEasyIdentityQueryClient): Promise<FinanceEasyRuntimeContext | null> {
   const runtime = classifyFinanceEasyRuntime(runtimeInputFromProcess())
   if (!runtime) return null
-  const identity = await liveIdentity()
+  const identity = identityClient ? await identityFrom(identityClient) : await liveIdentity()
   const expected = expectedIdentity(runtime)
   if (!identity || identity.databaseName !== expected.databaseName || identity.databaseUser !== expected.databaseUser) return null
   return { runtime, stagingOnly: runtime === 'staging' }
@@ -187,10 +196,11 @@ export async function assertPrototypeStaging(): Promise<void> {
 /**
  * Guard for the explicitly promoted scope only. Production requires all three
  * opt-ins, the exact Railway URL identity and an independent live identity
- * query. It never accepts client parameters or a deployment hostname.
+ * query. A caller-owned transaction supplies its query client so the live check
+ * never leaves that transaction; static configuration checks remain identical.
  */
-export async function assertFinanceEasyRuntime(): Promise<FinanceEasyRuntimeContext> {
-  const context = await getFinanceEasyRuntimeContext()
+export async function assertFinanceEasyRuntime(identityClient?: FinanceEasyIdentityQueryClient): Promise<FinanceEasyRuntimeContext> {
+  const context = await getFinanceEasyRuntimeContext(identityClient)
   if (!context) throw new FinanceEasyRuntimeError()
   return context
 }
