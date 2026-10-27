@@ -58,6 +58,23 @@ export function conciliarAliasesMatch(left: readonly unknown[], right: readonly 
   return right.map(conciliarExactCounterparty).some((value): value is string => value !== null && leftAliases.has(value))
 }
 
+/**
+ * A bank export can persist its literal recipient together with the transfer
+ * concept in one field (for example, `PROVEEDOR, S.L. PAGO FACTURA ...`). This
+ * is a review-only lookup aid: it accepts an already stored full supplier alias
+ * only at non-alphanumeric boundaries. It never changes the alias, never
+ * creates a supplier, and callers must not use it to make a match exact.
+ */
+export function conciliarAliasesContainDocumentaryAlias(texts: readonly unknown[], aliases: readonly unknown[]): boolean {
+  const haystacks = texts.map(conciliarExactCounterparty).filter((value): value is string => value !== null)
+  const needles = aliases.map(conciliarExactCounterparty).filter((value): value is string => value !== null && value.length >= 4)
+  return needles.some(alias => {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const exactAlias = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, 'u')
+    return haystacks.some(text => exactAlias.test(text))
+  })
+}
+
 export function conciliarDecisionHash(payload: ConciliarProjectionPayload): string {
   return conciliarHash({ schema: 'CONCILIAR_V1', source: payload.source, sourceFingerprint: payload.sourceFingerprint, row: payload.row })
 }
@@ -104,7 +121,7 @@ export type ReceivedInvoicePaymentMatch<T = unknown> =
   | Readonly<{
     kind: 'REVIEW'
     candidate: ReceivedInvoicePaymentCandidate<T>
-    reason: 'IMPORTE_DISTINTO' | 'REFERENCIA_DISCREPANTE' | 'CANDIDATAS_AMBIGUAS'
+    reason: 'IMPORTE_DISTINTO' | 'REFERENCIA_DISCREPANTE' | 'FECHA_POSTERIOR' | 'CANDIDATAS_AMBIGUAS'
   }>
 
 function calendarDay(value: string | null): number | null {
@@ -155,12 +172,19 @@ function compareNullableNumber(left: number | null, right: number | null): numbe
   return left - right
 }
 
-/** `referenciasFacturaCitadas` deliberately returns both its explicit and bare
- * lexical hits. A phrase such as "FACTURA 260007" therefore has the useful
- * `260007` plus a redundant bare `FACTURA260007`; the latter must not turn an
- * otherwise exact document number into a discrepancy. */
+/** Prefer syntactically explicit invoice references over bare issuer-like
+ * fragments. A supplier such as `BUTPO 2000, S.L.` is not a second invoice
+ * reference when the bank also says `PAGO FACTURA 260007`. */
 function documentaryCitedReferences(text: string): readonly string[] {
   const raw = referenciasFacturaCitadas(text)
+  const normalized = text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-ES')
+  const explicit = new Set<string>()
+  const syntax = /(?:^|[^A-Z0-9])(?:FACTURA|FACT\.?|FRA\.?|F)\s*(?:N(?:U)?M(?:ERO)?\s*)?[-#:/. ]*([A-Z]{0,6}\s*\d{2,}(?:\s*[/-]\s*\d{1,10})?)(?=$|[^A-Z0-9])/g
+  for (const match of normalized.matchAll(syntax)) {
+    const reference = normalizarReferenciaFactura(match[1])
+    if (reference && reference.length >= 4) explicit.add(reference)
+  }
+  if (explicit.size) return raw.filter(reference => explicit.has(reference))
   const values = new Set(raw)
   return raw.filter(reference => {
     const wrapper = /^(?:FACTURA|FACT|FRA|F)(\d+)$/.exec(reference)
@@ -170,15 +194,18 @@ function documentaryCitedReferences(text: string): readonly string[] {
 
 /**
  * Keeps an amount match from selecting a different invoice when the bank cites a
- * number.  All returned candidates have a confirmed/known counterparty alias and
- * an emission date no later than the bank movement.  Vencimiento is a ranking
- * clue only; it never makes a payment exact.
+ * number. All returned candidates have a confirmed/known counterparty alias and
+ * a valid emission date. A later emission date remains visible only as an amber
+ * contradiction, so a sync/billing date anomaly is reviewable but cannot close a
+ * payment. Vencimiento is a ranking clue only; it never makes a payment exact.
  */
 export function classifyReceivedInvoicePaymentCandidates<T>(input: Readonly<{
-  importeBancoCentimos: number
-  fechaBanco: string
-  conceptoBanco: string
-  candidates: readonly ReceivedInvoicePaymentCandidate<T>[]
+ importeBancoCentimos: number
+ fechaBanco: string
+ conceptoBanco: string
+  /** Opt-in read-side review: a later issue date remains amber, never exact. */
+  includeFutureDateReview?: boolean
+ candidates: readonly ReceivedInvoicePaymentCandidate<T>[]
 }>): ReceivedInvoicePaymentMatch<T> {
   if (!Number.isSafeInteger(input.importeBancoCentimos)) return { kind: 'NONE' }
   const bankDay = calendarDay(input.fechaBanco)
@@ -186,7 +213,7 @@ export function classifyReceivedInvoicePaymentCandidates<T>(input: Readonly<{
   const cited = documentaryCitedReferences(input.conceptoBanco)
   const eligible = input.candidates.filter(candidate => {
     const issuedDay = calendarDay(candidate.fecha)
-    return candidate.matchesCounterparty && issuedDay !== null && issuedDay <= bankDay && Number.isSafeInteger(candidate.importeDocumentoCentimos)
+    return candidate.matchesCounterparty && issuedDay !== null && (input.includeFutureDateReview === true || issuedDay <= bankDay) && Number.isSafeInteger(candidate.importeDocumentoCentimos)
   })
   if (!eligible.length) return { kind: 'NONE' }
 
@@ -221,8 +248,11 @@ export function classifyReceivedInvoicePaymentCandidates<T>(input: Readonly<{
       const reference = normalizarReferenciaFactura(candidate.referencia)
       return reference !== null && cited.every(value => value === reference)
     })
-    if (exactReference.length === 1 && exactReference[0].importeDocumentoCentimos === input.importeBancoCentimos) {
-      return { kind: 'EXACT', candidate: exactReference[0] }
+    if (exactReference.length === 1) {
+      const candidate = exactReference[0]
+      if (candidate.importeDocumentoCentimos !== input.importeBancoCentimos) return { kind: 'REVIEW', candidate, reason: 'IMPORTE_DISTINTO' }
+      if (calendarDay(candidate.fecha)! > bankDay) return { kind: 'REVIEW', candidate, reason: 'FECHA_POSTERIOR' }
+      return { kind: 'EXACT', candidate }
     }
     return {
       kind: 'REVIEW', candidate: ordered[0],

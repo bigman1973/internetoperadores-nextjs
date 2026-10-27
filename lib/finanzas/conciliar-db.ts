@@ -24,7 +24,7 @@ import {
   referenciasFacturaCitadas,
   textoSeguro,
 } from './conciliar-contract'
-import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
+import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
 
@@ -587,15 +587,18 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       continue
     }
     const matchingReceived = new Map<string, any>()
-    for (const alias of aliases) {
-      const normalized = conciliarExactCounterparty(alias)
-      if (!normalized) continue
-      for (const invoice of receivedByCounterparty.get(normalized) ?? []) matchingReceived.set(String(invoice.id), invoice)
+    for (const [providerAlias, providerInvoices] of receivedByCounterparty) {
+      // Some bank imports store the literal payee plus the payment concept in
+      // `tercero`. A complete already-stored supplier name inside that literal
+      // is sufficient to surface a review candidate, never to make it green.
+      if (!conciliarAliasesMatch(aliases, [providerAlias]) && !conciliarAliasesContainDocumentaryAlias(aliases, [providerAlias])) continue
+      for (const invoice of providerInvoices) matchingReceived.set(String(invoice.id), invoice)
     }
     const receivedMatch = classifyReceivedInvoicePaymentCandidates({
       importeBancoCentimos: amount,
       fechaBanco: fecha,
       conceptoBanco: concepto,
+      includeFutureDateReview: true,
       candidates: [...matchingReceived.values()].flatMap(invoice => {
         const total = exactMoney(invoice.total_text)
         if (total === null || total === 0) return []
@@ -612,18 +615,26 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       const invoice = receivedMatch.candidate.source, total = exactMoney(invoice.total_text)!
       const file = archivoRecibidaControlado({ oneDriveDriveId: invoice.driveId, oneDriveItemId: invoice.itemId, archivoOneDrive: invoice.archivo }) !== null
       const opaqueId = rowId('PAGOS', `PAGO_FACTURA_RECIBIDA:${id}:${String(invoice.id)}`)
-      const evalExact = evaluarDocumentoExacto({ importeBancoCentimos: amount, importeDocumentoCentimos: -total, fechaBanco: fecha, fechaDocumento: typeof invoice.fecha === 'string' ? invoice.fecha : null, conceptoBanco: concepto, referenciaDocumento: String(invoice.referencia ?? 'Factura recibida'), unicoTercero: true })
-      const green = receivedMatch.kind === 'EXACT' && evalExact.color === 'VERDE' && file
+      const exactCounterparty = conciliarAliasesMatch(aliases, [invoice.proveedor])
+      const evalExact = evaluarDocumentoExacto({ importeBancoCentimos: amount, importeDocumentoCentimos: -total, fechaBanco: fecha, fechaDocumento: typeof invoice.fecha === 'string' ? invoice.fecha : null, conceptoBanco: concepto, referenciaDocumento: String(invoice.referencia ?? 'Factura recibida'), unicoTercero: exactCounterparty })
+      const green = receivedMatch.kind === 'EXACT' && exactCounterparty && evalExact.color === 'VERDE' && file
       const color: ConciliarColor = green ? 'VERDE' : 'AMBAR'
       const amountDifference = amount - -total
       const referenceDiscrepancy = receivedMatch.kind === 'REVIEW' && receivedMatch.reason === 'REFERENCIA_DISCREPANTE'
+      const laterIssueDate = receivedMatch.kind === 'REVIEW' && receivedMatch.reason === 'FECHA_POSTERIOR'
       const discrepancy = receivedMatch.kind === 'REVIEW'
         ? amountDifference !== 0
           ? 'La candidata es del mismo proveedor, pero el importe no coincide exactamente; revísala antes de confirmar.'
+          : laterIssueDate
+            ? 'La candidata es del mismo proveedor, pero la fecha de emisión es posterior al movimiento bancario; revísala antes de confirmar.'
           : referenceDiscrepancy
             ? 'La candidata es del mismo proveedor, pero no hay una referencia de factura documental exacta; revísala antes de confirmar.'
-            : 'Hay varias candidatas del mismo proveedor; revísalas antes de confirmar.'
-        : null
+            : !exactCounterparty
+              ? 'La candidata contiene el nombre completo del proveedor en el literal bancario, pero no un alias idéntico; revísala antes de confirmar.'
+              : 'Hay varias candidatas del mismo proveedor; revísalas antes de confirmar.'
+        : !exactCounterparty
+          ? 'La candidata contiene el nombre completo del proveedor en el literal bancario, pero no un alias idéntico; revísala antes de confirmar.'
+          : null
       const dueHint = typeof invoice.vencimiento === 'string' ? ` Vencimiento: ${invoice.vencimiento}.` : ''
       rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: green ? evalExact.motivo : discrepancy ?? (file ? evalExact.motivo : 'La factura coincide, pero falta su PDF controlado para poder confirmarla.'), documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: amountDifference, detail: discrepancy ? `${discrepancy}${dueHint}` : dueHint.trim() || null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, facturaRecibidaId: String(invoice.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       const invoiceId = String(invoice.id)

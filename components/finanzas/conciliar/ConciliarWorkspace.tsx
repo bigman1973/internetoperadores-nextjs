@@ -39,7 +39,7 @@ class UncertainResultError extends Error {}
 
 const TAB_COPY: Record<ConciliarTab, Readonly<{ title: string; question: string; short: string }>> = {
   COBROS: { title: 'Cobros sin factura', question: '¿De qué factura es?', short: 'Cobros' },
-  EMITIDAS: { title: 'Facturas sin cobrar', question: '¿Hay un cobro que casa?', short: 'Emitidas' },
+  EMITIDAS: { title: 'Facturas sin cobro confirmado', question: '¿Hay un cobro que casa?', short: 'Emitidas' },
   PAGOS: { title: 'Pagos sin factura', question: '¿Qué papel lo justifica?', short: 'Pagos' },
   RECIBIDAS: { title: 'Facturas sin pagar', question: '¿Hay un pago que casa?', short: 'Recibidas' },
 };
