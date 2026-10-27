@@ -12,7 +12,8 @@ import { evaluarDocumentoExacto, isConciliarBankFee, parseConciliarCommand, type
 import { assignConciliarDocumentaryCounterpartyTx, undoConciliarDocumentaryCounterpartyTx } from './conciliar-counterparty'
 import { conciliarAliasesMatch, conciliarRequestHash, safeInteger } from './conciliar-core'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
-import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarRowForAction, unresolvedMovements } from './conciliar-db'
+import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarRowForAction, restoreLiveBankFeeProjectionTx, unresolvedMovements } from './conciliar-db'
+import { knownSingleBankFeeUndoMovement } from './conciliar-fee-undo'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -105,6 +106,19 @@ async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: bo
   // All B4 changes are trigger-invalidated. An empty result is still safe: it
   // means no dirty marker remains; this path never clears a pre-existing one.
   return updated.length === 1
+}
+
+/**
+ * Undo may restore only the exact local dependency closed by a one-leg fee
+ * receipt. The receipt must carry the persisted source kind added by this
+ * version; older receipts deliberately retain the dirty/full-rebuild path.
+ */
+async function restoreKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, legs: readonly {
+  movimientoId: string | null; operationB4Id: string | null; actionB5: string | null; proposalBlockId: string | null; result: unknown
+}[]): Promise<boolean> {
+  const movementId = knownSingleBankFeeUndoMovement({ wasDirty: stateAtStart.wasDirty, legs })
+  if (!movementId || !await restoreLiveBankFeeProjectionTx(tx, movementId)) return false
+  return settleKnownFeeOnlyProjection(tx, stateAtStart, new Set<ConciliarProjectionSource['kind']>(['COMISION_BANCARIA']))
 }
 
 async function lockOperationOrReplay(tx: Tx, actorId: number, action: 'CONFIRMAR' | 'PEDIR' | 'DESHACER', idempotencyKey: string, requestHash: string, parentId?: string): Promise<{ replay: true; id: string; result: Record<string, unknown> } | { replay: false; id: string }> {
@@ -382,7 +396,7 @@ async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarComman
     }
     const result = await applyConfirmRow(tx, actorId, receipt.id, row)
     const counterparty = await assignConciliarDocumentaryCounterpartyTx(tx, { actorId, operationId: receipt.id, movementId, importeCentimos: row.importeCentimos, source: row.source })
-    const detail = counterparty.assigned ? { ...result.result, counterpartyReceipt: counterparty.receipt } : result.result
+    const detail = { ...result.result, sourceKind: row.source.kind, ...(counterparty.assigned ? { counterpartyReceipt: counterparty.receipt } : {}) }
     await appendLeg(tx, receipt.id, { ordinal: index + 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: 'operationB4Id' in result ? result.operationB4Id : undefined, proposalBlockId: 'proposalBlockId' in result ? result.proposalBlockId : undefined, result: detail })
     outcomes.push({ id: row.id, ok: true, code: 'HECHO', message: 'Hecho. Puedes deshacer esta confirmación.', operationId: receipt.id })
     // Retirada mínima dentro de la misma transacción. El recálculo documental
@@ -419,6 +433,9 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
   if (!source) fail(404, 'RECIBO_NO_ENCONTRADO', 'No se encontró la acción para deshacer.')
   if (source.actorId !== actorId) fail(403, 'RECIBO_ACTOR_DISTINTO', 'Sólo quien confirmó puede deshacer su acción.')
   if (source.action !== 'CONFIRMAR' || source.state !== 'APLICADA') fail(409, 'RECIBO_NO_REVERSIBLE', 'Esta acción ya no se puede deshacer.')
+  // Capture a clean baseline under the same exclusive projection lock before
+  // P1/B4 undo. Dirty from an earlier action is never cleared by this branch.
+  const stateAtStart = await projectionStateAtActionStart(tx)
   const legs = await tx.$queryRaw<Array<{ ordinal: number; rowId: string; movimientoId: string | null; operationB4Id: string | null; actionB5: string | null; proposalBlockId: string | null; result: unknown }>>(Prisma.sql`
     SELECT ordinal,fila_id AS "rowId",movimiento_id AS "movimientoId",operacion_b4_id::text AS "operationB4Id",accion_b5 AS "actionB5",bloque_propuesta_cobro_id::text AS "proposalBlockId",resultado AS result
     FROM patas_operacion_conciliar WHERE operacion_conciliar_id=CAST(${source.id} AS uuid) ORDER BY ordinal ASC
@@ -430,7 +447,8 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
     else await undoB4Leg(tx, actorId, receipt.id, leg.ordinal, leg)
   }
   await tx.$executeRaw(Prisma.sql`UPDATE operaciones_conciliar SET estado='REVERTIDA'::"EstadoOperacionConciliar",revertida_at=CURRENT_TIMESTAMP WHERE id=CAST(${source.id} AS uuid) AND estado='APLICADA'::"EstadoOperacionConciliar"`)
-  const result = { ok: true, revertedOperationId: source.id, legs: legs.length, undone: true, message: 'Deshecho. La confirmación original sigue conservada en el historial.', refreshedAt: new Date().toISOString() }
+  const projectionSynchronized = await restoreKnownFeeOnlyProjection(tx, stateAtStart, legs)
+  const result = { ok: true, revertedOperationId: source.id, legs: legs.length, undone: true, projectionSynchronized, message: 'Deshecho. La confirmación original sigue conservada en el historial.', refreshedAt: new Date().toISOString() }
   await complete(tx, receipt.id, 'APLICADA', result)
   return { operationId: source.id, idempotent: false, ...result }
 }

@@ -18,7 +18,6 @@ import {
   type ConciliarTab,
   type ConciliarTabSummary,
   evaluarDocumentoExacto,
-  isConciliarBankFee,
   normalizarReferenciaFactura,
   redReasonForMovement,
   referenciasFacturaCitadas,
@@ -26,6 +25,7 @@ import {
 } from './conciliar-contract'
 import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
+import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
@@ -393,6 +393,45 @@ async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[]): Pro
   }
 }
 
+/**
+ * Rebuilds just one bank-fee row from the current locked B4 source.  It never
+ * accepts an old row, fingerprint or decision hash as evidence.  An active P1
+ * or any existing projection row is intentionally an ambiguity: the caller
+ * keeps dirty and lets the established full rebuild close the wider graph.
+ */
+export async function restoreLiveBankFeeProjectionTx(base: Prisma.TransactionClient, movimientoId: string): Promise<boolean> {
+  const tx = asTx(base)
+  const movements = await tx.$queryRaw<Array<any>>(Prisma.sql`
+    SELECT m.id AS "movimientoId",m.cuenta_id AS "cuentaId",m.fecha_operacion::date::text AS fecha,
+      b4_importe_bancario_centimos(m.importe) AS "importeCentimos",COALESCE(e.version,1) AS "versionB4",
+      m.concepto,m.referencia,m.info_adicional AS "infoAdicional",m.tercero,c.banco,c.alias AS cuenta
+    FROM movimientos_bancarios m
+    JOIN cuentas_bancarias c ON c.id=m.cuenta_id
+    LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
+    WHERE m.id=${movimientoId} AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+    LIMIT 1 FOR UPDATE OF m,c
+  `)
+  const current = movements[0]
+  if (!current) return false
+  const p1 = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT d.id::text AS id
+    FROM decisiones_tercero_modo_facil d
+    WHERE d.movimiento_id=${movimientoId} AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
+      AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
+    ORDER BY d.created_at DESC,d.id DESC LIMIT 1 FOR UPDATE
+  `)
+  if (p1.length) return false
+  const rebuilt = buildBankFeeProjectionSeed(current)
+  if (!rebuilt) return false
+  const existing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT id FROM conciliar_proyecciones WHERE movimiento_id=${movimientoId} LIMIT 2 FOR UPDATE
+  `)
+  if (existing.length) return false
+  const row = projection(rebuilt.tab, rebuilt.row, rebuilt.source, rebuilt.cuentaId)
+  await insertProjectionBatches(tx, [row])
+  return true
+}
+
 type StrictTransferLeg = Readonly<{ movementId: string; oppositeMovementId: string; fingerprint: string }>
 /**
  * Conciliar deliberately reuses the same fail-closed ingredients as the approved
@@ -569,9 +608,12 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       continue
     }
 
-    const fee = isConciliarBankFee({ importeCentimos: amount, concepto, referencia: nullableText(movement.referencia), infoAdicional: nullableText(movement.info_adicional), tercero: nullableText(movement.tercero), banco })
+    const fee = buildBankFeeProjectionSeed({
+      movimientoId: id, cuentaId, fecha, importeCentimos: amount, versionB4: movement.versionB4,
+      concepto, referencia: movement.referencia, infoAdicional: movement.info_adicional, tercero: movement.tercero, banco, cuenta,
+    })
     if (fee) {
-      rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `COMISION_BANCARIA:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: 'VERDE', grupo: 'GASTOS_BANCO', motivo: 'Cargo bancario admitido: se registrará como comisión bancaria.', documento: null, propuesta: null, seleccionable: true, diferenciaCentimos: 0, detail: 'La regla excluye compras con tarjeta, intereses, préstamo y comisiones a cero.' }), { kind: 'COMISION_BANCARIA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+      rows.push(projection(fee.tab, fee.row, fee.source, fee.cuentaId))
       continue
     }
     const aliases = movementPartyAliases(movement)
