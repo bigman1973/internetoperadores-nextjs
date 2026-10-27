@@ -10,4 +10,8 @@ for(const file of files){
 }
 assert.ok(fs.readFileSync('node_modules/next/dist/build/segment-config/app/app-segment-config.js','utf8').includes('preferredRegion:'))
 assert.ok(!('functions' in JSON.parse(fs.readFileSync('vercel.json','utf8'))))
+const page=fs.readFileSync(files[0],'utf8')
+assert.ok(page.includes('process.env.VERCEL_REGION'))
+assert.ok(page.includes('executionRegion'))
+assert.ok(page.includes("process.env.FINANCE_STAGING_SANDBOX === '1'"))
 console.log('PASS: región de segmento reconocida por Next instalado; sólo Conciliar; aislamiento y ACL intactos. Efecto en Vercel pendiente de medición, no inferido por este test.')

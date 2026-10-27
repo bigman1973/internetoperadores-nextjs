@@ -22,7 +22,9 @@ function calendarDate(value: unknown): string | null {
 export default async function ConciliarPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const started = performance.now();
   const timing = (phase: 'guard' | 'access' | 'projection') => {
-    if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('conciliar-render-timing', { phase, elapsedMs: Math.round(performance.now() - started) });
+    const region = process.env.VERCEL_REGION;
+    const executionRegion = typeof region === 'string' && /^[a-z]{3}\d$/.test(region) ? region : 'unavailable';
+    if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('conciliar-render-timing', { phase, elapsedMs: Math.round(performance.now() - started), executionRegion });
   };
   try {
     await assertPrototypeStaging();
