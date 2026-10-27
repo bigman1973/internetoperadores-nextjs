@@ -84,7 +84,9 @@ function actionResponse(command: ConciliarCommand, result: unknown) {
   const raw = result && typeof result === 'object' && !Array.isArray(result) ? result as Record<string, unknown> : {}
   const resultOperationId = operationId(raw.operationId)
   const projectionSynchronized = raw.projectionSynchronized === true
-  const projection = projectionSynchronized && command.responseView ? readResponse(raw.projection) : undefined
+  // Durable idempotent receipts omit the transient view. Replaying must return
+  // the same receipt, not fail while parsing a projection that was not stored.
+  const projection = projectionSynchronized && command.responseView && raw.projection !== undefined ? readResponse(raw.projection) : undefined
   if (command.action === 'deshacer') {
     const undone = raw.ok === true
     return {
