@@ -272,6 +272,7 @@ export const IMPERSONATION_ROUTE_MATRIX: readonly MatrixRule[] = [
   financeRead('finance-conciliar-api', '/api/admin/finanzas/conciliar', [B4]),
   financeRead('finance-conciliar-interests-api', '/api/admin/finanzas/conciliar/intereses', [B4]),
   financeRead('finance-conciliar-history-api', '/api/admin/finanzas/conciliar/historial', [B4]),
+  financeRead('finance-conciliar-remesa-preview-api', '/api/admin/finanzas/conciliar/remesa-preview', [B4]),
   financeRead('finance-conciliar-file-api', /^\/api\/admin\/finanzas\/conciliar\/(?:archivo|detalle)\/[A-Za-z0-9_-]{1,160}$/, [B4]),
   financeRead('finance-easy-profile-api', '/api/admin/finanzas/modo-facil/perfil', [B4]),
   financeRead('finance-easy-cards-api', '/api/admin/finanzas/modo-facil/tarjetas', [B4]),

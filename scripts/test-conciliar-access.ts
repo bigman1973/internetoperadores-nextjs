@@ -68,3 +68,23 @@ test('intereses: sólo relación manual en staging y mismos permisos efectivos',
     assert.equal(easyOnlyRequestAllowed('/api/admin/finanzas/conciliar/intereses','GET'),false);
   } finally { if(old===undefined)delete process.env.FINANCE_STAGING_SANDBOX;else process.env.FINANCE_STAGING_SANDBOX=old; }
 });
+
+test('detalle íntegro de remesa: lectura exacta del destino, sin escritura ni prefijo abierto', () => {
+  const path = '/api/admin/finanzas/conciliar/remesa-preview'
+  inStaging(() => {
+    for (const method of ['GET', 'HEAD']) assert(easyOnlyRequestAllowed(path, method))
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) assert.equal(easyOnlyRequestAllowed(path, method), false)
+    assert.equal(easyOnlyRequestAllowed(path + '/otro', 'GET'), false)
+    assert.equal(easyOnlyRequestAllowed('/api/admin/finanzas/conciliar/confirming-inventario', 'GET'), false)
+  })
+  const route = impersonationRouteDecision(path, 'GET', new URLSearchParams('rowId=fixture_row'), 10)
+  assert(route.allowed)
+  assert.equal(route.targetOnly, true)
+  assert.equal(route.permission?.required, 'lectura')
+  assert.deepEqual(route.permission?.areas, ['admin.finanzas.conciliacion'])
+  assert.equal(impersonationRequestAllowed(path, 'POST', new URLSearchParams(), 10, 'confirmar'), false)
+  assert.equal(impersonationRequestAllowed(path + '/otro', 'GET'), false)
+  const prior=process.env.FINANCE_STAGING_SANDBOX
+  try { process.env.FINANCE_STAGING_SANDBOX='0';assert.equal(easyOnlyRequestAllowed(path,'GET'),false) }
+  finally { if(prior===undefined) delete process.env.FINANCE_STAGING_SANDBOX;else process.env.FINANCE_STAGING_SANDBOX=prior }
+})

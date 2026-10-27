@@ -8,6 +8,7 @@ export function easyOnlyRequestAllowed(path: string, method: string, search: URL
     if (path === '/api/admin/finanzas/conciliar') return ['GET','HEAD','POST'].includes(method)
     if (path === '/api/admin/finanzas/conciliar/intereses') return ['GET','HEAD','POST'].includes(method)
     if (path === '/api/admin/finanzas/conciliar/historial') return SAFE.has(method)
+    if (path === '/api/admin/finanzas/conciliar/remesa-preview') return SAFE.has(method)
     if (/^\/api\/admin\/finanzas\/conciliar\/(?:archivo|detalle)\/[A-Za-z0-9_-]{1,160}$/.test(path)) return SAFE.has(method)
   }
   if (path === '/admin/finanzas/modo-facil' || path === '/admin/finanzas/para-pedir') return SAFE.has(method)
