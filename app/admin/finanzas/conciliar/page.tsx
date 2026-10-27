@@ -19,11 +19,17 @@ function calendarDate(value: unknown): string | null {
 
 /** La foto inicial ya pasó por ACL vivo y no se reutiliza fuera de este render. */
 export default async function ConciliarPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const started = performance.now();
+  const timing = (phase: 'guard' | 'access' | 'projection') => {
+    if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('conciliar-render-timing', { phase, elapsedMs: Math.round(performance.now() - started) });
+  };
   try {
     await assertPrototypeStaging();
+    timing('guard');
     // requireAuth usa cache() de React: comparte únicamente la misma sesión ya
     // comprobada por el layout en este render, nunca permisos entre requests.
     const access = await requireB4FinanceAccess('lectura', await requireAuth('admin'));
+    timing('access');
     if (!access.ok) notFound();
     const query = await searchParams;
     const initialTab = query.tab === 'PAGOS' || query.tab === 'EMITIDAS' || query.tab === 'RECIBIDAS' ? query.tab : 'COBROS';
@@ -39,6 +45,7 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
       offset: '0',
     });
     const initialData = await readConciliarProjection(input);
+    timing('projection');
     return <div className={roboto.variable}><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialData={initialData} /></div>;
   } catch (error) {
     if (error instanceof PrototypeStagingError) notFound();
