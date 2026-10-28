@@ -2,7 +2,6 @@
   "version": 2,
   "framework": "nextjs",
   "cleanUrls": true,
-  "regions": ["sfo1"],
   "crons": [
     {
       "path": "/api/cron/abandoned-carts",

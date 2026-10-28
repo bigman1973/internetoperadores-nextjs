@@ -4,8 +4,9 @@ import { prisma } from '@/lib/prisma'
 import { assertPrototypeStaging } from '@/lib/finanzas/prototype-staging'
 import { rebuildConciliarProjection } from '@/lib/finanzas/conciliar-db'
 
-/** Actualización finita propiedad de la aplicación. No crea temporizadores,
- * cron, llamadas HTTP ni proveedores. Production se queda fuera de esta fase. */
+/** Actualización finita exclusiva de staging. No crea temporizadores, cron,
+ * llamadas HTTP ni proveedores; producción conserva la marca dirty para una
+ * reconstrucción revisada fuera de la respuesta. */
 export async function refreshConciliarProjectionIfDirty(actorId: number | null) {
   if (process.env.FINANCE_STAGING_SANDBOX !== '1') return { rebuilt: false }
   await assertPrototypeStaging()

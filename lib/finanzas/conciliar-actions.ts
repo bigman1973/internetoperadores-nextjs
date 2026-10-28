@@ -1,6 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma from '@/lib/prisma'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { confirmarB4Tx, createDocumentoB4Tx, deshacerB4Tx, B4ServiceError } from '@/lib/finanzas/reconciliation-db'
 import { confirmEasyReconciliationTx, inspectEasyCandidatesTx, EasyReconciliationServiceError } from '@/lib/finanzas/easy-reconciliation-db'
@@ -36,7 +36,7 @@ const waitForSerializableRetry: SerializableRetryDelay = milliseconds => new Pro
 
 function isRetryableSerializableP2034(error: unknown): boolean {
   if (
-    error instanceof PrototypeStagingError ||
+    error instanceof ConciliarRuntimeError ||
     error instanceof ConciliarActionError ||
     error instanceof ConciliarDbError ||
     error instanceof B4ServiceError ||
@@ -409,9 +409,9 @@ async function undoCollectionLeg(tx: Tx, actorId: number, operationId: string, o
   await appendLeg(tx, operationId, { ordinal, rowId: leg.rowId, movimientoId: leg.movimientoId ?? null, proposalBlockId: String(result.bloqueId), result: { state: 'deshecha', proposalBlockId: String(result.bloqueId) } })
 }
 
-async function requireLiveWrite(actorId: number) {
-  await assertPrototypeStaging()
-  const access = await requireB4ActorAccess(actorId, 'escritura')
+async function requireLiveWrite(actorId: number, database: Tx) {
+  await assertConciliarRuntime(database)
+  const access = await requireB4ActorAccess(actorId, 'escritura', database)
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
@@ -544,13 +544,18 @@ export async function runConciliarTransactionCommand(tx: Tx, actorId: number, ra
 
 export async function runConciliarAction(actorId: number, raw: unknown) {
   const command = parseConciliarCommand(raw)
-  await requireLiveWrite(actorId)
-  const txSerializable = () => db().$transaction(async base => runConciliarTransactionCommand(asTx(base), actorId, command), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
+  const txSerializable = () => db().$transaction(async base => {
+    const tx = asTx(base)
+    // Runtime identity and the actor's B4 write ACL are both reread in the
+    // SERIALIZABLE transaction immediately before the receipt and business DML.
+    await requireLiveWrite(actorId, tx)
+    return runConciliarTransactionCommand(tx, actorId, command)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable)
 }
 
 export function conciliarActionErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
-  if (error instanceof PrototypeStagingError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof ConciliarRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof ConciliarActionError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   if (error instanceof ConciliarDbError) return conciliarDbErrorResponse(error)
   if (error instanceof ConciliarConfirmingServiceError) return { status: error.status, body: { error: error.message.replace(/\b(?:B[4-8]|C9|C10)\b/g, 'documental'), codigo: error.code } }

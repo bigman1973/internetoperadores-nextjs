@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface } from './lib/admin-render-surface';
+import { conciliarRuntimeConfigured } from './lib/finanzas/conciliar-runtime';
 
 const SAFE_API_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const IMPERSONATION_HEADER = 'x-io-impersonation-context';
@@ -380,9 +381,10 @@ export async function middleware(request) {
   // No early return: the profile and financial middleware below must evaluate
   // every acting request with its effective target JWT.
   const trustedHeaders = actingBoundary.headers;
+  const conciliarRuntime = conciliarRuntimeConfigured();
   // Presentation only: replace any browser value with the exact URL/flag. This
-  // hint cannot bypass the live profile, authorization or staging checks below.
-  trustedHeaders.set(ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface(request.nextUrl.pathname, process.env.FINANCE_STAGING_SANDBOX === '1'));
+  // hint cannot bypass the live profile, authorization or runtime checks below.
+  trustedHeaders.set(ADMIN_RENDER_SURFACE_HEADER, adminRenderSurface(request.nextUrl.pathname, conciliarRuntime !== null));
   if (process.env.FINANCE_STAGING_SANDBOX === '1' && request.nextUrl.pathname.startsWith('/api/')) {
     const path = request.nextUrl.pathname;
     const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(request.method);
@@ -442,7 +444,7 @@ export async function middleware(request) {
       const userId = Number(token?.id);
       let easyOnly = false;
       if (token?.userType === 'admin' && Number.isSafeInteger(userId) && userId > 0) {
-        const compactProjectionProfile = process.env.FINANCE_STAGING_SANDBOX === '1'
+        const compactProjectionProfile = conciliarRuntime !== null
           && ['/admin/finanzas/conciliar', '/api/admin/finanzas/conciliar'].includes(path);
         easyOnly = compactProjectionProfile
           ? await (await import('@/lib/finanzas/conciliar-boundary-profile')).isConciliarEasyOnlyProfile(userId)

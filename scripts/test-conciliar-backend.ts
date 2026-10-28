@@ -84,7 +84,7 @@ test('estático: las rutas no exponen nóminas genéricas ni URL/drive/item del 
   const history = readFileSync(resolve(root, 'app/api/admin/finanzas/conciliar/historial/route.ts'), 'utf8')
   const db = readFileSync(resolve(root, 'lib/finanzas/conciliar-db.ts'), 'utf8')
   for (const source of [main, archive, history]) {
-    assert.match(source, /assertPrototypeStaging/)
+    assert.match(source, /assertConciliarRuntime/)
     assert.match(source, /requireB4FinanceAccess/)
     assert.match(source, /Método no permitido/)
   }

@@ -174,7 +174,7 @@ const navigation: SidebarNavigationEntry[] = [
   { name: 'Configuración', href: '/admin/configuracion', icon: 'cog', section: 'configuracion' },
 ]
 
-function withFinanceEnvironment(financeEnvironment: FinanceEnvironment): SidebarNavigationEntry[] {
+function withFinanceEnvironment(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationEntry[] {
   const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
 
   return navigation.map(entry => {
@@ -184,7 +184,7 @@ function withFinanceEnvironment(financeEnvironment: FinanceEnvironment): Sidebar
       ...entry,
       children: entry.children
         .filter(child => {
-          if (child.href === '/admin/finanzas/conciliar') return financeEnvironment === 'staging'
+          if (child.href === '/admin/finanzas/conciliar') return conciliarEnabled
           if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(child.href)) return financeEnvironment !== null
           // Telefonía/SOFÍA continúa aparcada en producción.
           if (child.href === '/admin/finanzas/analitica-cliente') return financeEnvironment === 'staging'
@@ -200,15 +200,15 @@ function withFinanceEnvironment(financeEnvironment: FinanceEnvironment): Sidebar
   })
 }
 
-export function getSidebarNavigation(financeEnvironment: FinanceEnvironment): SidebarNavigationEntry[] {
-  return withFinanceEnvironment(financeEnvironment)
+export function getSidebarNavigation(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationEntry[] {
+  return withFinanceEnvironment(financeEnvironment, conciliarEnabled)
 }
 
-export function getEasyOnlySidebarNavigation(financeEnvironment: FinanceEnvironment): SidebarNavigationItem[] {
-  const easyHome = financeEnvironment === 'staging' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
+export function getEasyOnlySidebarNavigation(financeEnvironment: FinanceEnvironment, conciliarEnabled = financeEnvironment === 'staging'): SidebarNavigationItem[] {
+  const easyHome = conciliarEnabled ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
   return [
     {
-      name: financeEnvironment === 'staging' ? 'Conciliar' : 'Modo fácil',
+      name: conciliarEnabled ? 'Conciliar' : 'Modo fácil',
       href: easyHome,
       icon: 'clipboardDocumentList',
     },
@@ -234,8 +234,9 @@ function filterItem(item: SidebarNavigationItem, hasAccess: (section: string) =>
 export function filterAuthorizedSidebarNavigation(
   financeEnvironment: FinanceEnvironment,
   hasAccess: (section: string) => boolean,
+  conciliarEnabled = financeEnvironment === 'staging',
 ): SidebarNavigationEntry[] {
-  return getSidebarNavigation(financeEnvironment)
+  return getSidebarNavigation(financeEnvironment, conciliarEnabled)
     .map(entry => {
       if (!isSidebarNavigationGroup(entry)) return filterItem(entry, hasAccess)
 

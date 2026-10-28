@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { DescargaPrivadaGraphError, descargarGraphPrivadoAcotado } from '@/lib/finanzas/descarga-privada-graph'
@@ -21,7 +21,7 @@ function isPdf(bytes: Buffer): boolean {
   return bytes.length >= 5 && bytes.subarray(0, 5).toString('ascii') === '%PDF-'
 }
 function errorResponse(error: unknown) {
-  if (error instanceof PrototypeStagingError) return privateJson({ error: error.message, codigo: error.code }, error.status)
+  if (error instanceof ConciliarRuntimeError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof ConciliarDbError) {
     const response = conciliarDbErrorResponse(error)
     return privateJson(response.body, response.status)
@@ -41,7 +41,7 @@ function errorResponse(error: unknown) {
  */
 export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
-    await assertPrototypeStaging()
+    await assertConciliarRuntime()
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const { id } = await context.params

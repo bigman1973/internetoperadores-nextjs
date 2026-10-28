@@ -18,6 +18,8 @@ interface InteractiveAdminSidebarMenuProps {
   user: AdminSidebarUser
   easyOnly?: boolean
   financeEnvironment?: FinanceEnvironment
+  /** Presentation seed from the server; cannot authorize routes or writes. */
+  conciliarEnabled?: boolean
   onNavigate?: () => void
 }
 
@@ -25,17 +27,18 @@ export default function InteractiveAdminSidebarMenu({
   user,
   easyOnly = false,
   financeEnvironment = null,
+  conciliarEnabled = false,
   onNavigate,
 }: InteractiveAdminSidebarMenuProps) {
   const pathname = usePathname()
   const [openGroups, setOpenGroups] = useState<string[]>([])
   const { hasAccess, effectiveRole, isViewingAs } = useRole()
-  const easyHome = financeEnvironment === 'staging' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
+  const easyHome = conciliarEnabled ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
   const visibleNavigation = useMemo(() => (
     easyOnly
       ? []
-      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess)
-  ), [easyOnly, financeEnvironment, hasAccess])
+      : filterAuthorizedSidebarNavigation(financeEnvironment, hasAccess, conciliarEnabled)
+  ), [easyOnly, financeEnvironment, conciliarEnabled, hasAccess])
 
   // Auto-abrir el grupo si la ruta actual está dentro.
   useEffect(() => {
@@ -109,7 +112,7 @@ export default function InteractiveAdminSidebarMenu({
   }
 
   const easyNavigation: SidebarNavigationItem[] = [
-    { name: financeEnvironment === 'staging' ? 'Conciliar' : 'Modo fácil', href: easyHome, icon: 'clipboardDocumentList' },
+    { name: conciliarEnabled ? 'Conciliar' : 'Modo fácil', href: easyHome, icon: 'clipboardDocumentList' },
     { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: 'documentText' },
   ]
 

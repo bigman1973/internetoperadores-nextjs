@@ -40,9 +40,12 @@ const conciliarCounterparty = 'lib/finanzas/conciliar-counterparty.ts'
 mustContain(conciliarCounterparty, "requireB4ActorAccess(input.actorId, 'escritura', work)")
 
 const confirming = 'lib/finanzas/conciliar-confirming.ts'
-mustContain(confirming, 'await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)')
+mustContain(confirming, 'await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)')
 mustContain(confirming, "requireB4ActorAccess(actorId, 'escritura', tx as unknown as Prisma.TransactionClient)")
-mustNotContain(confirming, 'await assertFinanceRuntimeReady()')
+mustNotContain(confirming, 'await assertConciliarRuntime()')
+const conciliarRuntime = 'lib/finanzas/conciliar-runtime.ts'
+mustContain(conciliarRuntime, 'getFinanceEasyRuntimeContext(identityClient)')
+mustContain('lib/finanzas/conciliar-actions.ts', 'await requireLiveWrite(actorId, tx)')
 
 console.log(JSON.stringify({
   transactionScopedGuardReads: true,

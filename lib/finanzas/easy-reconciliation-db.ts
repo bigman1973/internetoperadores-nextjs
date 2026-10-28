@@ -312,7 +312,7 @@ async function candidatesForMovementTx(tx: Tx, movement: Movement): Promise<Cand
  * current candidate set plus the optional proposal cue; routes use the same
  * `candidatesForMovementTx` implementation through the read projection. */
 export async function inspectEasyCandidatesTx(tx: Prisma.TransactionClient, movimientoId: string) {
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime(tx)
   const movement = await lockMovement(asTx(tx), movimientoId)
   return (await candidatesForMovementTx(asTx(tx), movement)).map((candidate) => ({
     reglaAplicadaId: candidate.reglaAplicadaId,

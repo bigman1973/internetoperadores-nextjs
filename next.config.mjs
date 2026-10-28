@@ -12,8 +12,11 @@ const nextConfig = {
     // Evitar picos de memoria durante la generación de cientos de rutas en CI y entornos limitados
     cpus: 1,
     // Ensayo de entrega: elimina el viaje CSS inicial sin transformar HTML ni
-    // recortar reglas. Next aplica esta opción a todo el build; sólo staging.
-    inlineCss: process.env.FINANCE_STAGING_SANDBOX === '1',
+    // recortar reglas. Next la aplica a todo el build: promoción explícita de
+    // la versión validada, independiente de las guardas del sandbox financiero.
+    inlineCss: process.env.FINANCE_STAGING_SANDBOX === '1'
+      || (process.env.FINANCE_CONCILIAR_PRODUCTION_ENABLED === '1'
+        && process.env.FINANCE_CONCILIAR_INLINE_CSS_ENABLED === '1'),
     serverActions: {
       bodySizeLimit: '50mb',
     },

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { HttpGuardError, readJsonLimited, sameOrigin } from '@/lib/finanzas/sync-jobs/api-guards'
 import { ConciliarValidationError, parseConciliarCommand, parseConciliarGetInput, type ConciliarCommand } from '@/lib/finanzas/conciliar-contract'
@@ -17,7 +17,7 @@ const MAX_JSON_BYTES = 16 * 1024
 const MAX_QUERY_BYTES = 1024
 
 async function errorResponse(error: unknown) {
-  if (error instanceof PrototypeStagingError) return privateJson({ error: error.message, codigo: error.code }, error.status)
+  if (error instanceof ConciliarRuntimeError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof ConciliarValidationError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof HttpGuardError) {
     const body = error.code === 'JSON_REQUIRED' ? { error: 'Se requiere application/json.', codigo: error.code }
@@ -111,7 +111,7 @@ function actionResponse(command: ConciliarCommand, result: unknown) {
 /** GET is projection-only: it never rebuilds, creates documents, sends requests or writes B4/B5. */
 export async function GET(request: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertConciliarRuntime()
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const query = queryRecord(request)
@@ -129,7 +129,7 @@ export async function POST(request: NextRequest) {
   const phase = (name: string) => { if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('CONCILIAR_POST_PHASE', name) }
   try {
     phase('handler-start')
-    await assertPrototypeStaging()
+    await assertConciliarRuntime()
     const access = await requireB4FinanceAccess('escritura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     if (!sameOrigin(request)) return privateJson({ error: 'Origen de la solicitud no válido.', codigo: 'INVALID_ORIGIN' }, 403)

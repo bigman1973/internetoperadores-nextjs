@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { conciliarProjectionRowId } from './conciliar-core'
-import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety'
+import { assertConciliarRuntime } from '@/lib/finanzas/conciliar-runtime'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { archivoRecibidaControlado } from '@/lib/finanzas/archivo-fuente-controlada'
 import {
@@ -667,7 +667,7 @@ export async function applyDocumentedConfirmingInterestSupport(
   const input = parseApplyDocumentedConfirmingInterestSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_APPLY_V1', actorId, input })
   return withWriteTransaction(db, async (tx) => {
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest:${input.movimientoId}:${input.confirmingId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)
@@ -761,7 +761,7 @@ export async function undoDocumentedConfirmingInterestSupport(
   }
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_UNDO_V1', actorId, input })
   return withWriteTransaction(db, async (tx) => {
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     const lock = await tx.$queryRaw<Array<{ movimientoId: string; vinculoDiferenciaB4Id: string; importeInteresCentimos: unknown; estado: string; version: unknown }>>(Prisma.sql`
       SELECT l.movimiento_id AS "movimientoId", l.vinculo_diferencia_id::text AS "vinculoDiferenciaB4Id",
@@ -1058,7 +1058,7 @@ export async function applyDocumentedConfirmingInterestInvoiceSupport(
   const input = parseApplyDocumentedConfirmingInterestInvoiceSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_INVOICE_LINK_V2', actorId, input })
   return withWriteTransaction(db, async (tx) => {
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest-invoice:${input.loteId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestInvoiceSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)
@@ -1090,7 +1090,7 @@ export async function undoDocumentedConfirmingInterestInvoiceSupport(
   const input = parseUndoDocumentedConfirmingInterestInvoiceSupport(raw)
   const payloadHash = sha256({ schema: 'CONFIRMING_INTEREST_INVOICE_UNLINK_V2', actorId, input })
   return withWriteTransaction(db, async (tx) => {
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-interest-invoice:${input.loteId}`}, 0))::text AS locked`)
     const replay = await idempotencyReplay<ConfirmingInterestInvoiceSupportResult>(tx, actorId, input.idempotencyKey, payloadHash)

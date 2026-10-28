@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
-import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety'
+import { assertConciliarRuntime } from '@/lib/finanzas/conciliar-runtime'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { trustedImpersonationContextResolutionFromRequest, type SignedImpersonationContextResolution } from '@/lib/impersonation-context'
 import {
@@ -919,7 +919,7 @@ export async function applyDocumentedConfirmingLiquidationSupport(
   const payloadHash = sha256({ schema: 'C11_CONFIRMING_SUPPORT_APPLY_V1', actorId, auditActors, input: safe })
   return withWriteTransaction(db, async (tx) => {
     if (!await c11TablesExist(tx)) fail(409, 'C11_MIGRACION_PENDIENTE', 'La evidencia C11 todavía no está disponible.')
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`confirming-c11:${safe.movimientoId}:${safe.liquidacionId}`},0))::text AS locked`)
     const replays = await tx.$queryRaw<Array<{ payloadHash: string; snapshot: unknown }>>(Prisma.sql`
@@ -1000,7 +1000,7 @@ export async function undoDocumentedConfirmingLiquidationSupport(
   const payloadHash = sha256({ schema: 'C11_CONFIRMING_SUPPORT_UNDO_V1', actorId, auditActors, input: safe })
   return withWriteTransaction(db, async (tx) => {
     if (!await c11TablesExist(tx)) fail(404, 'SOPORTE_C11_NO_ENCONTRADO', 'El soporte C11 no existe.')
-    await assertFinanceRuntimeReady(tx as unknown as Prisma.TransactionClient)
+    await assertConciliarRuntime(tx as unknown as Prisma.TransactionClient)
     await assertLiveFinanceWriter(tx, actorId)
     const rows = await tx.$queryRaw<Array<{
       soporteId: string; liquidacionId: string; movimientoId: string; operacionB4Id: string; sourceHash: string; version: unknown; estadoOperacion: string; revertidaAt: unknown

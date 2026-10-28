@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { Prisma } from '@prisma/client'
 import prisma from '@/lib/prisma'
@@ -18,7 +18,7 @@ export const preferredRegion = 'sfo1'
  * and live membership/capacity inside the existing serializable transaction. */
 export async function GET(request: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertConciliarRuntime()
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const entries = [...request.nextUrl.searchParams.entries()]
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     }
     return privateJson({ preview: detail })
   } catch (error) {
-    if (error instanceof PrototypeStagingError) return privateJson({ error: error.message, codigo: error.code }, error.status)
+    if (error instanceof ConciliarRuntimeError) return privateJson({ error: error.message, codigo: error.code }, error.status)
     const known = easyCollectionsErrorResponse(error)
     return privateJson(known.body, known.status)
   }

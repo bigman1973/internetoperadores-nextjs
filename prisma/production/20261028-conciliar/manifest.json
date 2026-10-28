@@ -1,0 +1,37 @@
+[
+  {
+    "id": "conciliar-prod-20261026_conciliar_backend_projection",
+    "source": "prisma/migrations/20261026_conciliar_backend_projection/migration.sql",
+    "sourceSha256": "7defd1b368323cdbb7cebe9cda4b5a32053a64f0ecf6e5aba708a858985835f4",
+    "path": "prisma/production/20261028-conciliar/01-20261026_conciliar_backend_projection.sql",
+    "sha256": "9cab803a49740871d9ccac9075f6a38f236d3b1f337a1995fda319d440507ac4"
+  },
+  {
+    "id": "conciliar-prod-20261026_confirming_documented_interest_support",
+    "source": "prisma/migrations/20261026_confirming_documented_interest_support/migration.sql",
+    "sourceSha256": "08acaee1ffca91fee6a5bf3a719249e71ba881bce97f6d64fd5fe8a114c7563a",
+    "path": "prisma/production/20261028-conciliar/02-20261026_confirming_documented_interest_support.sql",
+    "sha256": "3dcb0643a72e719904246f409b47da173ea384850bf0b08f06b25cb28a379af9"
+  },
+  {
+    "id": "conciliar-prod-20261027_bank_account_documented_correction",
+    "source": "prisma/migrations/20261027_bank_account_documented_correction/migration.sql",
+    "sourceSha256": "c075fd43cf7610f85a6bbc815ed3f348fa54731eea3c2401a424668f380b4ab8",
+    "path": "prisma/production/20261028-conciliar/03-20261027_bank_account_documented_correction.sql",
+    "sha256": "3e8a58ced19b9f76e6ea49018bb09fe8a62fb119be8b52125b47b070485296dd"
+  },
+  {
+    "id": "conciliar-prod-20261027_b7_remittance_payment_receipts",
+    "source": "prisma/migrations/20261027_b7_remittance_payment_receipts/migration.sql",
+    "sourceSha256": "e68867176199672a1be6275572d6be87d5159b53301916927a6dd0043ac45b37",
+    "path": "prisma/production/20261028-conciliar/04-20261027_b7_remittance_payment_receipts.sql",
+    "sha256": "a24f749fbce9aaafe56c6c79abc2773022e7fae6cadbea372c551a348cdb66ff"
+  },
+  {
+    "id": "conciliar-prod-20261027_c11_confirming_liquidation_documental",
+    "source": "prisma/migrations/20261027_c11_confirming_liquidation_documental/migration.sql",
+    "sourceSha256": "7d4a8d14d739d4e3b556dea4c335e2d6edb634cd20a34eaa3dc56b23133aa1ae",
+    "path": "prisma/production/20261028-conciliar/05-20261027_c11_confirming_liquidation_documental.sql",
+    "sha256": "fded7ed406d18a2e46c54b31946af03b90498610954f387b0a96186e9db62ac2"
+  }
+]

@@ -19,6 +19,7 @@ interface AdminSidebarMenuProps {
   user: AdminSidebarUser
   easyOnly?: boolean
   financeEnvironment?: FinanceEnvironment
+  conciliarEnabled?: boolean
 }
 
 function NavItem({ item, isChild = false, depth = 0 }: { item: SidebarNavigationItem; isChild?: boolean; depth?: number }) {
@@ -64,8 +65,9 @@ export default function AdminSidebarMenu({
   user,
   easyOnly = false,
   financeEnvironment = null,
+  conciliarEnabled = false,
 }: AdminSidebarMenuProps) {
-  const easyHome = financeEnvironment === 'staging' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
+  const easyHome = conciliarEnabled ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
 
   return (
     <div data-admin-sidebar-ssr className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">

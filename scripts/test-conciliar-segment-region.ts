@@ -5,7 +5,7 @@ const files=['app/admin/finanzas/conciliar/page.tsx','app/api/admin/finanzas/con
 for(const file of files){
  const s=fs.readFileSync(file,'utf8')
  assert.match(s,/export const preferredRegion = 'sfo1'/)
- assert.ok(s.includes('await assertPrototypeStaging()'))
+ assert.ok(s.includes('await assertConciliarRuntime()'))
  assert.ok(s.includes('requireB4FinanceAccess'))
 }
 assert.ok(fs.readFileSync('node_modules/next/dist/build/segment-config/app/app-segment-config.js','utf8').includes('preferredRegion:'))

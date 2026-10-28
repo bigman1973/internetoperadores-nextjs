@@ -27,6 +27,8 @@ type InitialMenuMode = 'easy' | 'privileged' | 'seed' | 'unavailable'
 interface AdminSidebarProps {
   easyOnly?: boolean
   financeEnvironment?: FinanceEnvironment
+  /** Render hint derived by the current server response, never API authority. */
+  conciliarEnabled?: boolean
   user: AdminSidebarUser
   /** Árbol ya autorizado de la respuesta SSR actual, formado por el layout. */
   initialMenu: ReactNode
@@ -43,6 +45,7 @@ export default function AdminSidebar({
   user,
   easyOnly = false,
   financeEnvironment = null,
+  conciliarEnabled = false,
   initialMenu,
   initialMenuMode,
   initialPermissionSignature = '',
@@ -187,6 +190,7 @@ export default function AdminSidebar({
         user={user}
         easyOnly={easyOnly}
         financeEnvironment={financeEnvironment}
+        conciliarEnabled={conciliarEnabled}
         onNavigate={onNavigate}
       />
     )

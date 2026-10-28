@@ -16,7 +16,7 @@ function required(source, name, fragments) {
 }
 
 required(page, 'página', [
-  "assertPrototypeStaging()",
+  "assertConciliarRuntime()",
   "requireB4FinanceAccess('lectura'",
   "requireAuth('admin')",
   'readConciliarProjection(input)',

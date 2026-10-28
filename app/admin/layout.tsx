@@ -16,6 +16,7 @@ import { ActuationProvider } from '@/components/impersonation/ActuationProvider'
 import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
 import { isEasyOnlyFinanceUser } from '@/lib/finanzas/easy-access-profile'
 import { getFinanceEasyProfileRuntime, getFinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
+import { getConciliarRuntimeContext } from '@/lib/finanzas/conciliar-runtime'
 import { hasAccess, permissionSignature } from '@/components/admin/sidebar-access-evaluator'
 import {
   filterAuthorizedSidebarNavigation,
@@ -40,18 +41,21 @@ function getSidebarInitialModel({
   userRoles,
   easyOnly,
   financeEnvironment,
+  conciliarEnabled,
   initialPermissions,
 }: {
   userRole: string
   userRoles: string[]
   easyOnly: boolean
   financeEnvironment: FinanceEnvironment
+  /** Server-derived render/navigation seed; never authorization for an API. */
+  conciliarEnabled: boolean
   initialPermissions: Awaited<ReturnType<typeof readAdminPermissionsSsrWithFallback>>
 }): SidebarInitialModel | null {
   if (easyOnly) {
     return {
       mode: 'easy',
-      navigation: getEasyOnlySidebarNavigation(financeEnvironment),
+      navigation: getEasyOnlySidebarNavigation(financeEnvironment, conciliarEnabled),
       permissionSignature: '',
     }
   }
@@ -75,7 +79,7 @@ function getSidebarInitialModel({
     viewingUser: null,
     permisosGranulares: permissions,
     tienePermisosGranulares,
-  }))
+  }), conciliarEnabled)
 
   return {
     mode: isPrivilegedRealRole ? 'privileged' : 'seed',
@@ -107,9 +111,10 @@ export default async function AdminLayout({
   // Las lecturas posteriores a la autenticación son independientes y no mutan
   // estado. La foto, si está disponible, reutiliza su propio conteo de lectura;
   // ante un error se conserva exactamente el fallback histórico de count().
-  const [profileEnvironment, financeContext, initialPermissions, canAccessAdmin] = await Promise.all([
+  const [profileEnvironment, financeContext, conciliarContext, initialPermissions, canAccessAdmin] = await Promise.all([
     getFinanceEasyProfileRuntime(),
     getFinanceEasyRuntimeContext(),
+    getConciliarRuntimeContext(),
     permissionSeed,
     canAccessAdminPanel(session.user, async usuarioId => {
       const permissions = await permissionSeed
@@ -125,11 +130,13 @@ export default async function AdminLayout({
   }
 
   const financeEnvironment = financeContext?.runtime ?? null
+  const conciliarEnabled = conciliarContext !== null
   const initialSidebar = getSidebarInitialModel({
     userRole,
     userRoles,
     easyOnly,
     financeEnvironment,
+    conciliarEnabled,
     initialPermissions,
   })
   const initialMenu = initialSidebar ? (
@@ -138,6 +145,7 @@ export default async function AdminLayout({
       user={session.user}
       easyOnly={easyOnly}
       financeEnvironment={financeEnvironment}
+      conciliarEnabled={conciliarEnabled}
     />
   ) : <AdminSidebarPlaceholder />
 
@@ -160,6 +168,7 @@ export default async function AdminLayout({
               user={session.user}
               easyOnly={easyOnly}
               financeEnvironment={financeEnvironment}
+              conciliarEnabled={conciliarEnabled}
               initialMenu={initialMenu}
               initialMenuMode={initialSidebar?.mode ?? 'unavailable'}
               initialPermissionSignature={initialSidebar?.permissionSignature}

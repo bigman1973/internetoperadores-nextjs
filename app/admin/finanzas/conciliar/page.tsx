@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
 import ConciliarWorkspace from '@/components/finanzas/conciliar/ConciliarWorkspace';
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging';
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime';
 import { requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth';
 import { requireAuth } from '@/lib/middleware/auth';
 import { CONCILIAR_DEFAULT_CUTOFF, parseConciliarGetInput } from '@/lib/finanzas/conciliar-contract';
@@ -25,7 +25,7 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
     if (process.env.FINANCE_STAGING_SANDBOX === '1') console.info('conciliar-render-timing', { phase, elapsedMs: Math.round(performance.now() - started), executionRegion });
   };
   try {
-    await assertPrototypeStaging();
+    await assertConciliarRuntime();
     timing('guard');
     // requireAuth usa cache() de React: comparte únicamente la misma sesión ya
     // comprobada por el layout en este render, nunca permisos entre requests.
@@ -49,7 +49,7 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
     timing('projection');
     return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialData={initialData} /></>;
   } catch (error) {
-    if (error instanceof PrototypeStagingError) notFound();
+    if (error instanceof ConciliarRuntimeError) notFound();
     throw error;
   }
 }

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging'
+import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
 import { privateJson, requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
 import { ConciliarDbError, conciliarDbErrorResponse, readConciliarHistory } from '@/lib/finanzas/conciliar-db'
 
@@ -31,7 +31,7 @@ function input(request: NextRequest): { limit: number; offset: number } {
   }
 }
 function errorResponse(error: unknown) {
-  if (error instanceof PrototypeStagingError) return privateJson({ error: error.message, codigo: error.code }, error.status)
+  if (error instanceof ConciliarRuntimeError) return privateJson({ error: error.message, codigo: error.code }, error.status)
   if (error instanceof ConciliarDbError) {
     const response = conciliarDbErrorResponse(error)
     return privateJson(response.body, response.status)
@@ -43,7 +43,7 @@ function errorResponse(error: unknown) {
 /** Only the current B4 actor's Conciliar receipts are exposed; no other operation source is queried. */
 export async function GET(request: NextRequest) {
   try {
-    await assertPrototypeStaging()
+    await assertConciliarRuntime()
     const access = await requireB4FinanceAccess('lectura', await getServerSession(authOptions))
     if ('response' in access) return access.response
     const page = input(request)
