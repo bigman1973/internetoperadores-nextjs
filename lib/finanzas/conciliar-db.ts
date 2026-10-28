@@ -25,10 +25,12 @@ import {
   textoSeguro,
 } from './conciliar-contract'
 import { selectConciliarB5DocumentReview, type ConciliarB5SupportCandidate, type ConciliarB5TicketCandidate } from './conciliar-b5-document-core'
-import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
+import { conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
 import { conciliarProveedorAliasesFuertes } from './conciliar-proveedor'
+import { referenciasEmitidasComposicionCompatible } from './conciliar-issued-reference-core'
+import { assignConciliarProviderPayments, type ConciliarProviderAssignmentReason, type ConciliarProviderInvoiceCandidate, type ConciliarProviderPayment } from './conciliar-proveedor-asignacion'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 
@@ -198,6 +200,62 @@ export function receivedInvoicePendingCandidate(candidates: readonly ReceivedInv
     : { color: 'AMBAR', motivo: 'Hay un pago propuesto que necesita revisión.', candidate }
 }
 
+/** A pending received invoice is a capacity, not merely its original total. */
+function providerInvoiceCandidatesForMovement(movement: any, receivedByCounterparty: ReadonlyMap<string, readonly any[]>): ConciliarProviderInvoiceCandidate[] {
+  const aliases = movementPartyAliases(movement)
+  const selected = new Map<string, ConciliarProviderInvoiceCandidate>()
+  for (const [providerAlias, invoices] of receivedByCounterparty) {
+    const exactProvider = conciliarAliasesMatch(aliases, [providerAlias])
+    const documentaryProvider = !exactProvider && conciliarAliasesContainDocumentaryAlias(aliases, [providerAlias])
+    if (!exactProvider && !documentaryProvider) continue
+    for (const invoice of invoices) {
+      const total = exactMoney(invoice.total_text), assigned = safeInteger(invoice.asignado)
+      if (total === null || total === 0 || assigned === null) continue
+      const pending = receivedInvoicePendingSettlement({ totalCentimos: total, assignedCentimos: assigned })
+      if (!pending) continue
+      const candidate: ConciliarProviderInvoiceCandidate = {
+        invoiceId: String(invoice.id), referencia: nullableText(invoice.referencia, 300),
+        fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null,
+        vencimiento: typeof invoice.vencimiento === 'string' ? invoice.vencimiento : null,
+        importeDisponibleCentimos: pending.pendingCentimos,
+        providerMatch: exactProvider ? 'EXACT' : 'DOCUMENTARY',
+      }
+      const previous = selected.get(candidate.invoiceId)
+      if (!previous || candidate.providerMatch === 'EXACT') selected.set(candidate.invoiceId, candidate)
+    }
+  }
+  return [...selected.values()].sort((left, right) => left.invoiceId.localeCompare(right.invoiceId))
+}
+
+function providerAssignmentMotive(reason: ConciliarProviderAssignmentReason): string {
+  switch (reason) {
+    case 'SIN_REFERENCIA_DOCUMENTAL': return 'El proveedor y el importe coinciden, pero el banco no cita una factura; revísala antes de confirmar.'
+    case 'IMPORTE_PEQUENO_DISTINTO': return 'La candidata es del mismo proveedor, pero el importe no coincide exactamente; revísala antes de confirmar.'
+    case 'FECHA_DOCUMENTO_POSTERIOR': return 'La candidata es del mismo proveedor, pero la fecha de emisión es posterior al movimiento bancario; revísala antes de confirmar.'
+    case 'PROVEEDOR_SOLO_DOCUMENTAL': return 'La candidata contiene el nombre completo del proveedor en el literal bancario, pero no un alias idéntico; revísala antes de confirmar.'
+    case 'CANDIDATAS_EXACTAS_AMBIGUAS': return 'Hay varias facturas exactas posibles; revísalas antes de confirmar.'
+    case 'FACTURA_EXACTA_RESERVADA': return 'Una factura exacta ya está reservada para otro cargo; revísalo antes de confirmar.'
+    case 'CANDIDATAS_REVISION_AMBIGUAS': return 'Hay varias candidatas de revisión; no se propone una factura arbitraria.'
+    case 'REFERENCIA_BANCARIA_SIN_FACTURA': return 'El banco cita una factura que no está disponible para este cargo; no se propone otra factura.'
+    case 'NINGUNA_FACTURA_DE_ESTE_IMPORTE': return 'Ninguna factura de este importe está disponible para este cargo.'
+    case 'REFERENCIA_EXACTA': return 'La referencia bancaria identifica exactamente la factura.'
+  }
+}
+
+/**
+ * La referencia documental puede llegar fuera del concepto visible del extracto.
+ * Se limita a los tres campos bancarios de la misma operación; no usa el tercero
+ * ni texto generado. Este valor sólo decide y revalida identidad documental, no
+ * sustituye el concepto que se presenta en la fila.
+ */
+function bankDocumentaryText(movement: Readonly<{ concepto?: unknown; referencia?: unknown; info_adicional?: unknown }>): string {
+  return [movement.concepto, movement.referencia, movement.info_adicional]
+    .map(value => textoSeguro(value))
+    .filter((value): value is string => value.length > 0)
+    .join(' ')
+    .slice(0, 1_000)
+}
+
 export async function unresolvedMovements(tx: Tx, movementId?: string) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,
@@ -220,14 +278,115 @@ export async function unresolvedMovements(tx: Tx, movementId?: string) {
       ${movementId ? Prisma.sql`FOR UPDATE OF m` : Prisma.empty}
   `)
 }
-async function liveCollectionProposals(tx: Tx) {
+async function liveCollectionProposals(tx: Tx, proposalId?: string) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
     WITH current_generation AS (SELECT id FROM modo_facil_generaciones_cobro ORDER BY creada_at DESC,id DESC LIMIT 1)
     SELECT p.id::text AS "propuestaId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",p.fingerprint,p.metodo,p.nivel,p.estado_propuesto AS "estadoPropuesto",p.composicion,p.explicacion,
       p.lineas,p.importe_movimiento_centimos AS "importeCentimos",p.motivo_no_requiere AS "motivoNoRequiere"
     FROM modo_facil_propuestas_cobro p JOIN current_generation g ON g.id=p.generacion_id
-    WHERE p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE') ORDER BY p.movimiento_id ASC,p.id ASC LIMIT ${MAX_REBUILD_ROWS}
+    WHERE p.estado_propuesto IN ('JUSTIFICADO','NO_REQUIERE')
+      ${proposalId ? Prisma.sql`AND p.id=CAST(${proposalId} AS uuid)` : Prisma.empty}
+      ORDER BY p.movimiento_id ASC,p.id ASC LIMIT ${proposalId ? 1 : MAX_REBUILD_ROWS}
   `)
+}
+
+/** Server-only proof for the exceptional client-name presentation path. It is
+ * deliberately derived from the FI records named by the live proposal and the
+ * movement's registered CLIENTE card; composition text never supplies a CIF. */
+export type CollectionClientIdentityProfile = Readonly<{
+  proposalId: string
+  movimientoId: string
+  compositionCount: number
+  compositionInvoiceIdCount: number
+  invoiceCount: number
+  distinctInvoiceCount: number
+  invoiceCifs: readonly unknown[]
+  invoiceNames: readonly unknown[]
+  entityCif: unknown
+  entityType: unknown
+  entityActive: unknown
+  entityLegalName: unknown
+  entityCommercialName: unknown
+  entityBoundToMovement?: boolean
+}>
+
+/**
+ * Bounded closed-profile reader shared by full rebuild and delta. It neither
+ * infers a client nor accepts composition.client as tax evidence. A malformed
+ * or stale requested proposal makes the caller retain review/fallback state.
+ */
+export async function readCollectionClientIdentityProfiles(base: Prisma.TransactionClient, proposalIds: readonly string[]): Promise<ReadonlyMap<string, CollectionClientIdentityProfile> | null> {
+  const requested = [...new Set(proposalIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 160))].sort()
+  if (requested.length !== new Set(proposalIds).size || requested.length > MAX_REBUILD_ROWS
+    || requested.some(id => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) return null
+  if (!requested.length) return new Map()
+  const tx = asTx(base)
+  const rows = await tx.$queryRaw<Array<any>>(Prisma.sql`
+    SELECT p.id::text AS "proposalId",p.movimiento_id AS "movimientoId",
+      COUNT(composition.ordinal)::integer AS "compositionCount",
+      COUNT(composition_id.invoice_id)::integer AS "compositionInvoiceIdCount",
+      COUNT(fe.id)::integer AS "invoiceCount",COUNT(DISTINCT fe.id)::integer AS "distinctInvoiceCount",
+      COALESCE(array_agg(fe.cif) FILTER (WHERE fe.id IS NOT NULL),'{}'::text[]) AS "invoiceCifs",
+      COALESCE(array_agg(fe.cliente) FILTER (WHERE fe.id IS NOT NULL),'{}'::text[]) AS "invoiceNames",
+      ef.nif_cif AS "entityCif",ef.tipo::text AS "entityType",ef.activo AS "entityActive",
+      ef.razon_social AS "entityLegalName",ef.nombre_comercial AS "entityCommercialName",
+      (m.entidad_fiscal_id IS NOT NULL) AS "entityBoundToMovement"
+    FROM modo_facil_propuestas_cobro p
+    JOIN movimientos_bancarios m ON m.id=p.movimiento_id
+    LEFT JOIN entidades_fiscales ef ON ef.id=m.entidad_fiscal_id
+    LEFT JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE COALESCE(p.composicion->'items','[]'::jsonb) END
+    ) WITH ORDINALITY AS composition(value,ordinal) ON TRUE
+    LEFT JOIN LATERAL (SELECT NULLIF(btrim(composition.value->>'facturaEmitidaId'),'') AS invoice_id) composition_id ON TRUE
+    LEFT JOIN facturas_emitidas fe ON fe.id=composition_id.invoice_id
+    WHERE p.id IN (${Prisma.join(requested.map(id => Prisma.sql`CAST(${id} AS uuid)`))})
+    GROUP BY p.id,p.movimiento_id,m.entidad_fiscal_id,ef.nif_cif,ef.tipo,ef.activo,ef.razon_social,ef.nombre_comercial
+    ORDER BY p.id ASC LIMIT ${requested.length + 1}
+  `)
+  if (rows.length !== requested.length || rows.length > MAX_REBUILD_ROWS) return null
+  const result = new Map<string, CollectionClientIdentityProfile>()
+  for (const row of rows) {
+    const proposalId = nullableText(row.proposalId, 160), movimientoId = nullableText(row.movimientoId, 300)
+    const compositionCount = safeInteger(row.compositionCount), compositionInvoiceIdCount = safeInteger(row.compositionInvoiceIdCount)
+    const invoiceCount = safeInteger(row.invoiceCount), distinctInvoiceCount = safeInteger(row.distinctInvoiceCount)
+    if (!proposalId || !movimientoId || !requested.includes(proposalId) || result.has(proposalId)
+      || compositionCount === null || compositionInvoiceIdCount === null || invoiceCount === null || distinctInvoiceCount === null
+      || !Array.isArray(row.invoiceCifs) || !Array.isArray(row.invoiceNames)) return null
+    result.set(proposalId, {
+      proposalId, movimientoId, compositionCount, compositionInvoiceIdCount, invoiceCount, distinctInvoiceCount,
+      invoiceCifs: row.invoiceCifs, invoiceNames: row.invoiceNames, entityCif: row.entityCif,
+      entityType: row.entityType, entityActive: row.entityActive, entityLegalName: row.entityLegalName,
+      entityCommercialName: row.entityCommercialName, entityBoundToMovement: row.entityBoundToMovement === true,
+    })
+  }
+  // No FK is invented: a missing bank entity can only use one active registered
+  // CLIENTE card with the same complete FI CIF, plus a literal bank/card name
+  // check in collectionClientIdentityMatches. Duplicate normalized CIFs fail closed.
+  const neededCifs = [...new Set([...result.values()].flatMap(profile => {
+    const cifs = profile.invoiceCifs.map(normalizedFiscalIdentity)
+    return !profile.entityBoundToMovement && cifs.length > 0 && cifs.every(cif => cif !== null && cif === cifs[0]) ? [cifs[0]!] : []
+  }))].sort()
+  if (neededCifs.length) {
+    const cards = await tx.$queryRaw<Array<{ cif: string; legal: string; commercial: string | null }>>(Prisma.sql`
+      SELECT nif_cif AS cif,razon_social AS legal,nombre_comercial AS commercial
+      FROM entidades_fiscales WHERE activo=true AND tipo='CLIENTE'
+        AND upper(regexp_replace(nif_cif,'[.[:space:]-]','','g')) IN (${Prisma.join(neededCifs)})
+      ORDER BY id LIMIT ${neededCifs.length * 2 + 1}
+    `)
+    if (cards.length > neededCifs.length * 2) return result
+    const byCif = new Map<string, typeof cards>()
+    for (const card of cards) {
+      const cif = normalizedFiscalIdentity(card.cif)
+      if (cif && neededCifs.includes(cif)) byCif.set(cif,[...(byCif.get(cif) ?? []),card])
+    }
+    for (const [id,profile] of result) {
+      if (profile.entityBoundToMovement) continue
+      const cif = normalizedFiscalIdentity(profile.invoiceCifs[0]), matching = cif ? byCif.get(cif) : null
+      if (!matching || matching.length !== 1) continue
+      result.set(id,{...profile,entityCif:matching[0].cif,entityType:'CLIENTE',entityActive:true,entityLegalName:matching[0].legal,entityCommercialName:matching[0].commercial})
+    }
+  }
+  return result.size === requested.length ? result : null
 }
 async function receivedInvoices(tx: Tx) {
   return tx.$queryRaw<Array<any>>(Prisma.sql`
@@ -366,6 +525,23 @@ function proposalComposition(raw: unknown): Array<{ facturaEmitidaId: string | n
     return [{ facturaEmitidaId: invoice, numFactura: nullableText(value.numFactura, 240), cliente: nullableText(value.cliente, 300), importeCentimos: amount, vencimiento: typeof value.vencimiento === 'string' ? value.vencimiento.slice(0, 10) : null }]
   })
 }
+/** Same live classification before every human collection confirmation. This
+ * validates current generation, own-reference namespace, dates and client proof;
+ * the persisted green badge is not evidence and this helper writes nothing. */
+export async function assertLiveCollectionProjectionForActionTx(base: Prisma.TransactionClient, expected: Readonly<{id:string; importeCentimos:number; source:ConciliarProjectionSource}>) {
+  const source = expected.source, tx = asTx(base)
+  if (!source.propuestaId || !source.movimientoId || !source.proposalFingerprint) fail(409,'DECISION_CAMBIADA','La propuesta de cobro está incompleta. Actualiza la lista.')
+  const [movements,proposals,bank,profiles] = await Promise.all([
+    unresolvedMovements(tx,source.movimientoId), liveCollectionProposals(tx,source.propuestaId),
+    readBankInvoicingPopulation(tx as unknown as B7ReadDatabase,{enabled:true,assertIsolatedStaging:async()=>undefined}),
+    readCollectionClientIdentityProfiles(base,[source.propuestaId]),
+  ])
+  const movement = movements[0], proposal = proposals[0]
+  if (!movement || !proposal || String(proposal.movimientoId)!==source.movimientoId || String(proposal.fingerprint)!==source.proposalFingerprint) fail(409,'DECISION_CAMBIADA','El cobro o su propuesta cambiaron. Actualiza la lista.')
+  const current = collectionProjectionForMovement(movement,proposal,new Map(bank.invoices.map(item=>[item.invoiceId,item.fechaISO])),bank.invoices.map(item=>item.numFactura),profiles?.get(source.propuestaId))
+  if (current.row.id!==expected.id || current.row.importeCentimos!==expected.importeCentimos || current.row.color!=='VERDE' || !current.row.seleccionable) fail(409,'DECISION_CAMBIADA','El cobro ya no coincide exactamente con la documentación y el cliente actuales. Actualiza la lista.')
+}
+
 export function proposalCompositionInvoiceIds(raw: unknown): string[] {
   return [...new Set(proposalComposition(raw).flatMap(item => item.facturaEmitidaId ? [item.facturaEmitidaId] : []))].sort()
 }
@@ -400,16 +576,100 @@ function compactCompositionDetail(composition: readonly ReturnType<typeof propos
   return textoSeguro(`${composition.length} recibos: ${listed}${suffix}`).slice(0, 1_600)
 }
 export function movementPartyAliases(movement: any): string[] {
-  const aliases = [movement.tercero, movement.terceroConfirmado, movement.entidadRazonSocial, movement.entidadNombreComercial]
+  // P1 stores its evidence caption (`name · kind · masked CIF`), not a raw
+  // company name. Reuse the existing humanCounterpartyName presentation for
+  // collections only; never strip arbitrary bank text or reinterpret payments.
+  const amount = safeInteger(movement.importeCentimos)
+  const confirmedName = amount !== null && amount > 0 && typeof movement.terceroConfirmado === 'string'
+    ? movement.terceroConfirmado.split(' · ',1)[0].trim()
+    : movement.terceroConfirmado
+  const aliases = [movement.tercero, confirmedName, movement.entidadRazonSocial, movement.entidadNombreComercial]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
   // Sólo un cargo puede ser pago de factura recibida. La expansión cerrada de
   // Xfera se comparte con la revalidación B4, que reutiliza esta misma función.
-  const amount = safeInteger(movement.importeCentimos)
   if (amount === null || amount >= 0) return aliases
   return conciliarProveedorAliasesFuertes(
     aliases.map(conciliarExactCounterparty).filter((value): value is string => value !== null),
     conciliarExactCounterparty(movement.concepto),
   )
+}
+
+function normalizedFiscalIdentity(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const compact = value.normalize('NFKC').trim().toLocaleUpperCase('es-ES').replace(/[.\s-]/g, '')
+  return /^[A-Z0-9]{7,20}$/.test(compact) ? compact : null
+}
+
+/** Legal/commercial presentation may differ only by punctuation and spacing.
+ * Tokens are deliberately neither removed nor reordered; this helper is used
+ * only after the same registered CLIENTE CIF has been proven. */
+function legalPresentationIdentity(value: unknown): string | null {
+  const exact = conciliarExactCounterparty(value)
+  if (!exact) return null
+  const tokens = exact.split(/[\p{P}\p{S}\s]+/gu).filter(Boolean)
+  // S.A./SA, S.L./SL and their U suffix are punctuation presentations only.
+  // No letter (including U), company-name token or word order is discarded.
+  for (const length of [3,2]) {
+    const suffix = tokens.slice(-length)
+    if (suffix.length === length && suffix.every(token => /^[A-Z]{1,3}$/.test(token)) && ['SA','SL','SAU','SLU'].includes(suffix.join(''))) {
+      tokens.splice(-length,length,suffix.join(''))
+      break
+    }
+  }
+  const presentation = tokens.join('\u0001')
+  return presentation.length > 0 && presentation.length <= 300 ? presentation : null
+}
+
+/**
+ * An exceptional alias expansion is allowed only for a complete live proposal:
+ * every composition entry resolves once to FI, every FI carries the same CIF as
+ * the active registered CLIENTE card selected on the bank movement, and every
+ * FI client name is its legal/commercial card presentation modulo punctuation.
+ * No amount, composition label, token removal, inferred card, or new alias can
+ * make this predicate true.
+ */
+/** A registered company acronym may be written out by the bank. This is not
+ * fuzzy matching: exactly one registered internal term has a closed, literal expansion;
+ * arbitrary words sharing initials are rejected. Every prefix and suffix token stays
+ * identical. Used only inside the complete same-CIF registered-client proof. */
+function registeredClientPresentationMatches(bank: unknown, registered: unknown): boolean {
+  const bankName = legalPresentationIdentity(bank), registeredName = legalPresentationIdentity(registered)
+  if (!bankName || !registeredName) return false
+  if (bankName === registeredName) return true
+  const left = bankName.split('\u0001'), right = registeredName.split('\u0001')
+  // An exact corporate prefix and legal suffix are mandatory; no first-word,
+  // whole-name or legal-suffix acronym can become a company identity.
+  if (!['SA','SL','SAU','SLU'].includes(right[right.length-1])) return false
+  for (let index=1; index<right.length-1; index++) {
+    const acronym = right[index]
+    const expansion = acronym === 'ECS' ? ['ENTERPRISE','COMPUTING','SOLUTIONS'] : null
+    if (!expansion || left.length!==right.length+expansion.length-1) continue
+    if (!right.slice(0,index).every((token,i)=>left[i]===token)) continue
+    const expanded = left.slice(index,index+expansion.length)
+    if (!expansion.every((word,i)=>expanded[i]===word)) continue
+    if (right.slice(index+1).every((token,i)=>left[index+expansion.length+i]===token)) return true
+  }
+  return false
+}
+
+export function collectionClientIdentityMatches(profile: CollectionClientIdentityProfile | undefined, bankAliases: readonly unknown[] = []): boolean {
+  if (!profile || profile.compositionCount < 1 || profile.compositionInvoiceIdCount !== profile.compositionCount
+    || profile.invoiceCount !== profile.compositionCount || profile.distinctInvoiceCount !== profile.compositionCount
+    || profile.invoiceCifs.length !== profile.compositionCount || profile.invoiceNames.length !== profile.compositionCount
+    || profile.entityType !== 'CLIENTE' || profile.entityActive !== true) return false
+  const entityCif = normalizedFiscalIdentity(profile.entityCif)
+  const legal = legalPresentationIdentity(profile.entityLegalName)
+  const commercial = legalPresentationIdentity(profile.entityCommercialName)
+  const presentations = new Set([legal, commercial].filter((value): value is string => value !== null))
+  if (!entityCif || !presentations.size) return false
+  if (!profile.entityBoundToMovement && !bankAliases.some(alias => {
+    return registeredClientPresentationMatches(alias,profile.entityLegalName) || registeredClientPresentationMatches(alias,profile.entityCommercialName)
+  })) return false
+  return profile.invoiceCifs.every(value => normalizedFiscalIdentity(value) === entityCif)
+    && profile.invoiceNames.every(value => {
+      const presentation = legalPresentationIdentity(value)
+      return presentation !== null && presentations.has(presentation)
+    })
 }
 export function payrollPeriodMatches(fechaBanco: string, payroll: any): boolean {
   const year = Number(fechaBanco.slice(0, 4)), month = Number(fechaBanco.slice(5, 7))
@@ -423,6 +683,9 @@ function collectionProposalStatus(input: Readonly<{
   conceptoBanco: string
   movementAliases: readonly string[]
   invoiceDates: ReadonlyMap<string, string | null>
+  issuedReferences?: readonly unknown[]
+  movementId?: string
+  clientIdentity?: CollectionClientIdentityProfile
 }>): Readonly<{ green: boolean; reason: string; composition: ReturnType<typeof proposalComposition>; lines: readonly ProposalLine[]; remesaIds: number[] }> {
   const proposal = input.proposal
   const composition = proposal ? proposalComposition(proposal.composicion) : []
@@ -438,16 +701,21 @@ function collectionProposalStatus(input: Readonly<{
   if (!Number.isSafeInteger(compositionTotal) || compositionTotal !== input.amount) {
     return { green: false, reason: 'La suma de los recibos no coincide exactamente con el ingreso.', composition, lines, remesaIds: [] }
   }
-  const cited = referenciasFacturaCitadas(input.conceptoBanco)
-  const references = new Set(composition.map(item => normalizarReferenciaFactura(item.numFactura)).filter((value): value is string => value !== null))
-  if (cited.length && !cited.every(reference => references.has(reference))) {
+  const referencesMatch = input.issuedReferences === undefined
+    ? referenciasFacturaCitadas(input.conceptoBanco).every(reference => composition.some(item => normalizarReferenciaFactura(item.numFactura) === reference))
+    : referenciasEmitidasComposicionCompatible(input.conceptoBanco, composition.map(item => item.numFactura), input.issuedReferences)
+  if (!referencesMatch) {
     return { green: false, reason: 'El número de factura citado por el banco no coincide con los recibos de la propuesta.', composition, lines, remesaIds: [] }
   }
   const invoiceDates = composition.map(item => item.facturaEmitidaId ? input.invoiceDates.get(item.facturaEmitidaId) ?? null : null)
   if (invoiceDates.some(date => date === null || date > input.fechaBanco)) {
     return { green: false, reason: 'Falta una fecha de factura verificable anterior al cobro.', composition, lines, remesaIds: [] }
   }
-  if (!isRemittanceMethod(proposal.metodo) && input.movementAliases.length > 0 && !conciliarAliasesMatch(input.movementAliases, composition.map(item => item.cliente))) {
+  const clientAliasMatches = conciliarAliasesMatch(input.movementAliases, composition.map(item => item.cliente))
+  const clientFiscalIdentityMatches = input.clientIdentity?.proposalId === String(proposal.propuestaId)
+    && input.clientIdentity.movimientoId === input.movementId
+    && collectionClientIdentityMatches(input.clientIdentity, input.movementAliases)
+  if (!isRemittanceMethod(proposal.metodo) && input.movementAliases.length > 0 && !clientAliasMatches && !clientFiscalIdentityMatches) {
     return { green: false, reason: 'El cliente identificado no coincide exactamente con la factura propuesta.', composition, lines, remesaIds: [] }
   }
   const remesaIds = documents.filter(line => line.tipoDocumento === 'REMESA' && /^\d+$/.test(line.sourceId)).map(line => Number(line.sourceId)).filter(Number.isSafeInteger).sort((left, right) => left - right)
@@ -486,11 +754,11 @@ export function emittedProjection(settlement: InvoiceSettlement, candidate: Invo
 
 /** Constructor único para un cobro propuesto. Todas las entradas son fuentes
  * vivas leídas por el llamador; ni la fila anterior ni sus hashes participan. */
-export function collectionProjectionForMovement(movement: any, proposalRow: any | undefined, invoiceDates: ConciliarInvoiceDateIndex): RebuildRow {
+export function collectionProjectionForMovement(movement: any, proposalRow: any | undefined, invoiceDates: ConciliarInvoiceDateIndex, issuedReferences?: readonly unknown[], clientIdentity?: CollectionClientIdentityProfile): RebuildRow {
   const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
   const fecha = day(movement.fecha, 'El movimiento'), concepto = textoSeguro(movement.concepto)
   const cuentaId = String(movement.cuentaId), banco = nullableText(movement.banco, 300), cuenta = nullableText(movement.cuenta, 300)
-  const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
+  const status = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates, issuedReferences, movementId: id, clientIdentity })
   const one = status.composition.length === 1 ? status.composition[0] : null
   const documentValue = one && one.importeCentimos !== null ? { referencia: one.numFactura ?? 'Factura emitida', tercero: one.cliente, importeCentimos: one.importeCentimos, fecha: one.facturaEmitidaId ? invoiceDates.get(one.facturaEmitidaId) ?? null : null, href: null } : null
   const remesaProposal = proposalRow && /^REMESA_/.test(String(proposalRow.metodo))
@@ -737,7 +1005,10 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const rows: RebuildRow[] = []
   const proposalByMovement = new Map<string, any>()
   for (const proposal of proposals) if (!proposalByMovement.has(String(proposal.movimientoId))) proposalByMovement.set(String(proposal.movimientoId), proposal)
+  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, [...proposalByMovement.values()].map(proposal => String(proposal.propuestaId)))
+  const clientIdentityByProposal = clientIdentityProfiles ?? new Map<string, CollectionClientIdentityProfile>()
   const invoiceDates = new Map(bank.invoices.map(item => [item.invoiceId, item.fechaISO]))
+  const issuedReferences = bank.invoices.map(item => item.numFactura)
   const receivedByCounterparty = new Map<string, any[]>()
   for (const invoice of invoices) {
     const total = exactMoney(invoice.total_text), counterparty = conciliarExactCounterparty(invoice.proveedor)
@@ -747,6 +1018,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const confirmingByMovement = new Map(confirming.candidates.map(item => [item.movimientoId, item]))
   const invoiceCandidate = new Map<string, InvoiceCandidate>()
   const receivedInvoicePaymentCandidates = new Map<string, ReceivedInvoicePendingPaymentCandidate[]>()
+  const receivedById = new Map(invoices.map(invoice => [String(invoice.id), invoice]))
   const b5TicketsByMovement = new Map<string, ConciliarB5TicketCandidate[]>()
   const b5SupportsByMovement = new Map<string, ConciliarB5SupportCandidate[]>()
   for (const source of b5Documents) {
@@ -755,6 +1027,39 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     const support = b5SupportCandidate(source)
     if (support) b5SupportsByMovement.set(support.movimientoId, [...(b5SupportsByMovement.get(support.movimientoId) ?? []), support])
   }
+  // Reserve received-invoice capacity across the complete unresolved payment
+  // population before rendering any row. This intentionally runs before the UI
+  // reader can paginate, so an exact invoice cannot be proposed to two cargos.
+  const providerPayments: ConciliarProviderPayment[] = []
+  for (const movement of movements) {
+    const amount = safeInteger(movement.importeCentimos)
+    if (amount === null || amount >= 0) continue
+    const id = String(movement.id), fecha = isoDay(movement.fecha)
+    if (!fecha || transfers.has(id)) continue
+    const fee = buildBankFeeProjectionSeed({
+      movimientoId: id, cuentaId: String(movement.cuentaId), fecha, importeCentimos: amount, versionB4: movement.versionB4,
+      concepto: textoSeguro(movement.concepto), referencia: movement.referencia, infoAdicional: movement.info_adicional,
+      tercero: movement.tercero, banco: nullableText(movement.banco, 300), cuenta: nullableText(movement.cuenta, 300),
+    })
+    if (fee) continue
+    const b5Review = selectConciliarB5DocumentReview({
+      movimientoId: id, importeMovimientoCentimos: amount, fechaMovimiento: fecha,
+      tickets: b5TicketsByMovement.get(id) ?? [], soportes: b5SupportsByMovement.get(id) ?? [],
+    })
+    if (b5Review.kind !== 'NONE') continue
+    const aliases = movementPartyAliases(movement)
+    const payrollCandidates = payroll.filter(candidate => {
+      const net = exactMoney(candidate.total_text)
+      return net !== null && -net === amount && payrollPeriodMatches(fecha, candidate) && conciliarAliasesMatch(aliases, [candidate.empleadoNombre])
+    })
+    if (payrollCandidates.length === 1) continue
+    providerPayments.push({
+      movementId: id, fecha, importeBancoCentimos: amount, conceptoBanco: bankDocumentaryText(movement),
+      referenciaBanco: nullableText(movement.referencia, 300),
+      candidates: providerInvoiceCandidatesForMovement(movement, receivedByCounterparty),
+    })
+  }
+  const providerAssignments = assignConciliarProviderPayments(providerPayments)
 
   for (const movement of movements) {
     const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
@@ -783,8 +1088,9 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
         continue
       }
       const proposalRow = proposalByMovement.get(id)
-      const proposalStatus = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates })
-      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates)
+      const clientIdentity = proposalRow ? clientIdentityByProposal.get(String(proposalRow.propuestaId)) : undefined
+      const proposalStatus = collectionProposalStatus({ proposal: proposalRow, amount, fechaBanco: fecha, conceptoBanco: concepto, movementAliases: movementPartyAliases(movement), invoiceDates, issuedReferences, movementId: id, clientIdentity })
+      const collection = collectionProjectionForMovement(movement, proposalRow, invoiceDates, issuedReferences, clientIdentity)
       rows.push(collection)
       if (proposalRow) for (const item of proposalStatus.composition) {
         if (!item.facturaEmitidaId) continue
@@ -856,62 +1162,34 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
       rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: payrollFile ? 'VERDE' : 'AMBAR', grupo: 'NOMINAS', motivo: payrollFile ? 'Empleado, mes y líquido de la nómina coinciden con la transferencia.' : 'La nómina coincide, pero falta su archivo controlado.', documento: doc, propuesta: null, seleccionable: payrollFile, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_NOMINA', movimientoId: id, nominaId: String(payrollSource.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       continue
     }
-    const matchingReceived = new Map<string, any>()
-    for (const [providerAlias, providerInvoices] of receivedByCounterparty) {
-      // Some bank imports store the literal payee plus the payment concept in
-      // `tercero`. A complete already-stored supplier name inside that literal
-      // is sufficient to surface a review candidate, never to make it green.
-      if (!conciliarAliasesMatch(aliases, [providerAlias]) && !conciliarAliasesContainDocumentaryAlias(aliases, [providerAlias])) continue
-      for (const invoice of providerInvoices) matchingReceived.set(String(invoice.id), invoice)
-    }
-    const receivedMatch = classifyReceivedInvoicePaymentCandidates({
-      importeBancoCentimos: amount,
-      fechaBanco: fecha,
-      conceptoBanco: concepto,
-      includeFutureDateReview: true,
-      candidates: [...matchingReceived.values()].flatMap(invoice => {
-        const total = exactMoney(invoice.total_text)
-        if (total === null || total === 0) return []
-        return [{
-          id: String(invoice.id), referencia: nullableText(invoice.referencia, 300),
-          fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null,
-          vencimiento: typeof invoice.vencimiento === 'string' ? invoice.vencimiento : null,
-          importeDocumentoCentimos: -total,
-          matchesCounterparty: true, source: invoice,
-        }]
-      }),
-    })
-    if (receivedMatch.kind !== 'NONE') {
-      const invoice = receivedMatch.candidate.source, total = exactMoney(invoice.total_text)!
+    const providerAssignment = providerAssignments.get(id)
+    const invoice = providerAssignment?.invoiceId ? receivedById.get(providerAssignment.invoiceId) : undefined
+    if (providerAssignment && invoice) {
+      const total = exactMoney(invoice.total_text)
+      if (total === null || total === 0) throw new Error('CONCILIAR_PROVIDER_ASSIGNMENT_SOURCE_INVALID')
       const file = archivoRecibidaControlado({ oneDriveDriveId: invoice.driveId, oneDriveItemId: invoice.itemId, archivoOneDrive: invoice.archivo }) !== null
       const opaqueId = rowId('PAGOS', `PAGO_FACTURA_RECIBIDA:${id}:${String(invoice.id)}`)
       const exactCounterparty = conciliarAliasesMatch(aliases, [invoice.proveedor])
+      // The assignment can inspect the three source fields to reserve capacity,
+      // but a green row must use the same visible-concept revalidation as the
+      // existing confirmation guard. This prevents a projection from becoming
+      // confirmable on bank metadata that the action cannot revalidate.
       const evalExact = evaluarDocumentoExacto({ importeBancoCentimos: amount, importeDocumentoCentimos: -total, fechaBanco: fecha, fechaDocumento: typeof invoice.fecha === 'string' ? invoice.fecha : null, conceptoBanco: concepto, referenciaDocumento: String(invoice.referencia ?? 'Factura recibida'), unicoTercero: exactCounterparty })
-      const green = receivedMatch.kind === 'EXACT' && exactCounterparty && evalExact.color === 'VERDE' && file
+      const green = providerAssignment.kind === 'EXACT_REFERENCE' && exactCounterparty && evalExact.color === 'VERDE' && file
       const color: ConciliarColor = green ? 'VERDE' : 'AMBAR'
       const amountDifference = amount - -total
-      const referenceDiscrepancy = receivedMatch.kind === 'REVIEW' && receivedMatch.reason === 'REFERENCIA_DISCREPANTE'
-      const laterIssueDate = receivedMatch.kind === 'REVIEW' && receivedMatch.reason === 'FECHA_POSTERIOR'
-      const discrepancy = receivedMatch.kind === 'REVIEW'
-        ? amountDifference !== 0
-          ? 'La candidata es del mismo proveedor, pero el importe no coincide exactamente; revísala antes de confirmar.'
-          : laterIssueDate
-            ? 'La candidata es del mismo proveedor, pero la fecha de emisión es posterior al movimiento bancario; revísala antes de confirmar.'
-          : referenceDiscrepancy
-            ? 'La candidata es del mismo proveedor, pero no hay una referencia de factura documental exacta; revísala antes de confirmar.'
-            : !exactCounterparty
-              ? 'La candidata contiene el nombre completo del proveedor en el literal bancario, pero no un alias idéntico; revísala antes de confirmar.'
-              : 'Hay varias candidatas del mismo proveedor; revísalas antes de confirmar.'
-        : !exactCounterparty
-          ? 'La candidata contiene el nombre completo del proveedor en el literal bancario, pero no un alias idéntico; revísala antes de confirmar.'
-          : null
       const dueHint = typeof invoice.vencimiento === 'string' ? ` Vencimiento: ${invoice.vencimiento}.` : ''
-      rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: green ? evalExact.motivo : discrepancy ?? (file ? evalExact.motivo : 'La factura coincide, pero falta su PDF controlado para poder confirmarla.'), documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: amountDifference, detail: discrepancy ? `${discrepancy}${dueHint}` : dueHint.trim() || null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, facturaRecibidaId: String(invoice.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+      const motive = green ? evalExact.motivo : providerAssignmentMotive(providerAssignment.reason)
+      rows.push(projection('PAGOS', baseRow({ id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color, grupo: 'FACTURA_RECIBIDA', motivo: motive, documento: { referencia: String(invoice.referencia ?? 'Factura recibida'), tercero: nullableText(invoice.proveedor), importeCentimos: -total, fecha: typeof invoice.fecha === 'string' ? invoice.fecha : null, href: candidateFileHref(opaqueId, file) }, propuesta: null, seleccionable: green, diferenciaCentimos: amountDifference, detail: dueHint.trim() || null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, facturaRecibidaId: String(invoice.id), versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       const invoiceId = String(invoice.id)
       receivedInvoicePaymentCandidates.set(invoiceId, [...(receivedInvoicePaymentCandidates.get(invoiceId) ?? []), { rowId: opaqueId, color }])
       continue
     }
-    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: payrollCandidates.length > 1 ? 'AMBAR' : 'ROJO', grupo: null, motivo: payrollCandidates.length > 1 ? 'Hay varias nóminas posibles; revisa empleado y mes.' : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: /\b(?:TARJETA|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(concepto) }), documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
+    const paymentColor: ConciliarColor = providerAssignment && providerAssignment.kind !== 'RED' ? 'AMBAR' : payrollCandidates.length > 1 ? 'AMBAR' : 'ROJO'
+    const paymentMotive = providerAssignment ? providerAssignmentMotive(providerAssignment.reason)
+      : payrollCandidates.length > 1 ? 'Hay varias nóminas posibles; revisa empleado y mes.'
+        : redReasonForMovement({ importeCentimos: amount, concepto, tarjeta: /\b(?:TARJETA|VISA|MASTERCARD|AMEX|TPV|POS)\b/i.test(concepto) })
+    rows.push(projection('PAGOS', baseRow({ id: rowId('PAGOS', `PAGO_SIN_DOCUMENTO:${id}`), movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount, color: paymentColor, grupo: null, motivo: paymentMotive, documento: null, propuesta: null, seleccionable: false, diferenciaCentimos: 0, detail: null }), { kind: 'PAGO_FACTURA_RECIBIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
   }
 
   for (const settlement of bank.invoices) {

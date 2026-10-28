@@ -2,6 +2,22 @@ import type { ConciliarColor, ConciliarRow, ConciliarSortDirection, ConciliarSor
 
 export type ConciliarSelection = ReadonlyMap<string, string>;
 
+export type ConciliarDisplayGroup = Readonly<{
+  key: string;
+  label: string;
+  explanation: string | null;
+  rows: readonly ConciliarRow[];
+  colorCounts: Readonly<Record<ConciliarColor, number>>;
+}>;
+
+type MutableConciliarDisplayGroup = {
+  key: string;
+  label: string;
+  explanation: string | null;
+  rows: ConciliarRow[];
+  colorCounts: Record<ConciliarColor, number>;
+};
+
 export type SelectionReview = Readonly<{
   confirmableRows: readonly ConciliarRow[];
   hiddenCount: number;
@@ -23,6 +39,10 @@ export function groupExplanation(group: string | null): string | null {
 export function humanGroup(group: string | null): string {
   if (!group) return 'Sin grupo';
   const key = group.toLocaleLowerCase('es-ES');
+  if (/cliente[_\s-]*importe/.test(key)) return 'Mismo cliente e importe';
+  if (/ref(?:erencia)?[_\s-]*factura/.test(key)) return 'El banco cita el nº de factura';
+  if (/cobro[_\s-]*isp/.test(key)) return 'Cobro anotado en ISP Gestión';
+  if (/suma[_\s-]*cliente/.test(key)) return 'Varias facturas del mismo cliente';
   if (/banco|comisi/.test(key)) return 'Gastos del banco';
   if (/traspas/.test(key)) return 'Traspasos entre cuentas propias';
   if (/n[oó]mina/.test(key)) return 'Nóminas';
@@ -35,6 +55,49 @@ export function humanGroup(group: string | null): string {
   if (/pr[eé]stamo/.test(key)) return 'Préstamos';
   if (/devoluci/.test(key)) return 'Devoluciones de recibos';
   return group.replace(/_/g, ' ').toLocaleLowerCase('es-ES');
+}
+
+/** Una clave de presentación reúne sin ambigüedad las variantes de una misma
+ * regla. En particular, REMESA, REMESAS y sus subtipos se muestran una vez. */
+function canonicalGroupLabel(row: ConciliarRow): string {
+  if (!row.grupo) return row.color === 'ROJO' ? 'Para pedir' : 'Sin regla agrupada';
+  return humanGroup(row.grupo);
+}
+
+function canonicalGroupKey(label: string): string {
+  return label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-ES').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/** Agrupa primero por etiqueta canónica (nunca por color), conserva el color
+ * de cada fila y ordena cada grupo por magnitud descendente. */
+export function groupConciliarRows(rows: readonly ConciliarRow[]): readonly ConciliarDisplayGroup[] {
+  const groups = new Map<string, MutableConciliarDisplayGroup>();
+  for (const row of rows) {
+    const label = canonicalGroupLabel(row);
+    const key = canonicalGroupKey(label) || 'sin-regla-agrupada';
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, label, explanation: groupExplanation(row.grupo) ?? groupExplanation(label), rows: [], colorCounts: { VERDE: 0, AMBAR: 0, ROJO: 0 } };
+      groups.set(key, group);
+    }
+    group.rows.push(row);
+    group.colorCounts[row.color] += 1;
+  }
+  const magnitude = (row: ConciliarRow) => Math.abs(row.importeCentimos);
+  return [...groups.values()].map((group) => ({
+    ...group,
+    rows: group.rows.slice().sort((left, right) => magnitude(right) - magnitude(left) || left.id.localeCompare(right.id)),
+  })).sort((left, right) => {
+    const leftMagnitude = left.rows.length ? magnitude(left.rows[0]) : 0;
+    const rightMagnitude = right.rows.length ? magnitude(right.rows[0]) : 0;
+    return rightMagnitude - leftMagnitude || left.label.localeCompare(right.label, 'es-ES');
+  });
+}
+
+/** No se añade una cabecera que sólo describiría una única fila. Cualquier
+ * orden explícito se presenta globalmente, aunque sea por importe. */
+export function shouldRenderConciliarGroups(groups: readonly ConciliarDisplayGroup[], globalOrder: boolean): boolean {
+  return !globalOrder && groups.some((group) => group.rows.length > 1);
 }
 
 /** Las remesas tienen una segunda comprobación humana y nunca se incluyen en el gesto masivo. */

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { derivedUuidV4 } from '@/lib/finanzas/easy-auto-core'
 import { normalizarReferenciaFactura, referenciasFacturaCitadas, type ConciliarCommand, type ConciliarProjectionPayload } from './conciliar-contract'
+export { extractRefsOwnIssued, referenciaFacturaEmitidaCompatible, referenciasEmitidasComposicionCompatible, type ReferenciasEmitidasCanonicas } from './conciliar-issued-reference-core'
 
 /** Núcleo exclusivamente servidor: el contrato UI queda libre de node:crypto. */
 function canonical(value: unknown): string {

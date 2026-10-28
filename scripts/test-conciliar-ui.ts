@@ -4,6 +4,7 @@ const { resolve } = require('node:path');
 const root = process.cwd();
 const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
 const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
+const helpers = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-ui-helpers.ts'), 'utf8');
 const contract = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-contract.ts'), 'utf8');
 const xlsx = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-xlsx.ts'), 'utf8');
 const documentPreview = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarDocumentPreview.tsx'), 'utf8');
@@ -103,6 +104,19 @@ required(workspace, 'espacio de trabajo', [
   'RemesaConfirmationDialog',
   'remesaPreviewController.current?.abort()',
   'no se puede mezclar con otros movimientos',
+  'shouldRenderConciliarGroups(displayGroups, globalOrder)',
+  'setGlobalOrder(true)',
+  'data-testid="conciliar-global-order"',
+  'SortHeader field="FECHA"',
+  'SortHeader field="CONCEPTO"',
+  'SortHeader field="IMPORTE"',
+]);
+
+required(helpers, 'helpers de presentación', [
+  'Mismo cliente e importe',
+  'El banco cita el nº de factura',
+  'groupConciliarRows',
+  'shouldRenderConciliarGroups',
 ]);
 
 required(documentPreview, 'detalle diferido', ['role="dialog"', 'target="_blank"', 'drawer.row.importeCentimos', 'drawer.row.motivo', 'Abrir PDF']);
@@ -117,6 +131,9 @@ if (!/new Map\(\)/.test(workspace) || !/reviewSelectionForCurrentRows\(selected,
 if (/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un refresco no debe borrar selecciones ocultas automáticamente.');
 if (!/tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: historicOffset/.test(workspace)) throw new Error('La consulta histórica debe heredar filtros comunes, no emitidasGrupo.');
 if (/onConfirm=.*EmitidasGroupFilters|onAsk=.*EmitidasGroupFilters/.test(workspace)) throw new Error('Las tarjetas de Emitidas sólo pueden filtrar; no pueden mutar.');
+if (!/showGroupedRows \? displayGroups\.map\([\s\S]*?\) : <div data-testid="conciliar-global-order">\{rows\.map\(renderRow\)\}<\/div>/.test(workspace)) throw new Error('Cualquier cabecera ordenable debe renderizar la lista plana, también Importe.');
+if (!/group\.rows\.length > 1 \? <section data-conciliar-group=\{group\.label\}/.test(workspace)) throw new Error('Un grupo de una sola fila no debe añadir una cabecera redundante.');
+if (!/initialOrden=\{initialOrden\} initialDireccion=\{initialDireccion\} initialGlobalOrder=\{initialGlobalOrder\}/.test(page)) throw new Error('La proyección SSR debe conservar la intención de orden de la URL.');
 required(xlsx, 'exportador XLSX', ['CONCILIAR_XLSX_HEADERS', "'Fecha', 'Estado', 'Grupo / tipo', 'Tercero / proveedor', 'Concepto', 'Cuenta', 'Documento', 'Importe', 'Nota'", "sheet['!autofilter']", 'freezeFirstRowXlsx', 'state="frozen"', 'escapeSpreadsheet', 'row.importeCentimos / 100']);
 
 console.log('OK: UI Conciliar validada estáticamente (sin red, BD, build ni tsc).');

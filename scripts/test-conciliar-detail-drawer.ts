@@ -5,7 +5,7 @@ import test from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ConciliarDocumentPreview from '../components/finanzas/conciliar/ConciliarDocumentPreview';
-import { groupConciliarRows } from '../components/finanzas/conciliar/ConciliarWorkspace';
+import { groupConciliarRows } from '../components/finanzas/conciliar/conciliar-ui-helpers';
 import type { ConciliarRow } from '../components/finanzas/conciliar/conciliar-contract';
 import type { ConciliarDocumentDetail } from '../lib/finanzas/conciliar-document-detail-contract';
 

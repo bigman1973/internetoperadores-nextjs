@@ -9,9 +9,12 @@ import { parseConciliarGetInput } from '../lib/finanzas/conciliar-contract';
 import type { ConciliarRow } from '../components/finanzas/conciliar/conciliar-contract';
 import {
   areAllVisibleGreensSelected,
+  groupConciliarRows,
+  humanGroup,
   reviewSelectionForCurrentRows,
   setRowSelected,
   setVisibleGreenSelected,
+  shouldRenderConciliarGroups,
   sortConciliarRowsForFixture,
 } from '../components/finanzas/conciliar/conciliar-ui-helpers';
 import { CONCILIAR_XLSX_HEADERS, createConciliarXlsx } from '../components/finanzas/conciliar/conciliar-xlsx';
@@ -83,6 +86,28 @@ test('orden global: fecha, tercero/proveedor y importe tienen dirección estable
   assert.deepEqual(sortConciliarRowsForFixture(fixture, 'CONCEPTO', 'ASC').map((item) => item.id), ['a', 'b', 'c']);
   assert.deepEqual(sortConciliarRowsForFixture(fixture, 'IMPORTE', 'DESC').map((item) => item.id), ['a', 'b', 'c']);
   assert.deepEqual(sortConciliarRowsForFixture(fixture, 'IMPORTE', 'ASC').map((item) => item.id), ['c', 'a', 'b']);
+});
+
+test('presentación: etiquetas de Cobros claras, remesas mixtas canónicas y orden explícito sin cabeceras de grupo', () => {
+  const grouped = groupConciliarRows([
+    row({ id: 'remesa-roja', grupo: 'REMESA_PENDIENTE', color: 'ROJO', importeCentimos: 2_000 }),
+    row({ id: 'remesa-verde', grupo: 'remesas cobradas', color: 'VERDE', importeCentimos: 9_000 }),
+    row({ id: 'remesa-ambar', grupo: 'Remesa parcial', color: 'AMBAR', importeCentimos: -5_000 }),
+    row({ id: 'cliente-importante', grupo: 'CLIENTE_IMPORTE', importeCentimos: 7_000 }),
+    row({ id: 'cliente-repetido', grupo: 'cliente importe', importeCentimos: 3_000 }),
+    row({ id: 'referencia', grupo: 'REF_FACTURA', importeCentimos: 1_000 }),
+  ]);
+
+  assert.equal(humanGroup('CLIENTE_IMPORTE'), 'Mismo cliente e importe');
+  assert.equal(humanGroup('REF_FACTURA'), 'El banco cita el nº de factura');
+  const remesas = grouped.filter((group) => group.label === 'Remesas');
+  assert.equal(remesas.length, 1, 'las etiquetas repetidas de remesa se reúnen una sola vez');
+  assert.deepEqual(remesas[0]?.rows.map((item) => item.id), ['remesa-verde', 'remesa-ambar', 'remesa-roja']);
+  assert.deepEqual(remesas[0]?.colorCounts, { VERDE: 1, AMBAR: 1, ROJO: 1 }, 'un grupo puede conservar colores mixtos');
+  assert.equal(grouped.filter((group) => group.label === 'Mismo cliente e importe').length, 1, 'las variantes repetidas usan una etiqueta canónica única');
+  assert.equal(shouldRenderConciliarGroups(grouped, false), true, 'por defecto se agrupa cuando hay varias filas de una regla');
+  assert.equal(shouldRenderConciliarGroups(grouped, true), false, 'cualquier orden explícito muestra una lista plana');
+  assert.equal(shouldRenderConciliarGroups(groupConciliarRows([row({ id: 'sola', grupo: 'BANCO' })]), false), false, 'una sola fila no recibe una cabecera de grupo redundante');
 });
 
 test('contrato GET: estado, grupo y orden son cerrados y quedan en la vista paginada', () => {
