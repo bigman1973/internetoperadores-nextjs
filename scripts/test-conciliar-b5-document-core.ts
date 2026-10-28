@@ -37,7 +37,7 @@ test('un desfase de un céntimo deja ticket B5 ámbar y no seleccionable', () =>
   assert.equal(result.color, 'AMBAR')
   assert.equal(result.seleccionable, false)
   assert.equal(result.diferenciaCentimos, -1)
-  assert.match(result.motivo, /mismo importe exacto/i)
+  assert.match(result.motivo, /importes.*no coinciden/i)
 })
 
 test('ticket B5 de fecha posterior o con capacidad ya usada no se puede confirmar', () => {
@@ -66,7 +66,7 @@ test('SOPORTE B5 completo es visible sólo ámbar y nunca fabrica importe ni sel
   const result = selectConciliarB5DocumentReview(input({ tickets: [], soportes: [{ adjuntoB5Id: 'soporte-c3-01', movimientoId: MOVEMENT_ID, uploadCompleto: true, referencia: 'Justificante manual' }] }))
   assert.deepEqual(result, {
     kind: 'SOPORTE', color: 'AMBAR', seleccionable: false,
-    motivo: 'Hay un soporte B5 recibido. Es evidencia para revisión humana, pero no acredita por sí solo un importe ni vincula el cargo.',
+    motivo: 'Hay un archivo recibido. Revísalo: no acredita por sí solo un importe ni justifica el cargo.',
     importeDocumentoCentimos: null, referencia: 'Justificante manual',
     source: { kind: 'PAGO_SOPORTE_B5', movimientoId: MOVEMENT_ID, adjuntoB5Id: 'soporte-c3-01' },
   })

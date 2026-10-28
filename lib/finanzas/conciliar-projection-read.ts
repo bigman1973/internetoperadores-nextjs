@@ -140,17 +140,17 @@ function groupFilter(group: ConciliarGetInput['grupo']): Prisma.Sql | null {
   if (!group) return null
   // Es la misma normalización lingüística que usa la etiqueta de la UI, pero
   // permanece en SQL para que filtro, total, exportación y página sean una foto.
-  const value = Prisma.sql`translate(lower(COALESCE(p.grupo,'')),'áéíóúü','aeiouu')`
+  const value = Prisma.sql`lower(COALESCE(p.grupo,''))`
   if (group === 'BANCO') return Prisma.sql`${value} ~ '(banco|comisi)'`
   if (group === 'PROVEEDORES') return Prisma.sql`${value} ~ '(recibida|proveedor)'`
   if (group === 'TARJETA') return Prisma.sql`${value} ~ 'tarjeta'`
-  if (group === 'NOMINAS') return Prisma.sql`${value} ~ 'nomina'`
+  if (group === 'NOMINAS') return Prisma.sql`${value} ~ 'n[oó]mina'`
   if (group === 'IMPUESTOS') return Prisma.sql`${value} ~ '(impuesto|aeat|seguridad)'`
   if (group === 'TRASPASOS') return Prisma.sql`${value} ~ 'traspas'`
-  if (group === 'CONFIRMING') return Prisma.sql`${value} ~ '(confirm|cesion)'`
+  if (group === 'CONFIRMING') return Prisma.sql`${value} ~ '(confirm|cesi[oó]n)'`
   if (group === 'REMESAS') return Prisma.sql`${value} ~ 'remesa'`
   if (group === 'CLIENTES') return Prisma.sql`${value} ~ 'emitida'`
-  if (group === 'PRESTAMOS') return Prisma.sql`${value} ~ '(prestamo|leasing)'`
+  if (group === 'PRESTAMOS') return Prisma.sql`${value} ~ '(pr[eé]stamo|leasing)'`
   if (group === 'DEVOLUCIONES') return Prisma.sql`${value} ~ 'devoluci'`
   return null
 }

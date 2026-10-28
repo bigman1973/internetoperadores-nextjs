@@ -126,20 +126,20 @@ export function reviewConciliarB5Ticket(input: Readonly<{
   const difference = targetCents === null ? 0 : safeDifference(input.importeMovimientoCentimos, targetCents)
   if (difference === null) return null
 
-  if (!item.documentoActivo) return { candidate: item, motivo: 'El envoltorio B4 del ticket ya no está vigente.', diferenciaCentimos: difference, exacto: false }
-  if (!item.gastoRevalidable) return { candidate: item, motivo: 'El gasto del ticket ya no conserva el estado y método de pago revisables.', diferenciaCentimos: difference, exacto: false }
-  if (!item.archivoControlado) return { candidate: item, motivo: 'El ticket recibido no conserva un archivo privado controlado.', diferenciaCentimos: difference, exacto: false }
+  if (!item.documentoActivo) return { candidate: item, motivo: 'El documento del ticket ya no está vigente.', diferenciaCentimos: difference, exacto: false }
+  if (!item.gastoRevalidable) return { candidate: item, motivo: 'El gasto del ticket ha cambiado y debe revisarse.', diferenciaCentimos: difference, exacto: false }
+  if (!item.archivoControlado) return { candidate: item, motivo: 'No se puede abrir el archivo privado del ticket.', diferenciaCentimos: difference, exacto: false }
   if (documentCents === null || documentCents <= 0 || gastoCents === null || gastoCents <= 0 || targetCents === null || allocatedCents === null) {
-    return { candidate: item, motivo: 'El ticket no conserva importes B5/B4 exactos para revisarlo.', diferenciaCentimos: difference, exacto: false }
+    return { candidate: item, motivo: 'Faltan importes válidos para comprobar el ticket.', diferenciaCentimos: difference, exacto: false }
   }
   if (documentCents !== gastoCents || targetCents !== -documentCents) {
-    return { candidate: item, motivo: 'El ticket, el gasto y su envoltorio B4 no conservan el mismo importe exacto.', diferenciaCentimos: difference, exacto: false }
+    return { candidate: item, motivo: 'Los importes guardados del ticket no coinciden entre sí.', diferenciaCentimos: difference, exacto: false }
   }
-  if (allocatedCents !== 0) return { candidate: item, motivo: 'El envoltorio B4 del ticket ya tiene capacidad usada; no se puede reutilizar.', diferenciaCentimos: difference, exacto: false }
+  if (allocatedCents !== 0) return { candidate: item, motivo: 'Este ticket ya se ha utilizado para justificar otro pago.', diferenciaCentimos: difference, exacto: false }
   if (!documentDay) return { candidate: item, motivo: 'Falta una fecha documental verificable en el ticket.', diferenciaCentimos: difference, exacto: false }
   if (documentDay > movementDay) return { candidate: item, motivo: 'La fecha del ticket es posterior al cargo bancario.', diferenciaCentimos: difference, exacto: false }
   if (targetCents !== input.importeMovimientoCentimos) return { candidate: item, motivo: 'El importe del cargo no coincide exactamente con el ticket.', diferenciaCentimos: difference, exacto: false }
-  return { candidate: item, motivo: 'Ticket B5 recibido: importe, fecha, wrapper y archivo controlado coinciden; revísalo antes de confirmar.', diferenciaCentimos: 0, exacto: true }
+  return { candidate: item, motivo: 'Ticket recibido: importe y fecha coinciden; revisa el archivo antes de confirmar.', diferenciaCentimos: 0, exacto: true }
 }
 
 /**
@@ -158,7 +158,7 @@ export function selectConciliarB5DocumentReview(input: ConciliarB5ReviewInput): 
     const item = exact[0].candidate
     return {
       kind: 'TICKET', color: 'VERDE', seleccionable: true, motivo: exact[0].motivo, diferenciaCentimos: 0,
-      referencia: text(item.referencia, 'Ticket B5 recibido'), tercero: typeof item.tercero === 'string' && item.tercero.trim() ? item.tercero.trim() : null,
+      referencia: text(item.referencia, 'Ticket recibido'), tercero: typeof item.tercero === 'string' && item.tercero.trim() ? item.tercero.trim() : null,
       fechaDocumento: day(item.fechaDocumento), importeDocumentoCentimos: item.importeDocumentoCentimos,
       source: { kind: 'PAGO_TICKET_B5', movimientoId: input.movimientoId, adjuntoB5Id: item.adjuntoB5Id, gastoId: item.gastoId, documentoConciliableId: item.documentoConciliableId },
     }
@@ -167,8 +167,8 @@ export function selectConciliarB5DocumentReview(input: ConciliarB5ReviewInput): 
   if (exact.length > 1) {
     const item = exact[0].candidate
     return {
-      kind: 'TICKET', color: 'AMBAR', seleccionable: false, motivo: 'Hay más de un ticket B5 exacto para el mismo cargo; revísalos antes de elegir uno.', diferenciaCentimos: 0,
-      referencia: text(item.referencia, 'Ticket B5 recibido'), tercero: typeof item.tercero === 'string' && item.tercero.trim() ? item.tercero.trim() : null,
+      kind: 'TICKET', color: 'AMBAR', seleccionable: false, motivo: 'Hay más de un ticket exacto para el mismo cargo; revísalos antes de elegir uno.', diferenciaCentimos: 0,
+      referencia: text(item.referencia, 'Ticket recibido'), tercero: typeof item.tercero === 'string' && item.tercero.trim() ? item.tercero.trim() : null,
       fechaDocumento: day(item.fechaDocumento), importeDocumentoCentimos: item.importeDocumentoCentimos,
       source: { kind: 'PAGO_TICKET_B5', movimientoId: input.movimientoId, adjuntoB5Id: item.adjuntoB5Id, gastoId: item.gastoId, documentoConciliableId: item.documentoConciliableId },
     }
@@ -178,7 +178,7 @@ export function selectConciliarB5DocumentReview(input: ConciliarB5ReviewInput): 
     const item = tickets[0]
     return {
       kind: 'TICKET', color: 'AMBAR', seleccionable: false, motivo: item.motivo, diferenciaCentimos: item.diferenciaCentimos,
-      referencia: text(item.candidate.referencia, 'Ticket B5 recibido'), tercero: typeof item.candidate.tercero === 'string' && item.candidate.tercero.trim() ? item.candidate.tercero.trim() : null,
+      referencia: text(item.candidate.referencia, 'Ticket recibido'), tercero: typeof item.candidate.tercero === 'string' && item.candidate.tercero.trim() ? item.candidate.tercero.trim() : null,
       fechaDocumento: day(item.candidate.fechaDocumento), importeDocumentoCentimos: isCents(item.candidate.importeDocumentoCentimos) ? item.candidate.importeDocumentoCentimos : null,
       source: { kind: 'PAGO_TICKET_B5', movimientoId: input.movimientoId, adjuntoB5Id: item.candidate.adjuntoB5Id, gastoId: item.candidate.gastoId, documentoConciliableId: item.candidate.documentoConciliableId },
     }
@@ -190,8 +190,8 @@ export function selectConciliarB5DocumentReview(input: ConciliarB5ReviewInput): 
   if (support) {
     return {
       kind: 'SOPORTE', color: 'AMBAR', seleccionable: false,
-      motivo: 'Hay un soporte B5 recibido. Es evidencia para revisión humana, pero no acredita por sí solo un importe ni vincula el cargo.',
-      importeDocumentoCentimos: null, referencia: text(support.referencia, 'Soporte B5 recibido'),
+      motivo: 'Hay un archivo recibido. Revísalo: no acredita por sí solo un importe ni justifica el cargo.',
+      importeDocumentoCentimos: null, referencia: text(support.referencia, 'Archivo recibido'),
       source: { kind: 'PAGO_SOPORTE_B5', movimientoId: input.movimientoId, adjuntoB5Id: support.adjuntoB5Id },
     }
   }
