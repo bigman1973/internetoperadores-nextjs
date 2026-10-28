@@ -148,8 +148,15 @@ async function main(): Promise<void> {
         assert.equal(hasConciliarSerializableAuthorizationForActor(failedScope as never, 101), false)
       })
 
+      const realActorOnly = fakeTx([[future(now)], [future(now)]])
+      await runWithVerifiedConciliarScope(realActorOnly as never, 101, async () => {
+        assert.equal(await verifyLiveImpersonationContext(contextFor(), realActorOnly as never), true)
+        assert.equal(await verifyLiveImpersonationContext(contextFor(), realActorOnly as never), true)
+      })
+      assert.equal(realActorOnly.queries.length, 2, 'El permiso del actor real no sustituye la comprobación del usuario efectivo; un marcador de actor real no activa caché.')
+
       const reusable = fakeTx(Array.from({ length: 9 }, () => [future(now)]))
-      await runWithVerifiedConciliarScope(reusable as never, 101, async () => {
+      await runWithVerifiedConciliarScope(reusable as never, 202, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, reusable as never), true)
         assert.equal(reusable.queries.length, 1)
@@ -183,7 +190,7 @@ async function main(): Promise<void> {
 
       // Expiración: cada sentencia vuelve a comparar Date.now con expires_at.
       const expiring = fakeTx([[future(now, 5)], [future(now, 60_000)]])
-      await runWithVerifiedConciliarScope(expiring as never, 101, async () => {
+      await runWithVerifiedConciliarScope(expiring as never, 202, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, expiring as never), true)
         now += 6
@@ -193,7 +200,7 @@ async function main(): Promise<void> {
 
       // Ningún falso/throw se memoriza; la relectura posterior puede decidir de nuevo.
       const initiallyDenied = fakeTx([[], [future(now)]])
-      await runWithVerifiedConciliarScope(initiallyDenied as never, 101, async () => {
+      await runWithVerifiedConciliarScope(initiallyDenied as never, 202, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, initiallyDenied as never), false, 'Revocada antes de la primera mutación se deniega.')
         assert.equal(await verifyLiveImpersonationContext(base, initiallyDenied as never), true)
@@ -201,7 +208,7 @@ async function main(): Promise<void> {
       assert.equal(initiallyDenied.queries.length, 2, 'Una denegación no se guarda como permiso ni como denegación cacheada.')
 
       const queryFailure = fakeTx([new Error('fixture live query failure'), [future(now)]])
-      await runWithVerifiedConciliarScope(queryFailure as never, 101, async () => {
+      await runWithVerifiedConciliarScope(queryFailure as never, 202, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, queryFailure as never), false, 'Un fallo de lectura viva cierra la mutación.')
         assert.equal(await verifyLiveImpersonationContext(base, queryFailure as never), true)
@@ -211,10 +218,10 @@ async function main(): Promise<void> {
       // Un P2034/reintento crea un callback/scope nuevo, incluso con el mismo contexto.
       const retryOne = fakeTx([[future(now)]])
       const retryTwo = fakeTx([[future(now)]])
-      await runWithVerifiedConciliarScope(retryOne as never, 101, async () => {
+      await runWithVerifiedConciliarScope(retryOne as never, 202, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), retryOne as never), true)
       })
-      await runWithVerifiedConciliarScope(retryTwo as never, 101, async () => {
+      await runWithVerifiedConciliarScope(retryTwo as never, 202, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), retryTwo as never), true)
       })
       assert.deepEqual([retryOne.queries.length, retryTwo.queries.length], [1, 1], 'Un reintento serializable no hereda la decisión ni el scope del intento anterior.')
@@ -222,7 +229,7 @@ async function main(): Promise<void> {
 
     await withProductionLikeEnvironment(async () => {
       const production = fakeTx([[future(now)], [future(now)]])
-      await runWithVerifiedConciliarScope(production as never, 101, async () => {
+      await runWithVerifiedConciliarScope(production as never, 202, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
       })
@@ -233,7 +240,7 @@ async function main(): Promise<void> {
       for (const name of names) process.env[name] = name === 'IO_PRODUCTION_READ_ONLY' ? '0' : '1'
       try {
         const enabled = fakeTx([[future(now, 5)], [future(now)], [future(now)]])
-        await runWithVerifiedConciliarScope(enabled as never, 101, async () => {
+        await runWithVerifiedConciliarScope(enabled as never, 202, async () => {
           const base = contextFor()
           assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
           assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
@@ -247,7 +254,7 @@ async function main(): Promise<void> {
           process.env.FINANCE_CONCILIAR_PRODUCTION_ENABLED = '1'
         })
         const fresh = fakeTx([[future(now)]])
-        await runWithVerifiedConciliarScope(fresh as never, 101, async () => {
+        await runWithVerifiedConciliarScope(fresh as never, 202, async () => {
           assert.equal(await verifyLiveImpersonationContext(contextFor(), fresh as never), true)
         })
         assert.equal(fresh.queries.length, 1, 'La siguiente transacción productiva no hereda la comprobación del lote anterior.')
@@ -277,6 +284,7 @@ async function main(): Promise<void> {
     productionExplicitRuntimeUsesTransactionScopedCache: true,
     requiresExplicitConciliarTransactionMarker: true,
     markerBindsExactTransactionAndActor: true,
+    effectiveTargetDistinctFromRealActor: true,
     markerClearsAfterExceptionAndRetry: true,
     legacyCallerRetainsAllChecks: true,
     lockSqlCoversSessionActorTarget: true,

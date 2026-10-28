@@ -516,7 +516,9 @@ const CONCILIAR_LIVE_CACHE_PATH = '/api/admin/finanzas/conciliar'
 function conciliarLiveCacheScope(context: LiveContext, tx: Prisma.TransactionClient): MutationAuditScope | null {
   if (conciliarRuntimeConfigured() === null
     || process.env.IO_PRODUCTION_READ_ONLY === '1'
-    || !hasConciliarSerializableAuthorizationForActor(tx, context.actorId)
+    // requireLiveWrite validates the effective user's B4 ACL. The real actor
+    // stays independently verified and locked in the signed live-context key.
+    || !hasConciliarSerializableAuthorizationForActor(tx, context.targetId)
     || context.path !== CONCILIAR_LIVE_CACHE_PATH
     || context.method !== 'POST'
     || (context.action !== 'confirmar' && context.action !== 'deshacer')) return null
