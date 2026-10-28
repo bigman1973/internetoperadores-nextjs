@@ -9,7 +9,7 @@ const route = readFileSync(resolve('app/api/admin/finanzas/modo-facil/para-pedir
 
 assert.match(page, /assertFinanceEasyRuntime\(\)/);
 assert.match(page, /requireB4FinanceAccess\('lectura', await requireAuth\('admin'\)\)/);
-assert.match(page, /readParaPedirProjection\(parseParaPedirInput\(\{ limit: '50', offset: '0' \}\)\)/);
+assert.match(page, /readParaPedirProjection\(parseParaPedirInput\(\{ limit: '20', offset: '0' \}\)\)/);
 assert.match(page, /initialData=\{\{ \.\.\.initialData, stagingOnly: context\.stagingOnly \}\}/);
 assert.match(workspace, /const \[data, setData\] = useState<ParaPedirRead>\(initialData\)/);
 assert.match(workspace, /if \(skipInitialRead\.current\) \{ skipInitialRead\.current = false; return; \}/);
@@ -27,3 +27,7 @@ assert.doesNotMatch(workspace, /\/admin\/finanzas\/pendientes/, 'la bandeja no e
 assert.doesNotMatch(workspace, /useEffect\(\(\) => \{ void load\(\); \}, \[load\]\)/, 'la primera pintura no lanza la antigua carga bloqueante');
 
 console.log(JSON.stringify({ test: 'para-pedir-ssr-static', databaseQueries: 0, networkCalls: 0, verified: ['b4-live-acl-before-ssr', 'initial-projection-visible', 'no-client-initial-fetch', 'deferred-xlsx'] }));
+
+assert.match(workspace, /const GROUP_PAGE_SIZE = 20/);
+assert.match(workspace, /data\.agrupaciones\.slice\(0, visibleGroupCount\)/);
+assert.match(workspace, /Ver más terceros/);
