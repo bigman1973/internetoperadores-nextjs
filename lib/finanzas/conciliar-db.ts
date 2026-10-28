@@ -816,12 +816,12 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
         : null
       rows.push(projection('PAGOS', baseRow({
         id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount,
-        color: b5Review.color, grupo: ticket ? 'TICKET_B5' : 'SOPORTE_B5', motivo: b5Review.motivo,
+        color: b5Review.color, grupo: ticket ? 'Tarjeta' : 'Documentos recibidos', motivo: b5Review.motivo,
         documento: documentValue, propuesta: null, seleccionable: b5Review.seleccionable,
         diferenciaCentimos: ticket ? ticket.diferenciaCentimos : 0,
         detail: ticket
-          ? 'Ticket B5 humano del mismo movimiento. Confirmar requiere una segunda revalidación B4 y del adjunto privado actual.'
-          : 'Soporte B5 humano recibido: no acredita por sí solo importe, identidad ni conciliación. Revísalo antes de decidir.',
+          ? 'Ticket recibido para este pago. Revisa el archivo antes de confirmar.'
+          : 'Archivo recibido: no acredita por sí solo el importe del pago. Revísalo antes de decidir.',
       }), source, cuentaId))
       continue
     }
