@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mayManageAutomation, mayWriteEasyWorkspace, parseEasyAccessProfile, parseEasyStagingOnly, safeEasyPrivateHref } from '../components/finanzas/easy/easy-two-step-client';
 import { maskPossibleIban, parseEasyCardRead } from '../components/finanzas/easy/newTarjetasReadPanel';
-import { parseParaPedirRead } from '../components/finanzas/easy/newParaPedirWorkspace';
+import { parseParaPedirRead } from '../lib/finanzas/para-pedir-contract';
 import { parseAutomaticPreview } from '../components/finanzas/easy/newAutomaticRulesPanel';
 import { parseThirdPartyRead, parseThirdPartySearchCandidates } from '../components/finanzas/easy/newThirdPartyWorkspace';
 import { parseEasyReadResponse } from '../components/finanzas/easy/easy-contract';
@@ -121,15 +121,20 @@ test('la tarjeta privada conserva sólo los cuatro últimos dígitos y enmascara
 
 test('Para Pedir sólo acepta la proyección documental B4 sin acciones externas', () => {
   const base = {
-    stagingOnly: true, automaticas: false, accionExterna: 'NINGUNA', criterio: 'lectura', periodo: { desde: '2026-01-01', hasta: '2026-10-08' },
-    contadorPaso2: { cohorte: 'PENDIENTES_B4_SIN_DOCUMENTO', totalMovimientos: 1, cargos: 1, cobros: 0, cargosCentimos: '-2500', cobrosCentimos: '0' }, limit: 25, offset: 0, totalPaginaSinSoporte: 1,
-    movimientos: [{ id: 'mov-01', fecha: '2026-01-02', concepto: 'Cargo', importeCentimos: -2500, cuenta: { banco: 'Banco', alias: null }, tarjeta: null, estado: 'SIN_DOCUMENTO', sugerencias: [{ id: 'sug-01', referencia: 'F-01', tercero: null, tipo: 'FACTURA_RECIBIDA', archivoDisponible: true, archivoPrivadoHref: '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo', motivos: ['Importe distinto'] }] }],
+    stagingOnly: true, automaticas: false, accionExterna: 'NINGUNA', criterio: 'lectura',
+    filtro: { estado: 'TODOS', q: null, tercero: null }, total: 1, limit: 25, offset: 0, totalPagina: 1,
+    resumen: { movimientos: 1, pendienteCentimos: 2500 },
+    proyeccion: { actualizadaEn: '2026-01-02T12:00:00.000Z', version: 1, pendienteActualizacion: false },
+    agrupaciones: [{ tercero: 'Proveedor documental', movimientos: 1, pendienteCentimos: 2500, pedidos: 0, pedidosMas15Dias: 0 }],
+    movimientos: [{ movimientoId: 'mov-01', tab: 'PAGOS', fecha: '2026-01-02', concepto: 'Cargo', importeCentimos: -2500, pendienteCentimos: -2500, banco: 'Banco', cuenta: null, tercero: 'Proveedor documental', grupoTercero: 'Proveedor documental', referenciaDocumento: null, motivo: 'Falta el papel', estadoPedido: 'SIN_PEDIR', pedido: null, conciliarPedir: null }],
   };
   const parsed = parseParaPedirRead(base);
   assert.equal(parsed.movimientos[0].importeCentimos, -2500);
   assert.equal(parsed.stagingOnly, true);
   assert.equal(parseParaPedirRead({ ...base, stagingOnly: false }).stagingOnly, false, 'Producción conserva la proyección manual con marcador false.');
-  assert.equal(parsed.movimientos[0].sugerencias[0].archivoPrivadoHref, '/api/admin/finanzas/modo-facil/documentos/doc_01/archivo');
+  assert.equal(parsed.movimientos[0].estadoPedido, 'SIN_PEDIR');
+  assert.equal(parsed.movimientos[0].pedido, null, 'No se inventa un pedido ni fecha de auditoría.');
+  assert.equal(parsed.agrupaciones[0].movimientos, 1);
   assert.throws(() => parseParaPedirRead({ ...base, accionExterna: 'EMAIL' }));
   assert.throws(() => parseParaPedirRead({ ...base, stagingOnly: 'false' }));
 });

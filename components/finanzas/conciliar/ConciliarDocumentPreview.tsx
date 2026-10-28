@@ -59,8 +59,8 @@ function amountFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
       ];
     case 'FACTURA':
       return [
-        ['Importe de factura', detail.importeFacturaCentimos ?? detail.nominalCentimos],
-        ['Salida del banco', detail.importeBancoCentimos],
+        ['Importe de factura', (detail.importeFacturaCentimos ?? detail.nominalCentimos) === null ? null : formatMagnitude((detail.importeFacturaCentimos ?? detail.nominalCentimos)!)],
+        [detail.importeBancoCentimos !== null && detail.importeBancoCentimos > 0 ? 'Ingreso del banco' : 'Salida del banco', detail.importeBancoCentimos === null ? null : formatMagnitude(detail.importeBancoCentimos)],
       ];
     default:
       return [
@@ -73,10 +73,26 @@ function amountFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
 function reconciliationCopy(detail: ConciliarDocumentDetail): Readonly<{ comparison: string; status: string }> {
   const status = detail.cuadreExacto ? 'Estado: exacto.' : 'Estado: desajuste.';
   if (detail.kind === 'REMESA') return { comparison: 'Suma de recibos = ingreso del banco', status };
+  if (detail.kind === 'FACTURA') {
+    const invoice = detail.importeFacturaCentimos ?? detail.nominalCentimos;
+    const bank = detail.importeBancoCentimos;
+    const exact = supplierPaymentMatches(detail);
+    if (invoice !== null && bank !== null && invoice > 0 && bank < 0) {
+      const amountsMatch = invoice === -bank;
+      return { comparison: `Factura ${formatMagnitude(invoice)} ${amountsMatch ? '=' : '≠'} Pago ${formatMagnitude(bank)}${exact ? ' ✔' : ''}`, status: exact ? 'Estado: exacto.' : amountsMatch ? 'Estado: revisión.' : 'Estado: desajuste.' };
+    }
+    return { comparison: 'Importe de factura y movimiento bancario: revisa el sentido del pago o abono.', status: 'Estado: revisión.' };
+  }
   if (detail.kind === 'CONFIRMING' && (detail.bancoEmisor === 'BBVA' || detail.bancoEmisor === 'CaixaBank')) {
     return { comparison: 'Neto del documento = ingreso del banco', status };
   }
   return { comparison: 'Importe del documento = importe bancario', status };
+}
+
+function supplierPaymentMatches(detail: ConciliarDocumentDetail): boolean {
+  const invoice = detail.importeFacturaCentimos ?? detail.nominalCentimos;
+  const bank = detail.importeBancoCentimos;
+  return detail.cuadreExacto && invoice !== null && bank !== null && Number.isSafeInteger(invoice) && Number.isSafeInteger(bank) && invoice > 0 && bank < 0 && invoice === -bank;
 }
 
 function bankFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
@@ -107,6 +123,7 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
   const total = lineTotal(detail);
   const linesTitle = isRemesa ? 'Recibos que constan en este documento' : isConfirming ? 'Facturas que constan en el documento' : 'Líneas que constan en el documento';
   const reconciliation = reconciliationCopy(detail);
+  const displayExact = isSupplierInvoice ? supplierPaymentMatches(detail) : detail.cuadreExacto;
   const bankSectionTitle = isConfirming ? 'Liquidación bancaria' : isRemesa ? 'Abono bancario' : 'Movimiento bancario';
 
   return <div className="space-y-5 px-4 py-5 sm:px-6">
@@ -151,10 +168,11 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
       </div>
     </section>}
 
-    <section aria-label="Comprobación de importes" className={`rounded-xl border p-4 text-sm ${detail.cuadreExacto ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/45 dark:text-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100'}`}>
+    <section aria-label="Comprobación de importes" className={`rounded-xl border p-4 text-sm ${displayExact ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/45 dark:text-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100'}`}>
       <p className="font-extrabold">{reconciliation.comparison}</p>
       <p className="mt-1 leading-5">{reconciliation.status}</p>
-      {!detail.cuadreExacto && <p className="mt-1 leading-5">Los importes no cuadran exactamente. Revísalos antes de tomar cualquier decisión.</p>}
+      {isSupplierInvoice && <p className="mt-1 leading-5">Factura y pago se comparan por su valor. El movimiento de la cabecera conserva el signo bancario original.</p>}
+      {!displayExact && <p className="mt-1 leading-5">{isSupplierInvoice ? 'El pago no está validado como exacto. Revisa los importes y los avisos antes de decidir.' : 'Los importes no cuadran exactamente. Revísalos antes de tomar cualquier decisión.'}</p>}
       {detail.avisos.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 leading-5">{detail.avisos.map((notice, index) => <li key={`${notice}-${index}`}>{notice}</li>)}</ul>}
     </section>
   </div>;

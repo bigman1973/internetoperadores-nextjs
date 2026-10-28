@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
-import prisma from '@/lib/prisma'
+import prisma, { runWithConciliarSerializableAuthorization } from '@/lib/prisma'
 import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
+import { bibliotecaFinancieraConfigurada } from '@/lib/finanzas/archivo-fuente-controlada'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
 import { confirmarB4Tx, createDocumentoB4Tx, deshacerB4Tx, B4ServiceError } from '@/lib/finanzas/reconciliation-db'
 import { confirmEasyReconciliationTx, inspectEasyCandidatesTx, EasyReconciliationServiceError } from '@/lib/finanzas/easy-reconciliation-db'
@@ -12,6 +13,8 @@ import { applyDocumentedConfirmingLiquidationSupport, ConciliarConfirmingService
 import { evaluarDocumentoExacto, isConciliarBankFee, parseConciliarCommand, type ConciliarCommand, type ConciliarProjectionSource } from './conciliar-contract'
 import { assignConciliarDocumentaryCounterpartyTx, undoConciliarDocumentaryCounterpartyTx } from './conciliar-counterparty'
 import { conciliarAliasesMatch, conciliarRequestHash, safeInteger } from './conciliar-core'
+import { deleteConciliarBatchProjectionRowsTx, readConciliarConfirmBatchForActionTx, tryConfirmConciliarBankFeeBatchTx } from './conciliar-batch'
+import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
 import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionTx, unresolvedMovements } from './conciliar-db'
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
@@ -49,12 +52,13 @@ function isRetryableSerializableP2034(error: unknown): boolean {
 
 /** Replays only a Prisma-rolled-back SERIALIZABLE transaction; callers keep
  * validation, ACL checks and all non-transactional work outside this callback. */
-export async function retryConciliarSerializableP2034<T>(transaction: () => Promise<T>, delay: SerializableRetryDelay = waitForSerializableRetry): Promise<T> {
+export async function retryConciliarSerializableP2034<T>(transaction: () => Promise<T>, delay: SerializableRetryDelay = waitForSerializableRetry, onRollback?: (retrying: boolean) => void): Promise<T> {
   for (let retry = 0; ; retry += 1) {
     try {
       return await transaction()
     } catch (error) {
       if (!isRetryableSerializableP2034(error) || retry >= SERIALIZABLE_P2034_RETRY_DELAYS_MS.length) throw error
+      onRollback?.(true)
       await delay(SERIALIZABLE_P2034_RETRY_DELAYS_MS[retry])
     }
   }
@@ -175,6 +179,22 @@ async function appendLeg(tx: Tx, operationId: string, input: Readonly<{
       CAST(${JSON.stringify(input.result)} AS jsonb),CURRENT_TIMESTAMP)
   `)
 }
+async function appendLegs(tx: Tx, operationId: string, inputs: readonly Readonly<{
+  ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; actionB5?: 'PEDIDO'; proposalBlockId?: string; result: Record<string, unknown>
+}>[]) {
+  if (!inputs.length) return
+  const values = inputs.map(input => Prisma.sql`(
+    CAST(${operationId} AS uuid),${input.ordinal},${input.rowId},${input.movimientoId},
+    ${input.operationB4Id ? Prisma.sql`CAST(${input.operationB4Id} AS uuid)` : Prisma.sql`NULL`},
+    ${input.actionB5 ? input.actionB5 : Prisma.sql`NULL`},
+    ${input.proposalBlockId ? Prisma.sql`CAST(${input.proposalBlockId} AS uuid)` : Prisma.sql`NULL`},
+    CAST(${JSON.stringify(input.result)} AS jsonb),CURRENT_TIMESTAMP
+  )`)
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO patas_operacion_conciliar(operacion_conciliar_id,ordinal,fila_id,movimiento_id,operacion_b4_id,accion_b5,bloque_propuesta_cobro_id,resultado,created_at)
+    VALUES ${Prisma.join(values)}
+  `)
+}
 async function complete(tx: Tx, operationId: string, state: 'APLICADA' | 'PARCIAL' | 'REVERTIDA', result: Record<string, unknown>, reverted = false) {
   await tx.$executeRaw(Prisma.sql`
     UPDATE operaciones_conciliar SET estado=CAST(${state} AS "EstadoOperacionConciliar"),resultado=CAST(${JSON.stringify(result)} AS jsonb),revertida_at=${reverted ? Prisma.sql`CURRENT_TIMESTAMP` : Prisma.sql`NULL`}
@@ -225,6 +245,87 @@ async function confirmReceivedInvoice(tx: Tx, actorId: number, operationId: stri
     idempotencyKey: uuidKey('CONCILIAR_RECEIVED', operationId, row.id), confirmacion: true,
   })
   return { operationB4Id: String(confirmed.operacionId), result: { state: 'confirmada', movimientoId: movementId, operationB4Id: String(confirmed.operacionId) } }
+}
+
+type LiveB5TicketSource = Readonly<{
+  adjuntoB5Id: string
+  gastoId: string
+  documentoConciliableId: string
+  driveId: string | null
+  itemId: string | null
+}>
+
+/**
+ * The persisted projection source is only a sealed pointer. Before touching B4,
+ * prove its exact B5 attachment is still complete, still belongs to this same
+ * movement and still owns the reviewed Gasto/TICKET wrapper pair. No provider
+ * text, external URL or browser-supplied identifier participates in this check.
+ */
+async function liveB5TicketSourceTx(tx: Tx, source: ConciliarProjectionSource, movimientoId: string): Promise<LiveB5TicketSource> {
+  const adjuntoB5Id = source.adjuntoB5Id, gastoId = source.gastoId, documentoConciliableId = source.documentoConciliableId
+  if (!adjuntoB5Id || !gastoId || !documentoConciliableId) {
+    fail(409, 'DECISION_CAMBIADA', 'El ticket B5 ya no conserva su identidad documental sellada. Actualiza la lista.')
+  }
+  const rows = await tx.$queryRaw<Array<LiveB5TicketSource>>(Prisma.sql`
+    SELECT a.id::text AS "adjuntoB5Id",a.gasto_id AS "gastoId",a.documento_conciliable_id::text AS "documentoConciliableId",
+      a.drive_id AS "driveId",a.onedrive_item_id AS "itemId"
+    FROM adjuntos_pendientes_b5 a
+    JOIN movimientos_bancarios m ON m.id=a.movimiento_id
+    JOIN gastos g ON g.id=a.gasto_id AND g.estado IN ('APROBADO','CONTABILIZADO') AND g.metodo_pago='TARJETA_EMPRESA'
+    JOIN documentos_conciliables d ON d.id=a.documento_conciliable_id AND d.gasto_id=g.id
+      AND d.tipo='TICKET'::"TipoDocumentoConciliable" AND d.activo=true
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(v.importe_centimos),0)::bigint AS asignado
+      FROM vinculos_movimiento_documento v
+      WHERE v.activo AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo" AND v.documento_conciliable_id=d.id
+    ) capacity ON TRUE
+    WHERE a.id=CAST(${adjuntoB5Id} AS uuid) AND a.movimiento_id=${movimientoId}
+      AND a.tipo_documento='TICKET' AND a.estado='UPLOAD_COMPLETO'::"EstadoAdjuntoPendienteB5"
+      AND a.gasto_id=${gastoId} AND a.documento_conciliable_id=CAST(${documentoConciliableId} AS uuid)
+      AND a.fecha_documento::date=g.fecha::date
+      AND a.importe_documento_centimos=b4_importe_bancario_centimos(g.importe)
+      AND d.importe_objetivo_centimos=-b4_importe_bancario_centimos(g.importe)
+      AND b4_importe_bancario_centimos(m.importe)=-b4_importe_bancario_centimos(g.importe)
+      AND g.fecha::date<=m.fecha_operacion::date AND capacity.asignado=0
+    LIMIT 1
+    FOR KEY SHARE OF a,m,g,d
+  `)
+  const current = rows[0]
+  const configuredDrive = bibliotecaFinancieraConfigurada()
+  if (!current || !configuredDrive || current.driveId !== configuredDrive
+    || typeof current.itemId !== 'string' || !/^[A-Za-z0-9!_.~-]{4,220}$/.test(current.itemId)) {
+    fail(409, 'EVIDENCIA_B5_CAMBIADA', 'El ticket B5 o su archivo privado controlado cambiaron. Actualiza la lista.')
+  }
+  return current
+}
+
+/** PAGO_TICKET_B5 does not create a second Gasto or wrapper. It only delegates
+ * the final explicit B4 act to the established Modo Fácil operation after both
+ * Conciliar's sealed B5 source and Modo Fácil's live exact candidate agree. */
+async function confirmB5Ticket(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
+  const movimientoId = requireMovement(row.source)
+  const candidates = await inspectEasyCandidatesTx(tx, movimientoId)
+  const live = await liveB5TicketSourceTx(tx, row.source, movimientoId)
+  const current = candidates.find(item => item.suggestion.tipo === 'TICKET'
+    && item.suggestion.sourceId === live.gastoId
+    && item.suggestion.documentoConciliableId === live.documentoConciliableId
+    && item.suggestion.exacta === true
+    && item.suggestion.archivoDisponible === true
+    && item.suggestion.importeCentimos === row.importeCentimos)
+  if (!current) {
+    fail(409, 'DECISION_CAMBIADA', 'El ticket B5 ya no es la candidata exacta y disponible del mismo movimiento. Actualiza la lista.')
+  }
+  const confirmed: any = await confirmEasyReconciliationTx(tx, actorId, {
+    action: 'confirmar_factura', movimientoId, version: b4Version(row.source.versionB4), sugerenciaId: current.suggestion.id,
+    idempotencyKey: uuidKey('CONCILIAR_TICKET_B5', operationId, row.id), confirmacion: true,
+  })
+  return {
+    operationB4Id: String(confirmed.operacionId),
+    result: {
+      state: 'confirmada', movimientoId, operationB4Id: String(confirmed.operacionId),
+      b5: { adjuntoB5Id: live.adjuntoB5Id, gastoId: live.gastoId, documentoConciliableId: live.documentoConciliableId },
+    },
+  }
 }
 
 async function confirmPayroll(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
@@ -337,6 +438,7 @@ async function applyConfirmRow(tx: Tx, actorId: number, operationId: string, row
     case 'COBRO_CONFIRMING': return confirmConfirming(tx, actorId, operationId, row)
     case 'PAGO_FACTURA_RECIBIDA': return confirmReceivedInvoice(tx, actorId, operationId, row)
     case 'PAGO_NOMINA': return confirmPayroll(tx, actorId, operationId, row)
+    case 'PAGO_TICKET_B5': return confirmB5Ticket(tx, actorId, operationId, row)
     case 'COMISION_BANCARIA': return confirmBankFee(tx, actorId, operationId, row)
     case 'TRANSFERENCIA_PROPIA': return confirmConciliarTransferTx(tx, actorId, operationId, row.source, row.importeCentimos)
     default: fail(422, 'FILA_NO_CONFIRMABLE', 'Esta fila es informativa o necesita una revisión humana.')
@@ -415,44 +517,61 @@ async function requireLiveWrite(actorId: number, database: Tx) {
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
 }
 
-async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>) {
+async function confirm(tx: Tx, actorId: number, command: Extract<ConciliarCommand, { action: 'confirmar' }>, onProgress?: (event: ConciliarBatchProgress) => void) {
   const receipt = await lockOperationOrReplay(tx, actorId, 'CONFIRMAR', command.idempotencyKey, conciliarRequestHash(actorId, command))
   if (receipt.replay) return { operationId: receipt.id, idempotent: true, ...receipt.result }
   const stateAtStart = await projectionStateAtActionStart(tx)
   const outcomes: Array<Record<string, unknown>> = []
-  const movementIds = new Set<string>()
-  const kinds = new Set<ConciliarProjectionSource['kind']>()
-  const selectedRows: Awaited<ReturnType<typeof readConciliarRowForAction>>[] = []
-  for (const item of command.items) {
-    const row = await readConciliarRowForAction(tx, item.id)
-    rowMustMatch(row, item.decisionHash)
-    selectedRows.push(row)
-  }
-  if (selectedRows.some(row => isVersionedRemittanceSource(row.source)) && selectedRows.length !== 1) {
-    fail(422, 'REMESA_REQUIERE_CONFIRMACION_INDIVIDUAL', 'Una remesa sólo puede confirmarse individualmente tras revisar su composición completa.')
-  }
-  for (let index = 0; index < command.items.length; index += 1) {
-    const item = command.items[index]
+  const plan = await readConciliarConfirmBatchForActionTx(tx, command.items, fail)
+  const selectedRows = plan.rows
+  const legs: Array<{
+    ordinal: number; rowId: string; movimientoId: string | null; operationB4Id?: string; proposalBlockId?: string; result: Record<string, unknown>
+  }> = []
+
+  // The reviewed set-based provider is limited to homogeneous bank fees;
+  // heterogeneous batches retain their exact existing domain services.
+  const feeResults = plan.onlyBankFees
+    ? await tryConfirmConciliarBankFeeBatchTx(tx, actorId, {
+      action: 'confirmar_comisiones_conciliar_lote', operationId: receipt.id,
+      items: selectedRows.map(row => ({
+        rowId: row.id, movimientoId: requireMovement(row.source), version: b4Version(row.source.versionB4),
+        importeMovimientoCentimos: row.importeCentimos, idempotencyKey: uuidKey('CONCILIAR_FEE', receipt.id, row.id),
+      })),
+    })
+    : null
+  const feeByRowId = feeResults ? new Map(feeResults.map(item => [item.rowId, item])) : null
+
+  for (let index = 0; index < selectedRows.length; index += 1) {
     const row = selectedRows[index]
-    kinds.add(row.source.kind)
     const movementId = requireMovement(row.source)
-    if (movementIds.has(movementId)) fail(422, 'MOVIMIENTO_REPETIDO', 'La selección incluye el mismo movimiento más de una vez.')
-    movementIds.add(movementId)
-    if (row.source.kind === 'TRANSFERENCIA_PROPIA' && row.source.movimientoParId) {
-      if (movementIds.has(row.source.movimientoParId)) fail(422, 'MOVIMIENTO_REPETIDO', 'La selección repite una parte del mismo traspaso.')
-      movementIds.add(row.source.movimientoParId)
+    const fee = feeByRowId?.get(row.id)
+    const result = fee
+      ? { operationB4Id: fee.operationB4Id, result: { state: 'confirmada', movimientoId: movementId, operationB4Id: fee.operationB4Id } }
+      : await applyConfirmRow(tx, actorId, receipt.id, row)
+    // A non-null fee provider has performed P1 itself in the same transaction.
+    // Re-running the normal helper here would reintroduce one ACL/material read
+    // per row and could create a second decision. Its receipt remains attached to
+    // this leg for the established fail-closed undo path.
+    const counterparty = fee
+      ? null
+      : await assignConciliarDocumentaryCounterpartyTx(tx, { actorId, operationId: receipt.id, movementId, importeCentimos: row.importeCentimos, source: row.source })
+    const detail = {
+      ...result.result,
+      sourceKind: row.source.kind,
+      ...(fee?.counterpartyReceipt ? { counterpartyReceipt: fee.counterpartyReceipt } : {}),
+      ...(counterparty?.assigned ? { counterpartyReceipt: counterparty.receipt } : {}),
     }
-    const result = await applyConfirmRow(tx, actorId, receipt.id, row)
-    const counterparty = await assignConciliarDocumentaryCounterpartyTx(tx, { actorId, operationId: receipt.id, movementId, importeCentimos: row.importeCentimos, source: row.source })
-    const detail = { ...result.result, sourceKind: row.source.kind, ...(counterparty.assigned ? { counterpartyReceipt: counterparty.receipt } : {}) }
-    await appendLeg(tx, receipt.id, { ordinal: index + 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: 'operationB4Id' in result ? result.operationB4Id : undefined, proposalBlockId: 'proposalBlockId' in result ? result.proposalBlockId : undefined, result: detail })
+    legs.push({ ordinal: index + 1, rowId: row.id, movimientoId: row.movimientoId, operationB4Id: 'operationB4Id' in result ? result.operationB4Id : undefined, proposalBlockId: 'proposalBlockId' in result ? result.proposalBlockId : undefined, result: detail })
     outcomes.push({ id: row.id, ok: true, code: 'HECHO', message: 'Hecho. Puedes deshacer esta confirmación.', operationId: receipt.id })
-    // Retirada mínima dentro de la misma transacción. El recálculo documental
-    // posterior se hace fuera de la respuesta y conserva sus propios bloqueos.
-    const removedIds = row.source.kind === 'TRANSFERENCIA_PROPIA' && row.source.movimientoParId ? [movementId, row.source.movimientoParId] : [movementId]
-    await tx.$executeRaw(Prisma.sql`DELETE FROM conciliar_proyecciones WHERE movimiento_id IN (${Prisma.join(removedIds)})`)
+    // This is explicitly provisional: B4/P1 DML is still in the same uncommitted
+    // SERIALIZABLE transaction. The route never emits outcomes before COMMIT.
+    onProgress?.({ kind: 'row-applied', completed: index + 1, total: selectedRows.length, rowId: row.id })
   }
-  let projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, kinds)
+  await appendLegs(tx, receipt.id, legs)
+  // Retirada mínima en una sola DML después de registrar todas las patas. El
+  // recálculo documental posterior conserva sus propios bloqueos.
+  await deleteConciliarBatchProjectionRowsTx(tx, plan.movementIds)
+  let projectionSynchronized = await settleKnownFeeOnlyProjection(tx, stateAtStart, plan.kinds)
   if (!projectionSynchronized && selectedRows.length === 1) {
     const row = selectedRows[0]
     const sourceKind = row.source.kind
@@ -535,23 +654,38 @@ async function undo(tx: Tx, actorId: number, command: Extract<ConciliarCommand, 
  * mandatory rollback. The public host below always performs the same live
  * staging/access checks before opening the SERIALIZABLE transaction. All
  * business services still revalidate the effective actor inside this tx. */
-export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown) {
+export async function runConciliarTransactionCommand(tx: Tx, actorId: number, raw: unknown, onProgress?: (event: ConciliarBatchProgress) => void) {
   const command = parseConciliarCommand(raw)
-  if (command.action === 'confirmar') return confirm(tx, actorId, command)
+  if (command.action === 'confirmar') return confirm(tx, actorId, command, onProgress)
   if (command.action === 'pedir') return ask(tx, actorId, command)
   return undo(tx, actorId, command)
 }
 
-export async function runConciliarAction(actorId: number, raw: unknown) {
+export type ConciliarActionRunOptions = Readonly<{
+  /** Progreso de DML aún no comprometido; el consumidor debe esperar el commit. */
+  onProgress?: (event: ConciliarBatchProgress) => void
+}>
+
+export async function runConciliarAction(actorId: number, raw: unknown, options: ConciliarActionRunOptions = {}) {
   const command = parseConciliarCommand(raw)
+  let provisionalCompleted = 0
+  const reportProgress = (event: ConciliarBatchProgress) => {
+    if (event.kind === 'row-applied') provisionalCompleted = event.completed
+    options.onProgress?.(event)
+  }
   const txSerializable = () => db().$transaction(async base => {
     const tx = asTx(base)
     // Runtime identity and the actor's B4 write ACL are both reread in the
     // SERIALIZABLE transaction immediately before the receipt and business DML.
     await requireLiveWrite(actorId, tx)
-    return runConciliarTransactionCommand(tx, actorId, command)
+    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, command.action === 'confirmar' ? reportProgress : undefined))
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
-  return retryConciliarSerializableP2034(txSerializable)
+  return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
+    if (command.action === 'confirmar') {
+      options.onProgress?.({ kind: 'attempt-rolled-back', completed: provisionalCompleted, total: command.items.length, retrying })
+      provisionalCompleted = 0
+    }
+  })
 }
 
 export function conciliarActionErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {

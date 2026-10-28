@@ -24,9 +24,11 @@ import {
   referenciasFacturaCitadas,
   textoSeguro,
 } from './conciliar-contract'
+import { selectConciliarB5DocumentReview, type ConciliarB5SupportCandidate, type ConciliarB5TicketCandidate } from './conciliar-b5-document-core'
 import { classifyReceivedInvoicePaymentCandidates, conciliarAliasesContainDocumentaryAlias, conciliarAliasesMatch, conciliarColorRank, conciliarDecisionHash, conciliarExactCounterparty, conciliarHash, conciliarProjectionRowId, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
 import { buildBankFeeProjectionSeed } from './conciliar-fee-undo'
+import { conciliarProveedorAliasesFuertes } from './conciliar-proveedor'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 
@@ -266,6 +268,95 @@ async function payrollSources(tx: Tx) {
   `)
 }
 
+type B5DocumentSource = Readonly<{
+  adjuntoB5Id: string
+  movimientoId: string
+  tipoDocumento: string
+  referencia: string | null
+  tercero: string | null
+  fechaDocumento: string | null
+  importeDocumentoCentimos: unknown
+  gastoId: string | null
+  gastoCentimos: unknown
+  gastoEstado: string | null
+  gastoMetodoPago: string | null
+  gastoFecha: string | null
+  documentoConciliableId: string | null
+  documentoActivo: boolean | null
+  objetivoCentimos: unknown
+  asignadoActivoCentimos: unknown
+  driveId: string | null
+  itemId: string | null
+}>
+
+/**
+ * B5 remains evidence of the same bank movement that received it. This is a
+ * bounded read of only completed records; it does not create a Gasto or a B4
+ * wrapper and it never uses a provider name/reference as financial identity.
+ */
+async function b5DocumentSources(tx: Tx): Promise<B5DocumentSource[]> {
+  const rows = await tx.$queryRaw<B5DocumentSource[]>(Prisma.sql`
+    SELECT a.id::text AS "adjuntoB5Id",a.movimiento_id AS "movimientoId",a.tipo_documento AS "tipoDocumento",
+      COALESCE(a.concepto,a.storage_name) AS referencia,a.nombre_tercero AS tercero,a.fecha_documento::date::text AS "fechaDocumento",
+      a.importe_documento_centimos AS "importeDocumentoCentimos",a.gasto_id AS "gastoId",
+      b4_importe_bancario_centimos(g.importe) AS "gastoCentimos",g.estado::text AS "gastoEstado",g.metodo_pago::text AS "gastoMetodoPago",
+      g.fecha::date::text AS "gastoFecha",d.id::text AS "documentoConciliableId",d.activo AS "documentoActivo",
+      d.importe_objetivo_centimos AS "objetivoCentimos",COALESCE(v.asignado,0)::bigint AS "asignadoActivoCentimos",
+      a.drive_id AS "driveId",a.onedrive_item_id AS "itemId"
+    FROM adjuntos_pendientes_b5 a
+    LEFT JOIN gastos g ON g.id=a.gasto_id
+    LEFT JOIN documentos_conciliables d ON d.id=a.documento_conciliable_id AND d.gasto_id=a.gasto_id
+      AND d.tipo='TICKET'::"TipoDocumentoConciliable"
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(link.importe_centimos),0)::bigint AS asignado
+      FROM vinculos_movimiento_documento link
+      JOIN operaciones_justificacion_b4 operation ON operation.id=link.operacion_creacion_id
+        AND operation.estado='APLICADA'::"EstadoOperacionB4" AND operation.revertida_at IS NULL
+      JOIN estado_justificacion_movimientos state ON state.movimiento_id=link.movimiento_id
+        AND state.estado='JUSTIFICADO'::"EstadoJustificacionMovimiento"
+      WHERE link.activo AND link.tipo_linea='DOCUMENTO'::"TipoLineaVinculo" AND link.documento_conciliable_id=d.id
+    ) v ON TRUE
+    WHERE a.estado='UPLOAD_COMPLETO'::"EstadoAdjuntoPendienteB5" AND a.tipo_documento IN ('TICKET','SOPORTE')
+    ORDER BY a.movimiento_id ASC,a.created_at ASC,a.id ASC
+    LIMIT ${MAX_REBUILD_ROWS + 1}
+  `)
+  if (rows.length > MAX_REBUILD_ROWS) fail(409, 'PROYECCION_DEMASIADA', 'Hay demasiados adjuntos B5 completos para una proyección íntegra.')
+  return rows
+}
+
+function isControlledB5TicketFile(input: Readonly<{ driveId: string | null; itemId: string | null }>): boolean {
+  const configured = bibliotecaFinancieraConfigurada()
+  return configured !== null && input.driveId === configured && typeof input.itemId === 'string' && /^[A-Za-z0-9!_.~-]{4,220}$/.test(input.itemId)
+}
+
+function b5TicketCandidate(source: B5DocumentSource): ConciliarB5TicketCandidate | null {
+  if (source.tipoDocumento !== 'TICKET' || !source.gastoId || !source.documentoConciliableId) return null
+  const gastoCents = safeInteger(source.gastoCentimos)
+  const documentCents = safeInteger(source.importeDocumentoCentimos)
+  const targetCents = safeInteger(source.objetivoCentimos)
+  const allocatedCents = safeInteger(source.asignadoActivoCentimos)
+  return {
+    adjuntoB5Id: source.adjuntoB5Id, movimientoId: source.movimientoId, gastoId: source.gastoId,
+    documentoConciliableId: source.documentoConciliableId, uploadCompleto: true,
+    documentoActivo: source.documentoActivo === true,
+    // A received ticket must still be the exact reviewed company-card Gasto for
+    // its B5 date. A merchant string is deliberately not an identity condition.
+    gastoRevalidable: source.gastoEstado === 'APROBADO' || source.gastoEstado === 'CONTABILIZADO'
+      ? source.gastoMetodoPago === 'TARJETA_EMPRESA' && source.gastoFecha === source.fechaDocumento
+      : false,
+    archivoControlado: isControlledB5TicketFile(source), fechaDocumento: source.fechaDocumento,
+    importeDocumentoCentimos: documentCents, importeGastoCentimos: gastoCents,
+    importeObjetivoCentimos: targetCents, asignadoActivoCentimos: allocatedCents,
+    referencia: source.referencia, tercero: source.tercero,
+  }
+}
+
+function b5SupportCandidate(source: B5DocumentSource): ConciliarB5SupportCandidate | null {
+  return source.tipoDocumento === 'SOPORTE'
+    ? { adjuntoB5Id: source.adjuntoB5Id, movimientoId: source.movimientoId, uploadCompleto: true, referencia: source.referencia }
+    : null
+}
+
 function proposalComposition(raw: unknown): Array<{ facturaEmitidaId: string | null; numFactura: string | null; cliente: string | null; importeCentimos: number | null; vencimiento: string | null }> {
   const items = Array.isArray(raw) ? raw : Array.isArray(json(raw).items) ? json(raw).items as unknown[] : []
   return items.flatMap(item => {
@@ -309,8 +400,16 @@ function compactCompositionDetail(composition: readonly ReturnType<typeof propos
   return textoSeguro(`${composition.length} recibos: ${listed}${suffix}`).slice(0, 1_600)
 }
 export function movementPartyAliases(movement: any): string[] {
-  return [movement.tercero, movement.terceroConfirmado, movement.entidadRazonSocial, movement.entidadNombreComercial]
+  const aliases = [movement.tercero, movement.terceroConfirmado, movement.entidadRazonSocial, movement.entidadNombreComercial]
     .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  // Sólo un cargo puede ser pago de factura recibida. La expansión cerrada de
+  // Xfera se comparte con la revalidación B4, que reutiliza esta misma función.
+  const amount = safeInteger(movement.importeCentimos)
+  if (amount === null || amount >= 0) return aliases
+  return conciliarProveedorAliasesFuertes(
+    aliases.map(conciliarExactCounterparty).filter((value): value is string => value !== null),
+    conciliarExactCounterparty(movement.concepto),
+  )
 }
 export function payrollPeriodMatches(fechaBanco: string, payroll: any): boolean {
   const year = Number(fechaBanco.slice(0, 4)), month = Number(fechaBanco.slice(5, 7))
@@ -609,8 +708,9 @@ export async function readStrictOwnTransfers(tx: Tx): Promise<ReadonlyMap<string
 export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClient, rebuiltById: number | null) {
   const tx = asTx(base)
   await assertProjectionSnapshot(tx)
-  const [movements, proposals, invoices, payroll, bank, confirming, transfers] = await Promise.all([
+  const [movements, proposals, invoices, payroll, b5Documents, bank, confirming, transfers] = await Promise.all([
     unresolvedMovements(tx), liveCollectionProposals(tx), receivedInvoices(tx), payrollSources(tx),
+    b5DocumentSources(tx),
     readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, { enabled: true, assertIsolatedStaging: async () => undefined }),
     readConciliarConfirmingCandidates(tx, { allRebuild: true }),
     readStrictOwnTransfers(tx),
@@ -628,6 +728,14 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
   const confirmingByMovement = new Map(confirming.candidates.map(item => [item.movimientoId, item]))
   const invoiceCandidate = new Map<string, InvoiceCandidate>()
   const receivedInvoicePaymentCandidates = new Map<string, ReceivedInvoicePendingPaymentCandidate[]>()
+  const b5TicketsByMovement = new Map<string, ConciliarB5TicketCandidate[]>()
+  const b5SupportsByMovement = new Map<string, ConciliarB5SupportCandidate[]>()
+  for (const source of b5Documents) {
+    const ticket = b5TicketCandidate(source)
+    if (ticket) b5TicketsByMovement.set(ticket.movimientoId, [...(b5TicketsByMovement.get(ticket.movimientoId) ?? []), ticket])
+    const support = b5SupportCandidate(source)
+    if (support) b5SupportsByMovement.set(support.movimientoId, [...(b5SupportsByMovement.get(support.movimientoId) ?? []), support])
+  }
 
   for (const movement of movements) {
     const id = String(movement.id), amount = cents(movement.importeCentimos, 'El movimiento')
@@ -673,6 +781,48 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     })
     if (fee) {
       rows.push(projection(fee.tab, fee.row, fee.source, fee.cuentaId))
+      continue
+    }
+    const b5Review = selectConciliarB5DocumentReview({
+      movimientoId: id, importeMovimientoCentimos: amount, fechaMovimiento: fecha,
+      tickets: b5TicketsByMovement.get(id) ?? [], soportes: b5SupportsByMovement.get(id) ?? [],
+    })
+    if (b5Review.kind !== 'NONE') {
+      const adjuntoB5Id = b5Review.source.adjuntoB5Id
+      const ticket = b5Review.kind === 'TICKET' ? b5Review : null
+      // This is the established B5 private proxy contract: movement and opaque
+      // attachment ID only. It has no drive/item/Graph locator and is recomputed
+      // server-side by the existing allowlisted route before download.
+      const attachmentHref = `/api/admin/finanzas/movimientos/${encodeURIComponent(id)}/archivos?archivoId=${encodeURIComponent(`ADJUNTO_B5:${adjuntoB5Id}`)}`
+      const ticketFile = ticket ? (b5TicketsByMovement.get(id) ?? []).find(item => item.adjuntoB5Id === adjuntoB5Id) : null
+      const controlledFile = ticketFile ? ticketFile.archivoControlado : false
+      const opaqueId = rowId('PAGOS', `PAGO_TICKET_B5:${id}:${adjuntoB5Id}`)
+      const source: ConciliarProjectionSource = {
+        kind: 'PAGO_TICKET_B5', movimientoId: id, adjuntoB5Id,
+        ...(ticket ? { gastoId: ticket.source.gastoId, documentoConciliableId: ticket.source.documentoConciliableId } : {}),
+        versionB4: cents(movement.versionB4, 'La versión'),
+      }
+      // SOPORTE intentionally has no ConciliarDocument: the existing public
+      // document shape makes its amount mandatory, while a support must never
+      // assert one. Its B5 receipt badge stays visible through gestionDocumento.
+      // The attached private href is carried only for a ticket until the parent
+      // extends gestionDocumento with its amountless private-document link.
+      const documentValue: ConciliarDocument | null = ticket
+        ? {
+          referencia: ticket.referencia, tercero: ticket.tercero,
+          importeCentimos: ticket.importeDocumentoCentimos ?? 0, fecha: ticket.fechaDocumento,
+          href: controlledFile ? attachmentHref : null,
+        }
+        : null
+      rows.push(projection('PAGOS', baseRow({
+        id: opaqueId, movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount,
+        color: b5Review.color, grupo: ticket ? 'TICKET_B5' : 'SOPORTE_B5', motivo: b5Review.motivo,
+        documento: documentValue, propuesta: null, seleccionable: b5Review.seleccionable,
+        diferenciaCentimos: ticket ? ticket.diferenciaCentimos : 0,
+        detail: ticket
+          ? 'Ticket B5 humano del mismo movimiento. Confirmar requiere una segunda revalidación B4 y del adjunto privado actual.'
+          : 'Soporte B5 humano recibido: no acredita por sí solo importe, identidad ni conciliación. Revísalo antes de decidir.',
+      }), source, cuentaId))
       continue
     }
     const aliases = movementPartyAliases(movement)

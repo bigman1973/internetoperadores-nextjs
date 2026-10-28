@@ -16,6 +16,8 @@ import {
 } from './conciliar-contract'
 import { conciliarDecisionHash, isoDay, safeInteger } from './conciliar-core'
 import { ConciliarDbError } from './conciliar-errors'
+import { parseParaPedirRequestMetadataRows } from './para-pedir-request-metadata'
+import { safeConciliarDocumentHref } from './conciliar-file-href'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -69,7 +71,7 @@ export function document(value: unknown): ConciliarDocument | null {
     tercero: nullableText(row.tercero, 300),
     importeCentimos,
     fecha: typeof row.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(row.fecha) ? row.fecha : null,
-    href: typeof row.href === 'string' && row.href.startsWith('/api/admin/finanzas/conciliar/archivo/') ? row.href : null,
+    href: safeConciliarDocumentHref(row.href),
   }
 }
 function links(value: unknown): ConciliarRow['linksMovimiento'] {
@@ -84,9 +86,10 @@ function links(value: unknown): ConciliarRow['linksMovimiento'] {
 function storedSource(value: unknown): ConciliarProjectionSource | null {
   const row = json(value)
   const kind = row.kind
-  if (!['COBRO_PROPUESTA', 'COBRO_CONFIRMING', 'PAGO_FACTURA_RECIBIDA', 'PAGO_NOMINA', 'COMISION_BANCARIA', 'PENDIENTE_FACTURA_EMITIDA', 'TRANSFERENCIA_PROPIA'].includes(String(kind))) return null
+  if (!['COBRO_PROPUESTA', 'COBRO_CONFIRMING', 'PAGO_FACTURA_RECIBIDA', 'PAGO_TICKET_B5', 'PAGO_NOMINA', 'COMISION_BANCARIA', 'PENDIENTE_FACTURA_EMITIDA', 'TRANSFERENCIA_PROPIA'].includes(String(kind))) return null
   const scalar = (key: string) => typeof row[key] === 'string' && row[key].length > 0 && row[key].length <= 200 ? row[key] : undefined
   const integer = (key: string) => Number.isSafeInteger(row[key]) ? Number(row[key]) : undefined
+  if (kind === 'PAGO_TICKET_B5' && (!scalar('movimientoId') || !scalar('adjuntoB5Id') || !scalar('gastoId') || !scalar('documentoConciliableId') || !(integer('versionB4')! > 0))) return null
   const remesaIds = Array.isArray(row.remesaIds) && row.remesaIds.every(item => Number.isSafeInteger(item) && Number(item) > 0)
     ? row.remesaIds.map(Number).sort((a, b) => a - b) : undefined
   return {
@@ -100,6 +103,9 @@ function storedSource(value: unknown): ConciliarProjectionSource | null {
     ...(scalar('confirmingSourceHash') ? { confirmingSourceHash: scalar('confirmingSourceHash') } : {}),
     ...(scalar('facturaEmitidaId') ? { facturaEmitidaId: scalar('facturaEmitidaId') } : {}),
     ...(scalar('facturaRecibidaId') ? { facturaRecibidaId: scalar('facturaRecibidaId') } : {}),
+    ...(scalar('adjuntoB5Id') ? { adjuntoB5Id: scalar('adjuntoB5Id') } : {}),
+    ...(scalar('gastoId') ? { gastoId: scalar('gastoId') } : {}),
+    ...(scalar('documentoConciliableId') ? { documentoConciliableId: scalar('documentoConciliableId') } : {}),
     ...(scalar('nominaId') ? { nominaId: scalar('nominaId') } : {}),
     ...(scalar('movimientoParId') ? { movimientoParId: scalar('movimientoParId') } : {}),
     ...(scalar('transferFingerprint') ? { transferFingerprint: scalar('transferFingerprint') } : {}),
@@ -130,6 +136,25 @@ export function projectionRow(row: ProjectionSqlRow): ConciliarRow & { source: C
   return { ...view, decisionHash: conciliarDecisionHash({ row: view, source, sourceFingerprint }), source, sourceFingerprint, updatedAt: updated.toISOString() }
 }
 
+function groupFilter(group: ConciliarGetInput['grupo']): Prisma.Sql | null {
+  if (!group) return null
+  // Es la misma normalización lingüística que usa la etiqueta de la UI, pero
+  // permanece en SQL para que filtro, total, exportación y página sean una foto.
+  const value = Prisma.sql`translate(lower(COALESCE(p.grupo,'')),'áéíóúü','aeiouu')`
+  if (group === 'BANCO') return Prisma.sql`${value} ~ '(banco|comisi)'`
+  if (group === 'PROVEEDORES') return Prisma.sql`${value} ~ '(recibida|proveedor)'`
+  if (group === 'TARJETA') return Prisma.sql`${value} ~ 'tarjeta'`
+  if (group === 'NOMINAS') return Prisma.sql`${value} ~ 'nomina'`
+  if (group === 'IMPUESTOS') return Prisma.sql`${value} ~ '(impuesto|aeat|seguridad)'`
+  if (group === 'TRASPASOS') return Prisma.sql`${value} ~ 'traspas'`
+  if (group === 'CONFIRMING') return Prisma.sql`${value} ~ '(confirm|cesion)'`
+  if (group === 'REMESAS') return Prisma.sql`${value} ~ 'remesa'`
+  if (group === 'CLIENTES') return Prisma.sql`${value} ~ 'emitida'`
+  if (group === 'PRESTAMOS') return Prisma.sql`${value} ~ '(prestamo|leasing)'`
+  if (group === 'DEVOLUCIONES') return Prisma.sql`${value} ~ 'devoluci'`
+  return null
+}
+
 function filters(input: Omit<ConciliarGetInput, 'tab'>): Prisma.Sql {
   const pieces: Prisma.Sql[] = []
   if (input.desde) pieces.push(Prisma.sql`p.fecha >= CAST(${input.desde} AS date)`)
@@ -144,7 +169,24 @@ function filters(input: Omit<ConciliarGetInput, 'tab'>): Prisma.Sql {
       OR COALESCE(p.documento->>'tercero','') ILIKE ${pattern} OR CAST(p.importe_centimos AS text) ILIKE ${pattern}
     )`)
   }
+  if (input.estado) pieces.push(Prisma.sql`p.color=${input.estado}`)
+  const selectedGroup = groupFilter(input.grupo)
+  if (selectedGroup) pieces.push(selectedGroup)
   return pieces.length ? Prisma.join(pieces, ' AND ') : Prisma.sql`TRUE`
+}
+
+function orderBy(input: ConciliarGetInput): Prisma.Sql {
+  // Cada alternativa es literal cerrada; nunca se interpolan nombres de columna
+  // ni dirección desde el navegador.
+  if (input.orden === 'CONCEPTO') return input.direccion === 'ASC'
+    ? Prisma.sql`COALESCE(p.documento->>'tercero',p.concepto) ASC,p.id ASC`
+    : Prisma.sql`COALESCE(p.documento->>'tercero',p.concepto) DESC,p.id ASC`
+  if (input.orden === 'IMPORTE' || !input.orden) return input.direccion === 'ASC'
+    ? Prisma.sql`abs(p.importe_centimos::bigint) ASC,p.id ASC`
+    : Prisma.sql`abs(p.importe_centimos::bigint) DESC,p.id ASC`
+  return input.direccion === 'ASC'
+    ? Prisma.sql`p.fecha ASC,p.id ASC`
+    : Prisma.sql`p.fecha DESC,p.id ASC`
 }
 type MutableConciliarTabSummary = {
   tab: ConciliarTab
@@ -185,6 +227,7 @@ type ProjectionReadBundle = Readonly<{
   historicSummary: unknown
   accounts: unknown
   state: unknown
+  documentRequests?: unknown
 }>
 
 /**
@@ -203,6 +246,7 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ? Prisma.sql`p.tab='EMITIDAS' AND p.fecha<CAST(${cutoff} AS date)`
     : Prisma.sql`p.tab=${input.tab} AND ${activeScope}`
   const emitidasScope = input.emitidasGrupo ? Prisma.sql`p.emitidas_group=${input.emitidasGrupo}` : Prisma.sql`TRUE`
+  const sort = orderBy(input)
   const scopedRows = input.tab === 'EMITIDAS' && !input.historic
     ? Prisma.sql`SELECT p.* FROM active_emitidas p WHERE ${emitidasScope}`
     : Prisma.sql`SELECT p.* FROM filtered p WHERE ${pageScope}`
@@ -223,10 +267,32 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
     ), scoped AS (
       ${scopedRows}
     ), page AS (
-      SELECT * FROM scoped
-      ORDER BY CASE color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
-        abs(importe_centimos::bigint) DESC,fecha DESC,id ASC
+      SELECT p.* FROM scoped p
+      ORDER BY ${sort}
       LIMIT ${input.limit} OFFSET ${input.offset}
+    ), requested_movements AS (
+      SELECT DISTINCT movimiento_id FROM page WHERE movimiento_id IS NOT NULL
+    ), latest_document_request AS (
+      SELECT DISTINCT ON (a.movimiento_id) a.movimiento_id,a.created_at::date::text AS pedido_fecha,u.nombre AS actor_visible
+      FROM auditorias_gestiones_pendientes_b5 a
+      JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
+      LEFT JOIN usuarios_admin u ON u.id=a.actor_id
+      WHERE a.snapshot_resultado->>'estado'='PEDIDO'
+      ORDER BY a.movimiento_id,a.created_at DESC,a.id DESC
+    ), current_request_files AS (
+      SELECT a.movimiento_id,
+        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='SOPORTE')) AS soporte_b5_completo,
+        NOT BOOL_AND(NOT (a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento='TICKET' AND a.gasto_id IS NOT NULL AND a.documento_conciliable_id IS NOT NULL)) AS ticket_b5_completo,
+        MIN(CASE WHEN a.estado::text='UPLOAD_COMPLETO' AND a.tipo_documento IN ('TICKET','SOPORTE') THEN a.id::text ELSE NULL END) AS archivo_b5_id
+      FROM adjuntos_pendientes_b5 a JOIN requested_movements r ON r.movimiento_id=a.movimiento_id
+      GROUP BY a.movimiento_id
+    ), document_requests AS (
+      SELECT r.movimiento_id,g.estado::text AS gestion_estado,p.pedido_fecha,p.actor_visible,
+        COALESCE(a.soporte_b5_completo,false) AS soporte_b5_completo,COALESCE(a.ticket_b5_completo,false) AS ticket_b5_completo,a.archivo_b5_id
+      FROM requested_movements r
+      LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=r.movimiento_id
+      LEFT JOIN latest_document_request p ON p.movimiento_id=r.movimiento_id
+      LEFT JOIN current_request_files a ON a.movimiento_id=r.movimiento_id
     ), summary AS (
       SELECT tab,color,COUNT(*)::text AS total,COALESCE(SUM(pendiente_centimos::bigint),0)::text AS amount
       FROM active GROUP BY tab,color
@@ -246,8 +312,8 @@ async function readProjectionBundle(input: ConciliarGetInput, shared: Prisma.Sql
       FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1
     )
     SELECT
-      COALESCE((SELECT json_agg(row_to_json(page) ORDER BY CASE color WHEN 'VERDE' THEN 0 WHEN 'AMBAR' THEN 1 WHEN 'ROJO' THEN 2 ELSE 3 END ASC,
-        abs(importe_centimos::bigint) DESC,fecha DESC,id ASC) FROM page),'[]'::json) AS rows,
+      COALESCE((SELECT json_agg(row_to_json(p) ORDER BY ${sort}) FROM page p),'[]'::json) AS rows,
+      COALESCE((SELECT json_agg(row_to_json(d) ORDER BY movimiento_id) FROM document_requests d),'[]'::json) AS "documentRequests",
       COALESCE((SELECT COUNT(*)::text FROM scoped),'0') AS total,
       COALESCE((SELECT json_agg(row_to_json(summary) ORDER BY tab ASC,color ASC) FROM summary),'[]'::json) AS summaries,
       COALESCE((SELECT json_agg(row_to_json(emitidas_groups) ORDER BY "group" ASC) FROM emitidas_groups),'[]'::json) AS "emitidasGroups",
@@ -307,8 +373,13 @@ async function projectionResponse(input: ConciliarGetInput, client: Pick<Tx, '$q
   // would be rejected by the browser contract and could look like an empty queue.
   const rebuiltAt = state?.rebuiltAt instanceof Date ? state.rebuiltAt : state?.rebuiltAt ? new Date(state.rebuiltAt) : null
   if (!rebuiltAt || !Number.isFinite(rebuiltAt.getTime())) fail(503, 'PROYECCION_NO_PREPARADA', 'La conciliación se está preparando por primera vez. Vuelve a intentarlo en unos instantes.')
+  const pageRows = rows.map(projectionRow)
+  const requests = parseParaPedirRequestMetadataRows(jsonRecords(bundle.documentRequests ?? [], 'La gestión documental'))
   return {
-    tabs: CONCILIAR_TABS.map(tab => summaries.get(tab)!), rows: rows.map(projectionRow).map(({ source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row }) => row),
+    tabs: CONCILIAR_TABS.map(tab => summaries.get(tab)!), rows: pageRows.map(({ source: _source, sourceFingerprint: _fingerprint, updatedAt: _updatedAt, ...row }) => {
+      const metadata = row.movimientoId ? requests.get(row.movimientoId) : undefined
+      return { ...row, ...(metadata ? { gestionDocumento: { estado: metadata.estadoPedido, pedido: metadata.pedido ? { fecha: metadata.pedido.fechaISO, por: metadata.pedido.actorVisible } : null, documentoDisponible: metadata.documentoActual.soporteB5Completo || metadata.documentoActual.ticketB5Completo || (!!row.documento && metadata.estadoPedido === 'PEDIDO'), ...(metadata.documentoActual.archivoHref ? { archivoHref: metadata.documentoActual.archivoHref } : {}) } } : {}) }
+    }),
     total: count(bundle.total), limit: input.limit, offset: input.offset,
     updatedAt: rebuiltAt.toISOString(),
     projectionVersion: count(state?.projectionVersion),

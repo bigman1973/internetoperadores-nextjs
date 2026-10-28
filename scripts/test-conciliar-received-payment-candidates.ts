@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { classifyReceivedInvoicePaymentCandidates, conciliarCutoffDay, isConciliarHistoricIssued, type ReceivedInvoicePaymentCandidate } from '../lib/finanzas/conciliar-core'
+import { normalizarReferenciaFactura, referenciasFacturaCitadas } from '../lib/finanzas/conciliar-contract'
 
 type Fixture = Readonly<{ label: string }>
 function candidate(input: Partial<ReceivedInvoicePaymentCandidate<Fixture>> & Pick<ReceivedInvoicePaymentCandidate<Fixture>, 'id' | 'referencia' | 'fecha' | 'vencimiento' | 'importeDocumentoCentimos' | 'matchesCounterparty'>): ReceivedInvoicePaymentCandidate<Fixture> {
@@ -62,6 +63,42 @@ test('importe sin referencia no identifica una factura: queda ámbar aunque sea 
   assert.equal(result.kind, 'REVIEW')
   if (result.kind !== 'REVIEW') throw new Error('La fixture debía requerir revisión.')
   assert.equal(result.reason, 'REFERENCIA_DISCREPANTE')
+})
+
+test('HubSpot sin número de factura queda ámbar aunque proveedor, importe y fecha coincidan', () => {
+  const result = classifyReceivedInvoicePaymentCandidates({
+    importeBancoCentimos: -88_800,
+    fechaBanco: BANK_DAY,
+    conceptoBanco: 'PAGO RECURRENTE HUBSPOT',
+    candidates: [candidate({ id: 'hubspot-without-bank-invoice-number', referencia: 'HS-2026-0088', fecha: '2026-10-01', vencimiento: '2026-10-20', importeDocumentoCentimos: -88_800, matchesCounterparty: true })],
+  })
+
+  assert.equal(result.kind, 'REVIEW')
+  if (result.kind !== 'REVIEW') throw new Error('HubSpot sin referencia bancaria no puede ser exacto.')
+  assert.equal(result.reason, 'REFERENCIA_DISCREPANTE')
+})
+
+test('Xfera cc26 explícita en concepto normaliza separadores y exige igualdad documental completa', () => {
+  assert.deepEqual(referenciasFacturaCitadas('PAGO FACTURA CC26/0042 XFERA'), ['CC260042'])
+  assert.deepEqual(referenciasFacturaCitadas('TRANSFERENCIA XFERA CC26/0042'), ['CC260042'])
+  assert.equal(normalizarReferenciaFactura('cc26-0042'), 'CC260042')
+  const exact = classifyReceivedInvoicePaymentCandidates({
+    importeBancoCentimos: -102_000,
+    fechaBanco: BANK_DAY,
+    conceptoBanco: 'PAGO FACTURA CC26/0042 XFERA',
+    candidates: [candidate({ id: 'xfera-cc26-exact', referencia: 'cc26-0042', fecha: '2026-10-01', vencimiento: null, importeDocumentoCentimos: -102_000, matchesCounterparty: true })],
+  })
+  assert.equal(exact.kind, 'EXACT')
+
+  const partial = classifyReceivedInvoicePaymentCandidates({
+    importeBancoCentimos: -102_000,
+    fechaBanco: BANK_DAY,
+    conceptoBanco: 'PAGO FACTURA CC26/0042 XFERA',
+    candidates: [candidate({ id: 'xfera-cc26-prefix-only', referencia: 'cc26-004', fecha: '2026-10-01', vencimiento: null, importeDocumentoCentimos: -102_000, matchesCounterparty: true })],
+  })
+  assert.equal(partial.kind, 'REVIEW')
+  if (partial.kind !== 'REVIEW') throw new Error('Una referencia parcial no puede ser exacta.')
+  assert.equal(partial.reason, 'REFERENCIA_DISCREPANTE')
 })
 
 test('sólo una referencia bancaria exacta, emisión no posterior y el importe exacto habilitan verde', () => {

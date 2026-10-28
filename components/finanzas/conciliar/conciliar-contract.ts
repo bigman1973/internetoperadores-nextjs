@@ -1,5 +1,6 @@
 'use client';
 
+import { safeConciliarDocumentHref } from '@/lib/finanzas/conciliar-file-href';
 import type {
   ConciliarAskCommand,
   ConciliarColor as ServerConciliarColor,
@@ -8,8 +9,11 @@ import type {
   ConciliarConfirmItem as ServerConciliarConfirmItem,
   ConciliarDocument as ServerConciliarDocument,
   ConciliarEmitidasGroup as ServerConciliarEmitidasGroup,
+  ConciliarGroup as ServerConciliarGroup,
   ConciliarMovementLink as ServerConciliarMovementLink,
   ConciliarRow as ServerConciliarRow,
+  ConciliarSortDirection as ServerConciliarSortDirection,
+  ConciliarSortField as ServerConciliarSortField,
   ConciliarTab as ServerConciliarTab,
   ConciliarTabSummary,
   ConciliarUndoCommand,
@@ -18,10 +22,16 @@ import type {
 export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const;
 export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO'] as const;
 export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA'] as const;
+export const CONCILIAR_GROUPS = ['BANCO', 'PROVEEDORES', 'TARJETA', 'NOMINAS', 'IMPUESTOS', 'TRASPASOS', 'CONFIRMING', 'REMESAS', 'CLIENTES', 'PRESTAMOS', 'DEVOLUCIONES'] as const;
+export const CONCILIAR_SORT_FIELDS = ['FECHA', 'CONCEPTO', 'IMPORTE'] as const;
+export const CONCILIAR_SORT_DIRECTIONS = ['ASC', 'DESC'] as const;
 
 export type ConciliarTab = ServerConciliarTab;
 export type ConciliarColor = ServerConciliarColor;
 export type ConciliarEmitidasGroup = ServerConciliarEmitidasGroup;
+export type ConciliarGroup = ServerConciliarGroup;
+export type ConciliarSortField = ServerConciliarSortField;
+export type ConciliarSortDirection = ServerConciliarSortDirection;
 export type ConciliarDocument = ServerConciliarDocument;
 export type ConciliarMovementLink = ServerConciliarMovementLink;
 /** La API hace opcional linksMovimiento; el parser siempre lo normaliza a lista. */
@@ -201,6 +211,16 @@ function parseLinks(value: unknown, field: string): readonly ConciliarMovementLi
 
 function parseRow(value: unknown, field: string): ConciliarRow {
   const raw = object(value, field);
+  let gestionDocumento: ConciliarRow['gestionDocumento'];
+  if (raw.gestionDocumento !== undefined) {
+    const management = object(raw.gestionDocumento, `${field}.gestionDocumento`);
+    if (!['SIN_PEDIR', 'PEDIDO', 'PEDIDO_SIN_AUDITORIA', 'RECIBIDO'].includes(String(management.estado))) throw new Error('El estado de pedido no es válido.');
+    const request = management.pedido === null ? null : object(management.pedido, `${field}.pedido`);
+    if (management.estado === 'PEDIDO' && !request) throw new Error('El pedido no conserva una auditoría verificable.');
+    const archivoHref = management.archivoHref === undefined ? undefined : safeConciliarDocumentHref(management.archivoHref);
+    if (management.archivoHref !== undefined && !archivoHref) throw new Error('El documento recibido no conserva un lector privado válido.');
+    gestionDocumento = { estado: management.estado as NonNullable<ConciliarRow['gestionDocumento']>['estado'], pedido: request ? { fecha: date(request.fecha, `${field}.pedido.fecha`)!, por: nullableText(request.por, `${field}.pedido.por`, 300) } : null, documentoDisponible: boolean(management.documentoDisponible, `${field}.documentoDisponible`), ...(archivoHref ? { archivoHref } : {}) };
+  }
   return {
     id: opaqueId(raw.id, `${field}.id`),
     movimientoId: raw.movimientoId === null ? null : opaqueId(raw.movimientoId, `${field}.movimientoId`),
@@ -220,6 +240,7 @@ function parseRow(value: unknown, field: string): ConciliarRow {
     linksMovimiento: parseLinks(raw.linksMovimiento, `${field}.linksMovimiento`),
     detail: nullableText(raw.detail, `${field}.detail`, 1_600),
     decisionHash: decisionHash(raw.decisionHash, `${field}.decisionHash`),
+    ...(gestionDocumento ? { gestionDocumento } : {}),
   };
 }
 
@@ -436,14 +457,7 @@ export function formatDate(value: string | null): string {
 
 /** Sólo permite los lectores privados controlados por el panel, nunca una URL externa. */
 export function safeDocumentHref(value: string | null): string | null {
-  if (!value || value.length > 900 || !value.startsWith('/') || value.startsWith('//') || value.includes('\\') || value.includes('..')) return null;
-  try {
-    const url = new URL(value, 'https://conciliar.local');
-    if (url.origin !== 'https://conciliar.local') return null;
-    const pathAllowed = /^\/api\/admin\/finanzas\/conciliar\/archivo\/[A-Za-z0-9_-]{1,240}$/.test(url.pathname) && !url.search;
-    if (!pathAllowed) return null;
-    return `${url.pathname}${url.search}`;
-  } catch { return null; }
+  return safeConciliarDocumentHref(value);
 }
 
 /** Los enlaces de detalle sólo pueden quedarse dentro de las rutas financieras conocidas. */

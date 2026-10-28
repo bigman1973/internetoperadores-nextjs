@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
+import assert from 'node:assert/strict'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
 
 // Sólo clasifica plantillas de código: las interpolaciones nunca se evalúan.
@@ -17,7 +18,17 @@ for(const file of files){
       ts.forEachChild(node,visit)
       return
     }
-    const result=classifyPrisma5RawSqlStatement([{strings}])
+    let classificationStrings=strings
+    if(file==='lib/finanzas/conciliar-batch.ts' && /^\s*SELECT pg_advisory_xact_lock\(hashtextextended\(v\.movimiento_id,0\)\)::text AS locked\s+FROM \(VALUES\s*$/i.test(strings[0])){
+     assert(ts.isTemplateExpression(node.template) && node.template.templateSpans.length===1)
+     assert.equal(node.template.templateSpans[0].expression.getText(source),'Prisma.join(values)')
+     assert.match(source.text,/const values = \[\.\.\.new Set\(keys\)\]\.sort\(\(left, right\) => left\.localeCompare\(right\)\)/)
+     assert(source.text.includes('.map(id => Prisma.sql`(CAST(${id} AS text))`)'))
+     // Una fila ligada representativa; 1/20/100 y rechazos se prueban además
+     // con Prisma.sql REAL en test-conciliar-batch-lock-classifier.ts.
+     classificationStrings=[strings[0]+'(CAST(', ' AS text))'+strings[1]]
+    }
+    const result=classifyPrisma5RawSqlStatement([{strings:classificationStrings}])
     reviewed++
     if(result==='unknown'){
      unknown++

@@ -93,9 +93,11 @@ async function main(): Promise<void> {
   // $connect/$transaction and fake clients satisfy every verifier query.
   const {
     default: prisma,
-    runWithImpersonationMutationAuditScope,
+    runWithImpersonationMutationAuditScope: auditScope,
+    runWithConciliarSerializableAuthorization,
     verifyLiveImpersonationContext,
   } = await import('../lib/prisma')
+  const runWithImpersonationMutationAuditScope = <T>(tx: never, callback: () => T | Promise<T>) => auditScope(tx, () => runWithConciliarSerializableAuthorization(tx, callback))
   const source = readFileSync(resolve(root, 'lib/prisma.ts'), 'utf8')
   assert.match(source, /FOR SHARE OF s,actor,target/, 'La verificación inicial debe bloquear sesión, actor y destino contra revocaciones concurrentes.')
   assert.match(source, /JOIN usuarios_admin actor[\s\S]*JOIN usuarios_admin target/, 'La consulta bloqueante debe volver a leer ambos administradores.')
@@ -107,6 +109,12 @@ async function main(): Promise<void> {
   Date.now = () => now
   try {
     await withCacheEnvironment(async () => {
+      const unmarked = fakeTx([[future(now)], [future(now)]])
+      await auditScope(unmarked as never, async () => {
+        assert.equal(await verifyLiveImpersonationContext(contextFor(), unmarked as never), true)
+        assert.equal(await verifyLiveImpersonationContext(contextFor(), unmarked as never), true)
+      })
+      assert.equal(unmarked.queries.length, 2, 'Una transacción ordinaria sin marcador de Conciliar mantiene la verificación por sentencia.')
       const reusable = fakeTx(Array.from({ length: 9 }, () => [future(now)]))
       await runWithImpersonationMutationAuditScope(reusable as never, async () => {
         const base = contextFor()
@@ -185,7 +193,38 @@ async function main(): Promise<void> {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
       })
-      assert.equal(production.queries.length, 2, 'Sin FINANCE_STAGING_SANDBOX=1, incluso Conciliar conserva la verificación SQL por sentencia.')
+      assert.equal(production.queries.length, 2, 'Sin los opt-ins completos de Conciliar, producción conserva la verificación SQL por sentencia.')
+
+      const names = ['FINANCE_EASY_PRODUCTION_ENABLED', 'FINANCE_MODEL_PRODUCTION_ENABLED', 'FINANCE_AUTOMATIC_LINKS_DISABLED', 'FINANCE_CONCILIAR_PRODUCTION_ENABLED', 'NEXT_PUBLIC_FINANCE_CONCILIAR_PRODUCTION_ENABLED', 'IO_PRODUCTION_READ_ONLY'] as const
+      const previous = new Map(names.map(name => [name, process.env[name]]))
+      for (const name of names) process.env[name] = name === 'IO_PRODUCTION_READ_ONLY' ? '0' : '1'
+      try {
+        const enabled = fakeTx([[future(now, 5)], [future(now)], [future(now)]])
+        await runWithImpersonationMutationAuditScope(enabled as never, async () => {
+          const base = contextFor()
+          assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
+          assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
+          assert.equal(enabled.queries.length, 1, 'Con runtime productivo explícito, misma sesión y misma transacción reutilizan el bloqueo vivo.')
+          now += 6
+          assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
+          assert.equal(enabled.queries.length, 2, 'La caducidad vuelve a verificarse en producción por sentencia, no sólo al comenzar el lote.')
+          process.env.FINANCE_CONCILIAR_PRODUCTION_ENABLED = '0'
+          assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
+          assert.equal(enabled.queries.length, 3, 'Retirar un opt-in desactiva la caché inmediatamente y restaura la consulta conservadora.')
+          process.env.FINANCE_CONCILIAR_PRODUCTION_ENABLED = '1'
+        })
+        const fresh = fakeTx([[future(now)]])
+        await runWithImpersonationMutationAuditScope(fresh as never, async () => {
+          assert.equal(await verifyLiveImpersonationContext(contextFor(), fresh as never), true)
+        })
+        assert.equal(fresh.queries.length, 1, 'La siguiente transacción productiva no hereda la comprobación del lote anterior.')
+      } finally {
+        for (const name of names) {
+          const value = previous.get(name)
+          if (value === undefined) delete process.env[name]
+          else process.env[name] = value
+        }
+      }
     })
   } finally {
     Date.now = realNow
@@ -201,7 +240,9 @@ async function main(): Promise<void> {
     expiryCheckedEveryStatement: true,
     failedVerificationNotCached: true,
     retryGetsFreshTransactionScope: true,
-    productionOrNoFlagHasNoCache: true,
+    productionWithoutOptInsHasNoCache: true,
+    productionExplicitRuntimeUsesTransactionScopedCache: true,
+    requiresExplicitConciliarTransactionMarker: true,
     lockSqlCoversSessionActorTarget: true,
   }))
 }

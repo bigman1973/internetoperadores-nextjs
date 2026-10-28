@@ -3,15 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowDownTrayIcon, ArrowPathIcon, ChevronLeftIcon, ChevronRightIcon,
-  ExclamationTriangleIcon, MagnifyingGlassIcon,
+  ChevronDownIcon, ChevronUpDownIcon, ChevronUpIcon, ExclamationTriangleIcon, MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import {
-  CONCILIAR_COLORS, CONCILIAR_TABS, escapeSpreadsheet, formatDate, formatMagnitude, formatMoney,
+  CONCILIAR_COLORS, CONCILIAR_GROUPS, CONCILIAR_TABS, formatDate, formatMagnitude, formatMoney,
   makeIdempotencyKey, parseConciliarActionResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarUndoResponse,
   safeDocumentHref, safeFinanceHref, safeOutcomeMessage,
   type ConciliarActionResponse, type ConciliarColor, type ConciliarConfirmItem, type ConciliarMutationPayload,
-  type ConciliarEmitidasGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarRow, type ConciliarSummary, type ConciliarTab,
+  type ConciliarEmitidasGroup, type ConciliarGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarRow, type ConciliarSortDirection, type ConciliarSortField, type ConciliarSummary, type ConciliarTab,
 } from './conciliar-contract';
+import { areAllVisibleGreensSelected, groupExplanation, humanGroup, requiresSeparateRemesaConfirmation, reviewSelectionForCurrentRows, setRowSelected, setVisibleGreenSelected } from './conciliar-ui-helpers';
+import { ConciliarStreamRejectedError, ConciliarStreamUncertainError, readConciliarBatchResponse, type ConciliarClientBatchProgress } from './conciliar-batch-client';
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
 import { ConciliarDetailMemoryCache, conciliarDetailCacheKey } from './conciliar-detail-client';
@@ -44,6 +46,7 @@ type Receipt = Readonly<{
 }>;
 type OpenDocument = Readonly<{ row: ConciliarRow; status: 'loading' | 'ready' | 'error'; detail: ConciliarDocumentDetail | null; error: string | null }> | null;
 type RemesaConfirmation = Readonly<{ row: ConciliarRow; preview: ConciliarRemesaPreview; payload: ConciliarMutationPayload }> | null;
+type BatchResult = Readonly<{ operationId: string | null; outcomes: readonly Readonly<{ id: string; label: string; ok: boolean; message: string }>[] }>;
 
 /** Una respuesta 2xx malformada no prueba que la acción no haya llegado al servidor. */
 class UncertainResultError extends Error {}
@@ -67,33 +70,11 @@ const EMITIDAS_GROUP_COPY: Record<ConciliarEmitidasGroup, Readonly<{ label: stri
   SIN_PROPUESTA: { label: 'Sin propuesta', rule: 'Rojo', dot: 'bg-red-600', active: 'border-red-600 bg-red-50 text-red-950 dark:border-red-500 dark:bg-red-950/45 dark:text-red-100', idle: 'border-red-200 bg-white text-red-950 hover:border-red-500 dark:border-red-900 dark:bg-slate-900 dark:text-red-100' },
 };
 
-function groupExplanation(group: string | null): string | null {
-  if (!group) return null;
-  const normalized = group.toLocaleLowerCase('es-ES');
-  if (normalized.includes('banco') || normalized.includes('comisi')) return 'Comisiones, cuotas y gastos que aplica el banco.';
-  if (normalized.includes('traspas')) return 'El mismo importe debe aparecer en otra cuenta propia dentro de tres días.';
-  if (normalized.includes('nómina') || normalized.includes('nomina')) return 'Se compara con la nómina del empleado y del mes correspondiente.';
-  if (normalized.includes('confirm') || normalized.includes('cesión') || normalized.includes('cesion')) return 'El documento de confirming indica las facturas y, si procede, los intereses.';
-  if (normalized.includes('remesa')) return 'La suma de recibos se compara con cada ingreso y muestra lo que queda pendiente.';
-  return null;
-}
-
-function humanGroup(group: string | null): string {
-  if (!group) return 'Sin grupo';
-  const key = group.toLocaleLowerCase('es-ES');
-  if (/banco|comisi/.test(key)) return 'Gastos del banco';
-  if (/traspas/.test(key)) return 'Traspasos entre cuentas propias';
-  if (/n[oó]mina/.test(key)) return 'Nóminas';
-  if (/confirm|cesi[oó]n/.test(key)) return 'Confirming y cesiones de crédito';
-  if (/remesa/.test(key)) return 'Remesas';
-  if (/emitida/.test(key)) return 'Facturas de clientes';
-  if (/recibida|proveedor/.test(key)) return 'Facturas de proveedores';
-  if (/tarjeta/.test(key)) return 'Tarjeta · ticket o factura';
-  if (/impuesto|aeat|seguridad/.test(key)) return 'Impuestos y Seguridad Social';
-  if (/pr[eé]stamo/.test(key)) return 'Préstamos';
-  if (/devoluci/.test(key)) return 'Devoluciones de recibos';
-  return group.replace(/_/g, ' ').toLocaleLowerCase('es-ES');
-}
+const GROUP_FILTER_COPY: Record<ConciliarGroup, string> = {
+  BANCO: 'Gastos del banco', PROVEEDORES: 'Proveedores', TARJETA: 'Tarjeta', NOMINAS: 'Nóminas',
+  IMPUESTOS: 'Impuestos y Seguridad Social', TRASPASOS: 'Traspasos', CONFIRMING: 'Confirming y cesiones',
+  REMESAS: 'Remesas', CLIENTES: 'Facturas de clientes', PRESTAMOS: 'Préstamos', DEVOLUCIONES: 'Devoluciones',
+};
 
 function accountLabel(account: { banco: string; cuenta: string | null }): string {
   return `${account.banco}${account.cuenta ? ` · ${account.cuenta}` : ''}`;
@@ -118,7 +99,7 @@ function isUncertain(error: unknown): boolean {
 
 /** Sólo abre la vista previa; el servidor comprueba tipo, fuente y remesa única. */
 function remesaHint(row: ConciliarRow): boolean {
-  return /remesa/i.test(`${row.grupo ?? ''} ${row.documento?.referencia ?? ''}`);
+  return requiresSeparateRemesaConfirmation(row);
 }
 
 function humanUpdatedAt(value: string): string {
@@ -127,7 +108,7 @@ function humanUpdatedAt(value: string): string {
   return new Intl.DateTimeFormat('es-ES', { dateStyle: 'short', timeStyle: 'short' }).format(date);
 }
 
-function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup | ''; limit: number; offset: number }>): URLSearchParams {
+function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup | ''; estado?: ConciliarColor | ''; grupo?: ConciliarGroup | ''; orden?: ConciliarSortField; direccion?: ConciliarSortDirection; limit: number; offset: number }>): URLSearchParams {
   const params = new URLSearchParams({ tab: input.tab, limit: String(input.limit), offset: String(input.offset) });
   if (input.from) params.set('desde', input.from);
   if (input.to) params.set('hasta', input.to);
@@ -136,12 +117,16 @@ function buildQuery(input: Readonly<{ tab: ConciliarTab; from: string; to: strin
   params.set('cutoffDate', input.cutoffDate);
   if (input.historic) params.set('historic', '1');
   if (input.emitidasGrupo && input.tab === 'EMITIDAS' && !input.historic) params.set('emitidasGrupo', input.emitidasGrupo);
+  if (input.estado) params.set('estado', input.estado);
+  if (input.grupo) params.set('grupo', input.grupo);
+  if (input.orden) params.set('orden', input.orden);
+  if (input.direccion) params.set('direccion', input.direccion);
   return params;
 }
 
 /** UI state becomes a closed, normalized response view. It is presentation only:
  * rows, amounts, IDs and authority remain exclusively server-derived. */
-function responseViewFor(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; emitidasGrupo: ConciliarEmitidasGroup | ''; limit: number; offset: number }>) {
+function responseViewFor(input: Readonly<{ tab: ConciliarTab; from: string; to: string; accountId: string; query: string; cutoffDate: string; emitidasGrupo: ConciliarEmitidasGroup | ''; estado: ConciliarColor | ''; grupo: ConciliarGroup | ''; orden?: ConciliarSortField; direccion?: ConciliarSortDirection; limit: number; offset: number }>) {
   return {
     tab: input.tab,
     ...(input.from ? { desde: input.from } : {}),
@@ -151,14 +136,18 @@ function responseViewFor(input: Readonly<{ tab: ConciliarTab; from: string; to: 
     cutoffDate: input.cutoffDate,
     historic: false,
     ...(input.tab === 'EMITIDAS' && input.emitidasGrupo ? { emitidasGrupo: input.emitidasGrupo } : {}),
+    ...(input.estado ? { estado: input.estado } : {}),
+    ...(input.grupo ? { grupo: input.grupo } : {}),
+    ...(input.orden ? { orden: input.orden } : {}),
+    ...(input.direccion ? { direccion: input.direccion } : {}),
     limit: input.limit,
     offset: input.offset,
   };
 }
-function responseViewKey(view: Readonly<{ tab: ConciliarTab; desde?: string; hasta?: string; cuentaId?: string; q?: string; cutoffDate?: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup; limit: number; offset: number }>): string {
+function responseViewKey(view: Readonly<{ tab: ConciliarTab; desde?: string; hasta?: string; cuentaId?: string; q?: string; cutoffDate?: string; historic?: boolean; emitidasGrupo?: ConciliarEmitidasGroup; estado?: ConciliarColor; grupo?: ConciliarGroup; orden?: ConciliarSortField; direccion?: ConciliarSortDirection; limit: number; offset: number }>): string {
   return buildQuery({
     tab: view.tab, from: view.desde ?? '', to: view.hasta ?? '', accountId: view.cuentaId ?? '', query: view.q ?? '',
-    cutoffDate: view.cutoffDate ?? '2026-01-01', historic: view.historic ?? false, emitidasGrupo: view.emitidasGrupo ?? '', limit: view.limit, offset: view.offset,
+    cutoffDate: view.cutoffDate ?? '2026-01-01', historic: view.historic ?? false, emitidasGrupo: view.emitidasGrupo ?? '', estado: view.estado ?? '', grupo: view.grupo ?? '', orden: view.orden, direccion: view.direccion, limit: view.limit, offset: view.offset,
   }).toString();
 }
 
@@ -176,6 +165,12 @@ function Skeleton() {
 
 function Empty({ text }: { text: string }) {
   return <div className="p-7 text-center text-sm text-slate-600 dark:text-slate-300">{text}</div>;
+}
+
+function SortHeader({ field, label, active, direction, onChange, align = 'left' }: { field: ConciliarSortField; label: string; active: boolean; direction: ConciliarSortDirection; onChange: (field: ConciliarSortField) => void; align?: 'left' | 'right' }) {
+  const Icon = !active ? ChevronUpDownIcon : direction === 'ASC' ? ChevronUpIcon : ChevronDownIcon;
+  const ariaSort = active ? direction === 'ASC' ? 'ascending' : 'descending' : 'none';
+  return <span role="columnheader" aria-sort={ariaSort} className={align === 'right' ? 'text-right' : ''}><button type="button" onClick={() => onChange(field)} aria-label={`Ordenar por ${label}${active ? `, actualmente ${direction === 'ASC' ? 'ascendente' : 'descendente'}` : ''}`} className={`inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-[#BF3E00] focus:outline-none focus:ring-2 focus:ring-[#FF5300] ${align === 'right' ? 'ml-auto' : ''}`}>{label}<Icon className="h-3.5 w-3.5" aria-hidden="true" /></button></span>;
 }
 
 function SummaryTab({ summary, active, onClick }: { summary: ConciliarSummary; active: boolean; onClick: () => void }) {
@@ -279,7 +274,7 @@ function ResultBadge({ receipt, onUndo, disabled }: { receipt: Receipt | undefin
   if (!receipt) return null;
   if (receipt.status === 'failed') return <span className="block truncate text-xs font-semibold text-red-700 dark:text-red-300" title={receipt.message}>No hecho</span>;
   if (receipt.status === 'undone') return <span className="block truncate text-xs font-semibold text-slate-600 dark:text-slate-300">Deshecho</span>;
-  return <span className="flex min-w-0 items-center justify-end gap-1"><span className="truncate text-xs font-bold text-emerald-700 dark:text-emerald-300">{receipt.status === 'asked' ? 'Añadido' : 'Hecho'}</span>{receipt.operationId && <button type="button" disabled={disabled} onClick={onUndo} className="shrink-0 text-xs font-bold text-[#FF5300] underline decoration-1 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50">Deshacer</button>}</span>;
+  return <span className="flex min-w-0 items-center justify-end gap-1"><span className="truncate text-xs font-bold text-emerald-700 dark:text-emerald-300">{receipt.status === 'asked' ? 'Pedido' : 'Hecho'}</span>{receipt.status === 'done' && receipt.operationId && <button type="button" disabled={disabled} onClick={onUndo} className="shrink-0 text-xs font-bold text-[#FF5300] underline decoration-1 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50">Deshacer</button>}</span>;
 }
 
 function MovementJump({ row }: { row: ConciliarRow }) {
@@ -288,9 +283,10 @@ function MovementJump({ row }: { row: ConciliarRow }) {
   return <a href={link.href!} className="truncate text-xs font-bold text-[#FF5300] underline decoration-1 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300]" title={link.etiqueta}>{link.etiqueta || 'Ver movimiento que casa'}</a>;
 }
 
-function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, onAsk, onOpen, onPrefetch, onUndo }: {
+function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt, busy, onSelect, onConfirm, onAsk, onOpen, onPrefetch, onUndo }: {
   row: ConciliarRow;
   selected: boolean;
+  selectionNeedsReview?: boolean;
   receipt: Receipt | undefined;
   busy: boolean;
   onSelect: (checked: boolean) => void;
@@ -311,6 +307,11 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
   const account = [row.banco, row.cuenta].filter(Boolean).join(' · ') || 'Cuenta no disponible';
   const documentLabel = row.documento?.referencia || '—';
   const documentInfo = row.documento ? `${row.documento.tercero || ''} · ${formatMagnitude(row.documento.importeCentimos)} · ${formatDate(row.documento.fecha)}` : 'Sin documento propuesto';
+  const management = row.gestionDocumento;
+  const receivedFileHref = safeDocumentHref(management?.archivoHref ?? null) || (documentHref?.includes('/movimientos/') ? documentHref : null);
+  const requestLabel = management?.documentoDisponible || management?.estado === 'RECIBIDO' ? 'Documento recibido · revisar y confirmar'
+    : management?.estado === 'PEDIDO' && management.pedido ? `Pedido el ${formatDate(management.pedido.fecha)}${management.pedido.por ? ` · ${management.pedido.por}` : ''}`
+      : management?.estado === 'PEDIDO_SIN_AUDITORIA' ? 'Pedido · fecha y persona no verificables' : null;
   return <article data-testid="conciliar-row" data-row-id={row.id} onMouseEnter={() => onPrefetch(row)} onFocus={() => onPrefetch(row)} onPointerDown={() => onPrefetch(row)} onTouchStart={() => onPrefetch(row)} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-slate-100 px-2 py-2 hover:bg-orange-50/40 dark:border-slate-800 dark:hover:bg-orange-950/15 xl:grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] xl:gap-3 xl:px-3">
     <div className="hidden min-w-0 xl:block"><span className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2 py-1 text-xs font-bold ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span></div>
     <p className="min-w-0 text-xs font-semibold text-slate-600 dark:text-slate-300" title={formatDate(row.fecha)}><span className={`mb-0.5 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold xl:hidden ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span><span className="block whitespace-nowrap">{formatDate(row.fecha)}</span></p>
@@ -320,9 +321,12 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
     <div className="hidden text-right xl:block"><p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] dark:text-white">{formatMoney(row.importeCentimos)}</p>{row.diferenciaCentimos !== 0 && <p className="whitespace-nowrap text-xs font-semibold tabular-nums text-amber-800 dark:text-amber-300">Dif. {formatMoney(row.diferenciaCentimos)}</p>}</div>
     <div className="hidden min-w-0 xl:block"><button type="button" onClick={() => onOpen(row)} title={row.motivo} aria-label="Ver nota completa" className="line-clamp-2 text-left text-xs leading-4 text-slate-600 underline decoration-dotted underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300] dark:text-slate-300">{row.motivo}</button><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></div>
     <p className="whitespace-nowrap text-sm font-extrabold tabular-nums text-[#2D2A26] dark:text-white xl:hidden">{formatMoney(row.importeCentimos)}</p>
-    <div className="flex items-center justify-end gap-1.5">{canConfirm && <input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} aria-label={`Seleccionar ${row.concepto}`} disabled={busy} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600 disabled:opacity-50" />}{action}</div>
+    <div className="flex items-center justify-end gap-1.5">{canConfirm && <input type="checkbox" checked={selected} onChange={(event) => onSelect(event.target.checked)} aria-label={`${selectionNeedsReview ? 'Revisar y volver a seleccionar' : 'Seleccionar'} ${row.concepto}`} aria-describedby={selectionNeedsReview ? `conciliar-selection-review-${row.id}` : undefined} disabled={busy} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600 disabled:opacity-50" />}{action}</div>
     <button type="button" onClick={() => onOpen(row)} title={row.motivo} className="col-span-full line-clamp-2 text-left text-xs text-slate-600 underline decoration-dotted underline-offset-2 dark:text-slate-300 xl:hidden">{row.motivo}</button>
+    {selectionNeedsReview && <p id={`conciliar-selection-review-${row.id}`} className="col-span-full px-1 text-xs font-semibold text-amber-800 dark:text-amber-300">La fila cambió desde que la seleccionaste. Desmárcala y vuelve a marcarla tras revisarla; no se confirmará mientras tanto.</p>}
     {receipt && <p className="col-span-full truncate px-1 text-xs xl:hidden"><ResultBadge receipt={receipt} disabled={busy} onUndo={onUndo} /></p>}
+    {requestLabel && <p data-testid="conciliar-request-status" className="col-span-full rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-950 dark:bg-sky-950/40 dark:text-sky-100">{requestLabel}</p>}
+    {receivedFileHref && <a href={receivedFileHref} target="_blank" rel="noopener noreferrer" className="col-span-full w-fit px-2 text-xs font-bold text-[#BF3E00] underline dark:text-orange-300">Abrir documento recibido</a>}
   </article>;
 }
 
@@ -339,6 +343,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [query, setQuery] = useState(initialQuery);
   const [cutoffDate, setCutoffDate] = useState(initialCutoff);
   const [emitidasGrupo, setEmitidasGrupo] = useState<ConciliarEmitidasGroup | ''>('');
+  const [estado, setEstado] = useState<ConciliarColor | ''>('');
+  const [grupo, setGrupo] = useState<ConciliarGroup | ''>('');
+  const [orden, setOrden] = useState<ConciliarSortField>('IMPORTE');
+  const [direccion, setDireccion] = useState<ConciliarSortDirection>('DESC');
+  const [globalOrder, setGlobalOrder] = useState(false);
+  const [presentationRefreshRevision, setPresentationRefreshRevision] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [showInterestInvoices, setShowInterestInvoices] = useState(false);
   const [historicData, setHistoricData] = useState<ConciliarReadResponse | null>(null);
@@ -350,10 +360,13 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const [loading, setLoading] = useState(initialParsed === null);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  /** id -> hash sellado: una selección no confía en filas que ya no son vigentes. */
+  const [selected, setSelected] = useState<ReadonlyMap<string, string>>(new Map());
   const [receipts, setReceipts] = useState<readonly Receipt[]>([]);
   const [openDocument, setOpenDocument] = useState<OpenDocument>(null);
   const [sending, setSending] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<ConciliarClientBatchProgress | null>(null);
+  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
   const [retry, setRetry] = useState<Retry>(null);
   const [remesaConfirmation, setRemesaConfirmation] = useState<RemesaConfirmation>(null);
   const [remesaPreviewLoading, setRemesaPreviewLoading] = useState(false);
@@ -373,11 +386,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const detailPrefetchControllers = useRef(new Set<AbortController>());
   const detailIdentityScope = activeActuation ? `actuacion:${activeActuation.sessionId}:${activeActuation.targetId}` : `usuario:${session?.user?.id ?? 'sin-sesion'}`;
 
-  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: PAGE_SIZE, offset }), [accountId, emitidasGrupo, from, offset, query, tab, to, cutoffDate]);
+  const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, ...(orden === 'FECHA' && direccion === 'DESC' ? {} : { orden, direccion }), limit: PAGE_SIZE, offset }), [accountId, direccion, emitidasGrupo, estado, from, grupo, offset, orden, query, tab, to, cutoffDate]);
   activeViewKey.current = buildQuery(requestInput).toString();
   const initialRequestKey = useRef(initialParsed ? buildQuery({ tab: initialTab, from: '', to: '', accountId: '', query: initialQuery, cutoffDate: initialCutoff, limit: PAGE_SIZE, offset: 0 }).toString() : null);
   const rows = data?.rows ?? [];
-  const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && row.seleccionable), [rows]);
+  const visibleSelectable = useMemo(() => rows.filter((row) => row.color === 'VERDE' && row.seleccionable && !remesaHint(row)), [rows]);
+  const selectionReview = useMemo(() => reviewSelectionForCurrentRows(selected, rows), [rows, selected]);
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
   const mutationsBlocked = sending || retry !== null || remesaPreviewLoading;
 
@@ -404,6 +418,10 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     detailPrefetchControllers.current.clear();
     detailController.current = null;
     setOpenDocument(null);
+    // No se transfiere ninguna selección entre identidades o sesiones de actuación.
+    setSelected(new Map());
+    setBatchProgress(null);
+    setBatchResult(null);
   }, [detailIdentityScope]);
 
   const load = useCallback(async (silent = false, keepNotice = false) => {
@@ -419,8 +437,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const parsed = parseConciliarReadResponse(raw);
       if (sequence !== readSequence.current) return;
       setData(parsed);
-      // The selection is intentionally page-bound: filters or a fresh projection never carry hidden rows.
-      setSelected(new Set());
       if (!keepNotice) setNotice(null);
     } catch (error) {
       if (sequence !== readSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
@@ -436,7 +452,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     // después de hidratar ni arrancar una segunda consulta en StrictMode.
     if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
     void load();
-  }, [load, requestInput]);
+  }, [load, presentationRefreshRevision, requestInput]);
   useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); detailPrefetchControllers.current.forEach((controller) => controller.abort()); detailPrefetchControllers.current.clear(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
 
   useEffect(() => {
@@ -449,15 +465,34 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     return () => window.clearTimeout(timeout);
   }, [data, load, mutationsBlocked]);
 
-  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); setSelected(new Set()); }, [closeDetail, tab]);
+  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); }, [closeDetail, tab]);
   const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); setOffset(0); }, [closeDetail]);
   const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, [closeDetail]);
-  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => { event.preventDefault(); closeDetail(); setQuery(queryInput.trim().slice(0, 120)); setOffset(0); }, [closeDetail, queryInput]);
+  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    closeDetail();
+    const next = queryInput.trim().slice(0, 120);
+    if (next) { setQuery(next); setOffset(0); return; }
+    // Buscar vacío significa mostrar todo: restablece filtros de presentación
+    // de forma visible, sin destruir la selección sellada que pueda quedar fuera.
+    setQueryInput(''); setQuery(''); setFrom(''); setTo(''); setAccountId('');
+    setEmitidasGrupo(''); setEstado(''); setGrupo(''); setOrden('IMPORTE'); setDireccion('DESC'); setGlobalOrder(false); setOffset(0);
+    setPresentationRefreshRevision((current) => current + 1);
+  }, [closeDetail, queryInput]);
   const changeEmitidasGrupo = useCallback((next: ConciliarEmitidasGroup) => {
     closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
     setEmitidasGrupo((current) => current === next ? '' : next);
-    setOffset(0); setSelected(new Set());
+    setOffset(0);
   }, [closeDetail]);
+  const changeEstado = useCallback((next: ConciliarColor | '') => { closeDetail(); setEstado(next); setOffset(0); }, [closeDetail]);
+  const changeGrupo = useCallback((next: ConciliarGroup | '') => { closeDetail(); setGrupo(next); setOffset(0); }, [closeDetail]);
+  const changeOrder = useCallback((field: ConciliarSortField) => {
+    closeDetail();
+    setGlobalOrder(true);
+    if (field === orden) setDireccion((current) => current === 'ASC' ? 'DESC' : 'ASC');
+    else { setOrden(field); setDireccion(field === 'IMPORTE' ? 'DESC' : 'ASC'); }
+    setOffset(0);
+  }, [closeDetail, orden]);
   const changeCutoff = useCallback((value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     const date = new Date(`${value}T00:00:00Z`);
@@ -471,7 +506,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (!historicOpen || tab !== 'EMITIDAS') return;
     const controller = new AbortController(); historicController.current?.abort(); historicController.current = controller;
     setHistoricLoading(true);
-    const params = buildQuery({ tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, limit: PAGE_SIZE, offset: historicOffset });
+    const params = buildQuery({ tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: historicOffset });
     void fetch(`${API}?${params}`, { cache: 'no-store', signal: controller.signal }).then(async (response) => {
       const raw: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(friendlyError(raw, 'No se pudieron leer las facturas anteriores.'));
@@ -480,7 +515,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (!controller.signal.aborted) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudieron leer las facturas anteriores.') : 'No se pudieron leer las facturas anteriores.' });
     }).finally(() => { if (!controller.signal.aborted) setHistoricLoading(false); });
     return () => controller.abort();
-  }, [accountId, cutoffDate, from, historicOpen, historicOffset, query, tab, to, data?.updatedAt]);
+  }, [accountId, cutoffDate, direccion, estado, from, grupo, historicOpen, historicOffset, orden, query, tab, to, data?.updatedAt]);
 
   const addReceipt = useCallback((receipt: Receipt) => {
     setReceipts((current) => [receipt, ...current.filter((item) => item.key !== receipt.key && item.rowId !== receipt.rowId)].slice(0, 20));
@@ -531,22 +566,27 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       readSequence.current += 1;
       readController.current?.abort();
       setData(projection);
-      setSelected(new Set());
       return true;
     };
+    const isBatch = command.action === 'confirmar' && command.items.length > 1;
+    setBatchResult(null);
+    setBatchProgress(isBatch ? { completed: 0, total: command.items.length, retrying: false } : null);
     setSending(true);
     try {
       const response = await fetch(API, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(isBatch ? { Accept: 'application/x-ndjson' } : {}),
           ...(activeActuation ? { 'x-io-acting-session': activeActuation.sessionId } : {}),
         },
         body: JSON.stringify(command),
       });
-      const raw: unknown = await response.json().catch(() => null);
+      const raw: unknown = command.action === 'confirmar' && isBatch
+        ? await readConciliarBatchResponse(response, command.items.map((item) => item.id), setBatchProgress)
+        : await response.json().catch(() => null);
       if (response.status === 409) {
-        setRetry(null); setSelected(new Set()); setNotice({ tone: 'error', text: friendlyError(raw, 'Estos datos han cambiado. Pulsa Actualizar y vuelve a decidir con los datos nuevos.') });
+        setRetry(null); setNotice({ tone: 'error', text: friendlyError(raw, 'Estos datos han cambiado. Actualiza: las filas modificadas no se enviarán sin volver a comprobar su hash.') });
         await load(true, true);
         return;
       }
@@ -570,9 +610,10 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       try { result = parseConciliarActionResponse(raw); } catch { throw new UncertainResultError('No se pudo comprobar la acción.'); }
       const labels = new Map(rows.map((row) => [row.id, row.documento?.referencia || row.concepto]));
       finishOutcomes(result, payload.action, labels);
+      if (isBatch) setBatchResult({ operationId: result.operationId ?? null, outcomes: result.outcomes.map((outcome) => ({ id: outcome.id, label: labels.get(outcome.id) ?? 'Movimiento de conciliación', ok: outcome.ok, message: safeOutcomeMessage(outcome.message, outcome.ok ? 'Hecho.' : 'Revisa esta fila.') })) });
       setRetry(null);
       setSelected((current) => {
-        const next = new Set(current);
+        const next = new Map(current);
         result.outcomes.filter((outcome) => outcome.ok).forEach((outcome) => next.delete(outcome.id));
         return next;
       });
@@ -582,18 +623,29 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (!adoptProjection(result.projection)) void load(true, true);
       if (showHistory) void loadHistory();
     } catch (error) {
-      if (isUncertain(error)) {
+      if (error instanceof ConciliarStreamRejectedError) {
+        setRetry(null);
+        setNotice({ tone: 'error', text: error.message });
+        if (command.action === 'confirmar' && isBatch) setBatchResult({ operationId: null, outcomes: command.items.map((item) => ({ id: item.id, label: rows.find((row) => row.id === item.id)?.documento?.referencia || rows.find((row) => row.id === item.id)?.concepto || 'Movimiento de conciliación', ok: false, message: 'El lote no se ha guardado. Revisa esta fila antes de volver a confirmar.' })) });
+        void load(true, true);
+      } else if (error instanceof ConciliarStreamUncertainError || isUncertain(error)) {
         setRetry({ payload: command, label });
         setNotice({ tone: 'error', text: 'No pudimos comprobar el resultado. Reintenta exactamente la misma acción antes de continuar.' });
       } else {
         setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo completar la acción.') : 'No se pudo completar la acción.' });
       }
-    } finally { setSending(false); }
+    } finally { setBatchProgress(null); setSending(false); }
   }, [activeActuation, finishOutcomes, load, loadHistory, requestInput, rows, sending, showHistory]);
 
   const confirmRows = useCallback((source: readonly ConciliarRow[]) => {
     if (mutationsBlocked || remesaPreviewLoading) return;
-    const confirmable = source.filter((row) => row.color === 'VERDE' && row.seleccionable);
+    const currentRows = new Map(rows.map((row) => [row.id, row]));
+    // Un objeto capturado antes de un refresco nunca autoriza una decisión: se
+    // vuelve a tomar de la página vigente y se compara el hash del servidor.
+    const confirmable = source.flatMap((selectedRow) => {
+      const current = currentRows.get(selectedRow.id);
+      return current && current.decisionHash === selectedRow.decisionHash && current.color === 'VERDE' && current.seleccionable ? [current] : [];
+    });
     const remesas = confirmable.filter(remesaHint);
     if (confirmable.length === 0) { setNotice({ tone: 'info', text: 'No hay movimientos verdes seleccionables en esta vista.' }); return; }
     if (remesas.length > 0 && (confirmable.length !== 1 || remesas.length !== 1)) {
@@ -627,7 +679,22 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (sequence === remesaPreviewSequence.current) setRemesaPreviewLoading(false);
       if (remesaPreviewController.current === controller) remesaPreviewController.current = null;
     });
-  }, [mutationsBlocked, post, remesaPreviewLoading]);
+  }, [mutationsBlocked, post, remesaPreviewLoading, rows]);
+
+  const confirmSelected = useCallback(() => {
+    if (mutationsBlocked) return;
+    const review = reviewSelectionForCurrentRows(selected, rows);
+    const excluded: string[] = [];
+    if (review.hiddenCount) excluded.push(`${review.hiddenCount} fuera del filtro o de esta página`);
+    if (review.changedCount) excluded.push(`${review.changedCount} modificada(s) desde la selección`);
+    if (review.unavailableCount) excluded.push(`${review.unavailableCount} ya no verde(s) o no confirmable(s)`);
+    if (review.confirmableRows.length === 0) {
+      setNotice({ tone: 'info', text: excluded.length ? `No se envía ninguna fila: ${excluded.join('; ')}. Ajusta el filtro o actualiza para revisarlas.` : 'No hay movimientos verdes seleccionables en esta vista.' });
+      return;
+    }
+    if (excluded.length) setNotice({ tone: 'info', text: `Se volverán a comprobar ${review.confirmableRows.length} fila(s) visibles. No se enviarán ${excluded.join('; ')}.` });
+    confirmRows(review.confirmableRows);
+  }, [confirmRows, mutationsBlocked, rows, selected]);
 
   const askForDocument = useCallback((row: ConciliarRow) => {
     if (mutationsBlocked) return;
@@ -697,8 +764,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   }, [mutationsBlocked, post]);
 
   const toggleAllVisible = useCallback((checked: boolean) => {
-    // Una remesa se abre y confirma sola, tras su composición completa.
-    setSelected(checked ? new Set(visibleSelectable.filter((row) => !remesaHint(row)).map((row) => row.id)) : new Set());
+    // Una remesa se abre y confirma sola, tras su composición completa. Este
+    // gesto sólo añade/quita las visibles; no descarta selección explícita oculta.
+    setSelected((current) => setVisibleGreenSelected(current, visibleSelectable, checked));
   }, [visibleSelectable]);
 
   const exportAll = useCallback(async () => {
@@ -713,7 +781,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const collected: ConciliarRow[] = [];
       let snapshot: string | null = null;
       for (let pageOffset = 0; pageOffset < data.total; pageOffset += EXPORT_PAGE_SIZE) {
-        const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
+        const params = buildQuery({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, orden, direccion, limit: EXPORT_PAGE_SIZE, offset: pageOffset });
         const response = await fetch(`${API}?${params.toString()}`, { cache: 'no-store', signal: controller.signal });
         const raw: unknown = await response.json().catch(() => null);
         if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo leer una página para exportar.'));
@@ -725,27 +793,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       }
       if (collected.length !== data.total) throw new Error('La exportación no recibió todas las filas. No se creó ningún archivo.');
       const XLSX = await import('xlsx');
-      const exportRows = collected.map((row) => ({
-        Fecha: escapeSpreadsheet(row.fecha),
-        Estado: escapeSpreadsheet(COLOR_COPY[row.color].label),
-        Grupo: escapeSpreadsheet(humanGroup(row.grupo)),
-        Concepto: escapeSpreadsheet(row.concepto),
-        Banco: escapeSpreadsheet(row.banco ?? ''),
-        Cuenta: escapeSpreadsheet(row.cuenta ?? ''),
-        Importe: row.importeCentimos / 100,
-        Pendiente: row.pendienteCentimos / 100,
-        Documento: escapeSpreadsheet(row.documento?.referencia ?? ''),
-        Tercero: escapeSpreadsheet(row.documento?.tercero ?? ''),
-        'Importe documento': row.documento ? row.documento.importeCentimos / 100 : '',
-        'Fecha documento': escapeSpreadsheet(row.documento?.fecha ?? ''),
-        Diferencia: row.diferenciaCentimos / 100,
-        Motivo: escapeSpreadsheet(row.motivo),
-      }));
-      const sheet = XLSX.utils.json_to_sheet(exportRows);
-      sheet['!cols'] = [12, 18, 22, 42, 20, 20, 14, 14, 20, 26, 18, 18, 14, 46].map((wch) => ({ wch }));
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, TAB_COPY[tab].short.slice(0, 31));
-      XLSX.writeFile(book, `conciliar-${tab.toLocaleLowerCase('es-ES')}-${dateForInput(new Date())}.xlsx`, { compression: true });
+      const { createConciliarXlsx, downloadConciliarXlsx } = await import('./conciliar-xlsx');
+      const bytes = await createConciliarXlsx(XLSX, TAB_COPY[tab].short, collected);
+      downloadConciliarXlsx(bytes, `conciliar-${tab.toLocaleLowerCase('es-ES')}-${dateForInput(new Date())}.xlsx`);
       setNotice({ tone: 'success', text: `${collected.length.toLocaleString('es-ES')} filas exportadas.` });
     } catch (error) {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo exportar.') : 'No se pudo exportar.' });
@@ -753,10 +803,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       if (exportController.current === controller) exportController.current = null;
       setExporting(false);
     }
-  }, [accountId, data, emitidasGrupo, exporting, from, query, tab, to, cutoffDate]);
+  }, [accountId, data, direccion, emitidasGrupo, estado, exporting, from, grupo, orden, query, tab, to, cutoffDate]);
 
-  const grouped = useMemo(() => groupConciliarRows(rows), [rows]);
+  const selectionNeedsReview = useCallback((row: ConciliarRow) => selected.has(row.id) && selected.get(row.id) !== row.decisionHash, [selected]);
   const emitidasGroupLabel = emitidasGrupo ? EMITIDAS_GROUP_COPY[emitidasGrupo].label : '';
+  const displayGroups = groupConciliarRows(rows);
+  const renderRow = (row: ConciliarRow) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} selectionNeedsReview={selectionNeedsReview(row)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => setRowSelected(current, row, checked))} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />;
 
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
     <header data-conciliar-heading className="flex flex-col gap-3 border-b border-orange-100 pb-4 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
@@ -765,6 +817,18 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     </header>
 
     <Guide invoicePending={tab === 'EMITIDAS' || tab === 'RECIBIDAS'} />
+
+    {batchProgress && <section data-testid="conciliar-batch-progress" role="status" aria-live="polite" className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-950 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
+      <p className="font-extrabold">{batchProgress.retrying ? 'Reintentando el mismo lote…' : `Confirmando ${batchProgress.completed} de ${batchProgress.total}…`}</p>
+      <progress aria-label="Progreso de confirmación del lote" value={batchProgress.completed} max={batchProgress.total} className="mt-2 h-2 w-full accent-orange-600" />
+      <p className="mt-1 text-xs">El avance es provisional. Las filas sólo quedan hechas cuando termina de guardarse el lote.</p>
+    </section>}
+    {batchResult && <section aria-label="Resultado del lote" className="rounded-xl border border-slate-200 bg-white p-4 text-sm dark:border-slate-700 dark:bg-slate-900">
+      <details open><summary className="cursor-pointer font-extrabold">Resultado del lote: {batchResult.outcomes.filter((item) => item.ok).length} hecha(s), {batchResult.outcomes.filter((item) => !item.ok).length} para revisar</summary>
+        <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto">{batchResult.outcomes.map((item) => <li data-testid="conciliar-batch-result-row" key={item.id} className="rounded-lg border border-slate-200 p-2 dark:border-slate-700"><span className={`font-extrabold ${item.ok ? 'text-emerald-800 dark:text-emerald-200' : 'text-amber-900 dark:text-amber-200'}`}>{item.ok ? 'Hecho' : 'Revisar'}</span><span className="ml-2 break-words">{item.label}</span><p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{item.message}</p></li>)}</ul>
+      </details>
+      {batchResult.operationId && <button type="button" disabled={mutationsBlocked} onClick={() => { if (batchResult.operationId) void post({ action: 'deshacer', operationId: batchResult.operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer lote'); }} className="mt-3 min-h-10 rounded-lg border border-slate-300 px-3 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 dark:border-slate-600">Deshacer lote completo</button>}
+    </section>}
 
     {data?.stale && <div role="status" aria-live="polite" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100">Los resúmenes tienen cambios pendientes de actualizar. Cada confirmación vuelve a comprobar su documento; los importes del resumen pueden cambiar.</div>}
 
@@ -780,12 +844,31 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
     {tab === 'EMITIDAS' && data && <EmitidasGroupFilters groups={data.emitidasGroups} activeGroup={emitidasGrupo} onChange={changeEmitidasGrupo} />}
 
-    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-[minmax(160px,1fr)_145px_145px_210px_auto] md:items-end"><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button></form></section>
+    <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_145px_145px_190px_160px_210px_auto] xl:items-end">
+        <label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label>
+        <label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Estado<select value={estado} onChange={(event) => changeEstado(event.target.value as ConciliarColor | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todos los estados</option><option value="VERDE">Verde · listo</option><option value="AMBAR">Ámbar · revisar</option><option value="ROJO">Rojo · falta el papel</option></select></label>
+        <label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Grupo / tipo<select value={grupo} onChange={(event) => changeGrupo(event.target.value as ConciliarGroup | '')} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todos los grupos / tipos</option>{CONCILIAR_GROUPS.map((item) => <option key={item} value={item}>{GROUP_FILTER_COPY[item]}</option>)}</select></label>
+        <label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label>
+        <label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label>
+        <label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label>
+        <button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button>
+      </form>
+      <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">Buscar vacío restablece las fechas, cuenta, estado, grupo y orden para mostrar todo. No confirma selecciones que queden fuera del filtro.</p>
+    </section>
 
-    <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
-      <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{grouped.map((group) => <section key={group.key} aria-label={`${group.label}: ${group.rows.length} en esta página`}><GroupHeader group={group} />{group.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>)}</>}</div>
+    <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div>
+        <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{(visibleSelectable.length > 0 || selected.size > 0) && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={areAllVisibleGreensSelected(selected, visibleSelectable)} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked || visibleSelectable.length === 0} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={confirmSelected} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div>
+      </header>
+      {selected.size > 0 && (selectionReview.hiddenCount > 0 || selectionReview.changedCount > 0 || selectionReview.unavailableCount > 0) && <div role="status" className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 dark:border-amber-900 dark:bg-amber-950/45 dark:text-amber-100">Selección conservada: {selectionReview.hiddenCount ? `${selectionReview.hiddenCount} fuera del filtro o de esta página. ` : ''}{selectionReview.changedCount ? `${selectionReview.changedCount} cambiada(s): vuelve a seleccionarla(s) tras revisar. ` : ''}{selectionReview.unavailableCount ? `${selectionReview.unavailableCount} ya no confirmable(s).` : ''} Nunca se enviarán automáticamente.</div>}
+      <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <>
+        <div role="row" className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span role="columnheader">Estado</span><SortHeader field="FECHA" label="Fecha" active={orden === 'FECHA'} direction={direccion} onChange={changeOrder} /><SortHeader field="CONCEPTO" label="Concepto / proveedor" active={orden === 'CONCEPTO'} direction={direccion} onChange={changeOrder} /><span role="columnheader">Cuenta</span><span role="columnheader">Documento</span><SortHeader field="IMPORTE" label="Importe" active={orden === 'IMPORTE'} direction={direccion} onChange={changeOrder} align="right" /><span role="columnheader">Nota</span><span role="columnheader">Acción</span></div>
+        {globalOrder ? <div data-testid="conciliar-global-order">{rows.map(renderRow)}</div> : displayGroups.map((group) => <section data-conciliar-group={group.label} key={group.key}><GroupHeader group={group} />{group.rows.map(renderRow)}</section>)}
+      </>}</div>
       {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
-      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
+      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
     {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">

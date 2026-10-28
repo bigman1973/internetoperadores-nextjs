@@ -412,6 +412,14 @@ async function appendImpersonationEndTx(
   reason: TerminalReason,
   endedById: number | null,
 ): Promise<boolean> {
+  // Every terminal path, including logout/revocation/token recovery, shares
+  // this fence with the live verifier's FOR SHARE. A cached authorization
+  // cannot outlive a committed end marker in a concurrent transaction.
+  const session = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT s.id::text FROM impersonation_sessions s
+     WHERE s.id=${sessionId}::uuid LIMIT 1 FOR UPDATE OF s
+  `)
+  if (session.length !== 1) return false
   const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO impersonation_session_ends(id,session_id,end_reason,ended_by_id,ended_at)
     SELECT gen_random_uuid(),s.id,${reason},${endedById},CURRENT_TIMESTAMP
