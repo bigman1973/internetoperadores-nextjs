@@ -38,16 +38,22 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
     const requestedCutoff = calendarDate(query.cutoffDate);
     const cookieCutoff = calendarDate((await cookies()).get('io_conciliar_cutoff')?.value);
     const initialCutoff = requestedCutoff ?? cookieCutoff ?? CONCILIAR_DEFAULT_CUTOFF;
+    const requestedOrden = query.orden === 'FECHA' || query.orden === 'CONCEPTO' || query.orden === 'IMPORTE' ? query.orden : null;
+    const requestedDireccion = query.direccion === 'ASC' || query.direccion === 'DESC' ? query.direccion : null;
+    const initialOrden = requestedOrden ?? 'IMPORTE';
+    const initialDireccion = requestedDireccion ?? 'DESC';
+    const initialGlobalOrder = requestedOrden !== null || requestedDireccion !== null;
     const input = parseConciliarGetInput({
       tab: initialTab,
       ...(initialQuery ? { q: initialQuery } : {}),
       cutoffDate: initialCutoff,
+      ...(initialOrden === 'IMPORTE' && initialDireccion === 'DESC' ? {} : { orden: initialOrden, direccion: initialDireccion }),
       limit: '20',
       offset: '0',
     });
     const initialData = await readConciliarProjection(input);
     timing('projection');
-    return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialData={initialData} /></>;
+    return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}:${initialOrden}:${initialDireccion}:${initialGlobalOrder}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialOrden={initialOrden} initialDireccion={initialDireccion} initialGlobalOrder={initialGlobalOrder} initialData={initialData} /></>;
   } catch (error) {
     if (error instanceof ConciliarRuntimeError) notFound();
     throw error;

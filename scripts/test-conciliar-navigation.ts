@@ -10,8 +10,13 @@ test('los enlaces conservan tab/q validados por servidor sin aceptar importes',(
  assert.match(page,/query\.q\.trim\(\)\.slice\(0, 120\)/)
  assert.match(page,/query\.tab === 'PAGOS'/)
  assert.match(page,/initialTab=\{initialTab\}/)
+ assert.match(page,/const requestedOrden = query\.orden === 'FECHA'/)
+ assert.match(page,/const requestedDireccion = query\.direccion === 'ASC'/)
+ assert.match(page,/initialOrden=\{initialOrden\} initialDireccion=\{initialDireccion\} initialGlobalOrder=\{initialGlobalOrder\}/)
  assert.match(ui,/useState<ConciliarTab>\(initialTab\)/)
  assert.match(ui,/useState\(initialQuery\)/)
+ assert.match(ui,/useState<ConciliarSortField>\(initialOrden\)/)
+ assert.match(ui,/initialRequestKey\.current === buildQuery\(requestInput\)\.toString\(\)/)
 })
 test('el lector mantiene céntimos enteros y no importa motores pesados de mutación',()=>{
  const reader=read('lib/finanzas/conciliar-projection-read.ts')

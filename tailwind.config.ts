@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss'
+import plugin from 'tailwindcss/plugin'
 
 const config: Config = {
   content: [
@@ -27,7 +28,10 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  // Sólo Conciliar usa esta variante; el dark: existente del sitio no cambia.
+  plugins: [plugin(({ addVariant }) => {
+    addVariant('panel-dark', ['.dark &', '[data-theme="dark"] &'])
+  })],
 }
 
 export default config

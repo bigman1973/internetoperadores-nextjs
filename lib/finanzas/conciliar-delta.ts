@@ -7,6 +7,7 @@ import {
   emittedProjection,
   insertProjectionBatches,
   proposalCompositionInvoiceIds,
+  readCollectionClientIdentityProfiles,
   readStrictOwnTransfers,
   unresolvedMovements,
   type ConciliarInvoiceDateIndex,
@@ -377,6 +378,7 @@ async function rebuildClosedCobros(
   input: ConciliarProjectionDeltaInput,
   proposals: readonly ProposalRow[],
   invoiceDates: ConciliarInvoiceDateIndex,
+  issuedReferences: readonly unknown[],
 ): Promise<Readonly<{ rows: readonly RebuildRow[]; candidates: ReadonlyMap<string, Candidate> }> | null> {
   const proposalMovementIds = proposals.map(proposal => String(proposal.movimientoId))
   const movementIds = uniqueSorted([...proposalMovementIds, ...(input.action === 'DESHACER' ? [input.movimientoId] : [])])
@@ -386,6 +388,8 @@ async function rebuildClosedCobros(
   if (movementIds.some(id => transfers.has(id))) return null
   const confirming = await confirmingCandidatesForMovements(tx, movementIds)
   if (!confirming) return null
+  const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
+  const clientIdentityByProposal = clientIdentityProfiles ?? new Map()
   const rowsByMovement = new Map<string, RebuildRow>()
   const candidates = new Map<string, Candidate>()
   for (const proposal of proposals) {
@@ -397,7 +401,7 @@ async function rebuildClosedCobros(
       const confirmingCandidate = confirming.get(movementId)
       row = confirmingCandidate
         ? await confirmingProjectionForMovement(tx, movement, confirmingCandidate)
-        : collectionProjectionForMovement(movement, proposal, invoiceDates)
+        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, clientIdentityByProposal.get(String(proposal.propuestaId)))
     } catch {
       return null
     }
@@ -418,7 +422,7 @@ async function rebuildClosedCobros(
       const confirmingCandidate = confirming.get(input.movimientoId)
       rowsByMovement.set(input.movimientoId, confirmingCandidate
         ? await confirmingProjectionForMovement(tx, movement, confirmingCandidate)
-        : collectionProjectionForMovement(movement, undefined, invoiceDates))
+        : collectionProjectionForMovement(movement, undefined, invoiceDates, issuedReferences))
     } catch {
       return null
     }
@@ -449,7 +453,7 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
     bank = await readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, {
       enabled: true, assertIsolatedStaging: async () => undefined,
     })
-    cobros = await rebuildClosedCobros(tx, input, closed.proposals, canonicalInvoiceDates(bank))
+    cobros = await rebuildClosedCobros(tx, input, closed.proposals, canonicalInvoiceDates(bank), bank.invoices.map(item => item.numFactura))
     if (!cobros) return { projectionSynchronized: false }
   } catch (error) {
     // This block is intentionally only pre-DML. A source ambiguity preserves the

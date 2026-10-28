@@ -1,3 +1,4 @@
+import { assertLiveCollectionProjectionForActionTx } from './conciliar-db'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import prisma, { runWithConciliarSerializableAuthorization } from '@/lib/prisma'
 import { assertConciliarRuntime, ConciliarRuntimeError } from '@/lib/finanzas/conciliar-runtime'
@@ -368,6 +369,7 @@ function controlledPayrollItem(value: unknown): boolean {
 async function confirmCollectionProposal(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const source = row.source
   if (!source.propuestaId || !source.movimientoId || !source.proposalFingerprint) fail(409, 'DECISION_CAMBIADA', 'La propuesta de cobro ya no está completa. Actualiza la lista.')
+  await assertLiveCollectionProjectionForActionTx(tx,row)
   const selection = { propuestaId: source.propuestaId, movimientoId: source.movimientoId, fingerprint: source.proposalFingerprint }
   const receiptSource = receiptSourceFields(source)
   if (receiptSource) {

@@ -1,3 +1,12 @@
+import {
+  normalizarReferenciaFactura,
+  referenciaFacturaEmitidaCompatible,
+  referenciasFacturaCitadas,
+  type ReferenciasEmitidasCanonicas,
+} from './conciliar-issued-reference-core'
+
+export { normalizarReferenciaFactura, referenciasFacturaCitadas }
+
 export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const
 export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO'] as const
 export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA'] as const
@@ -292,44 +301,6 @@ export function parseConciliarCommand(raw: unknown): ConciliarCommand {
   fail(400, 'VALIDATION_ERROR', 'La acción no es válida.')
 }
 
-/** Normaliza sin perder los dígitos significativos de año/serie. No elimina sufijos numéricos. */
-export function normalizarReferenciaFactura(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const normalized = value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-ES').replace(/[^A-Z0-9]/g, '')
-  if (!normalized || normalized.length > 120 || !/[0-9]/.test(normalized)) return null
-  return normalized.replace(/^F(?=\d)/, '')
-}
-
-/** Referencias citadas de forma explícita; no se usa una coincidencia por subcadena. */
-export function referenciasFacturaCitadas(textoBanco: unknown): readonly string[] {
-  if (typeof textoBanco !== 'string') return []
-  const normalized = textoBanco.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLocaleUpperCase('es-ES')
-  const result = new Set<string>()
-  // Every match is one syntactic identifier, not the rest of the concept. This
-  // preserves meaningful year/series digits (F2600082023) and permits multiple
-  // explicit invoice references in a single transfer.
-  const explicit = /(?:^|[^A-Z0-9])(?:FACTURA|FACT\.?|FRA\.?|F)\s*(?:N(?:U)?M(?:ERO)?\s*)?[-#:/. ]*([A-Z]{0,6}\s*\d{2,}(?:\s*[/-]\s*\d{1,10})?)(?=$|[^A-Z0-9])/g
-  for (const match of normalized.matchAll(explicit)) {
-    const reference = normalizarReferenciaFactura(match[1])
-    if (reference && reference.length >= 4) result.add(reference)
-  }
-  // Bank exports commonly omit FACTURA but keep an issuer-like alphabetic series
-  // (INST26/68, ZOOM26/2, DRAX26/94). A pure numeric token is deliberately not
-  // a reference: dates, amounts and remittance numbers must not make a document
-  // look verified. REMESA/RECIBO tokens are semantic bank grouping references,
-  // not invoice series.
-  const bare = /(?:^|[^A-Z0-9])([A-Z]{2,12}\s*\d{2,}(?:\s*[/-]\s*\d{1,10})?)(?=$|[^A-Z0-9])/g
-  for (const match of normalized.matchAll(bare)) {
-    const raw = match[1].replace(/\s+/g, '')
-    // FACTURA 260007 ya se extrajo como 260007 arriba. FACTURA no es una
-    // segunda serie emisora; no debe convertir una referencia exacta en empate.
-    if (/^(?:REMESA|RECIBO|SUBREMESA|FACTURA|FACT|FRA|NUMERO|NUM)\d/.test(raw)) continue
-    const reference = normalizarReferenciaFactura(raw)
-    if (reference && reference.length >= 4) result.add(reference)
-  }
-  return [...result].sort()
-}
-
 export function referenciaFacturaCompatible(textoBanco: unknown, referenciaDocumento: unknown): boolean {
   const cited = referenciasFacturaCitadas(textoBanco)
   if (!cited.length) return true
@@ -345,13 +316,18 @@ export function evaluarDocumentoExacto(input: Readonly<{
   conceptoBanco: string
   referenciaDocumento: string
   unicoTercero: boolean
+  /** Perfil canónico de emitidas: activa la semántica propia de COBROS. */
+  referenciasEmitidasCanonicas?: ReferenciasEmitidasCanonicas
 }>): { color: ConciliarColor; seleccionable: boolean; diferenciaCentimos: number; motivo: string } {
   const difference = input.importeBancoCentimos - input.importeDocumentoCentimos
   if (!Number.isSafeInteger(difference)) return { color: 'ROJO', seleccionable: false, diferenciaCentimos: 0, motivo: 'El importe no se puede comprobar con seguridad.' }
   if (difference !== 0) return { color: 'AMBAR', seleccionable: false, diferenciaCentimos: difference, motivo: 'El importe del banco no coincide exactamente con el documento.' }
   if (input.fechaDocumento === null) return { color: 'AMBAR', seleccionable: false, diferenciaCentimos: 0, motivo: 'Falta la fecha verificable del documento.' }
   if (input.fechaDocumento > input.fechaBanco) return { color: 'AMBAR', seleccionable: false, diferenciaCentimos: 0, motivo: 'La fecha del documento es posterior al movimiento bancario.' }
-  if (!referenciaFacturaCompatible(input.conceptoBanco, input.referenciaDocumento)) {
+  const referenceMatches = input.referenciasEmitidasCanonicas === undefined
+    ? referenciaFacturaCompatible(input.conceptoBanco, input.referenciaDocumento)
+    : referenciaFacturaEmitidaCompatible(input.conceptoBanco, input.referenciaDocumento, input.referenciasEmitidasCanonicas)
+  if (!referenceMatches) {
     return { color: 'AMBAR', seleccionable: false, diferenciaCentimos: 0, motivo: 'El número de factura citado por el banco no coincide con el documento propuesto.' }
   }
   if (!input.unicoTercero) return { color: 'AMBAR', seleccionable: false, diferenciaCentimos: 0, motivo: 'Hay más de una contraparte posible; revísala antes de confirmar.' }

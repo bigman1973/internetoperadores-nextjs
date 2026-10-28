@@ -66,7 +66,8 @@ body {
   }
 }
 
-/* The heading remains readable before JS establishes a manual theme class. */
+/* El encabezado conserva el modo claro SSR del panel; sólo un tema heredado
+   explícito puede cambiarlo. No sigue el modo del sistema por su cuenta. */
 [data-conciliar-heading] {
   --conciliar-heading-bg: #f9fafb;
   --conciliar-heading-fg: #2d2a26;
@@ -75,13 +76,6 @@ body {
 }
 [data-conciliar-heading] h1 { color: var(--conciliar-heading-fg); }
 [data-conciliar-subtitle] { color: var(--conciliar-heading-muted); }
-@media (prefers-color-scheme: dark) {
-  [data-conciliar-heading] {
-    --conciliar-heading-bg: #0f172a;
-    --conciliar-heading-fg: #f8fafc;
-    --conciliar-heading-muted: #cbd5e1;
-  }
-}
 .dark [data-conciliar-heading], [data-theme='dark'] [data-conciliar-heading] {
   --conciliar-heading-bg: #0f172a;
   --conciliar-heading-fg: #f8fafc;
