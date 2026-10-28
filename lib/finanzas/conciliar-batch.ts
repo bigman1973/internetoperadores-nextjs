@@ -19,6 +19,7 @@ import {
 } from '@/lib/finanzas/easy-counterparty-core'
 import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { requireB4ActorAccess } from '@/lib/finanzas/reconciliation-auth'
+import { hasConciliarSerializableAuthorizationForActor } from '@/lib/prisma'
 import { conciliarHash } from './conciliar-core'
 import { isConciliarBankFee, type ConciliarProjectionSource } from './conciliar-contract'
 import { projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
@@ -686,10 +687,15 @@ function countFrom(result: unknown, code: string): number {
 }
 
 async function requireBatchEffectiveActorTx(tx: Tx, actorId: number): Promise<void> {
-  await assertFinanceEasyRuntime(tx)
-  const b4Access = await requireB4ActorAccess(actorId, 'escritura', tx)
-  if ('response' in b4Access) {
-    providerFail(b4Access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
+  // Conciliar's public action has just performed these two live checks in this
+  // exact SERIALIZABLE callback. Any absent/stale/mismatched marker deliberately
+  // follows the complete legacy path; B8 stays live below in every path.
+  if (!hasConciliarSerializableAuthorizationForActor(tx, actorId)) {
+    await assertFinanceEasyRuntime(tx)
+    const b4Access = await requireB4ActorAccess(actorId, 'escritura', tx)
+    if ('response' in b4Access) {
+      providerFail(b4Access.response.status, 'ACCESS_REVOKED', 'Tu permiso para conciliar ya no está vigente.')
+    }
   }
   try {
     await requireActualActorPermissionB8Tx(tx, actorId, 'escritura')

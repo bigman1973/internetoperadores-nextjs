@@ -679,7 +679,7 @@ export async function runConciliarAction(actorId: number, raw: unknown, options:
     // Runtime identity and the actor's B4 write ACL are both reread in the
     // SERIALIZABLE transaction immediately before the receipt and business DML.
     await requireLiveWrite(actorId, tx)
-    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, command.action === 'confirmar' ? reportProgress : undefined))
+    return runWithConciliarSerializableAuthorization(tx, () => runConciliarTransactionCommand(tx, actorId, command, command.action === 'confirmar' ? reportProgress : undefined), actorId)
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 90_000 })
   return retryConciliarSerializableP2034(txSerializable, waitForSerializableRetry, retrying => {
     if (command.action === 'confirmar') {
