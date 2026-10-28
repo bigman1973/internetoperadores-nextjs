@@ -6,7 +6,7 @@ import { ArrowRightOnRectangleIcon, Bars3Icon, EyeIcon, XMarkIcon, UserIcon } fr
 import Link from 'next/link'
 import { useSidebar } from './AdminSidebarContext'
 import { useRole, ROLES_DISPONIBLES, RolId } from './RoleContext'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useActuation } from '@/components/impersonation/ActuationProvider'
 import { loadAdminUserPreviewSelector } from './AdminUserPreviewSelectorLoader'
 
@@ -24,13 +24,17 @@ export default function AdminHeader() {
   const { isSuperAdmin, isViewingAs, isViewingAsUser, viewingUser, activeRole, setViewAsRole, setViewAsUser } = useRole()
   const { canStart, isActing } = useActuation()
   const [showUserSelector, setShowUserSelector] = useState(false)
+  const [menuReady, setMenuReady] = useState(false)
+  useEffect(() => { setMenuReady(true) }, [])
   
   return (
     <header className="sticky top-0 z-40 flex min-h-16 shrink-0 items-center gap-x-2 border-b border-gray-200 bg-white/95 px-2 py-2 shadow-sm backdrop-blur sm:gap-x-4 sm:px-6 lg:px-8">
       {/* Mobile menu button */}
       <button
         type="button"
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-700 active:bg-gray-100 lg:hidden"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-gray-700 active:bg-gray-100 disabled:opacity-50 lg:hidden"
+        disabled={!menuReady}
+        aria-busy={!menuReady}
         onClick={() => setIsOpen(true)}
       >
         <span className="sr-only">Abrir menú</span>
