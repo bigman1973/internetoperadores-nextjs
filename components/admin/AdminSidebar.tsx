@@ -200,7 +200,7 @@ export default function AdminSidebar({
 
       {/* El módulo pesado se solicita sólo al abrir el overlay móvil. */}
       {isOpen && (
-        <div className="relative z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navegación del panel">
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navegación del panel">
           <button
             type="button"
             aria-label="Cerrar menú"
