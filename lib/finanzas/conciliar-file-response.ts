@@ -39,6 +39,21 @@ export function safeConciliarPdfFilename(value: unknown): string {
 }
 
 /**
+ * Legacy PDF viewers can ignore filename*. Give them an ASCII-only quoted
+ * fallback derived from the same already-sanitized persisted filename.
+ */
+function asciiConciliarPdfFilename(safeFilename: string): string {
+  const fallback = safeFilename
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^A-Za-z0-9!#$&+.^_`|~ -]+/g, '_')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return fallback || 'documento.pdf'
+}
+
+/**
  * The browser only receives verified PDF bytes from this origin. Graph redirects,
  * provider URLs and locators remain server-side and never enter this response.
  */
@@ -46,12 +61,13 @@ export function conciliarPdfFileResponse(bytes: Uint8Array, filename: unknown): 
   if (!isConciliarPdf(bytes)) throw new ConciliarFileResponseError('ARCHIVO_NO_PDF')
 
   const safeFilename = safeConciliarPdfFilename(filename)
+  const asciiFilename = asciiConciliarPdfFilename(safeFilename)
   return new Response(new Uint8Array(bytes), {
     headers: {
       'Cache-Control': 'private, no-store',
       'Content-Type': 'application/pdf',
       'Content-Length': String(bytes.byteLength),
-      'Content-Disposition': `inline; filename*=UTF-8''${encodeFilename(safeFilename)}`,
+      'Content-Disposition': `inline; filename="${asciiFilename}"; filename*=UTF-8''${encodeFilename(safeFilename)}`,
       'Content-Security-Policy': PDF_FRAME_POLICY,
       // Kept exact for a same-origin document viewer; every external ancestor is denied.
       'X-Frame-Options': 'SAMEORIGIN',

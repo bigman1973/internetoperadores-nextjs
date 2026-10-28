@@ -14,8 +14,11 @@ import {
 } from './conciliar-contract';
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
+import { ConciliarDetailMemoryCache, conciliarDetailCacheKey } from './conciliar-detail-client';
 import dynamic from 'next/dynamic';
-const ConciliarDocumentPreview = dynamic(() => import('./ConciliarDocumentPreview'));
+import { useSession } from 'next-auth/react';
+const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
+const ConciliarDocumentPreview = dynamic(loadConciliarDocumentPreview);
 const ConciliarRecentHistory = dynamic(() => import('./ConciliarRecentHistory'));
 const ConciliarRemesaConfirmationDialog = dynamic(() => import('./ConciliarRemesaConfirmationDialog'));
 const ConfirmingInterestInvoices = dynamic(() => import('./ConfirmingInterestInvoices'), { ssr: false });
@@ -285,7 +288,7 @@ function MovementJump({ row }: { row: ConciliarRow }) {
   return <a href={link.href!} className="truncate text-xs font-bold text-[#FF5300] underline decoration-1 underline-offset-2 focus:outline-none focus:ring-2 focus:ring-[#FF5300]" title={link.etiqueta}>{link.etiqueta || 'Ver movimiento que casa'}</a>;
 }
 
-function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, onAsk, onOpen, onUndo }: {
+function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, onAsk, onOpen, onPrefetch, onUndo }: {
   row: ConciliarRow;
   selected: boolean;
   receipt: Receipt | undefined;
@@ -294,6 +297,7 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
   onConfirm: () => void;
   onAsk: () => void;
   onOpen: (row: ConciliarRow) => void;
+  onPrefetch: (row: ConciliarRow) => void;
   onUndo: () => void;
 }) {
   const documentHref = safeDocumentHref(row.documento?.href ?? null);
@@ -307,7 +311,7 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
   const account = [row.banco, row.cuenta].filter(Boolean).join(' · ') || 'Cuenta no disponible';
   const documentLabel = row.documento?.referencia || '—';
   const documentInfo = row.documento ? `${row.documento.tercero || ''} · ${formatMagnitude(row.documento.importeCentimos)} · ${formatDate(row.documento.fecha)}` : 'Sin documento propuesto';
-  return <article data-testid="conciliar-row" data-row-id={row.id} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-slate-100 px-2 py-2 hover:bg-orange-50/40 dark:border-slate-800 dark:hover:bg-orange-950/15 xl:grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] xl:gap-3 xl:px-3">
+  return <article data-testid="conciliar-row" data-row-id={row.id} onMouseEnter={() => onPrefetch(row)} onFocus={() => onPrefetch(row)} onPointerDown={() => onPrefetch(row)} onTouchStart={() => onPrefetch(row)} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-2 border-t border-slate-100 px-2 py-2 hover:bg-orange-50/40 dark:border-slate-800 dark:hover:bg-orange-950/15 xl:grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] xl:gap-3 xl:px-3">
     <div className="hidden min-w-0 xl:block"><span className={`inline-flex max-w-full items-center gap-1 truncate rounded-full border px-2 py-1 text-xs font-bold ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span></div>
     <p className="min-w-0 text-xs font-semibold text-slate-600 dark:text-slate-300" title={formatDate(row.fecha)}><span className={`mb-0.5 inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-bold xl:hidden ${COLOR_COPY[row.color].badge}`}><span className={`h-1.5 w-1.5 shrink-0 rounded-full ${COLOR_COPY[row.color].dot}`} aria-hidden="true" />{isRed && !row.movimientoId ? 'Rojo · pendiente' : COLOR_COPY[row.color].label}</span><span className="block whitespace-nowrap">{formatDate(row.fecha)}</span></p>
     <div className="min-w-0"><p className="truncate text-sm font-bold text-[#2D2A26] dark:text-white" title={row.concepto}>{row.concepto}</p><p className="truncate text-xs text-slate-500 dark:text-slate-400 xl:hidden" title={`${account} · ${documentLabel}`}>{account} · {documentLabel}</p><div className="xl:hidden"><MovementJump row={row} />{row.diferenciaCentimos !== 0 && <p className="text-xs text-amber-800 dark:text-amber-300">Diferencia: {formatMoney(row.diferenciaCentimos)}</p>}</div></div>
@@ -325,6 +329,7 @@ function ConciliarRowView({ row, selected, receipt, busy, onSelect, onConfirm, o
 
 export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialData }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialData?: unknown }) {
   const { active: activeActuation } = useActuation();
+  const { data: session } = useSession();
   const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
   const [tab, setTab] = useState<ConciliarTab>(initialTab);
   const [from, setFrom] = useState('');
@@ -363,6 +368,10 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const remesaPreviewSequence = useRef(0);
   const refreshAttempts = useRef(0);
   const historicController = useRef<AbortController | null>(null);
+  const detailCache = useRef(new ConciliarDetailMemoryCache<ConciliarDocumentDetail>());
+  const detailCacheIdentity = useRef<string | null>(null);
+  const detailPrefetchControllers = useRef(new Set<AbortController>());
+  const detailIdentityScope = activeActuation ? `actuacion:${activeActuation.sessionId}:${activeActuation.targetId}` : `usuario:${session?.user?.id ?? 'sin-sesion'}`;
 
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, limit: PAGE_SIZE, offset }), [accountId, emitidasGrupo, from, offset, query, tab, to, cutoffDate]);
   activeViewKey.current = buildQuery(requestInput).toString();
@@ -378,6 +387,24 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     detailController.current = null;
     setOpenDocument(null);
   }, []);
+
+  const clearDetailCacheForIdentity = useCallback((identityScope: string) => {
+    if (detailCacheIdentity.current === identityScope) return;
+    detailCache.current.clear();
+    detailCacheIdentity.current = identityScope;
+  }, []);
+
+  useEffect(() => {
+    // Una actuación nueva o cerrada nunca puede reutilizar datos del actor anterior.
+    detailCache.current.clear();
+    detailCacheIdentity.current = detailIdentityScope;
+    detailSequence.current += 1;
+    detailController.current?.abort();
+    detailPrefetchControllers.current.forEach((controller) => controller.abort());
+    detailPrefetchControllers.current.clear();
+    detailController.current = null;
+    setOpenDocument(null);
+  }, [detailIdentityScope]);
 
   const load = useCallback(async (silent = false, keepNotice = false) => {
     readController.current?.abort();
@@ -410,7 +437,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
     void load();
   }, [load, requestInput]);
-  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
+  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); detailPrefetchControllers.current.forEach((controller) => controller.abort()); detailPrefetchControllers.current.clear(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
 
   useEffect(() => {
     if (!data?.stale) { refreshAttempts.current = 0; return; }
@@ -607,10 +634,41 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     void post({ action: 'pedir', id: row.id, decisionHash: row.decisionHash, idempotencyKey: makeIdempotencyKey() }, 'solicitud de documento');
   }, [mutationsBlocked, post]);
 
+  const detailRowFromCurrentProjection = useCallback((requestedRow: ConciliarRow) => {
+    const currentRow = rows.find((row) => row.id === requestedRow.id) ?? historicData?.rows.find((row) => row.id === requestedRow.id);
+    if (!currentRow) return null;
+    const updatedAt = rows.some((row) => row.id === currentRow.id) ? data?.updatedAt : historicData?.updatedAt;
+    if (!updatedAt) return null;
+    return { row: currentRow, key: conciliarDetailCacheKey({ rowId: currentRow.id, decisionHash: currentRow.decisionHash, updatedAt, identityScope: detailIdentityScope }) };
+  }, [data?.updatedAt, detailIdentityScope, historicData?.rows, historicData?.updatedAt, rows]);
+
+  /** GET privado por fila: el endpoint vuelve a resolver sesión, permiso y fuente antes de devolver un DTO plano. */
+  const fetchDetail = useCallback(async (currentRow: ConciliarRow, signal?: AbortSignal) => {
+    const response = await fetch(`${DOCUMENT_DETAIL_API}/${encodeURIComponent(currentRow.id)}`, { cache: 'no-store', signal });
+    const raw: unknown = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo cargar el detalle de este documento.'));
+    const detail = parseConciliarDocumentDetail(raw);
+    if (detail.rowId !== currentRow.id) throw new Error('El detalle recibido no corresponde a la fila abierta.');
+    return detail;
+  }, []);
+
+  /** La precarga sólo pide el DTO privado de la fila autorizada: nunca sigue ni descarga su PDF. */
+  const prefetchDetail = useCallback((requestedRow: ConciliarRow) => {
+    clearDetailCacheForIdentity(detailIdentityScope);
+    void loadConciliarDocumentPreview().catch(() => undefined);
+    const current = detailRowFromCurrentProjection(requestedRow);
+    if (!current || !detailCache.current.canPrefetch(current.key)) return;
+    const controller = new AbortController();
+    detailPrefetchControllers.current.add(controller);
+    void detailCache.current.load(current.key, () => fetchDetail(current.row, controller.signal)).catch(() => undefined).finally(() => detailPrefetchControllers.current.delete(controller));
+  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
+
   /** La fila se vuelve a tomar de la proyección visible antes de abrir; el DTO viaja sólo por la ruta privada dedicada. */
   const openDetail = useCallback(async (requestedRow: ConciliarRow) => {
-    const currentRow = rows.find((row) => row.id === requestedRow.id) ?? historicData?.rows.find((row) => row.id === requestedRow.id);
-    if (!currentRow) {
+    clearDetailCacheForIdentity(detailIdentityScope);
+    void loadConciliarDocumentPreview().catch(() => undefined);
+    const current = detailRowFromCurrentProjection(requestedRow);
+    if (!current) {
       setNotice({ tone: 'info', text: 'Esta fila ya no está en la lista actual. Actualiza la conciliación antes de abrir su detalle.' });
       return;
     }
@@ -618,24 +676,20 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     const controller = new AbortController();
     detailController.current = controller;
     const sequence = ++detailSequence.current;
-    setOpenDocument({ row: currentRow, status: 'loading', detail: null, error: null });
+    setOpenDocument({ row: current.row, status: 'loading', detail: null, error: null });
     try {
-      const response = await fetch(`${DOCUMENT_DETAIL_API}/${encodeURIComponent(currentRow.id)}`, { cache: 'no-store', signal: controller.signal });
-      const raw: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo cargar el detalle de este documento.'));
-      const detail = parseConciliarDocumentDetail(raw);
-      if (detail.rowId !== currentRow.id) throw new Error('El detalle recibido no corresponde a la fila abierta.');
+      const detail = await detailCache.current.load(current.key, () => fetchDetail(current.row, controller.signal));
       if (sequence !== detailSequence.current) return;
-      setOpenDocument((current) => current?.row.id === currentRow.id ? { ...current, status: 'ready', detail, error: null } : current);
+      setOpenDocument((open) => open?.row.id === current.row.id ? { ...open, status: 'ready', detail, error: null } : open);
     } catch (error) {
       if (sequence !== detailSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
       const message = error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo cargar el detalle de este documento.') : 'No se pudo cargar el detalle de este documento.';
-      setOpenDocument((current) => current?.row.id === currentRow.id ? { ...current, status: 'error', detail: null, error: message } : current);
+      setOpenDocument((open) => open?.row.id === current.row.id ? { ...open, status: 'error', detail: null, error: message } : open);
       setNotice({ tone: 'error', text: `${message} Puedes reintentar el detalle sin modificar la conciliación.` });
     } finally {
       if (detailController.current === controller) detailController.current = null;
     }
-  }, [historicData?.rows, rows]);
+  }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
 
   const undoReceipt = useCallback((receipt: Receipt) => {
     if (mutationsBlocked || !receipt.operationId) return;
@@ -729,7 +783,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-[minmax(160px,1fr)_145px_145px_210px_auto] md:items-end"><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button></form></section>
 
     <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
-      <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{grouped.map((group) => <section key={group.key} aria-label={`${group.label}: ${group.rows.length} en esta página`}><GroupHeader group={group} />{group.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>)}</>}</div>
+      <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{grouped.map((group) => <section key={group.key} aria-label={`${group.label}: ${group.rows.length} en esta página`}><GroupHeader group={group} />{group.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>)}</>}</div>
       {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
       {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
@@ -738,7 +792,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       <summary className="cursor-pointer text-sm font-semibold">Anteriores a la fecha de corte · {data.historicSummary.count.toLocaleString('es-ES')} facturas · {formatMagnitude(data.historicSummary.amountCentimos)}</summary>
       <p className="py-2 text-xs text-slate-600 dark:text-slate-300">No cuentan en el resumen. Su cobro histórico no consta confirmado en este panel; esto no prueba que el cliente deba ese importe.</p>
       {historicLoading ? <Skeleton /> : historicData && <>
-        {historicData.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={false} receipt={undefined} busy={mutationsBlocked} onSelect={() => undefined} onConfirm={() => undefined} onAsk={() => undefined} onOpen={openDetail} onUndo={() => undefined} />)}
+        {historicData.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={false} receipt={undefined} busy={mutationsBlocked} onSelect={() => undefined} onConfirm={() => undefined} onAsk={() => undefined} onOpen={openDetail} onPrefetch={prefetchDetail} onUndo={() => undefined} />)}
         <div className="flex items-center justify-between gap-2 pt-3 text-xs"><span>{historicData.total ? historicData.offset + 1 : 0}–{Math.min(historicData.total, historicData.offset + historicData.rows.length)} de {historicData.total}</span><div className="flex gap-2"><button type="button" disabled={historicOffset === 0} onClick={() => { closeDetail(); setHistoricOffset(Math.max(0, historicOffset - PAGE_SIZE)); }} className="min-h-9 rounded border px-2 disabled:opacity-50">Anteriores</button><button type="button" disabled={historicOffset + historicData.rows.length >= historicData.total} onClick={() => { closeDetail(); setHistoricOffset(historicOffset + PAGE_SIZE); }} className="min-h-9 rounded border px-2 disabled:opacity-50">Siguientes</button></div></div>
       </>}
     </details>}
