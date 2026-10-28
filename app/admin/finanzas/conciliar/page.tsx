@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { Roboto } from 'next/font/google';
 import ConciliarWorkspace from '@/components/finanzas/conciliar/ConciliarWorkspace';
 import { assertPrototypeStaging, PrototypeStagingError } from '@/lib/finanzas/prototype-staging';
 import { requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth';
@@ -8,7 +7,6 @@ import { requireAuth } from '@/lib/middleware/auth';
 import { CONCILIAR_DEFAULT_CUTOFF, parseConciliarGetInput } from '@/lib/finanzas/conciliar-contract';
 import { readConciliarProjection } from '@/lib/finanzas/conciliar-projection-read';
 
-const roboto = Roboto({ subsets: ['latin'], weight: ['400', '500', '700', '900'], display: 'swap', preload: true, fallback: ['Arial', 'Helvetica', 'sans-serif'], variable: '--font-conciliar' });
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'sfo1';
 
@@ -49,7 +47,7 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
     });
     const initialData = await readConciliarProjection(input);
     timing('projection');
-    return <div className={roboto.variable}><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialData={initialData} /></div>;
+    return <><link rel="preload" href="/fonts/RobotoLatin-VF.woff2" as="font" type="font/woff2" crossOrigin="anonymous" /><ConciliarWorkspace key={`${initialTab}:${initialQuery}:${initialCutoff}`} initialTab={initialTab} initialQuery={initialQuery} initialCutoff={initialCutoff} initialData={initialData} /></>;
   } catch (error) {
     if (error instanceof PrototypeStagingError) notFound();
     throw error;

@@ -71,10 +71,14 @@ test('consentimiento público conservado y fuentes locales con swap y sin preloa
   const layout = read('app/layout.js')
   assert.equal(layout.includes('Cookiebot'), false)
   assert.ok(layout.includes('assistantPublicEnabled()'))
-  assert.equal((layout.match(/preload: false/g) ?? []).length, 2)
+  assert.equal(layout.includes('next/font/google'), false)
   const page = read('app/admin/finanzas/conciliar/page.tsx')
-  assert.ok(page.includes("display: 'swap', preload: true"))
-  assert.ok(page.includes("fallback: ['Arial', 'Helvetica', 'sans-serif']"))
+  assert.ok(page.includes('rel="preload" href="/fonts/RobotoLatin-VF.woff2"'))
+  assert.equal(page.includes('next/font/google'), false)
+  assert.ok(read('app/globals.css').includes('font-display: swap'))
+  assert.ok(read('app/globals.css').includes("font-family: 'IO Roboto'"))
+  assert.ok(fs.statSync(path.join(root, 'public/fonts/RobotoLatin-VF.woff2')).size > 30000)
+  assert.ok(read('public/fonts/OFL-Roboto.txt').includes('SIL OPEN FONT LICENSE'))
 })
 
 test('el encabezado tiene contraste explícito antes de establecer una clase de tema', () => {
