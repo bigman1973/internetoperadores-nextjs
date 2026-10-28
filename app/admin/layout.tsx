@@ -11,6 +11,8 @@ import prisma from '../../lib/prisma'
 import { canAccessAdminPanel } from '../../lib/admin-panel-access'
 import { countReadableAdminPermissionSeeds } from '../../lib/admin-permissions-ssr-contract'
 import { readAdminPermissionsSsrWithFallback } from '../../lib/admin-permissions-ssr'
+import ImpersonationBanner from '@/components/impersonation/ImpersonationBanner'
+import { ActuationProvider } from '@/components/impersonation/ActuationProvider'
 import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
 import { isEasyOnlyFinanceUser } from '@/lib/finanzas/easy-access-profile'
 import { getFinanceEasyProfileRuntime, getFinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
@@ -55,6 +57,8 @@ export default async function AdminLayout({
   
   return (
     <SessionProvider session={session}>
+      <ActuationProvider>
+        <ImpersonationBanner />
       <RoleProvider 
         key={`effective-actor:${session.user.id}`}
         userRole={session.user.role || 'VENTAS'} 
@@ -79,6 +83,7 @@ export default async function AdminLayout({
           </div>
         </SidebarProvider>
       </RoleProvider>
+      </ActuationProvider>
     </SessionProvider>
   )
 }

@@ -7,7 +7,7 @@ import Link from 'next/link'
 import { useSidebar } from './AdminSidebarContext'
 import { useRole, ROLES_DISPONIBLES, RolId } from './RoleContext'
 import { useState } from 'react'
-import { useActuation } from '../impersonation/ImpersonationBanner'
+import { useActuation } from '@/components/impersonation/ActuationProvider'
 import { loadAdminUserPreviewSelector } from './AdminUserPreviewSelectorLoader'
 
 // El panel no forma parte de la ruta crítica: sólo un SUPER_ADMIN que abre
@@ -131,6 +131,7 @@ export default function AdminHeader() {
               {canStart && !isActing && (
                 <Link
                   href="/admin/actuar-como"
+                  prefetch={false}
                   className="inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-orange-600 px-1 text-xs font-bold text-white shadow-sm transition hover:bg-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 sm:px-3 sm:text-sm"
                   title="Iniciar una sesión temporal con otra identidad autorizada"
                 >

@@ -12,7 +12,7 @@ import {
   type ConciliarActionResponse, type ConciliarColor, type ConciliarConfirmItem, type ConciliarMutationPayload,
   type ConciliarEmitidasGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarRow, type ConciliarSummary, type ConciliarTab,
 } from './conciliar-contract';
-import { useActuation } from '@/components/impersonation/ImpersonationBanner';
+import { useActuation } from '@/components/impersonation/ActuationProvider';
 import dynamic from 'next/dynamic';
 const ConciliarDocumentPreview = dynamic(() => import('./ConciliarDocumentPreview'));
 const ConciliarRecentHistory = dynamic(() => import('./ConciliarRecentHistory'));
@@ -646,8 +646,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const emitidasGroupLabel = emitidasGrupo ? EMITIDAS_GROUP_COPY[emitidasGrupo].label : '';
 
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
-    <header className="flex flex-col gap-3 border-b border-orange-100 pb-4 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
-      <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FF5300]">Conciliación</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#2D2A26] dark:text-white sm:text-3xl">Conciliar</h1><p className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-300">Una vista directa de lo que queda por casar, revisar o pedir.</p></div>
+    <header data-conciliar-heading className="flex flex-col gap-3 border-b border-orange-100 pb-4 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FF5300]">Conciliación</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#2D2A26] dark:text-white sm:text-3xl">Conciliar</h1><p data-conciliar-subtitle className="mt-1 max-w-3xl text-sm text-slate-600 dark:text-slate-300">Una vista directa de lo que queda por casar, revisar o pedir.</p></div>
       <button type="button" onClick={() => void load(true)} disabled={loading || refreshing || mutationsBlocked} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900 dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
     </header>
 

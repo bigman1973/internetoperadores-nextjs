@@ -8,7 +8,7 @@ import { requireAuth } from '@/lib/middleware/auth';
 import { CONCILIAR_DEFAULT_CUTOFF, parseConciliarGetInput } from '@/lib/finanzas/conciliar-contract';
 import { readConciliarProjection } from '@/lib/finanzas/conciliar-projection-read';
 
-const roboto = Roboto({ subsets: ['latin'], weight: ['400', '500', '700', '900'], display: 'swap', variable: '--font-conciliar' });
+const roboto = Roboto({ subsets: ['latin'], weight: ['400', '500', '700', '900'], display: 'swap', preload: true, fallback: ['Arial', 'Helvetica', 'sans-serif'], variable: '--font-conciliar' });
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'sfo1';
 
