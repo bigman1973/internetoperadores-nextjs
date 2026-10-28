@@ -51,6 +51,7 @@ export default function AdminSidebar({
   const pathname = usePathname()
   const router = useRouter()
   const menuRef = useRef<HTMLDivElement>(null)
+  const previousPath = useRef(pathname)
   const {
     isViewingAs,
     isViewingAsUser,
@@ -153,9 +154,11 @@ export default function AdminSidebar({
     }
   }, [pathname, initialMenu, needsLiveMenu])
 
-  // Cerrar sidebar al cambiar de ruta
+  // No cerrar en el primer montaje: la cabecera puede haber procesado un clic
+  // mientras este módulo terminaba de hidratar. Sólo una navegación lo cierra.
   useEffect(() => {
-    setIsOpen(false)
+    if (previousPath.current !== null && previousPath.current !== pathname) setIsOpen(false)
+    previousPath.current = pathname
   }, [pathname, setIsOpen])
 
   // Bloquear scroll del body y permitir cerrar con Escape en móvil
