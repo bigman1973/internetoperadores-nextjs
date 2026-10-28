@@ -77,12 +77,40 @@ type MutationAuditScope = {
  * live-session decision outside the explicitly scoped Conciliar verifier.
  */
 const mutationAuditScope = new AsyncLocalStorage<MutationAuditScope>()
-const conciliarSerializableAuthorizationScope = new AsyncLocalStorage<Prisma.TransactionClient>()
+type ConciliarSerializableAuthorization = Readonly<{
+  tx: Prisma.TransactionClient
+  /** Actor effective whose Conciliar runtime+B4 ACL was just checked in tx. */
+  actorId: number
+}>
+const conciliarSerializableAuthorizationScope = new AsyncLocalStorage<ConciliarSerializableAuthorization | null>()
 
-/** Internal marker: called only after the live ACL/runtime check in Conciliar's
- * SERIALIZABLE callback. It carries no user, permission, request or override. */
-export function runWithConciliarSerializableAuthorization<T>(tx: Prisma.TransactionClient, callback: () => T): T {
-  return conciliarSerializableAuthorizationScope.run(tx, callback)
+/**
+ * Internal Conciliar marker. `verifiedActorId` is supplied only by the callback
+ * immediately following its own runtime+B4 live check. Leaving it absent keeps
+ * legacy callers unmarked (and therefore fully revalidating); it is never a
+ * browser capability or a reusable permission object.
+ */
+export function runWithConciliarSerializableAuthorization<T>(
+  tx: Prisma.TransactionClient,
+  callback: () => T,
+  verifiedActorId?: number,
+): T {
+  // Explicitly shadow an outer marker for legacy/nested callers. They did not
+  // supply an actor just validated here, so they must retain the full checks.
+  if (typeof verifiedActorId !== 'number' || !Number.isSafeInteger(verifiedActorId) || verifiedActorId < 1) {
+    return conciliarSerializableAuthorizationScope.run(null, callback)
+  }
+  return conciliarSerializableAuthorizationScope.run({ tx, actorId: verifiedActorId }, callback)
+}
+
+/** Server-only equality accessor for the narrow Conciliar SERIALIZABLE scope. */
+export function hasConciliarSerializableAuthorizationForActor(
+  tx: Prisma.TransactionClient,
+  actorId: number,
+): boolean {
+  const authorization = conciliarSerializableAuthorizationScope.getStore()
+  return Number.isSafeInteger(actorId) && actorId > 0
+    && authorization?.tx === tx && authorization.actorId === actorId
 }
 
 export function currentImpersonationTransactionClient(): Prisma.TransactionClient | null {
@@ -488,7 +516,7 @@ const CONCILIAR_LIVE_CACHE_PATH = '/api/admin/finanzas/conciliar'
 function conciliarLiveCacheScope(context: LiveContext, tx: Prisma.TransactionClient): MutationAuditScope | null {
   if (conciliarRuntimeConfigured() === null
     || process.env.IO_PRODUCTION_READ_ONLY === '1'
-    || conciliarSerializableAuthorizationScope.getStore() !== tx
+    || !hasConciliarSerializableAuthorizationForActor(tx, context.actorId)
     || context.path !== CONCILIAR_LIVE_CACHE_PATH
     || context.method !== 'POST'
     || (context.action !== 'confirmar' && context.action !== 'deshacer')) return null

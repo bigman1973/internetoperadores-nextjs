@@ -95,9 +95,11 @@ async function main(): Promise<void> {
     default: prisma,
     runWithImpersonationMutationAuditScope: auditScope,
     runWithConciliarSerializableAuthorization,
+    hasConciliarSerializableAuthorizationForActor,
     verifyLiveImpersonationContext,
   } = await import('../lib/prisma')
-  const runWithImpersonationMutationAuditScope = <T>(tx: never, callback: () => T | Promise<T>) => auditScope(tx, () => runWithConciliarSerializableAuthorization(tx, callback))
+  const runWithLegacyConciliarScope = <T>(tx: never, callback: () => T | Promise<T>) => auditScope(tx, () => runWithConciliarSerializableAuthorization(tx, callback))
+  const runWithVerifiedConciliarScope = <T>(tx: never, actorId: number, callback: () => T | Promise<T>) => auditScope(tx, () => runWithConciliarSerializableAuthorization(tx, callback, actorId))
   const source = readFileSync(resolve(root, 'lib/prisma.ts'), 'utf8')
   assert.match(source, /FOR SHARE OF s,actor,target/, 'La verificación inicial debe bloquear sesión, actor y destino contra revocaciones concurrentes.')
   assert.match(source, /JOIN usuarios_admin actor[\s\S]*JOIN usuarios_admin target/, 'La consulta bloqueante debe volver a leer ambos administradores.')
@@ -110,13 +112,44 @@ async function main(): Promise<void> {
   try {
     await withCacheEnvironment(async () => {
       const unmarked = fakeTx([[future(now)], [future(now)]])
-      await auditScope(unmarked as never, async () => {
+      assert.equal(hasConciliarSerializableAuthorizationForActor(unmarked as never, 101), false, 'La capacidad no existe fuera del callback exacto.')
+      await runWithLegacyConciliarScope(unmarked as never, async () => {
+        assert.equal(hasConciliarSerializableAuthorizationForActor(unmarked as never, 101), false, 'El llamador legado sin actor verificado no recibe marcador.')
         assert.equal(await verifyLiveImpersonationContext(contextFor(), unmarked as never), true)
         assert.equal(await verifyLiveImpersonationContext(contextFor(), unmarked as never), true)
       })
-      assert.equal(unmarked.queries.length, 2, 'Una transacción ordinaria sin marcador de Conciliar mantiene la verificación por sentencia.')
+      assert.equal(unmarked.queries.length, 2, 'Una transacción ordinaria/legada sin marcador de Conciliar mantiene todas las comprobaciones por sentencia.')
+
+      const marked = fakeTx([])
+      const otherTx = fakeTx([])
+      await runWithVerifiedConciliarScope(marked as never, 101, async () => {
+        assert.equal(hasConciliarSerializableAuthorizationForActor(marked as never, 101), true, 'Sólo el actor validado en la misma transacción obtiene el marcador.')
+        assert.equal(hasConciliarSerializableAuthorizationForActor(marked as never, 102), false, 'Un actor distinto no puede reutilizar el marcador.')
+        assert.equal(hasConciliarSerializableAuthorizationForActor(otherTx as never, 101), false, 'Otra transacción no puede reutilizar el marcador.')
+        await runWithLegacyConciliarScope(marked as never, async () => {
+          assert.equal(hasConciliarSerializableAuthorizationForActor(marked as never, 101), false, 'Un llamador legado anidado no hereda el marcador exterior.')
+        })
+        assert.equal(hasConciliarSerializableAuthorizationForActor(marked as never, 101), true, 'Al volver al callback validado se restaura sólo su propio marcador.')
+      })
+      assert.equal(hasConciliarSerializableAuthorizationForActor(marked as never, 101), false, 'El marcador se restaura al salir del callback.')
+
+      const failedScope = fakeTx([])
+      await assert.rejects(
+        runWithVerifiedConciliarScope(failedScope as never, 101, async () => {
+          assert.equal(hasConciliarSerializableAuthorizationForActor(failedScope as never, 101), true)
+          throw new Error('fixture rollback')
+        }),
+        /fixture rollback/,
+      )
+      assert.equal(hasConciliarSerializableAuthorizationForActor(failedScope as never, 101), false, 'Una excepción limpia el marcador antes del reintento.')
+      const retryScope = fakeTx([])
+      await runWithVerifiedConciliarScope(retryScope as never, 101, async () => {
+        assert.equal(hasConciliarSerializableAuthorizationForActor(retryScope as never, 101), true, 'Un reintento sólo obtiene su propio marcador de callback.')
+        assert.equal(hasConciliarSerializableAuthorizationForActor(failedScope as never, 101), false)
+      })
+
       const reusable = fakeTx(Array.from({ length: 9 }, () => [future(now)]))
-      await runWithImpersonationMutationAuditScope(reusable as never, async () => {
+      await runWithVerifiedConciliarScope(reusable as never, 101, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, reusable as never), true)
         assert.equal(reusable.queries.length, 1)
@@ -150,7 +183,7 @@ async function main(): Promise<void> {
 
       // Expiración: cada sentencia vuelve a comparar Date.now con expires_at.
       const expiring = fakeTx([[future(now, 5)], [future(now, 60_000)]])
-      await runWithImpersonationMutationAuditScope(expiring as never, async () => {
+      await runWithVerifiedConciliarScope(expiring as never, 101, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, expiring as never), true)
         now += 6
@@ -160,7 +193,7 @@ async function main(): Promise<void> {
 
       // Ningún falso/throw se memoriza; la relectura posterior puede decidir de nuevo.
       const initiallyDenied = fakeTx([[], [future(now)]])
-      await runWithImpersonationMutationAuditScope(initiallyDenied as never, async () => {
+      await runWithVerifiedConciliarScope(initiallyDenied as never, 101, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, initiallyDenied as never), false, 'Revocada antes de la primera mutación se deniega.')
         assert.equal(await verifyLiveImpersonationContext(base, initiallyDenied as never), true)
@@ -168,7 +201,7 @@ async function main(): Promise<void> {
       assert.equal(initiallyDenied.queries.length, 2, 'Una denegación no se guarda como permiso ni como denegación cacheada.')
 
       const queryFailure = fakeTx([new Error('fixture live query failure'), [future(now)]])
-      await runWithImpersonationMutationAuditScope(queryFailure as never, async () => {
+      await runWithVerifiedConciliarScope(queryFailure as never, 101, async () => {
         const base = contextFor()
         assert.equal(await verifyLiveImpersonationContext(base, queryFailure as never), false, 'Un fallo de lectura viva cierra la mutación.')
         assert.equal(await verifyLiveImpersonationContext(base, queryFailure as never), true)
@@ -178,10 +211,10 @@ async function main(): Promise<void> {
       // Un P2034/reintento crea un callback/scope nuevo, incluso con el mismo contexto.
       const retryOne = fakeTx([[future(now)]])
       const retryTwo = fakeTx([[future(now)]])
-      await runWithImpersonationMutationAuditScope(retryOne as never, async () => {
+      await runWithVerifiedConciliarScope(retryOne as never, 101, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), retryOne as never), true)
       })
-      await runWithImpersonationMutationAuditScope(retryTwo as never, async () => {
+      await runWithVerifiedConciliarScope(retryTwo as never, 101, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), retryTwo as never), true)
       })
       assert.deepEqual([retryOne.queries.length, retryTwo.queries.length], [1, 1], 'Un reintento serializable no hereda la decisión ni el scope del intento anterior.')
@@ -189,7 +222,7 @@ async function main(): Promise<void> {
 
     await withProductionLikeEnvironment(async () => {
       const production = fakeTx([[future(now)], [future(now)]])
-      await runWithImpersonationMutationAuditScope(production as never, async () => {
+      await runWithVerifiedConciliarScope(production as never, 101, async () => {
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
         assert.equal(await verifyLiveImpersonationContext(contextFor(), production as never), true)
       })
@@ -200,7 +233,7 @@ async function main(): Promise<void> {
       for (const name of names) process.env[name] = name === 'IO_PRODUCTION_READ_ONLY' ? '0' : '1'
       try {
         const enabled = fakeTx([[future(now, 5)], [future(now)], [future(now)]])
-        await runWithImpersonationMutationAuditScope(enabled as never, async () => {
+        await runWithVerifiedConciliarScope(enabled as never, 101, async () => {
           const base = contextFor()
           assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
           assert.equal(await verifyLiveImpersonationContext(base, enabled as never), true)
@@ -214,7 +247,7 @@ async function main(): Promise<void> {
           process.env.FINANCE_CONCILIAR_PRODUCTION_ENABLED = '1'
         })
         const fresh = fakeTx([[future(now)]])
-        await runWithImpersonationMutationAuditScope(fresh as never, async () => {
+        await runWithVerifiedConciliarScope(fresh as never, 101, async () => {
           assert.equal(await verifyLiveImpersonationContext(contextFor(), fresh as never), true)
         })
         assert.equal(fresh.queries.length, 1, 'La siguiente transacción productiva no hereda la comprobación del lote anterior.')
@@ -243,6 +276,9 @@ async function main(): Promise<void> {
     productionWithoutOptInsHasNoCache: true,
     productionExplicitRuntimeUsesTransactionScopedCache: true,
     requiresExplicitConciliarTransactionMarker: true,
+    markerBindsExactTransactionAndActor: true,
+    markerClearsAfterExceptionAndRetry: true,
+    legacyCallerRetainsAllChecks: true,
     lockSqlCoversSessionActorTarget: true,
   }))
 }
