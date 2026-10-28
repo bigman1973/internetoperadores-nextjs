@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 import { requireAuth } from '../../lib/middleware/auth'
 import { redirect } from 'next/navigation'
 import AdminSidebar from '../../components/admin/AdminSidebar'
-import { SidebarProvider } from '../../components/admin/AdminSidebar'
+import { SidebarProvider } from '../../components/admin/AdminSidebarContext'
 import AdminHeader from '../../components/admin/AdminHeader'
 import SessionProvider from '../../components/SessionProvider'
 import { RoleProvider } from '../../components/admin/RoleContext'
@@ -16,6 +16,73 @@ import { ActuationProvider } from '@/components/impersonation/ActuationProvider'
 import PendingTicketsNotice from '../../components/finanzas/PendingTicketsNotice'
 import { isEasyOnlyFinanceUser } from '@/lib/finanzas/easy-access-profile'
 import { getFinanceEasyProfileRuntime, getFinanceEasyRuntimeContext } from '@/lib/finanzas/prototype-staging'
+import { hasAccess, permissionSignature } from '@/components/admin/sidebar-access-evaluator'
+import {
+  filterAuthorizedSidebarNavigation,
+  getEasyOnlySidebarNavigation,
+  type FinanceEnvironment,
+} from '@/components/admin/sidebar-navigation'
+import AdminSidebarMenu from '@/components/admin/server/AdminSidebarMenu'
+import { AdminSidebarPlaceholder } from '@/components/admin/presentation/AdminSidebarPlaceholder'
+
+type SidebarInitialModel = Readonly<{
+  mode: 'easy' | 'privileged' | 'seed'
+  navigation: ReturnType<typeof filterAuthorizedSidebarNavigation> | ReturnType<typeof getEasyOnlySidebarNavigation>
+  permissionSignature: string
+}>
+
+/**
+ * Forma un árbol de presentación sólo a partir de datos ya leídos para esta
+ * respuesta. La semilla no se cachea ni se reutiliza en una API o request nuevo.
+ */
+function getSidebarInitialModel({
+  userRole,
+  userRoles,
+  easyOnly,
+  financeEnvironment,
+  initialPermissions,
+}: {
+  userRole: string
+  userRoles: string[]
+  easyOnly: boolean
+  financeEnvironment: FinanceEnvironment
+  initialPermissions: Awaited<ReturnType<typeof readAdminPermissionsSsrWithFallback>>
+}): SidebarInitialModel | null {
+  if (easyOnly) {
+    return {
+      mode: 'easy',
+      navigation: getEasyOnlySidebarNavigation(financeEnvironment),
+      permissionSignature: '',
+    }
+  }
+
+  const isSuperAdmin = userRole === 'SUPER_ADMIN'
+  const isPrivilegedRealRole = isSuperAdmin || userRole === 'GERENTE'
+  // Si falla la lectura no se puede inferir que el actor no tenga ACL granular.
+  // Se mantiene un placeholder seguro hasta que RoleContext consulta la ACL viva.
+  if (!isPrivilegedRealRole && initialPermissions === null) return null
+
+  const permissions = initialPermissions || []
+  const tienePermisosGranulares = permissions.some(permission => permission.lectura || permission.escritura)
+  const navigation = filterAuthorizedSidebarNavigation(financeEnvironment, section => hasAccess({
+    section,
+    effectiveRole: userRole,
+    isSuperAdmin,
+    isViewingAs: false,
+    isViewingAsUser: false,
+    viewAsRole: null,
+    userRoles,
+    viewingUser: null,
+    permisosGranulares: permissions,
+    tienePermisosGranulares,
+  }))
+
+  return {
+    mode: isPrivilegedRealRole ? 'privileged' : 'seed',
+    navigation,
+    permissionSignature: permissionSignature(permissions),
+  }
+}
 
 export default async function AdminLayout({
   children,
@@ -29,7 +96,9 @@ export default async function AdminLayout({
   const session = await requireAuth('admin')
   trace('session')
   const actorId = Number(session.user.id)
-  const isPrivilegedRealRole = session.user.role === 'SUPER_ADMIN' || session.user.role === 'GERENTE'
+  const userRole = session.user.role || 'VENTAS'
+  const userRoles = session.user.roles || []
+  const isPrivilegedRealRole = userRole === 'SUPER_ADMIN' || userRole === 'GERENTE'
   // Esta foto pertenece sólo a este render y al actor efectivo que requireAuth
   // acaba de comprobar. No es autoridad para APIs ni se conserva entre requests.
   const permissionSeed = !isPrivilegedRealRole
@@ -54,15 +123,32 @@ export default async function AdminLayout({
   if (!canAccessAdmin && !easyOnly) {
     redirect('/empleado')
   }
-  
+
+  const financeEnvironment = financeContext?.runtime ?? null
+  const initialSidebar = getSidebarInitialModel({
+    userRole,
+    userRoles,
+    easyOnly,
+    financeEnvironment,
+    initialPermissions,
+  })
+  const initialMenu = initialSidebar ? (
+    <AdminSidebarMenu
+      navigation={initialSidebar.navigation}
+      user={session.user}
+      easyOnly={easyOnly}
+      financeEnvironment={financeEnvironment}
+    />
+  ) : <AdminSidebarPlaceholder />
+
   return (
     <SessionProvider session={session}>
       <ActuationProvider>
         <ImpersonationBanner />
-      <RoleProvider 
+      <RoleProvider
         key={`effective-actor:${session.user.id}`}
-        userRole={session.user.role || 'VENTAS'} 
-        userRoles={session.user.roles || []}
+        userRole={userRole}
+        userRoles={userRoles}
         userId={session.user.id ? parseInt(session.user.id as string) : undefined}
         initialPermissions={initialPermissions ?? undefined}
         initialPermissionsLoaded={initialPermissions !== null}
@@ -70,7 +156,14 @@ export default async function AdminLayout({
       >
         <SidebarProvider>
           <div data-admin-shell className="min-h-screen overflow-x-hidden bg-gray-50 text-gray-900">
-            <AdminSidebar user={session.user} easyOnly={easyOnly} financeEnvironment={financeContext?.runtime ?? null} />
+            <AdminSidebar
+              user={session.user}
+              easyOnly={easyOnly}
+              financeEnvironment={financeEnvironment}
+              initialMenu={initialMenu}
+              initialMenuMode={initialSidebar?.mode ?? 'unavailable'}
+              initialPermissionSignature={initialSidebar?.permissionSignature}
+            />
             <div className="min-w-0 lg:pl-64">
               <AdminHeader />
               <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">

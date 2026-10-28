@@ -1,415 +1,157 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { XMarkIcon, ChevronDownIcon } from '@heroicons/react/24/outline'
-import { 
-  HomeIcon, 
-  CreditCardIcon, 
-  UsersIcon, 
-  ChartBarIcon,
-  UserGroupIcon,
-  CogIcon,
-  ClockIcon,
-  ArrowTrendingUpIcon,
-  DocumentTextIcon,
-  DocumentDuplicateIcon,
-  BanknotesIcon,
-  RocketLaunchIcon,
-  ClipboardDocumentListIcon,
-  InboxStackIcon,
-  GlobeAltIcon,
-  QueueListIcon,
-  SignalIcon,
-  ArrowPathIcon,
-  MegaphoneIcon,
-  WrenchScrewdriverIcon,
-  CalculatorIcon,
-  LinkIcon,
-  ReceiptPercentIcon,
-  UserIcon,
-  BriefcaseIcon,
-  FolderIcon,
-  CalendarDaysIcon,
-  CloudArrowUpIcon,
-  SunIcon,
-  BuildingOffice2Icon,
-  StarIcon,
-  ArrowsRightLeftIcon,
-  AcademicCapIcon,
-  ChatBubbleLeftRightIcon,
-  SparklesIcon,
-  LightBulbIcon,
-  BookOpenIcon,
-  ChatBubbleLeftEllipsisIcon,
-  BuildingLibraryIcon,
-  CircleStackIcon,
-  ShieldCheckIcon
-} from '@heroicons/react/24/outline'
+import { type MouseEvent, type ReactNode, useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
+import { usePathname, useRouter } from 'next/navigation'
 import { useRole } from './RoleContext'
 import { useSidebar } from './AdminSidebarContext'
+import { permissionSignature } from './sidebar-access-evaluator'
+import type { FinanceEnvironment } from './sidebar-navigation'
+import type { AdminSidebarUser } from './server/AdminSidebarMenu'
+import { AdminSidebarPlaceholder } from './presentation/AdminSidebarPlaceholder'
 
-// Se conserva esta exportación para que el layout no cambie, pero la cabecera
-// puede importar sólo AdminSidebarContext sin arrastrar el árbol de navegación.
+// Se conserva esta exportación para los consumidores existentes, aunque la
+// cabecera importa AdminSidebarContext directamente y no arrastra navegación.
 export { SidebarProvider, SidebarContext } from './AdminSidebarContext'
+
+const InteractiveAdminSidebarMenu = dynamic(
+  () => import('./lazy/InteractiveAdminSidebarMenu'),
+  {
+    ssr: false,
+    loading: () => <AdminSidebarPlaceholder />,
+  },
+)
+
+type InitialMenuMode = 'easy' | 'privileged' | 'seed' | 'unavailable'
 
 interface AdminSidebarProps {
   easyOnly?: boolean
-  financeEnvironment?: 'staging' | 'production' | null
-  user: {
-    name: string
-    email: string
-    role?: string
-    roles?: string[]
-  }
+  financeEnvironment?: FinanceEnvironment
+  user: AdminSidebarUser
+  /** Árbol ya autorizado de la respuesta SSR actual, formado por el layout. */
+  initialMenu: ReactNode
+  initialMenuMode: InitialMenuMode
+  initialPermissionSignature?: string
 }
 
-interface NavItem {
-  name: string
-  href: string
-  icon: any
-  section?: string // Sección para verificar permisos
-  exact?: boolean // Sólo activo en su ruta exacta (no en subrutas)
-  subitems?: NavItem[] // Subapartados de una sección con página propia
-}
-
-interface NavGroup {
-  name: string
-  icon: any
-  section?: string // Sección del grupo
-  children: NavItem[]
-}
-
-type NavEntry = NavItem | NavGroup
-
-function isGroup(entry: NavEntry): entry is NavGroup {
-  return 'children' in entry
-}
-
-const navigation: NavEntry[] = [
-  { name: 'Dashboard', href: '/admin', icon: HomeIcon, section: 'dashboard' },
-  {
-    name: 'CRM',
-    icon: ChartBarIcon,
-    section: 'crm',
-    children: [
-      { name: 'Resumen', href: '/admin/crm', icon: ChartBarIcon, section: 'crm' },
-      { name: 'Contactos', href: '/admin/crm/contactos', icon: UserGroupIcon, section: 'crm.contactos' },
-      { name: 'Empresas y autónomos', href: '/admin/crm/empresas', icon: BuildingOffice2Icon, section: 'crm.empresas' },
-      { name: 'Listas y segmentos', href: '/admin/crm/listas', icon: CircleStackIcon, section: 'crm.listas' },
-      { name: 'Particulares', href: '/admin/clientes?segmento=PARTICULAR', icon: UserIcon, section: 'crm.particulares' },
-      { name: 'Partners', href: '/admin/crm/partners', icon: UserGroupIcon, section: 'crm.partners' },
-    ],
-  },
-  { name: 'Tarifas', href: '/admin/tarifas', icon: CreditCardIcon, section: 'tarifas' },
-  {
-    name: 'Clientes',
-    icon: UsersIcon,
-    section: 'clientes',
-    children: [
-      { name: 'Todos los clientes', href: '/admin/clientes', icon: UsersIcon, section: 'clientes.todos' },
-      { name: 'Migración ADAMO', href: '/admin/clientes/migracion-adamo', icon: ArrowPathIcon, section: 'clientes.migracion_adamo' },
-      { name: 'GGCC - Draxton', href: '/admin/clientes/ggcc/draxton', icon: BuildingOffice2Icon, section: 'clientes.ggcc.draxton' },
-      { name: 'GGCC - Exagrid', href: '/admin/clientes/ggcc/exagrid', icon: BuildingOffice2Icon, section: 'clientes.ggcc.exagrid' },
-      { name: 'Proyectos Cliente', href: '/admin/proyectos', icon: FolderIcon, section: 'proyectos' },
-    ],
-  },
-  {
-    name: 'Leads',
-    icon: InboxStackIcon,
-    section: 'leads',
-    children: [
-      { name: 'Gestión', href: '/admin/leads-soluciones', icon: QueueListIcon, section: 'leads' },
-      { name: 'Mantenimiento IT', href: '/admin/leads-mantenimiento', icon: WrenchScrewdriverIcon, section: 'leads' },
-      { name: 'Leads Web', href: '/admin/leads', icon: GlobeAltIcon, section: 'leads' },
-    ],
-  },
-  {
-    name: 'Asistente IA',
-    icon: SparklesIcon,
-    section: 'asistente',
-    children: [
-      { name: 'Resumen', href: '/admin/asistente', icon: ChartBarIcon, section: 'asistente', exact: true },
-      { name: 'Chat interno', href: '/admin/asistente/chat', icon: ChatBubbleLeftRightIcon, section: 'asistente.chat' },
-      { name: 'Conocimiento', href: '/admin/asistente/conocimiento', icon: BookOpenIcon, section: 'asistente.conocimiento' },
-      { name: 'Conversaciones', href: '/admin/asistente/conversaciones', icon: QueueListIcon, section: 'asistente.conversaciones' },
-      { name: 'Leads del asistente', href: '/admin/asistente/leads', icon: InboxStackIcon, section: 'asistente.leads' },
-      { name: 'Aprendizaje', href: '/admin/asistente/aprendizaje', icon: LightBulbIcon, section: 'asistente.aprendizaje' },
-      { name: 'Analítica', href: '/admin/asistente/analitica', icon: ArrowTrendingUpIcon, section: 'asistente.analitica' },
-      { name: 'Informes y propuestas', href: '/admin/asistente/informes', icon: DocumentTextIcon, section: 'asistente.propuestas' },
-      { name: 'Configuración', href: '/admin/asistente/configuracion', icon: CogIcon, section: 'asistente.configuracion' },
-    ],
-  },
-  { name: 'Comunicados', href: '/admin/comunicados', icon: MegaphoneIcon, section: 'comunicados' },
-  { name: 'Altas Pendientes', href: '/admin/altas-pendientes', icon: ClipboardDocumentListIcon, section: 'altas-pendientes' },
-  { name: 'Contratos', href: '/admin/contratos', icon: DocumentDuplicateIcon, section: 'contratos' },
-  { name: 'Facturación', href: '/admin/facturacion', icon: BanknotesIcon, section: 'facturacion' },
-  {
-    name: 'Finanzas',
-    icon: CalculatorIcon,
-    section: 'finanzas',
-    children: [
-      { name: 'Dashboard', href: '/admin/finanzas', icon: ChartBarIcon, section: 'finanzas' },
-      { name: 'Movimientos', href: '/admin/finanzas/movimientos', icon: BanknotesIcon, section: 'finanzas' },
-      { name: 'Pendientes', href: '/admin/finanzas/pendientes', icon: ClipboardDocumentListIcon, section: 'finanzas' },
-      { name: 'Conciliar', href: '/admin/finanzas/conciliar', icon: ArrowsRightLeftIcon, section: 'finanzas' },
-      { name: 'Conciliación', href: '/admin/finanzas/conciliacion-v2', icon: LinkIcon, section: 'finanzas' },
-      { name: 'Modo fácil', href: '/admin/finanzas/modo-facil', icon: ClipboardDocumentListIcon, section: 'finanzas' },
-      { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon, section: 'finanzas' },
-      { name: 'Reparto entre clientes', href: '/admin/finanzas/reparto-clientes', icon: ChartBarIcon, section: 'finanzas.analitica_costes' },
-      { name: 'Analítica por cliente', href: '/admin/finanzas/analitica-cliente', icon: ChartBarIcon, section: 'finanzas' },
-      { name: 'Remesas', href: '/admin/finanzas/conciliacion-remesas', icon: InboxStackIcon, section: 'finanzas' },
-      { name: 'Centros de coste', href: '/admin/finanzas/centros-coste', icon: ChartBarIcon, section: 'finanzas' },
-      { name: 'Facturas Recibidas', href: '/admin/finanzas/facturas', icon: DocumentDuplicateIcon, section: 'finanzas' },
-      { name: 'Analítica de Costes', href: '/admin/finanzas/analitica-costes', icon: ChartBarIcon, section: 'finanzas.analitica_costes', subitems: [
-        { name: 'Costes de operadora', href: '/admin/finanzas/analitica-costes/costes-operadora', icon: SignalIcon, section: 'finanzas.analitica_costes' },
-      ] },
-      { name: 'Tickets/Gastos', href: '/admin/finanzas/tickets', icon: ReceiptPercentIcon, section: 'finanzas-tickets' },
-      { name: 'Importar Extracto', href: '/admin/finanzas/importar', icon: ArrowPathIcon, section: 'finanzas' },
-      { name: 'Exportar a A3', href: '/admin/finanzas/exportar-a3', icon: DocumentTextIcon, section: 'finanzas' },
-      { name: 'Datos Fiscales', href: '/admin/finanzas/datos-fiscales', icon: BuildingOffice2Icon, section: 'finanzas' },
-      { name: 'Cobros Pendientes', href: '/admin/finanzas/cobros-pendientes', icon: BanknotesIcon, section: 'finanzas' },
-      { name: 'GGCC Draxton', href: '/admin/finanzas/clientes/ggcc-draxton', icon: BuildingOffice2Icon, section: 'finanzas' },
-    ],
-  },
-  { name: 'Estadísticas', href: '/admin/estadisticas', icon: ChartBarIcon, section: 'estadisticas' },
-  { name: 'Usuarios Admin', href: '/admin/usuarios', icon: UserGroupIcon, section: 'usuarios' },
-  { name: 'Subida de Precios', href: '/admin/subida-precios', icon: ArrowTrendingUpIcon, section: 'subida-precios' },
-  {
-    name: 'Personal',
-    icon: BriefcaseIcon,
-    section: 'personal',
-    children: [
-      { name: 'Costes de Personal', href: '/admin/empleados', icon: BanknotesIcon, section: 'personal' },
-      { name: 'Organigrama', href: '/admin/empleados/organigrama', icon: UserGroupIcon, section: 'personal' },
-      { name: 'Vacaciones', href: '/admin/empleados/vacaciones', icon: SunIcon, section: 'personal' },
-      { name: 'Calendario', href: '/admin/empleados/calendario', icon: CalendarDaysIcon, section: 'personal' },
-      { name: 'Importar Nóminas', href: '/admin/empleados/nominas', icon: CloudArrowUpIcon, section: 'personal' },
-      { name: 'Plan de Carrera', href: '/admin/empleados/plan-carrera', icon: AcademicCapIcon, section: 'personal' },
-      { name: 'Gastos y Extras', href: '/admin/gastos-extras', icon: ReceiptPercentIcon, section: 'personal' },
-    ],
-  },
-  { name: 'Imputaciones', href: '/admin/imputaciones', icon: ClockIcon, section: 'imputaciones' },
-  { name: 'Proyectos Internos', href: '/admin/proyectos-internos', icon: RocketLaunchIcon, section: 'proyectos_internos' },
-  {
-    name: 'AAPP',
-    icon: BuildingLibraryIcon,
-    section: 'aapp',
-    children: [
-      { name: 'CNMC', href: '/admin/aapp/cnmc', icon: BuildingLibraryIcon, section: 'aapp' },
-      { name: 'Hacienda', href: '/admin/aapp/hacienda', icon: BuildingLibraryIcon, section: 'aapp' },
-      { name: 'Seguridad Social', href: '/admin/aapp/seguridad-social', icon: BuildingLibraryIcon, section: 'aapp' },
-    ],
-  },
-  {
-    name: 'Certificaciones', icon: ShieldCheckIcon, section: 'certificaciones',
-    children: [
-      { name: 'Resumen', href: '/admin/certificaciones', icon: ChartBarIcon, section: 'certificaciones' },
-      { name: 'ISO 27001', href: '/admin/certificaciones/iso-27001', icon: ShieldCheckIcon, section: 'certificaciones.iso_27001' },
-      { name: 'TISAX', href: '/admin/certificaciones/tisax', icon: ShieldCheckIcon, section: 'certificaciones.tisax' },
-      { name: 'Cuestionarios de seguridad', href: '/admin/certificaciones/cuestionarios', icon: ClipboardDocumentListIcon, section: 'certificaciones.cuestionarios' },
-    ],
-  },
-  { name: 'Peticiones', href: '/admin/peticiones', icon: ChatBubbleLeftEllipsisIcon, section: 'peticiones' },
-  { name: 'Portal Empleado', href: '/empleado', icon: UserIcon, section: 'portal-empleado' },
-  { name: 'Historial', href: '/admin/historial', icon: DocumentTextIcon, section: 'historial' },
-  { name: 'Configuración', href: '/admin/configuracion', icon: CogIcon, section: 'configuracion' },
-]
-
-function SidebarContent({ user, easyOnly = false, financeEnvironment = null, onNavigate }: AdminSidebarProps & { onNavigate?: () => void }) {
-  const pathname = usePathname()
-  const [openGroups, setOpenGroups] = useState<string[]>([])
-  const { hasAccess, effectiveRole, isViewingAs } = useRole()
-  const financeLabel = financeEnvironment === 'staging' ? ' · staging' : ''
-  const easyHome = financeEnvironment === 'staging' ? '/admin/finanzas/conciliar' : '/admin/finanzas/modo-facil'
-  const visibleNavigation = navigation.map((entry): NavEntry => {
-    if (!isGroup(entry) || entry.name !== 'Finanzas') return entry
-    return {
-      ...entry,
-      children: entry.children
-        .filter(child => {
-          if (child.href === '/admin/finanzas/conciliar') return financeEnvironment === 'staging'
-          if (['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes'].includes(child.href)) return financeEnvironment !== null
-          // Telefonía/SOFÍA continúa aparcada en producción.
-          if (child.href === '/admin/finanzas/analitica-cliente') return financeEnvironment === 'staging'
-          return true
-        })
-        .map(child => ({
-          ...child,
-          name: ['/admin/finanzas/modo-facil', '/admin/finanzas/para-pedir', '/admin/finanzas/reparto-clientes', '/admin/finanzas/analitica-cliente'].includes(child.href)
-            ? `${child.name}${financeLabel}` : child.name,
-        })),
-    }
-  })
-
-  // Auto-abrir el grupo si la ruta actual está dentro
-  useEffect(() => {
-    visibleNavigation.forEach((entry) => {
-      if (isGroup(entry)) {
-        const isChildActive = entry.children.some(
-          (child) => pathname === child.href || pathname.startsWith(child.href + '/')
-        )
-        if (isChildActive && !openGroups.includes(entry.name)) {
-          setOpenGroups((prev) => [...prev, entry.name])
-        }
-      }
-    })
-  }, [pathname, financeEnvironment])
-
-  const toggleGroup = (name: string) => {
-    setOpenGroups((prev) =>
-      prev.includes(name) ? prev.filter((g) => g !== name) : [...prev, name]
-    )
-  }
-
-  const canAccess = (item: NavItem | NavGroup) => {
-    if (easyOnly) return !isGroup(item) && [easyHome, '/admin/finanzas/para-pedir'].includes(item.href)
-    // Para grupos, mostrar si al menos un hijo es accesible
-    if (isGroup(item)) {
-      const groupAccess = hasAccess(item.section || 'dashboard')
-      if (groupAccess) return true
-      // Verificar si algún hijo tiene acceso (para permisos granulares en sub-secciones)
-      return item.children.some(child => {
-        const childSection = child.section || item.section || 'dashboard'
-        return hasAccess(childSection)
-      })
-    }
-    const section = item.section || 'dashboard'
-    return hasAccess(section)
-  }
-
-  const renderNavItem = (item: NavItem, isChild = false, depth = 0): React.ReactNode => {
-    // Verificar permisos del item hijo
-    if (!easyOnly && item.section && !hasAccess(item.section)) return null
-
-    const isActive = pathname === item.href ||
-      (!item.exact && item.href !== '/admin' && pathname.startsWith(item.href + '/')) ||
-      (item.href === '/admin' && pathname === '/admin')
-    
-    return (
-      <li key={item.name}>
-        <Link
-          href={item.href}
-          prefetch={false}
-          onClick={onNavigate}
-          className={`
-            group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-sm font-semibold leading-6
-            ${depth > 0 ? 'pl-8 text-xs' : isChild ? 'pl-10' : ''}
-            ${isActive
-              ? 'bg-orange-50 text-orange-600'
-              : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
-            }
-          `}
-        >
-          <item.icon
-            className={`${depth > 0 ? 'h-5 w-5' : 'h-6 w-6'} shrink-0 ${isActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
-            aria-hidden="true"
-          />
-          {item.name}
-        </Link>
-        {item.subitems && <ul className="mt-1 border-l border-slate-200 ml-5 space-y-1" aria-label={`Subapartados de ${item.name}`}>{item.subitems.map(child=>renderNavItem(child,true,depth+1))}</ul>}
-      </li>
-    )
-  }
-
-  const renderNavGroup = (group: NavGroup) => {
-    const isOpen = openGroups.includes(group.name)
-    const isChildActive = group.children.some(
-      (child) => pathname === child.href || pathname.startsWith(child.href + '/')
-    )
-
-    return (
-      <li key={group.name}>
-        <button
-          onClick={() => toggleGroup(group.name)}
-          aria-expanded={isOpen}
-          className={`
-            w-full group flex min-h-11 items-center gap-x-3 rounded-lg px-3 py-2 text-left text-sm font-semibold leading-6
-            ${isChildActive
-              ? 'text-orange-600'
-              : 'text-gray-700 hover:text-orange-600 hover:bg-gray-50'
-            }
-          `}
-        >
-          <group.icon
-            className={`h-6 w-6 shrink-0 ${isChildActive ? 'text-orange-600' : 'text-gray-400 group-hover:text-orange-600'}`}
-            aria-hidden="true"
-          />
-          {group.name}
-          <ChevronDownIcon
-            className={`ml-auto h-4 w-4 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''} ${isChildActive ? 'text-orange-600' : 'text-gray-400'}`}
-            aria-hidden="true"
-          />
-        </button>
-        {isOpen && (
-          <ul className="mt-1 space-y-1">
-            {group.children.map((child) => renderNavItem(child, true))}
-          </ul>
-        )}
-      </li>
-    )
-  }
-
-  return (
-    <div className="flex grow flex-col gap-y-5 overflow-y-auto bg-white px-6 pb-4">
-      {/* Logo */}
-      <div className="flex h-16 shrink-0 items-center">
-        <Link href={easyOnly ? easyHome : '/admin'} prefetch={false} className="flex items-center" onClick={onNavigate}>
-          <span className="text-2xl font-bold">
-            <span className="text-black">internet</span>
-            <span className="text-orange-500">operadores</span>
-          </span>
-        </Link>
-      </div>
-
-      {/* Indicador de modo "Ver como" */}
-      {isViewingAs && (
-        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800 font-medium">
-          👁 Viendo como: <span className="font-bold">{effectiveRole.replace('_', ' ')}</span>
-        </div>
-      )}
-
-      {/* Navigation */}
-      <nav className="flex flex-1 flex-col">
-        <ul role="list" className="flex flex-1 flex-col gap-y-7">
-          <li>
-            <ul role="list" className="-mx-2 space-y-1">
-              {(easyOnly ? [
-                { name: financeEnvironment === 'staging' ? 'Conciliar' : 'Modo fácil', href: easyHome, icon: ClipboardDocumentListIcon },
-                { name: 'Para pedir', href: '/admin/finanzas/para-pedir', icon: DocumentTextIcon },
-              ] : visibleNavigation).map((entry) => {
-                if (isGroup(entry)) {
-                  if (!canAccess(entry)) return null
-                  return renderNavGroup(entry)
-                }
-                if (!canAccess(entry)) return null
-                return renderNavItem(entry)
-              })}
-            </ul>
-          </li>
-
-          {/* User info */}
-          <li className="mt-auto">
-            <div className="flex items-center gap-x-4 px-2 py-3 text-sm font-semibold leading-6 text-gray-900 border-t border-gray-200">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-500 text-white font-bold">
-                {user.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-gray-900 truncate">{user.name}</p>
-                <p className="text-xs text-gray-500 truncate">{user.role?.replace('_', ' ')}</p>
-              </div>
-            </div>
-          </li>
-        </ul>
-      </nav>
-    </div>
-  )
-}
-
-export default function AdminSidebar({ user, easyOnly = false, financeEnvironment = null }: AdminSidebarProps) {
+/**
+ * Puerta cliente pequeña. El catálogo, los iconos y los grupos interactivos no
+ * se cargan durante la entrada: sólo se solicitan para móvil, previsualización
+ * o tras invalidar/cambiar la foto ACL viva.
+ */
+export default function AdminSidebar({
+  user,
+  easyOnly = false,
+  financeEnvironment = null,
+  initialMenu,
+  initialMenuMode,
+  initialPermissionSignature = '',
+}: AdminSidebarProps) {
   const { isOpen, setIsOpen } = useSidebar()
   const pathname = usePathname()
+  const router = useRouter()
+  const menuRef = useRef<HTMLDivElement>(null)
+  const {
+    isViewingAs,
+    isViewingAsUser,
+    permisosGranulares,
+    permisosLoaded,
+    effectiveUserId,
+  } = useRole()
+  const livePermissionSignature = permissionSignature(permisosGranulares)
+  const previewSync = useRef({
+    wasViewingAs: false,
+    wasViewingAsUser: false,
+    userPreviewReady: true,
+    previewUserId: null as number | null,
+    restoringInitialActor: false,
+    restoreSawUnloaded: false,
+    hasInvalidatedSeed: false,
+  })
+
+  // RoleContext invalida la semilla y programa su GET en un efecto. Esta puerta
+  // no muestra el árbol previo durante esa transición: espera observar el ciclo
+  // loaded -> false -> true de la ACL viva, incluso si su firma final coincide.
+  if (isViewingAs) {
+    if (!previewSync.current.wasViewingAs) {
+      previewSync.current.hasInvalidatedSeed = true
+    }
+    if (isViewingAsUser && (!previewSync.current.wasViewingAsUser || previewSync.current.previewUserId !== effectiveUserId)) {
+      previewSync.current.userPreviewReady = false
+      previewSync.current.restoreSawUnloaded = false
+      previewSync.current.previewUserId = effectiveUserId
+    }
+    if (isViewingAsUser && !permisosLoaded) {
+      previewSync.current.restoreSawUnloaded = true
+    }
+    if (isViewingAsUser && previewSync.current.restoreSawUnloaded && permisosLoaded) {
+      previewSync.current.userPreviewReady = true
+    }
+    previewSync.current.wasViewingAs = true
+    previewSync.current.wasViewingAsUser = isViewingAsUser
+  } else if (previewSync.current.wasViewingAs) {
+    previewSync.current.wasViewingAs = false
+    previewSync.current.wasViewingAsUser = false
+    previewSync.current.previewUserId = null
+    previewSync.current.restoringInitialActor = true
+    previewSync.current.restoreSawUnloaded = false
+  }
+
+  if (previewSync.current.restoringInitialActor && !permisosLoaded) {
+    previewSync.current.restoreSawUnloaded = true
+  }
+  if (previewSync.current.restoringInitialActor && previewSync.current.restoreSawUnloaded && permisosLoaded) {
+    previewSync.current.restoringInitialActor = false
+  }
+
+  const hasLiveSeedChange = initialMenuMode === 'seed' && livePermissionSignature !== initialPermissionSignature
+  const needsLiveMenu = !easyOnly && (
+    initialMenuMode === 'unavailable' ||
+    isViewingAs ||
+    hasLiveSeedChange ||
+    previewSync.current.hasInvalidatedSeed
+  )
+  // Una previsualización de usuario y cualquier retorno al actor inicial
+  // esperan la lectura actual con un placeholder sin enlaces; nunca muestran
+  // un árbol anterior ni una inferencia basada en user.role.
+  const waitsForLivePermissions = !easyOnly && (
+    (initialMenuMode === 'unavailable' && !permisosLoaded) ||
+    (isViewingAsUser && !previewSync.current.userPreviewReady) ||
+    previewSync.current.restoringInitialActor ||
+    (hasLiveSeedChange && !permisosLoaded)
+  )
+
+  // El HTML sigue usando anclas nativas sin JS. Tras hidratar se conserva la
+  // navegación interna de Next sin descargar el catálogo ni precargar destinos.
+  const navigateInitialMenu = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
+    const target = event.target
+    if (!(target instanceof Element)) return
+    const anchor = target.closest<HTMLAnchorElement>('[data-admin-sidebar-ssr] a[href]')
+    if (!anchor || anchor.target || anchor.hasAttribute('download')) return
+    const destination = new URL(anchor.href, window.location.href)
+    if (destination.origin !== window.location.origin || !/^\/admin(?:\/|$)/.test(destination.pathname)) return
+    event.preventDefault()
+    router.push(destination.pathname + destination.search + destination.hash)
+  }
+
+  useEffect(() => {
+    const menu = menuRef.current?.querySelector('[data-admin-sidebar-ssr]')
+    if (!menu) return
+    for (const anchor of menu.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+      const path = new URL(anchor.href).pathname
+      const active = pathname === path || (path !== '/admin' && pathname.startsWith(path + '/'))
+      if (active) anchor.setAttribute('aria-current', 'page')
+      else anchor.removeAttribute('aria-current')
+      anchor.classList.toggle('bg-orange-50', active)
+      anchor.classList.toggle('text-orange-600', active)
+      anchor.classList.toggle('text-gray-700', !active)
+      if (active) {
+        const group = anchor.closest('details')
+        if (group) group.open = true
+      }
+    }
+  }, [pathname, initialMenu, needsLiveMenu])
 
   // Cerrar sidebar al cambiar de ruta
   useEffect(() => {
@@ -435,19 +177,30 @@ export default function AdminSidebar({ user, easyOnly = false, financeEnvironmen
     }
   }, [isOpen, setIsOpen])
 
+  const interactiveMenu = (onNavigate?: () => void) => {
+    if (waitsForLivePermissions) return <AdminSidebarPlaceholder />
+    return (
+      <InteractiveAdminSidebarMenu
+        user={user}
+        easyOnly={easyOnly}
+        financeEnvironment={financeEnvironment}
+        onNavigate={onNavigate}
+      />
+    )
+  }
+
   return (
     <>
-      {/* Sidebar para desktop */}
-      <div className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
-        <div className="flex grow flex-col border-r border-gray-200 overflow-y-auto">
-          <SidebarContent user={user} easyOnly={easyOnly} financeEnvironment={financeEnvironment} />
+      {/* El árbol SSR permanece visible y navegable sin descargar el menú pesado. */}
+      <div ref={menuRef} onClick={navigateInitialMenu} className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-64 lg:flex-col">
+        <div className="flex grow flex-col overflow-y-auto border-r border-gray-200">
+          {needsLiveMenu ? interactiveMenu() : initialMenu}
         </div>
       </div>
 
-      {/* Sidebar móvil - overlay */}
+      {/* El módulo pesado se solicita sólo al abrir el overlay móvil. */}
       {isOpen && (
         <div className="relative z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navegación del panel">
-          {/* Backdrop */}
           <button
             type="button"
             aria-label="Cerrar menú"
@@ -455,23 +208,20 @@ export default function AdminSidebar({ user, easyOnly = false, financeEnvironmen
             onClick={() => setIsOpen(false)}
           />
 
-          {/* Sidebar panel */}
           <div className="fixed inset-0 flex">
             <div className="relative flex w-[min(88vw,22rem)] flex-none overflow-y-auto shadow-2xl">
-              {/* Close button */}
               <div className="absolute left-full top-0 flex w-12 justify-center pt-3">
                 <button
                   type="button"
-                  className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-950/40 text-white backdrop-blur active:scale-95"
+                  className="flex h-11 w-11 items-center justify-center rounded-full bg-gray-950/40 text-2xl leading-none text-white backdrop-blur active:scale-95"
                   onClick={() => setIsOpen(false)}
                 >
                   <span className="sr-only">Cerrar menú</span>
-                  <XMarkIcon className="h-6 w-6 text-white" aria-hidden="true" />
+                  <span aria-hidden="true">×</span>
                 </button>
               </div>
 
-              {/* Sidebar content */}
-              <SidebarContent user={user} easyOnly={easyOnly} financeEnvironment={financeEnvironment} onNavigate={() => setIsOpen(false)} />
+              {interactiveMenu(() => setIsOpen(false))}
             </div>
           </div>
         </div>

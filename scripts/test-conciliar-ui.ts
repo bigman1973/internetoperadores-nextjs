@@ -24,9 +24,16 @@ required(page, 'página', [
   'initialCutoff={initialCutoff}',
   'notFound()',
   'initialTab={initialTab} initialQuery={initialQuery}',
-  "Roboto } from 'next/font/google'",
-  "variable: '--font-conciliar'",
-  'className={roboto.variable}',
+  'rel="preload" href="/fonts/RobotoLatin-VF.woff2"',
+  'as="font" type="font/woff2" crossOrigin="anonymous"',
+]);
+
+required(readFileSync(resolve(root, 'app/globals.css'), 'utf8'), 'Roboto local inicial', [
+  "font-family: 'IO Roboto'",
+  "src: url('/fonts/RobotoLatin-VF.woff2')",
+  'font-weight: 100 900',
+  'font-display: swap',
+  "--font-conciliar: 'IO Roboto'",
 ]);
 
 required(contract, 'contrato de cliente', [
