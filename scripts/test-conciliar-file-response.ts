@@ -21,9 +21,23 @@ test('Conciliar file response preserves controlled synthetic PDF bytes and harde
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
   assert.equal(response.headers.get('x-frame-options'), 'SAMEORIGIN')
   assert.equal(response.headers.get('content-security-policy'), "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors 'self'")
-  assert.equal(response.headers.get('content-disposition'), "inline; filename*=UTF-8''Factura%20Lorena%20.pdf")
+  assert.equal(response.headers.get('content-disposition'), "inline; filename=\"Factura Lorena .pdf\"; filename*=UTF-8''Factura%20Lorena%20.pdf")
   assert.equal(response.headers.get('location'), null, 'the browser never receives a Graph/provider redirect')
   assert.deepEqual(Buffer.from(await response.arrayBuffer()), syntheticPdf)
+})
+
+test('Conciliar emits the persisted original filename as UTF-8 with an ASCII viewer fallback', () => {
+  const response = conciliarPdfFileResponse(syntheticPdf, 'DPC_Confirming BBVA_04092026.pdf')
+  assert.equal(
+    response.headers.get('content-disposition'),
+    "inline; filename=\"DPC_Confirming BBVA_04092026.pdf\"; filename*=UTF-8''DPC_Confirming%20BBVA_04092026.pdf",
+  )
+
+  const accented = conciliarPdfFileResponse(syntheticPdf, 'Nómina ágil.pdf')
+  assert.equal(
+    accented.headers.get('content-disposition'),
+    "inline; filename=\"Nomina agil.pdf\"; filename*=UTF-8''N%C3%B3mina%20%C3%A1gil.pdf",
+  )
 })
 
 test('Conciliar filename encoding cannot introduce response-header syntax', () => {
@@ -33,9 +47,10 @@ test('Conciliar filename encoding cannot introduce response-header syntax', () =
 
   assert.equal(safe.includes('\r'), false)
   assert.equal(safe.includes('\n'), false)
-  assert.match(disposition, /entrada%27%28%29%20.pdf$/)
+  assert.match(disposition, /filename="entrada_ .pdf"; filename\*=UTF-8''entrada%27%28%29%20.pdf$/)
   assert.equal(disposition.includes('\r'), false)
   assert.equal(disposition.includes('\n'), false)
+  assert.equal(disposition.includes('\\'), false)
 })
 
 test('Conciliar rejects a non-PDF before any inline response can be built', () => {

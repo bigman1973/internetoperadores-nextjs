@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { ArrowPathIcon, XMarkIcon } from '@heroicons/react/24/outline';
-import { formatDate, formatMoney, type ConciliarRow } from './conciliar-contract';
+import { formatDate, formatMagnitude, formatMoney, type ConciliarRow } from './conciliar-contract';
 import type { ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
+import { calculateConfirmingNet } from './conciliar-detail-client';
 
 type DocumentDrawer = Readonly<{
   row: ConciliarRow;
@@ -12,7 +13,7 @@ type DocumentDrawer = Readonly<{
   error: string | null;
 }>;
 
-type DetailField = readonly [label: string, value: string | number | null];
+type DetailField = readonly [label: string, value: string | number | null, deduction?: boolean];
 
 function focusableElements(root: HTMLElement | null): HTMLElement[] {
   return root ? Array.from(root.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')) : [];
@@ -27,11 +28,15 @@ function lineTotal(detail: ConciliarDocumentDetail): number | null {
   return total;
 }
 
+function formatDeduction(cents: number): string {
+  return `−${formatMagnitude(cents)}`;
+}
+
 function DetailFields({ fields }: { fields: readonly DetailField[] }) {
   return <dl className="grid gap-x-5 gap-y-3 text-sm sm:grid-cols-2">
-    {fields.map(([label, value]) => <div key={label} className="min-w-0 border-b border-slate-100 pb-2 dark:border-slate-800">
+    {fields.map(([label, value, deduction]) => <div key={label} className="min-w-0 border-b border-slate-100 pb-2 dark:border-slate-800">
       <dt className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</dt>
-      <dd className="mt-0.5 break-words font-semibold text-slate-950 dark:text-white">{value === null ? 'No consta' : typeof value === 'number' ? formatMoney(value) : value}</dd>
+      <dd className="mt-0.5 break-words font-semibold text-slate-950 dark:text-white">{value === null ? 'No consta' : typeof value === 'number' ? deduction ? formatDeduction(value) : formatMoney(value) : value}</dd>
     </div>)}
   </dl>;
 }
@@ -41,9 +46,9 @@ function amountFields(detail: ConciliarDocumentDetail): readonly DetailField[] {
     case 'CONFIRMING':
       return [
         ['Total nominal', detail.nominalCentimos],
-        ['Intereses', detail.interesesCentimos],
-        ['Comisión', detail.comisionCentimos],
-        ['IVA de comisión', detail.ivaComisionCentimos],
+        ['Intereses', detail.interesesCentimos, true],
+        ['Comisión', detail.comisionCentimos, true],
+        ['IVA de comisión', detail.ivaComisionCentimos, true],
         ['Neto del documento', detail.netoDocumentoCentimos],
         ['Ingreso del banco', detail.importeBancoCentimos],
       ];
@@ -97,6 +102,8 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
   const isRemesa = detail.kind === 'REMESA';
   const isConfirming = detail.kind === 'CONFIRMING';
   const isSupplierInvoice = detail.kind === 'FACTURA';
+  const confirmingNet = isConfirming ? calculateConfirmingNet(detail) : null;
+  const confirmingExact = confirmingNet?.matchesDeclaredNetExactly === true && detail.cuadreExacto;
   const total = lineTotal(detail);
   const linesTitle = isRemesa ? 'Recibos que constan en este documento' : isConfirming ? 'Facturas que constan en el documento' : 'Líneas que constan en el documento';
   const reconciliation = reconciliationCopy(detail);
@@ -125,6 +132,7 @@ function DetailContent({ detail }: { detail: ConciliarDocumentDetail }) {
       <h3 id="conciliar-amounts-detail-title" className="text-sm font-extrabold text-slate-950 dark:text-white">Importes del documento</h3>
       <div className="mt-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
         <DetailFields fields={amountFields(detail)} />
+        {confirmingNet && <p data-testid="conciliar-confirming-calculation" className={`mt-4 rounded-lg border px-3 py-2 text-sm leading-5 ${confirmingExact ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/45 dark:text-emerald-100' : 'border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-800 dark:bg-amber-950/45 dark:text-amber-100'}`}><span className="font-extrabold">{formatMagnitude(detail.nominalCentimos!)} − {formatMagnitude(detail.interesesCentimos!)} − {formatMagnitude(detail.comisionCentimos!)} − {formatMagnitude(detail.ivaComisionCentimos!)} = {formatMagnitude(confirmingNet.calculatedNetCentimos)}</span><span className="ml-1">Neto documental: {formatMoney(confirmingNet.declaredNetCentimos)}.</span>{confirmingExact && <span className="ml-1 font-bold">✔ Cuadre exacto en céntimos.</span>}</p>}
       </div>
     </section>
 

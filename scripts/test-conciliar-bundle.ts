@@ -24,7 +24,10 @@ test('la primera página conserva datos y tabla SSR sin esperar hidratación', (
 });
 
 test('los paneles no visibles se parten por interacción sin desactivar SSR de la vista visible', () => {
-  for (const name of ['ConciliarDocumentPreview', 'ConciliarRecentHistory', 'ConciliarRemesaConfirmationDialog']) {
+  assert.match(workspace, /const loadConciliarDocumentPreview = \(\) => import\('\.\/ConciliarDocumentPreview'\)/);
+  assert.match(workspace, /const ConciliarDocumentPreview = dynamic\(loadConciliarDocumentPreview\)/);
+  assert.doesNotMatch(workspace, /import ConciliarDocumentPreview from/);
+  for (const name of ['ConciliarRecentHistory', 'ConciliarRemesaConfirmationDialog']) {
     assert.match(workspace, new RegExp(`const ${name} = dynamic\\(\\(\\) => import\\('./${name}'\\)\\);`));
   }
   assert.match(workspace, /openDocument && <ConciliarDocumentPreview /);
