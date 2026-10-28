@@ -24,7 +24,9 @@ import {
   type EasyCollectionSelection,
   type EasyCollectionState,
 } from '@/lib/finanzas/easy-collections-core'
-import { signEasyCollectionsPreview, verifyEasyCollectionsPreview } from '@/lib/finanzas/easy-collections-preview'
+import { signEasyCollectionsPreview, verifiedEasyCollectionsRemittanceSeal, verifyEasyCollectionsPreview } from '@/lib/finanzas/easy-collections-preview'
+import { confirmarReciboRemesaCompuestaTx, remittanceSealForProposal, RemittancePaymentReceiptError } from '@/lib/finanzas/remittance-payment-receipts-db'
+import { parseReceiptComposition } from '@/lib/finanzas/remittance-payment-receipts-core'
 
 type Db = PrismaClient & Record<string, any>
 type Tx = Prisma.TransactionClient & Record<string, any>
@@ -80,6 +82,7 @@ function method(value: unknown): EasyCollectionMethod {
 }
 function sinDocumento(value: unknown): boolean { return value === 'SIN_DOCUMENTO' }
 function safeJsonDetail(value: unknown): Raw { return value && typeof value === 'object' && !Array.isArray(value) ? value as Raw : {} }
+function isRemittanceMethod(value: unknown): boolean { return value === 'REMESA_VENCIMIENTO' || value === 'REMESA_UNION' || value === 'REMESA_RESIDUO' }
 
 /** Una proyección con todo el contexto de banco y B4 necesario para revalidar. */
 type ProposalRow = Raw & {
@@ -155,6 +158,7 @@ async function currentGenerationTx(tx: QueryDb, lock = false): Promise<{ id: str
 
 function proposalPopulationSql(generationId: string, proposalIds?: readonly string[], lock = false): Prisma.Sql {
   const idClause = proposalIds ? Prisma.sql`AND p.id IN (${Prisma.join(proposalIds.map(id => Prisma.sql`CAST(${id} AS uuid)`) )})` : Prisma.empty
+  const boundedLimit = proposalIds ? proposalIds.length : MAX_PREVIEW_POPULATION + 1
   return Prisma.sql`
     SELECT p.id::text AS "propuestaId",p.generacion_id::text AS "generacionId",p.movimiento_id AS "movimientoId",p.movimiento_par_id AS "movimientoParId",
       p.importe_movimiento_centimos AS "importePropuesto",p.metodo,p.nivel,p.estado_propuesto AS "estadoPropuesto",p.motivo_no_requiere AS "motivoNoRequiere",p.lineas,p.explicacion,p.fingerprint,
@@ -171,6 +175,7 @@ function proposalPopulationSql(generationId: string, proposalIds?: readonly stri
     LEFT JOIN estado_justificacion_movimientos pe ON pe.movimiento_id=pm.id
     WHERE p.generacion_id=CAST(${generationId} AS uuid) ${idClause}
     ORDER BY p.movimiento_id ASC
+    LIMIT ${boundedLimit}
     ${lock ? Prisma.sql`FOR UPDATE OF p` : Prisma.empty}
   `
 }
@@ -197,6 +202,13 @@ async function compositionsTx(tx: QueryDb, ids: readonly string[]): Promise<Map<
   `)
   return new Map(rows.map(row => [row.propuestaId, json(row.composicion)]))
 }
+function remittanceSeal(item: CheckedProposal, composition: unknown) {
+  return remittanceSealForProposal({
+    propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint,
+    metodo: item.metodo, importeMovimientoCentimos: item.importeMovimientoCentimos,
+    lineas: item.lineas, composicion: composition,
+  })
+}
 function compositionView(raw: unknown) {
   const input = Array.isArray(raw) ? raw : []
   const complete = input.map(value => {
@@ -209,10 +221,65 @@ function compositionView(raw: unknown) {
   })
   return { composicion: complete.slice(0, 60), composicionTotal: complete.length, composicionImporteCentimos: complete.reduce((sum, row) => sum + row.importeCentimos, 0) }
 }
+type RemittanceDetailInvoice = Readonly<{ numeroFactura: string | null; cliente: string | null; fechaFactura: string | null }>
+export type EasyCollectionsRemittanceDetailPreview = Readonly<{
+  remesaDetalle: Readonly<{
+    remesaId: number
+    totalFacturas: number
+    importeBancoCentimos: number
+    compositionHash: string
+    filas: readonly Readonly<{
+      ordinal: number
+      facturaEmitidaId: string
+      numeroFactura: string | null
+      cliente: string | null
+      fechaFactura: string | null
+      importeCentimos: number
+    }>[]
+  }>
+}>
+function remittanceDetailPreview(item: CheckedProposal, composition: unknown, invoices: ReadonlyMap<string, RemittanceDetailInvoice>): EasyCollectionsRemittanceDetailPreview | null {
+  const seal = remittanceSeal(item, composition)
+  if (!seal) return null
+  const parsed = parseReceiptComposition(composition)
+  // The receipt parser enforces both the 2,000-row ceiling and positive, exact
+  // allocations. This is source-derived display data, never browser input.
+  const rows = parsed.entries.map(entry => {
+    const invoice = invoices.get(entry.facturaEmitidaId)
+    return {
+      ordinal: entry.ordinal,
+      facturaEmitidaId: entry.facturaEmitidaId,
+      numeroFactura: invoice?.numeroFactura ?? null,
+      cliente: invoice?.cliente ?? null,
+      fechaFactura: invoice?.fechaFactura ?? null,
+      importeCentimos: entry.importeCentimos,
+    }
+  })
+  return { remesaDetalle: {
+    remesaId: seal.remesaId,
+    totalFacturas: rows.length,
+    importeBancoCentimos: item.importeMovimientoCentimos,
+    compositionHash: seal.compositionHash,
+    filas: rows,
+  } }
+}
+async function remittanceDetailInvoicesTx(tx: QueryDb, ids: readonly string[]): Promise<Map<string, RemittanceDetailInvoice>> {
+  if (!ids.length || ids.length > 2_000) fail(422, 'REMESA_COMPOSICION_COMPLETA_INEXACTA', 'La composición de remesa supera el límite verificable.')
+  const rows = await tx.$queryRaw<Array<{ id: string; numeroFactura: string | null; cliente: string | null; fechaFactura: string | Date | null }>>(Prisma.sql`
+    SELECT fi.id,fi.num_factura AS "numeroFactura",fi.cliente,fi.fecha::date::text AS "fechaFactura"
+    FROM facturas_emitidas fi
+    WHERE fi.id IN (${Prisma.join(ids.map(id => Prisma.sql`${id}`))})
+    ORDER BY fi.id ASC LIMIT ${ids.length + 1}
+  `)
+  if (rows.length !== ids.length) fail(422, 'MAPA_FI_ISP_REMESA_INEXACTO', 'Falta una factura emitida de la composición de remesa.')
+  return new Map(rows.map(row => [row.id.toLowerCase(), {
+    numeroFactura: optionalText(row.numeroFactura, 240), cliente: optionalText(row.cliente, 240), fechaFactura: iso(row.fechaFactura),
+  }]))
+}
 function lineView(item: CheckedProposal) {
   return item.lineas.map(line => line.tipo === 'DOCUMENTO'
     ? { tipo: 'DOCUMENTO', referencia: line.tipoDocumento === 'REMESA' ? `Remesa ${line.sourceId}` : `Factura emitida ${line.sourceId}`, importeCentimos: line.importeCentimos }
-    : { tipo: 'DIFERENCIA', referencia: line.motivoDiferencia === 'COMISION' ? 'Diferencia por comisión' : line.motivoDiferencia === 'INTERESES' ? 'Diferencia por intereses' : 'Diferencia por redondeo', importeCentimos: line.importeCentimos })
+    : { tipo: 'DIFERENCIA', referencia: line.motivoDiferencia === 'COMISION' ? 'Diferencia por comisión' : line.motivoDiferencia === 'INTERESES' ? 'Diferencia por intereses' : line.motivoDiferencia === 'IVA_COMISION' ? 'IVA de la comisión' : 'Diferencia por redondeo', importeCentimos: line.importeCentimos })
 }
 function sortPreview(items: readonly CheckedProposal[]): CheckedProposal[] {
   return [...items].sort((left, right) => Math.abs(right.importeMovimientoCentimos) - Math.abs(left.importeMovimientoCentimos) || left.movimientoId.localeCompare(right.movimientoId))
@@ -272,18 +339,36 @@ export async function readEasyCollectionsPreviewTx(base: Prisma.TransactionClien
       const ordered = sortPreview(scope)
       const page = ordered.slice(input.offset, input.offset + input.limit)
       const compositions = await compositionsTx(base, page.map(item => item.propuestaId))
+      const remittanceInvoiceIds = [...new Set(page.filter(item => isRemittanceMethod(item.metodo)).flatMap(item => {
+        try { return parseReceiptComposition(compositions.get(item.propuestaId)).entries.map(entry => entry.facturaEmitidaId) } catch { return [] }
+      }))]
+      const remittanceInvoices = new Map<string, RemittanceDetailInvoice>()
+      for (let start = 0; start < remittanceInvoiceIds.length; start += 2_000) {
+        const batch = await remittanceDetailInvoicesTx(base, remittanceInvoiceIds.slice(start, start + 2_000))
+        for (const [id, invoice] of batch) remittanceInvoices.set(id, invoice)
+      }
       const items = page.map(item => {
         const choice = easyCollectionSelection(selectionFacts(item))
+        let preview: EasyCollectionsRemittanceDetailPreview | null = null
+        if (isRemittanceMethod(item.metodo)) {
+          try { preview = remittanceDetailPreview(item, compositions.get(item.propuestaId), remittanceInvoices) } catch { /* incomplete sources remain unconfirmable */ }
+        }
         return {
           propuestaId: item.propuestaId, movimientoId: item.movimientoId, fecha: item.fecha, banco: item.banco, cuentaAlias: item.cuentaAlias, concepto: item.concepto,
           importeMovimientoCentimos: item.importeMovimientoCentimos, metodo: item.metodo, etiquetaMetodo: methodLabel(item.metodo), nivel: item.nivel,
           explicacion: item.explicacion, lineas: lineView(item), ...compositionView(compositions.get(item.propuestaId)),
           par: item.par ? { movimientoId: item.par.movimientoId, fecha: item.par.fecha, cuentaAlias: item.par.cuentaAlias, concepto: item.par.concepto, importeCentimos: item.par.importeCentimos } : null,
-          fingerprint: item.fingerprint, seleccionable: choice.seleccionable, motivoNoSeleccionable: choice.motivoNoSeleccionable,
+          fingerprint: item.fingerprint, seleccionable: choice.seleccionable && (!isRemittanceMethod(item.metodo) || preview !== null),
+          motivoNoSeleccionable: isRemittanceMethod(item.metodo) && preview === null ? 'La remesa no conserva una composición completa revisable.' : choice.motivoNoSeleccionable,
+          ...(preview ? { preview } : {}),
         }
       })
       const selected = page.map(item => ({ propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint }))
-      return { generacion: generation, totales: totals(valid), items, limit: input.limit, offset: input.offset, previewToken: selected.length ? signEasyCollectionsPreview(actorId, selected) : null, bloquesRecientes: await recentBlocksTx(base, actorId) }
+      const seals = page.flatMap(item => {
+        const seal = isRemittanceMethod(item.metodo) ? remittanceSeal(item, compositions.get(item.propuestaId)) : null
+        return seal ? [seal] : []
+      })
+      return { generacion: generation, totales: totals(valid), items, limit: input.limit, offset: input.offset, previewToken: selected.length ? signEasyCollectionsPreview(actorId, selected, Date.now(), seals) : null, bloquesRecientes: await recentBlocksTx(base, actorId) }
 }
 /** Sólo lectura: nunca crea envoltorios B4 ni estados. */
 export async function readEasyCollectionsPreview(input: EasyCollectionPreviewInput, actorId: number) {
@@ -293,6 +378,39 @@ export async function readEasyCollectionsPreview(input: EasyCollectionPreviewInp
       await base.$executeRaw`SET TRANSACTION READ ONLY`
       return readEasyCollectionsPreviewTx(base, input, actorId)
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 45_000 })
+  } catch (error) { throwKnown(error) }
+}
+
+/**
+ * Expanded source view used only by the individual remittance confirmation
+ * dialogue. Generic previews remain compact. The returned receipt composition
+ * is re-parsed from append-only storage and never accepts a client-side subset.
+ */
+export async function readEasyCollectionsRemittanceDetail(
+  selection: EasyCollectionSelection,
+  actorId: number,
+): Promise<EasyCollectionsRemittanceDetailPreview> {
+  await assertFinanceEasyRuntime()
+  try {
+    return await db().$transaction(async base => {
+      await base.$executeRaw`SET TRANSACTION READ ONLY`
+      const generation = await currentGenerationTx(base)
+      if (!generation) fail(409, 'SELECCION_CAMBIADA', 'No hay una generación actual de propuestas; actualiza la lista.')
+      const selected = await proposalsTx(base, generation.id, [selection.propuestaId])
+      const item = selected[0]
+      if (!item || item.movimientoId !== selection.movimientoId || item.fingerprint !== selection.fingerprint) {
+        fail(409, 'SELECCION_CAMBIADA', 'La propuesta cambió; actualiza la lista.')
+      }
+      const source = (await base.$queryRaw<ProposalRow[]>(proposalPopulationSql(generation.id, [selection.propuestaId])))[0]
+      if (!source || !sinDocumento(source.estadoB4) || !isRemittanceMethod(item.metodo)) {
+        fail(409, 'SELECCION_CAMBIADA', 'La propuesta de remesa ya no está disponible para revisión.')
+      }
+      const composition = (await compositionsTx(base, [item.propuestaId])).get(item.propuestaId)
+      const invoiceIds = [...new Set(parseReceiptComposition(composition).entries.map(entry => entry.facturaEmitidaId))]
+      const detail = remittanceDetailPreview(item, composition, await remittanceDetailInvoicesTx(base, invoiceIds))
+      if (!detail) fail(422, 'REMESA_REQUIERE_RECIBO_VERSIONADO', 'La remesa no conserva una composición exacta revisable.')
+      return detail
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 30_000 })
   } catch (error) { throwKnown(error) }
 }
 
@@ -366,7 +484,10 @@ export async function readEasyCollectionsForMovements(movementIds: readonly stri
         const documentos = item.lineas.reduce((sum, line) => sum + (line.tipo === 'DOCUMENTO' ? line.importeCentimos : 0), 0)
         const dto: Omit<EasyMovementCollectionProposal, 'rol'> = {
           propuestaId: item.propuestaId, movimientoId: item.movimientoId, fingerprint: item.fingerprint,
-          previewToken: choice.seleccionable ? signEasyCollectionsPreview(actorId, [selection]) : null,
+          previewToken: choice.seleccionable ? signEasyCollectionsPreview(actorId, [selection], Date.now(), isRemittanceMethod(item.metodo) ? (() => {
+            const seal = remittanceSeal(item, compositions.get(item.propuestaId))
+            return seal ? [seal] : []
+          })() : []) : null,
           metodo: item.metodo, etiquetaMetodo: methodLabel(item.metodo), nivel: item.nivel, explicacion: item.explicacion,
           importeMovimientoCentimos: item.importeMovimientoCentimos, lineas: lineView(item),
           composicion: view.composicion.map(row => {
@@ -477,6 +598,7 @@ function b4Lines(item: CheckedProposal, wrappers: Map<number, string>) {
     : { tipo: 'DIFERENCIA' as const, motivoDiferencia: line.motivoDiferencia, importeCentimos: line.importeCentimos })
 }
 async function applyItemTx(tx: Tx, actorId: number, item: CheckedProposal, idempotencyKey: string) {
+  if (isRemittanceMethod(item.metodo)) fail(422, 'REMESA_REQUIERE_RECIBO_VERSIONADO', 'Una remesa requiere un recibo versionado con composición sellada.')
   const wrappers = new Map<number, string>()
   for (let index = 0; index < item.lineas.length; index += 1) {
     const line = item.lineas[index]
@@ -508,10 +630,24 @@ async function confirmTx(base: Prisma.TransactionClient, actorId: number, comman
   const first = await initialSelectedTx(tx, generation.id, command.items)
   await lockMovements(tx, first.flatMap(item => item.par ? [item.movimientoId, item.par.movimientoId] : [item.movimientoId]))
   const selected = await selectedUnderLockTx(tx, generation.id, command.items)
+  const remittanceItems = selected.filter(item => isRemittanceMethod(item.metodo))
+  if (remittanceItems.length > 0 && (selected.length !== 1 || remittanceItems.length !== 1)) {
+    fail(422, 'REMESA_REQUIERE_CONFIRMACION_INDIVIDUAL', 'Una remesa sólo se puede confirmar individualmente con su composición completa.')
+  }
   const bloqueId = randomUUID()
   const ordered = [...selected].sort((left, right) => left.movimientoId.localeCompare(right.movimientoId))
   const pairs: Array<{ item: CheckedProposal; operationId: string }> = []
   for (const item of ordered) {
+    if (isRemittanceMethod(item.metodo)) {
+      const selection = command.items.find(choice => choice.propuestaId === item.propuestaId)
+      if (!selection) fail(409, 'SELECCION_CAMBIADA', 'La selección de remesa cambió; actualiza la lista.')
+      const seal = verifiedEasyCollectionsRemittanceSeal(command.previewToken, actorId, selection)
+      if (!seal) fail(409, 'PREVISUALIZACION_CADUCADA', 'La composición completa de la remesa no está sellada; actualiza la lista.')
+      await confirmarReciboRemesaCompuestaTx(tx, actorId, {
+        selection, idempotencyKey: command.idempotencyKey, seal, blockId: bloqueId, keyHash: bulkKeyHash, requestHash,
+      })
+      continue
+    }
     const main = await applyItemTx(tx, actorId, item, `MFC:${command.idempotencyKey}:${easyCollectionsDigest(item.movimientoId).slice(0, 24)}`)
     await eventApprovalTx(tx, actorId, main.operacion.id, item.movimientoId, auditDetail({ keyHash: bulkKeyHash, requestHash, bloqueId, item, rol: 'PRINCIPAL' }))
     if (transferValid(item) && item.par) pairs.push({ item, operationId: main.operacion.id })
@@ -571,11 +707,16 @@ async function undoTx(base: Prisma.TransactionClient, actorId: number, command: 
   return { ok: true as const, bloqueId: command.bloqueId, revertidas: proposalIds.size, idempotente: false as const }
 }
 
-/** Variante para pruebas con transacción propiedad del llamador. */
-export async function runEasyCollectionsActionTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
+export function throwEmbeddedEasyCollectionsError(error: unknown, preserveSerializableP2034: boolean): never {
+  if (preserveSerializableP2034 && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') throw error
+  return throwKnown(error)
+}
+
+/** Variante con transacción propiedad del llamador. El opt-in interno nunca acepta errores de negocio como retry. */
+export async function runEasyCollectionsActionTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown, options?: Readonly<{ preserveSerializableP2034: boolean }>) {
   const command = parseEasyCollectionsCommand(raw)
-  await assertFinanceEasyRuntime()
-  try { return command.action === 'confirmar_bloque' ? await confirmTx(tx, actorId, command) : await undoTx(tx, actorId, command) } catch (error) { throwKnown(error) }
+  await assertFinanceEasyRuntime(tx)
+  try { return command.action === 'confirmar_bloque' ? await confirmTx(tx, actorId, command) : await undoTx(tx, actorId, command) } catch (error) { throwEmbeddedEasyCollectionsError(error, options?.preserveSerializableP2034 === true) }
 }
 export async function runEasyCollectionsAction(actorId: number, raw: unknown) {
   const command = parseEasyCollectionsCommand(raw)
@@ -587,13 +728,13 @@ export async function runEasyCollectionsAction(actorId: number, raw: unknown) {
   } catch (error) { throwKnown(error) }
 }
 function throwKnown(error: unknown): never {
-  if (error instanceof EasyCollectionsServiceError || error instanceof EasyCollectionsValidationError || error instanceof FinanceEasyRuntimeError || error instanceof B4ServiceError) throw error
+  if (error instanceof EasyCollectionsServiceError || error instanceof EasyCollectionsValidationError || error instanceof FinanceEasyRuntimeError || error instanceof B4ServiceError || error instanceof RemittancePaymentReceiptError) throw error
   const code = String((error as { code?: unknown } | null)?.code ?? '')
   if (['P2002', 'P2034', '40001', '40P01', '55P03'].includes(code)) fail(409, 'SELECCION_CAMBIADA', 'La selección cambió mientras se revisaba; actualiza la lista. No se ha confirmado nada.')
   throw error
 }
 export function easyCollectionsErrorResponse(error: unknown): { status: number; body: Record<string, unknown> } {
   if (error instanceof FinanceEasyRuntimeError) return { status: error.status, body: { error: error.message, codigo: error.code } }
-  if (error instanceof EasyCollectionsServiceError || error instanceof EasyCollectionsValidationError || error instanceof B4ServiceError) return { status: error.status, body: { error: error.message, codigo: error.code } }
+  if (error instanceof EasyCollectionsServiceError || error instanceof EasyCollectionsValidationError || error instanceof B4ServiceError || error instanceof RemittancePaymentReceiptError) return { status: error.status, body: { error: error.message, codigo: error.code } }
   return { status: 500, body: { error: 'No se pudo completar el bloque. Actualiza la lista antes de volver a intentarlo.', codigo: 'PROPUESTAS_COBRO_ERROR' } }
 }

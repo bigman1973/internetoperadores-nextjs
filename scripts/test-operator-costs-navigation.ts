@@ -11,6 +11,7 @@ function execute(code: string) {
   vm.runInNewContext(code, { module, exports: module.exports, Map, Set, Date, require(name: string) {
     if (name === 'react') return React;
     if (name === './RoleContext') return { useRole: () => ({ hasAccess: () => true }) };
+    if (name === './AdminSidebarContext') return { useSidebar: () => ({ isOpen: false, setIsOpen: () => {} }) };
     if (name === 'next/navigation') return { usePathname: () => '/admin/finanzas/analitica-costes/costes-operadora' };
     return require(name);
   } });

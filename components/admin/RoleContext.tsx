@@ -1,6 +1,15 @@
 'use client'
 
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import {
+  decideAdminPermissionSeedLoad,
+  type AdminPermissionSsrSeed,
+} from '@/lib/admin-permissions-ssr-contract'
+import {
+  hasAccess as evaluateSidebarAccess,
+  type AdminSidebarPermission,
+  type AdminSidebarPreviewUser,
+} from './sidebar-access-evaluator'
 
 // Roles disponibles en el sistema
 export const ROLES_DISPONIBLES = [
@@ -15,94 +24,15 @@ export const ROLES_DISPONIBLES = [
 
 export type RolId = typeof ROLES_DISPONIBLES[number]['id']
 
-// Permisos por sección según rol (SOLO se usan si el usuario NO tiene permisos granulares)
-export const PERMISOS_POR_ROL: Record<RolId, string[]> = {
-  SUPER_ADMIN: ['*'],
-  GERENTE: [
-    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'comunicados',
-    'altas-pendientes', 'contratos', 'facturacion', 'finanzas',
-    'estadisticas', 'usuarios', 'subida-precios', 'personal',
-    'proyectos', 'historial', 'configuracion', 'certificaciones', 'certificaciones.iso_27001', 'certificaciones.tisax', 'certificaciones.cuestionarios',
-    'asistente', 'asistente.chat', 'asistente.conocimiento', 'asistente.conversaciones', 'asistente.leads', 'asistente.aprendizaje', 'asistente.analitica', 'asistente.propuestas', 'asistente.configuracion'
-  ],
-  MARKETING: [
-    'dashboard', 'crm', 'leads', 'comunicados', 'estadisticas'
-  ],
-  VENTAS: [
-    'dashboard', 'crm', 'tarifas', 'clientes', 'leads', 'altas-pendientes', 'contratos'
-  ],
-  CONTABILIDAD: [
-    'dashboard', 'facturacion', 'finanzas', 'subida-precios', 'estadisticas'
-  ],
-  RRHH: [
-    'dashboard', 'personal'
-  ],
-  VISOR: [] as string[],
-}
-
-// Secciones que requieren acceso exclusivo SUPER_ADMIN
-export const SECCIONES_SUPER_ADMIN_ONLY = ['finanzas-tickets']
-
-// Mapeo de secciones del sidebar a códigos de área granular
-const SECTION_TO_AREA: Record<string, string> = {
-  'dashboard': 'admin',
-  'crm': 'admin.crm',
-  'crm.contactos': 'admin.crm.contactos',
-  'crm.listas': 'admin.crm.listas',
-  'crm.particulares': 'admin.crm.particulares',
-  'crm.empresas': 'admin.crm.empresas',
-  'crm.partners': 'admin.crm.partners',
-  'tarifas': 'admin.tarifas',
-  'clientes': 'admin.clientes',
-  'clientes.todos': 'admin.clientes.todos',
-  'clientes.migracion_adamo': 'admin.clientes.migracion_adamo',
-  'clientes.ggcc.draxton': 'admin.clientes.ggcc.draxton',
-  'leads': 'admin.leads',
-  'comunicados': 'admin.comunicados',
-  'altas-pendientes': 'admin.altas_pendientes',
-  'contratos': 'admin.contratos',
-  'facturacion': 'admin.facturacion',
-  'finanzas': 'admin.finanzas',
-  'finanzas.analitica_costes': 'admin.finanzas.analitica_costes',
-  'finanzas-tickets': 'admin.finanzas.tickets',
-  'estadisticas': 'admin.estadisticas',
-  'usuarios': 'admin.usuarios',
-  'subida-precios': 'admin.subida_precios',
-  'personal': 'admin.empleados',
-  'proyectos': 'admin.proyectos',
-  'certificaciones': 'admin.certificaciones',
-  'certificaciones.iso_27001': 'admin.certificaciones.iso_27001',
-  'certificaciones.tisax': 'admin.certificaciones.tisax',
-  'certificaciones.cuestionarios': 'admin.certificaciones.cuestionarios',
-  'historial': 'admin.historial',
-  'configuracion': 'admin.configuracion',
-  'portal-empleado': 'admin',
-  'asistente': 'admin.asistente',
-  'asistente.chat': 'admin.asistente.chat',
-  'asistente.conocimiento': 'admin.asistente.conocimiento',
-  'asistente.conversaciones': 'admin.asistente.conversaciones',
-  'asistente.leads': 'admin.asistente.leads',
-  'asistente.aprendizaje': 'admin.asistente.aprendizaje',
-  'asistente.analitica': 'admin.asistente.analitica',
-  'asistente.propuestas': 'admin.asistente.propuestas',
-  'asistente.configuracion': 'admin.asistente.configuracion',
-}
+// Se mantienen estas exportaciones de política para los consumidores existentes.
+export { PERMISOS_POR_ROL, SECCIONES_SUPER_ADMIN_ONLY } from './sidebar-access-evaluator'
 
 // Interfaz de permisos granulares
-interface PermisoGranular {
-  areaId: string
-  codigo: string
-  lectura: boolean
-  escritura: boolean
+interface PermisoGranular extends AdminSidebarPermission {
+  areaId?: string
 }
 
-interface UsuarioSimulado {
-  id: number
-  nombre: string
-  email: string
-  rol: string
-  roles: string[]
-}
+interface UsuarioSimulado extends AdminSidebarPreviewUser {}
 
 interface RoleContextType {
   activeRole: RolId | null
@@ -142,51 +72,84 @@ const RoleContext = createContext<RoleContextType>({
   permisosLoaded: false,
 })
 
-export function RoleProvider({ 
-  children, 
-  userRole, 
+export function RoleProvider({
+  children,
+  userRole,
   userRoles,
   userId,
-}: { 
+  initialPermissions,
+  initialPermissionsLoaded,
+  skipPermissionLoad,
+}: {
   children: React.ReactNode
   userRole: string
   userRoles: string[]
   userId?: number
+  /** Foto serializada sólo para el actor efectivo de la respuesta SSR actual. */
+  initialPermissions?: readonly AdminPermissionSsrSeed[]
+  initialPermissionsLoaded?: boolean
+  /** MODO_FACIL_ONLY no monta ProtectedRoute y no debe competir con un GET inútil. */
+  skipPermissionLoad?: boolean
 }) {
-  const [viewAsRole, setViewAsRole] = useState<RolId | null>(null)
+  const [viewAsRole, setViewAsRoleState] = useState<RolId | null>(null)
   const [viewingUser, setViewingUser] = useState<UsuarioSimulado | null>(null)
-  const [permisosGranulares, setPermisosGranulares] = useState<PermisoGranular[]>([])
-  const [permisosLoaded, setPermisosLoaded] = useState(false)
-  
+  const [permisosGranulares, setPermisosGranulares] = useState<PermisoGranular[]>(() =>
+    (initialPermissions || []).map(permission => ({ ...permission })),
+  )
+  const [permisosLoaded, setPermisosLoaded] = useState(initialPermissionsLoaded === true)
+  // Una previsualización es local y no cambia la sesión. Tras usarla no se puede
+  // restaurar una ACL serializada al hidratar: incluso al volver al actor inicial
+  // se consulta de nuevo la API, que vuelve a validar la sesión.
+  const [initialSeedInvalidated, setInitialSeedInvalidated] = useState(false)
+
   const isSuperAdmin = userRole === 'SUPER_ADMIN'
   const isViewingAsUser = isSuperAdmin && viewingUser !== null
   const isViewingAs = isSuperAdmin && (viewAsRole !== null || viewingUser !== null)
-  
-  const effectiveRole: RolId = isViewingAsUser 
-    ? (viewingUser!.rol as RolId) 
+
+  const effectiveRole: RolId = isViewingAsUser
+    ? (viewingUser!.rol as RolId)
     : (viewAsRole ? viewAsRole : (userRole as RolId))
 
   const effectiveUserId = isViewingAsUser ? viewingUser!.id : (userId || null)
+  const isPrivilegedRealRole = !isViewingAs && (userRole === 'SUPER_ADMIN' || userRole === 'GERENTE')
 
   // ¿Tiene permisos granulares asignados? (con al menos 1 lectura=true)
   const tienePermisosGranulares = permisosGranulares.some(p => p.lectura || p.escritura)
 
-  // Cargar permisos granulares del usuario efectivo
+  // Cargar permisos granulares del usuario efectivo. La foto SSR sólo evita el
+  // GET inicial del mismo actor, no concede permisos a una API ni sobrevive a
+  // una previsualización local.
   useEffect(() => {
-    const uid = isViewingAsUser ? viewingUser!.id : userId
-    if (!uid) return
+    const mode = decideAdminPermissionSeedLoad({
+      // userId ya existía en el contrato del provider; identifica al actor
+      // inicial de esta respuesta sin exponer un identificador adicional.
+      actorId: userId,
+      effectiveUserId,
+      initialPermissionsLoaded,
+      skipPermissionLoad,
+      isPrivilegedRealRole,
+      isViewingAs,
+      initialSeedInvalidated,
+    })
 
-    // SUPER_ADMIN sin simulación no necesita cargar permisos
-    if (isSuperAdmin && !isViewingAs) {
-      setPermisosGranulares([])
+    if (mode === 'idle') return
+
+    if (mode === 'seed' || mode === 'skip' || mode === 'privileged') {
+      setPermisosGranulares(mode === 'seed' ? (initialPermissions || []).map(permission => ({ ...permission })) : [])
       setPermisosLoaded(true)
       return
     }
 
+    const uid = effectiveUserId
+    if (!uid) return
+    const controller = new AbortController()
+    let current = true
+    setPermisosGranulares([])
     setPermisosLoaded(false)
-    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`)
+    fetch(`/api/admin/permisos?action=usuario&usuarioId=${uid}`, { signal: controller.signal })
       .then(res => res.json())
       .then(data => {
+        if (!current) return
         if (data.permisos) {
           setPermisosGranulares(data.permisos.map((p: any) => ({
             areaId: p.areaId,
@@ -198,76 +161,41 @@ export function RoleProvider({
         setPermisosLoaded(true)
       })
       .catch(err => {
+        if (!current || controller.signal.aborted) return
         console.error('Error cargando permisos granulares:', err)
         setPermisosLoaded(true)
       })
-  }, [userId, viewingUser, isViewingAs, isViewingAsUser, isSuperAdmin])
+    return () => {
+      current = false
+      controller.abort()
+    }
+  }, [effectiveUserId, initialPermissions, initialPermissionsLoaded, initialSeedInvalidated, isPrivilegedRealRole, isViewingAs, skipPermissionLoad, userId])
+
+  const setViewAsRole = useCallback((role: RolId | null) => {
+    if (role !== null) setInitialSeedInvalidated(true)
+    setViewAsRoleState(role)
+  }, [])
 
   const setViewAsUser = useCallback((user: UsuarioSimulado | null) => {
+    if (user) setInitialSeedInvalidated(true)
     setViewingUser(user)
     if (user) {
-      setViewAsRole(null)
+      setViewAsRoleState(null)
     }
   }, [])
 
-  /**
-   * Verificar acceso a una sección del sidebar.
-   * REGLA PRINCIPAL: Si el usuario tiene permisos granulares asignados,
-   * SOLO se usan esos. Si no tiene ninguno, se usa el sistema de roles legacy.
-   */
-  const hasAccess = useCallback((section: string) => {
-    // SUPER_ADMIN real sin simulación: acceso total
-    if (isSuperAdmin && !isViewingAs) return true
-    
-    // Portal empleado siempre accesible
-    if (section === 'portal-empleado') return true
-
-    if (section === 'finanzas.analitica_costes' && !tienePermisosGranulares) section = 'finanzas'
-
-    // Si está simulando un usuario específico
-    if (isViewingAsUser && viewingUser) {
-      // Usar SOLO permisos granulares para el usuario simulado
-      if (tienePermisosGranulares) {
-        return checkGranularAccess(section, permisosGranulares)
-      }
-      // Si no tiene granulares, usar su rol
-      const userRolesEff = viewingUser.roles?.length > 0 ? viewingUser.roles : [viewingUser.rol]
-      return userRolesEff.some(rol => {
-        const permisos = PERMISOS_POR_ROL[rol as RolId]
-        if (!permisos) return false
-        if (permisos.includes('*')) return true
-        return permisos.includes(section)
-      })
-    }
-
-    // Si está simulando un rol (no un usuario)
-    if (isViewingAs && viewAsRole) {
-      if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-      const permisos = PERMISOS_POR_ROL[effectiveRole]
-      if (!permisos) return false
-      if (permisos.includes('*')) return true
-      return permisos.includes(section)
-    }
-
-    // Usuario real (no simulación)
-    // Si tiene permisos granulares, SOLO usar esos
-    if (tienePermisosGranulares) {
-      return checkGranularAccess(section, permisosGranulares)
-    }
-
-    // Sin permisos granulares → sistema legacy de roles
-    if (userRoles.length === 0) return false
-    
-    if (effectiveRole === 'GERENTE') return !SECCIONES_SUPER_ADMIN_ONLY.includes(section)
-    if (SECCIONES_SUPER_ADMIN_ONLY.includes(section)) return false
-    
-    return userRoles.some(rol => {
-      const permisos = PERMISOS_POR_ROL[rol as RolId]
-      if (!permisos) return false
-      if (permisos.includes('*')) return true
-      return permisos.includes(section)
-    })
-  }, [effectiveRole, isSuperAdmin, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
+  const hasAccess = useCallback((section: string) => evaluateSidebarAccess({
+    section,
+    effectiveRole,
+    isSuperAdmin,
+    isViewingAs,
+    isViewingAsUser,
+    viewAsRole,
+    userRoles,
+    viewingUser,
+    permisosGranulares,
+    tienePermisosGranulares,
+  }), [effectiveRole, isSuperAdmin, isViewingAs, isViewingAsUser, viewAsRole, userRoles, viewingUser, permisosGranulares, tienePermisosGranulares])
 
   // Verificación granular por código de área
   const hasAreaAccess = useCallback((codigoArea: string, tipo: 'lectura' | 'escritura' = 'lectura') => {
@@ -320,26 +248,6 @@ export function RoleProvider({
       {children}
     </RoleContext.Provider>
   )
-}
-
-/**
- * Verifica si un usuario con permisos granulares tiene acceso a una sección del sidebar.
- * La sección se mapea a un código de área, y se verifica si alguno de los permisos
- * del usuario cubre esa área (directamente o por herencia hacia abajo).
- */
-function checkGranularAccess(section: string, permisos: PermisoGranular[]): boolean {
-  const codigoArea = SECTION_TO_AREA[section] || `admin.${section.replace(/-/g, '_')}`
-  
-  return permisos.some(p => {
-    if (!p.lectura) return false
-    // El permiso cubre el área exacta
-    if (p.codigo === codigoArea) return true
-    // El permiso es un padre del área (herencia hacia abajo)
-    if (codigoArea.startsWith(p.codigo + '.')) return true
-    // El permiso es un hijo del área (si tiene acceso a un sub-apartado, debe ver el menú padre)
-    if (p.codigo.startsWith(codigoArea + '.')) return true
-    return false
-  })
 }
 
 export function useRole() {

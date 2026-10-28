@@ -312,7 +312,7 @@ async function candidatesForMovementTx(tx: Tx, movement: Movement): Promise<Cand
  * current candidate set plus the optional proposal cue; routes use the same
  * `candidatesForMovementTx` implementation through the read projection. */
 export async function inspectEasyCandidatesTx(tx: Prisma.TransactionClient, movimientoId: string) {
-  await assertPrototypeStaging()
+  await assertFinanceEasyRuntime(tx)
   const movement = await lockMovement(asTx(tx), movimientoId)
   return (await candidatesForMovementTx(asTx(tx), movement)).map((candidate) => ({
     reglaAplicadaId: candidate.reglaAplicadaId,
@@ -516,9 +516,9 @@ async function confirmEasyReconciliationParsedTx(tx: Tx, actorId: number, input:
   if (previous) return previous
   const movement = await lockMovement(tx, input.movimientoId)
   if (movement.version !== input.version) fail(409, 'VERSION_CONFLICT', 'La versión B4 cambió; relea el movimiento.')
-  // Revalidate the live role/permission immediately before economic DML. This
-  // intentionally remains outside the caller transaction and is read-only.
-  const live = await requireB4ActorAccess(actorId, 'escritura')
+  // Revalidate the live role/permission immediately before economic DML using
+  // the caller-owned transaction, which already owns this movement lock.
+  const live = await requireB4ActorAccess(actorId, 'escritura', tx)
   if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó ninguna decisión.')
   let result: any
   if (input.action === 'no_requiere') {
@@ -552,10 +552,11 @@ async function confirmEasyReconciliationParsedTx(tx: Tx, actorId: number, input:
  * actor checks remain mandatory; no external provider is called from this path. */
 export async function confirmEasyReconciliationTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseEasyWriteInput(raw)
-  await assertFinanceEasyRuntime()
-  const access = await requireB4ActorAccess(actorId, 'escritura')
+  const work = asTx(tx)
+  await assertFinanceEasyRuntime(work)
+  const access = await requireB4ActorAccess(actorId, 'escritura', work)
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
-  try { return await confirmEasyReconciliationParsedTx(asTx(tx), actorId, input) } catch (error: unknown) { privateError(error) }
+  try { return await confirmEasyReconciliationParsedTx(work, actorId, input) } catch (error: unknown) { privateError(error) }
 }
 
 /** Every confirmation regenerates its exact B4 source set inside one SERIALIZABLE transaction. */
@@ -608,9 +609,8 @@ async function operationForRule(tx: Tx, actorId: number, operationId: string) {
 }
 
 async function mutateEasyRuleParsedTx(tx: Tx, actorId: number, input: EasyRuleInput) {
-  // Like confirmation, a current permission lookup is intentionally performed
-  // immediately before DML and remains read-only/outside the caller transaction.
-  const live = await requireB4ActorAccess(actorId, 'escritura')
+  // Like confirmation, revalidate immediately before DML using this transaction.
+  const live = await requireB4ActorAccess(actorId, 'escritura', tx)
   if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó ninguna regla.')
   if (input.action === 'crear') {
     const source = await operationForRule(tx, actorId, input.operacionId)
@@ -651,9 +651,10 @@ async function mutateEasyRuleParsedTx(tx: Tx, actorId: number, input: EasyRuleIn
 export async function mutateEasyRuleTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseEasyRuleInput(raw)
   await assertPrototypeStaging()
-  const access = await requireB4ActorAccess(actorId, 'escritura')
+  const work = asTx(tx)
+  const access = await requireB4ActorAccess(actorId, 'escritura', work)
   if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
-  try { return await mutateEasyRuleParsedTx(asTx(tx), actorId, input) } catch (error: unknown) { privateError(error) }
+  try { return await mutateEasyRuleParsedTx(work, actorId, input) } catch (error: unknown) { privateError(error) }
 }
 
 export async function mutateEasyRule(actorId: number, raw: unknown) {

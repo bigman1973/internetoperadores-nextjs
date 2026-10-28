@@ -5,6 +5,7 @@ import { privateJson, requireB4FinanceAccess, sameOrigin } from '@/lib/finanzas/
 import { assertFinanceEasyRuntime } from '@/lib/finanzas/prototype-staging'
 import { easyCollectionsErrorResponse, readEasyCollectionsPreview, runEasyCollectionsAction } from '@/lib/finanzas/easy-collections-db'
 import { parseEasyCollectionsPreviewInput } from '@/lib/finanzas/easy-collections-core'
+import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -65,7 +66,9 @@ export async function POST(req: NextRequest) {
     if (!sameOrigin(req)) return privateJson({ error: 'El origen de la solicitud no es válido.' }, 403)
     const body = await boundedJson(req)
     if ('response' in body) return body.response
-    return privateJson(await runEasyCollectionsAction(access.actor.id, body.value))
+    const result = await runEasyCollectionsAction(access.actor.id, body.value)
+    scheduleConciliarProjectionRefresh(access.actor.id)
+    return privateJson(result)
   } catch (error) { return errorResponse(error) }
 }
 export async function PUT() { return privateJson({ error: 'Método no permitido.' }, 405) }

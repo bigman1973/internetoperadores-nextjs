@@ -69,6 +69,26 @@ export interface RemittanceMemberInput {
   invoiceId: string | null
   facturaISPSourceTotalText: string | null
   facturaEmitidaSourceTotalText: string | null
+  facturaISPFechaISO?: string | null
+}
+
+/** Immutable B7 V1 proof for one positive B4 REMESA abono and its exact FI subset. */
+export interface RemittancePaymentReceiptLineInput {
+  invoiceId: string | null
+  facturaISPId: number | null
+  cents: number | null
+  sourceHash: string | null
+  snapshotSchemaValid: boolean
+}
+export interface RemittancePaymentReceiptInput {
+  receiptId: string
+  sourceHash: string | null
+  proposalFingerprint: string | null
+  compositionHash: string | null
+  snapshotSchemaValid: boolean
+  bankDateISO: string | null
+  b4Line: B4DocumentLineInput
+  lines: RemittancePaymentReceiptLineInput[]
 }
 
 /** Una asignación B6 de devolución, que debe volver a demostrar prueba B4 vigente. */
@@ -105,6 +125,8 @@ export interface ExplicitRemittanceInput {
   members: RemittanceMemberInput[]
   bankDocumentLines: B4DocumentLineInput[]
   refunds: RemittanceRefundInput[]
+  /** Once a V1 receipt exists, legacy whole-remittance allocation is disabled. */
+  paymentReceipts?: RemittancePaymentReceiptInput[]
 }
 
 export interface BankCoverage {
@@ -164,7 +186,7 @@ export interface BankInvoicingResult {
   invoices: InvoiceSettlement[]
   summary: BankInvoicingSummary
   bankCoverage: BankCoverage
-  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA'
+  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1'
 }
 
 export interface BankInvoicingInput {
@@ -223,6 +245,7 @@ function mapBigToSafe(map: Map<string, bigint>, key: string): number | null {
 function isDateISO(value: string | null): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)
 }
+function hash64(value: string | null | undefined): value is string { return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value) }
 
 function normalCoverage(input?: Partial<BankCoverage>): BankCoverage {
   const activeAccountCount = Number.isSafeInteger(input?.activeAccountCount) && input!.activeAccountCount! >= 0 ? input!.activeAccountCount! : 0
@@ -422,7 +445,6 @@ export function calculateBankInvoicing(input: BankInvoicingInput): BankInvoicing
 
   for (const remittance of input.explicitRemittances ?? []) {
     const activeBankLines = remittance.bankDocumentLines.filter(line => line.active !== false)
-    if (activeBankLines.length === 0) continue // Sin abono actual: no se acredita cobro ni se invalida otro documento.
     const sourceGoal = exactSourceCents(remittance.sourceTotalText)
     const memberIds = new Set<string>()
     const touched = new Set<WorkItem>()
@@ -453,6 +475,97 @@ export function calculateBankInvoicing(input: BankInvoicingInput): BankInvoicing
     if (!remittance.members.length || memberIds.size !== remittance.members.length) membershipInvalid = true
     const memberTargetSum = sumSafe([...memberIds].map((id) => work.get(id)!.target!))
     if (memberTargetSum === null || sourceGoal === null || memberTargetSum !== sourceGoal) membershipInvalid = true
+
+    // Receipt V1 is the sole partial-payment allocation basis.  Its mere
+    // existence disables the historical whole-remittance/refund interpretation.
+    // Reversed receipts have no current B4 line and contribute nothing; an active
+    // B4 REMESA without one exact V1 receipt is explicitly amber, never zero.
+    const receipts = remittance.paymentReceipts ?? []
+    if (receipts.length > 0) {
+      if (activeBankLines.length === 0) continue
+      const currentByLineId = new Map<string, B4DocumentLineInput>()
+      let receiptInvalid = membershipInvalid
+      let capacityExceeded = false
+      const seenCurrentLineIds = new Set<string>()
+      for (const line of activeBankLines) {
+        if (currentByLineId.has(line.lineId)) receiptInvalid = true
+        currentByLineId.set(line.lineId, line)
+      }
+      const paidByInvoice = new Map<string, bigint>()
+      const receiptIds = new Set<string>()
+      const usedCurrentLines = new Set<string>()
+      let activeAbonoWithoutReceipt = false
+      for (const receipt of receipts) {
+        const b4 = receipt.b4Line
+        const current = currentByLineId.get(b4.lineId)
+        const currentProof = isCurrentB4Document(b4, 'REMESA') && b4.signedCents! > 0
+        // An invalidated B4 receipt is immutable history, not live evidence.
+        if (!currentProof) {
+          if (b4.active) receiptInvalid = true
+          continue
+        }
+        if (!current || !isCurrentB4Document(current, 'REMESA') || current.signedCents !== b4.signedCents
+          || current.movementId !== b4.movementId || current.physicalBankCents !== b4.physicalBankCents
+          || current.sumAllActiveCents !== b4.sumAllActiveCents || current.activeDocumentLineCount !== b4.activeDocumentLineCount
+          || usedCurrentLines.has(b4.lineId) || receiptIds.has(receipt.receiptId)
+          || !receipt.snapshotSchemaValid || !hash64(receipt.sourceHash) || !hash64(receipt.proposalFingerprint) || !hash64(receipt.compositionHash)
+          || !isDateISO(receipt.bankDateISO)) {
+          receiptInvalid = true
+          continue
+        }
+        receiptIds.add(receipt.receiptId)
+        usedCurrentLines.add(b4.lineId)
+        const seenInvoices = new Set<string>(), seenIsp = new Set<number>()
+        let receiptTotal = BigInt(0)
+        let lineInvalid = receipt.lines.length < 1
+        for (const line of receipt.lines) {
+          const member = line.facturaISPId === null ? undefined : memberByISP.get(line.facturaISPId)
+          const item = line.invoiceId ? work.get(line.invoiceId) : undefined
+          const currentLineValid = !!member && !!item && line.invoiceId === member.invoiceId
+            && item.invoice.facturaISPId === line.facturaISPId && isB4Cents(line.cents) && line.cents! > 0
+            && hash64(line.sourceHash) && line.snapshotSchemaValid && !seenInvoices.has(line.invoiceId!) && !seenIsp.has(line.facturaISPId!)
+            && isDateISO(item.invoice.fechaISO) && item.invoice.fechaISO <= receipt.bankDateISO!
+            && (!member.facturaISPFechaISO || (isDateISO(member.facturaISPFechaISO) && member.facturaISPFechaISO <= receipt.bankDateISO!))
+          if (!currentLineValid) { lineInvalid = true; continue }
+          seenInvoices.add(line.invoiceId!)
+          seenIsp.add(line.facturaISPId!)
+          receiptTotal += BigInt(line.cents!)
+          paidByInvoice.set(line.invoiceId!, (paidByInvoice.get(line.invoiceId!) ?? BigInt(0)) + BigInt(line.cents!))
+        }
+        if (lineInvalid || receiptTotal !== BigInt(b4.signedCents!)) receiptInvalid = true
+      }
+      for (const line of activeBankLines) {
+        if (!isCurrentB4Document(line, 'REMESA') || line.signedCents! <= 0) {
+          receiptInvalid = true
+          continue
+        }
+        if (!usedCurrentLines.has(line.lineId)) {
+          receiptInvalid = true
+          activeAbonoWithoutReceipt = true
+        }
+      }
+      for (const [invoiceId, paid] of paidByInvoice) {
+        const item = work.get(invoiceId)
+        if (!item || item.target === null || paid > BigInt(item.target)) capacityExceeded = true
+      }
+      for (const item of touched) {
+        item.remittanceSources.add(remittance.remittanceId)
+        if (item.directSources.size > 0) item.reasons.add('SOLAPAMIENTO_FI_DIRECTA_Y_REMESA')
+      }
+      const overlap = [...touched].some(item => item.directSources.size > 0)
+      if (receiptInvalid || capacityExceeded || overlap) {
+        const reason = overlap ? 'SOLAPAMIENTO_FI_DIRECTA_Y_REMESA'
+          : capacityExceeded ? 'RECIBO_REMESA_B7_CAPACIDAD_EXCEDIDA'
+            : activeAbonoWithoutReceipt ? 'RECIBO_REMESA_B7_ABONO_SIN_RECIBO'
+            : 'RECIBO_REMESA_B7_INEXACTO'
+        for (const item of touched) item.reasons.add(reason)
+        continue
+      }
+      for (const [invoiceId, paid] of paidByInvoice) work.get(invoiceId)!.remittancePaid! += paid
+      continue
+    }
+
+    if (activeBankLines.length === 0) continue // Sin abono actual: no se acredita cobro ni se invalida otro documento.
 
     const currentLines: B4DocumentLineInput[] = []
     let linesInvalid = false
@@ -608,6 +721,6 @@ export function calculateBankInvoicing(input: BankInvoicingInput): BankInvoicing
     invoices: settlements,
     summary: settlementSummary(settlements, difference),
     bankCoverage: coverage,
-    calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA',
+    calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1',
   }
 }

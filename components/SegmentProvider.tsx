@@ -20,14 +20,12 @@ export function useSegment() {
 
 export default function SegmentProvider({ children }: { children: ReactNode }) {
   const [segment, setSegmentState] = useState<Segment>('particular')
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     const saved = localStorage.getItem('io_segment') as Segment | null
     if (saved === 'empresa' || saved === 'particular') {
       setSegmentState(saved)
     }
-    setMounted(true)
   }, [])
 
   const setSegment = (s: Segment) => {
@@ -35,13 +33,11 @@ export default function SegmentProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('io_segment', s)
   }
 
-  if (!mounted) {
-    return <>{children}</>
-  }
-
+  // Keep the same provider on the server, during hydration and after reading
+  // storage. Replacing a Fragment with a Provider remounted the entire panel.
   return (
     <SegmentContext.Provider value={{ segment, setSegment }}>
       {children}
-    </SegmentContext.Provider>
+      </SegmentContext.Provider>
   )
 }

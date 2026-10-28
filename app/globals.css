@@ -1,3 +1,12 @@
+@font-face {
+  font-family: 'IO Roboto';
+  src: url('/fonts/RobotoLatin-VF.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+:root { --font-conciliar: 'IO Roboto'; }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -55,4 +64,31 @@ body {
   [data-admin-shell] main a[role='button'] {
     min-height: 44px;
   }
+}
+
+/* The heading remains readable before JS establishes a manual theme class. */
+[data-conciliar-heading] {
+  --conciliar-heading-bg: #f9fafb;
+  --conciliar-heading-fg: #2d2a26;
+  --conciliar-heading-muted: #475569;
+  background: var(--conciliar-heading-bg);
+}
+[data-conciliar-heading] h1 { color: var(--conciliar-heading-fg); }
+[data-conciliar-subtitle] { color: var(--conciliar-heading-muted); }
+@media (prefers-color-scheme: dark) {
+  [data-conciliar-heading] {
+    --conciliar-heading-bg: #0f172a;
+    --conciliar-heading-fg: #f8fafc;
+    --conciliar-heading-muted: #cbd5e1;
+  }
+}
+.dark [data-conciliar-heading], [data-theme='dark'] [data-conciliar-heading] {
+  --conciliar-heading-bg: #0f172a;
+  --conciliar-heading-fg: #f8fafc;
+  --conciliar-heading-muted: #cbd5e1;
+}
+.light [data-conciliar-heading], [data-theme='light'] [data-conciliar-heading] {
+  --conciliar-heading-bg: #f9fafb;
+  --conciliar-heading-fg: #2d2a26;
+  --conciliar-heading-muted: #475569;
 }

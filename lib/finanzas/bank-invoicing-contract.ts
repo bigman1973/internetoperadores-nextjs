@@ -23,7 +23,7 @@ export interface B7ReadDto {
   summary: BankInvoicingSummary
   bankCoverage: BankCoverage
   items: InvoiceSettlement[]
-  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA'
+  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1'
 }
 
 export class B7QueryError extends Error {

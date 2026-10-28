@@ -82,7 +82,7 @@ export interface B7ReadDto {
   summary: B7Summary
   bankCoverage: B7BankCoverage
   items: B7InvoiceSettlement[]
-  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA'
+  calculationBasis: 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1'
 }
 
 export type B7ParseResult =
@@ -94,7 +94,7 @@ type UnknownRecord = Record<string, unknown>
 const PAYMENT_STATES: readonly B7PaymentState[] = ['COBRADA_CALCULADA', 'PENDIENTE_COBRO', 'PENDIENTE_COBRO_REVISION']
 const PAYMENT_SOURCES: readonly B7PaymentSource[] = ['B4_DIRECTO', 'B4_REMESA']
 const COVERAGE_STATUSES: readonly B7CoverageStatus[] = ['KNOWN', 'PARTIAL', 'UNKNOWN']
-const CALCULATION_BASIS = 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA' as const
+const CALCULATION_BASIS = 'B4_ACTIVE_APLICADA_NO_REVERTIDA_JUSTIFICADO_DOCUMENTO__B6_EXPLICITA__RECIBO_REMESA_B7_V1' as const
 const DATE_RE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 

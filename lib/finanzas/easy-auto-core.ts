@@ -160,13 +160,15 @@ function pairFingerprint(left: EasyAutoMovement, right: EasyAutoMovement): strin
  * Account ownership and exact-balance-chain evidence are checked by the DB layer.
  */
 export function selectBilateralTransfers(movements: readonly EasyAutoMovement[]): EasyAutoTransferCandidate[] {
+  // Eligibility is immutable within this invocation. Do not normalize the same
+  // bank text for every possible pair; preserve source order and duplicates.
+  const eligible = movements.filter(movement => movement && Number.isSafeInteger(movement.importeCentimos)
+    && movement.importeCentimos !== 0 && hasTransferBankCue(movement))
   const possible: Array<readonly [EasyAutoMovement, EasyAutoMovement]> = []
-  for (let leftIndex = 0; leftIndex < movements.length; leftIndex += 1) {
-    const left = movements[leftIndex]
-    if (!left || !Number.isSafeInteger(left.importeCentimos) || left.importeCentimos === 0 || !hasTransferBankCue(left)) continue
-    for (let rightIndex = leftIndex + 1; rightIndex < movements.length; rightIndex += 1) {
-      const right = movements[rightIndex]
-      if (!right || !Number.isSafeInteger(right.importeCentimos) || right.importeCentimos === 0 || !hasTransferBankCue(right)) continue
+  for (let leftIndex = 0; leftIndex < eligible.length; leftIndex += 1) {
+    const left = eligible[leftIndex]
+    for (let rightIndex = leftIndex + 1; rightIndex < eligible.length; rightIndex += 1) {
+      const right = eligible[rightIndex]
       if (left.cuentaId === right.cuentaId || left.importeCentimos + right.importeCentimos !== 0) continue
       if (calendarDistanceDays(left.fecha, right.fecha) > 3) continue
       possible.push([left, right])

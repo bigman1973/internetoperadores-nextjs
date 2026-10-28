@@ -201,7 +201,7 @@ test('reader SQL aliases v.activo and its B4 closure fails when any active opera
   const response = await readBankInvoicing(fixture.db, { enabled: true, assertIsolatedStaging: async () => {} })
   assert.deepEqual(response.items.map((row) => row.paymentState), ['COBRADA_CALCULADA', 'COBRADA_CALCULADA'])
   const proofs = fixture.sql.filter((statement) => statement.includes('all_active_lines_applied'))
-  assert.equal(proofs.length, 4)
+  assert.equal(proofs.length, 5, 'Incluye el cierre B4 vivo del recibo V1 además de las cuatro pruebas B4 existentes.')
   for (const statement of proofs) {
     assert.match(statement, /v\.activo AS "active"/)
     assert.match(statement, /LEFT JOIN operaciones_justificacion_b4 ox ON ox\.id = x\.operacion_creacion_id/)

@@ -22,7 +22,9 @@ const globalForPrisma = globalThis as unknown as {
 }
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  // Los errores SQL pueden incluir la fila completa, incluso durante un rollback.
+  // En el sandbox financiero sólo se exponen los códigos minimizados del servicio.
+  log: process.env.FINANCE_STAGING_SANDBOX === '1' ? [] : process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 })
 // Next server chunks can evaluate this module independently in production.
 // Persisting the client prevents a global "installed" marker from accidentally
@@ -51,6 +53,29 @@ function guardStateFor(client: PrismaClient): PrismaGuardState {
 const auditScope = new AsyncLocalStorage<boolean>()
 /** The callback wrapper below makes this client available to Prisma $use. */
 const transactionScope = new AsyncLocalStorage<Prisma.TransactionClient>()
+type MutationAuditReceipt = Readonly<{
+  context: TrustedImpersonationContext
+  model: string | undefined
+  action: string
+}>
+type VerifiedLiveContextCacheEntry = Readonly<{
+  /** Exact expiry returned by the locked ledger row, never a synthetic TTL. */
+  expiresAt: Date
+}>
+type MutationAuditScope = {
+  tx: Prisma.TransactionClient
+  receipts: MutationAuditReceipt[]
+  /**
+   * A request identity is never global state. This map belongs to exactly one
+   * interactive transaction callback and is discarded in that callback's finally.
+   */
+  liveContextCache: Map<string, VerifiedLiveContextCacheEntry>
+}
+/**
+ * Scoped to one interactive transaction only. It never stores permissions or a
+ * live-session decision outside the narrow, staging-only Conciliar verifier.
+ */
+const mutationAuditScope = new AsyncLocalStorage<MutationAuditScope>()
 
 export function currentImpersonationTransactionClient(): Prisma.TransactionClient | null {
   return transactionScope.getStore() ?? null
@@ -69,6 +94,32 @@ export function runWithImpersonationTransactionClient<T>(
 }
 
 /**
+ * Keep one immutable SUCCESS receipt per guarded write, but issue their INSERT
+ * together at the end of the same successful interactive transaction. This
+ * removes only redundant network round trips; an exception skips the flush and
+ * the surrounding transaction rolls back exactly as with individual receipts.
+ */
+export async function runWithImpersonationMutationAuditScope<T>(
+  tx: Prisma.TransactionClient,
+  callback: () => T | Promise<T>,
+): Promise<T> {
+  const scope: MutationAuditScope = { tx, receipts: [], liveContextCache: new Map() }
+  return mutationAuditScope.run(scope, async () => {
+    try {
+      const result = await callback()
+      await appendQueuedMutationSuccesses(tx, scope.receipts)
+      return result
+    } finally {
+      // An ALS store is restored by AsyncLocalStorage.run, and this explicit
+      // clear makes failed callbacks and serializable retries unable to retain
+      // any live-session decision in a reused closure.
+      scope.liveContextCache.clear()
+      scope.receipts.length = 0
+    }
+  })
+}
+
+/**
  * Prisma middleware does not itself expose the interactive transaction client.
  * Wrap callback transactions once so a business receipt written after next()
  * uses the exact same PostgreSQL transaction and rolls back with the mutation.
@@ -83,7 +134,9 @@ function installImpersonationTransactionWrapper(client: PrismaClient): void {
     if (typeof input !== 'function') return (baseTransaction as any)(input, ...rest)
     const callback = input as (tx: Prisma.TransactionClient) => unknown
     return (baseTransaction as any)(
-      (tx: Prisma.TransactionClient) => runWithImpersonationTransactionClient(tx, () => callback(tx)),
+      (tx: Prisma.TransactionClient) => runWithImpersonationTransactionClient(tx, () =>
+        runWithImpersonationMutationAuditScope(tx, async () => await callback(tx)),
+      ),
       ...rest,
     )
   }) as PrismaClient['$transaction']
@@ -256,6 +309,8 @@ const NON_CALL_KEYWORDS = new Set([
 const REVIEWED_READ_FUNCTIONS = new Set([
   'abs', 'array_agg', 'array_remove', 'b4_importe_bancario_centimos', 'bool_and', 'btrim', 'concat_ws',
   'count', 'current_database', 'date_trunc', 'hashtextextended', 'json_agg', 'jsonb_build_object',
+  // pg_catalog IMMUTABLE, no SECURITY DEFINER: verificado en staging el 26/10.
+  'jsonb_array_elements', 'jsonb_typeof',
   'length', 'lower', 'max', 'min', 'regexp_replace', 'right', 'row_to_json', 'sum', 'to_regclass',
   'unnest', 'upper', 'coalesce', 'nullif', 'greatest', 'least', 'cast', 'extract', 'trim',
 ])
@@ -319,6 +374,9 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
   if (!template) return 'unknown'
   const tokens = tokenizeReviewedSql(template)
   if (!tokens || tokens.length === 0) return 'unknown'
+  // Sólo este literal de control de snapshot: no habilita current_setting con
+  // parámetros, nombres diferentes, expresiones adicionales ni varias órdenes.
+  if (/^\s*SELECT\s+lower\s*\(\s*current_setting\s*\(\s*'transaction_isolation'\s*\)\s*\)\s+AS\s+isolation\s*$/i.test(template)) return 'read_only'
   const canonical = canonicalTokens(tokens)
   if (canonical === 'set transaction read only') return 'transaction_read_only'
   if (REVIEWED_ADVISORY_LOCK.test(canonical)) return 'advisory_lock'
@@ -408,6 +466,32 @@ function delegatedWritesEnabledFor(actorId: number): boolean {
 
 type LiveContext = TrustedImpersonationContext
 
+const CONCILIAR_LIVE_CACHE_PATH = '/api/admin/finanzas/conciliar'
+
+/**
+ * The live result may be reused only for the narrow, already SERIALIZABLE
+ * Conciliar confirm/undo callback. All runtime flags and the request matrix are
+ * evaluated by verifyLiveImpersonationContext before this helper on every
+ * statement; this helper adds no authority of its own.
+ */
+function conciliarLiveCacheScope(context: LiveContext, tx: Prisma.TransactionClient): MutationAuditScope | null {
+  if (process.env.FINANCE_STAGING_SANDBOX !== '1'
+    || context.path !== CONCILIAR_LIVE_CACHE_PATH
+    || context.method !== 'POST'
+    || (context.action !== 'confirmar' && context.action !== 'deshacer')) return null
+  const scope = mutationAuditScope.getStore()
+  return scope?.tx === tx ? scope : null
+}
+
+/** Every signed field is part of the private per-transaction cache identity. */
+function liveContextCacheKey(context: LiveContext): string {
+  return JSON.stringify([
+    context.v, context.sessionId, context.actorId, context.targetId,
+    context.reason, context.method, context.path, context.action,
+    context.ip, context.ipSource,
+  ])
+}
+
 type PrismaMutationParams = Readonly<{
   action: string
   args: unknown
@@ -433,12 +517,30 @@ export async function verifyLiveImpersonationContext(
   tx: Prisma.TransactionClient,
 ): Promise<boolean> {
   if (!delegatedWritesEnabledFor(context.actorId) || !impersonationRequestAllowed(context.path, context.method, new URLSearchParams(), context.targetId, context.action)) return false
+  const cacheScope = conciliarLiveCacheScope(context, tx)
+  const cacheKey = cacheScope ? liveContextCacheKey(context) : null
+  // Preserve the established SQL and lock set for every other request. Only the
+  // scoped Conciliar cache needs actor/target locks to make its first decision
+  // safe to reuse until this SERIALIZABLE transaction commits or rolls back.
+  const liveLock = cacheScope ? Prisma.sql`FOR SHARE OF s,actor,target` : Prisma.sql`FOR SHARE OF s`
+  if (cacheScope && cacheKey) {
+    const cached = cacheScope.liveContextCache.get(cacheKey)
+    // Date.now is intentionally sampled for every guarded statement. A cached
+    // result cannot survive the exact database expiry returned below.
+    if (cached) {
+      if (cached.expiresAt.getTime() > Date.now()) return true
+      cacheScope.liveContextCache.delete(cacheKey)
+    }
+  }
   try {
-    // FOR SHARE prevents a concurrent explicit exit (FOR UPDATE OF s) from
-    // closing this effective session between the final ledger check and the
-    // business mutation. It is released only with that mutation's transaction.
-    const rows = await auditScope.run(true, () => tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-      SELECT s.id::text
+    // FOR SHARE prevents an explicit exit (FOR UPDATE OF s), actor deactivation
+    // or demotion, and target deactivation/promotion from committing between the
+    // final ledger check and the business mutation. In SERIALIZABLE Conciliar
+    // callbacks this lock, not a repeated snapshot read, is the revocation fence.
+    // PrismaPromise is lazy: it must be awaited before leaving auditScope,
+    // otherwise its middleware sees the outer scope and recursively checks itself.
+    const rows = await auditScope.run(true, async () => await tx.$queryRaw<Array<{ id: string; expiresAt: Date }>>(Prisma.sql`
+      SELECT s.id::text,s.expires_at AS "expiresAt"
         FROM impersonation_sessions s
         JOIN usuarios_admin actor ON actor.id=s.actor_id
         JOIN usuarios_admin target ON target.id=s.target_id
@@ -447,9 +549,18 @@ export async function verifyLiveImpersonationContext(
          AND actor.activo=true AND actor.rol::text='SUPER_ADMIN'
          AND target.activo=true AND target.rol::text<>'SUPER_ADMIN'
          AND NOT ('SUPER_ADMIN'=ANY(COALESCE(target.roles,ARRAY[]::text[])))
-       LIMIT 1 FOR SHARE OF s
+       LIMIT 1 ${liveLock}
     `))
-    return rows.length === 1
+    const row = rows[0]
+    if (rows.length !== 1 || !row) return false
+    if (cacheScope && cacheKey) {
+      const expiresAtMs = row.expiresAt instanceof Date ? row.expiresAt.getTime() : Number.NaN
+      // SQL already checks CURRENT_TIMESTAMP. This separate application-clock
+      // check is required before storing and is repeated for every cache hit.
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) return false
+      cacheScope.liveContextCache.set(cacheKey, { expiresAt: row.expiresAt })
+    }
+    return true
   } catch { return false }
 }
 
@@ -459,16 +570,31 @@ async function appendMutationSuccess(
   model: string | undefined,
   action: string,
 ): Promise<void> {
+  const scope = mutationAuditScope.getStore()
+  if (scope?.tx === tx) {
+    scope.receipts.push({ context, model, action })
+    return
+  }
+  await appendQueuedMutationSuccesses(tx, [{ context, model, action }])
+}
+
+async function appendQueuedMutationSuccesses(
+  tx: Prisma.TransactionClient,
+  receipts: readonly MutationAuditReceipt[],
+): Promise<void> {
+  if (!receipts.length) return
   // This receipt is deliberately after next() but before the interactive
-  // transaction commits. Thus it is never emitted for a failed mutation and is
-  // rolled back if the callback later fails or the transaction cannot commit.
-  await auditScope.run(true, () => tx.$executeRaw(Prisma.sql`
+  // transaction commits. Thus every row is absent after a failed mutation and
+  // rolls back if the callback later fails or the transaction cannot commit.
+  const values = receipts.map(({ context, model, action }) => Prisma.sql`
+    (gen_random_uuid(),${context.sessionId}::uuid,${context.actorId},${context.targetId},'BUSINESS_MUTATION','SUCCESS',
+     ${context.method},${context.path},${context.ip},${context.reason},${model?.slice(0, 120) ?? 'RAW'},${action.slice(0, 80)},
+     ${JSON.stringify({ source: 'prisma-middleware', action: context.action, ipSource: context.ipSource })}::jsonb,CURRENT_TIMESTAMP)
+  `)
+  await auditScope.run(true, async () => await tx.$executeRaw(Prisma.sql`
     INSERT INTO impersonation_event_log
       (id,session_id,actor_id,target_id,kind,outcome,method,path,ip,reason,model,operation,detail,created_at)
-    VALUES
-      (gen_random_uuid(),${context.sessionId}::uuid,${context.actorId},${context.targetId},'BUSINESS_MUTATION','SUCCESS',
-       ${context.method},${context.path},${context.ip},${context.reason},${model?.slice(0, 120) ?? 'RAW'},${action.slice(0, 80)},
-       ${JSON.stringify({ source: 'prisma-middleware', action: context.action, ipSource: context.ipSource })}::jsonb,CURRENT_TIMESTAMP)
+    VALUES ${Prisma.join(values)}
   `))
 }
 

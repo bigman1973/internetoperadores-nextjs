@@ -166,13 +166,14 @@ type CollectionWho = Readonly<{
   confirmada: boolean
 }>
 
-function addCandidate(target: Candidate[], movimientoId: string, tipoTercero: CounterpartyType, origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>, sourceIdentity: string | null, etiqueta: string, autoIdentify = false) {
+function addCandidate(target: Candidate[], movimientoId: string, tipoTercero: CounterpartyType, origen: Exclude<CounterpartyOrigin, 'MANUAL' | 'AUTO_RECIBO'>, sourceIdentity: string | null, etiqueta: string, autoIdentify = false, seenHashes?: Set<string>) {
   if (!sourceIdentity) return
   const seed: CounterpartyCandidateSeed = { movimientoId, tipoTercero, origen, sourceIdentity }
   const hash = counterpartyCandidateHash(seed)
-  const existing = target.find(item => counterpartyCandidateHash(item.seed) === hash)
+  const existing = seenHashes ? seenHashes.has(hash) : target.find(item => counterpartyCandidateHash(item.seed) === hash)
   if (existing) return
   target.push({ seed, etiqueta, autoIdentify })
+  seenHashes?.add(hash)
 }
 function candidatesForMovement(row: MovementRow): Candidate[] {
   const candidates: Candidate[] = []
@@ -449,7 +450,7 @@ async function collectionWhoTx(tx: QueryDb, ids: readonly string[], tablesReady:
     FROM propuestas p
     LEFT JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
-    ) composicion(valor) ON true
+    ) AS composicion(valor) ON true
     LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
     GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
     ORDER BY p.movimiento_id ASC
@@ -524,7 +525,7 @@ async function collectionWhoForInputTx(tx: QueryDb, input: CounterpartyReadInput
     FROM propuestas p
     LEFT JOIN LATERAL jsonb_array_elements(
       CASE WHEN jsonb_typeof(p.composicion)='array' THEN p.composicion ELSE '[]'::jsonb END
-    ) composicion(valor) ON true
+    ) AS composicion(valor) ON true
     LEFT JOIN facturas_emitidas fe ON fe.id=NULLIF(btrim(composicion.valor->>'facturaEmitidaId'),'')
     GROUP BY p.id,p.generacion_id,p.movimiento_id,p.metodo,p.fingerprint,p.estado_b4
     ORDER BY p.movimiento_id ASC
@@ -885,21 +886,24 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
     ORDER BY cw.nombre ASC,cw.id ASC,cs.id ASC LIMIT ${limit}
   `)
   const candidates: Candidate[] = []
+  // This index belongs to this one catalogue read, never to another request or
+  // actor. The previous find() rehashed every prior entry for every insertion.
+  const seenHashes = new Set<string>()
   for (const row of entityRows) {
     const type = String(row.tipo)
     const mapped: CounterpartyType = type === 'CLIENTE' ? 'CLIENTE' : type === 'PROVEEDOR' ? 'PROVEEDOR' : 'BANCO'
     const kind = type === 'CLIENTE' ? 'Cliente fiscal registrado' : type === 'PROVEEDOR' ? 'Proveedor fiscal registrado' : 'Administración registrada'
-    addCandidate(candidates, movimientoId, mapped, 'ENTIDAD_FISCAL', `EF:${String(row.id)}`, evidenceLabel(clean(row.razon_social), kind, clean(row.nif_cif)))
+    addCandidate(candidates, movimientoId, mapped, 'ENTIDAD_FISCAL', `EF:${String(row.id)}`, evidenceLabel(clean(row.razon_social), kind, clean(row.nif_cif)), false, seenHashes)
   }
   for (const row of employeeRows) {
-    addCandidate(candidates, movimientoId, 'EMPLEADO', 'EMPLEADO', `EMPLEADO:${String(row.id)}`, evidenceLabel(clean(row.nombre_completo), 'Empleado registrado', clean(row.nif)))
+    addCandidate(candidates, movimientoId, 'EMPLEADO', 'EMPLEADO', `EMPLEADO:${String(row.id)}`, evidenceLabel(clean(row.nombre_completo), 'Empleado registrado', clean(row.nif)), false, seenHashes)
   }
   for (const row of clientRows) {
     const external = clean(row.cliente_id_isp) ?? clean(row.isp_gestion_id)
     if (!external) continue
     const name = clean(row.nombre_comercial) ?? clean(row.nombre)
     const nif = clean(row.cif) ?? clean(row.nif)
-    addCandidate(candidates, movimientoId, 'CLIENTE', 'CLIENTE_CONTRATO_ACTUAL', `CLIENTE_WEB_CONTRATO:${String(row.cliente_web_id)}:${String(row.contrato_id)}:${String(row.contrato_cliente_id)}:${external}`, evidenceLabel(name, 'Cliente registrado', nif))
+    addCandidate(candidates, movimientoId, 'CLIENTE', 'CLIENTE_CONTRATO_ACTUAL', `CLIENTE_WEB_CONTRATO:${String(row.cliente_web_id)}:${String(row.contrato_id)}:${String(row.contrato_cliente_id)}:${external}`, evidenceLabel(name, 'Cliente registrado', nif), false, seenHashes)
   }
   if (withAccountProof) {
     const accountRows = await tx.$queryRaw<Array<any>>(Prisma.sql`
@@ -914,7 +918,7 @@ async function stableSearchCandidatesTx(tx: QueryDb, movimientoId: string, busca
     `)
     for (const row of accountRows) {
       const account = clean(row.alias) ?? clean(row.banco) ?? 'Cuenta registrada'
-      addCandidate(candidates, movimientoId, 'CUENTA_PROPIA', 'CUENTA_PROPIA_ACTUAL', `CUENTA_ATESTADA:${String(row.id)}:${String(row.atestacion_id)}`, `${account} · cuenta registrada`)
+      addCandidate(candidates, movimientoId, 'CUENTA_PROPIA', 'CUENTA_PROPIA_ACTUAL', `CUENTA_ATESTADA:${String(row.id)}:${String(row.atestacion_id)}`, `${account} · cuenta registrada`, false, seenHashes)
     }
   }
   return dedupeCandidates(candidates).sort((left, right) => left.etiqueta.localeCompare(right.etiqueta, 'es')).slice(0, limit)
@@ -1009,7 +1013,7 @@ async function confirmParsedTx(tx: Tx, actorId: number, input: CounterpartyWrite
     if (movement.decision) fail(409, 'REVERSION_REQUERIDA', 'Ya hay una decisión P1 vigente; revíertala antes de sustituirla.')
     const candidate = (await currentCandidatesForConfirmTx(tx, movement, withAccountProof)).find(item => counterpartySuggestionId(item.seed) === input.sugerenciaId)
     if (!candidate) fail(409, 'SUGERENCIA_OBSOLETA', 'La evidencia actual ya no acredita esta identificación; relea el movimiento.')
-    const live = await requireB4ActorAccess(actorId, 'escritura')
+    const live = await requireB4ActorAccess(actorId, 'escritura', tx)
     if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó la decisión P1.')
     const candidateHash = counterpartyCandidateHash(candidate.seed)
     const sourceHash = counterpartySha256({ schema: 'EASY_COUNTERPARTY_SOURCE_V1', sourceIdentity: candidate.seed.sourceIdentity })
@@ -1037,7 +1041,7 @@ async function confirmParsedTx(tx: Tx, actorId: number, input: CounterpartyWrite
   const version = await currentVersionTx(tx, movement.id)
   if (version !== input.version) fail(409, 'VERSION_CONFLICT', 'La decisión P1 cambió; relea antes de revertir.')
   if (!movement.decision || movement.decision.id !== input.decisionId) fail(409, 'DECISION_NO_VIGENTE', 'La decisión ya no está vigente o ya fue revertida.')
-  const live = await requireB4ActorAccess(actorId, 'escritura')
+  const live = await requireB4ActorAccess(actorId, 'escritura', tx)
   if ('response' in live) fail(live.response.status, 'ACCESS_REVOKED', 'El permiso B4 cambió; no se aplicó la reversión P1.')
   const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     INSERT INTO decisiones_tercero_modo_facil (id,movimiento_id,actor_id,accion,tipo_tercero,origen,candidato_hash,idempotency_key,request_hash,revierte_id,snapshot,created_at)
@@ -1067,10 +1071,10 @@ export async function mutateEasyCounterparty(actorId: number, raw: unknown) {
  * serializable caller's locks are never bypassed. */
 export async function mutateEasyCounterpartyTx(tx: Prisma.TransactionClient, actorId: number, raw: unknown) {
   const input = parseCounterpartyWriteInput(raw)
-  await assertFinanceEasyRuntime()
-  const access = await requireB4ActorAccess(actorId, 'escritura')
-  if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   const work = asTx(tx)
+  await assertFinanceEasyRuntime(work)
+  const access = await requireB4ActorAccess(actorId, 'escritura', work)
+  if ('response' in access) fail(access.response.status, 'ACCESS_REVOKED', 'No dispone de permiso B4 de escritura activo.')
   if (!await decisionTableReady(work)) fail(503, 'P1_MIGRATION_PENDIENTE', 'La migración P1 de terceros aún no está aplicada en staging.')
   const withAccountProof = await accountProofTableReady(work)
   return confirmParsedTx(work, actorId, input, withAccountProof)

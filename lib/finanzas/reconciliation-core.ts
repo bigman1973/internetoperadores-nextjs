@@ -48,7 +48,7 @@ export type TipoDocumentoConciliable = (typeof TIPOS_DOCUMENTO_CONCILIABLE)[numb
 export const TIPOS_LINEA_VINCULO = ["DOCUMENTO", "DIFERENCIA"] as const;
 export type TipoLineaVinculo = (typeof TIPOS_LINEA_VINCULO)[number];
 
-export const MOTIVOS_DIFERENCIA = ["COMISION", "INTERESES", "REDONDEO"] as const;
+export const MOTIVOS_DIFERENCIA = ["COMISION", "INTERESES", "IVA_COMISION", "REDONDEO"] as const;
 export type MotivoDiferencia = (typeof MOTIVOS_DIFERENCIA)[number];
 
 export interface ErrorValidacionB4 {
@@ -485,7 +485,7 @@ function validarLineaBorrador(
       errores,
       "MOTIVO_DIFERENCIA_INVALIDO",
       `${ruta}.motivoDiferencia`,
-      "Una diferencia exige COMISION, INTERESES o REDONDEO; no existe OTRO.",
+      "Una diferencia exige COMISION, INTERESES, IVA_COMISION o REDONDEO; no existe OTRO.",
     );
     return undefined;
   }

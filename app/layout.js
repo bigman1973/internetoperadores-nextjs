@@ -1,22 +1,6 @@
-import { Geist, Geist_Mono } from "next/font/google";
-import Script from "next/script";
-import SessionProvider from "../components/SessionProvider";
-import { CartProvider } from "../components/CartProvider";
-import SegmentProvider from "../components/SegmentProvider";
-import NewsletterFloat from "../components/public/NewsletterFloat";
-import AssistantMount from "../components/asistente/AssistantMount";
-import ImpersonationBanner, { ActuationProvider } from "../components/impersonation/ImpersonationBanner";
+import RootRuntimeSurface from "../components/RootRuntimeSurface";
+import { assistantPublicEnabled } from "../lib/asistente/public-flag";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const metadata = {
   title: "Internet Operadores - Servicios IT, Seguridad y Telecomunicaciones",
@@ -26,29 +10,8 @@ export const metadata = {
 export default function RootLayout({ children }) {
   return (
     <html lang="es">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {/* Cookiebot script cargado de forma asíncrona */}
-        <Script
-          id="Cookiebot"
-          src="https://consent.cookiebot.com/uc.js"
-          data-cbid="1621b6e2-0bdc-4d8d-8995-ed4e9db62ee5"
-          data-blockingmode="auto"
-          strategy="beforeInteractive"
-        />
-        <SessionProvider>
-          <ActuationProvider>
-            <ImpersonationBanner />
-            <SegmentProvider>
-              <CartProvider>
-                {children}
-                <NewsletterFloat />
-                <AssistantMount />
-              </CartProvider>
-            </SegmentProvider>
-          </ActuationProvider>
-        </SessionProvider>
+      <body className="antialiased">
+        <RootRuntimeSurface assistantEnabled={assistantPublicEnabled()}>{children}</RootRuntimeSurface>
       </body>
     </html>
   );
