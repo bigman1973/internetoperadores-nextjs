@@ -7,6 +7,7 @@ import { HttpGuardError, readJsonLimited, sameOrigin } from '@/lib/finanzas/sync
 import { ConciliarValidationError, parseConciliarCommand, parseConciliarGetInput, type ConciliarCommand } from '@/lib/finanzas/conciliar-contract'
 import { conciliarDbErrorResponse } from '@/lib/finanzas/conciliar-errors'
 import { readConciliarProjection, readConciliarRow } from '@/lib/finanzas/conciliar-projection-read'
+import { acceptsConciliarNdjson, streamConciliarConfirmation } from '@/lib/finanzas/conciliar-stream'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -138,11 +139,27 @@ export async function POST(request: NextRequest) {
     // and the route retains the exact command needed to normalize the UI response.
     const parsed = parseConciliarCommand(command)
     phase('command-ready')
-    const [{ runConciliarAction }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
+    const [{ runConciliarAction, conciliarActionErrorResponse }, { scheduleConciliarProjectionRefresh }] = await Promise.all([
       import('@/lib/finanzas/conciliar-actions'),
       import('@/lib/finanzas/conciliar-refresh'),
     ])
     phase('action-start')
+    if (parsed.action === 'confirmar' && acceptsConciliarNdjson(request.headers.get('accept'))) {
+      // Same POST, same closed body and same auth/origin guard as JSON. Progress is
+      // only negotiated by Accept; no uncommitted outcome reaches the browser.
+      return streamConciliarConfirmation({
+        total: parsed.items.length,
+        execute: async onProgress => {
+          const result = await runConciliarAction(access.actor.id, parsed, { onProgress })
+          if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) {
+            scheduleConciliarProjectionRefresh(access.actor.id)
+          }
+          return result
+        },
+        actionResponse: result => actionResponse(parsed, result),
+        actionErrorResponse: error => conciliarActionErrorResponse(error).body,
+      })
+    }
     const result = await runConciliarAction(access.actor.id, parsed)
     phase('action-finished')
     if ((result as { projectionSynchronized?: unknown }).projectionSynchronized !== true) scheduleConciliarProjectionRefresh(access.actor.id)

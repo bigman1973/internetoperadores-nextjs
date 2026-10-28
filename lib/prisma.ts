@@ -6,6 +6,7 @@ import {
   type TrustedImpersonationContext,
 } from '@/lib/impersonation-context'
 import { impersonationActorListed, impersonationEnabled, impersonationRequestAllowed } from '@/lib/impersonation-policy'
+import { conciliarRuntimeConfigured } from '@/lib/finanzas/conciliar-runtime'
 
 // La copia de Finanzas nunca debe reconectar a producción por un override ausente.
 if (process.env.FINANCE_STAGING_SANDBOX === '1') {
@@ -73,9 +74,16 @@ type MutationAuditScope = {
 }
 /**
  * Scoped to one interactive transaction only. It never stores permissions or a
- * live-session decision outside the narrow, staging-only Conciliar verifier.
+ * live-session decision outside the explicitly scoped Conciliar verifier.
  */
 const mutationAuditScope = new AsyncLocalStorage<MutationAuditScope>()
+const conciliarSerializableAuthorizationScope = new AsyncLocalStorage<Prisma.TransactionClient>()
+
+/** Internal marker: called only after the live ACL/runtime check in Conciliar's
+ * SERIALIZABLE callback. It carries no user, permission, request or override. */
+export function runWithConciliarSerializableAuthorization<T>(tx: Prisma.TransactionClient, callback: () => T): T {
+  return conciliarSerializableAuthorizationScope.run(tx, callback)
+}
 
 export function currentImpersonationTransactionClient(): Prisma.TransactionClient | null {
   return transactionScope.getStore() ?? null
@@ -318,6 +326,9 @@ const REVIEWED_READ_FUNCTIONS = new Set([
 const TYPE_MODIFIER_TYPES = new Set(['numeric', 'decimal', 'varchar', 'char', 'character', 'bit', 'varbit', 'timestamp', 'timestamptz', 'time', 'timetz', 'interval'])
 /** The exact transaction-scoped advisory lock emitted by the reviewed helpers. */
 const REVIEWED_ADVISORY_LOCK = /^select pg_advisory_xact_lock \( hashtextextended \( (?:cast \( \? as text \)|\?) , 0 \) \) :: text as locked$/
+/** The closed vector equivalent: 1–100 bound text keys, fixed function/aliases,
+ * deterministic ordering, no literals, joins, subqueries or extra SQL. */
+const REVIEWED_CONCILIAR_BATCH_LOCK = /^select pg_advisory_xact_lock \( hashtextextended \( v \. movimiento_id , 0 \) \) :: text as locked from \( values \( cast \( \? as text \) \)(?: , \( cast \( \? as text \) \)){0,99} \) as v \( movimiento_id \) order by v \. movimiento_id asc$/
 
 function canonicalTokens(tokens: readonly SqlToken[]): string {
   return tokens.map(token => token.kind === 'string' ? "''" : token.value).join(' ')
@@ -379,7 +390,7 @@ function classifySqlStatement(template: string | null): RawSqlStatementKind {
   if (/^\s*SELECT\s+lower\s*\(\s*current_setting\s*\(\s*'transaction_isolation'\s*\)\s*\)\s+AS\s+isolation\s*$/i.test(template)) return 'read_only'
   const canonical = canonicalTokens(tokens)
   if (canonical === 'set transaction read only') return 'transaction_read_only'
-  if (REVIEWED_ADVISORY_LOCK.test(canonical)) return 'advisory_lock'
+  if (REVIEWED_ADVISORY_LOCK.test(canonical) || REVIEWED_CONCILIAR_BATCH_LOCK.test(canonical)) return 'advisory_lock'
   const first = tokens[0]
   if (first.kind === 'ident' && BUSINESS_DML.has(first.value)) return 'mutating'
   const startsAsQuery = (first.kind === 'ident' && (first.value === 'select' || first.value === 'with'))
@@ -475,7 +486,9 @@ const CONCILIAR_LIVE_CACHE_PATH = '/api/admin/finanzas/conciliar'
  * statement; this helper adds no authority of its own.
  */
 function conciliarLiveCacheScope(context: LiveContext, tx: Prisma.TransactionClient): MutationAuditScope | null {
-  if (process.env.FINANCE_STAGING_SANDBOX !== '1'
+  if (conciliarRuntimeConfigured() === null
+    || process.env.IO_PRODUCTION_READ_ONLY === '1'
+    || conciliarSerializableAuthorizationScope.getStore() !== tx
     || context.path !== CONCILIAR_LIVE_CACHE_PATH
     || context.method !== 'POST'
     || (context.action !== 'confirmar' && context.action !== 'deshacer')) return null

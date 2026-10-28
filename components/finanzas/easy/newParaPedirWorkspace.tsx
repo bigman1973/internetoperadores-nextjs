@@ -1,58 +1,249 @@
 'use client';
 
-import { ArrowPathIcon, ChevronLeftIcon, ChevronRightIcon, DocumentMagnifyingGlassIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { cents, displayDate, formatCentsText, type SentidoEasy } from './easy-contract';
-import { safeEasyPrivateHref } from './easy-two-step-client';
-import EasyHowTo from './EasyHowTo';
+import {
+  ArrowDownTrayIcon, ArrowPathIcon, ChevronLeftIcon, ChevronRightIcon,
+  DocumentMagnifyingGlassIcon, InformationCircleIcon,
+} from '@heroicons/react/24/outline';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  parseParaPedirRead,
+  type ParaPedirAgrupacion,
+  type ParaPedirEstado,
+  type ParaPedirMovimiento,
+  type ParaPedirRead,
+} from '@/lib/finanzas/para-pedir-contract';
+import { makeIdempotencyKey, parseConciliarActionResponse, safeOutcomeMessage } from '@/components/finanzas/conciliar/conciliar-contract';
+import { useActuation } from '@/components/impersonation/ActuationProvider';
 
 const API = '/api/admin/finanzas/modo-facil/para-pedir';
-const DEFAULT_FROM = '2026-01-01';
-const DEFAULT_TO = '2026-10-08';
-const LIMIT = 25;
-type Notice = Readonly<{ tone: 'error' | 'info'; text: string }> | null;
-type Candidate = Readonly<{ id: string; referencia: string; tercero: string | null; tipo: string; archivoDisponible: boolean; archivoPrivadoHref: string | null; motivos: readonly string[] }>;
-type Movement = Readonly<{ quienEs?: {estado: 'IDENTIFICADO' | 'PROPUESTO' | 'SIN_IDENTIFICAR'; nombre: string | null}; id: string; fecha: string; concepto: string; importeCentimos: number; cuenta: { banco: string; alias: string | null }; tarjeta: string | null; estado: 'SIN_DOCUMENTO'; sugerencias: readonly Candidate[] }>;
-type ParaPedirRead = Readonly<{ stagingOnly: boolean; periodo: { desde: string; hasta: string }; contadorPaso2: { totalMovimientos: number; cargos: number; cobros: number; cargosCentimos: string; cobrosCentimos: string }; limit: number; offset: number; totalPaginaSinSoporte: number; movimientos: readonly Movement[] }>;
+const CONCILIAR_API = '/api/admin/finanzas/conciliar';
+const PAGE_SIZE = 50;
+const EXPORT_PAGE_SIZE = 100;
+const MAX_EXPORT_ROWS = 10_000;
+type Notice = Readonly<{ tone: 'error' | 'info' | 'success'; text: string }> | null;
 
-function record(value: unknown, field: string): Record<string, unknown> { if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`La cola Para Pedir no incluye ${field} verificable.`); return value as Record<string, unknown>; }
-function text(value: unknown, field: string): string { if (typeof value !== 'string') throw new Error(`La cola Para Pedir no incluye ${field} verificable.`); return value; }
-function nonEmpty(value: unknown, field: string): string { const parsed = text(value, field); if (!parsed.trim()) throw new Error(`La cola Para Pedir no incluye ${field} verificable.`); return parsed; }
-function nullableText(value: unknown, field: string): string | null { return value === null ? null : text(value, field); }
-function integer(value: unknown, field: string): number { if (!Number.isSafeInteger(value)) throw new Error(`La cola Para Pedir no incluye ${field} verificable.`); return value as number; }
-function nonNegative(value: unknown, field: string): number { const parsed = integer(value, field); if (parsed < 0) throw new Error(`La cola Para Pedir no incluye ${field} válido.`); return parsed; }
-function centsText(value: unknown, field: string): string { const parsed = text(value, field); if (!/^[+-]?\d+$/.test(parsed)) throw new Error(`La cola Para Pedir no incluye ${field} exacto.`); return parsed; }
-function array(value: unknown, field: string): unknown[] { if (!Array.isArray(value)) throw new Error(`La cola Para Pedir no incluye ${field} verificable.`); return value; }
+function money(value: number): string {
+  const sign = value < 0 ? '−' : value > 0 ? '+' : '';
+  return `${sign}${(Math.abs(value) / 100).toLocaleString('es-ES', { style: 'currency', currency: 'EUR' })}`;
+}
+function displayDate(value: string): string {
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: 'short', year: 'numeric' }).format(date) : value;
+}
+function requestStatusLabel(state: ParaPedirMovimiento['estadoPedido']): string {
+  if (state === 'PEDIDO') return 'Pedido registrado';
+  if (state === 'PEDIDO_SIN_AUDITORIA') return 'Pedido sin auditoría verificable';
+  if (state === 'RECIBIDO') return 'Documento recibido; revisar';
+  return 'Sin pedir';
+}
+function requestStatusClass(state: ParaPedirMovimiento['estadoPedido']): string {
+  if (state === 'PEDIDO') return 'bg-amber-100 text-amber-950 ring-amber-300';
+  if (state === 'PEDIDO_SIN_AUDITORIA') return 'bg-red-100 text-red-950 ring-red-300';
+  if (state === 'RECIBIDO') return 'bg-blue-100 text-blue-950 ring-blue-300';
+  return 'bg-slate-100 text-slate-800 ring-slate-300';
+}
 function friendlyReadError(body: unknown): string {
   const raw = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error.toLowerCase() : '';
   if (/permiso|forbidden|autoriz/.test(raw)) return 'No tienes permiso para ver esta lista.';
+  if (/proyecci.n|prepar/.test(raw)) return 'La lista se está preparando. Vuelve a intentarlo en unos instantes.';
   return 'No se ha podido actualizar la lista. Vuelve a intentarlo.';
 }
-function candidateReason(candidate: Candidate): string { return candidate.archivoDisponible ? 'Hay un documento disponible, pero aún no sirve para este movimiento.' : 'No hay un documento disponible para este movimiento.'; }
-function documentLabel(candidate: Candidate): string { return `${candidate.tipo.replaceAll('_', ' ').toLocaleLowerCase('es-ES')} · ${candidate.referencia}`; }
-
-/** Parser cerrado de la proyección de consulta; una respuesta parcial nunca se presenta como lista vacía. */
-export function parseParaPedirRead(value: unknown): ParaPedirRead {
-  const raw = record(value, 'respuesta');
-  if (typeof raw.stagingOnly !== 'boolean' || raw.automaticas !== false || raw.accionExterna !== 'NINGUNA') throw new Error('La respuesta no confirma una consulta manual sin acciones externas.');
-  const period = record(raw.periodo, 'periodo'); const counter = record(raw.contadorPaso2, 'contadorPaso2');
-  if (counter.cohorte !== 'PENDIENTES_B4_SIN_DOCUMENTO') throw new Error('La lista de documentos pendientes no es válida.');
-  const movements = array(raw.movimientos, 'movimientos').map((item, index): Movement => {
-    const movement = record(item, `movimientos[${index}]`); const account = record(movement.cuenta, `movimientos[${index}].cuenta`);
-    if (movement.estado !== 'SIN_DOCUMENTO') throw new Error(`movimientos[${index}] no pertenece a la lista de documentos pendientes.`);
-    const who = movement.quienEs && typeof movement.quienEs === 'object' ? movement.quienEs as Record<string,unknown> : null;
-    const quienEs = who && ['IDENTIFICADO','PROPUESTO','SIN_IDENTIFICAR'].includes(String(who.estado)) && (who.nombre === null || typeof who.nombre === 'string') ? {estado: who.estado as 'IDENTIFICADO' | 'PROPUESTO' | 'SIN_IDENTIFICAR',nombre: who.nombre as string | null} : undefined;
-    return { quienEs, id: nonEmpty(movement.id, `movimientos[${index}].id`), fecha: nonEmpty(movement.fecha, `movimientos[${index}].fecha`), concepto: text(movement.concepto, `movimientos[${index}].concepto`), importeCentimos: integer(movement.importeCentimos, `movimientos[${index}].importeCentimos`), cuenta: { banco: nonEmpty(account.banco, `movimientos[${index}].cuenta.banco`), alias: nullableText(account.alias, `movimientos[${index}].cuenta.alias`) }, tarjeta: nullableText(movement.tarjeta, `movimientos[${index}].tarjeta`), estado: 'SIN_DOCUMENTO', sugerencias: array(movement.sugerencias, `movimientos[${index}].sugerencias`).map((suggestion, suggestionIndex): Candidate => { const itemSuggestion = record(suggestion, `sugerencias[${suggestionIndex}]`); const href = itemSuggestion.archivoPrivadoHref === null || itemSuggestion.archivoPrivadoHref === undefined ? null : safeEasyPrivateHref(itemSuggestion.archivoPrivadoHref); if (itemSuggestion.archivoPrivadoHref !== null && itemSuggestion.archivoPrivadoHref !== undefined && !href) throw new Error(`La ruta de sugerencias[${suggestionIndex}] no es válida.`); return { id: nonEmpty(itemSuggestion.id, `sugerencias[${suggestionIndex}].id`), referencia: nonEmpty(itemSuggestion.referencia, `sugerencias[${suggestionIndex}].referencia`), tercero: nullableText(itemSuggestion.tercero, `sugerencias[${suggestionIndex}].tercero`), tipo: nonEmpty(itemSuggestion.tipo, `sugerencias[${suggestionIndex}].tipo`), archivoDisponible: itemSuggestion.archivoDisponible === true || itemSuggestion.archivoDisponible === false ? itemSuggestion.archivoDisponible : (() => { throw new Error(`sugerencias[${suggestionIndex}].archivoDisponible no es booleano.`); })(), archivoPrivadoHref: href, motivos: array(itemSuggestion.motivos, `sugerencias[${suggestionIndex}].motivos`).map((motive, motiveIndex) => text(motive, `sugerencias[${suggestionIndex}].motivos[${motiveIndex}]`)) }; }) };
-  });
-  return { stagingOnly: raw.stagingOnly, periodo: { desde: nonEmpty(period.desde, 'periodo.desde'), hasta: nonEmpty(period.hasta, 'periodo.hasta') }, contadorPaso2: { totalMovimientos: nonNegative(counter.totalMovimientos, 'contadorPaso2.totalMovimientos'), cargos: nonNegative(counter.cargos, 'contadorPaso2.cargos'), cobros: nonNegative(counter.cobros, 'contadorPaso2.cobros'), cargosCentimos: centsText(counter.cargosCentimos, 'contadorPaso2.cargosCentimos'), cobrosCentimos: centsText(counter.cobrosCentimos, 'contadorPaso2.cobrosCentimos') }, limit: nonNegative(raw.limit, 'limit'), offset: nonNegative(raw.offset, 'offset'), totalPaginaSinSoporte: nonNegative(raw.totalPaginaSinSoporte, 'totalPaginaSinSoporte'), movimientos: movements };
+function friendlyAskError(body: unknown): string {
+  const raw = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : '';
+  if (/permiso|forbidden|autoriz/i.test(raw)) return 'No tienes permiso para registrar la solicitud.';
+  if (/cambi|hash|desactualiz|conflict/i.test(raw)) return 'El movimiento cambió. Actualiza la lista y vuelve a revisar antes de pedir el documento.';
+  return safeOutcomeMessage(raw, 'No se pudo registrar la solicitud de documento.');
+}
+function queryFor(input: Readonly<{ estado: ParaPedirEstado; query: string; tercero: string | null; limit: number; offset: number }>): URLSearchParams {
+  const params = new URLSearchParams({ estado: input.estado, limit: String(input.limit), offset: String(input.offset) });
+  if (input.query.trim()) params.set('q', input.query.trim().slice(0, 120));
+  if (input.tercero) params.set('tercero', input.tercero);
+  return params;
+}
+function filenamePart(value: string): string {
+  const clean = value.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return clean || 'tercero';
 }
 
-/** Lista de lectura para reunir comprobantes manualmente. No realiza escrituras ni envía comunicaciones. */
-export default function NewParaPedirWorkspace({ environment }: { environment: 'staging' | 'production' }) {
-  const [from, setFrom] = useState(DEFAULT_FROM); const [to, setTo] = useState(DEFAULT_TO); const [sentido, setSentido] = useState<SentidoEasy>('TODOS'); const [queryInput, setQueryInput] = useState(''); const [query, setQuery] = useState(''); const [offset, setOffset] = useState(0); const [data, setData] = useState<ParaPedirRead | null>(null); const [loading, setLoading] = useState(true); const [refreshing, setRefreshing] = useState(false); const [notice, setNotice] = useState<Notice>(null);
-  const load = useCallback(async (silent = false) => { if (silent) setRefreshing(true); else setLoading(true); try { const params = new URLSearchParams({ desde: from, hasta: to, sentido, limit: String(LIMIT), offset: String(offset) }); if (query.trim()) params.set('q', query.trim().slice(0, 120)); const response = await fetch(`${API}?${params}`, { cache: 'no-store' }); const raw: unknown = await response.json().catch(() => null); if (!response.ok) throw new Error(friendlyReadError(raw)); setData(parseParaPedirRead(raw)); setNotice(null); } catch { setData(null); setNotice({ tone: 'error', text: 'No se ha podido actualizar la lista. Vuelve a intentarlo.' }); } finally { setLoading(false); setRefreshing(false); } }, [from, offset, query, sentido, to]);
-  useEffect(() => { void load(); }, [load]);
-  const movements = useMemo(() => [...(data?.movimientos || [])].sort((left, right) => Math.abs(right.importeCentimos) - Math.abs(left.importeCentimos) || right.fecha.localeCompare(left.fecha) || left.id.localeCompare(right.id)), [data]);
-  const noticeClass = notice?.tone === 'error' ? 'border-red-300 bg-red-50 text-red-950' : 'border-blue-300 bg-blue-50 text-blue-950';
-  return <main className="mx-auto min-w-0 max-w-6xl space-y-5 px-3 py-5 sm:px-6 lg:px-8"><header className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm"><div className="flex gap-3"><DocumentMagnifyingGlassIcon className="mt-0.5 h-7 w-7 shrink-0 text-orange-300" aria-hidden="true" /><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-300">Finanzas · {environment === 'production' ? 'producción manual' : 'staging aislado'}</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight">Para pedir documentación</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">Reúne los comprobantes que faltan. Esta pantalla no envía correos ni sincroniza; sólo permite abrir descargas privadas autorizadas.</p></div></div></header><EasyHowTo mode="para-pedir" />{notice && <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`rounded-xl border p-4 text-sm ${noticeClass}`}>{notice.text}</p>}<section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Filtros de Para pedir"><div className="grid gap-3 md:grid-cols-4"><label className="text-sm font-bold text-slate-800">Desde<input type="date" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" /></label><label className="text-sm font-bold text-slate-800">Hasta<input type="date" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" /></label><label className="text-sm font-bold text-slate-800">Movimiento<select value={sentido} onChange={(event) => { setSentido(event.target.value as SentidoEasy); setOffset(0); }} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500"><option value="TODOS">Todos</option><option value="CARGOS">Cargos</option><option value="COBROS">Cobros</option></select></label><label className="text-sm font-bold text-slate-800">Buscar concepto<input value={queryInput} onChange={(event) => setQueryInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { setQuery(queryInput); setOffset(0); } }} placeholder="Concepto bancario…" className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" /></label></div><div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3"><p className="text-sm text-slate-700">{data ? <><strong>{data.contadorPaso2.totalMovimientos.toLocaleString('es-ES')}</strong> pendientes · cargos <strong>{formatCentsText(data.contadorPaso2.cargosCentimos)}</strong> · cobros <strong>{formatCentsText(data.contadorPaso2.cobrosCentimos)}</strong></> : 'Cargando lista…'}</p><button type="button" onClick={() => void load(true)} disabled={loading || refreshing} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button></div></section><section aria-labelledby="para-pedir-list-title"><div className="mb-3"><h2 id="para-pedir-list-title" className="text-xl font-extrabold text-slate-950">Pendientes de documentación</h2><p className="mt-1 text-sm text-slate-600">Ordenados por importe. El nombre de un documento candidato no confirma por sí solo quién es.</p></div>{!loading && movements.length === 0 ? <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-700">No hay pendientes en esta página.</p> : <div className="space-y-4">{movements.map((movement) => <article key={movement.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><header className="bg-slate-900 px-4 py-4 text-white"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-wider text-orange-300">Pendiente · recogida manual</p><h3 className="mt-1 break-words text-base font-extrabold">Quién es: {movement.quienEs?.estado === 'IDENTIFICADO' && movement.quienEs.nombre ? movement.quienEs.nombre : 'pendiente de confirmar'}</h3><p className="mt-1 break-words text-sm text-slate-200">{movement.concepto}</p></div><p className="shrink-0 text-lg font-extrabold tabular-nums">{cents(movement.importeCentimos)}</p></div></header><div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-xl border border-slate-200 bg-slate-50 p-3"><h4 className="font-bold text-slate-950">Movimiento</h4><dl className="mt-3 grid gap-2 text-sm"><div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Fecha</dt><dd className="font-semibold text-slate-900">{displayDate(movement.fecha)}</dd></div><div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cuenta</dt><dd className="font-semibold text-slate-900">{movement.cuenta.banco}{movement.cuenta.alias ? ` · ${movement.cuenta.alias}` : ''}</dd></div>{movement.tarjeta && <div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tarjeta</dt><dd className="font-semibold text-slate-900">Terminada en {movement.tarjeta.replace(/\D/g, '').slice(-4) || '—'}</dd></div>}<div><dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estado</dt><dd className="font-semibold text-slate-900">Pendiente</dd></div></dl></section><section className="rounded-xl border border-orange-200 bg-orange-50 p-3"><h4 className="font-bold text-slate-950">Qué papel lo justifica</h4>{movement.sugerencias.length === 0 ? <p className="mt-3 rounded-lg bg-white p-3 text-sm text-slate-700">Aún no hay un documento candidato. Reúne un ticket o factura; esta pantalla no envía solicitudes ni crea documentos.</p> : <ul className="mt-3 space-y-2">{movement.sugerencias.map((candidate) => <li key={candidate.id} className="rounded-lg border border-orange-100 bg-white p-3"><p className="font-bold text-slate-950">{documentLabel(candidate)}</p><p className="mt-1 text-sm text-slate-700">Nombre que aparece en el documento: {candidate.tercero || 'No disponible'}</p><p className="mt-1 text-xs leading-5 text-slate-600">{candidateReason(candidate)}</p>{candidate.archivoPrivadoHref && <a href={candidate.archivoPrivadoHref} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex min-h-11 items-center text-xs font-bold text-orange-900 underline">Abrir documento</a>}</li>)}</ul>}</section></div></article>)}</div>}</section>{data && <nav aria-label="Paginación de Para pedir" className="flex items-center justify-between gap-3"><button type="button" disabled={loading || offset <= 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 disabled:opacity-50"><ChevronLeftIcon className="h-4 w-4" />Anterior</button><span className="text-sm text-slate-700">Página {Math.floor(data.offset / data.limit) + 1} · {data.totalPaginaSinSoporte} pendientes en esta página</span><button type="button" disabled={loading || data.movimientos.length < data.limit} onClick={() => setOffset(offset + LIMIT)} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">Siguiente<ChevronRightIcon className="h-4 w-4" /></button></nav>}<section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950"><div className="flex gap-2"><InformationCircleIcon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /><p><strong>Sin envíos ni cambios.</strong> Esta lista no contiene botones de correo, no sube archivos ni sincroniza nada. Puedes abrir un documento disponible para revisarlo.</p></div></section></main>;
+/**
+ * Bandeja documental SSR. No invoca Modo Fácil, no calcula sugerencias y no
+ * incorpora una subida: la carga manual privada existente conserva su propio
+ * permiso y confirmación; el cierre se revisa de nuevo en Conciliar.
+ */
+export default function NewParaPedirWorkspace({
+  environment,
+  initialData,
+}: {
+  environment: 'staging' | 'production';
+  initialData: ParaPedirRead;
+}) {
+  const { active: activeActuation } = useActuation();
+  const [data, setData] = useState<ParaPedirRead>(initialData);
+  const [estado, setEstado] = useState<ParaPedirEstado>(initialData.filtro.estado);
+  const [queryDraft, setQueryDraft] = useState(initialData.filtro.q ?? '');
+  const [query, setQuery] = useState(initialData.filtro.q ?? '');
+  const [tercero, setTercero] = useState<string | null>(initialData.filtro.tercero);
+  const [offset, setOffset] = useState(initialData.offset);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [askingMovementId, setAskingMovementId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice>(null);
+  const controller = useRef<AbortController | null>(null);
+  const sequence = useRef(0);
+  const skipInitialRead = useRef(true);
+
+  const load = useCallback(async (silent = false, overrides?: Partial<Readonly<{ estado: ParaPedirEstado; query: string; tercero: string | null; offset: number }>>) => {
+    controller.current?.abort();
+    const active = new AbortController();
+    controller.current = active;
+    const current = {
+      estado: overrides?.estado ?? estado,
+      query: overrides?.query ?? query,
+      tercero: overrides?.tercero === undefined ? tercero : overrides.tercero,
+      offset: overrides?.offset ?? offset,
+    };
+    const id = ++sequence.current;
+    setRefreshing(true);
+    try {
+      const response = await fetch(`${API}?${queryFor({ ...current, limit: PAGE_SIZE }).toString()}`, { cache: 'no-store', signal: active.signal });
+      const raw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(friendlyReadError(raw));
+      const next = parseParaPedirRead(raw);
+      if (id !== sequence.current) return;
+      setData(next);
+      setNotice(silent ? { tone: 'success', text: 'Lista actualizada con la foto disponible.' } : null);
+    } catch (error) {
+      if (active.signal.aborted || id !== sequence.current) return;
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'No se ha podido actualizar la lista.' });
+    } finally {
+      if (id === sequence.current) setRefreshing(false);
+      if (controller.current === active) controller.current = null;
+    }
+  }, [estado, offset, query, tercero]);
+
+  useEffect(() => {
+    if (skipInitialRead.current) { skipInitialRead.current = false; return; }
+    void load();
+  }, [estado, query, tercero, offset, load]);
+  useEffect(() => () => controller.current?.abort(), []);
+
+  const applySearch = useCallback(() => {
+    const next = queryDraft.trim().slice(0, 120);
+    if (next === query && offset === 0) return;
+    setQuery(next);
+    setOffset(0);
+  }, [offset, query, queryDraft]);
+  const changeState = useCallback((next: ParaPedirEstado) => { setEstado(next); setOffset(0); }, []);
+  const openGroup = useCallback((group: ParaPedirAgrupacion) => { setTercero(group.tercero); setOffset(0); }, []);
+  const resetGroup = useCallback(() => { setTercero(null); setOffset(0); }, []);
+
+  const askForDocument = useCallback(async (movement: ParaPedirMovimiento) => {
+    const capability = movement.conciliarPedir;
+    if (!capability || askingMovementId) return;
+    setAskingMovementId(movement.movimientoId);
+    setNotice(null);
+    try {
+      const response = await fetch(CONCILIAR_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(activeActuation ? { 'x-io-acting-session': activeActuation.sessionId } : {}),
+        },
+        body: JSON.stringify({ action: 'pedir', id: capability.rowId, decisionHash: capability.decisionHash, idempotencyKey: makeIdempotencyKey() }),
+      });
+      const raw: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(friendlyAskError(raw));
+      const result = parseConciliarActionResponse(raw);
+      const outcome = result.outcomes.find((candidate) => candidate.id === capability.rowId);
+      if (!outcome?.ok) throw new Error(safeOutcomeMessage(outcome?.message ?? '', 'No se pudo registrar la solicitud de documento.'));
+      await load();
+      setNotice({ tone: 'success', text: 'Solicitud registrada. No se ha enviado ningún aviso.' });
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'No se pudo registrar la solicitud de documento.' });
+    } finally {
+      setAskingMovementId(null);
+    }
+  }, [activeActuation, askingMovementId, load]);
+
+  const exportGroup = useCallback(async (group: ParaPedirAgrupacion) => {
+    if (exporting) return;
+    setExporting(group.tercero);
+    setNotice(null);
+    try {
+      const first = await fetch(`${API}?${queryFor({ estado, query, tercero: group.tercero, limit: EXPORT_PAGE_SIZE, offset: 0 }).toString()}`, { cache: 'no-store' });
+      const firstRaw: unknown = await first.json().catch(() => null);
+      if (!first.ok) throw new Error(friendlyReadError(firstRaw));
+      const firstPage = parseParaPedirRead(firstRaw);
+      if (firstPage.total > MAX_EXPORT_ROWS) throw new Error(`La solicitud supera ${MAX_EXPORT_ROWS.toLocaleString('es-ES')} movimientos. Acota la búsqueda antes de exportar.`);
+      const rows: ParaPedirMovimiento[] = [...firstPage.movimientos];
+      const version = firstPage.proyeccion.version;
+      for (let pageOffset = firstPage.limit; pageOffset < firstPage.total; pageOffset += EXPORT_PAGE_SIZE) {
+        const response = await fetch(`${API}?${queryFor({ estado, query, tercero: group.tercero, limit: EXPORT_PAGE_SIZE, offset: pageOffset }).toString()}`, { cache: 'no-store' });
+        const raw: unknown = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(friendlyReadError(raw));
+        const page = parseParaPedirRead(raw);
+        if (page.proyeccion.version !== version) throw new Error('La lista cambió mientras se preparaba el archivo. Actualiza y vuelve a exportar.');
+        rows.push(...page.movimientos);
+      }
+      const [XLSX, xlsx] = await Promise.all([import('xlsx'), import('./para-pedir-xlsx')]);
+      const bytes = await xlsx.createParaPedirXlsx(XLSX, group.tercero, rows);
+      xlsx.downloadParaPedirXlsx(bytes, `solicitud-documentacion-${filenamePart(group.tercero)}.xlsx`);
+      setNotice({ tone: 'success', text: `Archivo preparado con ${rows.length.toLocaleString('es-ES')} movimiento(s) de ${group.tercero}.` });
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'No se pudo preparar el archivo.' });
+    } finally {
+      setExporting(null);
+    }
+  }, [estado, exporting, query]);
+
+  const noticeClass = notice?.tone === 'error' ? 'border-red-300 bg-red-50 text-red-950' : notice?.tone === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-950' : 'border-blue-300 bg-blue-50 text-blue-950';
+  const isFirstPage = data.offset === 0;
+  const canNext = data.offset + data.movimientos.length < data.total;
+
+  return <main className="mx-auto min-w-0 max-w-7xl space-y-5 px-3 py-5 sm:px-6 lg:px-8">
+    <header className="rounded-2xl bg-slate-900 p-5 text-white shadow-sm">
+      <div className="flex gap-3">
+        <DocumentMagnifyingGlassIcon className="mt-0.5 h-7 w-7 shrink-0 text-orange-300" aria-hidden="true" />
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-orange-300">Finanzas · {environment === 'production' ? 'consulta protegida' : 'staging aislado'}</p>
+          <h1 className="mt-1 text-2xl font-extrabold tracking-tight">Para pedir documentación</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">Organiza los comprobantes pendientes por proveedor o tercero. Pedir desde Conciliar sólo deja una marca auditada: no envía avisos, no sincroniza y no cierra ninguna revisión.</p>
+        </div>
+      </div>
+    </header>
+
+    <section aria-label="Resumen de documentación pendiente" className="grid gap-3 sm:grid-cols-2">
+      <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-slate-500">Movimientos de la selección</p><p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{data.resumen.movimientos.toLocaleString('es-ES')}</p><p className="mt-1 text-xs text-slate-600">Foto disponible: {new Intl.DateTimeFormat('es-ES', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(data.proyeccion.actualizadaEn))}</p></article>
+      <article className="rounded-2xl border border-orange-200 bg-orange-50 p-4 shadow-sm"><p className="text-xs font-bold uppercase tracking-wide text-orange-900">Importe pendiente firmado</p><p className="mt-2 text-3xl font-extrabold tabular-nums text-slate-950">{money(data.resumen.pendienteCentimos)}</p><p className="mt-1 text-xs text-orange-950">{data.proyeccion.pendienteActualizacion ? 'Hay cambios pendientes de actualizar; revisa antes de confirmar.' : 'La foto no informa cambios pendientes.'}</p></article>
+    </section>
+
+    {notice && <p role={notice.tone === 'error' ? 'alert' : 'status'} className={`rounded-xl border p-4 text-sm ${noticeClass}`}>{notice.text}</p>}
+
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" aria-label="Filtros de Para pedir">
+      <div className="grid gap-3 lg:grid-cols-[230px_minmax(0,1fr)_auto] lg:items-end">
+        <label className="text-sm font-bold text-slate-800">Estado de pedido
+          <select value={estado} onChange={(event) => changeState(event.target.value as ParaPedirEstado)} className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500">
+            <option value="TODOS">Todos</option><option value="SIN_PEDIR">Sin pedir</option><option value="PEDIDO">Pedido</option><option value="PEDIDO_MAS_15_DIAS">Pedido hace más de 15 días</option>
+          </select>
+        </label>
+        <form onSubmit={(event) => { event.preventDefault(); applySearch(); }} className="min-w-0"><label className="text-sm font-bold text-slate-800">Buscar tercero, documento o concepto<input value={queryDraft} onChange={(event) => setQueryDraft(event.target.value)} maxLength={120} placeholder="Proveedor, referencia o concepto…" className="mt-1 block min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-950 focus:border-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500" /></label></form>
+        <div className="flex gap-2"><button type="button" onClick={applySearch} className="inline-flex min-h-11 items-center justify-center rounded-lg bg-orange-600 px-4 py-2 text-sm font-bold text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500">Buscar</button><button type="button" onClick={() => void load(true)} disabled={refreshing} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button></div>
+      </div>
+      {tercero && <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-3"><p className="text-sm text-slate-700">Mostrando la solicitud de <strong>{tercero}</strong>.</p><button type="button" onClick={resetGroup} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-orange-500">Ver todos los terceros</button></div>}
+    </section>
+
+    {!tercero && <section aria-labelledby="para-pedir-groups-title"><div className="mb-3"><h2 id="para-pedir-groups-title" className="text-xl font-extrabold text-slate-950">Solicitudes por tercero</h2><p className="mt-1 text-sm text-slate-600">Cada tarjeta indica cuántos documentos conviene reunir y su importe pendiente. El archivo se prepara sólo para ese tercero.</p></div>{data.agrupaciones.length === 0 ? <Empty /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{data.agrupaciones.map((group) => <article key={group.tercero} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h3 className="break-words text-base font-extrabold text-slate-950">{group.tercero}</h3><dl className="mt-4 grid grid-cols-2 gap-3"><div><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Pendientes</dt><dd className="mt-1 text-xl font-extrabold tabular-nums text-slate-950">{group.movimientos.toLocaleString('es-ES')}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Importe</dt><dd className="mt-1 text-xl font-extrabold tabular-nums text-slate-950">{money(group.pendienteCentimos)}</dd></div></dl><p className="mt-3 text-xs text-slate-600">Pedidos registrados: {group.pedidos.toLocaleString('es-ES')} · más de 15 días: {group.pedidosMas15Dias.toLocaleString('es-ES')}</p><div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => openGroup(group)} className="min-h-10 rounded-lg bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-orange-500">Ver movimientos</button><button type="button" onClick={() => void exportGroup(group)} disabled={exporting !== null} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-orange-300 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-950 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting === group.tercero ? 'Preparando…' : 'Excel'}</button></div></article>)}</div>}</section>}
+
+    <section aria-labelledby="para-pedir-list-title"><div className="mb-3"><h2 id="para-pedir-list-title" className="text-xl font-extrabold text-slate-950">{tercero ? `Movimientos de ${tercero}` : 'Movimientos pendientes'}</h2><p className="mt-1 text-sm text-slate-600">La recepción de un archivo no vincula el banco. Vuelve a Conciliar para revisar y confirmar manualmente.</p></div>{data.movimientos.length === 0 ? <Empty /> : <div className="space-y-3">{data.movimientos.map((movement) => <MovementCard key={movement.movimientoId} movement={movement} onAskDocument={askForDocument} asking={askingMovementId === movement.movimientoId} />)}</div>}</section>
+
+    <nav aria-label="Paginación de Para pedir" className="flex items-center justify-between gap-3"><button type="button" disabled={refreshing || isFirstPage} onClick={() => setOffset(Math.max(0, data.offset - data.limit))} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 disabled:opacity-50"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><span className="text-sm text-slate-700">{data.total.toLocaleString('es-ES')} movimiento(s) · página {Math.floor(data.offset / data.limit) + 1}</span><button type="button" disabled={refreshing || !canNext} onClick={() => setOffset(data.offset + data.limit)} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-800 disabled:opacity-50">Siguiente<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></nav>
+
+    <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-950"><div className="flex gap-2"><InformationCircleIcon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" /><p><strong>Flujo manual y revisable.</strong> Si dispones de un comprobante, usa la carga privada manual ya existente. Guardarlo no concilia ni vincula el banco; después se revisa y confirma en Conciliar. Esta pantalla no envía correos, no sincroniza ni crea enlaces automáticos.</p></div></section>
+  </main>;
 }
+
+function MovementCard({ movement, onAskDocument, asking }: { movement: ParaPedirMovimiento; onAskDocument: (movement: ParaPedirMovimiento) => void; asking: boolean }) {
+  const conciliar = `/admin/finanzas/conciliar?tab=${encodeURIComponent(movement.tab)}&q=${encodeURIComponent(movement.movimientoId)}`;
+  return <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-wrap items-start justify-between gap-3 bg-slate-900 px-4 py-4 text-white"><div className="min-w-0"><p className="text-xs font-bold uppercase tracking-wider text-orange-300">{movement.tercero ?? 'Sin tercero documental'} · {movement.tab === 'PAGOS' ? 'Pago' : 'Cobro'}</p><h3 className="mt-1 break-words text-base font-extrabold">{movement.concepto}</h3><p className="mt-1 text-sm text-slate-200">{displayDate(movement.fecha)} · {movement.banco ?? 'Banco no disponible'}{movement.cuenta ? ` · ${movement.cuenta}` : ''}</p></div><p className="shrink-0 text-lg font-extrabold tabular-nums">{money(movement.pendienteCentimos)}</p></header><div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_auto]"><div><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold ring-1 ${requestStatusClass(movement.estadoPedido)}`}>{requestStatusLabel(movement.estadoPedido)}</span>{movement.pedido ? <p className="mt-3 text-sm text-slate-800"><strong>Pedido registrado:</strong> {displayDate(movement.pedido.dia)}{movement.pedido.actorNombre ? ` · ${movement.pedido.actorNombre}` : ' · actor no disponible'} · hace {movement.pedido.diasTranscurridos.toLocaleString('es-ES')} día(s).</p> : movement.estadoPedido === 'PEDIDO_SIN_AUDITORIA' ? <p className="mt-3 text-sm text-red-900">No hay fecha ni persona verificable para este pedido; revisa la auditoría antes de actuar.</p> : null}<dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2"><div><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Documento</dt><dd className="font-semibold text-slate-900">{movement.referenciaDocumento ?? 'Aún no identificado'}</dd></div><div><dt className="text-xs font-bold uppercase tracking-wide text-slate-500">Motivo</dt><dd className="text-slate-800">{movement.motivo}</dd></div></dl></div><div className="flex flex-wrap items-start gap-2">{movement.conciliarPedir && <button type="button" onClick={() => onAskDocument(movement)} disabled={asking} className="inline-flex min-h-10 items-center rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-bold text-red-950 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50">{asking ? 'Registrando…' : 'Marcar como pedido'}</button>}<a href={conciliar} className="inline-flex min-h-10 items-center rounded-lg bg-orange-600 px-3 py-2 text-sm font-bold text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500">Ya tengo el papel → revisar en Conciliar</a></div></div></article>;
+}
+function Empty() { return <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-700">No hay movimientos que coincidan con esta selección.</p>; }

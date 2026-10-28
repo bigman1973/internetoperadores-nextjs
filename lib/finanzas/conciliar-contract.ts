@@ -1,6 +1,9 @@
 export const CONCILIAR_TABS = ['COBROS', 'EMITIDAS', 'PAGOS', 'RECIBIDAS'] as const
 export const CONCILIAR_COLORS = ['VERDE', 'AMBAR', 'ROJO'] as const
 export const CONCILIAR_EMITIDAS_GROUPS = ['CON_PROPUESTA', 'PARA_REVISAR', 'SIN_PROPUESTA'] as const
+export const CONCILIAR_GROUPS = ['BANCO', 'PROVEEDORES', 'TARJETA', 'NOMINAS', 'IMPUESTOS', 'TRASPASOS', 'CONFIRMING', 'REMESAS', 'CLIENTES', 'PRESTAMOS', 'DEVOLUCIONES'] as const
+export const CONCILIAR_SORT_FIELDS = ['FECHA', 'CONCEPTO', 'IMPORTE'] as const
+export const CONCILIAR_SORT_DIRECTIONS = ['ASC', 'DESC'] as const
 export const CONCILIAR_MAX_LIMIT = 100
 export const CONCILIAR_MAX_OFFSET = 100_000
 export const CONCILIAR_MAX_QUERY = 120
@@ -11,6 +14,9 @@ export const CONCILIAR_DEFAULT_CUTOFF = '2026-01-01' as const
 export type ConciliarTab = typeof CONCILIAR_TABS[number]
 export type ConciliarColor = typeof CONCILIAR_COLORS[number]
 export type ConciliarEmitidasGroup = typeof CONCILIAR_EMITIDAS_GROUPS[number]
+export type ConciliarGroup = typeof CONCILIAR_GROUPS[number]
+export type ConciliarSortField = typeof CONCILIAR_SORT_FIELDS[number]
+export type ConciliarSortDirection = typeof CONCILIAR_SORT_DIRECTIONS[number]
 export type ConciliarAction = 'confirmar' | 'deshacer' | 'pedir'
 
 export type ConciliarDocument = Readonly<{
@@ -42,6 +48,12 @@ export type ConciliarRow = Readonly<{
   linksMovimiento?: readonly ConciliarMovementLink[]
   detail: string | null
   decisionHash: string
+  gestionDocumento?: Readonly<{
+    estado: 'SIN_PEDIR' | 'PEDIDO' | 'PEDIDO_SIN_AUDITORIA' | 'RECIBIDO'
+    pedido: Readonly<{ fecha: string; por: string | null }> | null
+    documentoDisponible: boolean
+    archivoHref?: string
+  }>
 }>
 
 export type ConciliarTabSummary = Readonly<{
@@ -60,6 +72,10 @@ export type ConciliarGetInput = Readonly<{
   cutoffDate?: string
   historic?: boolean
   emitidasGrupo?: ConciliarEmitidasGroup
+  estado?: ConciliarColor
+  grupo?: ConciliarGroup
+  orden?: ConciliarSortField
+  direccion?: ConciliarSortDirection
   limit: number
   offset: number
 }>
@@ -92,7 +108,7 @@ export type ConciliarCommand = ConciliarConfirmCommand | ConciliarUndoCommand | 
 
 /** Datos de fuente persistidos en la proyección; nunca se reciben del navegador. */
 export type ConciliarProjectionSource = Readonly<{
-  kind: 'COBRO_PROPUESTA' | 'COBRO_CONFIRMING' | 'PAGO_FACTURA_RECIBIDA' | 'PAGO_NOMINA' | 'COMISION_BANCARIA' | 'PENDIENTE_FACTURA_EMITIDA' | 'TRANSFERENCIA_PROPIA'
+  kind: 'COBRO_PROPUESTA' | 'COBRO_CONFIRMING' | 'PAGO_FACTURA_RECIBIDA' | 'PAGO_NOMINA' | 'PAGO_TICKET_B5' | 'COMISION_BANCARIA' | 'PENDIENTE_FACTURA_EMITIDA' | 'TRANSFERENCIA_PROPIA'
   movimientoId?: string
   movimientoParId?: string
   transferFingerprint?: string
@@ -105,6 +121,10 @@ export type ConciliarProjectionSource = Readonly<{
   facturaEmitidaId?: string
   facturaRecibidaId?: string
   nominaId?: string
+  /** Sólo PAGO_TICKET_B5. Se persisten en servidor al reconstruir; nunca son input HTTP. */
+  adjuntoB5Id?: string
+  gastoId?: string
+  documentoConciliableId?: string
   versionB4?: number
   remesaIds?: readonly number[]
 }>
@@ -166,7 +186,7 @@ function positiveInteger(value: string, field: string, min: number, max: number)
 
 function responseView(raw: unknown): ConciliarResponseView {
   const value = object(raw, 'responseView no es válida.')
-  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo']
+  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo', 'estado', 'grupo', 'orden', 'direccion']
   if (Object.keys(value).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'responseView contiene campos no admitidos.')
   if (typeof value.tab !== 'string' || typeof value.limit !== 'number' || typeof value.offset !== 'number'
     || typeof value.cutoffDate !== 'string' || typeof value.historic !== 'boolean') {
@@ -181,12 +201,18 @@ function responseView(raw: unknown): ConciliarResponseView {
     cutoffDate: value.cutoffDate,
     historic: value.historic ? '1' : '0',
     emitidasGrupo: value.emitidasGrupo === undefined ? undefined : typeof value.emitidasGrupo === 'string' ? value.emitidasGrupo : null,
+    estado: value.estado === undefined ? undefined : typeof value.estado === 'string' ? value.estado : null,
+    grupo: value.grupo === undefined ? undefined : typeof value.grupo === 'string' ? value.grupo : null,
+    orden: value.orden === undefined ? undefined : typeof value.orden === 'string' ? value.orden : null,
+    direccion: value.direccion === undefined ? undefined : typeof value.direccion === 'string' ? value.direccion : null,
     limit: String(value.limit),
     offset: String(value.offset),
   }
   if ((value.desde !== undefined && strings.desde === null) || (value.hasta !== undefined && strings.hasta === null)
     || (value.cuentaId !== undefined && strings.cuentaId === null) || (value.q !== undefined && strings.q === null)
     || (value.emitidasGrupo !== undefined && strings.emitidasGrupo === null)
+    || (value.estado !== undefined && strings.estado === null) || (value.grupo !== undefined && strings.grupo === null)
+    || (value.orden !== undefined && strings.orden === null) || (value.direccion !== undefined && strings.direccion === null)
     || !Number.isSafeInteger(value.limit) || !Number.isSafeInteger(value.offset)) {
     fail(400, 'VALIDATION_ERROR', 'responseView no conserva una vista normalizada.')
   }
@@ -203,7 +229,7 @@ function commandKeys(root: JsonRecord, required: readonly string[]): JsonRecord 
 }
 
 export function parseConciliarGetInput(raw: Readonly<Record<string, string | null | undefined>>): ConciliarGetInput {
-  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo']
+  const allowed = ['tab', 'desde', 'hasta', 'cuentaId', 'q', 'limit', 'offset', 'cutoffDate', 'historic', 'emitidasGrupo', 'estado', 'grupo', 'orden', 'direccion']
   if (Object.keys(raw).some(key => !allowed.includes(key))) fail(400, 'VALIDATION_ERROR', 'La consulta contiene campos no admitidos.')
   const tab = raw.tab ?? 'COBROS'
   if (!(CONCILIAR_TABS as readonly string[]).includes(tab)) fail(400, 'VALIDATION_ERROR', 'La pestaña no es válida.')
@@ -217,12 +243,20 @@ export function parseConciliarGetInput(raw: Readonly<Record<string, string | nul
   if (emitidasGrupo !== undefined && !(CONCILIAR_EMITIDAS_GROUPS as readonly string[]).includes(emitidasGrupo)) fail(400, 'VALIDATION_ERROR', 'El grupo de Emitidas no es válido.')
   if (emitidasGrupo !== undefined && tab !== 'EMITIDAS') fail(400, 'VALIDATION_ERROR', 'El grupo sólo se puede consultar en Emitidas.')
   if (historic && emitidasGrupo !== undefined) fail(400, 'VALIDATION_ERROR', 'Las facturas anteriores no se pueden filtrar por grupo.')
+  const estado = raw.estado === null || raw.estado === undefined || raw.estado === '' ? undefined : raw.estado
+  if (estado !== undefined && !(CONCILIAR_COLORS as readonly string[]).includes(estado)) fail(400, 'VALIDATION_ERROR', 'El estado no es válido.')
+  const grupo = raw.grupo === null || raw.grupo === undefined || raw.grupo === '' ? undefined : raw.grupo
+  if (grupo !== undefined && !(CONCILIAR_GROUPS as readonly string[]).includes(grupo)) fail(400, 'VALIDATION_ERROR', 'El grupo no es válido.')
+  const orden = raw.orden === null || raw.orden === undefined || raw.orden === '' ? undefined : raw.orden
+  if (orden !== undefined && !(CONCILIAR_SORT_FIELDS as readonly string[]).includes(orden)) fail(400, 'VALIDATION_ERROR', 'La ordenación no es válida.')
+  const direccion = raw.direccion === null || raw.direccion === undefined || raw.direccion === '' ? undefined : raw.direccion
+  if (direccion !== undefined && !(CONCILIAR_SORT_DIRECTIONS as readonly string[]).includes(direccion)) fail(400, 'VALIDATION_ERROR', 'La dirección de ordenación no es válida.')
   const cuentaId = raw.cuentaId === null || raw.cuentaId === undefined || raw.cuentaId === '' ? undefined : text(raw.cuentaId, 'cuentaId', 160)
   const q = raw.q === null || raw.q === undefined || raw.q === '' ? undefined : raw.q.trim()
   if (q !== undefined && (!q || q.length > CONCILIAR_MAX_QUERY)) fail(400, 'VALIDATION_ERROR', 'La búsqueda no es válida.')
   const limit = positiveInteger(raw.limit ?? '50', 'limit', 1, CONCILIAR_MAX_LIMIT)
   const offset = positiveInteger(raw.offset ?? '0', 'offset', 0, CONCILIAR_MAX_OFFSET)
-  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), ...(emitidasGrupo ? { emitidasGrupo: emitidasGrupo as ConciliarEmitidasGroup } : {}), cutoffDate, historic, limit, offset }
+  return { tab: tab as ConciliarTab, ...(desde ? { desde } : {}), ...(hasta ? { hasta } : {}), ...(cuentaId ? { cuentaId } : {}), ...(q ? { q } : {}), ...(emitidasGrupo ? { emitidasGrupo: emitidasGrupo as ConciliarEmitidasGroup } : {}), ...(estado ? { estado: estado as ConciliarColor } : {}), ...(grupo ? { grupo: grupo as ConciliarGroup } : {}), ...(orden ? { orden: orden as ConciliarSortField } : {}), ...(direccion ? { direccion: direccion as ConciliarSortDirection } : {}), cutoffDate, historic, limit, offset }
 }
 
 function parseConfirmItems(raw: unknown): readonly ConciliarConfirmItem[] {

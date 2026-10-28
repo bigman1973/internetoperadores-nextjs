@@ -5,9 +5,11 @@ const root = process.cwd();
 const page = readFileSync(resolve(root, 'app/admin/finanzas/conciliar/page.tsx'), 'utf8');
 const workspace = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarWorkspace.tsx'), 'utf8');
 const contract = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-contract.ts'), 'utf8');
+const xlsx = readFileSync(resolve(root, 'components/finanzas/conciliar/conciliar-xlsx.ts'), 'utf8');
 const documentPreview = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarDocumentPreview.tsx'), 'utf8');
 const remesaDialog = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRemesaConfirmationDialog.tsx'), 'utf8');
 const recentHistory = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarRecentHistory.tsx'), 'utf8');
+const fileHrefGuard = readFileSync(resolve(root, 'lib/finanzas/conciliar-file-href.ts'), 'utf8');
 
 function required(source, name, fragments) {
   for (const fragment of fragments) {
@@ -53,10 +55,11 @@ required(contract, 'contrato de cliente', [
   'emitidasGroups: parseEmitidasGroups(raw.emitidasGroups)',
   "value.startsWith('/')",
   "value.startsWith('//')",
-  'conciliar\\/archivo\\/',
+  'return safeConciliarDocumentHref(value)',
   'decisionHash',
   'opaqueId',
 ]);
+required(fileHrefGuard, 'lectores privados compartidos', ['conciliar\\/archivo\\/', 'movimientos\\/', 'ADJUNTO_B5:', 'entries.length !== 1', "entries[0][0] !== 'archivoId'", 'url.hash', "url.origin !== 'https://conciliar.local'"]);
 
 required(workspace, 'espacio de trabajo', [
   "const API = '/api/admin/finanzas/conciliar'",
@@ -72,7 +75,8 @@ required(workspace, 'espacio de trabajo', [
   'Exportar a Excel',
   "await import('xlsx')",
   'MAX_EXPORT_ROWS',
-  'escapeSpreadsheet(',
+  "await import('./conciliar-xlsx')",
+  'createConciliarXlsx',
   'safeDocumentHref(',
   'safeFinanceHref(',
   'aria-live="polite"',
@@ -109,8 +113,10 @@ if (/window\.open\(/.test(workspace)) throw new Error('La UI no debe abrir docum
 if (/import\s+(?!type\s*\{)[^;]+from\s+['"]@\/lib\/finanzas\/conciliar-contract['"]/.test(contract)) throw new Error('El contrato de navegador sólo puede importar tipos del contrato servidor.');
 if (/node:crypto|createHash/.test(contract)) throw new Error('El contrato de navegador no puede incluir crypto de Node.');
 if (!/for \(let pageOffset = 0; pageOffset < data\.total; pageOffset \+= EXPORT_PAGE_SIZE\)/.test(workspace)) throw new Error('La exportación debe paginar todas las filas filtradas.');
-if (!/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un cambio de proyección debe eliminar selecciones ocultas.');
-if (!/tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, limit: PAGE_SIZE, offset: historicOffset/.test(workspace)) throw new Error('La consulta histórica no debe heredar emitidasGrupo.');
+if (!/new Map\(\)/.test(workspace) || !/reviewSelectionForCurrentRows\(selected, rows\)/.test(workspace)) throw new Error('La selección debe conservar su hash y revisar sólo las filas visibles actuales.');
+if (/setSelected\(new Set\(\)\)/.test(workspace)) throw new Error('Un refresco no debe borrar selecciones ocultas automáticamente.');
+if (!/tab: 'EMITIDAS', from, to, accountId, query, cutoffDate, historic: true, estado, grupo, orden, direccion, limit: PAGE_SIZE, offset: historicOffset/.test(workspace)) throw new Error('La consulta histórica debe heredar filtros comunes, no emitidasGrupo.');
 if (/onConfirm=.*EmitidasGroupFilters|onAsk=.*EmitidasGroupFilters/.test(workspace)) throw new Error('Las tarjetas de Emitidas sólo pueden filtrar; no pueden mutar.');
+required(xlsx, 'exportador XLSX', ['CONCILIAR_XLSX_HEADERS', "'Fecha', 'Estado', 'Grupo / tipo', 'Tercero / proveedor', 'Concepto', 'Cuenta', 'Documento', 'Importe', 'Nota'", "sheet['!autofilter']", 'freezeFirstRowXlsx', 'state="frozen"', 'escapeSpreadsheet', 'row.importeCentimos / 100']);
 
 console.log('OK: UI Conciliar validada estáticamente (sin red, BD, build ni tsc).');

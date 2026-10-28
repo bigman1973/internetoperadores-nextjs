@@ -38,5 +38,5 @@ test('versioned remittance owns a native B4 leg, never a phantom legacy proposal
  assert.doesNotMatch(branch,/proposalBlockId:/)
  assert.match(source,/await requireLiveWrite\(actorId, tx\)/)
  assert.match(source,/await assertConciliarRuntime\(database\)/)
- assert.match(source,/runConciliarTransactionCommand\(tx, actorId, command\)/)
+ assert.match(source,/runWithConciliarSerializableAuthorization\(tx, \(\) => runConciliarTransactionCommand\(tx, actorId, command,/)
 })
