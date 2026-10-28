@@ -21,6 +21,8 @@ export type ConciliarBankFeeProjectionSeed = Readonly<{
   cuentaId: string
 }>
 
+const MAX_BANK_FEE_UNDO_LEGS = 100
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 }
@@ -31,7 +33,11 @@ function sourceKind(value: unknown): ConciliarProjectionSource['kind'] | null {
 }
 
 function identifier(value: unknown, maximum = 200): string | null {
-  return typeof value === 'string' && value.length > 0 && value.length <= maximum ? value : null
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maximum ? value : null
+}
+function uuidIdentifier(value: unknown): string | null {
+  const parsed = identifier(value, 36)
+  return parsed && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(parsed) ? parsed : null
 }
 
 function nullableSafeText(value: unknown, maximum: number): string | null {
@@ -52,18 +58,39 @@ function bankFeeVersion(value: unknown): number | null {
 }
 
 /**
- * This deliberately accepts only metadata persisted by Conciliar's original
- * receipt. Legacy legs without sourceKind are not inferred from their B4 data:
- * they remain on the normal dirty/full-rebuild path.
+ * Selects only receipts whose whole dependency closure is a current bank-fee
+ * batch. Receipt metadata is evidence only for this narrow path: legacy legs
+ * without sourceKind, dirty baselines, mixed legs and duplicate B4/movement
+ * identifiers deliberately keep the established dirty/full-rebuild route.
+ */
+export function knownBankFeeUndoMovements(input: Readonly<{
+  wasDirty: boolean
+  legs: readonly ConciliarFeeUndoLeg[]
+}>): readonly string[] | null {
+  if (input.wasDirty || input.legs.length < 1 || input.legs.length > MAX_BANK_FEE_UNDO_LEGS) return null
+  const movementIds = new Set<string>()
+  const operationB4Ids = new Set<string>()
+  for (const leg of input.legs) {
+    const movimientoId = uuidIdentifier(leg.movimientoId)
+    const operationB4Id = uuidIdentifier(leg.operationB4Id)
+    if (!movimientoId || !operationB4Id || leg.actionB5 || leg.proposalBlockId || sourceKind(leg.result) !== 'COMISION_BANCARIA') return null
+    if (movementIds.has(movimientoId) || operationB4Ids.has(operationB4Id)) return null
+    movementIds.add(movimientoId)
+    operationB4Ids.add(operationB4Id)
+  }
+  return [...movementIds]
+}
+
+/**
+ * Backward-compatible single-leg selector. The batch selector remains the
+ * authority so single and batch undo always retain identical safety guards.
  */
 export function knownSingleBankFeeUndoMovement(input: Readonly<{
   wasDirty: boolean
   legs: readonly ConciliarFeeUndoLeg[]
 }>): string | null {
-  if (input.wasDirty || input.legs.length !== 1) return null
-  const leg = input.legs[0]
-  if (!leg || !leg.operationB4Id || leg.actionB5 || leg.proposalBlockId || sourceKind(leg.result) !== 'COMISION_BANCARIA') return null
-  return identifier(leg.movimientoId)
+  const movementIds = knownBankFeeUndoMovements(input)
+  return movementIds?.length === 1 ? movementIds[0] ?? null : null
 }
 
 /**
