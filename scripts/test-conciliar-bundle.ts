@@ -27,12 +27,13 @@ test('los paneles no visibles se parten por interacción sin desactivar SSR de l
   for (const name of ['ConciliarDocumentPreview', 'ConciliarRecentHistory', 'ConciliarRemesaConfirmationDialog']) {
     assert.match(workspace, new RegExp(`const ${name} = dynamic\\(\\(\\) => import\\('./${name}'\\)\\);`));
   }
-  assert.match(workspace, /openDocument && <div[\s\S]*?<ConciliarDocumentPreview /);
+  assert.match(workspace, /openDocument && <ConciliarDocumentPreview /);
   assert.match(workspace, /receipts\.length > 0 && <ConciliarRecentHistory /);
   assert.match(workspace, /remesaConfirmation && <ConciliarRemesaConfirmationDialog /);
   assert.match(workspace, /showInterestInvoices && <ConfirmingInterestInvoices \/>/);
   assert.doesNotMatch(workspace, /Conciliar(?:DocumentPreview|RecentHistory|RemesaConfirmationDialog).*ssr:\s*false/);
-  assert.match(documentPreview, /sandbox=""/);
+  assert.doesNotMatch(documentPreview, /<(?:iframe|object|embed)\b/);
+  assert.match(documentPreview, /href=\{detail\.pdfHref\} target="_blank" rel="noopener noreferrer"/);
   assert.match(remesaDialog, /aria-modal="true"/);
   assert.match(remesaDialog, /function firstFocusable/);
   assert.match(recentHistory, /Actividad reciente/);

@@ -86,7 +86,8 @@ required(workspace, 'espacio de trabajo', [
   'emitidasGrupo',
   "params.set('emitidasGrupo', input.emitidasGrupo)",
   'setEmitidasGrupo((current) => current === next ? \'\' : next)',
-  'setOffset(0); setSelected(new Set()); setOpenDocument(null);',
+  'closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);',
+  'detailController.current?.abort()',
   'una propuesta no confirma el cobro ni marca la factura como cobrada',
   'fontFamily: \'var(--font-conciliar), Arial, Helvetica, sans-serif\'',
   '#FF5300',
@@ -100,7 +101,7 @@ required(workspace, 'espacio de trabajo', [
   'no se puede mezclar con otros movimientos',
 ]);
 
-required(documentPreview, 'detalle diferido', ['sandbox=""', 'referrerPolicy="same-origin"', 'document.movement.diferenciaCentimos']);
+required(documentPreview, 'detalle diferido', ['role="dialog"', 'target="_blank"', 'drawer.row.importeCentimos', 'drawer.row.motivo', 'Abrir PDF']);
 required(remesaDialog, 'remesa diferida', ['Segunda confirmación humana de la remesa', 'Confirmar sólo estas', 'confirmation.preview.filas.slice', 'onClick={onConfirm}', 'onClick={onCancel}']);
 required(recentHistory, 'actividad diferida', ['onUndo(receipt)', '>Deshacer</button>']);
 if (/fetch\([^)]*https?:\/\//.test(workspace)) throw new Error('La UI no debe llamar a una URL externa.');

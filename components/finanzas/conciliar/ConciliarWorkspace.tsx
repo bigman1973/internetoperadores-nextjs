@@ -7,12 +7,13 @@ import {
 } from '@heroicons/react/24/outline';
 import {
   CONCILIAR_COLORS, CONCILIAR_TABS, escapeSpreadsheet, formatDate, formatMagnitude, formatMoney,
-  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarDetailResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarUndoResponse,
+  makeIdempotencyKey, parseConciliarActionResponse, parseConciliarHistoryResponse, parseConciliarReadResponse, parseConciliarRemesaPreviewResponse, parseConciliarUndoResponse,
   safeDocumentHref, safeFinanceHref, safeOutcomeMessage,
   type ConciliarActionResponse, type ConciliarColor, type ConciliarConfirmItem, type ConciliarMutationPayload,
   type ConciliarEmitidasGroup, type ConciliarReadResponse, type ConciliarRemesaPreview, type ConciliarRow, type ConciliarSummary, type ConciliarTab,
 } from './conciliar-contract';
 import { useActuation } from '@/components/impersonation/ActuationProvider';
+import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
 import dynamic from 'next/dynamic';
 const ConciliarDocumentPreview = dynamic(() => import('./ConciliarDocumentPreview'));
 const ConciliarRecentHistory = dynamic(() => import('./ConciliarRecentHistory'));
@@ -21,6 +22,7 @@ const ConfirmingInterestInvoices = dynamic(() => import('./ConfirmingInterestInv
 
 const API = '/api/admin/finanzas/conciliar';
 const REMESA_PREVIEW_API = '/api/admin/finanzas/conciliar/remesa-preview';
+const DOCUMENT_DETAIL_API = '/api/admin/finanzas/conciliar/detalle';
 /** Cada lectura visible es una página exacta autorizada por el servidor. */
 const PAGE_SIZE = 20;
 const EXPORT_PAGE_SIZE = 100;
@@ -37,7 +39,7 @@ type Receipt = Readonly<{
   status: 'done' | 'asked' | 'undone' | 'failed';
   createdAt: number;
 }>;
-type OpenDocument = Readonly<{ rowId: string; title: string; href: string | null; explanation: string | null; movement: ConciliarRow }> | null;
+type OpenDocument = Readonly<{ row: ConciliarRow; status: 'loading' | 'ready' | 'error'; detail: ConciliarDocumentDetail | null; error: string | null }> | null;
 type RemesaConfirmation = Readonly<{ row: ConciliarRow; preview: ConciliarRemesaPreview; payload: ConciliarMutationPayload }> | null;
 
 /** Una respuesta 2xx malformada no prueba que la acción no haya llegado al servidor. */
@@ -208,12 +210,65 @@ function Guide({ invoicePending }: { invoicePending: boolean }) {
   </section>;
 }
 
-function GroupHeader({ group, color, count }: { group: string | null; color: ConciliarColor; count: number }) {
-  const explanation = groupExplanation(group);
-  const label = group ? humanGroup(group) : color === 'ROJO' ? 'Para pedir' : 'Sin regla agrupada';
+export type ConciliarDisplayGroup = Readonly<{
+  key: string;
+  label: string;
+  explanation: string | null;
+  rows: readonly ConciliarRow[];
+  colorCounts: Readonly<Record<ConciliarColor, number>>;
+}>;
+
+type MutableConciliarDisplayGroup = {
+  key: string;
+  label: string;
+  explanation: string | null;
+  rows: ConciliarRow[];
+  colorCounts: Record<ConciliarColor, number>;
+};
+
+/** Una clave de presentación reúne sin ambigüedad las variantes de una misma regla.
+ * En particular, REMESA, REMESAS y sus subtipos se muestran como un solo grupo. */
+function canonicalGroupLabel(row: ConciliarRow): string {
+  if (!row.grupo) return row.color === 'ROJO' ? 'Para pedir' : 'Sin regla agrupada';
+  return humanGroup(row.grupo);
+}
+
+function canonicalGroupKey(label: string): string {
+  return label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('es-ES').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+/** Agrupa primero por etiqueta canónica (nunca por color) y conserva el color de cada fila. */
+export function groupConciliarRows(rows: readonly ConciliarRow[]): readonly ConciliarDisplayGroup[] {
+  const groups = new Map<string, MutableConciliarDisplayGroup>();
+  for (const row of rows) {
+    const label = canonicalGroupLabel(row);
+    const key = canonicalGroupKey(label) || 'sin-regla-agrupada';
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, label, explanation: groupExplanation(row.grupo) ?? groupExplanation(label), rows: [], colorCounts: { VERDE: 0, AMBAR: 0, ROJO: 0 } };
+      groups.set(key, group);
+    }
+    group.rows.push(row);
+    group.colorCounts[row.color] += 1;
+  }
+  const magnitude = (row: ConciliarRow) => Math.abs(row.importeCentimos);
+  return [...groups.values()].map((group) => ({
+    ...group,
+    rows: group.rows.slice().sort((left, right) => magnitude(right) - magnitude(left) || left.id.localeCompare(right.id)),
+  })).sort((left, right) => {
+    const leftMagnitude = left.rows.length ? magnitude(left.rows[0]) : 0;
+    const rightMagnitude = right.rows.length ? magnitude(right.rows[0]) : 0;
+    return rightMagnitude - leftMagnitude || left.label.localeCompare(right.label, 'es-ES');
+  });
+}
+
+function GroupHeader({ group }: { group: ConciliarDisplayGroup }) {
+  const counts = CONCILIAR_COLORS.filter((color) => group.colorCounts[color] > 0);
   return <header className="flex min-w-0 items-start gap-2 px-2 pb-1 pt-4 first:pt-2">
-    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${COLOR_COPY[color].dot}`} aria-hidden="true" />
-    <div className="min-w-0"><h3 className="truncate text-sm font-extrabold text-[#2D2A26] dark:text-white">{label} <span className="font-medium text-slate-500 dark:text-slate-400">· {count} en esta página</span></h3>{explanation && <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{explanation}</p>}</div>
+    <div className="min-w-0"><h3 className="truncate text-sm font-extrabold text-[#2D2A26] dark:text-white">{group.label} <span className="font-medium text-slate-500 dark:text-slate-400">· {group.rows.length} en esta página</span></h3>
+      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-600 dark:text-slate-300">{counts.map((color) => <span key={color} className="inline-flex items-center gap-1"><span className={`h-2 w-2 rounded-full ${COLOR_COPY[color].dot}`} aria-hidden="true" />{COLOR_COPY[color].label.split(' · ')[0]}: {group.colorCounts[color]}</span>)}</p>
+      {group.explanation && <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">{group.explanation}</p>}
+    </div>
   </header>;
 }
 
@@ -317,6 +372,13 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const receiptByRow = useMemo(() => new Map(receipts.map((receipt) => [receipt.rowId, receipt])), [receipts]);
   const mutationsBlocked = sending || retry !== null || remesaPreviewLoading;
 
+  const closeDetail = useCallback(() => {
+    detailSequence.current += 1;
+    detailController.current?.abort();
+    detailController.current = null;
+    setOpenDocument(null);
+  }, []);
+
   const load = useCallback(async (silent = false, keepNotice = false) => {
     readController.current?.abort();
     const controller = new AbortController();
@@ -332,7 +394,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       setData(parsed);
       // The selection is intentionally page-bound: filters or a fresh projection never carry hidden rows.
       setSelected(new Set());
-      setOpenDocument((current) => current && !parsed.rows.some((row) => row.id === current.rowId) ? null : current);
       if (!keepNotice) setNotice(null);
     } catch (error) {
       if (sequence !== readSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
@@ -361,23 +422,23 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     return () => window.clearTimeout(timeout);
   }, [data, load, mutationsBlocked]);
 
-  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); setSelected(new Set()); setOpenDocument(null); }, [tab]);
-  const changeAccount = useCallback((next: string) => { setAccountId(next); setOffset(0); }, []);
-  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, []);
-  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setQuery(queryInput.trim().slice(0, 120)); setOffset(0); }, [queryInput]);
+  const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); setSelected(new Set()); }, [closeDetail, tab]);
+  const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); setOffset(0); }, [closeDetail]);
+  const changeDate = useCallback((kind: 'from' | 'to', value: string) => { closeDetail(); if (kind === 'from') setFrom(value); else setTo(value); setOffset(0); }, [closeDetail]);
+  const submitSearch = useCallback((event: FormEvent<HTMLFormElement>) => { event.preventDefault(); closeDetail(); setQuery(queryInput.trim().slice(0, 120)); setOffset(0); }, [closeDetail, queryInput]);
   const changeEmitidasGrupo = useCallback((next: ConciliarEmitidasGroup) => {
-    remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
+    closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);
     setEmitidasGrupo((current) => current === next ? '' : next);
-    setOffset(0); setSelected(new Set()); setOpenDocument(null);
-  }, []);
+    setOffset(0); setSelected(new Set());
+  }, [closeDetail]);
   const changeCutoff = useCallback((value: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
     const date = new Date(`${value}T00:00:00Z`);
     if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== value) return;
-    setCutoffDate(value); setOffset(0); setHistoricOffset(0); setHistoricData(null);
+    closeDetail(); setCutoffDate(value); setOffset(0); setHistoricOffset(0); setHistoricData(null);
     // Una fecha de presentación, no autorización ni estado de cobro.
     document.cookie = `io_conciliar_cutoff=${value}; Path=/admin/finanzas/conciliar; SameSite=Lax; Secure; Max-Age=31536000`;
-  }, []);
+  }, [closeDetail]);
 
   useEffect(() => {
     if (!historicOpen || tab !== 'EMITIDAS') return;
@@ -444,7 +505,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       readController.current?.abort();
       setData(projection);
       setSelected(new Set());
-      setOpenDocument((current) => current && !projection.rows.some((row) => row.id === current.rowId) ? null : current);
       return true;
     };
     setSending(true);
@@ -547,26 +607,35 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     void post({ action: 'pedir', id: row.id, decisionHash: row.decisionHash, idempotencyKey: makeIdempotencyKey() }, 'solicitud de documento');
   }, [mutationsBlocked, post]);
 
-  const openDetail = useCallback(async (row: ConciliarRow) => {
+  /** La fila se vuelve a tomar de la proyección visible antes de abrir; el DTO viaja sólo por la ruta privada dedicada. */
+  const openDetail = useCallback(async (requestedRow: ConciliarRow) => {
+    const currentRow = rows.find((row) => row.id === requestedRow.id) ?? historicData?.rows.find((row) => row.id === requestedRow.id);
+    if (!currentRow) {
+      setNotice({ tone: 'info', text: 'Esta fila ya no está en la lista actual. Actualiza la conciliación antes de abrir su detalle.' });
+      return;
+    }
     detailController.current?.abort();
     const controller = new AbortController();
     detailController.current = controller;
     const sequence = ++detailSequence.current;
+    setOpenDocument({ row: currentRow, status: 'loading', detail: null, error: null });
     try {
-      const response = await fetch(`${API}?rowId=${encodeURIComponent(row.id)}`, { cache: 'no-store', signal: controller.signal });
+      const response = await fetch(`${DOCUMENT_DETAIL_API}/${encodeURIComponent(currentRow.id)}`, { cache: 'no-store', signal: controller.signal });
       const raw: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo abrir el detalle de este documento.'));
-      const detail = parseConciliarDetailResponse(raw);
-      if (sequence !== detailSequence.current || detail.id !== row.id) return;
-      const href = safeDocumentHref(detail.documento?.href ?? null);
-      setOpenDocument({ rowId: detail.id, title: detail.documento?.referencia || 'Detalle del movimiento', href, explanation: detail.detail || detail.motivo, movement: detail });
+      if (!response.ok) throw new Error(friendlyError(raw, 'No se pudo cargar el detalle de este documento.'));
+      const detail = parseConciliarDocumentDetail(raw);
+      if (detail.rowId !== currentRow.id) throw new Error('El detalle recibido no corresponde a la fila abierta.');
+      if (sequence !== detailSequence.current) return;
+      setOpenDocument((current) => current?.row.id === currentRow.id ? { ...current, status: 'ready', detail, error: null } : current);
     } catch (error) {
       if (sequence !== detailSequence.current || (error instanceof DOMException && error.name === 'AbortError')) return;
-      setNotice({ tone: 'error', text: error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo abrir el detalle de este documento.') : 'No se pudo abrir el detalle de este documento.' });
+      const message = error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo cargar el detalle de este documento.') : 'No se pudo cargar el detalle de este documento.';
+      setOpenDocument((current) => current?.row.id === currentRow.id ? { ...current, status: 'error', detail: null, error: message } : current);
+      setNotice({ tone: 'error', text: `${message} Puedes reintentar el detalle sin modificar la conciliación.` });
     } finally {
       if (detailController.current === controller) detailController.current = null;
     }
-  }, []);
+  }, [historicData?.rows, rows]);
 
   const undoReceipt = useCallback((receipt: Receipt) => {
     if (mutationsBlocked || !receipt.operationId) return;
@@ -632,18 +701,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     }
   }, [accountId, data, emitidasGrupo, exporting, from, query, tab, to, cutoffDate]);
 
-  const grouped = useMemo(() => {
-    const buckets = new Map<ConciliarColor, Map<string, ConciliarRow[]>>();
-    for (const color of CONCILIAR_COLORS) buckets.set(color, new Map());
-    for (const row of rows) {
-      const key = row.grupo || (row.color === 'ROJO' ? row.motivo : '');
-      const groups = buckets.get(row.color)!;
-      const list = groups.get(key) ?? [];
-      list.push(row);
-      groups.set(key, list);
-    }
-    return buckets;
-  }, [rows]);
+  const grouped = useMemo(() => groupConciliarRows(rows), [rows]);
   const emitidasGroupLabel = emitidasGrupo ? EMITIDAS_GROUP_COPY[emitidasGrupo].label : '';
 
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
@@ -671,8 +729,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form onSubmit={submitSearch} className="grid min-w-0 gap-2 md:grid-cols-[minmax(160px,1fr)_145px_145px_210px_auto] md:items-end"><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Buscar<span className="relative mt-1 block"><MagnifyingGlassIcon className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" aria-hidden="true" /><input value={queryInput} onChange={(event) => setQueryInput(event.target.value.slice(0, 120))} maxLength={120} placeholder="Concepto, factura, tercero o importe" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></span></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Desde<input type="date" value={from} onChange={(event) => changeDate('from', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block text-sm font-semibold text-slate-800 dark:text-slate-100">Hasta<input type="date" value={to} onChange={(event) => changeDate('to', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white" /></label><label className="block min-w-0 text-sm font-semibold text-slate-800 dark:text-slate-100">Cuenta<select value={accountId} onChange={(event) => changeAccount(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-[#2D2A26] focus:border-[#FF5300] focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-slate-600 dark:bg-slate-950 dark:text-white"><option value="">Todas las cuentas</option>{(data?.cuentas ?? []).map((account) => <option key={account.id} value={account.id}>{accountLabel(account)}</option>)}</select></label><button type="submit" className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#FF5300] px-3 py-2 text-sm font-extrabold text-white hover:bg-[#E04900] focus:outline-none focus:ring-2 focus:ring-[#FF5300] focus:ring-offset-2 dark:focus:ring-offset-slate-950"><MagnifyingGlassIcon className="h-4 w-4" aria-hidden="true" />Buscar</button></form></section>
 
     <section role="tabpanel" id={`conciliar-panel-${tab}`} aria-labelledby={`conciliar-tab-${tab}`} className="min-w-0 rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"><header className="flex flex-col gap-3 border-b border-slate-200 px-3 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="font-extrabold text-[#2D2A26] dark:text-white">{TAB_COPY[tab].title}{tab === 'EMITIDAS' && emitidasGroupLabel ? ` · ${emitidasGroupLabel}` : ''}</h2><p className="truncate text-xs text-slate-600 dark:text-slate-300">{TAB_COPY[tab].question}{data ? ` · ${data.total.toLocaleString('es-ES')} resultado(s)` : ''}{data ? ` · actualizado ${humanUpdatedAt(data.updatedAt)}` : ''}</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => void exportAll()} disabled={!data || exporting || mutationsBlocked} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100"><ArrowDownTrayIcon className="h-4 w-4" aria-hidden="true" />{exporting ? 'Exportando…' : 'Exportar a Excel'}</button>{visibleSelectable.length > 0 && <><label className="inline-flex min-h-9 items-center gap-1.5 text-xs font-bold text-slate-700 dark:text-slate-200"><input type="checkbox" checked={visibleSelectable.length > 0 && visibleSelectable.every((row) => selected.has(row.id))} onChange={(event) => toggleAllVisible(event.target.checked)} disabled={mutationsBlocked} className="h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-600" />Todos los verdes visibles</label><button type="button" onClick={() => confirmRows(rows.filter((row) => selected.has(row.id)))} disabled={mutationsBlocked || selected.size === 0} className="min-h-9 rounded-md bg-emerald-700 px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 disabled:cursor-not-allowed disabled:opacity-50">Confirmar seleccionados{selected.size ? ` (${selected.size})` : ''}</button></>}</div></header>
-      <div className={`grid min-w-0 ${openDocument ? "2xl:grid-cols-[minmax(0,1fr)_minmax(360px,.55fr)] 2xl:items-start" : ""}`}><div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{CONCILIAR_COLORS.map((color) => { const groups = grouped.get(color)!; return [...groups.entries()].map(([group, colorRows]) => <section key={`${color}-${group || 'general'}`} aria-label={`${COLOR_COPY[color].label}: ${group || 'sin grupo'}`}><GroupHeader group={group || null} color={color} count={colorRows.length} />{colorRows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>); })}</>}</div>{openDocument && <div className="border-t border-slate-200 p-3 dark:border-slate-700 xl:sticky xl:top-3 xl:border-l xl:border-t-0"><ConciliarDocumentPreview document={openDocument} onClose={() => setOpenDocument(null)} /></div>}</div>
-      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => setOffset(Math.max(0, data.offset - data.limit))} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => setOffset(data.offset + data.rows.length)} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
+      <div className="min-w-0">{loading ? <Skeleton /> : !data ? <Empty text="No hay datos validados. Actualiza para volver a intentarlo." /> : rows.length === 0 ? <Empty text="No hay resultados con estos filtros." /> : <><div className="hidden grid-cols-[auto_minmax(88px,.55fr)_minmax(150px,1.5fr)_minmax(115px,.7fr)_minmax(180px,1fr)_auto_minmax(104px,.65fr)_auto] gap-3 border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-slate-500 dark:border-slate-800 dark:bg-slate-950/40 dark:text-slate-400 xl:grid"><span>Estado</span><span>Fecha</span><span>Concepto</span><span>Cuenta</span><span>Documento</span><span className="text-right">Importe</span><span>Nota</span><span>Acción</span></div>{grouped.map((group) => <section key={group.key} aria-label={`${group.label}: ${group.rows.length} en esta página`}><GroupHeader group={group} />{group.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={selected.has(row.id)} receipt={receiptByRow.get(row.id)} busy={mutationsBlocked} onSelect={(checked) => setSelected((current) => { const next = new Set(current); if (checked) next.add(row.id); else next.delete(row.id); return next; })} onConfirm={() => confirmRows([row])} onAsk={() => askForDocument(row)} onOpen={openDetail} onUndo={() => { const receipt = receiptByRow.get(row.id); if (receipt) undoReceipt(receipt); }} />)}</section>)}</>}</div>
+      {openDocument && <ConciliarDocumentPreview document={openDocument} onClose={closeDetail} onRetry={() => { if (openDocument) void openDetail(openDocument.row); }} />}
+      {data && <footer className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3 text-sm dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-slate-600 dark:text-slate-300">Mostrando {data.total === 0 ? 0 : data.offset + 1}–{Math.min(data.offset + data.rows.length, data.total)} de {data.total.toLocaleString('es-ES')}.</p><div className="flex gap-2"><button type="button" disabled={data.offset === 0 || mutationsBlocked} onClick={() => { closeDetail(); setOffset(Math.max(0, data.offset - data.limit)); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100"><ChevronLeftIcon className="h-4 w-4" aria-hidden="true" />Anterior</button><button type="button" disabled={data.rows.length === 0 || data.offset + data.rows.length >= data.total || mutationsBlocked} onClick={() => { closeDetail(); setOffset(data.offset + data.rows.length); }} className="inline-flex min-h-9 items-center gap-1 rounded-md border border-slate-300 px-2.5 py-1.5 text-xs font-bold text-slate-800 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:opacity-50 dark:border-slate-600 dark:text-slate-100">Ver más<ChevronRightIcon className="h-4 w-4" aria-hidden="true" /></button></div></footer>}
     </section>
 
     {tab === 'EMITIDAS' && data && <details onToggle={(event) => setHistoricOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
@@ -680,7 +739,7 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       <p className="py-2 text-xs text-slate-600 dark:text-slate-300">No cuentan en el resumen. Su cobro histórico no consta confirmado en este panel; esto no prueba que el cliente deba ese importe.</p>
       {historicLoading ? <Skeleton /> : historicData && <>
         {historicData.rows.map((row) => <ConciliarRowView key={row.id} row={row} selected={false} receipt={undefined} busy={mutationsBlocked} onSelect={() => undefined} onConfirm={() => undefined} onAsk={() => undefined} onOpen={openDetail} onUndo={() => undefined} />)}
-        <div className="flex items-center justify-between gap-2 pt-3 text-xs"><span>{historicData.total ? historicData.offset + 1 : 0}–{Math.min(historicData.total, historicData.offset + historicData.rows.length)} de {historicData.total}</span><div className="flex gap-2"><button type="button" disabled={historicOffset === 0} onClick={() => setHistoricOffset(Math.max(0, historicOffset - PAGE_SIZE))} className="min-h-9 rounded border px-2 disabled:opacity-50">Anteriores</button><button type="button" disabled={historicOffset + historicData.rows.length >= historicData.total} onClick={() => setHistoricOffset(historicOffset + PAGE_SIZE)} className="min-h-9 rounded border px-2 disabled:opacity-50">Siguientes</button></div></div>
+        <div className="flex items-center justify-between gap-2 pt-3 text-xs"><span>{historicData.total ? historicData.offset + 1 : 0}–{Math.min(historicData.total, historicData.offset + historicData.rows.length)} de {historicData.total}</span><div className="flex gap-2"><button type="button" disabled={historicOffset === 0} onClick={() => { closeDetail(); setHistoricOffset(Math.max(0, historicOffset - PAGE_SIZE)); }} className="min-h-9 rounded border px-2 disabled:opacity-50">Anteriores</button><button type="button" disabled={historicOffset + historicData.rows.length >= historicData.total} onClick={() => { closeDetail(); setHistoricOffset(historicOffset + PAGE_SIZE); }} className="min-h-9 rounded border px-2 disabled:opacity-50">Siguientes</button></div></div>
       </>}
     </details>}
 
