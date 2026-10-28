@@ -42,7 +42,7 @@ export default async function ConciliarPage({ searchParams }: { searchParams: Pr
       tab: initialTab,
       ...(initialQuery ? { q: initialQuery } : {}),
       cutoffDate: initialCutoff,
-      limit: '50',
+      limit: '20',
       offset: '0',
     });
     const initialData = await readConciliarProjection(input);

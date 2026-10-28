@@ -11,6 +11,9 @@ const nextConfig = {
   experimental: {
     // Evitar picos de memoria durante la generación de cientos de rutas en CI y entornos limitados
     cpus: 1,
+    // Ensayo de entrega: elimina el viaje CSS inicial sin transformar HTML ni
+    // recortar reglas. Next aplica esta opción a todo el build; sólo staging.
+    inlineCss: process.env.FINANCE_STAGING_SANDBOX === '1',
     serverActions: {
       bodySizeLimit: '50mb',
     },
