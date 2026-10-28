@@ -584,13 +584,17 @@ export async function insertProjectionBatches(tx: Tx, rows: readonly RebuildRow[
 }
 
 /**
- * Rebuilds just one bank-fee row from the current locked B4 source.  It never
- * accepts an old row, fingerprint or decision hash as evidence.  An active P1
- * or any existing projection row is intentionally an ambiguity: the caller
- * keeps dirty and lets the established full rebuild close the wider graph.
+ * Rebuilds an exact, already-classified set of bank-fee rows from their current
+ * locked B4 sources. It never accepts a historic projection/fingerprint/decision
+ * hash as evidence. The three set queries deliberately finish before the single
+ * insert: any missing source, active P1, current non-fee classification or
+ * existing projection returns false without a partial restoration. The caller
+ * then retains dirty and uses the established full-rebuild route.
  */
-export async function restoreLiveBankFeeProjectionTx(base: Prisma.TransactionClient, movimientoId: string): Promise<boolean> {
+export async function restoreLiveBankFeeProjectionBatchTx(base: Prisma.TransactionClient, movimientoIds: readonly string[]): Promise<boolean> {
+  if (movimientoIds.length < 1 || movimientoIds.length > 100 || new Set(movimientoIds).size !== movimientoIds.length) return false
   const tx = asTx(base)
+  const ids = Prisma.join(movimientoIds.map(movimientoId => Prisma.sql`${movimientoId}`))
   const movements = await tx.$queryRaw<Array<any>>(Prisma.sql`
     SELECT m.id AS "movimientoId",m.cuenta_id AS "cuentaId",m.fecha_operacion::date::text AS fecha,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimos",COALESCE(e.version,1) AS "versionB4",
@@ -598,28 +602,43 @@ export async function restoreLiveBankFeeProjectionTx(base: Prisma.TransactionCli
     FROM movimientos_bancarios m
     JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
-    WHERE m.id=${movimientoId} AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
-    LIMIT 1 FOR UPDATE OF m,c
+    WHERE m.id IN (${ids}) AND COALESCE(e.estado::text,'SIN_DOCUMENTO')='SIN_DOCUMENTO'
+    FOR UPDATE OF m,c
   `)
-  const current = movements[0]
-  if (!current) return false
-  const p1 = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT d.id::text AS id
+  if (movements.length !== movimientoIds.length) return false
+  const currentByMovementId = new Map<string, any>()
+  for (const current of movements) {
+    const movimientoId = typeof current?.movimientoId === 'string' ? current.movimientoId : null
+    if (!movimientoId || currentByMovementId.has(movimientoId)) return false
+    currentByMovementId.set(movimientoId, current)
+  }
+  if (currentByMovementId.size !== movimientoIds.length || movimientoIds.some(movimientoId => !currentByMovementId.has(movimientoId))) return false
+  const activeP1 = await tx.$queryRaw<Array<{ movimientoId: string }>>(Prisma.sql`
+    SELECT d.movimiento_id AS "movimientoId"
     FROM decisiones_tercero_modo_facil d
-    WHERE d.movimiento_id=${movimientoId} AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
+    WHERE d.movimiento_id IN (${ids}) AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
       AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
-    ORDER BY d.created_at DESC,d.id DESC LIMIT 1 FOR UPDATE
+    FOR UPDATE OF d
   `)
-  if (p1.length) return false
-  const rebuilt = buildBankFeeProjectionSeed(current)
-  if (!rebuilt) return false
-  const existing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id FROM conciliar_proyecciones WHERE movimiento_id=${movimientoId} LIMIT 2 FOR UPDATE
+  if (activeP1.length) return false
+  const existing = await tx.$queryRaw<Array<{ movimientoId: string }>>(Prisma.sql`
+    SELECT movimiento_id AS "movimientoId" FROM conciliar_proyecciones
+    WHERE movimiento_id IN (${ids}) FOR UPDATE
   `)
   if (existing.length) return false
-  const row = projection(rebuilt.tab, rebuilt.row, rebuilt.source, rebuilt.cuentaId)
-  await insertProjectionBatches(tx, [row])
+  const rows: RebuildRow[] = []
+  for (const movimientoId of movimientoIds) {
+    const rebuilt = buildBankFeeProjectionSeed(currentByMovementId.get(movimientoId))
+    if (!rebuilt) return false
+    rows.push(projection(rebuilt.tab, rebuilt.row, rebuilt.source, rebuilt.cuentaId))
+  }
+  await insertProjectionBatches(tx, rows)
   return true
+}
+
+/** Single-leg compatibility adapter for callers and local fixtures predating batches. */
+export async function restoreLiveBankFeeProjectionTx(base: Prisma.TransactionClient, movimientoId: string): Promise<boolean> {
+  return restoreLiveBankFeeProjectionBatchTx(base, [movimientoId])
 }
 
 type StrictTransferLeg = Readonly<{ movementId: string; oppositeMovementId: string; fingerprint: string }>

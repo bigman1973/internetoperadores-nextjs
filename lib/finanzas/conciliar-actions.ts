@@ -16,9 +16,9 @@ import { conciliarAliasesMatch, conciliarRequestHash, safeInteger } from './conc
 import { deleteConciliarBatchProjectionRowsTx, readConciliarConfirmBatchForActionTx, tryConfirmConciliarBankFeeBatchTx } from './conciliar-batch'
 import type { ConciliarBatchProgress } from './conciliar-stream'
 import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './conciliar-transfers'
-import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionTx, unresolvedMovements } from './conciliar-db'
+import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
-import { knownSingleBankFeeUndoMovement } from './conciliar-fee-undo'
+import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -127,15 +127,16 @@ async function settleKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: bo
 }
 
 /**
- * Undo may restore only the exact local dependency closed by a one-leg fee
- * receipt. The receipt must carry the persisted source kind added by this
- * version; older receipts deliberately retain the dirty/full-rebuild path.
+ * Undo may restore only the exact local dependency closed by a homogeneous,
+ * clean fee receipt (one to one hundred B4 legs). The receipt must carry the
+ * persisted source kind added by this version; older/mixed receipts deliberately
+ * retain the dirty/full-rebuild path.
  */
 async function restoreKnownFeeOnlyProjection(tx: Tx, stateAtStart: { wasDirty: boolean }, legs: readonly {
   movimientoId: string | null; operationB4Id: string | null; actionB5: string | null; proposalBlockId: string | null; result: unknown
 }[]): Promise<boolean> {
-  const movementId = knownSingleBankFeeUndoMovement({ wasDirty: stateAtStart.wasDirty, legs })
-  if (!movementId || !await restoreLiveBankFeeProjectionTx(tx, movementId)) return false
+  const movementIds = knownBankFeeUndoMovements({ wasDirty: stateAtStart.wasDirty, legs })
+  if (!movementIds || !await restoreLiveBankFeeProjectionBatchTx(tx, movementIds)) return false
   return settleKnownFeeOnlyProjection(tx, stateAtStart, new Set<ConciliarProjectionSource['kind']>(['COMISION_BANCARIA']))
 }
 

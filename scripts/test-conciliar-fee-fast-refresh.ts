@@ -9,6 +9,7 @@ const batch = readFileSync(resolve(root, 'lib/finanzas/conciliar-batch.ts'), 'ut
 const stateLock = source.slice(source.indexOf('async function projectionStateAtActionStart'), source.indexOf('async function settleKnownFeeOnlyProjection'))
 const fastPath = source.slice(source.indexOf('async function settleKnownFeeOnlyProjection'), source.indexOf('async function lockOperationOrReplay'))
 const confirm = source.slice(source.indexOf('async function confirm('), source.indexOf('async function ask('))
+const undo = source.slice(source.indexOf('async function undo('), source.indexOf('export async function runConciliarAction'))
 
 assert.match(stateLock, /WHERE singleton=true LIMIT 1 FOR UPDATE/)
 assert.doesNotMatch(stateLock, /LIMIT 1 FOR SHARE/, 'la acción no debe retener un bloqueo compartido antes de que los triggers necesiten actualizar el marcador')
@@ -23,5 +24,7 @@ assert.match(batch, /kinds\.add\(row\.source\.kind\)/)
 assert.match(confirm, /await deleteConciliarBatchProjectionRowsTx\(tx, plan\.movementIds\)/)
 assert.match(batch, /DELETE FROM conciliar_proyecciones\s+WHERE movimiento_id IN/)
 assert.match(confirm, /await settleKnownFeeOnlyProjection\(tx, stateAtStart, plan\.kinds\)/)
+assert.match(fastPath, /knownBankFeeUndoMovements[\s\S]*restoreLiveBankFeeProjectionBatchTx/, 'undo debe restaurar inmediatamente tanto lote como single mediante la misma vía')
+assert.match(undo, /UPDATE operaciones_conciliar[\s\S]*restoreKnownFeeOnlyProjection[\s\S]*responseProjection/, 'la restauración inmediata sigue después de auditoría y antes de la respuesta UI')
 
-console.log(JSON.stringify({ test: 'conciliar-fee-fast-refresh', databaseQueries: 0, networkCalls: 0, verified: ['only-clean-fee-batch', 'same-transaction-removal', 'dirty-marker-retained-otherwise'] }))
+console.log(JSON.stringify({ test: 'conciliar-fee-fast-refresh', databaseQueries: 0, networkCalls: 0, verified: ['only-clean-fee-batch', 'same-transaction-removal', 'batch-and-single-immediate-undo-restore', 'dirty-marker-retained-otherwise'] }))
