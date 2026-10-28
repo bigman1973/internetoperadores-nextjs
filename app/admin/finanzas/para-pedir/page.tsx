@@ -14,7 +14,7 @@ export default async function ParaPedirPage() {
     const context = await assertFinanceEasyRuntime();
     const access = await requireB4FinanceAccess('lectura', await requireAuth('admin'));
     if (!access.ok) notFound();
-    const initialData = await readParaPedirProjection(parseParaPedirInput({ limit: '50', offset: '0' }));
+    const initialData = await readParaPedirProjection(parseParaPedirInput({ limit: '20', offset: '0' }));
     return <NewParaPedirWorkspace environment={context.runtime} initialData={{ ...initialData, stagingOnly: context.stagingOnly }} />;
   } catch (error) {
     if (error instanceof FinanceEasyRuntimeError) notFound();
