@@ -79,6 +79,12 @@ const FACTURA_EMITIDA_FISCAL_IDENTITY_SQL = `
   ('CIF:' || regexp_replace(upper(fe.cif), '[[:space:]._/\\-]+', '', 'g') ||
     '|NUM:' || regexp_replace(upper(fe.num_factura), '[[:space:]]+', '', 'g'))
 `
+// Document number stays in the exact source tuple. A rectificativa necessarily
+// has another document number, so the counterpart comparison uses only the
+// shared canonical CIF identity.
+const FACTURA_EMITIDA_COUNTERPARTY_FISCAL_SQL = `
+  ('CIF:' || regexp_replace(upper(fe.cif), '[[:space:]._/\\-]+', '', 'g'))
+`
 
 /**
  * Eligible current document snapshots only. Tombstones and open amber incidents
@@ -103,7 +109,7 @@ const ISSUED_CREDIT_DOCUMENTS_SQL = `
     s.id::text AS "currentVersionId",
     s.document_number AS "documentReference",
     s.referenced_original_reference AS "referencedOriginalReference",
-    s.invoice_fiscal_identity AS "counterpartyFiscalIdentity",
+    ${FACTURA_EMITIDA_COUNTERPARTY_FISCAL_SQL} AS "counterpartyFiscalIdentity",
     fe.cliente AS "counterpartyCanonicalIdentity",
     s.total_cents AS "signedTotalCents",
     s.currency_code AS "currencyCode",
@@ -151,7 +157,7 @@ const ISSUED_CREDIT_LINKS_SQL = `
     original_s.document_number AS "originalDocumentReference",
     cl.exact_reference AS "referencedOriginalReference",
     cl.exact_reference_hash AS "exactReferenceHash",
-    original_s.invoice_fiscal_identity AS "counterpartyFiscalIdentity",
+    ${FACTURA_EMITIDA_COUNTERPARTY_FISCAL_SQL.replaceAll('fe.', 'original_fe.')} AS "counterpartyFiscalIdentity",
     original_fe.cliente AS "counterpartyCanonicalIdentity",
     (
       cl.state = 'CONFIRMED'::"DocumentVersionCreditLinkState"
@@ -220,6 +226,26 @@ const ISSUED_CREDIT_LINKS_SQL = `
   ORDER BY cl.id ASC
   LIMIT ${CREDIT_NOTE_READ_LIMIT} OFFSET 0
 `
+
+const CREDIT_LINK_DECISIONS_READY_SQL = `SELECT table_name AS "tableName" FROM information_schema.tables WHERE table_schema='public' AND table_name='document_version_credit_link_decisions' LIMIT 1 OFFSET 0`
+const LEGACY_HUMAN_CONFIRMED_SQL = `cl.state = 'CONFIRMED'::"DocumentVersionCreditLinkState"
+      AND cl.confirmed_by_id IS NOT NULL
+      AND cl.confirmed_at IS NOT NULL`
+const LEGACY_HUMAN_REJECTED_SQL = `cl.state = 'REJECTED'::"DocumentVersionCreditLinkState"`
+
+/** Before the additive migration exists, the legacy immutable link remains authority. */
+function effectiveCreditLinksSql(decisionsReady: boolean): string {
+  if (!decisionsReady) return ISSUED_CREDIT_LINKS_SQL
+  const lastState = `(SELECT d.effective_state::text FROM document_version_credit_link_decisions d WHERE d.credit_link_id=cl.id ORDER BY d.decision_sequence DESC LIMIT 1)`
+  const hasDecision = `EXISTS (SELECT 1 FROM document_version_credit_link_decisions d WHERE d.credit_link_id=cl.id)`
+  const confirmed = `(${lastState} = 'CONFIRMED' OR (NOT ${hasDecision} AND ${LEGACY_HUMAN_CONFIRMED_SQL}))`
+  const rejected = `COALESCE(${lastState},cl.state::text) = 'REJECTED'`
+  return ISSUED_CREDIT_LINKS_SQL.replace(LEGACY_HUMAN_CONFIRMED_SQL, confirmed).replace(LEGACY_HUMAN_REJECTED_SQL, rejected)
+}
+async function creditLinkDecisionsReady(db: { $queryRawUnsafe<T>(sql: string): Promise<T> }): Promise<boolean> {
+  const rows = await db.$queryRawUnsafe<Array<{ tableName: string | null }>>(CREDIT_LINK_DECISIONS_READY_SQL)
+  return rows.length === 1 && rows[0]?.tableName === 'document_version_credit_link_decisions'
+}
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -363,9 +389,10 @@ export async function readIssuedCreditNotesForBankInvoicing(
   db: CreditNoteReadDatabase,
   calculated: IssuedCreditNoteBankPopulation,
 ): Promise<CreditNoteIssuedBankProjection[]> {
+  const decisionsReady = await creditLinkDecisionsReady(db)
   const [documentRows, linkRows] = await Promise.all([
     db.$queryRawUnsafe<IssuedCreditDocumentRow[]>(ISSUED_CREDIT_DOCUMENTS_SQL),
-    db.$queryRawUnsafe<CreditLinkRow[]>(ISSUED_CREDIT_LINKS_SQL),
+    db.$queryRawUnsafe<CreditLinkRow[]>(effectiveCreditLinksSql(decisionsReady)),
   ])
   assertBounded('DOCUMENTOS_EMITIDOS', documentRows)
   assertBounded('ENLACES', linkRows)
@@ -396,4 +423,5 @@ export async function readIssuedCreditNotesForBankInvoicing(
 export const creditNoteReadSql = {
   issuedDocuments: ISSUED_CREDIT_DOCUMENTS_SQL,
   issuedLinks: ISSUED_CREDIT_LINKS_SQL,
+  creditLinkDecisionsReady: CREDIT_LINK_DECISIONS_READY_SQL,
 } as const

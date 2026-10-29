@@ -61,6 +61,7 @@ function mockDb(input: { documentRows?: unknown[]; linkRows?: unknown[]; b4Rows?
       async $queryRawUnsafe<T>(statement: string): Promise<T> {
         statements.push(statement)
         assert.match(statement, /^\s*SELECT\b/i, '3c/B5 sólo admite SQL SELECT')
+        if (statement.includes("information_schema.tables")) return [{ tableName: null }] as T
         if (statement.includes('FROM facturas_recibidas fr\n  JOIN document_version_lifecycle l')) return (input.documentRows ?? documents()) as T
         if (statement.includes('FROM document_version_credit_links cl')) return (input.linkRows ?? link(true)) as T
         if (statement.includes('FROM vinculos_movimiento_documento v')) return (input.b4Rows ?? b4()) as T
@@ -77,8 +78,8 @@ test('B5 recibidas descuenta rectificativa CONFIRMED exacta como campo aditivo y
     [row.importeObjetivoCentimos, row.importeAsignadoActivoCentimos, row.importePendienteCentimos, row.creditNoteState, row.rectificationCents, row.importePendienteTrasRectificativasCentimos],
     [-10_000, -3_000, -7_000, 'PARCIAL', -2_000, -5_000],
   )
-  assert.equal(fixture.statements.length, 3)
-  assert.ok(fixture.statements.every((statement) => /LIMIT 25001 OFFSET 0/.test(statement)))
+  assert.equal(fixture.statements.length, 4)
+  assert.ok(fixture.statements.every((statement) => statement.includes("information_schema.tables") || /LIMIT 25001 OFFSET 0/.test(statement)))
   assert.ok(fixture.statements.every((statement) => !/\b(?:INSERT|UPDATE|DELETE|MERGE|CALL)\b/i.test(statement)))
 })
 
@@ -142,3 +143,23 @@ test('pendientes B5 consume 3c en emitidas y recibidas como extensión, no como 
 })
 
 console.log('OK: pending credit-note DB tests use synthetic rows only; no DB, Graph, OCR, HTTP or mutation.')
+
+test('ledger humano disponible aplica la confirmación efectiva como proyección documental separada', async () => {
+  const statements: string[] = []
+  const db = {
+    async $queryRawUnsafe<T>(statement: string): Promise<T> {
+      statements.push(statement)
+      assert.match(statement, /^\s*SELECT\b/i)
+      if (statement.includes('information_schema.tables')) return [{ tableName: 'document_version_credit_link_decisions' }] as T
+      if (statement.includes('FROM facturas_recibidas fr\n  JOIN document_version_lifecycle l')) return documents() as T
+      if (statement.includes('FROM document_version_credit_links cl')) return link(true) as T
+      if (statement.includes('FROM vinculos_movimiento_documento v')) return b4() as T
+      throw new Error('SQL mock de ledger efectivo recibido no reconocido')
+    },
+  }
+  const [row] = await readReceivedCreditNotesForPendingInvoices(db, [receivedPending])
+  assert.deepEqual([row.importePendienteCentimos, row.rectificationCents, row.importePendienteTrasRectificativasCentimos], [-7_000, -2_000, -5_000])
+  const effective = statements.find((statement) => statement.includes('FROM document_version_credit_links cl')) ?? ''
+  assert.match(effective, /d\.effective_state::text/)
+  assert.doesNotMatch(effective, /\b(?:INSERT|UPDATE|DELETE|MERGE|CALL)\b/i)
+})

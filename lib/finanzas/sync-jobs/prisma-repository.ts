@@ -13,7 +13,7 @@ import {
   type ManualCreateInput,
   type ManualCreateResult,
 } from './repository'
-import type { JobSummary, SyncItemRecord, SyncJobRecord, SyncOutcome, SyncSource, SyncSourceItem } from './types'
+import type { JobSummary, SyncDeltaDispatch, SyncItemRecord, SyncJobRecord, SyncOutcome, SyncSource, SyncSourceItem } from './types'
 
 /** PostgreSQL P2 adapter. All state changes use serializable transactions. */
 const READ_LIMIT = 100
@@ -68,6 +68,22 @@ function bound(value: number): number { return Math.max(1, Math.min(MAX_BOUND, N
 function storedError(value: string): string { return /^[A-Z0-9_]{2,64}$/.test(value) ? value : 'PROVIDER_PREPARE_FAILED' }
 function validOutcome(value: unknown): value is SyncOutcome {
   return value === 'NUEVA' || value === 'ACTUALIZADA' || value === 'SIN_CAMBIOS' || value === 'REVISAR' || value === 'ERROR'
+}
+function deltaDispatchItem(item: SyncSourceItem): boolean {
+  return item.tipo !== 'ISP_FACTURA' && !!item.data && typeof item.data === 'object' && !Array.isArray(item.data)
+    && (item.data as Record<string, unknown>).deltaDispatch === true
+}
+function validDeltaDispatch(value: SyncDeltaDispatch, itemKeys: ReadonlySet<string>): SyncDeltaDispatch {
+  if (!value || typeof value !== 'object') throw new Error('DELTA_DISPATCH_INVALID')
+  const sourceKey = typeof value.sourceKey === 'string' ? value.sourceKey.trim() : ''
+  const driveId = typeof value.driveId === 'string' ? value.driveId.trim() : ''
+  const eventKey = typeof value.eventKey === 'string' ? value.eventKey.trim().toLowerCase() : ''
+  const itemKey = value.itemKey === null ? null : typeof value.itemKey === 'string' ? value.itemKey : null
+  if (!sourceKey || sourceKey.length > 256 || !driveId || driveId.length > 512 || !/^[0-9a-f]{64}$/.test(eventKey)) {
+    throw new Error('DELTA_DISPATCH_INVALID')
+  }
+  if (itemKey !== null && (!itemKeys.has(itemKey) || itemKey.length > 512)) throw new Error('DELTA_DISPATCH_INVALID')
+  return { sourceKey, driveId, eventKey, itemKey }
 }
 function isFence(error: unknown): boolean {
   const text = error instanceof Error ? error.message : String(error)
@@ -378,7 +394,7 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
     })
   }
 
-  async persistInventory(input: { jobId: string; token: string; now: Date; deadline: Date; checkpoint: unknown; complete: boolean; items: SyncSourceItem[] }): Promise<'ok' | 'cancelled' | 'lost_lease' | 'deadline_exceeded'> {
+  async persistInventory(input: { jobId: string; token: string; now: Date; deadline: Date; checkpoint: unknown; complete: boolean; items: SyncSourceItem[]; deltaDispatches?: readonly SyncDeltaDispatch[] }): Promise<'ok' | 'cancelled' | 'lost_lease' | 'deadline_exceeded'> {
     return this.serial(async (tx) => {
       const now = await this.now(tx)
       const current = await this.getJobTx(tx, input.jobId, true)
@@ -389,11 +405,18 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
       if (input.items.some((sourceItem) => !sourceItemMatches(current.source, sourceItem))) throw new Error('PROVIDER_ITEM_SOURCE_MISMATCH')
       const unique = new Map<string, SyncSourceItem>()
       for (const sourceItem of input.items) unique.set(sourceItem.key, sourceItem)
+      const page = Array.from(unique.values());
+      const itemKeys = new Set(page.map(sourceItem => sourceItem.key))
+      const dispatches = input.deltaDispatches === undefined
+        ? []
+        : input.deltaDispatches.map(dispatch => validDeltaDispatch(dispatch, itemKeys))
+      if (new Set(dispatches.map(dispatch => `${dispatch.sourceKey}:${dispatch.driveId}:${dispatch.eventKey}`)).size !== dispatches.length) {
+        throw new Error('DELTA_DISPATCH_DUPLICATE')
+      }
       const last = await tx.$queryRaw<{ sequence: number }[]>`
         SELECT sequence FROM finance_sync_items_p2 WHERE job_id=${current.id}::uuid ORDER BY sequence DESC LIMIT 1
       `
       let sequence = num(last[0]?.sequence)
-      const page = Array.from(unique.values());
       // Una página ISP puede contener miles de facturas: se escribe en lotes SQL,
       // no con una llamada remota por fila. Todo conserva el mismo checkpoint/tx.
       for (let offset=0; offset<page.length; offset+=250) {
@@ -407,6 +430,19 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
           ON CONFLICT (job_id,source_key) DO UPDATE SET type=EXCLUDED.type,source_data=EXCLUDED.source_data,updated_at=clock_timestamp()
           WHERE finance_sync_items_p2.confirmed_at IS NULL
         `);
+      }
+      // Dispatch and P2 source item/checkpoint share this transaction. A rollback
+      // leaves the Delta event deliverable; an acknowledged event is never moved.
+      for (const dispatch of dispatches) {
+        await tx.$executeRaw`
+          INSERT INTO finance_graph_delta_dispatches
+            (source_key,drive_id,event_key,job_id,item_source_key,dispatched_at,acknowledged_at)
+          VALUES (${dispatch.sourceKey},${dispatch.driveId},${dispatch.eventKey},${current.id}::uuid,${dispatch.itemKey},clock_timestamp(),${dispatch.itemKey === null ? Prisma.sql`clock_timestamp()` : Prisma.sql`NULL`})
+          ON CONFLICT (source_key,drive_id,event_key) DO UPDATE SET
+            job_id=EXCLUDED.job_id,item_source_key=EXCLUDED.item_source_key,dispatched_at=EXCLUDED.dispatched_at,
+            acknowledged_at=CASE WHEN finance_graph_delta_dispatches.acknowledged_at IS NULL THEN EXCLUDED.acknowledged_at ELSE finance_graph_delta_dispatches.acknowledged_at END
+          WHERE finance_graph_delta_dispatches.acknowledged_at IS NULL
+        `
       }
       // Items and checkpoint are in this transaction: no advanced checkpoint after partial-page error.
       if (input.complete) {
@@ -511,6 +547,14 @@ export class PrismaFinanceSyncRepository implements FinanceSyncRepository<Prisma
         const safeOutcomeError = outcomeSafeError(outcome, typeof applied === 'string' ? input.safeError : applied.safeError ?? input.safeError)
         // Keep domain apply and durable item acknowledgement indivisible, with a second live guard.
         await tx.$executeRaw`SELECT finance_sync_p2_assert_apply_guard(${input.jobId}::uuid,${input.itemId}::uuid,${input.token},${input.deadline})`
+        if (deltaDispatchItem(sourceItem.item)) {
+          await tx.$executeRaw`
+            UPDATE finance_graph_delta_dispatches
+            SET acknowledged_at=COALESCE(acknowledged_at,clock_timestamp())
+            WHERE job_id=${current.id}::uuid AND item_source_key=${sourceItem.item.key}
+              AND acknowledged_at IS NULL
+          `
+        }
         const committedAt = await this.now(tx)
         await tx.$executeRaw`
           UPDATE finance_sync_items_p2 SET outcome=${outcome}::"FinanceSyncOutcomeP2",

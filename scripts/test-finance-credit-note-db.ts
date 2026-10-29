@@ -65,6 +65,7 @@ function mockDb(linkRows: unknown[]) {
       async $queryRawUnsafe<T>(statement: string): Promise<T> {
         statements.push(statement)
         assert.match(statement, /^\s*SELECT\b/i, '3c sólo admite SQL SELECT')
+        if (statement.includes("information_schema.tables")) return [{ tableName: null }] as T
         if (statement.includes('FROM document_version_lifecycle l\n  JOIN document_version_snapshots s')) return documents() as T
         if (statement.includes('FROM document_version_credit_links cl')) return linkRows as T
         if (statement.includes('AS "evidenceId"')) return directB4() as T
@@ -89,8 +90,8 @@ test('enlace CONFIRMED humano, vigente y exacto descuenta sólo en vista B7 sin 
     ['PARCIAL', 2_000, 5_000, 3_000],
   )
   assert.equal(rows[0].remainingCents, 7_000, 'B7 no se reescribe')
-  assert.equal(fixture.statements.length, 2)
-  assert.ok(fixture.statements.every((statement) => /LIMIT 25001 OFFSET 0/.test(statement)))
+  assert.equal(fixture.statements.length, 3)
+  assert.ok(fixture.statements.every((statement) => statement.includes("information_schema.tables") || /LIMIT 25001 OFFSET 0/.test(statement)))
   assert.ok(fixture.statements.every((statement) => !/\b(?:INSERT|UPDATE|DELETE|MERGE|CALL)\b/i.test(statement)))
 })
 
@@ -127,6 +128,7 @@ test('B7 cablea la vista 3c sobre la población completa sin reescribir saldo, p
     async $queryRawUnsafe<T>(statement: string): Promise<T> {
       statements.push(statement)
       assert.match(statement, /^\s*(?:SELECT|WITH)\b/i, 'el cableado B7/3c sólo lee')
+      if (statement.includes("information_schema.tables")) return [{ tableName: null }] as T
       if (statement.includes('FROM document_version_lifecycle l\n  JOIN document_version_snapshots s')) return documents() as T
       if (statement.includes('FROM document_version_credit_links cl')) return link(true) as T
       if (statement.includes('FROM facturas_emitidas fe')) return [{
@@ -155,4 +157,30 @@ test('B7 cablea la vista 3c sobre la población completa sin reescribir saldo, p
   )
   assert.equal(statements.filter((statement) => statement.includes('FROM document_version_lifecycle')).length, 1)
   assert.ok(statements.every((statement) => !/\b(?:INSERT|UPDATE|DELETE|MERGE)\b/i.test(statement)))
+})
+
+test('ledger humano disponible proyecta su estado efectivo sin reescribir B7', async () => {
+  const statements: string[] = []
+  const db = {
+    async $queryRawUnsafe<T>(statement: string): Promise<T> {
+      statements.push(statement)
+      assert.match(statement, /^\s*SELECT\b/i)
+      if (statement.includes('information_schema.tables')) return [{ tableName: 'document_version_credit_link_decisions' }] as T
+      if (statement.includes('FROM document_version_lifecycle l\n  JOIN document_version_snapshots s')) return documents() as T
+      if (statement.includes('FROM document_version_credit_links cl')) return link(true) as T
+      throw new Error('SQL mock de ledger efectivo no reconocido')
+    },
+  }
+  const [row] = await readIssuedCreditNotesForBankInvoicing(db, { invoices: [b7Invoice()], directB4Lines: directB4().map((evidence) => ({
+    lineId: evidence.evidenceId, movementId: 'movimiento-sintetico', invoiceId: evidence.originalDocumentId, signedCents: evidence.signedCents,
+    active: true, documentActive: true, documentKind: 'FACTURA_EMITIDA', wrapperTargetCents: evidence.wrapperTargetCents,
+    operationApplied: true, operationReverted: false, movementJustified: true, physicalBankCents: evidence.physicalBankCents,
+    sumAllActiveCents: evidence.sumAllActiveCents, activeDocumentLineCount: evidence.activeDocumentLineCount, allActiveLinesApplied: true,
+  })) })
+  assert.equal(row.remainingCents, 7_000)
+  assert.deepEqual([row.creditNoteState, row.rectificationCents, row.remainingAfterCreditNotesCents], ['PARCIAL', 2_000, 5_000])
+  const effective = statements.find((statement) => statement.includes('FROM document_version_credit_links cl')) ?? ''
+  assert.match(effective, /d\.effective_state::text/)
+  assert.match(effective, /NOT EXISTS \(SELECT 1 FROM document_version_credit_link_decisions/)
+  assert.doesNotMatch(effective, /\b(?:INSERT|UPDATE|DELETE|MERGE|CALL)\b/i)
 })

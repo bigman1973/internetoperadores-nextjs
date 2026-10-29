@@ -33,10 +33,13 @@ const LIQ = '66666666-6666-4666-8666-666666666666'
 const HASH_A = 'a'.repeat(64)
 const HASH_B = 'b'.repeat(64)
 const REGISTERED: FinanceConfirmingReadingRegisteredSource = {
+  registroSoporteId: '77777777-7777-4777-8777-777777777777',
   facturaRecibidaId: 'fr-confirming-synthetic',
-  archivoControladoId: 'archive-confirming-synthetic',
+  archivoControladoId: '88888888-8888-4888-8888-888888888888',
   oneDriveDriveId: 'drive-synthetic',
   oneDriveItemId: 'item-synthetic',
+  tipoDetectado: 'BBVA_PDF',
+  parejaCaixaDeclaradaId: null,
 }
 
 function hash(bytes: Uint8Array): string { return createHash('sha256').update(bytes).digest('hex') }
@@ -176,7 +179,7 @@ test('06 persistencia P2 exige snapshot archivado, fuente FI registrada y devuel
     async $queryRaw<T>(query: Prisma.Sql) {
       const text = sqlText(query); seen.push(text)
       if (text.includes('FROM document_version_snapshots')) return [{ id: SNAP }] as T
-      if (text.includes('FROM facturas_recibidas')) return [{ id: REGISTERED.facturaRecibidaId }] as T
+      if (text.includes('FROM confirming_reading_support_sources r')) return [{ id: REGISTERED.facturaRecibidaId }] as T
       if (text.includes('FROM confirming_reading_attempts')) return [] as T
       if (text.includes('INSERT INTO confirming_reading_attempts')) return [] as T
       throw new Error(`unexpected SQL: ${text}`)

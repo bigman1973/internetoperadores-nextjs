@@ -88,6 +88,12 @@ const FACTURA_RECIBIDA_FISCAL_IDENTITY_SQL = `
   ('CIF:' || regexp_replace(upper(fr.cif), '[[:space:]._/\\-]+', '', 'g') ||
     '|NUM:' || regexp_replace(upper(fr.num_factura), '[[:space:]]+', '', 'g'))
 `
+// Counterparty identity deliberately excludes the document number. The full
+// number-bearing fiscal identity remains part of sourceMetadataExact above;
+// links need the shared fiscal party identity of original and rectificativa.
+const FACTURA_RECIBIDA_COUNTERPARTY_FISCAL_SQL = `
+  ('CIF:' || regexp_replace(upper(fr.cif), '[[:space:]._/\\-]+', '', 'g'))
+`
 
 /**
  * Current received-invoice snapshots only. `source_item_key` remains the raw
@@ -113,7 +119,7 @@ const RECEIVED_CREDIT_DOCUMENTS_SQL = `
     s.id::text AS "currentVersionId",
     s.document_number AS "documentReference",
     s.referenced_original_reference AS "referencedOriginalReference",
-    s.invoice_fiscal_identity AS "counterpartyFiscalIdentity",
+    ${FACTURA_RECIBIDA_COUNTERPARTY_FISCAL_SQL} AS "counterpartyFiscalIdentity",
     fr.proveedor AS "counterpartyCanonicalIdentity",
     s.total_cents::bigint AS "signedTotalCents",
     s.currency_code AS "currencyCode",
@@ -160,7 +166,7 @@ const RECEIVED_CREDIT_LINKS_SQL = `
     original_s.document_number AS "originalDocumentReference",
     cl.exact_reference AS "referencedOriginalReference",
     cl.exact_reference_hash AS "exactReferenceHash",
-    original_s.invoice_fiscal_identity AS "counterpartyFiscalIdentity",
+    ${FACTURA_RECIBIDA_COUNTERPARTY_FISCAL_SQL.replaceAll('fr.', 'original_fr.')} AS "counterpartyFiscalIdentity",
     original_fr.proveedor AS "counterpartyCanonicalIdentity",
     (
       cl.state = 'CONFIRMED'::"DocumentVersionCreditLinkState"
@@ -272,6 +278,26 @@ const RECEIVED_B4_PAYMENT_LINES_SQL = `
   ORDER BY v.id ASC
   LIMIT ${CREDIT_NOTE_PENDING_READ_LIMIT} OFFSET 0
 `
+
+const CREDIT_LINK_DECISIONS_READY_SQL = `SELECT table_name AS "tableName" FROM information_schema.tables WHERE table_schema='public' AND table_name='document_version_credit_link_decisions' LIMIT 1 OFFSET 0`
+const LEGACY_HUMAN_CONFIRMED_SQL = `cl.state = 'CONFIRMED'::"DocumentVersionCreditLinkState"
+      AND cl.confirmed_by_id IS NOT NULL
+      AND cl.confirmed_at IS NOT NULL`
+const LEGACY_HUMAN_REJECTED_SQL = `cl.state = 'REJECTED'::"DocumentVersionCreditLinkState"`
+
+/** Before the additive migration exists, the legacy immutable link remains authority. */
+function effectiveCreditLinksSql(decisionsReady: boolean): string {
+  if (!decisionsReady) return RECEIVED_CREDIT_LINKS_SQL
+  const lastState = `(SELECT d.effective_state::text FROM document_version_credit_link_decisions d WHERE d.credit_link_id=cl.id ORDER BY d.decision_sequence DESC LIMIT 1)`
+  const hasDecision = `EXISTS (SELECT 1 FROM document_version_credit_link_decisions d WHERE d.credit_link_id=cl.id)`
+  const confirmed = `(${lastState} = 'CONFIRMED' OR (NOT ${hasDecision} AND ${LEGACY_HUMAN_CONFIRMED_SQL}))`
+  const rejected = `COALESCE(${lastState},cl.state::text) = 'REJECTED'`
+  return RECEIVED_CREDIT_LINKS_SQL.replace(LEGACY_HUMAN_CONFIRMED_SQL, confirmed).replace(LEGACY_HUMAN_REJECTED_SQL, rejected)
+}
+async function creditLinkDecisionsReady(db: { $queryRawUnsafe<T>(sql: string): Promise<T> }): Promise<boolean> {
+  const rows = await db.$queryRawUnsafe<Array<{ tableName: string | null }>>(CREDIT_LINK_DECISIONS_READY_SQL)
+  return rows.length === 1 && rows[0]?.tableName === 'document_version_credit_link_decisions'
+}
 
 function asString(value: unknown): string {
   return typeof value === 'string' ? value : ''
@@ -412,9 +438,10 @@ export async function readReceivedCreditNotesForPendingInvoices(
   invoices: readonly PendingReceivedInvoiceProjection[],
 ): Promise<CreditNotePendingInvoiceProjection[]> {
   if (invoices.length === 0) return []
+  const decisionsReady = await creditLinkDecisionsReady(db)
   const [documentRows, linkRows, b4Rows] = await Promise.all([
     db.$queryRawUnsafe<ReceivedCreditDocumentRow[]>(RECEIVED_CREDIT_DOCUMENTS_SQL),
-    db.$queryRawUnsafe<ReceivedCreditLinkRow[]>(RECEIVED_CREDIT_LINKS_SQL),
+    db.$queryRawUnsafe<ReceivedCreditLinkRow[]>(effectiveCreditLinksSql(decisionsReady)),
     db.$queryRawUnsafe<ReceivedB4PaymentRow[]>(RECEIVED_B4_PAYMENT_LINES_SQL),
   ])
   assertBounded('DOCUMENTOS_RECIBIDOS', documentRows)
@@ -447,5 +474,6 @@ export async function readReceivedCreditNotesForPendingInvoices(
 export const pendingCreditNoteReadSql = {
   receivedDocuments: RECEIVED_CREDIT_DOCUMENTS_SQL,
   receivedLinks: RECEIVED_CREDIT_LINKS_SQL,
+  creditLinkDecisionsReady: CREDIT_LINK_DECISIONS_READY_SQL,
   receivedB4Payments: RECEIVED_B4_PAYMENT_LINES_SQL,
 } as const

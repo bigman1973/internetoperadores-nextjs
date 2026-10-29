@@ -130,3 +130,15 @@ test('FE B7 rechaza un céntimo indefinido y no lo sustituye por cero', () => {
   delete dto.items[0].importePendienteCentimos;
   assert.throws(() => leerItemsB5(dto), /importePendienteCentimos/);
 });
+
+
+test('FR expone bruto B4 y neto tras rectificativa como campos separados', () => {
+  const dto = baseB7Emitted(); dto.vista = 'FACTURAS_RECIBIDAS_SIN_PAGO';
+  dto.items[0] = { tipo:'FACTURA_RECIBIDA', id:'fr-rect', documentoConciliableId:'dc-fr', referencia:'FR-RECT', tercero:'Proveedor', cif:null, concepto:null, fecha:'2026-10-01', fechaVencimiento:null, importeObjetivoCentimos:-10000, importeAsignadoActivoCentimos:-3000, importePendienteCentimos:-7000, creditNoteState:'PARCIAL', rectificationCents:-2000, importePendienteTrasRectificativasCentimos:-5000, creditNoteReviewReasons:[] } as never;
+  const row = leerItemsB5(dto).items[0]; if (row.tipo !== 'FACTURA_RECIBIDA') throw new Error('Se esperaba FR.');
+  assert.deepEqual([row.importePendienteCentimos,row.rectificationCents,row.importePendienteTrasRectificativasCentimos],[-7000,-2000,-5000]);
+});
+test('extensión rectificativa incompleta se rechaza y nunca inventa neto', () => {
+  const dto = baseB7Emitted() as { items: Array<Record<string, unknown>> }; dto.items[0].creditNoteState='PARCIAL';
+  assert.throws(() => leerItemsB5(dto), /rectificativa incompleta/);
+});

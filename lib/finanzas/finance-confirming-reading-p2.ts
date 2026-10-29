@@ -102,10 +102,16 @@ export type FinanceConfirmingReadingPersistedSnapshot = Readonly<{
  * y esta identidad se vuelve a comprueba dentro de la misma transacción fenced.
  */
 export type FinanceConfirmingReadingRegisteredSource = Readonly<{
+  /** Registro servidor-controlado; no procede del inventario ni de la UI. */
+  registroSoporteId: string
   facturaRecibidaId: string
   archivoControladoId: string
   oneDriveDriveId: string
   oneDriveItemId: string
+  /** Debe coincidir con el parser de la fuente registrada; no se infiere por nombre. */
+  tipoDetectado: FinanceConfirmingReadingContentEvent['tipoDetectado']
+  /** Caixa sólo puede llegar aquí con la declaración explícita persistida. */
+  parejaCaixaDeclaradaId: string | null
 }>
 
 export type FinanceConfirmingReadingP2Tx = Readonly<{
@@ -213,6 +219,11 @@ function parserReasons(parse: FinanceConfirmingReadingPrivateParse, source: Fina
   const reasons: FinanceConfirmingReadingReason[] = []
   const isPdf = roleForPlan(plan) === 'LIQUIDACION_PDF'
   const isCaixa = parse.banco === 'CaixaBank'
+  // La clasificación humana registrada elige el parser y no puede cambiarse
+  // implícitamente desde su salida. Un adapter cruzado queda en ámbar.
+  const parserMatchesRegisteredKind = (source.tipoDetectado === 'BBVA_PDF' && parse.banco === 'BBVA')
+    || ((source.tipoDetectado === 'CAIXA_PDF' || source.tipoDetectado === 'CAIXA_XLS') && parse.banco === 'CaixaBank')
+  if (!parserMatchesRegisteredKind) reasons.push('LECTURA_NO_APTA_PARA_PROPUESTA')
   if (parse.sourceHash !== source.hashBinario) reasons.push('ARCHIVO_PRIVADO_NO_CONTROLADO')
   if (isPdf) {
     const totals = [amounts.nominalCentimos, amounts.interesesCentimos, amounts.comisionCentimos, amounts.ivaComisionCentimos, amounts.netoBancarioCentimos]
@@ -238,6 +249,33 @@ function reviewSummary(plan: FinanceConfirmingReadingParsePlan, reason: FinanceC
 }
 function prepared(input: Omit<FinanceConfirmingReadingP2Prepared, 'schema' | 'propuestaAutomatica' | 'confirmarB4Automaticamente' | 'noEscriturasB4'>): FinanceConfirmingReadingP2Prepared {
   return { schema: FINANCE_CONFIRMING_READING_P2_SCHEMA, ...input, propuestaAutomatica: true, confirmarB4Automaticamente: false, noEscriturasB4: true }
+}
+
+/**
+ * Reemplaza el token efímero usado durante `prepare` por el handle UUID que el
+ * lifecycle acaba de archivar. Sólo el provider puede llamarlo después de volver
+ * a leer la declaración soporte y registrar esta versión en el mismo apply P2.
+ */
+export function bindPreparedFinanceConfirmingReadingP2ToArchivedSource(input: Readonly<{
+  prepared: FinanceConfirmingReadingP2Prepared
+  snapshot: FinanceConfirmingReadingPersistedSnapshot
+  registeredSource: FinanceConfirmingReadingRegisteredSource
+}>): FinanceConfirmingReadingP2Prepared {
+  const { prepared: preparedInput, snapshot, registeredSource } = input
+  if (preparedInput.schema !== FINANCE_CONFIRMING_READING_P2_SCHEMA || !HASH.test(preparedInput.source.hashBinario)) fail('CONFIRMING_READING_P2_SOURCE_INVALID')
+  if (!UUID.test(snapshot.lifecycleId) || !UUID.test(snapshot.snapshotId) || !Number.isSafeInteger(snapshot.versionDocumento) || snapshot.versionDocumento < 1) fail('CONFIRMING_READING_P2_SNAPSHOT_INVALID')
+  if (!UUID.test(registeredSource.registroSoporteId) || !UUID.test(registeredSource.archivoControladoId) || !ID.test(registeredSource.facturaRecibidaId) || !opaque(registeredSource.oneDriveDriveId, 300) || !opaque(registeredSource.oneDriveItemId, 300)) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_INVALID')
+  if (registeredSource.tipoDetectado !== preparedInput.source.tipoDetectado || registeredSource.parejaCaixaDeclaradaId !== preparedInput.source.parejaCaixaDeclaradaId) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_MISMATCH')
+  return {
+    ...preparedInput,
+    source: {
+      ...preparedInput.source,
+      archivoPrivadoId: registeredSource.archivoControladoId,
+      // Snapshot is server-derived and only used to make a repeated archived
+      // version idempotent; neither value reaches the UI or P2 source_data.
+      versionContenido: snapshot.snapshotId,
+    },
+  }
 }
 
 /**
@@ -329,14 +367,39 @@ async function assertControlledSnapshot(tx: FinanceConfirmingReadingP2Tx, snapsh
   if (snapshotRows.length !== 1) fail('CONFIRMING_READING_P2_SNAPSHOT_NOT_CONTROLLED')
 }
 
-async function assertRegisteredSource(tx: FinanceConfirmingReadingP2Tx, source: FinanceConfirmingReadingRegisteredSource): Promise<void> {
-  if (!ID.test(source.facturaRecibidaId) || !ID.test(source.archivoControladoId) || !opaque(source.oneDriveDriveId, 300) || !opaque(source.oneDriveItemId, 300)) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_INVALID')
+async function assertRegisteredSource(
+  tx: FinanceConfirmingReadingP2Tx,
+  source: FinanceConfirmingReadingRegisteredSource,
+  snapshot: FinanceConfirmingReadingPersistedSnapshot,
+  preparedInput: FinanceConfirmingReadingP2Prepared,
+): Promise<void> {
+  if (!UUID.test(source.registroSoporteId) || !ID.test(source.facturaRecibidaId) || !UUID.test(source.archivoControladoId) || !opaque(source.oneDriveDriveId, 300) || !opaque(source.oneDriveItemId, 300)) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_INVALID')
+  if (source.tipoDetectado !== preparedInput.source.tipoDetectado || source.parejaCaixaDeclaradaId !== preparedInput.source.parejaCaixaDeclaradaId) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_MISMATCH')
+  if ((source.tipoDetectado === 'CAIXA_PDF' || source.tipoDetectado === 'CAIXA_XLS') && (!source.parejaCaixaDeclaradaId || !PAIR.test(source.parejaCaixaDeclaradaId))) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_MISMATCH')
+  if (source.tipoDetectado !== 'CAIXA_PDF' && source.tipoDetectado !== 'CAIXA_XLS' && source.parejaCaixaDeclaradaId !== null) fail('CONFIRMING_READING_P2_REGISTERED_SOURCE_MISMATCH')
   const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT fr.id
-    FROM facturas_recibidas fr
-    WHERE fr.id=${source.facturaRecibidaId}
-      AND fr.onedrive_drive_id=${source.oneDriveDriveId}
-      AND fr.onedrive_item_id=${source.oneDriveItemId}
+    FROM confirming_reading_support_sources r
+    JOIN facturas_recibidas fr ON fr.id=r.factura_recibida_id
+    JOIN confirming_reading_support_versions sv
+      ON sv.source_id=r.id
+     AND sv.lifecycle_id=CAST(${snapshot.lifecycleId} AS uuid)
+     AND sv.snapshot_id=CAST(${snapshot.snapshotId} AS uuid)
+     AND sv.version_documento=${snapshot.versionDocumento}
+     AND sv.archivo_controlado_id=CAST(${source.archivoControladoId} AS uuid)
+     AND sv.source_hash=${preparedInput.source.hashBinario}
+    WHERE r.id=CAST(${source.registroSoporteId} AS uuid)
+      AND r.factura_recibida_id=${source.facturaRecibidaId}
+      AND r.onedrive_drive_id=${source.oneDriveDriveId}
+      AND r.onedrive_item_id=${source.oneDriveItemId}
+      AND r.tipo_detectado=${source.tipoDetectado}
+      AND r.pareja_caixa_declarada_id IS NOT DISTINCT FROM ${source.parejaCaixaDeclaradaId}
+      AND NOT EXISTS (
+        SELECT 1 FROM confirming_reading_support_source_revocations rv
+        WHERE rv.source_id=r.id
+      )
+      AND fr.naturaleza_documento='SOPORTE_CONFIRMING_CLIENTE'::"NaturalezaDocumentoFinanciero"
+      AND fr.tipo_soporte_financiero='CONFIRMING_CESION_DRAXTON'::"TipoSoporteFinanciero"
       AND NOT EXISTS (
         SELECT 1
         FROM documentos_conciliables d
@@ -365,7 +428,7 @@ export async function persistPreparedFinanceConfirmingReadingP2Tx(
   const summary = input.prepared.resumen
   if (!summary || !ID.test(input.prepared.source.archivoPrivadoId) || !HASH.test(input.prepared.source.hashBinario)) fail('CONFIRMING_READING_P2_SOURCE_INVALID')
   await assertControlledSnapshot(tx, input.snapshot, input.prepared.source.hashBinario)
-  await assertRegisteredSource(tx, input.registeredSource)
+  await assertRegisteredSource(tx, input.registeredSource, input.snapshot, input.prepared)
   const key = sha256({
     schema: FINANCE_CONFIRMING_READING_P2_SCHEMA,
     kind: 'FUENTE',
@@ -391,7 +454,7 @@ export async function persistPreparedFinanceConfirmingReadingP2Tx(
     VALUES
       (gen_random_uuid(),'FUENTE',${resolutionKey(input.snapshot, input.prepared.source)},CAST(${input.snapshot.lifecycleId} AS uuid),CAST(${input.snapshot.snapshotId} AS uuid),${input.registeredSource.facturaRecibidaId},${input.registeredSource.archivoControladoId},${input.registeredSource.oneDriveDriveId},${input.registeredSource.oneDriveItemId},
        ${input.prepared.source.hashBinario},${summary.sourceRole},${summary.parser},${summary.banco},${input.prepared.source.parejaCaixaDeclaradaId},
-       CAST(${JSON.stringify(summary.motivos)} AS jsonb),CAST(${JSON.stringify(summary.resumen)} AS jsonb),CAST(${JSON.stringify(input.prepared.parsePrivado)} AS jsonb),
+       CAST(${JSON.stringify(summary.motivos)} AS jsonb),CAST(${JSON.stringify(summary.resumen)} AS jsonb),CAST(${JSON.stringify(input.prepared.parsePrivado ?? {})} AS jsonb),
        ${outcome},NULL,${input.actorId},${key})
   `)
   return { persisted: true, idempotencyKey: key, outcome }
@@ -423,7 +486,7 @@ export async function appendFinanceConfirmingReadingC11ResultTx(
   if (input.outcome === 'REVISAR' && input.motivo === null) fail('CONFIRMING_READING_P2_FINAL_REASON_REQUIRED')
   if (input.outcome === 'PROPUESTA_CONFIRMACION_HUMANA' && input.motivo !== null) fail('CONFIRMING_READING_P2_FINAL_REASON_INVALID')
   await assertControlledSnapshot(tx, input.snapshot, input.prepared.source.hashBinario)
-  await assertRegisteredSource(tx, input.registeredSource)
+  await assertRegisteredSource(tx, input.registeredSource, input.snapshot, input.prepared)
   const key = sha256({
     schema: FINANCE_CONFIRMING_READING_P2_SCHEMA,
     kind: 'RESULTADO_C11',

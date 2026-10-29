@@ -25,6 +25,8 @@ export type WorkerResult = {
   inventoryCalls: number
   preparedItems: number
   appliedItems: number
+  /** Informativa: el hook ya confirmó un refresco dirigido de proyección. */
+  projectionInvalidated: boolean
   retriedItems: number
   cancelled: boolean
   finalized: boolean
@@ -33,6 +35,10 @@ export type WorkerResult = {
 
 const MAX_BUDGET_MS = 240_000
 const MAX_PREPARE_TIMEOUT_MS = 120_000
+
+function projectionWasInvalidated(result: void | Readonly<{ projectionInvalidated?: boolean }>): boolean {
+  return typeof result === 'object' && result !== null && result.projectionInvalidated === true
+}
 
 function sleepTimeout<T>(operation: Promise<T>, milliseconds: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -68,7 +74,7 @@ export class FinanceSyncWorker<Tx> {
     // the maximum OCR timeout, as required even if prepare is currently running.
     const leaseUntil = new Date(start.getTime() + budgetMs + MAX_PREPARE_TIMEOUT_MS)
     const token = randomUUID()
-    const result: WorkerResult = { claimedJobId: null, inventoryCalls: 0, preparedItems: 0, appliedItems: 0, retriedItems: 0, cancelled: false, finalized: false, exhaustedBudget: false }
+    const result: WorkerResult = { claimedJobId: null, inventoryCalls: 0, preparedItems: 0, appliedItems: 0, projectionInvalidated: false, retriedItems: 0, cancelled: false, finalized: false, exhaustedBudget: false }
 
     const claim = await this.deps.repository.claimNextJob({ now: start, leaseUntil, maxRecoveries, token })
     if (!claim) return result
@@ -86,12 +92,14 @@ export class FinanceSyncWorker<Tx> {
       // native inventory. They own no long-lived DB transaction: each durable
       // page must revalidate this exact fence/cancel state independently.
       if (job.phase === 'INVENTORY' && provider.beforeInventory) {
-        await provider.beforeInventory({
+        const beforeInventory = await provider.beforeInventory({
           jobId: job.id,
           actorId: job.actorId,
           source: job.source,
           leaseToken: token,
         })
+        // Sólo informa un cambio ya duradero; no inicia refresh/sync adicional.
+        result.projectionInvalidated = projectionWasInvalidated(beforeInventory)
       }
       const inventoryPageLimit=Math.max(1,Math.min(options.inventoryPageLimit ?? 1,32));
       while (job.phase === 'INVENTORY' && result.inventoryCalls<inventoryPageLimit && clock.now()<deadline) {
@@ -103,7 +111,7 @@ export class FinanceSyncWorker<Tx> {
         if (!inventory.complete && !inventory.items.length && JSON.stringify(inventory.checkpoint)===previousCheckpoint) throw new Error('INVENTORY_NO_PROGRESS')
         const inventoryWrite = await this.deps.repository.persistInventory({
           jobId: job.id, token, now: clock.now(), deadline, checkpoint: inventory.checkpoint,
-          complete: inventory.complete, items: inventory.items,
+          complete: inventory.complete, items: inventory.items, deltaDispatches: inventory.deltaDispatches,
         })
         if (inventoryWrite === 'cancelled') {
           result.cancelled = !!await this.deps.repository.finalizeCancellation({ jobId: job.id, token, now: clock.now() })

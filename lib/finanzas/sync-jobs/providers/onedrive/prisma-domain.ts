@@ -18,6 +18,7 @@ import type {
   NewReviewInput,
   OcrInvoice,
   OneDriveDomainPort,
+  RegisteredConfirmingSupport,
 } from './provider'
 
 const locationSelect = {
@@ -38,6 +39,20 @@ type RevisionRow = {
   carpetaOrigen: string | null
   estadoCarpeta: string | null
 }
+
+type ConfirmingSupportRow = Readonly<{
+  registroSoporteId: unknown
+  facturaRecibidaId: unknown
+  oneDriveDriveId: unknown
+  oneDriveItemId: unknown
+  tipoDetectado: unknown
+  parejaCaixaDeclaradaId: unknown
+  hashProcesadoAnterior: unknown
+}>
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const HASH = /^[a-f0-9]{64}$/
+const PAIR = /^[A-Za-z0-9_.:-]{1,160}$/
 
 function invoiceLocation(row: SourceRow): Location {
   return {
@@ -74,6 +89,63 @@ function privateText(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null
   const normalized = value.normalize('NFKC').trim()
   return normalized && normalized.length <= max && !/[\u0000-\u001F\u007F]/.test(normalized) ? normalized : null
+}
+
+function registeredConfirmingSupport(row: ConfirmingSupportRow): RegisteredConfirmingSupport | null {
+  const registroSoporteId = privateText(row.registroSoporteId, 64)
+  const facturaRecibidaId = privateText(row.facturaRecibidaId, 220)
+  const oneDriveDriveId = privateText(row.oneDriveDriveId, 300)
+  const oneDriveItemId = privateText(row.oneDriveItemId, 300)
+  const parejaCaixaDeclaradaId = row.parejaCaixaDeclaradaId === null ? null : privateText(row.parejaCaixaDeclaradaId, 160)
+  const hashProcesadoAnterior = row.hashProcesadoAnterior === null ? null : privateText(row.hashProcesadoAnterior, 64)
+  const tipoDetectado = row.tipoDetectado === 'BBVA_PDF' || row.tipoDetectado === 'CAIXA_PDF' || row.tipoDetectado === 'CAIXA_XLS' || row.tipoDetectado === 'OTRO'
+    ? row.tipoDetectado : null
+  if (!registroSoporteId || !UUID.test(registroSoporteId) || !facturaRecibidaId || !oneDriveDriveId || !oneDriveItemId || !tipoDetectado
+    || (parejaCaixaDeclaradaId !== null && !PAIR.test(parejaCaixaDeclaradaId))
+    || (hashProcesadoAnterior !== null && !HASH.test(hashProcesadoAnterior))) return null
+  if ((tipoDetectado === 'CAIXA_PDF' || tipoDetectado === 'CAIXA_XLS') !== (parejaCaixaDeclaradaId !== null)) return null
+  if ((tipoDetectado === 'BBVA_PDF' || tipoDetectado === 'OTRO') && parejaCaixaDeclaradaId !== null) return null
+  return { registroSoporteId, facturaRecibidaId, oneDriveDriveId, oneDriveItemId, tipoDetectado, parejaCaixaDeclaradaId, hashProcesadoAnterior }
+}
+
+async function confirmingSupportRegistryAvailable(client: Pick<PrismaClient, '$queryRaw'> | Tx): Promise<boolean> {
+  const rows = await client.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+    SELECT to_regclass('public.confirming_reading_support_sources') IS NOT NULL AS exists
+    LIMIT 1
+  `)
+  return rows.length === 1 && rows[0]?.exists === true
+}
+
+async function confirmingSupportByItem(
+  client: Pick<PrismaClient, '$queryRaw'> | Tx,
+  driveId: string,
+  itemId: string,
+  lock: boolean,
+): Promise<RegisteredConfirmingSupport | null> {
+  if (!await confirmingSupportRegistryAvailable(client)) return null
+  const lockClause = lock ? Prisma.sql` FOR UPDATE OF r` : Prisma.empty
+  const rows = await client.$queryRaw<ConfirmingSupportRow[]>(Prisma.sql`
+    SELECT r.id::text AS "registroSoporteId",r.factura_recibida_id AS "facturaRecibidaId",
+      r.onedrive_drive_id AS "oneDriveDriveId",r.onedrive_item_id AS "oneDriveItemId",
+      r.tipo_detectado AS "tipoDetectado",r.pareja_caixa_declarada_id AS "parejaCaixaDeclaradaId",
+      (
+        SELECT a.source_hash
+        FROM confirming_reading_attempts a
+        JOIN confirming_reading_support_versions sv
+          ON sv.lifecycle_id=a.lifecycle_id AND sv.snapshot_id=a.snapshot_id
+        WHERE sv.source_id=r.id AND a.attempt_kind='FUENTE'
+        ORDER BY a.created_at DESC,a.id DESC
+        LIMIT 1
+      ) AS "hashProcesadoAnterior"
+    FROM confirming_reading_support_sources r
+    WHERE r.onedrive_drive_id=${driveId} AND r.onedrive_item_id=${itemId}
+      AND NOT EXISTS (
+        SELECT 1 FROM confirming_reading_support_source_revocations rv WHERE rv.source_id=r.id
+      )
+    LIMIT 2${lockClause}
+  `)
+  if (rows.length !== 1) return null
+  return registeredConfirmingSupport(rows[0]!)
 }
 
 function privateInvoiceMetadata(input: Readonly<{
@@ -209,6 +281,42 @@ export function createPrismaOneDriveDomain(prisma: PrismaClient): OneDriveDomain
         select: { archivoOneDrive: true, numFactura: true, fecha: true, total: true, cif: true },
       })
       return invoice ? privateInvoiceMetadata(invoice) : null
+    },
+
+    async readConfirmingSupport(driveId, itemId) {
+      return confirmingSupportByItem(prisma, driveId, itemId, false)
+    },
+
+    async lockConfirmingSupport(tx, driveId, itemId) {
+      return confirmingSupportByItem(tx, driveId, itemId, true)
+    },
+
+    async registerConfirmingSupportVersion(tx, source, version, actorId) {
+      if (!UUID.test(source.registroSoporteId) || !UUID.test(version.lifecycleId) || !UUID.test(version.snapshotId)
+        || !UUID.test(version.archivoControladoId) || !HASH.test(version.sourceHash)
+        || !Number.isSafeInteger(version.versionDocumento) || version.versionDocumento < 1
+        || !Number.isSafeInteger(actorId) || actorId < 1) return false
+      const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        INSERT INTO confirming_reading_support_versions
+          (id,source_id,lifecycle_id,snapshot_id,version_documento,archivo_controlado_id,source_hash,recorded_by_id,created_at)
+        VALUES
+          (gen_random_uuid(),CAST(${source.registroSoporteId} AS uuid),CAST(${version.lifecycleId} AS uuid),CAST(${version.snapshotId} AS uuid),${version.versionDocumento},CAST(${version.archivoControladoId} AS uuid),${version.sourceHash},${actorId},CURRENT_TIMESTAMP)
+        ON CONFLICT (source_id,snapshot_id) DO NOTHING
+        RETURNING id::text AS id
+      `)
+      if (inserted.length === 1) return true
+      const replay = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id::text AS id
+        FROM confirming_reading_support_versions
+        WHERE source_id=CAST(${source.registroSoporteId} AS uuid)
+          AND lifecycle_id=CAST(${version.lifecycleId} AS uuid)
+          AND snapshot_id=CAST(${version.snapshotId} AS uuid)
+          AND version_documento=${version.versionDocumento}
+          AND archivo_controlado_id=CAST(${version.archivoControladoId} AS uuid)
+          AND source_hash=${version.sourceHash}
+        LIMIT 2 FOR KEY SHARE
+      `)
+      return replay.length === 1
     },
 
     async hasLegacyExactCanonicalMatch(tx, ocr, canonKey): Promise<boolean> {

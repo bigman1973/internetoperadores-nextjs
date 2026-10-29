@@ -4,6 +4,7 @@ import type {
   SyncItemRecord,
   SyncJobRecord,
   SyncOutcome,
+  SyncDeltaDispatch,
   SyncSource,
   SyncSourceItem,
   SyncTrigger,
@@ -66,6 +67,8 @@ export interface FinanceSyncRepository<Tx = Prisma.TransactionClient> {
     checkpoint: unknown
     complete: boolean
     items: SyncSourceItem[]
+    /** Sólo el consumidor Delta opt-in entrega estos recibos privados. */
+    deltaDispatches?: readonly SyncDeltaDispatch[]
   }): Promise<'ok' | 'cancelled' | 'lost_lease' | 'deadline_exceeded'>
   claimNextItem(input: {
     jobId: string

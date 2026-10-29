@@ -13,6 +13,7 @@ import type {
   OcrPort,
   OcrValidation,
   OneDriveDomainPort,
+  RegisteredConfirmingSupport,
 } from './provider'
 
 export type FakeFolder = { files?: GraphFile[]; error?: Error }
@@ -49,6 +50,10 @@ export class FakeOneDriveReadPort implements OneDriveReadPort {
 /** In-memory domain port proving what the provider asks to mutate, not Prisma behavior. */
 export class FakeOneDriveDomainPort implements OneDriveDomainPort<object> {
   readonly sources = new Map<string, ExistingSource>()
+  readonly confirmingSupports = new Map<string, RegisteredConfirmingSupport>()
+  /** Una declaración revocada es invisible para el worker y debe fallar cerrada. */
+  readonly revokedConfirmingSupportKeys = new Set<string>()
+  readonly confirmingSupportVersions: Array<{ source: RegisteredConfirmingSupport; version: { lifecycleId: string; snapshotId: string; versionDocumento: number; archivoControladoId: string; sourceHash: string }; actorId: number }> = []
   readonly appliedLocations: Array<{ itemId: string; location: Location }> = []
   readonly invoices: NewInvoiceInput[] = []
   readonly reviews: NewReviewInput[] = []
@@ -67,6 +72,21 @@ export class FakeOneDriveDomainPort implements OneDriveDomainPort<object> {
   async lockSource(_tx: object, itemId: string): Promise<ExistingSource | null> {
     this.calls.lock += 1
     return this.sources.get(itemId) || null
+  }
+
+  async readConfirmingSupport(driveId: string, itemId: string): Promise<RegisteredConfirmingSupport | null> {
+    const key = `${driveId}:${itemId}`
+    return this.revokedConfirmingSupportKeys.has(key) ? null : this.confirmingSupports.get(key) ?? null
+  }
+
+  async lockConfirmingSupport(_tx: object, driveId: string, itemId: string): Promise<RegisteredConfirmingSupport | null> {
+    const key = `${driveId}:${itemId}`
+    return this.revokedConfirmingSupportKeys.has(key) ? null : this.confirmingSupports.get(key) ?? null
+  }
+
+  async registerConfirmingSupportVersion(_tx: object, source: RegisteredConfirmingSupport, version: { lifecycleId: string; snapshotId: string; versionDocumento: number; archivoControladoId: string; sourceHash: string }, actorId: number): Promise<boolean> {
+    this.confirmingSupportVersions.push({ source, version, actorId })
+    return true
   }
 
   async updateLocation(_tx: object, source: ExistingSource, location: Location, _actorId: number | null): Promise<boolean> {

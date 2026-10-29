@@ -161,6 +161,10 @@ export function createProductionOneDriveProvider(client: PrismaClient, env: Env 
     documentLifecycle: new PrismaOneDriveDocumentLifecycle(client, async (tx, actorId) =>
       hasEffectiveP2ActorWriteAccessInTx({ actorId, source: 'ONEDRIVE' }, tx),
     ),
+    // The confirming bridge repeats this exact live check after lifecycle has
+    // archived a version and before it can append a review/proposal record.
+    assertLiveFinanceWriteAccess: async (tx, actorId) =>
+      hasEffectiveP2ActorWriteAccessInTx({ actorId, source: 'ONEDRIVE' }, tx),
     ocr: { extract: extraerDatosFactura, validateNew: validarResultadoOcrNuevo },
     // This comes only from the server-approved B1 acknowledgement. It is never
     // accepted in request JSON. A current resolved drive mismatch yields REVISAR.

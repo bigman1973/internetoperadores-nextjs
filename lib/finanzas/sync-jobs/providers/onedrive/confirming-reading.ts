@@ -49,7 +49,7 @@ export class OneDriveConfirmingReadingBridgeError extends Error {
 }
 
 const ID = /^[A-Za-z0-9_.:-]{1,220}$/
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const HASH = /^[a-f0-9]{64}$/
 const DAY = /^(\d{2})\/(\d{2})\/(\d{4})$/
 
@@ -283,12 +283,15 @@ async function readB4AndMovements(tx: OneDriveConfirmingReadingTx, input: Readon
   const [b4Rows, movementRows] = await Promise.all([
     tx.$queryRaw<Array<{ id: string; facturaEmitidaId: string; activo: unknown; objetivoCentimos: unknown; asignadoCentimos: unknown }>>(Prisma.sql`
       SELECT d.id::text AS id,d.factura_emitida_id AS "facturaEmitidaId",d.activo,d.importe_objetivo_centimos AS "objetivoCentimos",
-        COALESCE(SUM(v.importe_centimos) FILTER (WHERE v.activo),0)::bigint AS "asignadoCentimos"
+        COALESCE(assigned.total,0)::bigint AS "asignadoCentimos"
       FROM documentos_conciliables d
-      LEFT JOIN vinculos_movimiento_documento v ON v.documento_conciliable_id=d.id
+      LEFT JOIN LATERAL (
+        SELECT SUM(v.importe_centimos) FILTER (WHERE v.activo) AS total
+        FROM vinculos_movimiento_documento v WHERE v.documento_conciliable_id=d.id
+      ) assigned ON TRUE
       WHERE d.tipo='FACTURA_EMITIDA'::"TipoDocumentoConciliable"
         AND d.factura_emitida_id IN (${Prisma.join(input.invoiceIds.map((id) => Prisma.sql`${id}`))})
-      GROUP BY d.id ORDER BY d.id ASC LIMIT ${input.invoiceIds.length + 1} FOR KEY SHARE
+      ORDER BY d.id ASC LIMIT ${input.invoiceIds.length + 1} FOR KEY SHARE OF d
     `),
     tx.$queryRaw<Array<{ id: string; fecha: string; cuentaId: string | null; importeCentimos: unknown; estadoB4: unknown }>>(Prisma.sql`
       SELECT m.id,m.fecha_operacion::date::text AS fecha,m.cuenta_id AS "cuentaId",(m.importe::text::numeric*100)::bigint AS "importeCentimos",
@@ -298,7 +301,7 @@ async function readB4AndMovements(tx: OneDriveConfirmingReadingTx, input: Readon
       WHERE m.cuenta_id=${input.accountId}
         AND m.fecha_operacion::date>=CAST(${input.liquidationDay} AS date)
         AND m.fecha_operacion::date<=CAST(${endDay} AS date)
-      ORDER BY m.fecha_operacion::date ASC,m.id ASC LIMIT 101 FOR KEY SHARE
+      ORDER BY m.fecha_operacion::date ASC,m.id ASC LIMIT 101 FOR KEY SHARE OF m
     `),
   ])
   if (b4Rows.length > input.invoiceIds.length || movementRows.length > 100) return null
@@ -366,8 +369,11 @@ export async function applyOneDriveConfirmingReadingAfterLifecycleTx(input: Read
   if (sourceWrite.outcome === 'SIN_CAMBIOS') {
     return { schema: ONEDRIVE_CONFIRMING_READING_BRIDGE_SCHEMA, outcome: 'SIN_CAMBIOS', liquidacionId: null, movimientoId: null, confirmarB4Automaticamente: false, noEscriturasB4: true }
   }
+  // Una fuente que el parser ya dejó en revisión se publica directamente desde
+  // su intento FUENTE. No se inventa un RESULTADO_C11: éste sólo existe después
+  // de una fuente elegible, una pareja exacta (cuando aplica) y C11 reconstruido.
   if (sourceWrite.outcome === 'REVISAR' || input.prepared.kind !== 'PERSISTIR_PROPUESTA' || !input.prepared.resumen?.banco) {
-    return appendReview(input.tx, { ...input, reason: input.prepared.resumen?.motivos[0] ?? 'LECTURA_NO_APTA_PARA_PROPUESTA' })
+    return { schema: ONEDRIVE_CONFIRMING_READING_BRIDGE_SCHEMA, outcome: 'REVISAR', liquidacionId: null, movimientoId: null, confirmarB4Automaticamente: false, noEscriturasB4: true }
   }
 
   // Relee las fuentes desde la tabla append-only; así una Caixa sólo atraviesa

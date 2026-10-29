@@ -9,6 +9,11 @@ export type SyncItemType =
 
 export type SyncOutcome = 'NUEVA' | 'ACTUALIZADA' | 'SIN_CAMBIOS' | 'REVISAR' | 'ERROR'
 
+/** Resultado opcional ya durable de `beforeInventory`; no solicita otro sync. */
+export type SyncBeforeInventoryResult = Readonly<{
+  projectionInvalidated?: boolean
+}>
+
 /**
  * Normalized, resumable metadata only. It must never contain credentials,
  * pre-authorized download URLs, headers, document bytes, or provider errors.
@@ -18,6 +23,26 @@ export type SyncSourceItem = {
   tipo: SyncItemType
   data: Prisma.InputJsonValue
 }
+
+/**
+ * Recibo privado de entrega desde un evento Graph Delta ya durable hacia el
+ * ítem P2. No viaja por API/UI y sólo se reconoce tras confirmar el ítem.
+ */
+export type SyncDeltaDispatch = Readonly<{
+  sourceKey: string
+  driveId: string
+  eventKey: string
+  /** null sólo para un evento fuera de los tipos P2 admitidos; se acusa sin item. */
+  itemKey: string | null
+}>
+
+export type SyncInventoryPage = Readonly<{
+  items: SyncSourceItem[]
+  checkpoint: unknown
+  complete: boolean
+  /** Ausente en el proveedor heredado; privado para el recorrido Delta opt-in. */
+  deltaDispatches?: readonly SyncDeltaDispatch[]
+}>
 
 /**
  * A provider performs network/OCR work in `inventory` and `prepare` only.
@@ -35,12 +60,8 @@ export interface SyncProvider {
     actorId: number | null
     source: SyncSource
     leaseToken: string
-  }>): Promise<void>
-  inventory(checkpoint: unknown): Promise<{
-    items: SyncSourceItem[]
-    checkpoint: unknown
-    complete: boolean
-  }>
+  }>): Promise<void | SyncBeforeInventoryResult>
+  inventory(checkpoint: unknown): Promise<SyncInventoryPage>
   prepare(item: SyncSourceItem): Promise<unknown>
   apply(
     tx: Prisma.TransactionClient,

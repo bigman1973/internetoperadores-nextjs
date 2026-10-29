@@ -1,7 +1,7 @@
 import type { GraphFile, InvoiceLibrary, OneDriveReadPort } from './graph-read'
 import type { SyncOutcome, SyncSourceItem } from './types'
 import { SyncProviderError } from './types'
-import type { DocumentObservation, DocumentPrivateMetadata, ReconciliationProtection } from '@/lib/finanzas/finance-document-lifecycle-core'
+import { fingerprintDocumentContent, type DocumentObservation, type DocumentPrivateMetadata, type ReconciliationProtection } from '@/lib/finanzas/finance-document-lifecycle-core'
 import type { OneDriveDocumentLifecyclePort, OneDriveInventoryDocumentMetadata, OneDrivePrivateArchivePreparation } from './document-lifecycle'
 import {
   decideOneDriveContentRead,
@@ -10,6 +10,20 @@ import {
   prepareOneDrivePrivateArchive,
   privateMetadataFromOneDriveOcr,
 } from './document-lifecycle'
+import { privateDocumentArtifactHandle } from '@/lib/finanzas/finance-document-private-archive-db'
+import {
+  applyOneDriveConfirmingReadingAfterLifecycleTx,
+  prepareOneDriveConfirmingReading,
+  type OneDriveConfirmingReadingApplyResult,
+} from './confirming-reading'
+import {
+  bindPreparedFinanceConfirmingReadingP2ToArchivedSource,
+  type FinanceConfirmingReadingP2Prepared,
+  type FinanceConfirmingReadingPersistedSnapshot,
+  type FinanceConfirmingReadingRegisteredSource,
+} from '@/lib/finanzas/finance-confirming-reading-p2'
+import type { FinanceConfirmingReadingDocumentKind } from '@/lib/finanzas/finance-confirming-reading-event'
+import type { FinanceConfirmingReadingParserPort } from '@/lib/finanzas/finance-confirming-reading-adapter'
 
 export const FACTURAS_BASE_PATH = '2. Contabilidad y finanzas/2. Facturas recibidas/1. Facturas recibidas- Internet Operadores/2026'
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
@@ -95,6 +109,28 @@ export type ExistingSource = {
   location: Location
 }
 
+/**
+ * Declaración humana previa de una fuente confirming. El worker sólo la lee: no
+ * crea ni reclasifica una FacturaRecibida para hacer elegible un archivo nuevo.
+ */
+export type RegisteredConfirmingSupport = Readonly<{
+  registroSoporteId: string
+  facturaRecibidaId: string
+  oneDriveDriveId: string
+  oneDriveItemId: string
+  tipoDetectado: FinanceConfirmingReadingDocumentKind
+  parejaCaixaDeclaradaId: string | null
+  hashProcesadoAnterior: string | null
+}>
+
+export type ConfirmingSupportVersionInput = Readonly<{
+  lifecycleId: string
+  snapshotId: string
+  versionDocumento: number
+  archivoControladoId: string
+  sourceHash: string
+}>
+
 export type DedupePlan = {
   canonicalId: string | null
   conflict: boolean
@@ -118,6 +154,12 @@ export interface OneDriveDomainPort<Tx = unknown> {
   readB4Protection?(tx: Tx, source: ExistingSource): Promise<ReconciliationProtection>
   /** Canonical metadata already stored by B2; used only for an honest no-byte baseline. */
   readPrivateMetadata?(tx: Tx, source: ExistingSource): Promise<DocumentPrivateMetadata | null>
+  /** Read-only declaration required before a confirming file can be downloaded. */
+  readConfirmingSupport(driveId: string, itemId: string): Promise<RegisteredConfirmingSupport | null>
+  /** Re-reads/locks the same declared support inside the fenced P2 transaction. */
+  lockConfirmingSupport(tx: Tx, driveId: string, itemId: string): Promise<RegisteredConfirmingSupport | null>
+  /** Appends the exact archived snapshot to the pre-existing support declaration. */
+  registerConfirmingSupportVersion(tx: Tx, source: RegisteredConfirmingSupport, version: ConfirmingSupportVersionInput, actorId: number): Promise<boolean>
   /** Exact normalised legacy fallback only; no fuzzy/provider/name matching. */
   hasLegacyExactCanonicalMatch(tx: Tx, ocr: OcrInvoice, canonKey: string): Promise<boolean>
   createInvoice(tx: Tx, input: NewInvoiceInput, actorId: number | null): Promise<void>
@@ -154,10 +196,22 @@ export type OneDriveProviderOptions<Tx = unknown> = {
   invoiceRootPath?: string
   /** Real DB adapter injected by production assembly; tests may omit it. */
   documentLifecycle?: OneDriveDocumentLifecyclePort<Tx>
+  /** Re-checks the real P2 actor inside the same fenced apply transaction. */
+  assertLiveFinanceWriteAccess?: (tx: Tx, actorId: number) => Promise<boolean>
+  /** Fixture-only parser override. Production always uses the installed C11 parsers. */
+  confirmingParserPort?: FinanceConfirmingReadingParserPort
 }
 
 type PreparedExisting = { kind: 'EXISTING'; key: string }
-type PreparedConfirming = { kind: 'CONFIRMING'; key: string }
+type PreparedConfirmingCatalog = { kind: 'CONFIRMING_CATALOG'; key: string }
+type PreparedConfirmingReading = Readonly<{
+  kind: 'CONFIRMING_READING'
+  key: string
+  registeredSource: RegisteredConfirmingSupport
+  bytes: Uint8Array
+  lifecycle: PreparedLifecycle
+  reading: FinanceConfirmingReadingP2Prepared
+}>
 type PreparedLifecycleReview = { kind: 'LIFECYCLE_REVIEW'; key: string }
 type PreparedLegacyBaseline = { kind: 'LEGACY_METADATA_BASELINE'; key: string; observation: DocumentObservation }
 type PreparedLifecycle = Readonly<{
@@ -175,7 +229,7 @@ type PreparedInvoice = Readonly<{
   /** Ephemeral only: this is never serialized in FinanceSyncItemP2.sourceData. */
   lifecycle: PreparedLifecycle | null
 }>
-type Prepared = PreparedExisting | PreparedConfirming | PreparedLifecycleReview | PreparedLegacyBaseline | PreparedInvoice
+type Prepared = PreparedExisting | PreparedConfirmingCatalog | PreparedConfirmingReading | PreparedLifecycleReview | PreparedLegacyBaseline | PreparedInvoice
 
 function fail(code: string): never { throw new SyncProviderError(code) }
 
@@ -251,6 +305,67 @@ function dataFor(file: GraphFile, key: B1FolderKey, driveId: string, root: strin
   }
 }
 
+export type OneDriveDeltaDispatchMetadata = Readonly<{
+  driveId: string
+  itemId: string
+  itemName: string
+  canonicalPath: string
+  byteLength: number | null
+  eTag: string | null
+  cTag: string | null
+  quickXorHash: string | null
+  mimeType: string | null
+  lastModifiedDateTime: string | null
+}>
+
+/**
+ * Reforms one existing P2 source item from private Delta topology. This has no
+ * Graph I/O and intentionally admits exactly the same root/folder/file types as
+ * native B1 inventory. Unknown folders stay out of the automatic consumer.
+ */
+export function oneDriveItemFromDeltaMetadata(
+  input: OneDriveDeltaDispatchMetadata,
+  invoiceRootPath: string = FACTURAS_BASE_PATH,
+): SyncSourceItem | null {
+  const root = boundedString(invoiceRootPath, 2_000, 'ONEDRIVE_DELTA_ROOT_INVALID').replace(/^\/+|\/+$/g, '')
+  const driveId = boundedString(input.driveId, 512, 'ONEDRIVE_DELTA_ITEM_INVALID')
+  const itemId = boundedString(input.itemId, 512, 'ONEDRIVE_DELTA_ITEM_INVALID')
+  const name = boundedString(input.itemName, 512, 'ONEDRIVE_DELTA_ITEM_INVALID')
+  if (name.includes('/') || name.includes('\\')) fail('ONEDRIVE_DELTA_ITEM_INVALID')
+  const path = boundedString(input.canonicalPath, 2_600, 'ONEDRIVE_DELTA_ITEM_INVALID').replace(/^\/+|\/+$/g, '')
+  if (!path.startsWith(`${root}/`) || path !== `${path.slice(0, -(name.length + 1))}/${name}`) fail('ONEDRIVE_DELTA_ITEM_INVALID')
+  const relative = path.slice(root.length + 1)
+  const pieces = relative.split('/')
+  if (pieces.some(piece => !piece || piece === '.' || piece === '..')) fail('ONEDRIVE_DELTA_ITEM_INVALID')
+  const folderKey: B1FolderKey | null = pieces.length === 1
+    ? 'raiz'
+    : FOLDER_KEYS.find(key => pieces[0] === B1_FOLDERS[key].nombre) ?? null
+  if (!folderKey) return null
+  const folderPath = path.slice(0, -(name.length + 1))
+  const file: GraphFile = {
+    id: itemId,
+    name,
+    ...(input.byteLength === null ? {} : { size: input.byteLength }),
+    ...(input.eTag === null ? {} : { eTag: input.eTag }),
+    ...(input.cTag === null ? {} : { cTag: input.cTag }),
+    ...(input.eTag === null ? {} : { sourceVersion: input.eTag }),
+    ...(input.lastModifiedDateTime === null ? {} : { lastModifiedDateTime: input.lastModifiedDateTime }),
+    ...(input.mimeType === null && input.quickXorHash === null
+      ? {}
+      : { file: { ...(input.mimeType === null ? {} : { mimeType: input.mimeType }), ...(input.quickXorHash === null ? {} : { hashes: { quickXorHash: input.quickXorHash } }) } }),
+    relativeFolderPath: folderPath,
+    folderPath,
+    fullPath: path,
+  }
+  if (folderKey !== 'confirming_draxton' && !isInvoiceFile(file)) return null
+  const data = { ...dataFor(file, folderKey, driveId, root), deltaDispatch: true as const }
+  return {
+    key: itemKey(data),
+    tipo: folderKey === 'confirming_draxton' ? 'ONEDRIVE_CONFIRMING_SOPORTE' : 'ONEDRIVE_FACTURA',
+    data: data as unknown as SyncSourceItem['data'],
+  }
+}
+
 function itemKey(data: ItemData): string { return `onedrive:${data.driveId}:${data.itemId}` }
 /** Stable lifecycle convention: exactly `<driveId>:<itemId>` under source ONEDRIVE. */
 function lifecycleIdentity(data: ItemData): DocumentObservation['identity'] {
@@ -263,6 +378,43 @@ function inventoryMetadataFor(data: ItemData): OneDriveInventoryDocumentMetadata
     cTag: null,
     eTag: data.eTag,
     sourceVersion: null,
+  }
+}
+
+function confirmingMetadata(data: ItemData, inventory: OneDriveInventoryDocumentMetadata): DocumentPrivateMetadata {
+  return {
+    originalFileName: data.name,
+    documentNumber: null,
+    documentDate: null,
+    totalCents: null,
+    invoiceFiscalIdentity: null,
+    partyRole: 'CLIENTE',
+    documentClass: 'CONFIRMING_SOPORTE',
+    referencedOriginalReference: null,
+    currencyCode: null,
+    upstreamVersionRef: inventory.sourceVersion,
+  }
+}
+
+function sameRegisteredSupport(left: RegisteredConfirmingSupport, right: RegisteredConfirmingSupport): boolean {
+  return left.registroSoporteId === right.registroSoporteId
+    && left.facturaRecibidaId === right.facturaRecibidaId
+    && left.oneDriveDriveId === right.oneDriveDriveId
+    && left.oneDriveItemId === right.oneDriveItemId
+    && left.tipoDetectado === right.tipoDetectado
+    && left.parejaCaixaDeclaradaId === right.parejaCaixaDeclaradaId
+    && left.hashProcesadoAnterior === right.hashProcesadoAnterior
+}
+
+function registeredSourceFor(source: RegisteredConfirmingSupport, archivoControladoId: string): FinanceConfirmingReadingRegisteredSource {
+  return {
+    registroSoporteId: source.registroSoporteId,
+    facturaRecibidaId: source.facturaRecibidaId,
+    archivoControladoId,
+    oneDriveDriveId: source.oneDriveDriveId,
+    oneDriveItemId: source.oneDriveItemId,
+    tipoDetectado: source.tipoDetectado,
+    parejaCaixaDeclaradaId: source.parejaCaixaDeclaradaId,
   }
 }
 
@@ -328,7 +480,10 @@ function jsonBounded(value: unknown): string {
 function preparedFor(item: SyncSourceItem, raw: unknown): Prepared {
   if (!isRecord(raw) || typeof raw.kind !== 'string' || raw.key !== item.key) fail('ONEDRIVE_PREPARED_INVALID')
   if (raw.kind === 'EXISTING') return { kind: 'EXISTING', key: item.key }
-  if (raw.kind === 'CONFIRMING') return { kind: 'CONFIRMING', key: item.key }
+  if (raw.kind === 'CONFIRMING_CATALOG') return { kind: 'CONFIRMING_CATALOG', key: item.key }
+  if (raw.kind === 'CONFIRMING_READING' && isRecord(raw.registeredSource) && raw.bytes instanceof Uint8Array && isRecord(raw.lifecycle) && isRecord(raw.lifecycle.observation) && isRecord(raw.lifecycle.archive) && isRecord(raw.reading)) {
+    return raw as unknown as PreparedConfirmingReading
+  }
   if (raw.kind === 'LIFECYCLE_REVIEW') return { kind: 'LIFECYCLE_REVIEW', key: item.key }
   if (raw.kind === 'LEGACY_METADATA_BASELINE' && isRecord(raw.observation)) {
     return { kind: 'LEGACY_METADATA_BASELINE', key: item.key, observation: raw.observation as unknown as DocumentObservation }
@@ -399,7 +554,57 @@ export class OneDriveSyncProvider<Tx = unknown> {
 
   async prepare(item: SyncSourceItem): Promise<unknown> {
     const data = parsedData(item)
-    if (item.tipo === 'ONEDRIVE_CONFIRMING_SOPORTE') return { kind: 'CONFIRMING', key: item.key } satisfies PreparedConfirming
+    if (item.tipo === 'ONEDRIVE_CONFIRMING_SOPORTE') {
+      // Inventory alone never authorizes a byte download. A human-controlled
+      // registry must identify this exact Drive item before parser/lifecycle work.
+      const registeredSource = await this.options.domain.readConfirmingSupport(data.driveId, data.itemId)
+      if (!registeredSource || !this.options.documentLifecycle) {
+        return { kind: 'CONFIRMING_CATALOG', key: item.key } satisfies PreparedConfirmingCatalog
+      }
+      const inventory = inventoryMetadataFor(data)
+      const metadataObservation: DocumentObservation = {
+        identity: lifecycleIdentity(data),
+        fingerprint: oneDriveInventoryFingerprint(inventory),
+        privateMetadata: confirmingMetadata(data, inventory),
+      }
+      const current = await this.options.documentLifecycle.readCurrent(metadataObservation.identity)
+      if (current && decideOneDriveContentRead({ sourceExists: true, current, incoming: metadataObservation }) !== 'READ_CONTENT') {
+        return { kind: 'CONFIRMING_CATALOG', key: item.key } satisfies PreparedConfirmingCatalog
+      }
+      // C11 needs an immutable archive. Oversized/unsupported sources remain
+      // catalogued for human action rather than being parsed partially.
+      if (data.size !== null && data.size > 20 * 1024 * 1024) {
+        return { kind: 'CONFIRMING_CATALOG', key: item.key } satisfies PreparedConfirmingCatalog
+      }
+      const bytes = await this.options.read.downloadFile(data.driveId, data.itemId, 20 * 1024 * 1024)
+      if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 20 * 1024 * 1024) fail('ONEDRIVE_CONFIRMING_FILE_INVALID')
+      const archive = prepareOneDrivePrivateArchive(bytes, data.name)
+      if (!archive.artifact) return { kind: 'CONFIRMING_CATALOG', key: item.key } satisfies PreparedConfirmingCatalog
+      const content = fingerprintDocumentContent(bytes)
+      const reading = await prepareOneDriveConfirmingReading({
+        source: {
+          // Replaced with the durable archive handle before persistence in apply.
+          archivoPrivadoId: registeredSource.registroSoporteId,
+          versionContenido: inventory.sourceVersion ?? inventory.cTag ?? content.contentSha256,
+          hashBinario: content.contentSha256,
+          tipoDetectado: registeredSource.tipoDetectado,
+          hashProcesadoAnterior: registeredSource.hashProcesadoAnterior,
+          parejaCaixaDeclaradaId: registeredSource.parejaCaixaDeclaradaId,
+        },
+        bytes,
+        originalName: data.name,
+        parserPort: this.options.confirmingParserPort,
+      })
+      const lifecycle: PreparedLifecycle = {
+        observation: observationFromOneDriveContent({
+          identity: lifecycleIdentity(data), inventory, bytes,
+          privateMetadata: confirmingMetadata(data, inventory),
+        }),
+        archive,
+        needsLegacyMetadataBaseline: false,
+      }
+      return { kind: 'CONFIRMING_READING', key: item.key, registeredSource, bytes, lifecycle, reading } satisfies PreparedConfirmingReading
+    }
     if (item.tipo !== 'ONEDRIVE_FACTURA') fail('ONEDRIVE_ITEM_TYPE_INVALID')
     const existing = await this.options.domain.readSource(data.itemId)
     const inventory = inventoryMetadataFor(data)
@@ -460,6 +665,41 @@ export class OneDriveSyncProvider<Tx = unknown> {
   async apply(tx: Tx, item: SyncSourceItem, rawPrepared: unknown, actorId: number | null): Promise<SyncOutcome> {
     const data = parsedData(item)
     const prepared = preparedFor(item, rawPrepared)
+    if (item.tipo === 'ONEDRIVE_CONFIRMING_SOPORTE') {
+      if (prepared.kind === 'CONFIRMING_CATALOG') return 'SIN_CAMBIOS'
+      if (prepared.kind !== 'CONFIRMING_READING' || !this.options.documentLifecycle || !this.options.assertLiveFinanceWriteAccess || !Number.isSafeInteger(actorId) || actorId === null || actorId < 1) return 'REVISAR'
+      if (fingerprintDocumentContent(prepared.bytes).contentSha256 !== prepared.reading.source.hashBinario) return 'REVISAR'
+      // The declaration is locked and reread after prepare. A revocation, pair
+      // change, or changed target fails closed before any C11 proposal exists.
+      const lockedSource = await this.options.domain.lockConfirmingSupport(tx, data.driveId, data.itemId)
+      if (!lockedSource || !sameRegisteredSupport(lockedSource, prepared.registeredSource)) return 'REVISAR'
+      const lifecycle = await this.options.documentLifecycle.apply(tx, {
+        identity: lifecycleIdentity(data),
+        observation: prepared.lifecycle.observation,
+        reconciliation: { status: 'NONE' },
+        actorId,
+        archive: prepared.lifecycle.archive,
+        legacyPreviousMetadata: null,
+      })
+      if (lifecycle.outcome === 'REQUIRES_REVIEW' || lifecycle.plan?.requiresHumanConfirmation || lifecycle.duplicate?.requiresHumanConfirmation || !lifecycle.lifecycleId || !lifecycle.snapshotId || !lifecycle.versionNumber) return 'REVISAR'
+      const sourceHash = prepared.reading.source.hashBinario
+      const archivoControladoId = privateDocumentArtifactHandle({ lifecycleId: lifecycle.lifecycleId, versionNumber: lifecycle.versionNumber, contentSha256: sourceHash })
+      const snapshot: FinanceConfirmingReadingPersistedSnapshot = {
+        lifecycleId: lifecycle.lifecycleId, snapshotId: lifecycle.snapshotId, versionDocumento: lifecycle.versionNumber,
+      }
+      if (!await this.options.domain.registerConfirmingSupportVersion(tx, lockedSource, { ...snapshot, archivoControladoId, sourceHash }, actorId)) return 'REVISAR'
+      const registeredSource = registeredSourceFor(lockedSource, archivoControladoId)
+      const reading = bindPreparedFinanceConfirmingReadingP2ToArchivedSource({ prepared: prepared.reading, snapshot, registeredSource })
+      const result: OneDriveConfirmingReadingApplyResult = await applyOneDriveConfirmingReadingAfterLifecycleTx({
+        tx: tx as never,
+        actorId,
+        snapshot,
+        prepared: reading,
+        registeredSource,
+        assertLiveFinanceWriteAccess: async (currentTx, currentActorId) => this.options.assertLiveFinanceWriteAccess!(currentTx as Tx, currentActorId),
+      })
+      return result.outcome === 'PROPUESTA_CONFIRMACION_HUMANA' ? 'NUEVA' : result.outcome === 'REVISAR' ? 'REVISAR' : 'SIN_CAMBIOS'
+    }
     // Required idempotency re-read, after the service's own valid lease/cancel
     // check and before any mutation. Folder moves retain this same source ID.
     const current = await this.options.domain.lockSource(tx, data.itemId)
@@ -516,15 +756,6 @@ export class OneDriveSyncProvider<Tx = unknown> {
       }
       if (locationsEqual(current.location, data.location)) return 'SIN_CAMBIOS'
       return (await this.options.domain.updateLocation(tx, current, data.location, actorId)) ? 'ACTUALIZADA' : 'SIN_CAMBIOS'
-    }
-
-    if (item.tipo === 'ONEDRIVE_CONFIRMING_SOPORTE') {
-      if (prepared.kind !== 'CONFIRMING') return 'REVISAR'
-      // The durable job item itself is the only new confirming inventory catalog
-      // entry. It carries normalized ID, path, name, mime, size and eTag for UI
-      // access, yet P2 creates no FacturaRecibida/review/C9 support, bank
-      // reference, B4 link, movement, OCR, auto-reconciliation or email.
-      return 'SIN_CAMBIOS'
     }
 
     if (item.tipo !== 'ONEDRIVE_FACTURA' || prepared.kind !== 'INVOICE') return 'REVISAR'

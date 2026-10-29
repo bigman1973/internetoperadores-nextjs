@@ -37,6 +37,7 @@ class MemoryVersionStore implements GraphDeltaVersionStore {
   readonly commits: CommitRecord[] = []
   readonly durableEventKeys = new Set<string>()
   readonly tombstoneHooks: string[] = []
+  projectionInvalidated = false
 
   constructor(cursor: GraphDeltaCursor | null = null) { this.cursor = cursor }
 
@@ -64,6 +65,7 @@ class MemoryVersionStore implements GraphDeltaVersionStore {
     }
     this.commits.push(input)
     this.cursor = input.cursorAfter
+    return this.projectionInvalidated ? { projectionInvalidated: true } : undefined
   }
 }
 
@@ -120,7 +122,7 @@ test('inventario raíz pagina, conserva movimientos por parentId, deduplica even
   const store = new MemoryVersionStore()
   const result = await new GraphDriveRootDeltaAdapter({ transport, store }).run(scope)
 
-  assert.deepEqual(result, { pages: 2, events: 4, retries: 0, fullInventory: true, resynced: false })
+  assert.deepEqual(result, { pages: 2, events: 4, retries: 0, fullInventory: true, resynced: false, projectionInvalidated: false })
   assert.deepEqual(transport.calls, [first, second])
   assert.equal(store.commits.length, 2)
   assert.equal(store.commits[0].cursorAfter.pending?.continuationLink, second)
@@ -148,7 +150,7 @@ test('reintenta 409 sin convertirlo en borrado ni avanzar el cursor antes de una
   const waits: number[] = []
   const result = await new GraphDriveRootDeltaAdapter({ transport, store, sleep: async (milliseconds) => { waits.push(milliseconds) } }).run(scope)
 
-  assert.deepEqual(result, { pages: 1, events: 0, retries: 1, fullInventory: false, resynced: false })
+  assert.deepEqual(result, { pages: 1, events: 0, retries: 1, fullInventory: false, resynced: false, projectionInvalidated: false })
   assert.deepEqual(waits, [7])
   assert.equal(store.commits.length, 1)
   assert.deepEqual(store.tombstoneHooks, [])
@@ -169,7 +171,7 @@ test('410 vencido inicia inventario completo seguro sin borrado masivo y reanuda
   const store = new MemoryVersionStore({ schema: GRAPH_DELTA_CURSOR_SCHEMA, deltaLink: expired, pending: null })
   const result = await new GraphDriveRootDeltaAdapter({ transport, store }).run(scope)
 
-  assert.deepEqual(result, { pages: 1, events: 1, retries: 0, fullInventory: true, resynced: true })
+  assert.deepEqual(result, { pages: 1, events: 1, retries: 0, fullInventory: true, resynced: true, projectionInvalidated: false })
   assert.deepEqual(store.began, ['EXPIRED_OR_CONFLICT'])
   assert.equal(store.commits[0].mode, 'INVENTORY')
   assert.equal(store.commits[0].inventoryCompleted, true)
@@ -218,6 +220,49 @@ test('un fallo al persistir no adelanta cursor y el reinicio reenvía la misma p
   assert.equal(result.pages, 1)
   assert.equal(store.cursor?.deltaLink, settled)
   assert.equal(store.durableEventKeys.size, 1)
+})
+
+test('el adaptador expone una invalidación sólo después del commit durable del store', async () => {
+  const previous = continuation('projection-prior')
+  const settled = continuation('projection-settled')
+  const store = new MemoryVersionStore({ schema: GRAPH_DELTA_CURSOR_SCHEMA, deltaLink: previous, pending: null })
+  store.projectionInvalidated = true
+  const result = await new GraphDriveRootDeltaAdapter({
+    transport: new ScriptedTransport([[previous, [{ status: 200, body: {
+      value: [{ id: 'gone-projection', deleted: {}, parentReference: { id: 'old-parent' } }],
+      '@odata.deltaLink': settled,
+    } }]]]),
+    store,
+  }).run(scope)
+  assert.equal(result.projectionInvalidated, true)
+  assert.equal(store.commits.length, 1)
+  assert.equal(store.cursor?.deltaLink, settled)
+})
+
+test('una cancelación durable entre páginas impide seguir el nextLink', async () => {
+  const prior = continuation('fenced-before')
+  const next = continuation('must-not-request')
+  class FenceAwareStore extends MemoryVersionStore {
+    checks = 0
+    async assertReady() {
+      this.checks++
+      if (this.checks > 1) throw new GraphDeltaAdapterError('DELTA_JOB_FENCE_LOST')
+    }
+  }
+  const store = new FenceAwareStore({ schema: GRAPH_DELTA_CURSOR_SCHEMA, deltaLink: prior, pending: null })
+  const transport = new ScriptedTransport([
+    [prior, [{ status: 200, body: {
+      value: [{ id: 'fenced-file', name: 'fenced.pdf', file: {}, parentReference: { id: 'root', path: `/drives/${DRIVE}/root:/registered/root` } }],
+      '@odata.nextLink': next,
+    } }]],
+  ])
+  await assert.rejects(
+    () => new GraphDriveRootDeltaAdapter({ transport, store }).run(scope),
+    (error: unknown) => error instanceof GraphDeltaAdapterError && error.code === 'DELTA_JOB_FENCE_LOST',
+  )
+  assert.deepEqual(transport.calls, [prior])
+  assert.equal(store.checks, 2)
+  assert.equal(store.cursor?.pending?.continuationLink, next)
 })
 
 test('el transporte server-only manda bearer sólo a Graph fijo y no expone token al resultado del adaptador', async () => {

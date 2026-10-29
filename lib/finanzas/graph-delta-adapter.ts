@@ -91,6 +91,8 @@ export type GraphDeltaEvent = Readonly<{
   kind: 'UPSERT' | 'TOMBSTONE'
   eTag: string | null
   cTag: string | null
+  quickXorHash: string | null
+  mimeType: string | null
   lastModifiedDateTime: string | null
   size: number | null
   routeHint: DeltaRouteHint
@@ -127,6 +129,11 @@ export type GraphDeltaPageCommit = Readonly<{
   inventoryCompleted: boolean
 }>
 
+/** Señal informativa emitida sólo por una página ya confirmada. */
+export type GraphDeltaPageCommitResult = Readonly<{
+  projectionInvalidated?: boolean
+}>
+
 /**
  * Contrato para el bloque de versiones. Su implementación es la única que usa
  * Prisma y una migración aditiva. `commitPage` DEBE ser una transacción única:
@@ -147,6 +154,12 @@ export type GraphDeltaPageCommit = Readonly<{
  * anterior queda vigente. Así una repetición después de caída es idempotente.
  */
 export interface GraphDeltaVersionStore {
+  /**
+   * Optional short fence/cancellation preflight. The Prisma store supplies it so
+   * every authenticated GET (including a retry/nextLink) rechecks the P2 claim.
+   * Memory stores from prior callers remain source-compatible.
+   */
+  assertReady?(): Promise<void>
   loadCursor(scope: Pick<GraphDriveRootDeltaScope, 'driveId' | 'sourceKey'>): Promise<GraphDeltaCursor | null>
   /**
    * Inicia, de forma idempotente, una generación de inventario completo. No
@@ -158,7 +171,7 @@ export interface GraphDeltaVersionStore {
     reason: InventoryReason
   }>): Promise<Readonly<{ inventorySessionId: string }>>
   /** Implementa la transacción y hook de tombstone descritos arriba. */
-  commitPage(input: GraphDeltaPageCommit): Promise<void>
+  commitPage(input: GraphDeltaPageCommit): Promise<void | GraphDeltaPageCommitResult>
 }
 
 export type GraphDeltaAdapterOptions = Readonly<{
@@ -175,6 +188,8 @@ export type GraphDeltaRunResult = Readonly<{
   retries: number
   fullInventory: boolean
   resynced: boolean
+  /** Sólo true si el store ya confirmó un reseñado dirigido por tombstone. */
+  projectionInvalidated: boolean
 }>
 
 type ParsedPage = Readonly<{
@@ -187,6 +202,10 @@ type RequestResult = Readonly<{
   page: GraphDeltaPage
   retries: number
 }>
+
+function projectionWasInvalidated(result: void | GraphDeltaPageCommitResult): boolean {
+  return typeof result === 'object' && result !== null && result.projectionInvalidated === true
+}
 
 function fail(code: string): never { throw new GraphDeltaAdapterError(code) }
 
@@ -321,12 +340,20 @@ function eventFromRaw(raw: unknown, sequence: number, pageKey: string, scope: Gr
   const isFolder = Boolean(value.folder) && !tombstone(value)
   const eTag = nullableBoundedText(value.eTag, MAX_TAG_LENGTH, 'GRAPH_DELTA_ETAG_INVALID')
   const cTag = nullableBoundedText(value.cTag, MAX_TAG_LENGTH, 'GRAPH_DELTA_CTAG_INVALID')
+  const file = value.file && typeof value.file === 'object' && !Array.isArray(value.file)
+    ? value.file as Record<string, unknown>
+    : null
+  const hashes = file?.hashes && typeof file.hashes === 'object' && !Array.isArray(file.hashes)
+    ? file.hashes as Record<string, unknown>
+    : null
+  const quickXorHash = nullableBoundedText(hashes?.quickXorHash, MAX_TAG_LENGTH, 'GRAPH_DELTA_HASH_INVALID')
+  const mimeType = nullableBoundedText(file?.mimeType, 256, 'GRAPH_DELTA_MIME_INVALID')
   const lastModifiedDateTime = nullableBoundedText(value.lastModifiedDateTime, 128, 'GRAPH_DELTA_MODIFIED_INVALID')
   return {
     // Deliberadamente estable entre relecturas de la misma versión: el almacén
     // puede rechazar una repetición aunque llegue desde otro cursor/página.
     // `pageKey` sigue siendo el recibo idempotente de la página completa.
-    eventKey: opaqueHash(`${scope.sourceKey}:${itemId}:${kind}:${name ?? ''}:${parentItemId ?? ''}:${eTag ?? ''}:${cTag ?? ''}:${lastModifiedDateTime ?? ''}:${size ?? ''}`),
+    eventKey: opaqueHash(`${scope.sourceKey}:${itemId}:${kind}:${name ?? ''}:${parentItemId ?? ''}:${eTag ?? ''}:${cTag ?? ''}:${quickXorHash ?? ''}:${mimeType ?? ''}:${lastModifiedDateTime ?? ''}:${size ?? ''}`),
     sequence,
     itemId,
     name,
@@ -335,6 +362,8 @@ function eventFromRaw(raw: unknown, sequence: number, pageKey: string, scope: Gr
     kind,
     eTag,
     cTag,
+    quickXorHash,
+    mimeType,
     lastModifiedDateTime,
     size,
     routeHint: routeHintFor(observedPath, scope.registeredPaths),
@@ -468,10 +497,19 @@ export class GraphDriveRootDeltaAdapter {
       : DEFAULT_MAX_RETRIES
   }
 
-  private async requestPage(url: URL, driveId: string): Promise<RequestResult> {
+  private async requestPage(
+    url: URL,
+    driveId: string,
+    assertReady?: () => Promise<void>,
+  ): Promise<RequestResult> {
     assertAllowedDriveRootDeltaUrl(url, driveId)
     let retries = 0
     for (;;) {
+      // A response can have committed a page/cursor while cancellation is
+      // requested immediately afterwards. Recheck at the exact bearer-backed
+      // boundary, including after each bounded retry delay; never follow a
+      // nextLink or retry under a stale P2 lease.
+      await assertReady?.()
       const response = await this.transport.get(url)
       if (response.status === 200) return { page: response.body as GraphDeltaPage, retries }
       const retryable = response.status === 409 || response.status === 429 || response.status === 502 || response.status === 503 || response.status === 504
@@ -514,6 +552,7 @@ export class GraphDriveRootDeltaAdapter {
     let pages = 0
     let events = 0
     let retries = 0
+    let projectionInvalidated = false
 
     for (;;) {
       const pending = cursor.pending
@@ -525,7 +564,7 @@ export class GraphDriveRootDeltaAdapter {
           : createDriveRootDeltaUrl(scope.driveId)
       let response: RequestResult
       try {
-        response = await this.requestPage(url, scope.driveId)
+        response = await this.requestPage(url, scope.driveId, this.store.assertReady?.bind(this.store))
       } catch (error) {
         if (!(error instanceof GraphDeltaAdapterError) || error.code !== 'GRAPH_DELTA_RESTART_REQUIRED' || restarts >= 1) throw error
         // 410 is the documented expired-token response. 409 is retried above and,
@@ -563,7 +602,7 @@ export class GraphDriveRootDeltaAdapter {
 
       // commitPage is the ordering boundary: events and tombstone consequences
       // are durable/idempotent before the continuation or deltaLink is promoted.
-      await this.store.commitPage({
+      const committed = await this.store.commitPage({
         scope: { driveId: scope.driveId, sourceKey: scope.sourceKey, registeredPaths: scope.registeredPaths },
         mode,
         inventorySessionId,
@@ -572,10 +611,11 @@ export class GraphDriveRootDeltaAdapter {
         cursorAfter: nextCursor,
         inventoryCompleted: mode === 'INVENTORY' && lastPage,
       })
+      projectionInvalidated ||= projectionWasInvalidated(committed)
       pages += 1
       events += parsed.events.length
       cursor = nextCursor
-      if (lastPage) return { pages, events, retries, fullInventory, resynced }
+      if (lastPage) return { pages, events, retries, fullInventory, resynced, projectionInvalidated }
     }
   }
 }

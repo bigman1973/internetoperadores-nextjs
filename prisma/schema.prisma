@@ -80,6 +80,8 @@ model UsuarioAdmin {
   tombstonesDocumentalesRegistrados DocumentVersionTombstone[] @relation("DocumentVersionTombstoneReporter")
   enlacesRectificativosDocumentalesPropuestos DocumentVersionCreditLink[] @relation("DocumentVersionCreditLinkProposer")
   enlacesRectificativosDocumentalesConfirmados DocumentVersionCreditLink[] @relation("DocumentVersionCreditLinkConfirmer")
+  decisionesRectificativasActorReal DocumentVersionCreditLinkDecision[] @relation("DocumentVersionCreditLinkDecisionActorReal")
+  decisionesRectificativasActorEfectivo DocumentVersionCreditLinkDecision[] @relation("DocumentVersionCreditLinkDecisionActorEffective")
   duplicadosDocumentalesDetectados DocumentVersionHashDuplicate[] @relation("DocumentVersionHashDuplicateReporter")
   duplicadosDocumentalesResueltos DocumentVersionHashDuplicate[] @relation("DocumentVersionHashDuplicateResolver")
   artefactosVersionDocumentalCreados DocumentVersionArtifact[] @relation("DocumentVersionArtifactCreator")
@@ -5855,6 +5857,16 @@ enum DocumentVersionCreditLinkState {
   CONFIRMED
   REJECTED
 }
+enum DocumentVersionCreditLinkDecisionAction {
+  CONFIRM
+  REJECT
+  UNDO
+}
+enum DocumentVersionCreditLinkEffectiveState {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+}
 model DocumentVersionLifecycle {
   id String @id @default(uuid()) @db.Uuid
   source String @db.VarChar(64)
@@ -5975,7 +5987,29 @@ model DocumentVersionCreditLink {
   confirmedBy UsuarioAdmin? @relation("DocumentVersionCreditLinkConfirmer",fields:[confirmedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
   @@unique([creditLifecycleId,originalLifecycleId,exactReferenceHash])
   @@index([state,createdAt])
+  decisions DocumentVersionCreditLinkDecision[]
   @@map("document_version_credit_links")
+}
+model DocumentVersionCreditLinkDecision {
+  id String @id @default(uuid()) @db.Uuid
+  // Orden global asignado por PostgreSQL; no se deriva de reloj ni UUID.
+  decisionSequence BigInt @unique @default(autoincrement()) @map("decision_sequence")
+  creditLinkId String @map("credit_link_id") @db.Uuid
+  action DocumentVersionCreditLinkDecisionAction
+  effectiveState DocumentVersionCreditLinkEffectiveState @map("effective_state")
+  reason String? @db.VarChar(500)
+  actorRealId Int @map("actor_real_id")
+  actorEffectiveId Int @map("actor_effective_id")
+  idempotencyKey String @map("idempotency_key") @db.Char(64)
+  payloadHash String @map("payload_hash") @db.Char(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  creditLink DocumentVersionCreditLink @relation(fields:[creditLinkId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actorReal UsuarioAdmin @relation("DocumentVersionCreditLinkDecisionActorReal",fields:[actorRealId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  actorEffective UsuarioAdmin @relation("DocumentVersionCreditLinkDecisionActorEffective",fields:[actorEffectiveId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([actorRealId,idempotencyKey])
+  @@index([creditLinkId,decisionSequence(sort: Desc)])
+  @@index([effectiveState,createdAt])
+  @@map("document_version_credit_link_decisions")
 }
 model DocumentVersionHashDuplicate {
   id String @id @default(uuid()) @db.Uuid

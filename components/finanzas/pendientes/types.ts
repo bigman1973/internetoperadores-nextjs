@@ -46,6 +46,11 @@ export type FacturaPendienteB5 = {
   estadoCobroBancoEtiqueta?: string;
   fuentesCobroBanco?: FuenteCobroBancoB7[];
   motivosRevisionBanco?: string[];
+  /** Rectificativas documentales: bruto B4 y neto documental se mantienen separados. */
+  creditNoteState?: 'PENDIENTE' | 'PARCIAL' | 'CERRADA' | 'REVISION';
+  rectificationCents?: number | null;
+  importePendienteTrasRectificativasCentimos?: number | null;
+  creditNoteReviewReasons?: string[];
 };
 export type ItemPendienteB5 = MovimientoPendienteB5 | FacturaPendienteB5;
 export type ItemsResponseB5 = {
@@ -76,6 +81,7 @@ const motivos = ['COMISION_BANCARIA', 'INTERES_BANCARIO', 'REDONDEO_BANCARIO', '
 const estadosCobroBancoB7 = ['COBRADA_CALCULADA', 'PENDIENTE_COBRO', 'PENDIENTE_COBRO_REVISION'] as const;
 const fuentesCobroBancoB7 = ['B4_DIRECTO', 'B4_REMESA'] as const;
 const coberturaBancoB7 = ['KNOWN', 'PARTIAL', 'UNKNOWN'] as const;
+const estadosRectificativa = ['PENDIENTE', 'PARCIAL', 'CERRADA', 'REVISION'] as const;
 // Runtime structures are narrowed at every nested boundary below. `any` here
 // only lets TypeScript access a checked JSON record without weakening parser checks.
 const isRecord = (value: unknown): value is Record<string, any> => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -136,6 +142,21 @@ function movimiento(value: Record<string, unknown>, field: string): MovimientoPe
     ...(tarjetaValue === undefined || tarjetaValue === null ? {} : { tarjeta: { terminacion: str(tarjetaValue.terminacion, `${field}.tarjeta.terminacion`), titular: str(tarjetaValue.titular, `${field}.tarjeta.titular`) } }),
   };
 }
+
+function rectificativa(value: Record<string, unknown>, field: string): Pick<FacturaPendienteB5, 'creditNoteState' | 'rectificationCents' | 'importePendienteTrasRectificativasCentimos' | 'creditNoteReviewReasons'> {
+  const fields = ['creditNoteState', 'rectificationCents', 'importePendienteTrasRectificativasCentimos', 'creditNoteReviewReasons'] as const;
+  const present = fields.filter((name) => value[name] !== undefined);
+  if (present.length === 0) return {};
+  if (present.length !== fields.length) fail(`${field}.rectificativa incompleta`);
+  if (!Array.isArray(value.creditNoteReviewReasons)) fail(`${field}.creditNoteReviewReasons`);
+  return {
+    creditNoteState: oneOf(value.creditNoteState, estadosRectificativa, `${field}.creditNoteState`),
+    rectificationCents: nullableSafeInt(value.rectificationCents, `${field}.rectificationCents`),
+    importePendienteTrasRectificativasCentimos: nullableSafeInt(value.importePendienteTrasRectificativasCentimos, `${field}.importePendienteTrasRectificativasCentimos`),
+    creditNoteReviewReasons: (value.creditNoteReviewReasons as unknown[]).map((reason, index) => str(reason, `${field}.creditNoteReviewReasons[${index}]`)),
+  };
+}
+
 function factura(value: Record<string, unknown>, field: string): FacturaPendienteB5 {
   const tipo = oneOf(value.tipo, ['FACTURA_RECIBIDA', 'FACTURA_EMITIDA'] as const, `${field}.tipo`);
   const client = value.cliente;
@@ -146,7 +167,7 @@ function factura(value: Record<string, unknown>, field: string): FacturaPendient
   // FR remains the B5 contract: wrapper and every monetary field are actual integers.
   if (!isB7) {
     if (tipo === 'FACTURA_EMITIDA' && typeof client !== 'string') fail(`${field}.cliente`);
-    return { tipo, id: str(value.id, `${field}.id`), documentoConciliableId: str(value.documentoConciliableId, `${field}.documentoConciliableId`), referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), ...(tipo === 'FACTURA_EMITIDA' ? { cliente: str(client, `${field}.cliente`) } : {}), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`), fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos: safeInt(value.importeObjetivoCentimos, `${field}.importeObjetivoCentimos`), importeAsignadoActivoCentimos: safeInt(value.importeAsignadoActivoCentimos, `${field}.importeAsignadoActivoCentimos`), importePendienteCentimos: safeInt(value.importePendienteCentimos, `${field}.importePendienteCentimos`) };
+    return { tipo, id: str(value.id, `${field}.id`), documentoConciliableId: str(value.documentoConciliableId, `${field}.documentoConciliableId`), referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), ...(tipo === 'FACTURA_EMITIDA' ? { cliente: str(client, `${field}.cliente`) } : {}), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`), fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos: safeInt(value.importeObjetivoCentimos, `${field}.importeObjetivoCentimos`), importeAsignadoActivoCentimos: safeInt(value.importeAsignadoActivoCentimos, `${field}.importeAsignadoActivoCentimos`), importePendienteCentimos: safeInt(value.importePendienteCentimos, `${field}.importePendienteCentimos`), ...rectificativa(value, field) };
   }
   if (value.importeNoVerificable === undefined || typeof value.importeNoVerificable !== 'boolean') fail(`${field}.importeNoVerificable`);
   const importeNoVerificable = value.importeNoVerificable as boolean;
@@ -171,7 +192,7 @@ function factura(value: Record<string, unknown>, field: string): FacturaPendient
     referencia: nullableString(value.referencia, `${field}.referencia`), tercero: str(value.tercero, `${field}.tercero`), cliente: nullableString(client, `${field}.cliente`), cif: nullableString(value.cif, `${field}.cif`), concepto: nullableString(value.concepto, `${field}.concepto`),
     fecha: isoOrNull(value.fecha, `${field}.fecha`), fechaVencimiento: isoOrNull(value.fechaVencimiento, `${field}.fechaVencimiento`), importeObjetivoCentimos, importeAsignadoActivoCentimos, importePendienteCentimos,
     documentoConciliableNoInferido: value.documentoConciliableNoInferido === undefined ? undefined : (typeof value.documentoConciliableNoInferido === 'boolean' ? value.documentoConciliableNoInferido : fail(`${field}.documentoConciliableNoInferido`)),
-    importeNoVerificable, estadoCobroBanco, estadoCobroBancoEtiqueta: str(value.estadoCobroBancoEtiqueta, `${field}.estadoCobroBancoEtiqueta`), fuentesCobroBanco, motivosRevisionBanco,
+    importeNoVerificable, estadoCobroBanco, estadoCobroBancoEtiqueta: str(value.estadoCobroBancoEtiqueta, `${field}.estadoCobroBancoEtiqueta`), fuentesCobroBanco, motivosRevisionBanco, ...rectificativa(value, field),
   };
 }
 

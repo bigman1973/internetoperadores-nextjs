@@ -1,7 +1,8 @@
 /*
  * Wrapper P2 de Delta para OneDrive.
  *
- * Delega inventario/prepare/apply sin sustituir la barrera P2 ni el OCR existente.
+ * Delta sustituye sólo el inventario B1 cuando el ensamblador lo activa de forma
+ * explícita. prepare/apply conservan el proveedor B1 y sus barreras P2/OCR.
  * `beforeInventory` sólo se invoca por un worker que aporta job/actor/fence; el
  * constructor no realiza E/S de red. Graph se inyecta y sólo se usa tras el
  * preflight de permiso/fence, nunca desde `inventory`.
@@ -16,7 +17,11 @@ import {
   createPrismaGraphDeltaVersionStore,
   type GraphDeltaCursorCipher,
 } from '@/lib/finanzas/graph-delta-prisma-store'
-import type { SyncOutcome, SyncProvider, SyncSource, SyncSourceItem } from '../../types'
+import {
+  PrismaGraphDeltaDispatchReader,
+  type GraphDeltaDispatchReader,
+} from '@/lib/finanzas/graph-delta-dispatch'
+import type { SyncBeforeInventoryResult, SyncInventoryPage, SyncOutcome, SyncProvider, SyncSource, SyncSourceItem } from '../../types'
 import type { OneDriveSyncProvider } from './provider'
 
 export const ONEDRIVE_DELTA_SOURCE_KEY = 'ONEDRIVE_RECEIVED_INVOICES' as const
@@ -39,16 +44,27 @@ export type OneDriveDeltaLifecycleOptions = Readonly<{
   /** Resolves the B1-verified drive/root only after the job preflight passes. */
   resolveScope(): Promise<GraphDriveRootDeltaScope>
   assertEffectiveFinanceWriteAccess: (tx: Prisma.TransactionClient, actorId: number) => Promise<boolean>
+  /** Injectable only for pure tests; production reads the private durable queue. */
+  dispatchReader?: GraphDeltaDispatchReader
+  dispatchPageLimit?: number
 }>
 
 export class DeltaAwareOneDriveProvider implements SyncProvider {
   readonly source = 'ONEDRIVE' as const
+  private scope: GraphDriveRootDeltaScope | null = null
+  private jobId: string | null = null
+  private readonly dispatchReader: GraphDeltaDispatchReader
+  private readonly dispatchPageLimit: number
 
   constructor(private readonly options: OneDriveDeltaLifecycleOptions) {
     if (typeof options.resolveScope !== 'function') throw new Error('DELTA_SCOPE_SOURCE_INVALID')
+    this.dispatchReader = options.dispatchReader ?? new PrismaGraphDeltaDispatchReader(options.prisma)
+    this.dispatchPageLimit = Number.isSafeInteger(options.dispatchPageLimit) && options.dispatchPageLimit! >= 1 && options.dispatchPageLimit! <= 128
+      ? options.dispatchPageLimit!
+      : 64
   }
 
-  async beforeInventory(input: OneDriveDeltaBeforeInventoryInput): Promise<void> {
+  async beforeInventory(input: OneDriveDeltaBeforeInventoryInput): Promise<void | SyncBeforeInventoryResult> {
     if (input.source !== 'ONEDRIVE') throw new Error('DELTA_SOURCE_INVALID')
     const store = createPrismaGraphDeltaVersionStore({
       prisma: this.options.prisma,
@@ -61,10 +77,34 @@ export class DeltaAwareOneDriveProvider implements SyncProvider {
     await store.assertReady()
     const scope = await this.options.resolveScope()
     if (scope.sourceKey !== ONEDRIVE_DELTA_SOURCE_KEY) throw new Error('DELTA_SCOPE_SOURCE_INVALID')
-    await new GraphDriveRootDeltaAdapter({ transport: this.options.transport, store }).run(scope)
+    const delta = await new GraphDriveRootDeltaAdapter({ transport: this.options.transport, store }).run(scope)
+    this.scope = scope
+    this.jobId = input.jobId
+    // Señal puramente informativa: el reseñado ya confirmó en la TX Delta.
+    return delta.projectionInvalidated ? { projectionInvalidated: true } : undefined
   }
 
-  inventory(checkpoint: unknown) { return this.options.delegate.inventory(checkpoint) }
+  async inventory(checkpoint: unknown): Promise<SyncInventoryPage> {
+    // The hook must run immediately before inventory in this claimed invocation;
+    // never fall back to the full B1 traversal after an opt-in Delta preflight.
+    if (!this.scope || !this.jobId) throw new Error('DELTA_INVENTORY_PRECONDITION')
+    const page = await this.dispatchReader.readPage({
+      jobId: this.jobId,
+      scope: {
+        sourceKey: this.scope.sourceKey,
+        driveId: this.scope.driveId,
+        invoiceRootPath: this.scope.registeredPaths.length === 1 ? this.scope.registeredPaths[0].path : '',
+      },
+      checkpoint,
+      limit: this.dispatchPageLimit,
+    })
+    return {
+      items: [...page.items],
+      checkpoint: page.checkpoint ?? {},
+      complete: page.complete,
+      deltaDispatches: [...page.dispatches],
+    }
+  }
   prepare(item: SyncSourceItem): Promise<unknown> { return this.options.delegate.prepare(item) }
   apply(tx: Prisma.TransactionClient, item: SyncSourceItem, prepared: unknown, actorId: number | null): Promise<SyncOutcome> {
     return this.options.delegate.apply(tx, item, prepared, actorId)

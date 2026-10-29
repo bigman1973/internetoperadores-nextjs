@@ -32,11 +32,12 @@ function repository(phase: 'INVENTORY' | 'PROCESSING', counts: { inventory: numb
   }
 }
 
-function provider(events: string[], reject = false): SyncProvider {
+function provider(events: string[], reject = false, projectionInvalidated = false): SyncProvider {
   return {
     beforeInventory: async (input) => {
       events.push(`hook:${input.source}:${input.actorId}:${input.leaseToken}`)
       if (reject) throw Object.assign(new Error('denied'), { code: 'DELTA_ACTOR_FORBIDDEN' })
+      return projectionInvalidated ? { projectionInvalidated: true } : undefined
     },
     inventory: async () => { events.push('inventory'); return { items: [], checkpoint: { done: true }, complete: true } },
     prepare: async () => ({}),
@@ -78,6 +79,18 @@ test('un job ya en procesamiento no vuelve a consultar Delta', async () => {
   await worker.run({ budgetMs: 1_000, itemLimit: 1 })
   assert.deepEqual(events, [])
   assert.equal(counts.inventory, 0)
+})
+
+test('el worker propaga sólo la señal durable del hook sin crear otro refresh ni otra sincronización', async () => {
+  const events: string[] = []
+  const counts = { inventory: 0 }
+  const worker = new FinanceSyncWorker({
+    repository: repository('INVENTORY', counts), providerFactory: () => provider(events, false, true), clock: { now: () => now },
+  })
+  const result = await worker.run({ budgetMs: 1_000, itemLimit: 1, inventoryPageLimit: 1 })
+  assert.equal(result.projectionInvalidated, true)
+  assert.deepEqual(events.length, 2)
+  assert.equal(counts.inventory, 1, 'el contrato no sustituye ni vuelve a arrancar inventario')
 })
 
 console.log('OK worker Delta hook: preinventario, denial fail-closed y fase processing con mocks; sin Graph/OCR/BD.')

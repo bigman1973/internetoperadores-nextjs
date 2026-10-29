@@ -6,13 +6,14 @@
  * P2, la cancelación y el permiso efectivo vivo del actor. Los cursores cifrados,
  * IDs/nombres/rutas de Graph y topología no se devuelven, registran ni proyectan.
  */
-import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import {
   GRAPH_DELTA_CURSOR_SCHEMA,
   type GraphDeltaCursor,
   type GraphDeltaEvent,
   type GraphDeltaPageCommit,
+  type GraphDeltaPageCommitResult,
   type GraphDeltaVersionStore,
   type InventoryReason,
 } from './graph-delta-adapter'
@@ -25,7 +26,10 @@ import {
   applyDocumentDeletionPlan,
   type DocumentDeletionStoragePort,
 } from './finance-document-deletion-adapter'
-
+import {
+  acquireConciliarDocumentTombstoneRefreshGateTx,
+  refreshConciliarProjectionForDocumentTombstoneTx,
+} from './conciliar-document-tombstone-refresh'
 const CURSOR_CIPHER_PREFIX = 'GDC1:'
 const HEX64 = /^[0-9a-f]{64}$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -136,7 +140,9 @@ type TopologyRow = Readonly<{
   isDeleted: boolean
   inRegisteredScope: boolean
   needsLocationReview: boolean
+  canonicalPath: string | null
 }>
+type TopologyDescendantRow = Readonly<{ itemId: string }>
 type LifecycleRow = Readonly<{
   lifecycleId: string
   lifecycleState: string
@@ -306,7 +312,8 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
   private async currentTopology(tx: Prisma.TransactionClient, scope: Readonly<{ sourceKey: string; driveId: string }>, itemId: string): Promise<TopologyRow | null> {
     const rows = await tx.$queryRaw<TopologyRow[]>(Prisma.sql`
       SELECT item_id AS "itemId",is_folder AS "isFolder",is_deleted AS "isDeleted",
-        in_registered_scope AS "inRegisteredScope",needs_location_review AS "needsLocationReview"
+        in_registered_scope AS "inRegisteredScope",needs_location_review AS "needsLocationReview",
+        canonical_path AS "canonicalPath"
       FROM finance_graph_delta_topology
       WHERE source_key=${scope.sourceKey} AND drive_id=${scope.driveId} AND item_id=${itemId}
       LIMIT 2 FOR UPDATE
@@ -318,6 +325,7 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
   private async persistUpsertTopology(tx: Prisma.TransactionClient, scope: Readonly<{ sourceKey: string; driveId: string }>, event: GraphDeltaEvent): Promise<void> {
     const routeState = currentScope(event)
     const observedPath = event.routeHint.observedPath
+    const previous = await this.currentTopology(tx, scope, event.itemId)
     // `parentReference.path` may be absent in Delta. A known live parent lets us
     // resolve membership through private topology; an unknown parent remains
     // unresolved and must not authorize importing a new lifecycle.
@@ -328,13 +336,18 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
     const effectiveRouteState = routeState === 'UNRESOLVED' && resolvedThroughParent
       ? (parent!.inRegisteredScope ? 'INSIDE' : 'OUTSIDE')
       : routeState
+    const effectivePath = observedPath ?? (
+      resolvedThroughParent && parent?.canonicalPath && event.name
+        ? `${parent.canonicalPath}/${event.name}`
+        : null
+    )
     const inside = effectiveRouteState === 'INSIDE'
     const outside = effectiveRouteState === 'OUTSIDE'
     await tx.$executeRaw(Prisma.sql`
       INSERT INTO finance_graph_delta_topology
-        (source_key,drive_id,item_id,parent_item_id,item_name,is_folder,is_deleted,canonical_path,in_registered_scope,needs_location_review,updated_at)
+        (source_key,drive_id,item_id,parent_item_id,item_name,is_folder,is_deleted,canonical_path,in_registered_scope,needs_location_review,file_size,e_tag,c_tag,quick_xor_hash,mime_type,last_modified_at,updated_at)
       VALUES
-        (${scope.sourceKey},${scope.driveId},${event.itemId},${event.parentItemId},${event.name},${event.isFolder},FALSE,${observedPath},${inside},${outside},CURRENT_TIMESTAMP)
+        (${scope.sourceKey},${scope.driveId},${event.itemId},${event.parentItemId},${event.name},${event.isFolder},FALSE,${effectivePath},${inside},${outside},${event.size},${event.eTag},${event.cTag},${event.quickXorHash},${event.mimeType},${event.lastModifiedDateTime},CURRENT_TIMESTAMP)
       ON CONFLICT (source_key,drive_id,item_id) DO UPDATE SET
         parent_item_id=EXCLUDED.parent_item_id,item_name=EXCLUDED.item_name,is_folder=EXCLUDED.is_folder,is_deleted=FALSE,
         canonical_path=CASE WHEN ${effectiveRouteState}='UNRESOLVED' THEN finance_graph_delta_topology.canonical_path ELSE EXCLUDED.canonical_path END,
@@ -344,12 +357,15 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
           WHEN ${effectiveRouteState}='INSIDE' THEN FALSE
           ELSE finance_graph_delta_topology.needs_location_review
         END,
+        file_size=EXCLUDED.file_size,e_tag=EXCLUDED.e_tag,c_tag=EXCLUDED.c_tag,
+        quick_xor_hash=EXCLUDED.quick_xor_hash,mime_type=EXCLUDED.mime_type,last_modified_at=EXCLUDED.last_modified_at,
         updated_at=CURRENT_TIMESTAMP
     `)
     // A folder move carries scope to its descendants even when Graph later omits
     // their parentReference.path. A deletion deliberately does not cascade: absence
     // or a removed parent is not evidence that every child was deleted.
     if (event.isFolder && effectiveRouteState !== 'UNRESOLVED') {
+      const oldPrefix = previous?.canonicalPath ?? null
       await tx.$executeRaw(Prisma.sql`
         WITH RECURSIVE subtree AS (
           SELECT item_id FROM finance_graph_delta_topology
@@ -363,9 +379,52 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
         UPDATE finance_graph_delta_topology node
         SET in_registered_scope=${inside},
             needs_location_review=CASE WHEN ${inside} THEN FALSE ELSE TRUE END,
+            canonical_path=CASE
+              WHEN ${oldPrefix} IS NOT NULL AND ${effectivePath} IS NOT NULL
+                AND node.item_id<>${event.itemId}
+                AND node.canonical_path LIKE (${oldPrefix} || '/%')
+              THEN ${effectivePath} || substring(node.canonical_path FROM char_length(${oldPrefix}) + 1)
+              ELSE node.canonical_path
+            END,
             updated_at=CURRENT_TIMESTAMP
         WHERE node.source_key=${scope.sourceKey} AND node.drive_id=${scope.driveId}
           AND node.item_id IN (SELECT item_id FROM subtree)
+      `)
+    }
+  }
+
+  /**
+   * Delta puede describir sólo el movimiento de una carpeta. Los descendientes
+   * heredan su ruta en topología y reciben un evento UPSERT derivado, sin crear
+   * evidencia de borrado ni volver a consultar Graph.
+   */
+  private async persistFolderDescendantEvents(
+    tx: Prisma.TransactionClient,
+    scope: Readonly<{ sourceKey: string; driveId: string }>,
+    pageKey: string,
+    event: GraphDeltaEvent,
+  ): Promise<void> {
+    if (!event.isFolder) return
+    const descendants = await tx.$queryRaw<TopologyDescendantRow[]>(Prisma.sql`
+      WITH RECURSIVE subtree AS (
+        SELECT item_id,is_folder,is_deleted,in_registered_scope
+        FROM finance_graph_delta_topology
+        WHERE source_key=${scope.sourceKey} AND drive_id=${scope.driveId} AND item_id=${event.itemId}
+        UNION
+        SELECT child.item_id,child.is_folder,child.is_deleted,child.in_registered_scope
+        FROM finance_graph_delta_topology child
+        JOIN subtree parent ON child.parent_item_id=parent.item_id
+        WHERE child.source_key=${scope.sourceKey} AND child.drive_id=${scope.driveId}
+      )
+      SELECT item_id AS "itemId" FROM subtree
+      WHERE is_folder=FALSE AND is_deleted=FALSE AND in_registered_scope=TRUE
+    `)
+    for (const descendant of descendants) {
+      const eventKey = createHash('sha256').update(`GRAPH_DELTA_FOLDER_DESCENDANT_V1:${event.eventKey}:${descendant.itemId}`).digest('hex')
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO finance_graph_delta_events (source_key,drive_id,event_key,page_key,item_id,kind,sequence,committed_at)
+        VALUES (${scope.sourceKey},${scope.driveId},${eventKey},${pageKey},${descendant.itemId},'UPSERT',${event.sequence},CURRENT_TIMESTAMP)
+        ON CONFLICT (source_key,drive_id,event_key) DO NOTHING
       `)
     }
   }
@@ -493,21 +552,25 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
     }
   }
 
-  private async applyPositiveDeltaTombstone(tx: Prisma.TransactionClient, scope: Readonly<{ sourceKey: string; driveId: string }>, event: GraphDeltaEvent, topology: TopologyRow | null): Promise<void> {
+  private async applyPositiveDeltaTombstone(tx: Prisma.TransactionClient, scope: Readonly<{ sourceKey: string; driveId: string }>, event: GraphDeltaEvent, topology: TopologyRow | null): Promise<GraphDeltaPageCommitResult> {
     // A missing/unresolved/out-of-scope topology never becomes a deletion. Graph
     // 404/403/network/inventory absence never reach this path at all.
-    if (!topology || topology.isDeleted || !topology.inRegisteredScope) return
+    if (!topology || topology.isDeleted || !topology.inRegisteredScope) return {}
     const key = sourceItemKey(scope.driveId, event.itemId)
+    // Conserva el orden de locks de Conciliar: proyección antes que lifecycle.
+    const refreshGate = await acquireConciliarDocumentTombstoneRefreshGateTx(tx)
     const snapshot = await this.lockDeletionLifecycle(tx, key)
-    if (!snapshot) return
+    if (!snapshot) return {}
     const plan: DocumentDeletionPlan = planDocumentDeletion(snapshot, {
       kind: 'DELTA_TOMBSTONE', source: 'ONEDRIVE', sourceItemKey: key,
       deltaPageComplete: true, tombstoneId: event.eventKey,
     })
-    await applyDocumentDeletionPlan(this.deletionStorage(tx), { actorId: this.fence.actorId, plan })
+    const applied = await applyDocumentDeletionPlan(this.deletionStorage(tx), { actorId: this.fence.actorId, plan })
+    if (applied.outcome !== 'APPLIED' || plan.kind !== 'TOMBSTONE') return {}
+    return refreshConciliarProjectionForDocumentTombstoneTx(tx, refreshGate, plan.key)
   }
 
-  async commitPage(input: GraphDeltaPageCommit): Promise<void> {
+  async commitPage(input: GraphDeltaPageCommit): Promise<GraphDeltaPageCommitResult> {
     const scope = scopeKey(input.scope)
     const pageKey = hash(input.pageKey, 'DELTA_PAGE_KEY_INVALID')
     if (input.mode !== 'DELTA' && input.mode !== 'INVENTORY') fail('DELTA_PAGE_MODE_INVALID')
@@ -516,7 +579,7 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
     const cursor = cursorValues(input.cursorAfter, this.cipher)
     if (input.inventoryCompleted && input.mode !== 'INVENTORY') fail('DELTA_INVENTORY_COMPLETION_INVALID')
 
-    await this.transaction(async (tx) => {
+    return this.transaction(async (tx) => {
       await this.assertFenceAndAccess(tx)
       const receipt = await tx.$queryRaw<Array<{ pageKey: string }>>(Prisma.sql`
         INSERT INTO finance_graph_delta_pages (source_key,drive_id,page_key,mode,inventory_session_id,committed_at)
@@ -526,8 +589,9 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
       `)
       // Receipt and cursor are committed atomically. If it exists, its former
       // transaction already completed every event and cursor advance.
-      if (!receipt.length) return
+      if (!receipt.length) return {}
 
+      let projectionInvalidated = false
       const newest = new Map<string, GraphDeltaEvent>()
       for (const event of input.events) {
         hash(event.eventKey, 'DELTA_EVENT_KEY_INVALID')
@@ -547,6 +611,7 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
         if (!inserted.length) continue
         if (event.kind === 'UPSERT') {
           await this.persistUpsertTopology(tx, scope, event)
+          if (input.mode === 'DELTA') await this.persistFolderDescendantEvents(tx, scope, pageKey, event)
           // Delta metadata intentionally does not invoke OCR or manufacture a
           // snapshot/version. The existing P2 inventory+prepare flow observes the
           // persisted quickXorHash/cTag on the next native pass and uses its real
@@ -557,7 +622,8 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
           // unexpected `deleted` shape appears in that reconstruction response.
           if (input.mode === 'DELTA') {
             const topology = await this.markTopologyDeleted(tx, scope, event)
-            await this.applyPositiveDeltaTombstone(tx, scope, event, topology)
+            const result = await this.applyPositiveDeltaTombstone(tx, scope, event, topology)
+            projectionInvalidated ||= result.projectionInvalidated === true
           }
         } else fail('DELTA_EVENT_KIND_INVALID')
       }
@@ -580,6 +646,7 @@ export class PrismaGraphDeltaVersionStore implements GraphDeltaVersionStore {
           pending_continuation_link=EXCLUDED.pending_continuation_link,
           inventory_session_id=EXCLUDED.inventory_session_id,updated_at=CURRENT_TIMESTAMP
       `)
+      return { projectionInvalidated }
     })
   }
 }

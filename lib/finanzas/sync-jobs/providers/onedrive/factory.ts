@@ -34,6 +34,9 @@ export function createProductionOneDriveProvider(prisma: PrismaClient, env: OneD
   return new OneDriveSyncProvider({
     read,
     domain: createPrismaOneDriveDomain(prisma),
+    // This legacy factory does not own the P2 authorization callback. Keeping
+    // the hook absent makes controlled confirming sources fail closed here; the
+    // production assembly binds the live permission in its fenced transaction.
     // Existing project OCR only; no Manus/built-in model or new model call.
     ocr: { extract: extraerDatosFactura, validateNew: validarResultadoOcrNuevo },
     // Required exact acknowledgement per job scope for legacy null-library rows.

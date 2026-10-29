@@ -88,3 +88,18 @@ test('detalle íntegro de remesa: lectura exacta del destino, sin escritura ni p
   try { process.env.FINANCE_STAGING_SANDBOX='0';assert.equal(easyOnlyRequestAllowed(path,'GET'),false) }
   finally { if(prior===undefined) delete process.env.FINANCE_STAGING_SANDBOX;else process.env.FINANCE_STAGING_SANDBOX=prior }
 })
+
+test('rectificativas: ledger humano estricto bajo conciliación y sin acceso a otros módulos', () => {
+  const old = process.env.FINANCE_STAGING_SANDBOX
+  try {
+    process.env.FINANCE_STAGING_SANDBOX = '1'
+    for (const method of ['GET', 'HEAD', 'POST']) assert(easyOnlyRequestAllowed('/api/admin/finanzas/rectificativas', method))
+    for (const action of ['confirmar', 'rechazar', 'deshacer']) {
+      const route = impersonationRouteDecision('/api/admin/finanzas/rectificativas', 'POST', new URLSearchParams(), 10, action)
+      assert(route.allowed); assert.equal(route.targetOnly, true); assert.deepEqual(route.permission?.areas, ['admin.finanzas.conciliacion']); assert.equal(route.permission?.required, 'escritura')
+    }
+    assert.equal(impersonationRequestAllowed('/api/admin/finanzas/rectificativas', 'POST', new URLSearchParams(), 10, 'sincronizar'), false)
+    assert.equal(impersonationRequestAllowed('/api/admin/finanzas/rectificativas/otra', 'GET'), false)
+    assert.equal(easyOnlyRequestAllowed('/api/admin/finanzas/rectificativas', 'DELETE'), false)
+  } finally { if (old === undefined) delete process.env.FINANCE_STAGING_SANDBOX; else process.env.FINANCE_STAGING_SANDBOX = old }
+})
