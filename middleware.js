@@ -345,6 +345,8 @@ function financeAreas(pathname) {
     'analitica-cliente': ['admin.finanzas.conciliacion'],
     pendientes: ['admin.finanzas.conciliacion'],
     'centros-coste': ['admin.finanzas.conciliacion'],
+    rectificativas: pathname === '/api/admin/finanzas/rectificativas' && process.env.FINANCE_STAGING_SANDBOX === '1'
+      ? ['admin.finanzas.conciliacion'] : [],
     'confirming-draxton': ['admin.finanzas.conciliacion'],
     'conciliacion-remesas': ['admin.finanzas.conciliacion_remesas'],
     remesas: pathname === '/api/admin/finanzas/remesas/b6' ? ['admin.finanzas.conciliacion'] : [],
