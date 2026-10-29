@@ -9,7 +9,9 @@
 import { readBankInvoicingPopulation } from '../../lib/finanzas/bank-invoicing-db'
 import { extractRefsOwnIssued, normalizarReferenciaFactura, referenciasEmitidasComposicionCompatible, referenciasFacturaCitadas } from '../../lib/finanzas/conciliar-issued-reference-core'
 import { readManualOwnAccountProofTx } from '../../lib/finanzas/conciliar-own-account-proof-db'
+import { projectionRow } from '../../lib/finanzas/conciliar-projection-read'
 import { selectorSearchableText, type CanonicalRemittanceSelectorLink } from './conciliar-release-regression-selector-evidence'
+import type { ApiProjectionComparableRow, ApiProjectionCoverage } from './conciliar-staging-api-regression-core'
 import type { Prisma } from '@prisma/client'
 import {
   canonicalGroupLabel,
@@ -52,6 +54,7 @@ type ProjectionSqlRow = Readonly<{
   id: string
   tab: string
   movementId: string | null
+  sourceFingerprint: string
   fecha: string
   amountCents: number | string
   pendingCents: number | string
@@ -98,6 +101,7 @@ type C11LineSqlRow = Readonly<{ liquidationId: string; invoiceId: string; nomina
 type C11DocumentSqlRow = Readonly<{ liquidationId: string; filename: string | null }>
 type TotalsSqlRow = Readonly<{ tab: string; color: string; amountCents: number | string; groupLabel?: string | null }>
 type CountSqlRow = Readonly<{ total: number | string }>
+type ProjectionStateSqlRow = Readonly<{ rebuiltAt: string | Date | null }>
 
 type CandidateProjection = Readonly<{
   id: string
@@ -174,7 +178,7 @@ const PROJECTION_COUNT_SQL = `SELECT COUNT(*)::bigint AS total FROM conciliar_pr
 const RECEIVED_REFERENCE_COUNT_SQL = `SELECT COUNT(*)::bigint AS total FROM facturas_recibidas LIMIT 1`
 const RECEIVED_REFERENCE_PAGE_SQL = `SELECT id,num_factura AS reference FROM facturas_recibidas ORDER BY id ASC LIMIT $1 OFFSET $2`
 const PROJECTION_PAGE_SQL = `
-  SELECT p.id,p.tab,p.movimiento_id AS "movementId",p.fecha::date::text AS fecha,
+  SELECT p.id,p.tab,p.movimiento_id AS "movementId",p.source_fingerprint AS "sourceFingerprint",p.fecha::date::text AS fecha,
     p.importe_centimos AS "amountCents",p.pendiente_centimos AS "pendingCents",p.diferencia_centimos AS "differenceCents",g.estado::text AS "requestState",p.color,p.grupo AS "groupLabel",
     p.motivo AS "reasonText",p.seleccionable,p.documento AS "documentValue",p.propuesta AS "proposalValue",p.source
   FROM conciliar_proyecciones p LEFT JOIN gestiones_pendientes_movimiento_b5 g ON g.movimiento_id=p.movimiento_id
@@ -267,6 +271,7 @@ const GROUP_TOTALS_COUNT_SQL = `SELECT COUNT(*)::bigint AS total FROM (SELECT ta
 const GROUP_TOTALS_PAGE_SQL = `
   SELECT tab,color,COALESCE(grupo,'OTROS') AS "groupLabel",COALESCE(SUM(importe_centimos::bigint),0)::bigint AS "amountCents"
   FROM conciliar_proyecciones GROUP BY tab,color,COALESCE(grupo,'OTROS') ORDER BY tab,color,COALESCE(grupo,'OTROS') LIMIT $1 OFFSET $2`
+const PROJECTION_STATE_SQL = `SELECT rebuilt_at AS "rebuiltAt" FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1`
 
 function parseComposition(value: unknown): readonly Readonly<{ documentKey: string; reference: string | null; client: string | null; amountCents: number; invoiceId: string | null }>[] {
   const root = Array.isArray(array(value)) ? array(value) : array(object(value).items)
@@ -451,6 +456,8 @@ export type ReleaseRegressionAdapterResult = Readonly<{
   /** Includes every persisted tab, needed only by ABSENT_CONFIRMED C/P cases. */
   cpAllTabProjectionRows: readonly RegressionProjectionRow[]
   globalDataset: GlobalRegressionDataset
+  /** Complete persisted projection for exact comparison with the browser API snapshot. */
+  apiProjectionCoverage: ApiProjectionCoverage
 }>
 
 export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Promise<ReleaseRegressionAdapterResult> {
@@ -478,6 +485,7 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   }, { enabled: true, assertIsolatedStaging: async () => undefined })
   const totalRows = await paged<TotalsSqlRow>(client, TOTALS_COUNT_SQL, TOTALS_PAGE_SQL)
   const groupRows = await paged<TotalsSqlRow>(client, GROUP_TOTALS_COUNT_SQL, GROUP_TOTALS_PAGE_SQL)
+  const projectionStateRows = await query<ProjectionStateSqlRow>(client, PROJECTION_STATE_SQL)
 
   const manualOwnAccountProof = await readManualOwnAccountProofTx({
     async $queryRaw<T>(statement: Prisma.Sql): Promise<T> {
@@ -487,6 +495,36 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
   }, movementRaw.map(row => String(row.accountKey ?? '')))
 
   const projections = projectionRaw.map(toCandidateProjection)
+  if (projectionStateRows.length !== 1) fail('REGRESSION_SCHEMA_INVALID')
+  const rebuiltAtValue = projectionStateRows[0]?.rebuiltAt
+  const rebuiltAt = rebuiltAtValue instanceof Date ? rebuiltAtValue.toISOString() : typeof rebuiltAtValue === 'string' ? new Date(rebuiltAtValue).toISOString() : ''
+  if (!Number.isFinite(new Date(rebuiltAt).getTime())) fail('REGRESSION_SCHEMA_INVALID')
+  const apiProjectionRows: ApiProjectionComparableRow[] = projectionRaw.map(row => {
+    const candidate = toCandidateProjection(row)
+    // Reuse the exact API serializer rather than duplicating its safe text,
+    // document and URL normalization. The SQL aliases above are only suitable
+    // for regression evaluators, whereas this converter needs storage names.
+    const publicRow = projectionRow({
+      id: row.id, movimiento_id: row.movementId, tab: row.tab, fecha: row.fecha,
+      concepto: '', banco: null, cuenta: null, importe_centimos: row.amountCents,
+      pendiente_centimos: row.pendingCents, color: row.color, grupo: row.groupLabel,
+      motivo: row.reasonText, documento: row.documentValue, propuesta: row.proposalValue,
+      seleccionable: row.seleccionable, diferencia_centimos: row.differenceCents,
+      links_movimiento: null, detail: null, source: row.source,
+      // The canonical reader accepts this only as the opaque source identity.
+      // The actual persisted fingerprint is selected by the source query below.
+      source_fingerprint: row.sourceFingerprint,
+      updated_at: rebuiltAt,
+    })
+    return {
+      id: publicRow.id, movimientoId: publicRow.movimientoId, tab: candidate.tab, fecha: publicRow.fecha,
+      color: publicRow.color, grupo: publicRow.grupo,
+      documento: publicRow.documento ? { referencia: publicRow.documento.referencia, importeCentimos: publicRow.documento.importeCentimos } : null,
+      seleccionable: publicRow.seleccionable, diferenciaCentimos: publicRow.diferenciaCentimos,
+      motivo: publicRow.motivo, propuesta: publicRow.propuesta, pendienteCentimos: publicRow.pendienteCentimos,
+    }
+  })
+  if (new Set(apiProjectionRows.map(row => row.id)).size !== apiProjectionRows.length) fail('REGRESSION_SCHEMA_INVALID')
   const bankRowsByKey = new Map<string, MovementSqlRow>()
   const cpBanks: RegressionBankRow[] = []
   for (const raw of movementRaw) {
@@ -665,5 +703,10 @@ export async function readReleaseRegressionAdapter(client: ReadonlyPgClient): Pr
     rows: globalRows, collectionReservations, collectionSourcePopulation,
     totals: { allPagesRead: totalsComplete, totalVisibleRows, rowsRead: projectionRaw.length, pageSize: PAGE_SIZE, pagesRead: totalVisibleRows ? Math.ceil(totalVisibleRows / PAGE_SIZE) : 0, tabColorTotals, groupTotals },
   }
-  return { cpDataset, cpAllTabProjectionRows, globalDataset }
+  return {
+    cpDataset,
+    cpAllTabProjectionRows,
+    globalDataset,
+    apiProjectionCoverage: { allRowsRead: true, updatedAt: rebuiltAt, rows: apiProjectionRows },
+  }
 }

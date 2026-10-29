@@ -35,14 +35,23 @@ type LedgerAggregate = Readonly<{
   movementStatesHash: string
   projectionsHash: string
 }>
+type ManualProofAggregate = Readonly<{
+  declarationTableAvailable: boolean
+  requestedAccounts: number
+  attestedAccounts: number
+  source: 'DECLARACION_MANUAL_AUDITADA_V1'
+}>
 type RehearsalInsideTransaction = Readonly<{
   rebuiltRows: number
   rebuiltEmitted: number
   before: readonly ProjectionAggregate[]
   after: readonly ProjectionAggregate[]
+  manualProofBefore: ManualProofAggregate
+  manualProofAfter: ManualProofAggregate
   privateExamplesByDateAndMagnitudeValidated: true
   greenPairsRevalidated: true
-  amberRowsNonActionable: true
+  manualRowsNonActionable: true
+  bothSignsRevalidated: true
   identifiedReviewRows: number
   financialStateUnchangedInsideRollback: true
 }>
@@ -56,9 +65,12 @@ type RehearsalOutput = Readonly<{
   before: readonly ProjectionAggregate[]
   insideRollback: readonly ProjectionAggregate[]
   afterRollback: readonly ProjectionAggregate[]
+  manualProofBefore: ManualProofAggregate
+  manualProofAfterRollback: ManualProofAggregate
   privateExamplesByDateAndMagnitudeValidated: true
   greenPairsRevalidated: true
-  amberRowsNonActionable: true
+  manualRowsNonActionable: true
+  bothSignsRevalidated: true
   identifiedReviewRows: number
 }>
 
@@ -153,22 +165,43 @@ async function ledgerAggregate(tx: any): Promise<LedgerAggregate> {
   }
 }
 
+async function manualProofAggregate(
+  tx: any,
+  unresolvedMovements: (tx: any) => Promise<readonly any[]>,
+  readManualOwnAccountProofTx: (tx: any, accountIds: readonly string[]) => Promise<any>,
+): Promise<ManualProofAggregate> {
+  const movements = await unresolvedMovements(tx)
+  const requested = [...new Set(movements.flatMap(movement => typeof movement?.cuentaId === 'string' ? [movement.cuentaId] : []))].sort()
+  const result = await readManualOwnAccountProofTx(tx, requested)
+  if (typeof result?.tableAvailable !== 'boolean' || result?.proof?.source !== 'DECLARACION_MANUAL_AUDITADA_V1'
+    || !(result.proof.accountIds instanceof Set) || result.proof.accountIds.size < 2) fail('CONCILIAR_TRANSFER_REHEARSAL_MANUAL_PROOF_INVALID')
+  return {
+    declarationTableAvailable: result.tableAvailable,
+    requestedAccounts: requested.length,
+    attestedAccounts: result.proof.accountIds.size,
+    source: result.proof.source,
+  }
+}
+
 async function validatePrivateTransferExamples(tx: any): Promise<Readonly<{
   greenPairsRevalidated: true
-  amberRowsNonActionable: true
+  manualRowsNonActionable: true
+  bothSignsRevalidated: true
   identifiedReviewRows: number
 }>> {
   const rows = await (tx as Prisma.TransactionClient).$queryRaw<Array<{
     reviewRows: number | bigint
     greenPairsRevalidated: boolean
-    amberRowsNonActionable: boolean
+    manualRowsNonActionable: boolean
+    bothSignsRevalidated: boolean
   }>>(Prisma.sql`
     WITH review AS (
       SELECT p.movimiento_id AS movimiento_id,p.color,p.seleccionable,
         m.cuenta_id AS cuenta_id,m.fecha_operacion::date AS fecha,p.importe_centimos AS importe_centimos
       FROM conciliar_proyecciones p
       JOIN movimientos_bancarios m ON m.id=p.movimiento_id
-      WHERE p.grupo='TRASPASOS_PROPIOS' AND p.source->>'kind'='PENDIENTE_FACTURA_EMITIDA'
+      WHERE p.grupo='TRASPASOS_PROPIOS' AND p.source->>'kind'='TRANSFERENCIA_PROPIA_MANUAL'
+        AND p.source->>'proofSource'='DECLARACION_MANUAL_AUDITADA_V1'
         AND p.color IN ('AMBAR','VERDE')
     ), green AS (
       SELECT r.movimiento_id,COUNT(o.movimiento_id)::int AS counterparts
@@ -182,22 +215,25 @@ async function validatePrivateTransferExamples(tx: any): Promise<Readonly<{
     SELECT
       (SELECT COUNT(*)::int FROM review) AS "reviewRows",
       COALESCE((SELECT bool_and(counterparts=1) FROM green),true) AS "greenPairsRevalidated",
-      COALESCE((SELECT bool_and(seleccionable=false) FROM review WHERE color='AMBAR'),true) AS "amberRowsNonActionable"
+      COALESCE((SELECT bool_and(seleccionable=false) FROM review),true) AS "manualRowsNonActionable",
+      ((SELECT COUNT(*) FROM review WHERE importe_centimos>0)>0 AND (SELECT COUNT(*) FROM review WHERE importe_centimos<0)>0) AS "bothSignsRevalidated"
     LIMIT 1
   `)
   const row = rows[0]
   if (!row || !Number.isSafeInteger(Number(row.reviewRows)) || Number(row.reviewRows) < 1) fail('CONCILIAR_TRANSFER_REHEARSAL_PRIVATE_CASES_INVALID')
   if (row.greenPairsRevalidated !== true) fail('CONCILIAR_TRANSFER_REHEARSAL_GREEN_PAIR_INVALID')
-  if (row.amberRowsNonActionable !== true) fail('CONCILIAR_TRANSFER_REHEARSAL_AMBER_ACTIONABLE')
-  return { greenPairsRevalidated: true, amberRowsNonActionable: true, identifiedReviewRows: Number(row.reviewRows) }
+  if (row.manualRowsNonActionable !== true) fail('CONCILIAR_TRANSFER_REHEARSAL_MANUAL_ACTIONABLE')
+  if (row.bothSignsRevalidated !== true) fail('CONCILIAR_TRANSFER_REHEARSAL_BOTH_SIGNS_INVALID')
+  return { greenPairsRevalidated: true, manualRowsNonActionable: true, bothSignsRevalidated: true, identifiedReviewRows: Number(row.reviewRows) }
 }
 
 async function main(): Promise<void> {
   install(safeExternalEnvironment())
-  const [{ default: prisma }, { assertPrototypeStaging }, { rebuildConciliarProjectionTx }] = await Promise.all([
+  const [{ default: prisma }, { assertPrototypeStaging }, { rebuildConciliarProjectionTx, unresolvedMovements }, { readManualOwnAccountProofTx }] = await Promise.all([
     import('../lib/prisma'),
     import('../lib/finanzas/prototype-staging'),
     import('../lib/finanzas/conciliar-db'),
+    import('../lib/finanzas/conciliar-own-account-proof-db'),
   ])
   try {
     await assertPrototypeStaging()
@@ -206,21 +242,27 @@ async function main(): Promise<void> {
 
     const before = await projectionAggregates(prisma)
     const ledgerBefore = await ledgerAggregate(prisma)
+    const manualProofBefore = await manualProofAggregate(prisma, unresolvedMovements, readManualOwnAccountProofTx)
     let rehearsal: ExpectedRollback | null = null
     try {
       await prisma.$transaction(async tx => {
         const insideBefore = await projectionAggregates(tx)
         const ledgerInsideBefore = await ledgerAggregate(tx)
+        const manualProofInsideBefore = await manualProofAggregate(tx, unresolvedMovements, readManualOwnAccountProofTx)
         const rebuilt = await rebuildConciliarProjectionTx(tx, null)
         const insideAfter = await projectionAggregates(tx)
         const ledgerInsideAfter = await ledgerAggregate(tx)
+        const manualProofInsideAfter = await manualProofAggregate(tx, unresolvedMovements, readManualOwnAccountProofTx)
         if (!sameFinancialLedger(ledgerInsideBefore, ledgerInsideAfter)) fail('CONCILIAR_TRANSFER_REHEARSAL_FINANCIAL_STATE_CHANGED')
+        if (!same(manualProofInsideBefore, manualProofInsideAfter)) fail('CONCILIAR_TRANSFER_REHEARSAL_MANUAL_PROOF_CHANGED')
         const examples = await validatePrivateTransferExamples(tx)
         throw new ExpectedRollback({
           rebuiltRows: rebuilt.rows,
           rebuiltEmitted: rebuilt.emitted,
           before: insideBefore,
           after: insideAfter,
+          manualProofBefore: manualProofInsideBefore,
+          manualProofAfter: manualProofInsideAfter,
           privateExamplesByDateAndMagnitudeValidated: true,
           ...examples,
           financialStateUnchangedInsideRollback: true,
@@ -234,7 +276,8 @@ async function main(): Promise<void> {
 
     const afterRollback = await projectionAggregates(prisma)
     const ledgerAfterRollback = await ledgerAggregate(prisma)
-    if (!same(before, afterRollback) || !same(ledgerBefore, ledgerAfterRollback)) fail('CONCILIAR_TRANSFER_REHEARSAL_ROLLBACK_UNVERIFIED')
+    const manualProofAfterRollback = await manualProofAggregate(prisma, unresolvedMovements, readManualOwnAccountProofTx)
+    if (!same(before, afterRollback) || !same(ledgerBefore, ledgerAfterRollback) || !same(manualProofBefore, manualProofAfterRollback)) fail('CONCILIAR_TRANSFER_REHEARSAL_ROLLBACK_UNVERIFIED')
     const output: RehearsalOutput = {
       stagingOnly: true,
       rollbackObserved: true,
@@ -245,9 +288,12 @@ async function main(): Promise<void> {
       before,
       insideRollback: rehearsal.value.after,
       afterRollback,
+      manualProofBefore: rehearsal.value.manualProofBefore,
+      manualProofAfterRollback,
       privateExamplesByDateAndMagnitudeValidated: rehearsal.value.privateExamplesByDateAndMagnitudeValidated,
       greenPairsRevalidated: rehearsal.value.greenPairsRevalidated,
-      amberRowsNonActionable: rehearsal.value.amberRowsNonActionable,
+      manualRowsNonActionable: rehearsal.value.manualRowsNonActionable,
+      bothSignsRevalidated: rehearsal.value.bothSignsRevalidated,
       identifiedReviewRows: rehearsal.value.identifiedReviewRows,
     }
     console.log(JSON.stringify(output))
