@@ -32,6 +32,7 @@ import { conciliarProveedorAliasesFuertes } from './conciliar-proveedor'
 import { referenciasEmitidasComposicionCompatible } from './conciliar-issued-reference-core'
 import { assignConciliarProviderPayments, type ConciliarProviderAssignmentReason, type ConciliarProviderInvoiceCandidate, type ConciliarProviderPayment } from './conciliar-proveedor-asignacion'
 import { cents, day, document, exactMoney, json, nullableText, object, projectionRow, type ProjectionSqlRow } from './conciliar-projection-read'
+import { classifyConciliarOwnTransferReviews, conciliarOwnTransferReviewMotive, hasExactOwnRecipientEvidence, normalizedRegisteredOwnIban } from './conciliar-transfer-classifier'
 import { remittanceSealForProposal } from './remittance-payment-receipts-db'
 
 export { ConciliarDbError, conciliarDbErrorResponse } from './conciliar-errors'
@@ -261,6 +262,20 @@ export async function unresolvedMovements(tx: Tx, movementId?: string) {
     SELECT m.id,m.fecha_operacion::date::text AS fecha,m.concepto,m.referencia,m.info_adicional,m.tercero,
       b4_importe_bancario_centimos(m.importe) AS "importeCentimos",c.id AS "cuentaId",c.banco,c.alias AS cuenta,
       ef.razon_social AS "entidadRazonSocial",ef.nombre_comercial AS "entidadNombreComercial",p1.label AS "terceroConfirmado",
+      (m.factura_id IS NOT NULL OR m.gasto_id IS NOT NULL OR m.factura_emitida_id IS NOT NULL OR m.nomina_id IS NOT NULL
+        OR m.entrega_a_cuenta_empleado_id IS NOT NULL) AS "tieneVinculoDocumental",
+      EXISTS (
+        SELECT 1 FROM decisiones_tercero_modo_facil d
+        WHERE d.movimiento_id=m.id AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
+          AND d.tipo_tercero<>'CUENTA_PROPIA'::"TipoTerceroModoFacil"
+          AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
+      ) AS "tieneTerceroConfirmado",
+      EXISTS (
+        SELECT 1 FROM decisiones_tercero_modo_facil d
+        WHERE d.movimiento_id=m.id AND d.accion='CONFIRMADA'::"EstadoDecisionTerceroModoFacil"
+          AND d.tipo_tercero='CUENTA_PROPIA'::"TipoTerceroModoFacil"
+          AND NOT EXISTS (SELECT 1 FROM decisiones_tercero_modo_facil r WHERE r.revierte_id=d.id AND r.accion='REVERTIDA'::"EstadoDecisionTerceroModoFacil")
+      ) AS "tieneCuentaPropiaConfirmada",
       COALESCE(e.version,1) AS "versionB4"
     FROM movimientos_bancarios m JOIN cuentas_bancarias c ON c.id=m.cuenta_id
     LEFT JOIN estado_justificacion_movimientos e ON e.movimiento_id=m.id
@@ -910,6 +925,29 @@ export async function restoreLiveBankFeeProjectionTx(base: Prisma.TransactionCli
 }
 
 type StrictTransferLeg = Readonly<{ movementId: string; oppositeMovementId: string; fingerprint: string }>
+
+/** Sólo una atestación explícita de una política activa acredita una cuenta propia.
+ * El nombre del banco, el titular textual y la coincidencia de importes no crean
+ * propiedad por sí mismos. */
+async function readAttestedOwnAccounts(tx: Tx, rawAccountIds: readonly string[]): Promise<Readonly<{ accountIds: ReadonlySet<string>; ibanKeys: ReadonlySet<string> }>> {
+  const accountIds = [...new Set(rawAccountIds.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 160))].sort()
+  if (!accountIds.length || accountIds.length > MAX_REBUILD_ROWS) return { accountIds: new Set(), ibanKeys: new Set() }
+  const attestations = await tx.$queryRaw<Array<{ cuentaId: string; iban: string }>>(Prisma.sql`
+    SELECT DISTINCT a.cuenta_id AS "cuentaId",c.iban
+    FROM atestaciones_cuenta_auto_modo_facil a
+    JOIN politicas_auto_modo_facil p ON p.id=a.politica_id AND p.estado='ACTIVA'
+      AND p.entorno=CASE WHEN current_database()='io_staging_finanzas' THEN 'STAGING' ELSE 'PRODUCTION' END
+    JOIN cuentas_bancarias c ON c.id=a.cuenta_id AND c.activa=true
+    WHERE a.confirmacion_titularidad_io=true
+      AND a.cuenta_id IN (${Prisma.join(accountIds.map(id => Prisma.sql`${id}`))})
+    ORDER BY a.cuenta_id ASC LIMIT ${accountIds.length}
+  `)
+  return {
+    accountIds: new Set(attestations.flatMap(row => typeof row.cuentaId === 'string' && row.cuentaId.length > 0 ? [row.cuentaId] : [])),
+    ibanKeys: new Set(attestations.flatMap(row => normalizedRegisteredOwnIban(row.iban) ?? [])),
+  }
+}
+
 /**
  * Conciliar deliberately reuses the same fail-closed ingredients as the approved
  * Modo fácil automation: bilateral candidates, account attestation, exact local
@@ -1002,6 +1040,24 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     readConciliarConfirmingCandidates(tx, { allRebuild: true }),
     readStrictOwnTransfers(tx),
   ])
+  const attestedOwnAccounts = await readAttestedOwnAccounts(tx, movements.map(movement => String(movement.cuentaId)))
+  const transferReviews = classifyConciliarOwnTransferReviews({
+    movements: movements.map(movement => ({
+      id: String(movement.id), cuentaId: String(movement.cuentaId), fecha: String(movement.fecha),
+      importeCentimos: safeInteger(movement.importeCentimos) ?? 0, versionB4: safeInteger(movement.versionB4) ?? 0,
+      concepto: nullableText(movement.concepto), referencia: nullableText(movement.referencia),
+      infoAdicional: nullableText(movement.info_adicional), tercero: nullableText(movement.tercero), bancoCuenta: nullableText(movement.banco),
+      thirdPartyConfirmed: movement.tieneTerceroConfirmado === true,
+      documentaryLinked: movement.tieneVinculoDocumental === true,
+      ownRecipientExplicit: movement.tieneCuentaPropiaConfirmada === true || hasExactOwnRecipientEvidence({
+        id: String(movement.id), cuentaId: String(movement.cuentaId), fecha: String(movement.fecha),
+        importeCentimos: safeInteger(movement.importeCentimos) ?? 0, versionB4: safeInteger(movement.versionB4) ?? 0,
+        concepto: nullableText(movement.concepto), referencia: nullableText(movement.referencia),
+        infoAdicional: nullableText(movement.info_adicional), tercero: nullableText(movement.tercero), bancoCuenta: nullableText(movement.banco),
+      }, attestedOwnAccounts.ibanKeys),
+    })),
+    attestedOwnAccountIds: attestedOwnAccounts.accountIds,
+  })
   const rows: RebuildRow[] = []
   const proposalByMovement = new Map<string, any>()
   for (const proposal of proposals) if (!proposalByMovement.has(String(proposal.movimientoId))) proposalByMovement.set(String(proposal.movimientoId), proposal)
@@ -1035,7 +1091,7 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
     const amount = safeInteger(movement.importeCentimos)
     if (amount === null || amount >= 0) continue
     const id = String(movement.id), fecha = isoDay(movement.fecha)
-    if (!fecha || transfers.has(id)) continue
+    if (!fecha || transfers.has(id) || transferReviews.has(id)) continue
     const fee = buildBankFeeProjectionSeed({
       movimientoId: id, cuentaId: String(movement.cuentaId), fecha, importeCentimos: amount, versionB4: movement.versionB4,
       concepto: textoSeguro(movement.concepto), referencia: movement.referencia, infoAdicional: movement.info_adicional,
@@ -1079,6 +1135,24 @@ export async function rebuildConciliarProjectionTx(base: Prisma.TransactionClien
         kind: 'TRANSFERENCIA_PROPIA', movimientoId: id, movimientoParId: transfer.oppositeMovementId,
         transferFingerprint: transfer.fingerprint, versionB4: cents(movement.versionB4, 'La versión'),
       } as ConciliarProjectionSource, cuentaId))
+      continue
+    }
+    const transferReview = transferReviews.get(id)
+    if (transferReview) {
+      const tab: ConciliarTab = amount > 0 ? 'COBROS' : 'PAGOS'
+      const pairTab = amount > 0 ? 'PAGOS' : 'COBROS'
+      const oppositeMovementId = transferReview.movimientoParId
+      const pairedExactly = transferReview.kind === 'PAREJA_UNICA_PENDIENTE_PRUEBA_ESTRICTA'
+      rows.push(projection(tab, baseRow({
+        id: rowId(tab, `REVISION_TRASPASO_PROPIO:${id}:${transferReview.kind}:${transferReview.transferFingerprint ?? 'SIN_PAREJA'}`),
+        movimientoId: id, fecha, concepto, banco, cuenta, importeCentimos: amount, pendienteCentimos: amount,
+        color: pairedExactly ? 'VERDE' : 'AMBAR', grupo: 'TRASPASOS_PROPIOS', motivo: conciliarOwnTransferReviewMotive(transferReview), documento: null,
+        propuesta: null, seleccionable: false, diferenciaCentimos: 0,
+        ...(oppositeMovementId ? { linksMovimiento: [{ id: oppositeMovementId, href: `/admin/finanzas/conciliar?tab=${pairTab}&q=${encodeURIComponent(oppositeMovementId)}`, etiqueta: 'Ver el posible movimiento de la otra cuenta' }] } : {}),
+        detail: pairedExactly
+          ? 'Pareja de traspaso propio visible: esta fila no permite confirmar ni pedir documentación; la confirmación histórica mantiene su prueba estricta independiente.'
+          : 'Revisión de traspaso propio: esta fila no permite confirmar ni pedir documentación.',
+      }), { kind: 'PENDIENTE_FACTURA_EMITIDA', movimientoId: id, versionB4: cents(movement.versionB4, 'La versión') }, cuentaId))
       continue
     }
     if (amount > 0) {

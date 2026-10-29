@@ -8,6 +8,11 @@ type DetailCacheEntry<Value> = Readonly<{
   expiresAt: number;
 }>;
 
+type DetailPending<Value> = Readonly<{
+  controller: AbortController;
+  promise: Promise<Value>;
+}>;
+
 export type ConciliarDetailCacheKeyInput = Readonly<{
   rowId: string;
   decisionHash: string;
@@ -24,16 +29,38 @@ export function conciliarDetailCacheKey(input: ConciliarDetailCacheKeyInput): st
   return JSON.stringify([input.identityScope, input.rowId, input.decisionHash, input.updatedAt]);
 }
 
-/** Caché LRU acotada y sólo en memoria; clear invalida también cargas antiguas. */
+/**
+ * Formato puramente de presentación. El timestamp sigue procediendo de la foto
+ * que el servidor ya autorizó; no infiere ni promete ningún recálculo.
+ */
+export function formatConciliarUpdatedAt(value: string, options: Readonly<{ locale?: string; timeZone?: string }> = {}): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return 'Cifras sin fecha de actualización verificable.';
+  const time = new Intl.DateTimeFormat(options.locale ?? 'es-ES', {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+  }).format(date);
+  return `Cifras actualizadas a las ${time}`;
+}
+
+/**
+ * Caché LRU sólo en memoria del componente. La suma de entradas y cargas queda
+ * acotada; clear/cancel abortan su señal y una generación anterior nunca puede
+ * volver a poblar la caché. No se comparte entre usuarios ni sesiones.
+ */
 export class ConciliarDetailMemoryCache<Value> {
   private readonly entries = new Map<string, DetailCacheEntry<Value>>();
-  private readonly pending = new Map<string, Promise<Value>>();
+  private readonly pending = new Map<string, DetailPending<Value>>();
   private generation = 0;
+  private readonly capacity: number;
 
   constructor(
-    private readonly maxEntries = CONCILIAR_DETAIL_CACHE_MAX_ENTRIES,
+    maxEntries = CONCILIAR_DETAIL_CACHE_MAX_ENTRIES,
     private readonly ttlMs = CONCILIAR_DETAIL_CACHE_TTL_MS,
-  ) {}
+  ) {
+    this.capacity = Math.max(1, Math.floor(maxEntries));
+  }
 
   get(key: string, now = Date.now()): Value | undefined {
     const entry = this.entries.get(key);
@@ -51,37 +78,72 @@ export class ConciliarDetailMemoryCache<Value> {
   set(key: string, value: Value, now = Date.now()): void {
     this.entries.delete(key);
     this.entries.set(key, { value, expiresAt: now + this.ttlMs });
-    while (this.entries.size > this.maxEntries) {
+    while (this.entries.size > this.capacity) {
       const oldest = this.entries.keys().next().value;
       if (oldest === undefined) return;
       this.entries.delete(oldest);
     }
   }
 
-  /** Las precargas oportunistas no superan el cupo; una apertura explícita sí puede leer. */
-  canPrefetch(key: string, now = Date.now()): boolean {
-    return this.get(key, now) !== undefined || this.pending.has(key) || this.pending.size < this.maxEntries;
+  private makeRoomForPending(): void {
+    while (this.entries.size + this.pending.size >= this.capacity) {
+      const oldestEntry = this.entries.keys().next().value;
+      if (oldestEntry !== undefined) {
+        this.entries.delete(oldestEntry);
+        continue;
+      }
+      const oldestPending = this.pending.keys().next().value;
+      if (oldestPending === undefined) return;
+      this.cancel(oldestPending);
+    }
   }
 
-  load(key: string, loader: () => Promise<Value>, now = Date.now()): Promise<Value> {
+  /** Las precargas oportunistas nunca desplazan una carga o resultado ya acotado. */
+  canPrefetch(key: string, now = Date.now()): boolean {
+    return this.get(key, now) !== undefined || this.pending.has(key) || this.entries.size + this.pending.size < this.capacity;
+  }
+
+  /**
+   * Varias interacciones sobre la misma fila comparten una única petición. La
+   * caché posee AbortController para que una precarga no pueda dejar una señal
+   * abortada asociada a una apertura explícita posterior.
+   */
+  load(key: string, loader: (signal: AbortSignal) => Promise<Value>, now = Date.now()): Promise<Value> {
     const cached = this.get(key, now);
     if (cached !== undefined) return Promise.resolve(cached);
     const inFlight = this.pending.get(key);
-    if (inFlight) return inFlight;
+    if (inFlight) return inFlight.promise;
+
+    this.makeRoomForPending();
     const generation = this.generation;
-    const request = loader().then((value) => {
-      if (generation === this.generation) this.set(key, value);
-      return value;
-    }).finally(() => {
-      if (this.pending.get(key) === request) this.pending.delete(key);
-    });
-    this.pending.set(key, request);
+    const controller = new AbortController();
+    let request: Promise<Value>;
+    request = Promise.resolve()
+      .then(() => loader(controller.signal))
+      .then((value) => {
+        // Cancelar, cambiar identidad o limpiar la generación impide reinsertar
+        // una respuesta que ya no pertenece a esta vista privada.
+        if (generation === this.generation && this.pending.get(key)?.promise === request) this.set(key, value);
+        return value;
+      })
+      .finally(() => {
+        if (this.pending.get(key)?.promise === request) this.pending.delete(key);
+      });
+    this.pending.set(key, { controller, promise: request });
     return request;
+  }
+
+  cancel(key: string): void {
+    const pending = this.pending.get(key);
+    if (!pending) return;
+    this.pending.delete(key);
+    pending.controller.abort();
   }
 
   clear(): void {
     this.generation += 1;
     this.entries.clear();
+    for (const { controller } of this.pending.values()) controller.abort();
     this.pending.clear();
   }
 

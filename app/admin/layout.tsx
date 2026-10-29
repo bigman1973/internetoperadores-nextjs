@@ -3,7 +3,7 @@ import { requireAuth } from '../../lib/middleware/auth'
 import { redirect } from 'next/navigation'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 import { SidebarProvider } from '../../components/admin/AdminSidebarContext'
-import AdminHeader from '../../components/admin/AdminHeader'
+import AdminHeaderServer from '../../components/admin/AdminHeaderServer'
 import SessionProvider from '../../components/SessionProvider'
 import { RoleProvider } from '../../components/admin/RoleContext'
 import ProtectedRoute from '../../components/admin/ProtectedRoute'
@@ -174,7 +174,11 @@ export default async function AdminLayout({
               initialPermissionSignature={initialSidebar?.permissionSignature}
             />
             <div className="min-w-0 lg:pl-64">
-              <AdminHeader />
+              <AdminHeaderServer
+                userName={session.user.name}
+                userEmail={session.user.email}
+                isSuperAdmin={userRole === 'SUPER_ADMIN'}
+              />
               <main className="min-w-0 px-3 py-4 sm:p-6 lg:p-8">
                 {easyOnly ? children : <ProtectedRoute>
                   {process.env.FINANCE_STAGING_SANDBOX === '1' && <PendingTicketsNotice />}

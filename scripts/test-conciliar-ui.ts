@@ -92,7 +92,7 @@ required(workspace, 'espacio de trabajo', [
   "params.set('emitidasGrupo', input.emitidasGrupo)",
   'setEmitidasGrupo((current) => current === next ? \'\' : next)',
   'closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null);',
-  'detailController.current?.abort()',
+  'detailCache.current.cancel(detailRequestKey.current)',
   'una propuesta no confirma el cobro ni marca la factura como cobrada',
   'fontFamily: \'var(--font-conciliar), Arial, Helvetica, sans-serif\'',
   '#FF5300',

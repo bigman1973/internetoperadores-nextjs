@@ -243,7 +243,7 @@ test('la implementación mantiene carga bajo demanda, offset de actuación, foco
   const drawer = readFileSync(resolve(root, 'components/finanzas/conciliar/ConciliarDocumentPreview.tsx'), 'utf8');
   assert.match(workspace, /parseConciliarDocumentDetail/);
   assert.match(workspace, /\$\{DOCUMENT_DETAIL_API\}\/\$\{encodeURIComponent\(currentRow\.id\)\}/);
-  assert.match(workspace, /detailController\.current\?\.abort\(\)/);
+  assert.match(workspace, /detailCache\.current\.cancel\(detailRequestKey\.current\)/);
   assert.match(workspace, /sequence !== detailSequence\.current/);
   assert.match(workspace, /groupConciliarRows\(rows\)/);
   assert.doesNotMatch(workspace, /parseConciliarDetailResponse/);

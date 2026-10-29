@@ -123,12 +123,19 @@ test('el lector selecciona desde conciliar_proyecciones y no importa Graph, PDF 
   assert.match(reader, /liquidaciones_confirming_documentales/)
   assert.match(reader, /NOT EXISTS \(\s*SELECT 1\s*FROM liquidaciones_confirming_documentales l2/)
   assert.doesNotMatch(reader, /ROW_NUMBER\s*\(/)
-  assert.match(reader, /readEasyCollectionsRemittanceDetail/)
+  assert.match(reader, /json_agg\(row_to_json\(document\)/)
+  assert.match(reader, /json_agg\(row_to_json\(line\)/)
+  assert.match(reader, /FROM documentos_liquidacion_confirming d/)
+  assert.match(reader, /FROM lineas_liquidacion_confirming lc/)
+  assert.match(reader, /WITH candidatos AS \(/)
+  assert.match(reader, /FROM recibos_cobro_remesa_b7 r/)
+  assert.match(reader, /COUNT\(\*\)::integer AS total FROM candidatos/)
+  assert.match(reader, /receiptCount/)
   assert.match(reader, /LIMIT \$\{MAX_DETAIL_LINES \+ 1\}/)
-  assert.doesNotMatch(reader, /\$executeRaw|\.create\(|\.update\(|\.delete\(|descargarGraph|downloadGraph|fetch\(|rebuildConciliarProjection/i)
+  assert.doesNotMatch(reader, /readEasyCollectionsRemittanceDetail|\$executeRaw|\.create\(|\.update\(|\.delete\(|descargarGraph|downloadGraph|fetch\(|rebuildConciliarProjection/i)
 })
 
-test('la consulta C11 de última versión pasa el clasificador SQL de actuación', () => {
+test('la consulta C11 consolidada de última versión pasa el clasificador SQL de actuación', () => {
   const filename = 'lib/finanzas/conciliar-document-detail.ts'
   const reader = source(filename)
   const ast = ts.createSourceFile(filename, reader, ts.ScriptTarget.Latest, true)
@@ -139,7 +146,8 @@ test('la consulta C11 de última versión pasa el clasificador SQL de actuación
         ? [node.template.text]
         : [node.template.head.text, ...node.template.templateSpans.map(span => span.literal.text)]
       const sql = strings.join('?')
-      if (sql.includes('FROM liquidaciones_confirming_documentales l') && sql.includes('l2.version>l.version')) queryStrings = strings
+      if (sql.includes('FROM liquidaciones_confirming_documentales l') && sql.includes('l2.version>l.version')
+        && sql.includes('json_agg(row_to_json(document)') && sql.includes('json_agg(row_to_json(line)')) queryStrings = strings
     }
     ts.forEachChild(node, visit)
   }

@@ -73,6 +73,7 @@ test('la caché de detalle está acotada, deduplica una precarga y no sobrevive 
   const first = cache.load(key, () => { calls += 1; return deferred; });
   const second = cache.load(key, () => { calls += 1; return Promise.resolve('segunda'); });
   assert.strictEqual(first, second, 'click durante precarga reutiliza la misma lectura privada');
+  await Promise.resolve();
   assert.equal(calls, 1, 'no inicia un segundo GET para la misma clave');
   release?.('detalle-autorizado');
   assert.equal(await first, 'detalle-autorizado');
@@ -87,6 +88,7 @@ test('la caché de detalle está acotada, deduplica una precarga y no sobrevive 
 
   let finishAfterClear: ((value: string) => void) | undefined;
   const pending = cache.load('pendiente', () => new Promise<string>((resolve) => { finishAfterClear = resolve; }));
+  await Promise.resolve();
   cache.clear();
   finishAfterClear?.('detalle-anterior');
   await pending;

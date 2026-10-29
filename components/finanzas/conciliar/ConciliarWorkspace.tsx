@@ -16,7 +16,7 @@ import { areAllVisibleGreensSelected, groupConciliarRows, requiresSeparateRemesa
 import { ConciliarStreamRejectedError, ConciliarStreamUncertainError, readConciliarBatchResponse, type ConciliarClientBatchProgress } from './conciliar-batch-client';
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
-import { ConciliarDetailMemoryCache, conciliarDetailCacheKey } from './conciliar-detail-client';
+import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpdatedAt } from './conciliar-detail-client';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
@@ -323,15 +323,14 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   const readSequence = useRef(0);
   const activeViewKey = useRef('');
   const exportController = useRef<AbortController | null>(null);
-  const detailController = useRef<AbortController | null>(null);
   const detailSequence = useRef(0);
   const remesaPreviewController = useRef<AbortController | null>(null);
   const remesaPreviewSequence = useRef(0);
-  const refreshAttempts = useRef(0);
   const historicController = useRef<AbortController | null>(null);
   const detailCache = useRef(new ConciliarDetailMemoryCache<ConciliarDocumentDetail>());
   const detailCacheIdentity = useRef<string | null>(null);
-  const detailPrefetchControllers = useRef(new Set<AbortController>());
+  const detailRequestKey = useRef<string | null>(null);
+  const detailProjectionUpdatedAt = useRef<string | null>(null);
   const detailIdentityScope = activeActuation ? `actuacion:${activeActuation.sessionId}:${activeActuation.targetId}` : `usuario:${session?.user?.id ?? 'sin-sesion'}`;
 
   const requestInput = useMemo(() => ({ tab, from, to, accountId, query, cutoffDate, emitidasGrupo, estado, grupo, ...(orden === 'IMPORTE' && direccion === 'DESC' ? {} : { orden, direccion }), limit: PAGE_SIZE, offset }), [accountId, direccion, emitidasGrupo, estado, from, grupo, offset, orden, query, tab, to, cutoffDate]);
@@ -345,8 +344,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
 
   const closeDetail = useCallback(() => {
     detailSequence.current += 1;
-    detailController.current?.abort();
-    detailController.current = null;
+    if (detailRequestKey.current) detailCache.current.cancel(detailRequestKey.current);
+    detailRequestKey.current = null;
     setOpenDocument(null);
   }, []);
 
@@ -361,10 +360,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     detailCache.current.clear();
     detailCacheIdentity.current = detailIdentityScope;
     detailSequence.current += 1;
-    detailController.current?.abort();
-    detailPrefetchControllers.current.forEach((controller) => controller.abort());
-    detailPrefetchControllers.current.clear();
-    detailController.current = null;
+    detailRequestKey.current = null;
+    detailProjectionUpdatedAt.current = null;
     setOpenDocument(null);
     // No se transfiere ninguna selección entre identidades o sesiones de actuación.
     setSelected(new Map());
@@ -401,17 +398,21 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     if (readSequence.current === 0 && initialRequestKey.current === buildQuery(requestInput).toString()) return;
     void load();
   }, [load, presentationRefreshRevision, requestInput]);
-  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailController.current?.abort(); detailPrefetchControllers.current.forEach((controller) => controller.abort()); detailPrefetchControllers.current.clear(); remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
-
   useEffect(() => {
-    if (!data?.stale) { refreshAttempts.current = 0; return; }
-    if (refreshAttempts.current >= 30 || mutationsBlocked) return;
-    const timeout = window.setTimeout(() => {
-      refreshAttempts.current += 1;
-      void load(true, true);
-    }, 1_200);
-    return () => window.clearTimeout(timeout);
-  }, [data, load, mutationsBlocked]);
+    const updatedAt = data?.updatedAt;
+    if (!updatedAt) return;
+    if (detailProjectionUpdatedAt.current !== null && detailProjectionUpdatedAt.current !== updatedAt) {
+      // Una foto nueva no reutiliza respuestas o precargas de la anterior. La
+      // selección se conserva sellada y sólo cambia por decisión del usuario o
+      // por la comprobación de hash al confirmar.
+      detailSequence.current += 1;
+      detailCache.current.clear();
+      detailRequestKey.current = null;
+      setOpenDocument(null);
+    }
+    detailProjectionUpdatedAt.current = updatedAt;
+  }, [data?.updatedAt]);
+  useEffect(() => () => { readSequence.current += 1; detailSequence.current += 1; remesaPreviewSequence.current += 1; readController.current?.abort(); detailCache.current.clear(); detailRequestKey.current = null; remesaPreviewController.current?.abort(); exportController.current?.abort(); }, []);
 
   const changeTab = useCallback((next: ConciliarTab) => { if (next === tab) return; closeDetail(); remesaPreviewController.current?.abort(); setRemesaConfirmation(null); setTab(next); if (next !== 'EMITIDAS') setEmitidasGrupo(''); setOffset(0); }, [closeDetail, tab]);
   const changeAccount = useCallback((next: string) => { closeDetail(); setAccountId(next); setOffset(0); }, [closeDetail]);
@@ -673,10 +674,18 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     void loadConciliarDocumentPreview().catch(() => undefined);
     const current = detailRowFromCurrentProjection(requestedRow);
     if (!current || !detailCache.current.canPrefetch(current.key)) return;
-    const controller = new AbortController();
-    detailPrefetchControllers.current.add(controller);
-    void detailCache.current.load(current.key, () => fetchDetail(current.row, controller.signal)).catch(() => undefined).finally(() => detailPrefetchControllers.current.delete(controller));
+    void detailCache.current.load(current.key, (signal) => fetchDetail(current.row, signal)).catch(() => undefined);
   }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
+
+  useEffect(() => {
+    if (!data?.rows?.length || data.stale) return;
+    // Sólo DTO de las dos primeras filas documentales, nunca bytes de PDF. Se
+    // espera al pintado; una apertura o hover comparte la misma petición.
+    const candidates = data.rows.filter((row) => row.documento !== null).slice(0, 2);
+    if (!candidates.length) return;
+    const timer = window.setTimeout(() => candidates.forEach(prefetchDetail), 1_500);
+    return () => window.clearTimeout(timer);
+  }, [data?.rows, data?.stale, prefetchDetail]);
 
   /** La fila se vuelve a tomar de la proyección visible antes de abrir; el DTO viaja sólo por la ruta privada dedicada. */
   const openDetail = useCallback(async (requestedRow: ConciliarRow) => {
@@ -687,13 +696,12 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       setNotice({ tone: 'info', text: 'Esta fila ya no está en la lista actual. Actualiza la conciliación antes de abrir su detalle.' });
       return;
     }
-    detailController.current?.abort();
-    const controller = new AbortController();
-    detailController.current = controller;
+    if (detailRequestKey.current && detailRequestKey.current !== current.key) detailCache.current.cancel(detailRequestKey.current);
+    detailRequestKey.current = current.key;
     const sequence = ++detailSequence.current;
     setOpenDocument({ row: current.row, status: 'loading', detail: null, error: null });
     try {
-      const detail = await detailCache.current.load(current.key, () => fetchDetail(current.row, controller.signal));
+      const detail = await detailCache.current.load(current.key, (signal) => fetchDetail(current.row, signal));
       if (sequence !== detailSequence.current) return;
       setOpenDocument((open) => open?.row.id === current.row.id ? { ...open, status: 'ready', detail, error: null } : open);
     } catch (error) {
@@ -701,8 +709,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       const message = error instanceof Error ? safeOutcomeMessage(error.message, 'No se pudo cargar el detalle de este documento.') : 'No se pudo cargar el detalle de este documento.';
       setOpenDocument((open) => open?.row.id === current.row.id ? { ...open, status: 'error', detail: null, error: message } : open);
       setNotice({ tone: 'error', text: `${message} Puedes reintentar el detalle sin modificar la conciliación.` });
-    } finally {
-      if (detailController.current === controller) detailController.current = null;
     }
   }, [clearDetailCacheForIdentity, detailIdentityScope, detailRowFromCurrentProjection, fetchDetail]);
 
@@ -762,7 +768,9 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
   return <main className="mx-auto w-full max-w-[1700px] min-w-0 overflow-x-hidden space-y-4 px-3 py-4 text-[#2D2A26] panel-dark:text-slate-100 sm:px-5 sm:py-6" style={{ fontFamily: 'var(--font-conciliar), Arial, Helvetica, sans-serif' }} data-testid="conciliar-workspace">
     <header data-conciliar-heading className="flex flex-col gap-3 border-b border-orange-100 pb-4 panel-dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#FF5300]">Conciliación</p><h1 className="mt-1 text-2xl font-extrabold tracking-tight text-[#2D2A26] panel-dark:text-white sm:text-3xl">Conciliar</h1><p data-conciliar-subtitle className="mt-1 max-w-3xl text-sm text-slate-600 panel-dark:text-slate-300">Una vista directa de lo que queda por casar, revisar o pedir.</p></div>
+      <div className="flex flex-wrap items-center gap-3 self-start">{data?.updatedAt && <p data-testid="conciliar-updated-at" className="text-xs text-slate-500 panel-dark:text-slate-400" suppressHydrationWarning>{formatConciliarUpdatedAt(data.updatedAt, { timeZone: 'Europe/Madrid' })}</p>}
       <button type="button" onClick={() => void load(true)} disabled={loading || refreshing || mutationsBlocked} className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-[#FFB18C] bg-white px-3 py-2 text-sm font-bold text-[#BF3E00] shadow-sm hover:bg-orange-50 focus:outline-none focus:ring-2 focus:ring-[#FF5300] disabled:cursor-not-allowed disabled:opacity-50 panel-dark:bg-slate-900 panel-dark:text-orange-200"><ArrowPathIcon className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden="true" />Actualizar</button>
+      </div>
     </header>
 
     <Guide invoicePending={tab === 'EMITIDAS' || tab === 'RECIBIDAS'} />
@@ -779,7 +787,6 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
       {batchResult.operationId && <button type="button" disabled={mutationsBlocked} onClick={() => { if (batchResult.operationId) void post({ action: 'deshacer', operationId: batchResult.operationId, idempotencyKey: makeIdempotencyKey() }, 'deshacer lote'); }} className="mt-3 min-h-10 rounded-lg border border-slate-300 px-3 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-50 panel-dark:border-slate-600">Deshacer lote completo</button>}
     </section>}
 
-    {data?.stale && <div role="status" aria-live="polite" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 panel-dark:border-amber-800 panel-dark:bg-amber-950/45 panel-dark:text-amber-100">Los resúmenes tienen cambios pendientes de actualizar. Cada confirmación vuelve a comprobar su documento; los importes del resumen pueden cambiar.</div>}
 
     {notice && <div role={notice.tone === 'error' ? 'alert' : 'status'} aria-live="polite" className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${notice.tone === 'error' ? 'border-red-200 bg-red-50 text-red-900 panel-dark:border-red-900 panel-dark:bg-red-950/45 panel-dark:text-red-100' : notice.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-950 panel-dark:border-emerald-900 panel-dark:bg-emerald-950/45 panel-dark:text-emerald-100' : 'border-sky-200 bg-sky-50 text-sky-950 panel-dark:border-sky-900 panel-dark:bg-sky-950/45 panel-dark:text-sky-100'}`}><ExclamationTriangleIcon className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" /><span>{notice.text}</span></div>}
     {retry && <div role="status" aria-live="assertive" className="flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 panel-dark:border-amber-800 panel-dark:bg-amber-950/45 panel-dark:text-amber-100 sm:flex-row sm:items-center sm:justify-between"><span>El resultado está pendiente de comprobar. Reintenta la misma acción para evitar duplicados.</span><button type="button" onClick={() => void post(retry.payload, retry.label)} disabled={sending} className="min-h-10 shrink-0 rounded-md bg-amber-700 px-3 py-2 text-sm font-extrabold text-white hover:bg-amber-800 focus:outline-none focus:ring-2 focus:ring-amber-600 disabled:opacity-50">{sending ? 'Reintentando…' : 'Reintentar igual'}</button></div>}
