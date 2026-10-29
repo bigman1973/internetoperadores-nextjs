@@ -275,6 +275,7 @@ export const IMPERSONATION_ROUTE_MATRIX: readonly MatrixRule[] = [
   financeRead('finance-conciliar-remesa-preview-api', '/api/admin/finanzas/conciliar/remesa-preview', [B4]),
   financeRead('finance-conciliar-file-api', /^\/api\/admin\/finanzas\/conciliar\/(?:archivo|detalle)\/[A-Za-z0-9_-]{1,160}$/, [B4]),
   financeRead('finance-credit-links-api', '/api/admin/finanzas/rectificativas', [B4]),
+  financeRead('finance-confirming-controlled-sources-api', '/api/admin/finanzas/confirming/fuentes', [B4]),
   financeRead('finance-easy-profile-api', '/api/admin/finanzas/modo-facil/perfil', [B4]),
   financeRead('finance-easy-cards-api', '/api/admin/finanzas/modo-facil/tarjetas', [B4]),
   financeRead('finance-easy-request-api', '/api/admin/finanzas/modo-facil/para-pedir', [B4]),
@@ -299,6 +300,7 @@ const MANUAL_BODY_ACTIONS: Readonly<Record<string, readonly string[]>> = {
   '/api/admin/finanzas/conciliar': ['confirmar', 'deshacer', 'pedir'],
   '/api/admin/finanzas/conciliar/intereses': ['vincular_factura_interes', 'desvincular_factura_interes'],
   '/api/admin/finanzas/rectificativas': ['confirmar', 'rechazar', 'deshacer'],
+  '/api/admin/finanzas/confirming/fuentes': ['declarar'],
 }
 
 function controlEndpointAllowed(path: string, method: string, action: ImpersonationBodyAction): boolean {

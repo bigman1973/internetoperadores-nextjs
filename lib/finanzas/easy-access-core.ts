@@ -19,6 +19,7 @@ export const EASY_ONLY_HOME = conciliarEasyOnlySurfaceEnabled() ? '/admin/finanz
 export function easyOnlyRequestAllowed(path: string, method: string, search: URLSearchParams = new URLSearchParams(), userId?: number): boolean {
   // Rectificativas humanas remains staging-only until a separate production validation.
   if (path === '/api/admin/finanzas/rectificativas') return process.env.FINANCE_STAGING_SANDBOX === '1' && ['GET','HEAD','POST'].includes(method)
+  if (path === '/api/admin/finanzas/confirming/fuentes') return process.env.FINANCE_STAGING_SANDBOX === '1' && ['GET','HEAD','POST'].includes(method)
   if (conciliarEasyOnlySurfaceEnabled()) {
     if (path === '/admin/finanzas/conciliar') return SAFE.has(method)
     if (path === '/api/admin/finanzas/conciliar') return ['GET','HEAD','POST'].includes(method)
