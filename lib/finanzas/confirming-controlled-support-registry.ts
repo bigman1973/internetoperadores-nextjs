@@ -94,7 +94,7 @@ export function parseConfirmingControlledSupportDeclaration(raw: unknown): Decla
 
 function rowCandidate(row: CandidateRow) {
   const facturaRecibidaId = text(row.facturaRecibidaId, 160)
-  const nombre = text(row.nombre, 240)
+  const nombre = typeof row.nombre === 'string' ? text(row.nombre.split(/[\\/]/).pop(), 240) : null
   const driveId = text(row.driveId, 300)
   const itemId = text(row.itemId, 300)
   const versionDocumento = typeof row.versionDocumento === 'number' && Number.isInteger(row.versionDocumento) && row.versionDocumento >= 1 ? row.versionDocumento : null
@@ -114,7 +114,7 @@ export async function readConfirmingControlledSupportCandidates(database: Regist
   await assertFinanceRuntimeReady(database as never)
   if (!await tablesReady(database)) return { schema: CONFIRMING_CONTROLLED_SUPPORT_REGISTRY_SCHEMA, registryReady: false, candidates: [] as const }
   const rows = await database.$queryRaw<CandidateRow[]>(Prisma.sql`
-    SELECT f.id AS "facturaRecibidaId",COALESCE(NULLIF(regexp_replace(COALESCE(f.archivo_onedrive,f.onedrive_ruta_actual,''),'^.*[\\\\/]',''),'') ,'Documento confirming') AS nombre,
+    SELECT f.id AS "facturaRecibidaId",COALESCE(NULLIF(f.archivo_onedrive,''),NULLIF(f.onedrive_ruta_actual,''),'Documento confirming') AS nombre,
       f.onedrive_drive_id AS "driveId",f.onedrive_item_id AS "itemId",f.version_naturaleza_documento AS "versionDocumento"
     FROM facturas_recibidas f
     WHERE f.naturaleza_documento='SOPORTE_CONFIRMING_CLIENTE'::"NaturalezaDocumentoFinanciero"

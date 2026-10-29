@@ -232,7 +232,7 @@ async function run() {
     const pre = await admin.$queryRawUnsafe<Array<{ sources: string | null; revocations: string | null }>>("SELECT to_regclass('public.confirming_reading_support_sources')::text AS sources,to_regclass('public.confirming_reading_support_source_revocations')::text AS revocations")
     assert.deepEqual(pre, [{ sources: null, revocations: null }], 'El ensayo requiere el registro sin aplicar en la copia local')
     const { installImpersonationPrismaGuard, runWithImpersonationMutationAuditScope } = await import('../lib/prisma')
-    const { declareConfirmingControlledSupport } = await import('../lib/finanzas/confirming-controlled-support-registry')
+    const { declareConfirmingControlledSupport, readConfirmingControlledSupportCandidates } = await import('../lib/finanzas/confirming-controlled-support-registry')
     const { signTrustedImpersonationContext } = await import('../lib/impersonation-context')
     installImpersonationPrismaGuard(admin as any)
     let reachedRollback = false
@@ -258,6 +258,10 @@ async function run() {
           $transaction: async (callback) => await callback(tx),
         } as RegistryDb
         const act = async <T>(callback: () => Promise<T>) => await runWithImpersonationMutationAuditScope(tx, async () => await withActingRequest(signTrustedImpersonationContext, callback))
+        diagnosticPhase = 'effective-get-candidates'
+        const readable = await act(() => readConfirmingControlledSupportCandidates(database))
+        assert.equal(readable.registryReady, true)
+        assert.ok(readable.candidates.some(row => row.facturaRecibidaId === IDS.bbva), 'La identidad efectiva debe poder leer la fuente antes de declararla')
         diagnosticPhase = 'bbva'
         const bbva = exactDeclaration([{ facturaRecibidaId: IDS.bbva, tipo: 'BBVA_PDF' }], null)
         const bbvaCreated = await act(() => declareConfirmingControlledSupport(USERS.effective, bbva, database))
