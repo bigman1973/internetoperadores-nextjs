@@ -117,10 +117,12 @@ export type ConciliarCommand = ConciliarConfirmCommand | ConciliarUndoCommand | 
 
 /** Datos de fuente persistidos en la proyección; nunca se reciben del navegador. */
 export type ConciliarProjectionSource = Readonly<{
-  kind: 'COBRO_PROPUESTA' | 'COBRO_CONFIRMING' | 'PAGO_FACTURA_RECIBIDA' | 'PAGO_NOMINA' | 'PAGO_TICKET_B5' | 'COMISION_BANCARIA' | 'PENDIENTE_FACTURA_EMITIDA' | 'TRANSFERENCIA_PROPIA'
+  kind: 'COBRO_PROPUESTA' | 'COBRO_CONFIRMING' | 'PAGO_FACTURA_RECIBIDA' | 'PAGO_NOMINA' | 'PAGO_TICKET_B5' | 'COMISION_BANCARIA' | 'PENDIENTE_FACTURA_EMITIDA' | 'TRANSFERENCIA_PROPIA' | 'TRANSFERENCIA_PROPIA_MANUAL'
   movimientoId?: string
   movimientoParId?: string
   transferFingerprint?: string
+  pairId?: string
+  proofSource?: 'DECLARACION_MANUAL_AUDITADA_V1'
   propuestaId?: string
   proposalFingerprint?: string
   proposalCompositionHash?: string
@@ -134,6 +136,8 @@ export type ConciliarProjectionSource = Readonly<{
   adjuntoB5Id?: string
   gastoId?: string
   documentoConciliableId?: string
+  /** Server-only lifecycle state sealed in the persisted projection, never accepted as HTTP input. */
+  documentLifecycleVersionState?: string
   versionB4?: number
   remesaIds?: readonly number[]
 }>

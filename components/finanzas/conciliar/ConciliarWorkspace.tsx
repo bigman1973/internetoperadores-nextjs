@@ -17,6 +17,9 @@ import { ConciliarStreamRejectedError, ConciliarStreamUncertainError, readConcil
 import { useActuation } from '@/components/impersonation/ActuationProvider';
 import { parseConciliarDocumentDetail, type ConciliarDocumentDetail } from '@/lib/finanzas/conciliar-document-detail-contract';
 import { ConciliarDetailMemoryCache, conciliarDetailCacheKey, formatConciliarUpdatedAt } from './conciliar-detail-client';
+import { ConfirmingReadingReviewQueue } from '@/components/finanzas/confirming/ConfirmingReadingReviewQueue';
+import type { FinanceConfirmingReadingAccess } from '@/lib/finanzas/finance-confirming-reading-access';
+import type { FinanceConfirmingReadingQueueDto } from '@/lib/finanzas/finance-confirming-reading-contract';
 import dynamic from 'next/dynamic';
 import { useSession } from 'next-auth/react';
 const loadConciliarDocumentPreview = () => import('./ConciliarDocumentPreview');
@@ -279,7 +282,7 @@ function ConciliarRowView({ row, selected, selectionNeedsReview = false, receipt
 }
 
 
-export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialOrden = 'IMPORTE', initialDireccion = 'DESC', initialGlobalOrder = false, initialData }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialOrden?: ConciliarSortField; initialDireccion?: ConciliarSortDirection; initialGlobalOrder?: boolean; initialData?: unknown }) {
+export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery = '', initialCutoff = '2026-01-01', initialOrden = 'IMPORTE', initialDireccion = 'DESC', initialGlobalOrder = false, initialData, confirmingReadingQueue, confirmingReadingAccess }: { initialTab?: ConciliarTab; initialQuery?: string; initialCutoff?: string; initialOrden?: ConciliarSortField; initialDireccion?: ConciliarSortDirection; initialGlobalOrder?: boolean; initialData?: unknown; confirmingReadingQueue?: FinanceConfirmingReadingQueueDto; confirmingReadingAccess?: FinanceConfirmingReadingAccess }) {
   const { active: activeActuation } = useActuation();
   const { data: session } = useSession();
   const initialParsed = useMemo(() => initialData === undefined ? null : parseConciliarReadResponse(initialData), [initialData]);
@@ -774,6 +777,8 @@ export default function ConciliarWorkspace({ initialTab = 'COBROS', initialQuery
     </header>
 
     <Guide invoicePending={tab === 'EMITIDAS' || tab === 'RECIBIDAS'} />
+
+    {confirmingReadingQueue && confirmingReadingAccess ? <ConfirmingReadingReviewQueue access={confirmingReadingAccess} queue={confirmingReadingQueue} /> : null}
 
     {batchProgress && <section data-testid="conciliar-batch-progress" role="status" aria-live="polite" className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-950 panel-dark:border-orange-800 panel-dark:bg-orange-950/40 panel-dark:text-orange-100">
       <p className="font-extrabold">{batchProgress.retrying ? 'Reintentando el mismo lote…' : `Confirmando ${batchProgress.completed} de ${batchProgress.total}…`}</p>

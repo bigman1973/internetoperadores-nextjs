@@ -7,7 +7,7 @@
  * cancellation check in the same transaction as domain and item-state writes.
  */
 import { Prisma, type PrismaClient } from '@prisma/client'
-import { fechaDocumentoUtc, normalizarCif, normalizarNumeroFactura } from '@/lib/finanzas/invoice-quality'
+import { aCentimosExactos, esFechaDocumentoIso, esImporteCentimosFinito, fechaDocumentoUtc, normalizarCif, normalizarNumeroFactura } from '@/lib/finanzas/invoice-quality'
 import { facturaEconomicaSQL } from '@/lib/finanzas/invoice-economic-filter'
 import { auditarCambioB2, buscarIdentidadBloqueada, planDeduplicacion } from '@/lib/finanzas/invoice-quality-db'
 import type {
@@ -68,6 +68,35 @@ function safeOcrString(ocr: OcrInvoice, field: keyof OcrInvoice): string | null 
 function safeOcrNumber(ocr: OcrInvoice, field: keyof OcrInvoice): number | null {
   const value = ocr[field]
   return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function privateText(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.normalize('NFKC').trim()
+  return normalized && normalized.length <= max && !/[\u0000-\u001F\u007F]/.test(normalized) ? normalized : null
+}
+
+function privateInvoiceMetadata(input: Readonly<{
+  archivoOneDrive: string | null
+  numFactura: string | null
+  fecha: Date | null
+  total: number | null
+  cif: string | null
+}>): import('@/lib/finanzas/finance-document-lifecycle-core').DocumentPrivateMetadata {
+  const number = privateText(input.numFactura, 512)
+  const cif = normalizarCif(input.cif)
+  return {
+    originalFileName: privateText(input.archivoOneDrive?.split(/[\\/]/).pop() ?? null, 1024),
+    documentNumber: number,
+    documentDate: input.fecha instanceof Date && !Number.isNaN(input.fecha.getTime()) ? input.fecha.toISOString().slice(0, 10) : null,
+    totalCents: esImporteCentimosFinito(input.total) ? aCentimosExactos(input.total) : null,
+    invoiceFiscalIdentity: cif && number ? `CIF:${cif}|NUM:${normalizarNumeroFactura(number) ?? number}` : null,
+    partyRole: 'PROVEEDOR',
+    documentClass: null,
+    referencedOriginalReference: null,
+    currencyCode: null,
+    upstreamVersionRef: null,
+  }
 }
 
 async function lockItemRows(tx: Tx, itemId: string): Promise<void> {
@@ -133,6 +162,53 @@ export function createPrismaOneDriveDomain(prisma: PrismaClient): OneDriveDomain
       const rows = await buscarIdentidadBloqueada(tx, canonKey)
       const plan = rows.length ? planDeduplicacion(rows) : null
       return { canonicalId: plan?.canonica?.id || null, conflict: Boolean(plan?.conflicto) }
+    },
+
+    async readB4Protection(tx, source) {
+      if (source.kind !== 'INVOICE') return { status: 'NONE' as const }
+      // This query is deliberately limited to the exact existing invoice source.
+      // It only answers whether an active, applied B4 documentary link exists;
+      // it neither reads money values nor writes/reconciles anything.
+      const rows = await tx.$queryRaw<Array<{ confirmed: boolean; pending: boolean }>>(Prisma.sql`
+        SELECT EXISTS(
+          SELECT 1
+          FROM documentos_conciliables d
+          JOIN vinculos_movimiento_documento v
+            ON v.documento_conciliable_id=d.id
+           AND v.activo
+           AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo"
+          JOIN operaciones_justificacion_b4 o
+            ON o.id=v.operacion_creacion_id
+           AND o.estado='APLICADA'::"EstadoOperacionB4"
+          WHERE d.factura_recibida_id=${source.id}
+            AND d.activo
+        ) AS confirmed,
+        EXISTS(
+          SELECT 1
+          FROM documentos_conciliables d
+          JOIN vinculos_movimiento_documento v
+            ON v.documento_conciliable_id=d.id
+           AND v.activo
+           AND v.tipo_linea='DOCUMENTO'::"TipoLineaVinculo"
+          JOIN operaciones_justificacion_b4 o
+            ON o.id=v.operacion_creacion_id
+           AND o.estado IN ('PENDIENTE_APROBACION'::"EstadoOperacionB4",'APROBADA'::"EstadoOperacionB4")
+          WHERE d.factura_recibida_id=${source.id}
+            AND d.activo
+        ) AS pending
+        LIMIT 1
+      `)
+      if (rows[0]?.confirmed === true) return { status: 'CONFIRMED' as const }
+      return rows[0]?.pending === true ? { status: 'PENDING' as const } : { status: 'NONE' as const }
+    },
+
+    async readPrivateMetadata(tx, source) {
+      if (source.kind !== 'INVOICE') return null
+      const invoice = await tx.facturaRecibida.findUnique({
+        where: { id: source.id },
+        select: { archivoOneDrive: true, numFactura: true, fecha: true, total: true, cif: true },
+      })
+      return invoice ? privateInvoiceMetadata(invoice) : null
     },
 
     async hasLegacyExactCanonicalMatch(tx, ocr, canonKey): Promise<boolean> {

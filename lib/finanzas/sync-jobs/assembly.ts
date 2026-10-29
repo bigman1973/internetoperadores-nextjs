@@ -8,6 +8,7 @@
  */
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { getServerSession } from 'next-auth'
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { authOptions } from '@/lib/auth'
 import { checkAdminAreaRead, checkAdminAreaWrite } from '@/lib/api-admin-area-read'
@@ -15,6 +16,7 @@ import { prisma } from '@/lib/prisma'
 import { verificarPermisoServer } from '@/lib/permisos'
 import {
   downloadFile,
+  getAccessToken as getGraphAccessToken,
   listFolderContents,
   resolveInvoiceLibrary as resolveInvoiceLibraryContext,
 } from '@/lib/finanzas/microsoft-graph'
@@ -28,18 +30,22 @@ import type { FinanceSyncRepository } from './repository'
 import type { SyncProvider, SyncProviderFactory, SyncSource } from './types'
 import { OneDriveSyncProvider } from './providers/onedrive/provider'
 import { createPrismaOneDriveDomain } from './providers/onedrive/prisma-domain'
+import { PrismaOneDriveDocumentLifecycle } from './providers/onedrive/document-lifecycle'
+import { DeltaAwareOneDriveProvider, ONEDRIVE_DELTA_SOURCE_KEY } from './providers/onedrive/delta-lifecycle'
 import { SyncProviderError } from './providers/onedrive/types'
 import { createIspIssuedInvoiceProvider } from './providers/isp/isp-issued-invoice-provider'
 import { extraerDatosFactura } from '@/lib/finanzas/ocr-facturas'
 import { validarResultadoOcrNuevo } from '@/lib/finanzas/invoice-quality'
 import { scheduleConciliarProjectionRefresh } from '@/lib/finanzas/conciliar-refresh'
+import { ServerGraphDeltaTransport, type RegisteredDeltaPath } from '@/lib/finanzas/graph-delta-adapter'
+import { graphDeltaCursorCipherFromEnvironment } from '@/lib/finanzas/graph-delta-prisma-store'
 
 /**
  * Existing B1 helpers retain the project-owned Microsoft credential and strict
  * site/drive resolution behavior. The token helper is deliberately re-exported
  * for approved server scripts; calling it is not part of provider construction.
  */
-export { getAccessToken as getGraphAccessToken } from '@/lib/finanzas/microsoft-graph'
+export { getGraphAccessToken }
 export { resolveInvoiceLibraryContext }
 
 export const P2_AREAS: Readonly<Record<SyncSource, string>> = FINANCE_SYNC_PERMISSION
@@ -107,6 +113,14 @@ export function approvedHistoricalDriveId(env: Env = process.env): string | null
   return approved === primary ? approved : null
 }
 
+/** Server-only binding for Delta bearer allowlisting; B1 still verifies the drive. */
+function configuredDeltaDriveId(env: Env): string {
+  const primary = cleanEnvValue(env.SHAREPOINT_DRIVE_ID)
+  const alias = cleanEnvValue(env.DRIVE_ID)
+  if (!primary || (alias !== null && alias !== primary)) throw new Error('DELTA_DRIVE_CONFIG_INVALID')
+  return primary
+}
+
 /**
  * Thin read-only port over the established B1 Graph helpers. In particular, it
  * does not instantiate a second Graph credential configuration with a guessed
@@ -141,14 +155,47 @@ export function createProductionOneDriveProvider(client: PrismaClient, env: Env 
     env.FINANCE_ONEDRIVE_SYNC_ENABLED !== '1'
   ) throw new Error('FINANCE_ONEDRIVE_SYNC_DISABLED')
 
-  return new OneDriveSyncProvider({
+  const delegate = new OneDriveSyncProvider({
     read: createExistingB1GraphReadPort(),
     domain: createPrismaOneDriveDomain(client),
+    documentLifecycle: new PrismaOneDriveDocumentLifecycle(client, async (tx, actorId) =>
+      hasEffectiveP2ActorWriteAccessInTx({ actorId, source: 'ONEDRIVE' }, tx),
+    ),
     ocr: { extract: extraerDatosFactura, validateNew: validarResultadoOcrNuevo },
     // This comes only from the server-approved B1 acknowledgement. It is never
     // accepted in request JSON. A current resolved drive mismatch yields REVISAR.
     historicalLibraryConfirmedDriveId: approvedHistoricalDriveId(env),
-  }) as SyncProvider
+  })
+  // Delta is an explicit opt-in until its inventory-consumption path and private
+  // cursor key are configured and validated. Missing new configuration must not
+  // disable the already-authorized P2 OneDrive synchronizer.
+  if (env.FINANCE_GRAPH_DELTA_ENABLED !== '1') return delegate
+  const cursorCipher = graphDeltaCursorCipherFromEnvironment(env.FINANCE_GRAPH_DELTA_CURSOR_KEY)
+  const configuredDriveId = configuredDeltaDriveId(env)
+  const read = createExistingB1GraphReadPort()
+  return new DeltaAwareOneDriveProvider({
+    delegate,
+    prisma: client,
+    cursorCipher,
+    transport: new ServerGraphDeltaTransport({
+      // The scope resolver below verifies it again against the B1-resolved drive.
+      driveId: configuredDriveId,
+      accessToken: getGraphAccessToken,
+    }),
+    resolveScope: async () => {
+      const library = await read.resolveInvoiceLibrary()
+      if (library.driveId !== configuredDriveId) throw new Error('DELTA_DRIVE_BINDING_INVALID')
+      const path = library.rootPath.replace(/^\/+|\/+$/g, '')
+      if (!path) throw new Error('DELTA_SCOPE_ROOT_INVALID')
+      const registeredPaths: RegisteredDeltaPath[] = [{
+        routeId: createHash('sha256').update(`ONEDRIVE_ROOT:${path}`).digest('hex').slice(0, 32),
+        path,
+      }]
+      return { driveId: library.driveId, sourceKey: ONEDRIVE_DELTA_SOURCE_KEY, registeredPaths }
+    },
+    assertEffectiveFinanceWriteAccess: async (tx, actorId) =>
+      hasEffectiveP2ActorWriteAccessInTx({ actorId, source: 'ONEDRIVE' }, tx),
+  })
 }
 
 /** Production-only ISP construction. The provider permits only GET facturacion. */
@@ -188,20 +235,33 @@ function productionProviders(client: PrismaClient, env: Env, trusted: ProviderBu
  * after the cron route's secret and production gates, and provider/domain rules
  * still decide whether actor-null work is permissible.
  */
-export async function authorizeP2ActorInTx(
-  input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply' },
+export async function hasEffectiveP2ActorWriteAccessInTx(
+  input: { actorId: number | null; source: SyncSource },
   tx: Tx,
-): Promise<void> {
+): Promise<boolean> {
   if (input.actorId === null) {
-    throw new Error('SYNC_ACTOR_REQUIRED')
+    return false
   }
   const actor = await tx.usuarioAdmin.findUnique({
     where: { id: input.actorId },
     select: { id: true, activo: true, rol: true },
   })
-  if (!actor?.activo) throw new Error('SYNC_ACTOR_INACTIVE')
+  if (!actor?.activo) return false
   const permission = await verificarPermisoServer(actor.id, P2_AREAS[input.source], actor.rol, tx)
-  if (!permission.escritura) throw new Error('SYNC_PERMISSION_REVOKED')
+  return permission.escritura === true
+}
+
+export async function authorizeP2ActorInTx(
+  input: { actorId: number | null; source: SyncSource; operation: 'create' | 'cancel' | 'apply' },
+  tx: Tx,
+): Promise<void> {
+  if (input.actorId === null) throw new Error('SYNC_ACTOR_REQUIRED')
+  const permitted = await hasEffectiveP2ActorWriteAccessInTx({ actorId: input.actorId, source: input.source }, tx)
+  if (!permitted) {
+    const actor = await tx.usuarioAdmin.findUnique({ where: { id: input.actorId }, select: { activo: true } })
+    if (!actor?.activo) throw new Error('SYNC_ACTOR_INACTIVE')
+    throw new Error('SYNC_PERMISSION_REVOKED')
+  }
 }
 
 /**

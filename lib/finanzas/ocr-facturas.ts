@@ -29,6 +29,9 @@ export interface DatosFactura {
   cif: string | null;
   domicilioProveedor: string | null; // Dirección fiscal del proveedor
   numFactura: string | null;
+  tipoDocumento?: 'FACTURA' | 'RECTIFICATIVA' | 'OTRO' | null;
+  referenciaFacturaOriginal?: string | null;
+  moneda?: string | null;
   fecha: string; // YYYY-MM-DD
   // B2: distingue una fecha realmente leída de cualquier dato auxiliar. Sólo DOCUMENTO permite alta automática.
   fechaProvenancia: 'DOCUMENTO' | 'NOMBRE_ARCHIVO' | 'SIN_CONFIRMAR';
@@ -62,6 +65,9 @@ SIEMPRE devuelves un JSON válido con los siguientes campos:
 - cif: CIF/NIF/VAT del EMISOR (NO del destinatario). Formato español: A/B + 8 dígitos. Si ves B25808619 (Internet Operadores), ese es el DESTINATARIO, busca el otro CIF.
 - domicilioProveedor: dirección fiscal completa del emisor tal como aparece en la factura (calle, número, ciudad, código postal, país). Si no aparece, pon null
 - numFactura: número de factura exacto tal como aparece en el documento
+- tipoDocumento: FACTURA o RECTIFICATIVA sólo si lo indica el documento (incluido abono/credit note); OTRO para un documento que no sea factura. Si no es inequívoco, null. No lo deduzcas del nombre del archivo ni del signo del importe.
+- referenciaFacturaOriginal: número literal de la factura original que la rectificativa cita expresamente. Si no aparece o cita más de una sin identificación inequívoca, null. Nunca elegirlo por importe, fecha o proveedor.
+- moneda: código ISO de tres letras leído de la moneda explícita del documento (por ejemplo EUR cuando indica euros o €). Si no consta, null; no suponer euros por el país del proveedor.
 - fecha: fecha de EMISIÓN de la factura en formato YYYY-MM-DD. IMPORTANTE: busca la fecha que aparece junto a "Factura" o "Fecha factura" o "Fecha emisión" en la cabecera. En facturas de Telefónica suele ser "Madrid, DD Mes. AA". NO confundas con la fecha de vencimiento. Lee el año exacto del documento.
 - fechaVencimiento: fecha de vencimiento de pago en formato YYYY-MM-DD. Busca textos como "Vencimiento", "Fecha vencimiento", "Vencimiento Factura", "Fecha de pago", "Plazo de pago". Si no aparece, pon null
 - base: base imponible total (número decimal, sin símbolo €)
@@ -183,6 +189,10 @@ REGLAS IMPORTANTES:
     if (typeof datos.esInternacional !== 'boolean') datos.esInternacional = false;
     if (!datos.paisOrigen) datos.paisOrigen = null;
     if (!datos.domicilioProveedor) datos.domicilioProveedor = null;
+    if (!['FACTURA', 'RECTIFICATIVA', 'OTRO'].includes(datos.tipoDocumento || '')) datos.tipoDocumento = null;
+    if (typeof datos.referenciaFacturaOriginal !== 'string' || !datos.referenciaFacturaOriginal.trim() || datos.referenciaFacturaOriginal.length > 512 || /[\u0000-\u001f\u007f]/.test(datos.referenciaFacturaOriginal)) datos.referenciaFacturaOriginal = null;
+    else datos.referenciaFacturaOriginal = datos.referenciaFacturaOriginal.trim();
+    if (typeof datos.moneda !== 'string' || !/^[A-Z]{3}$/.test(datos.moneda)) datos.moneda = null;
     
     // POST-PROCESAMIENTO: Ajustar importeNeto si hay descuadre con la base
     // REGLA: Las líneas SIN descuento mantienen su importeNeto intacto (= importe bruto)

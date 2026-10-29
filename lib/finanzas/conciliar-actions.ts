@@ -20,6 +20,7 @@ import { confirmConciliarTransferTx, undoConciliarPairedTransferTx } from './con
 import { ConciliarDbError, conciliarDbErrorResponse, movementPartyAliases, payrollPeriodMatches, readConciliarProjectionTx, readConciliarRowForAction, restoreLiveBankFeeProjectionBatchTx, unresolvedMovements } from './conciliar-db'
 import { applyConciliarProjectionDeltaTx } from './conciliar-delta'
 import { knownBankFeeUndoMovements } from './conciliar-fee-undo'
+import { conciliarDocumentLifecycleGuardMessage, lockConciliarDocumentLifecycleForConfirmationTx, supportsConciliarDocumentLifecycleGuard } from './conciliar-document-lifecycle-guard'
 
 type Tx = Prisma.TransactionClient & Record<string, any>
 type Db = PrismaClient & Record<string, any>
@@ -208,6 +209,12 @@ function rowMustMatch(row: Awaited<ReturnType<typeof readConciliarRowForAction>>
   if (!row.seleccionable) fail(422, 'FILA_NO_CONFIRMABLE', row.motivo || 'Esta fila necesita revisión antes de confirmar.')
 }
 
+async function requireCurrentDocumentLifecycleForConfirmation(tx: Tx, source: ConciliarProjectionSource): Promise<void> {
+  if (!supportsConciliarDocumentLifecycleGuard(source)) return
+  const live = await lockConciliarDocumentLifecycleForConfirmationTx(tx, { source, expectedVersionState: source.documentLifecycleVersionState })
+  if (!live.elegible) fail(409, live.codigo, conciliarDocumentLifecycleGuardMessage(live.codigo))
+}
+
 async function confirmBankFee(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const movementId = requireMovement(row.source)
   const sourceRows = await tx.$queryRaw<Array<{ id: string; version: number | bigint; amount: number | bigint; concepto: string | null; referencia: string | null; info: string | null; tercero: string | null; banco: string | null }>>(Prisma.sql`
@@ -230,6 +237,7 @@ async function confirmBankFee(tx: Tx, actorId: number, operationId: string, row:
 async function confirmReceivedInvoice(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const movementId = requireMovement(row.source), invoiceId = row.source.facturaRecibidaId
   if (!invoiceId) fail(409, 'DECISION_CAMBIADA', 'La propuesta ya no identifica una factura recibida. Actualiza la lista.')
+  await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
   const movement = (await unresolvedMovements(tx, movementId))[0]
   const invoice = await tx.facturaRecibida.findUnique({ where: { id: invoiceId }, select: { numFactura: true, fecha: true, total: true, proveedor: true } })
   const total = invoice ? exactCents(String(invoice.total)) : null
@@ -306,6 +314,7 @@ async function liveB5TicketSourceTx(tx: Tx, source: ConciliarProjectionSource, m
  * Conciliar's sealed B5 source and Modo Fácil's live exact candidate agree. */
 async function confirmB5Ticket(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const movimientoId = requireMovement(row.source)
+  await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
   const candidates = await inspectEasyCandidatesTx(tx, movimientoId)
   const live = await liveB5TicketSourceTx(tx, row.source, movimientoId)
   const current = candidates.find(item => item.suggestion.tipo === 'TICKET'
@@ -333,6 +342,7 @@ async function confirmB5Ticket(tx: Tx, actorId: number, operationId: string, row
 async function confirmPayroll(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const movementId = requireMovement(row.source), nominaId = row.source.nominaId
   if (!nominaId) fail(409, 'DECISION_CAMBIADA', 'La nómina propuesta ya no está identificada. Actualiza la lista.')
+  await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
   const movement = (await unresolvedMovements(tx, movementId))[0]
   const sourceRows = await tx.$queryRaw<Array<{ id: string; mes: number; anio: number; empleadoNombre: string; total: string | null; itemId: string | null; legacyUrl: string | null; version: number | bigint; amount: number | bigint }>>(Prisma.sql`
     SELECT n.id,n.mes,n.anio,employee.nombre_completo AS "empleadoNombre",n.neto_percibir::text AS total,COALESCE(nd.drive_item_id,'') AS "itemId",n.archivo_url AS "legacyUrl",COALESCE(e.version,1) AS version,b4_importe_bancario_centimos(m.importe) AS amount
@@ -405,6 +415,7 @@ async function confirmCollectionProposal(tx: Tx, actorId: number, operationId: s
 async function confirmConfirming(tx: Tx, actorId: number, operationId: string, row: Awaited<ReturnType<typeof readConciliarRowForAction>>) {
   const movementId = requireMovement(row.source), confirmingId = row.source.confirmingId, sourceHash = row.source.confirmingSourceHash
   if (!confirmingId || !sourceHash) fail(409, 'DECISION_CAMBIADA', 'El confirming ya no conserva su fuente documental. Actualiza la lista.')
+  await requireCurrentDocumentLifecycleForConfirmation(tx, row.source)
   const live = await readConciliarConfirmingCandidates(tx, { movimientoIds: [movementId] })
   const candidate = live.candidates.find(item => item.movimientoId === movementId && item.confirmingId === confirmingId && item.sourceHash === sourceHash)
   if (!candidate || candidate.evidenceSchema !== 'C11' || candidate.estado !== 'LISTO_PARA_CONFIRMACION_B4'
@@ -444,6 +455,8 @@ async function applyConfirmRow(tx: Tx, actorId: number, operationId: string, row
     case 'PAGO_TICKET_B5': return confirmB5Ticket(tx, actorId, operationId, row)
     case 'COMISION_BANCARIA': return confirmBankFee(tx, actorId, operationId, row)
     case 'TRANSFERENCIA_PROPIA': return confirmConciliarTransferTx(tx, actorId, operationId, row.source, row.importeCentimos)
+    case 'TRANSFERENCIA_PROPIA_MANUAL':
+      fail(422, 'FILA_NO_CONFIRMABLE', 'Este traspaso está clasificado para revisión; la confirmación conserva su comprobación estricta independiente.')
     default: fail(422, 'FILA_NO_CONFIRMABLE', 'Esta fila es informativa o necesita una revisión humana.')
   }
 }

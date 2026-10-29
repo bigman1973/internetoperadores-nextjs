@@ -10,7 +10,7 @@ test('Para pedir excluye traspasos propios del conjunto, agrupación y totales s
   const fake = {$queryRaw: async (query: {sql:string}) => {captured.push(query);return []}}
   await assert.rejects(() => readParaPedirProjection({limit:20,offset:0,estado:'TODOS',q:'',tercero:''},fake as never), /No se pudo leer la foto de Para pedir/)
   assert.equal(captured.length,1)
-  assert.match(captured[0].sql,/COALESCE\(p\.grupo,''\)<>'TRASPASOS_PROPIOS'/)
+  assert.match(captured[0].sql,/UPPER\(COALESCE\(p\.grupo,''\)\) NOT IN \('TRASPASOS_PROPIOS','TRASPASOS ENTRE CUENTAS PROPIAS','GASTOS_BANCO','GASTOS DEL BANCO','COMISIONES','NOMINAS','NÓMINAS'\)/)
   assert.equal(classifyPrisma5RawSqlStatement([captured[0]]),'read_only')
   assert.doesNotMatch(captured[0].sql,/\b(?:INSERT|UPDATE|DELETE)\b/)
 })

@@ -82,6 +82,17 @@ export class FinanceSyncWorker<Tx> {
 
       const provider = this.deps.providerFactory(claim.job.source)
       let job = claim.job
+      // Delta/document lifecycle hooks run once per claimed invocation before
+      // native inventory. They own no long-lived DB transaction: each durable
+      // page must revalidate this exact fence/cancel state independently.
+      if (job.phase === 'INVENTORY' && provider.beforeInventory) {
+        await provider.beforeInventory({
+          jobId: job.id,
+          actorId: job.actorId,
+          source: job.source,
+          leaseToken: token,
+        })
+      }
       const inventoryPageLimit=Math.max(1,Math.min(options.inventoryPageLimit ?? 1,32));
       while (job.phase === 'INVENTORY' && result.inventoryCalls<inventoryPageLimit && clock.now()<deadline) {
         // Provider network must be outside tx. The barrier is persisted atomically

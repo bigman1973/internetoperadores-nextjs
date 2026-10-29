@@ -4,6 +4,8 @@ import { prisma } from '@/lib/prisma'
 import { auditarCambioB2, buscarIdentidadBloqueada, jsonPrivado, readBoundedJsonB2, requireFacturaAccess, serializeFacturaCalidad } from '@/lib/finanzas/invoice-quality-db'
 import { facturaEconomicaWhere, facturaNoConfirmingDraxtonWhere } from '@/lib/finanzas/invoice-economic-filter'
 import { claveCanonicaFactura, esFechaDocumentoIso, esImporteCentimosFinito, esImporteFinito, fechaDocumentoUtc, totalCuadraEnCentimos } from '@/lib/finanzas/invoice-quality'
+import { requireB4FinanceAccess } from '@/lib/finanzas/reconciliation-auth'
+import { readFinanceDocumentVisibleStates } from '@/lib/finanzas/finance-document-visible-state-db'
 
 export const dynamic = 'force-dynamic'
 const MAX_PAGE = 100_000
@@ -27,6 +29,10 @@ export async function GET(req: NextRequest) {
   try {
     const access = await requireFacturaAccess(false)
     if ('error' in access) return access.error
+    // La vista de evidencias B4/documentales exige releer el permiso efectivo
+    // actual de Finanzas; no confía en permisos presentes sólo en la sesión.
+    const b4Access = await requireB4FinanceAccess('lectura', access.session)
+    if (b4Access.ok === false) return b4Access.response
     const query = req.nextUrl.searchParams
     const page = positive(query.get('page'), 1, MAX_PAGE)
     const limit = positive(query.get('limit'), 50, MAX_LIMIT)
@@ -71,8 +77,14 @@ export async function GET(req: NextRequest) {
       prisma.facturaRecibida.count({ where }),
       prisma.facturaRecibida.aggregate({ where: economicWhere, _sum: { base: true, importeIva: true, importeIrpf: true, total: true }, _count: true }),
     ])
+    // Una única proyección por la página actual; no consulta B4 por fila y la
+    // falta de lifecycle/snapshot se convierte en fallback histórico seguro.
+    const documentStates = await readFinanceDocumentVisibleStates(prisma, facturas.map(factura => factura.id))
     return jsonPrivado({
-      facturas: facturas.map(serializeFacturaCalidad), total, page, totalPages: Math.ceil(total / limit),
+      facturas: facturas.map(factura => ({
+        ...serializeFacturaCalidad(factura),
+        documentVisibleState: documentStates.get(factura.id) ?? null,
+      })), total, page, totalPages: Math.ceil(total / limit),
       resumenFiscal: {
         totalBase: resumen._sum.base || 0, totalIva: resumen._sum.importeIva || 0,
         totalIrpf: resumen._sum.importeIrpf || 0, totalFacturado: resumen._sum.total || 0, numFacturas: resumen._count,

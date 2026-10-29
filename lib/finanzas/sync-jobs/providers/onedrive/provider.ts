@@ -1,6 +1,15 @@
 import type { GraphFile, InvoiceLibrary, OneDriveReadPort } from './graph-read'
 import type { SyncOutcome, SyncSourceItem } from './types'
 import { SyncProviderError } from './types'
+import type { DocumentObservation, DocumentPrivateMetadata, ReconciliationProtection } from '@/lib/finanzas/finance-document-lifecycle-core'
+import type { OneDriveDocumentLifecyclePort, OneDriveInventoryDocumentMetadata, OneDrivePrivateArchivePreparation } from './document-lifecycle'
+import {
+  decideOneDriveContentRead,
+  observationFromOneDriveContent,
+  oneDriveInventoryFingerprint,
+  prepareOneDrivePrivateArchive,
+  privateMetadataFromOneDriveOcr,
+} from './document-lifecycle'
 
 export const FACTURAS_BASE_PATH = '2. Contabilidad y finanzas/2. Facturas recibidas/1. Facturas recibidas- Internet Operadores/2026'
 export const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
@@ -19,13 +28,14 @@ export const B1_FOLDERS = {
 
 export type B1FolderKey = keyof typeof B1_FOLDERS
 const FOLDER_KEYS = Object.keys(B1_FOLDERS) as B1FolderKey[]
-const INVOICE_EXTENSIONS = new Set(['pdf', 'jpg', 'jpeg', 'png', 'heic', 'tiff'])
+const INVOICE_EXTENSIONS = new Set(['pdf', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'heic', 'tiff'])
 const MIME_BY_EXTENSION: Record<string, string> = {
-  pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', tiff: 'image/tiff',
+  pdf: 'application/pdf', xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', heic: 'image/heic', tiff: 'image/tiff',
 }
 
 type ItemData = {
-  schema: 1
+  schema: 1 | 2
   driveId: string
   itemId: string
   folderKey: B1FolderKey
@@ -33,6 +43,8 @@ type ItemData = {
   mimeType: string | null
   size: number | null
   eTag: string | null
+  /** Content/version hints only. No bytes, URL, token or OCR live in sourceData. */
+  inventoryMetadata?: OneDriveInventoryDocumentMetadata
   lastModifiedAt: string | null
   relativeFolderPath: string
   path: string
@@ -68,6 +80,10 @@ export type OcrInvoice = {
   esInternacional?: unknown
   paisOrigen?: unknown
   telefonoServicio?: unknown
+  /** Optional extractor values; never inferred from the amount or filename. */
+  referenciaFacturaOriginal?: unknown
+  tipoDocumento?: unknown
+  moneda?: unknown
 }
 
 export type OcrValidation = { ok: true; identidad: string } | { ok: false; motivo: string }
@@ -98,6 +114,10 @@ export interface OneDriveDomainPort<Tx = unknown> {
   updateLocation(tx: Tx, source: ExistingSource, location: Location, actorId: number | null): Promise<boolean>
   /** Existing B2 locked canonical query + planDeduplicacion. */
   lockedDedupePlan(tx: Tx, canonKey: string): Promise<DedupePlan>
+  /** Narrow B4 read-only state for an already locked invoice source. */
+  readB4Protection?(tx: Tx, source: ExistingSource): Promise<ReconciliationProtection>
+  /** Canonical metadata already stored by B2; used only for an honest no-byte baseline. */
+  readPrivateMetadata?(tx: Tx, source: ExistingSource): Promise<DocumentPrivateMetadata | null>
   /** Exact normalised legacy fallback only; no fuzzy/provider/name matching. */
   hasLegacyExactCanonicalMatch(tx: Tx, ocr: OcrInvoice, canonKey: string): Promise<boolean>
   createInvoice(tx: Tx, input: NewInvoiceInput, actorId: number | null): Promise<void>
@@ -132,12 +152,30 @@ export type OneDriveProviderOptions<Tx = unknown> = {
   /** Explicit job-scope acknowledgment. Empty/implicit values never authorize legacy changes. */
   historicalLibraryConfirmedDriveId?: string | null
   invoiceRootPath?: string
+  /** Real DB adapter injected by production assembly; tests may omit it. */
+  documentLifecycle?: OneDriveDocumentLifecyclePort<Tx>
 }
 
 type PreparedExisting = { kind: 'EXISTING'; key: string }
 type PreparedConfirming = { kind: 'CONFIRMING'; key: string }
-type PreparedInvoice = { kind: 'INVOICE'; key: string; ocr: OcrInvoice; ocrRaw: string; validation: OcrValidation }
-type Prepared = PreparedExisting | PreparedConfirming | PreparedInvoice
+type PreparedLifecycleReview = { kind: 'LIFECYCLE_REVIEW'; key: string }
+type PreparedLegacyBaseline = { kind: 'LEGACY_METADATA_BASELINE'; key: string; observation: DocumentObservation }
+type PreparedLifecycle = Readonly<{
+  observation: DocumentObservation
+  archive: OneDrivePrivateArchivePreparation
+  /** Existing B2 record predates lifecycle snapshots; baseline is metadata-only. */
+  needsLegacyMetadataBaseline: boolean
+}>
+type PreparedInvoice = Readonly<{
+  kind: 'INVOICE'
+  key: string
+  ocr: OcrInvoice
+  ocrRaw: string
+  validation: OcrValidation
+  /** Ephemeral only: this is never serialized in FinanceSyncItemP2.sourceData. */
+  lifecycle: PreparedLifecycle | null
+}>
+type Prepared = PreparedExisting | PreparedConfirming | PreparedLifecycleReview | PreparedLegacyBaseline | PreparedInvoice
 
 function fail(code: string): never { throw new SyncProviderError(code) }
 
@@ -190,7 +228,7 @@ function dataFor(file: GraphFile, key: B1FolderKey, driveId: string, root: strin
   const providerMime = nullableString(file.file?.mimeType, 256)
   const ext = extension(name)
   return {
-    schema: 1,
+    schema: 2,
     driveId,
     itemId,
     folderKey: key,
@@ -199,6 +237,13 @@ function dataFor(file: GraphFile, key: B1FolderKey, driveId: string, root: strin
     mimeType: providerMime || MIME_BY_EXTENSION[ext] || null,
     size,
     eTag,
+    inventoryMetadata: {
+      byteLength: size,
+      quickXorHash: nullableString(file.file?.hashes?.quickXorHash, 1_024),
+      cTag: nullableString(file.cTag, 1_024),
+      eTag,
+      sourceVersion: nullableString(file.sourceVersion, 1_024),
+    },
     lastModifiedAt: modified,
     relativeFolderPath: locationFor(file, key, driveId, root).oneDriveRutaActual.slice(0, -(name.length + 1)),
     path: locationFor(file, key, driveId, root).oneDriveRutaActual,
@@ -207,6 +252,19 @@ function dataFor(file: GraphFile, key: B1FolderKey, driveId: string, root: strin
 }
 
 function itemKey(data: ItemData): string { return `onedrive:${data.driveId}:${data.itemId}` }
+/** Stable lifecycle convention: exactly `<driveId>:<itemId>` under source ONEDRIVE. */
+function lifecycleIdentity(data: ItemData): DocumentObservation['identity'] {
+  return { source: 'ONEDRIVE', sourceItemKey: `${data.driveId}:${data.itemId}` }
+}
+function inventoryMetadataFor(data: ItemData): OneDriveInventoryDocumentMetadata {
+  return data.inventoryMetadata ?? {
+    byteLength: data.size,
+    quickXorHash: null,
+    cTag: null,
+    eTag: data.eTag,
+    sourceVersion: null,
+  }
+}
 
 function parseCheckpoint(checkpoint: unknown): number {
   if (checkpoint === null || checkpoint === undefined || (isRecord(checkpoint) && Object.keys(checkpoint).length === 0)) return 0
@@ -216,7 +274,7 @@ function parseCheckpoint(checkpoint: unknown): number {
 
 function parsedData(item: SyncSourceItem): ItemData {
   const rawData: unknown = item.data
-  if (!isRecord(rawData) || rawData.schema !== 1 || !isFolderKey(rawData.folderKey)) fail('ONEDRIVE_ITEM_DATA_INVALID')
+  if (!isRecord(rawData) || (rawData.schema !== 1 && rawData.schema !== 2) || !isFolderKey(rawData.folderKey)) fail('ONEDRIVE_ITEM_DATA_INVALID')
   const data = rawData as ItemData
   const driveId = boundedString(data.driveId, 512, 'ONEDRIVE_ITEM_DATA_INVALID')
   const itemId = boundedString(data.itemId, 512, 'ONEDRIVE_ITEM_DATA_INVALID')
@@ -224,12 +282,25 @@ function parsedData(item: SyncSourceItem): ItemData {
   if (name.includes('/') || name.includes('\\')) fail('ONEDRIVE_ITEM_DATA_INVALID')
   const location = data.location
   if (!isRecord(location) || location.oneDriveDriveId !== driveId || location.oneDriveRutaActual !== data.path || location.archivoOneDrive !== data.path || typeof location.etiquetaMateriales !== 'boolean') fail('ONEDRIVE_ITEM_DATA_INVALID')
+  const rawInventory = data.inventoryMetadata
+  const inventoryMetadata = rawInventory === undefined
+    ? undefined
+    : isRecord(rawInventory)
+      ? {
+          byteLength: rawInventory.byteLength === null ? null : (Number.isSafeInteger(rawInventory.byteLength) && Number(rawInventory.byteLength) >= 0 ? Number(rawInventory.byteLength) : fail('ONEDRIVE_ITEM_DATA_INVALID')),
+          quickXorHash: rawInventory.quickXorHash === null || rawInventory.quickXorHash === undefined ? null : boundedString(rawInventory.quickXorHash, 1_024, 'ONEDRIVE_ITEM_DATA_INVALID'),
+          cTag: rawInventory.cTag === null || rawInventory.cTag === undefined ? null : boundedString(rawInventory.cTag, 1_024, 'ONEDRIVE_ITEM_DATA_INVALID'),
+          eTag: rawInventory.eTag === null || rawInventory.eTag === undefined ? null : boundedString(rawInventory.eTag, 1_024, 'ONEDRIVE_ITEM_DATA_INVALID'),
+          sourceVersion: rawInventory.sourceVersion === null || rawInventory.sourceVersion === undefined ? null : boundedString(rawInventory.sourceVersion, 1_024, 'ONEDRIVE_ITEM_DATA_INVALID'),
+        }
+      : fail('ONEDRIVE_ITEM_DATA_INVALID')
   const checked: ItemData = {
     ...data,
     driveId, itemId, name,
     mimeType: data.mimeType === null ? null : boundedString(data.mimeType, 256, 'ONEDRIVE_ITEM_DATA_INVALID'),
     size: data.size === null ? null : (Number.isSafeInteger(data.size) && data.size >= 0 ? data.size : fail('ONEDRIVE_ITEM_DATA_INVALID')),
     eTag: data.eTag === null ? null : boundedString(data.eTag, 1_024, 'ONEDRIVE_ITEM_DATA_INVALID'),
+    inventoryMetadata,
     lastModifiedAt: data.lastModifiedAt === null ? null : boundedString(data.lastModifiedAt, 128, 'ONEDRIVE_ITEM_DATA_INVALID'),
     relativeFolderPath: boundedString(data.relativeFolderPath, 2_000, 'ONEDRIVE_ITEM_DATA_INVALID'),
     path: boundedString(data.path, 2_600, 'ONEDRIVE_ITEM_DATA_INVALID'),
@@ -258,6 +329,10 @@ function preparedFor(item: SyncSourceItem, raw: unknown): Prepared {
   if (!isRecord(raw) || typeof raw.kind !== 'string' || raw.key !== item.key) fail('ONEDRIVE_PREPARED_INVALID')
   if (raw.kind === 'EXISTING') return { kind: 'EXISTING', key: item.key }
   if (raw.kind === 'CONFIRMING') return { kind: 'CONFIRMING', key: item.key }
+  if (raw.kind === 'LIFECYCLE_REVIEW') return { kind: 'LIFECYCLE_REVIEW', key: item.key }
+  if (raw.kind === 'LEGACY_METADATA_BASELINE' && isRecord(raw.observation)) {
+    return { kind: 'LEGACY_METADATA_BASELINE', key: item.key, observation: raw.observation as unknown as DocumentObservation }
+  }
   if (raw.kind === 'INVOICE' && isRecord(raw.ocr) && typeof raw.ocrRaw === 'string' && isRecord(raw.validation) && typeof raw.validation.ok === 'boolean') {
     const validation: OcrValidation = raw.validation.ok === true && typeof raw.validation.identidad === 'string'
       ? { ok: true, identidad: boundedString(raw.validation.identidad, 256, 'ONEDRIVE_PREPARED_INVALID') }
@@ -265,7 +340,12 @@ function preparedFor(item: SyncSourceItem, raw: unknown): Prepared {
         ? { ok: false, motivo: boundedString(raw.validation.motivo, 128, 'ONEDRIVE_PREPARED_INVALID') }
         : fail('ONEDRIVE_PREPARED_INVALID')
     if (new TextEncoder().encode(raw.ocrRaw).byteLength > MAX_OCR_JSON_BYTES) fail('ONEDRIVE_PREPARED_INVALID')
-    return { kind: 'INVOICE', key: item.key, ocr: raw.ocr as OcrInvoice, ocrRaw: raw.ocrRaw, validation }
+    const lifecycle = raw.lifecycle === null || raw.lifecycle === undefined
+      ? null
+      : isRecord(raw.lifecycle) && isRecord(raw.lifecycle.observation) && isRecord(raw.lifecycle.archive)
+        ? raw.lifecycle as unknown as PreparedLifecycle
+        : fail('ONEDRIVE_PREPARED_INVALID')
+    return { kind: 'INVOICE', key: item.key, ocr: raw.ocr as OcrInvoice, ocrRaw: raw.ocrRaw, validation, lifecycle }
   }
   fail('ONEDRIVE_PREPARED_INVALID')
 }
@@ -319,9 +399,32 @@ export class OneDriveSyncProvider<Tx = unknown> {
 
   async prepare(item: SyncSourceItem): Promise<unknown> {
     const data = parsedData(item)
-    if (await this.options.domain.readSource(data.itemId)) return { kind: 'EXISTING', key: item.key } satisfies PreparedExisting
     if (item.tipo === 'ONEDRIVE_CONFIRMING_SOPORTE') return { kind: 'CONFIRMING', key: item.key } satisfies PreparedConfirming
     if (item.tipo !== 'ONEDRIVE_FACTURA') fail('ONEDRIVE_ITEM_TYPE_INVALID')
+    const existing = await this.options.domain.readSource(data.itemId)
+    const inventory = inventoryMetadataFor(data)
+    const metadataObservation: DocumentObservation = {
+      identity: lifecycleIdentity(data),
+      fingerprint: oneDriveInventoryFingerprint(inventory),
+      privateMetadata: null,
+    }
+    let needsLegacyMetadataBaseline = false
+    if (this.options.documentLifecycle) {
+      const current = await this.options.documentLifecycle.readCurrent(metadataObservation.identity)
+      needsLegacyMetadataBaseline = existing !== null && current === null
+      const decision = decideOneDriveContentRead({ sourceExists: existing !== null, current, incoming: metadataObservation })
+      if (decision === 'NO_CONTENT') return { kind: 'EXISTING', key: item.key } satisfies PreparedExisting
+      // A historical B2 source has canonical metadata but no prior lifecycle
+      // fingerprint. Its baseline is written as UNAVAILABLE in apply, then the
+      // item goes to review; no absent predecessor bytes are ever invented.
+      if (decision === 'LEGACY_METADATA_BASELINE') {
+        return { kind: 'LEGACY_METADATA_BASELINE', key: item.key, observation: metadataObservation } satisfies PreparedLegacyBaseline
+      }
+      if (decision === 'REVIEW_INSUFFICIENT_EVIDENCE') return { kind: 'LIFECYCLE_REVIEW', key: item.key } satisfies PreparedLifecycleReview
+    } else if (existing) {
+      // Compatibility path until the production lifecycle adapter is injected.
+      return { kind: 'EXISTING', key: item.key } satisfies PreparedExisting
+    }
     const ext = extension(data.name)
     const mimeType = MIME_BY_EXTENSION[ext]
     if (!mimeType) fail('ONEDRIVE_FILE_TYPE_INVALID')
@@ -332,7 +435,26 @@ export class OneDriveSyncProvider<Tx = unknown> {
     const ocr = await this.options.ocr.extract(Buffer.from(bytes).toString('base64'), mimeType, data.name)
     if (!isRecord(ocr)) fail('OCR_RESULT_INVALID')
     const ocrRaw = jsonBounded(ocr)
-    return { kind: 'INVOICE', key: item.key, ocr, ocrRaw, validation: this.options.ocr.validateNew(ocr) } satisfies PreparedInvoice
+    const privateMetadata = privateMetadataFromOneDriveOcr({
+      originalFileName: data.name,
+      sourceVersion: inventory.sourceVersion,
+      ocr,
+    })
+    const lifecycle: PreparedLifecycle | null = this.options.documentLifecycle
+      ? {
+          observation: observationFromOneDriveContent({
+            identity: lifecycleIdentity(data),
+            inventory,
+            bytes,
+            privateMetadata,
+          }),
+          // Images and a 25 MiB invoice continue through OCR; this merely makes
+          // the durable archive state explicitly UNAVAILABLE for that snapshot.
+          archive: prepareOneDrivePrivateArchive(bytes, data.name),
+          needsLegacyMetadataBaseline,
+        }
+      : null
+    return { kind: 'INVOICE', key: item.key, ocr, ocrRaw, validation: this.options.ocr.validateNew(ocr), lifecycle } satisfies PreparedInvoice
   }
 
   async apply(tx: Tx, item: SyncSourceItem, rawPrepared: unknown, actorId: number | null): Promise<SyncOutcome> {
@@ -345,6 +467,53 @@ export class OneDriveSyncProvider<Tx = unknown> {
       if (current.oneDriveDriveId && current.oneDriveDriveId !== data.driveId) return 'REVISAR'
       // Historical rows with a null library ID cannot be silently attributed.
       if (!current.oneDriveDriveId && this.historicalConfirmation !== data.driveId) return 'REVISAR'
+      if (prepared.kind === 'EXISTING' && this.options.documentLifecycle) {
+        const currentCheck = await this.options.documentLifecycle.verifyCurrent(tx, {
+          identity: lifecycleIdentity(data),
+          observation: {
+            identity: lifecycleIdentity(data),
+            fingerprint: oneDriveInventoryFingerprint(inventoryMetadataFor(data)),
+            privateMetadata: null,
+          },
+          actorId,
+        })
+        // A prepare/apply race can reveal fresh content after prepare omitted the
+        // download. The worker must retry/review; it must never create a version
+        // without the mandated OCR/content read nor overwrite the existing B2 row.
+        if (currentCheck !== 'CURRENT') return 'REVISAR'
+      }
+      if (prepared.kind === 'LIFECYCLE_REVIEW') return 'REVISAR'
+      if (prepared.kind === 'LEGACY_METADATA_BASELINE') {
+        if (!this.options.documentLifecycle || !this.options.domain.readPrivateMetadata || !this.options.domain.readB4Protection) return 'REVISAR'
+        await this.options.documentLifecycle.apply(tx, {
+          identity: lifecycleIdentity(data),
+          observation: prepared.observation,
+          reconciliation: await this.options.domain.readB4Protection(tx, current),
+          actorId,
+          archive: { artifact: null, metadataUnavailable: true, unavailableReason: 'LEGACY_METADATA_ONLY' },
+          legacyPreviousMetadata: await this.options.domain.readPrivateMetadata(tx, current),
+        })
+        return 'REVISAR'
+      }
+      if (prepared.kind === 'INVOICE' && prepared.lifecycle) {
+        if (!this.options.documentLifecycle || !this.options.domain.readB4Protection) return 'REVISAR'
+        const legacyPreviousMetadata = prepared.lifecycle.needsLegacyMetadataBaseline
+          ? (this.options.domain.readPrivateMetadata ? await this.options.domain.readPrivateMetadata(tx, current) : null)
+          : null
+        if (prepared.lifecycle.needsLegacyMetadataBaseline && !legacyPreviousMetadata) return 'REVISAR'
+        const lifecycle = await this.options.documentLifecycle.apply(tx, {
+          identity: lifecycleIdentity(data),
+          observation: prepared.lifecycle.observation,
+          reconciliation: await this.options.domain.readB4Protection(tx, current),
+          actorId,
+          archive: prepared.lifecycle.archive,
+          legacyPreviousMetadata,
+        })
+        // AMBAR_DOCUMENTO_CAMBIADO and any insufficient-evidence result keep the
+        // existing invoice/B4 untouched and wait for a person. The snapshot and
+        // incident have already been stored append-only in the same P2 TX.
+        if (lifecycle.outcome === 'REQUIRES_REVIEW' || lifecycle.plan?.requiresHumanConfirmation || lifecycle.duplicate?.requiresHumanConfirmation) return 'REVISAR'
+      }
       if (locationsEqual(current.location, data.location)) return 'SIN_CAMBIOS'
       return (await this.options.domain.updateLocation(tx, current, data.location, actorId)) ? 'ACTUALIZADA' : 'SIN_CAMBIOS'
     }
@@ -359,6 +528,18 @@ export class OneDriveSyncProvider<Tx = unknown> {
     }
 
     if (item.tipo !== 'ONEDRIVE_FACTURA' || prepared.kind !== 'INVOICE') return 'REVISAR'
+    if (prepared.lifecycle) {
+      if (!this.options.documentLifecycle) return 'REVISAR'
+      const lifecycle = await this.options.documentLifecycle.apply(tx, {
+        identity: lifecycleIdentity(data),
+        observation: prepared.lifecycle.observation,
+        reconciliation: { status: 'NONE' },
+        actorId,
+        archive: prepared.lifecycle.archive,
+        legacyPreviousMetadata: null,
+      })
+      if (lifecycle.outcome === 'REQUIRES_REVIEW' || lifecycle.plan?.requiresHumanConfirmation || lifecycle.duplicate?.requiresHumanConfirmation) return 'REVISAR'
+    }
     // Re-validate exactly at apply: a prepared payload is not a trusted domain fact.
     const validation = this.options.ocr.validateNew(prepared.ocr)
     if ('motivo' in validation) {

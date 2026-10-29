@@ -1,0 +1,12 @@
+-- OBSOLETO — no ejecutar.
+--
+-- Esta ruta se conserva sólo para evitar que se reaplique el prototipo staging
+-- `confirming_reading_attempts_p2` con `current_database()='io_staging_finanzas'`.
+-- El DDL válido es exclusivamente la migración aditiva versionada:
+--
+--   prisma/migrations/20261029_confirming_reading_attempts/migration.sql
+--
+-- Esa migración crea `confirming_reading_attempts` (C11 + auditoría append-only),
+-- no hardcodea nombres de base de datos y no sustituye las guardas runtime de
+-- lifecycle, actor/fence y permisos. Debe revisarse y aplicarse por el proceso
+-- normal de despliegue autorizado; este agente no la ejecutó.

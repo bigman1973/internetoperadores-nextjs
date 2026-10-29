@@ -45,7 +45,9 @@ async function main() {
   assert(segment.includes('<SegmentContext.Provider value={{ segment, setSegment }}>'))
   const page = readFileSync(resolve('app/admin/finanzas/conciliar/page.tsx'), 'utf8')
   assert(page.includes("requireB4FinanceAccess('lectura', await requireAuth('admin'))"))
-  assert(page.includes('const initialData = await readConciliarProjection(input)'))
+  assert(page.includes('const [initialData, confirmingReadingQueue] = await Promise.all(['))
+  assert(page.includes('readConciliarProjection(input)'))
+  assert(page.indexOf('readConciliarProjection(input)') < page.indexOf('return <>'))
   assert(page.includes('initialData={initialData}'))
   console.log('OK: render surface exacta con opt-in Conciliar, hint sobrescrito, ACL viva intacta y fallback sin opt-in')
 }

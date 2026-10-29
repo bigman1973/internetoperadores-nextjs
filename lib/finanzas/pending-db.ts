@@ -12,6 +12,12 @@ import {cardFromBankText,FINANCE_CARD_HOLDERS} from "@/lib/finanzas/card-holders
 import { assertFinanceRuntimeReady } from '@/lib/finanzas/finance-runtime-safety';
 import { readBankInvoicingPopulation, type B7ReadDatabase } from "@/lib/finanzas/bank-invoicing-db";
 import type { InvoiceSettlement } from "@/lib/finanzas/bank-invoicing-core";
+import { readIssuedCreditNotesForBankInvoicing, type CreditNoteReadDatabase } from "@/lib/finanzas/finance-credit-note-db";
+import {
+  readReceivedCreditNotesForPendingInvoices,
+  type PendingCreditNoteReadDatabase,
+  type PendingReceivedInvoiceProjection,
+} from "@/lib/finanzas/finance-credit-note-pending-db";
 
 import {
   estadoEfectivoB5,
@@ -81,7 +87,14 @@ function b7EmittedOrder(left: InvoiceSettlement, right: InvoiceSettlement): numb
   return leftDate.localeCompare(rightDate) || left.invoiceId.localeCompare(right.invoiceId);
 }
 
-function b7EmittedView(invoice: InvoiceSettlement, metadata: EmittedMetadataB5 | undefined) {
+type IssuedCreditNoteFieldsB5 = Readonly<{
+  creditNoteState: "PENDIENTE" | "PARCIAL" | "CERRADA" | "REVISION";
+  rectificationCents: number | null;
+  remainingAfterCreditNotesCents: number | null;
+  creditNoteReviewReasons: string[];
+}>;
+
+function b7EmittedView(invoice: InvoiceSettlement, metadata: EmittedMetadataB5 | undefined, creditNote?: IssuedCreditNoteFieldsB5) {
   const importeNoVerificable = invoice.targetCents === null
     || invoice.paidDocumentaryCents === null
     || invoice.remainingCents === null;
@@ -114,6 +127,12 @@ function b7EmittedView(invoice: InvoiceSettlement, metadata: EmittedMetadataB5 |
     estadoCobroBancoEtiqueta,
     fuentesCobroBanco: invoice.paymentSources,
     motivosRevisionBanco: invoice.reasons,
+    // Only an additive 3c proposal/review field. `importePendienteCentimos`
+    // remains the untouched B7/B4 bank pending amount above.
+    creditNoteState: creditNote?.creditNoteState ?? "REVISION",
+    rectificationCents: creditNote?.rectificationCents ?? null,
+    importePendienteTrasRectificativasCentimos: creditNote?.remainingAfterCreditNotesCents ?? null,
+    creditNoteReviewReasons: creditNote?.creditNoteReviewReasons ?? ["RECTIFICATIVA_PROYECCION_INCOMPLETA"],
   };
 }
 
@@ -126,6 +145,11 @@ async function readFacturasEmitidasPendientesB5(options: ReadPendientesB5Options
       enabled: true,
       assertIsolatedStaging: async () => undefined,
     });
+    const creditRows = await readIssuedCreditNotesForBankInvoicing(
+      tx as unknown as B7ReadDatabase & CreditNoteReadDatabase,
+      population,
+    );
+    const creditByInvoiceId = new Map(creditRows.map((invoice) => [invoice.invoiceId, invoice]));
     const ids = population.invoices.map((invoice) => invoice.invoiceId);
     const metadataRows = ids.length === 0 ? [] : await (tx as any).facturaEmitida.findMany({
       where: { id: { in: ids } },
@@ -136,7 +160,11 @@ async function readFacturasEmitidasPendientesB5(options: ReadPendientesB5Options
       .filter((invoice) => b7EmittedMatchesB5(invoice, metadataById.get(invoice.invoiceId), options))
       .sort(b7EmittedOrder);
     return {
-      items: matching.slice(offset, offset + limit).map((invoice) => b7EmittedView(invoice, metadataById.get(invoice.invoiceId))),
+      items: matching.slice(offset, offset + limit).map((invoice) => b7EmittedView(
+        invoice,
+        metadataById.get(invoice.invoiceId),
+        creditByInvoiceId.get(invoice.invoiceId),
+      )),
       total: matching.length,
       bankCoverage: population.bankCoverage,
       calculationBasis: population.calculationBasis,
@@ -508,6 +536,32 @@ function invoiceView(row: SqlRow, emitted: boolean) {
   };
 }
 
+/**
+ * B5 received invoices keep their existing bounded B4 projection as authority.
+ * 3c reads only evidence/document snapshots in the same transaction and adds a
+ * review/proposal view; it never replaces `importePendienteCentimos` as a bank
+ * payment would, and it performs no confirmation or DML.
+ */
+async function readFacturasRecibidasPendientesConRectificativasB5(
+  options: ReadPendientesB5Options,
+  limit: number,
+  offset: number,
+) {
+  return asDb().$transaction(async (base) => {
+    const tx = asTx(base);
+    const [rows, countRows] = await Promise.all([
+      tx.$queryRaw<SqlRow[]>(invoiceRowsQuery(options, false, limit, offset)),
+      tx.$queryRaw<Array<{ total: bigint | number }>>(invoiceCountQuery(options, false)),
+    ]);
+    const originalViews = rows.map((row) => invoiceView(row, false) as PendingReceivedInvoiceProjection);
+    const items = await readReceivedCreditNotesForPendingInvoices(
+      tx as unknown as PendingCreditNoteReadDatabase,
+      originalViews,
+    );
+    return { items, total: Number(countRows[0]?.total ?? 0) };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10000, timeout: 60000 });
+}
+
 export async function readPendientesB5(options: ReadPendientesB5Options) {
   const limit = boundedLimit(options.limit);
   const offset = boundedOffset(options.offset);
@@ -539,32 +593,32 @@ export async function readPendientesB5(options: ReadPendientesB5Options) {
     };
   }
 
-  let rows: SqlRow[];
-  let countRows: Array<{ total: bigint | number }>;
   let mapper: (row: SqlRow) => unknown;
   if (options.vista === "CARGOS_SIN_DOCUMENTO" || options.vista === "COBROS_SIN_DOCUMENTO") {
     const sign = options.vista === "CARGOS_SIN_DOCUMENTO" ? -1 : 1;
-    [rows, countRows] = await Promise.all([
+    const [rows, countRows] = await Promise.all([
       asDb().$queryRaw<SqlRow[]>(bankRowsQuery(options, sign, limit, offset)),
       asDb().$queryRaw<Array<{ total: bigint | number }>>(bankCountQuery(options, sign)),
     ]);
     mapper = bankView;
+    const coberturaCuentas = await coberturaCuentasB5(options.cuentaId);
+    return {
+      vista: options.vista, cobertura: options.cobertura ?? "TODAS", items: rows.map(mapper),
+      total: Number(countRows[0]?.total ?? 0), limit, offset,
+      coberturaCuentas,
+      // Absence of coverage never becomes a 0-pending assertion; UI must show this.
+      criterioBanco: "Sólo B4 determina VINCULADO/NO_REQUIERE y los importes de pago/cobro; campos ISP/legacy no intervienen.",
+    };
   } else {
-    const emitted = false;
-    [rows, countRows] = await Promise.all([
-      asDb().$queryRaw<SqlRow[]>(invoiceRowsQuery(options, emitted, limit, offset)),
-      asDb().$queryRaw<Array<{ total: bigint | number }>>(invoiceCountQuery(options, emitted)),
-    ]);
-    mapper = (row) => invoiceView(row, emitted);
+    const received = await readFacturasRecibidasPendientesConRectificativasB5(options, limit, offset);
+    const coberturaCuentas = await coberturaCuentasB5(options.cuentaId);
+    return {
+      vista: options.vista, cobertura: options.cobertura ?? "TODAS", items: received.items,
+      total: received.total, limit, offset,
+      coberturaCuentas,
+      criterioBanco: "Sólo B4 determina VINCULADO/NO_REQUIERE y los importes de pago/cobro; rectificativas 3c son una propuesta/revisión documental y no cambian el pendiente B4.",
+    };
   }
-  const coberturaCuentas = await coberturaCuentasB5(options.cuentaId);
-  return {
-    vista: options.vista, cobertura: options.cobertura ?? "TODAS", items: rows.map(mapper),
-    total: Number(countRows[0]?.total ?? 0), limit, offset,
-    coberturaCuentas,
-    // Absence of coverage never becomes a 0-pending assertion; UI must show this.
-    criterioBanco: "Sólo B4 determina VINCULADO/NO_REQUIERE y los importes de pago/cobro; campos ISP/legacy no intervienen.",
-  };
 }
 
 /** Counters by operation month/account: exact known cents only, explicit B4 transfer exclusion only. */

@@ -6,8 +6,11 @@ export type GraphFile = {
   name: string
   size?: number
   eTag?: string
+  cTag?: string
+  /** Stable provider revision metadata; never a download locator. */
+  sourceVersion?: string
   lastModifiedDateTime?: string
-  file?: { mimeType?: string }
+  file?: { mimeType?: string; hashes?: { quickXorHash?: string } }
   folder?: unknown
   relativeFolderPath: string
   folderPath: string
@@ -103,12 +106,20 @@ function attachedItem(item: unknown, folderPath: string): GraphFile {
   const folder = normalizeFolderPath(folderPath)
   const size = typeof raw?.size === 'number' && Number.isSafeInteger(raw.size) && raw.size >= 0 ? raw.size : undefined
   const eTag = typeof raw?.eTag === 'string' && raw.eTag.length <= 1024 ? raw.eTag : undefined
+  const cTag = typeof raw?.cTag === 'string' && raw.cTag.length <= 1024 ? raw.cTag : undefined
+  // Graph responses normally expose eTag as the stable item revision. A caller
+  // may provide a distinct revision in a compatible reader, but URLs/tokens are
+  // rejected again by the provider/lifecycle boundary before persistence.
+  const sourceVersion = typeof raw?.sourceVersion === 'string' && raw.sourceVersion.length <= 1024
+    ? raw.sourceVersion : eTag
   const lastModifiedDateTime = typeof raw?.lastModifiedDateTime === 'string' && raw.lastModifiedDateTime.length <= 128 ? raw.lastModifiedDateTime : undefined
   const fileRaw = raw?.file as Record<string, unknown> | undefined
   const mimeType = typeof fileRaw?.mimeType === 'string' && fileRaw.mimeType.length <= 256 ? fileRaw.mimeType : undefined
+  const hashesRaw = fileRaw?.hashes as Record<string, unknown> | undefined
+  const quickXorHash = typeof hashesRaw?.quickXorHash === 'string' && hashesRaw.quickXorHash.length <= 1024 ? hashesRaw.quickXorHash : undefined
   return {
-    id, name, size, eTag, lastModifiedDateTime,
-    file: mimeType ? { mimeType } : undefined,
+    id, name, size, eTag, cTag, sourceVersion, lastModifiedDateTime,
+    file: mimeType || quickXorHash ? { ...(mimeType ? { mimeType } : {}), ...(quickXorHash ? { hashes: { quickXorHash } } : {}) } : undefined,
     folder: raw?.folder,
     relativeFolderPath: folder,
     folderPath: folder,

@@ -8,6 +8,7 @@ import {
   type BankInvoicingResult,
   type CanonicalInvoiceInput,
   type ExplicitRemittanceInput,
+  type InvoiceSettlement,
   type RemittancePaymentReceiptInput,
   type RemittanceMemberInput,
   type RemittanceRefundInput,
@@ -27,6 +28,11 @@ import {
   type B6FacturaFuente,
   type B6RemesaFuente,
 } from './b6-source-fingerprint'
+import {
+  readIssuedCreditNotesForBankInvoicing,
+  type CreditNoteReadDatabase,
+} from './finance-credit-note-db'
+import type { CreditNoteSettlementState } from './finance-credit-note-core'
 
 const B7_READ_MAX_ROWS = 25_000
 const B7_READ_LIMIT = B7_READ_MAX_ROWS + 1
@@ -54,7 +60,25 @@ export interface B7ReadDiagnostics {
   mutations: false
 }
 
-export interface B7ReadResponse extends B7ReadDto {
+/**
+ * Complete B7 calculation plus the already-read direct B4 source evidence.
+ * `directB4Lines` is an internal server-only hand-off to 3c: it is not part of
+ * the B7 DTO, is never made from an aggregate, and does not add a B4 query.
+ */
+export interface B7CalculatedPopulation extends BankInvoicingResult {
+  directB4Lines: B4DocumentLineInput[]
+}
+
+export interface B7CreditNoteInvoiceSettlement extends InvoiceSettlement {
+  /** Additive 3c view; it never changes B7 source, B4, payment or cash fields. */
+  creditNoteState: CreditNoteSettlementState
+  rectificationCents: number | null
+  remainingAfterCreditNotesCents: number | null
+  creditNoteReviewReasons: string[]
+}
+
+export interface B7ReadResponse extends Omit<B7ReadDto, 'items'> {
+  items: B7CreditNoteInvoiceSettlement[]
   diagnostics: B7ReadDiagnostics
 }
 
@@ -712,7 +736,7 @@ function remittancesFromRows(
 export async function readBankInvoicingPopulation(
   db: B7ReadDatabase,
   options: B7ReaderOptions,
-): Promise<BankInvoicingResult> {
+): Promise<B7CalculatedPopulation> {
   if (!options.enabled) throw new Error('B7_READ_DISABLED')
   await options.assertIsolatedStaging()
 
@@ -743,13 +767,17 @@ export async function readBankInvoicingPopulation(
     numFactura: row.numFactura, cliente: row.cliente, fechaISO: dateISO(row.fechaISO),
     fechaVencimientoISO: dateISO(row.fechaVencimientoISO), facturaISPId: row.facturaISPId,
   }))
-  return calculateBankInvoicing({
+  const directB4Lines = directRows.map(docLine)
+  return {
+    ...calculateBankInvoicing({
     invoices,
-    directDocumentLines: directRows.map(docLine),
+    directDocumentLines: directB4Lines,
     differenceLines: differenceRows.map(differenceLine),
     explicitRemittances: remittancesFromRows(memberRows, remittanceLines, refundRows, remittanceAudits, receiptRows, receiptLineRows),
     bankCoverage: coverage(coverageRows[0]),
-  })
+    }),
+    directB4Lines,
+  }
 }
 
 /**
@@ -763,9 +791,29 @@ export async function readBankInvoicing(
   rawQuery: URLSearchParams | B7GetQuery = new URLSearchParams(),
 ): Promise<B7ReadResponse> {
   const calculated = await readBankInvoicingPopulation(db, options)
+  // 3c is an additive read view over the complete B7 population. It is never
+  // calculated from the requested page and it does not replace B7's payment,
+  // cash or summary fields. The reader only performs bounded SELECTs over the
+  // current version projection and existing B7/B4 evidence.
+  const creditNoteRows = await readIssuedCreditNotesForBankInvoicing(
+    db as B7ReadDatabase & CreditNoteReadDatabase,
+    calculated,
+  )
+  const creditNoteRowByInvoiceId = new Map(creditNoteRows.map((row) => [row.invoiceId, row]))
   const query = rawQuery instanceof URLSearchParams ? parseB7GetQuery(rawQuery) : rawQuery
   const matching = sortInvoicesB7(calculated.invoices.filter((invoice) => invoiceMatchesB7Query(invoice, query)))
-  const items = matching.slice(query.offset, query.offset + query.limit)
+  const items: B7CreditNoteInvoiceSettlement[] = matching.slice(query.offset, query.offset + query.limit).map((invoice) => {
+    const view = creditNoteRowByInvoiceId.get(invoice.invoiceId)
+    // Copy only 3c fields onto the authoritative B7 settlement. No B7 property
+    // can be replaced by this view, including `remainingCents` and paymentState.
+    return {
+      ...invoice,
+      creditNoteState: view?.creditNoteState ?? 'REVISION',
+      rectificationCents: view?.rectificationCents ?? null,
+      remainingAfterCreditNotesCents: view?.remainingAfterCreditNotesCents ?? null,
+      creditNoteReviewReasons: view?.creditNoteReviewReasons ?? ['RECTIFICATIVA_PROYECCION_INCOMPLETA'],
+    }
+  })
   // Bank-only differences have no FI filter key. A month/q/state subset cannot
   // claim their total belongs to that subset; publish unknown rather than 0 or a
   // page-derived allocation. The unfiltered whole population keeps its exact value.

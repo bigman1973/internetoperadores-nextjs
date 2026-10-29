@@ -1,5 +1,9 @@
 import type { GraphFile, InvoiceLibrary, OneDriveReadPort } from './graph-read'
 import type {
+  DocumentPrivateMetadata,
+  ReconciliationProtection,
+} from '@/lib/finanzas/finance-document-lifecycle-core'
+import type {
   DedupePlan,
   ExistingSource,
   Location,
@@ -51,6 +55,9 @@ export class FakeOneDriveDomainPort implements OneDriveDomainPort<object> {
   readonly calls = { read: 0, lock: 0, location: 0, dedupe: 0, legacy: 0, invoice: 0, review: 0 }
   legacyMatch = false
   dedupe: DedupePlan = { canonicalId: null, conflict: false }
+  /** Optional lifecycle ports are set only by the P2 lifecycle mock cases. */
+  readB4Protection?: (_tx: object, _source: ExistingSource) => Promise<ReconciliationProtection>
+  readPrivateMetadata?: (_tx: object, _source: ExistingSource) => Promise<DocumentPrivateMetadata | null>
 
   async readSource(itemId: string): Promise<ExistingSource | null> {
     this.calls.read += 1

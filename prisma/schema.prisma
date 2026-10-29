@@ -75,6 +75,14 @@ model UsuarioAdmin {
   reglasModoFacilDesactivadas ReglaModoFacil[] @relation("ReglaModoFacilDesactivador")
   auditoriasReglasModoFacil AuditoriaReglaModoFacil[] @relation("AuditoriaReglaModoFacilActor")
   recibosModoFacil ReciboModoFacil[] @relation("ReciboModoFacilActor")
+  incidenciasDocumentalesReportadas DocumentVersionIncident[] @relation("DocumentVersionIncidentReporter")
+  incidenciasDocumentalesResueltas DocumentVersionIncident[] @relation("DocumentVersionIncidentResolver")
+  tombstonesDocumentalesRegistrados DocumentVersionTombstone[] @relation("DocumentVersionTombstoneReporter")
+  enlacesRectificativosDocumentalesPropuestos DocumentVersionCreditLink[] @relation("DocumentVersionCreditLinkProposer")
+  enlacesRectificativosDocumentalesConfirmados DocumentVersionCreditLink[] @relation("DocumentVersionCreditLinkConfirmer")
+  duplicadosDocumentalesDetectados DocumentVersionHashDuplicate[] @relation("DocumentVersionHashDuplicateReporter")
+  duplicadosDocumentalesResueltos DocumentVersionHashDuplicate[] @relation("DocumentVersionHashDuplicateResolver")
+  artefactosVersionDocumentalCreados DocumentVersionArtifact[] @relation("DocumentVersionArtifactCreator")
 
   @@map("usuarios_admin")
 }
@@ -5821,4 +5829,169 @@ model LineaReciboCobroRemesaB7 {
   @@index([facturaEmitidaId],map:"lineas_recibo_remesa_b7_fi_idx")
   @@index([facturaISPId],map:"lineas_recibo_remesa_b7_isp_idx")
   @@map("lineas_recibo_cobro_remesa_b7")
+}
+
+// Ciclo documental privado e inmutable; no se expone en logs ni altera B4.
+enum DocumentVersionLifecycleState {
+  ACTIVE
+  TOMBSTONED
+}
+enum DocumentVersionArtifactState {
+  CAPTURED
+  UNAVAILABLE
+}
+enum DocumentVersionOriginalFormat {
+  PDF
+  XLS
+  XLSX
+  OTHER
+}
+enum DocumentVersionIncidentState {
+  OPEN
+  RESOLVED
+}
+enum DocumentVersionCreditLinkState {
+  PROPOSED
+  CONFIRMED
+  REJECTED
+}
+model DocumentVersionLifecycle {
+  id String @id @default(uuid()) @db.Uuid
+  source String @db.VarChar(64)
+  sourceItemKey String @map("source_item_key") @db.VarChar(4096)
+  state DocumentVersionLifecycleState @default(ACTIVE)
+  currentVersion Int @default(0) @map("current_version")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  snapshots DocumentVersionSnapshot[]
+  tombstones DocumentVersionTombstone[]
+  incidents DocumentVersionIncident[]
+  proposedCredits DocumentVersionCreditLink[] @relation("DocumentVersionCreditSource")
+  originalCredits DocumentVersionCreditLink[] @relation("DocumentVersionCreditOriginal")
+  @@unique([source,sourceItemKey])
+  @@index([state,updatedAt])
+  @@map("document_version_lifecycle")
+}
+model DocumentVersionSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  lifecycleId String @map("lifecycle_id") @db.Uuid
+  versionNumber Int @map("version_number")
+  contentSha256 String? @map("content_sha256") @db.Char(64)
+  byteLength Int? @map("byte_length")
+  originalFormat DocumentVersionOriginalFormat? @map("original_format")
+  artifactState DocumentVersionArtifactState @map("artifact_state")
+  privateStorageHandle String? @unique @map("private_storage_handle") @db.Uuid
+  metadataChecksum String @map("metadata_checksum") @db.Char(64)
+  quickXorHash String? @map("quick_xor_hash") @db.VarChar(1024)
+  cTag String? @map("c_tag") @db.VarChar(1024)
+  eTag String? @map("e_tag") @db.VarChar(1024)
+  graphVersion String? @map("graph_version") @db.VarChar(1024)
+  originalFileName String? @map("original_file_name") @db.VarChar(1024)
+  documentNumber String? @map("document_number") @db.VarChar(512)
+  documentDate DateTime? @map("document_date") @db.Date
+  totalCents Int? @map("total_cents")
+  invoiceFiscalIdentity String? @map("invoice_fiscal_identity") @db.VarChar(256)
+  partyRole String? @map("party_role") @db.VarChar(32)
+  documentClass String? @map("document_class") @db.VarChar(64)
+  referencedOriginalReference String? @map("referenced_original_reference") @db.VarChar(512)
+  currencyCode String? @map("currency_code") @db.Char(3)
+  upstreamVersionRef String? @map("upstream_version_ref") @db.VarChar(1024)
+  numberFingerprint String? @map("number_fingerprint") @db.Char(64)
+  amountFingerprint String? @map("amount_fingerprint") @db.Char(64)
+  idempotencyKey String @unique @map("idempotency_key") @db.Char(64)
+  capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz
+  lifecycle DocumentVersionLifecycle @relation(fields:[lifecycleId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  privateArtifact DocumentVersionArtifact? @relation("DocumentVersionSnapshotArtifact",fields:[privateStorageHandle],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  duplicateLeft DocumentVersionHashDuplicate[] @relation("DocumentVersionDuplicateLeft")
+  duplicateRight DocumentVersionHashDuplicate[] @relation("DocumentVersionDuplicateRight")
+  @@unique([lifecycleId,versionNumber])
+  @@index([lifecycleId,capturedAt])
+  @@index([contentSha256])
+  @@map("document_version_snapshots")
+}
+model DocumentVersionArtifact {
+  id String @id @db.Uuid
+  sha256 String @db.Char(64)
+  byteLength Int @map("byte_length")
+  format DocumentVersionOriginalFormat
+  contentBytes Bytes @map("content_bytes")
+  createdById Int @map("created_by_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdBy UsuarioAdmin @relation("DocumentVersionArtifactCreator",fields:[createdById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  snapshot DocumentVersionSnapshot? @relation("DocumentVersionSnapshotArtifact")
+  @@index([sha256,createdAt])
+  @@index([createdById,createdAt])
+  @@map("document_version_artifacts")
+}
+model DocumentVersionIncident {
+  id String @id @default(uuid()) @db.Uuid
+  lifecycleId String @map("lifecycle_id") @db.Uuid
+  previousVersion Int @map("previous_version")
+  newVersion Int @map("new_version")
+  code String @db.VarChar(80)
+  color String @db.VarChar(16)
+  reasons Json @default("[]")
+  state DocumentVersionIncidentState @default(OPEN)
+  reportedById Int? @map("reported_by_id")
+  resolvedById Int? @map("resolved_by_id")
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  lifecycle DocumentVersionLifecycle @relation(fields:[lifecycleId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  reportedBy UsuarioAdmin? @relation("DocumentVersionIncidentReporter",fields:[reportedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  resolvedBy UsuarioAdmin? @relation("DocumentVersionIncidentResolver",fields:[resolvedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([lifecycleId,previousVersion,newVersion,code])
+  @@index([state,createdAt])
+  @@map("document_version_incidents")
+}
+model DocumentVersionTombstone {
+  id String @id @default(uuid()) @db.Uuid
+  lifecycleId String @map("lifecycle_id") @db.Uuid
+  evidenceKind String @map("evidence_kind") @db.VarChar(64)
+  evidenceHash String @map("evidence_hash") @db.Char(64)
+  idempotencyKey String @unique @map("idempotency_key") @db.Char(64)
+  reportedById Int? @map("reported_by_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  lifecycle DocumentVersionLifecycle @relation(fields:[lifecycleId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  reportedBy UsuarioAdmin? @relation("DocumentVersionTombstoneReporter",fields:[reportedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([lifecycleId,evidenceHash])
+  @@index([lifecycleId,createdAt])
+  @@map("document_version_tombstones")
+}
+model DocumentVersionCreditLink {
+  id String @id @default(uuid()) @db.Uuid
+  creditLifecycleId String @map("credit_lifecycle_id") @db.Uuid
+  originalLifecycleId String @map("original_lifecycle_id") @db.Uuid
+  exactReference String @map("exact_reference") @db.VarChar(512)
+  exactReferenceHash String @map("exact_reference_hash") @db.Char(64)
+  state DocumentVersionCreditLinkState @default(PROPOSED)
+  idempotencyKey String @unique @map("idempotency_key") @db.Char(64)
+  proposedById Int? @map("proposed_by_id")
+  confirmedById Int? @map("confirmed_by_id")
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  creditLifecycle DocumentVersionLifecycle @relation("DocumentVersionCreditSource",fields:[creditLifecycleId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  originalLifecycle DocumentVersionLifecycle @relation("DocumentVersionCreditOriginal",fields:[originalLifecycleId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  proposedBy UsuarioAdmin? @relation("DocumentVersionCreditLinkProposer",fields:[proposedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  confirmedBy UsuarioAdmin? @relation("DocumentVersionCreditLinkConfirmer",fields:[confirmedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([creditLifecycleId,originalLifecycleId,exactReferenceHash])
+  @@index([state,createdAt])
+  @@map("document_version_credit_links")
+}
+model DocumentVersionHashDuplicate {
+  id String @id @default(uuid()) @db.Uuid
+  leftSnapshotId String @map("left_snapshot_id") @db.Uuid
+  rightSnapshotId String @map("right_snapshot_id") @db.Uuid
+  contentSha256 String @map("content_sha256") @db.Char(64)
+  idempotencyKey String @unique @map("idempotency_key") @db.Char(64)
+  reportedById Int? @map("reported_by_id")
+  resolvedById Int? @map("resolved_by_id")
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  leftSnapshot DocumentVersionSnapshot @relation("DocumentVersionDuplicateLeft",fields:[leftSnapshotId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  rightSnapshot DocumentVersionSnapshot @relation("DocumentVersionDuplicateRight",fields:[rightSnapshotId],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  reportedBy UsuarioAdmin? @relation("DocumentVersionHashDuplicateReporter",fields:[reportedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  resolvedBy UsuarioAdmin? @relation("DocumentVersionHashDuplicateResolver",fields:[resolvedById],references:[id],onDelete:Restrict,onUpdate:Restrict)
+  @@unique([leftSnapshotId,rightSnapshotId])
+  @@index([contentSha256,createdAt])
+  @@map("document_version_hash_duplicates")
 }

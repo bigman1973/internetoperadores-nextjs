@@ -2,11 +2,15 @@ import { Prisma } from '@prisma/client'
 import { readBankInvoicingPopulation, type B7ReadDatabase } from '@/lib/finanzas/bank-invoicing-db'
 import { readConciliarConfirmingCandidates } from './conciliar-confirming'
 import {
+  applyConciliarDocumentLifecycleGuardToRebuildRowsTx,
+  collectionReservationResolution,
   collectionProjectionForMovement,
   confirmingProjectionForMovement,
+  currentRemittanceInvoices,
   emittedProjection,
   insertProjectionBatches,
   proposalCompositionInvoiceIds,
+  readLiveCollectionDocumentReservations,
   readCollectionClientIdentityProfiles,
   readStrictOwnTransfers,
   unresolvedMovements,
@@ -50,7 +54,7 @@ export type ConciliarProjectionDeltaResult = Readonly<{
 }>
 
 /** Forma pura de la dependencia propuesta -> FI para pruebas de cierre. */
-export type DeltaProposalDependency = Readonly<{ movimientoId: string; invoiceIds: readonly string[] }>
+export type DeltaProposalDependency = Readonly<{ movimientoId: string; invoiceIds: readonly string[]; propuestaId?: string }>
 
 /** El estado dirty previo siempre pertenece a una modificación que este delta no
  * ha observado. Nunca se limpia, aunque el resto de la fuente sea legible. */
@@ -73,17 +77,30 @@ export function closeDeltaProposalDependencies(
 ): Readonly<{ invoiceIds: readonly string[]; movimientoIds: readonly string[] }> | null {
   if (!Number.isSafeInteger(maximum) || maximum < 1) return null
   const invoices = new Set(initialInvoiceIds.filter(id => typeof id === 'string' && id.length > 0))
-  const selected = new Set<string>()
+  const selectedMovements = new Set<string>()
+  const selectedProposals = new Set<string>()
   if (!invoices.size || invoices.size > maximum) return null
   let changed = true
   while (changed) {
     changed = false
-    for (const proposal of proposals) {
-      if (!proposal.movimientoId || selected.has(proposal.movimientoId)) continue
+    for (let index = 0; index < proposals.length; index += 1) {
+      const proposal = proposals[index]!
+      if (!proposal.movimientoId) return null
+      const proposalKey = typeof proposal.propuestaId === 'string' && proposal.propuestaId.length > 0
+        ? proposal.propuestaId : `index:${index}`
+      if (selectedProposals.has(proposalKey)) continue
       const ids = [...new Set(proposal.invoiceIds.filter(id => typeof id === 'string' && id.length > 0))]
-      if (!ids.some(id => invoices.has(id))) continue
-      selected.add(proposal.movimientoId)
-      if (selected.size > maximum) return null
+      // A sibling proposal of an already closed movement is still a dependency:
+      // it may be an exact tie or use a different FI. Closing only first-by-
+      // movement loses the very ambiguity the global G1 plan must observe.
+      if (!selectedMovements.has(proposal.movimientoId) && !ids.some(id => invoices.has(id))) continue
+      selectedProposals.add(proposalKey)
+      selectedMovements.add(proposal.movimientoId)
+      // Closing a sibling is progress even if it currently has no FI or only
+      // cites already-known FIs: that movement can unlock another sibling in
+      // the next pass, so do not terminate the fixed point early.
+      changed = true
+      if (selectedProposals.size > maximum || selectedMovements.size > maximum) return null
       for (const id of ids) {
         if (invoices.has(id)) continue
         invoices.add(id)
@@ -92,7 +109,7 @@ export function closeDeltaProposalDependencies(
       }
     }
   }
-  return { invoiceIds: [...invoices].sort(), movimientoIds: [...selected].sort() }
+  return { invoiceIds: [...invoices].sort(), movimientoIds: [...selectedMovements].sort() }
 }
 
 type ReceiptDescriptor = Readonly<{ receiptId: string; remesaId: number; movementId: string }>
@@ -244,8 +261,8 @@ async function findScope(tx: Tx, input: ConciliarProjectionDeltaInput): Promise<
 }
 
 /** Returns every current-generation proposal for any movement whose current
- * proposal set touches the frontier. We retain all siblings because rebuild's
- * proposalByMovement picks the first one before rendering. */
+ * proposal set touches the frontier. All siblings stay in the source graph:
+ * G1 must see ties/conflicts rather than choose a first proposal by order. */
 async function proposalsTouchingInvoices(tx: Tx, invoiceIds: readonly string[]): Promise<ProposalRow[] | null> {
   if (!invoiceIds.length) return []
   const rows = await tx.$queryRaw<ProposalRow[]>(Prisma.sql`
@@ -277,21 +294,22 @@ async function proposalsTouchingInvoices(tx: Tx, invoiceIds: readonly string[]):
   return rows.length > MAX_DELTA_ROWS ? null : rows
 }
 
-function canonicalProposalRows(rows: readonly ProposalRow[]): ProposalRow[] | null {
-  const byMovement = new Map<string, ProposalRow>()
+export function canonicalDeltaProposalRows(rows: readonly ProposalRow[]): ProposalRow[] | null {
+  const byProposal = new Map<string, ProposalRow>()
   for (const row of rows) {
     const movementId = typeof row.movimientoId === 'string' ? row.movimientoId : ''
     const proposalId = typeof row.propuestaId === 'string' ? row.propuestaId : ''
     if (!movementId || !proposalId) return null
-    if (!byMovement.has(movementId)) byMovement.set(movementId, row)
+    const prior = byProposal.get(proposalId)
+    if (prior && (String(prior.movimientoId) !== movementId || JSON.stringify(prior.composicion) !== JSON.stringify(row.composicion))) return null
+    if (!prior) byProposal.set(proposalId, row)
   }
-  // rebuildConciliarProjectionTx walks unresolved movements by fecha DESC,id ASC
-  // and preserves the first same-color FI candidate. Keep that order here too:
-  // sorting only by movement id changes otherwise-valid ties after an undo.
-  return [...byMovement.values()].sort((left, right) => {
+  return [...byProposal.values()].sort((left, right) => {
     const leftDate = typeof left.fecha === 'string' ? left.fecha : ''
     const rightDate = typeof right.fecha === 'string' ? right.fecha : ''
-    return rightDate.localeCompare(leftDate) || String(left.movimientoId).localeCompare(String(right.movimientoId))
+    return rightDate.localeCompare(leftDate)
+      || String(left.movimientoId).localeCompare(String(right.movimientoId))
+      || String(left.propuestaId).localeCompare(String(right.propuestaId))
   })
 }
 
@@ -299,7 +317,7 @@ async function closedProposalScope(tx: Tx, initialInvoiceIds: readonly string[])
   const initial = uniqueSorted(initialInvoiceIds)
   if (!initial.length || initial.length > MAX_DELTA_ROWS) return null
   const invoices = new Set(initial)
-  const proposalsByMovement = new Map<string, ProposalRow>()
+  const proposalsById = new Map<string, ProposalRow>()
   const seenProposalIds = new Set<string>()
   let frontier = initial
   while (frontier.length) {
@@ -311,14 +329,14 @@ async function closedProposalScope(tx: Tx, initialInvoiceIds: readonly string[])
       seenProposalIds.add(proposalId)
       if (seenProposalIds.size > MAX_DELTA_ROWS) return null
     }
-    const canonical = canonicalProposalRows(raw)
+    const canonical = canonicalDeltaProposalRows(raw)
     if (!canonical) return null
     const next = new Set<string>()
     for (const proposal of canonical) {
-      const movementId = String(proposal.movimientoId)
-      if (proposalsByMovement.has(movementId)) continue
-      proposalsByMovement.set(movementId, proposal)
-      if (proposalsByMovement.size > MAX_DELTA_ROWS) return null
+      const proposalId = String(proposal.propuestaId)
+      if (proposalsById.has(proposalId)) continue
+      proposalsById.set(proposalId, proposal)
+      if (proposalsById.size > MAX_DELTA_ROWS) return null
       for (const invoiceId of proposalIds(proposal)) {
         if (invoices.has(invoiceId)) continue
         invoices.add(invoiceId)
@@ -328,13 +346,15 @@ async function closedProposalScope(tx: Tx, initialInvoiceIds: readonly string[])
     }
     frontier = [...next].sort()
   }
-  const proposals = [...proposalsByMovement.values()].sort((left, right) => {
+  const proposals = [...proposalsById.values()].sort((left, right) => {
     const leftDate = typeof left.fecha === 'string' ? left.fecha : ''
     const rightDate = typeof right.fecha === 'string' ? right.fecha : ''
-    return rightDate.localeCompare(leftDate) || String(left.movimientoId).localeCompare(String(right.movimientoId))
+    return rightDate.localeCompare(leftDate)
+      || String(left.movimientoId).localeCompare(String(right.movimientoId))
+      || String(left.propuestaId).localeCompare(String(right.propuestaId))
   })
-  const closed = closeDeltaProposalDependencies(initial, proposals.map(proposal => ({ movimientoId: String(proposal.movimientoId), invoiceIds: proposalIds(proposal) })))
-  if (!closed || !sameSorted(closed.invoiceIds, [...invoices].sort()) || !sameSorted(closed.movimientoIds, proposals.map(row => String(row.movimientoId)).sort())) return null
+  const closed = closeDeltaProposalDependencies(initial, proposals.map(proposal => ({ propuestaId: String(proposal.propuestaId), movimientoId: String(proposal.movimientoId), invoiceIds: proposalIds(proposal) })))
+  if (!closed || !sameSorted(closed.invoiceIds, [...invoices].sort()) || !sameSorted(closed.movimientoIds, uniqueSorted(proposals.map(row => String(row.movimientoId)))) ) return null
   return { invoiceIds: closed.invoiceIds, proposals }
 }
 
@@ -379,7 +399,9 @@ async function rebuildClosedCobros(
   proposals: readonly ProposalRow[],
   invoiceDates: ConciliarInvoiceDateIndex,
   issuedReferences: readonly unknown[],
+  remittanceCurrentInvoices: ReturnType<typeof currentRemittanceInvoices>,
 ): Promise<Readonly<{ rows: readonly RebuildRow[]; candidates: ReadonlyMap<string, Candidate> }> | null> {
+  if (!proposals.length || proposals.some(proposal => !proposal.propuestaId || !proposal.movimientoId)) return null
   const proposalMovementIds = proposals.map(proposal => String(proposal.movimientoId))
   const movementIds = uniqueSorted([...proposalMovementIds, ...(input.action === 'DESHACER' ? [input.movimientoId] : [])])
   const transfers = await readStrictOwnTransfers(tx)
@@ -389,29 +411,64 @@ async function rebuildClosedCobros(
   const confirming = await confirmingCandidatesForMovements(tx, movementIds)
   if (!confirming) return null
   const clientIdentityProfiles = await readCollectionClientIdentityProfiles(tx, proposals.map(proposal => String(proposal.propuestaId)))
-  const clientIdentityByProposal = clientIdentityProfiles ?? new Map()
-  const rowsByMovement = new Map<string, RebuildRow>()
-  const candidates = new Map<string, Candidate>()
+  if (!clientIdentityProfiles) return null
+  const clientIdentityByProposal = clientIdentityProfiles
+  const movements: Record<string, unknown>[] = []
   for (const proposal of proposals) {
     const movement = projectionMovement(proposal)
     if (!movement) return null
-    const movementId = String(movement.id)
+    movements.push(movement)
+  }
+  const uniqueMovements = new Map<string, Record<string, unknown>>()
+  for (const movement of movements) {
+    const movementId = typeof movement.id === 'string' ? movement.id : null
+    if (!movementId || uniqueMovements.has(movementId)) continue
+    uniqueMovements.set(movementId, movement)
+  }
+  // The closed graph must contain one current movement for every proposal. The
+  // delta never supplements a conflict from a separate first-proposal lookup.
+  if (uniqueMovements.size !== uniqueSorted(proposalMovementIds).length) return null
+  let reservations
+  try {
+    reservations = await readLiveCollectionDocumentReservations(tx)
+  } catch {
+    return null
+  }
+  let collectionReservations
+  try {
+    collectionReservations = collectionReservationResolution({
+      proposals, movements: [...uniqueMovements.values()], invoiceDates, issuedReferences,
+      clientIdentityByProposal, reservations,
+      remittanceCurrentInvoices,
+    })
+  } catch {
+    return null
+  }
+  const rowsByMovement = new Map<string, RebuildRow>()
+  const candidates = new Map<string, Candidate>()
+  for (const [movementId, movement] of uniqueMovements) {
     let row: RebuildRow
     try {
       const confirmingCandidate = confirming.get(movementId)
+      const selectedProposal = collectionReservations.selectedByMovement.get(movementId)
+      const reviewProposal = selectedProposal ? undefined : collectionReservations.soleReviewByMovement.get(movementId)
+      const proposal = selectedProposal ?? reviewProposal
+      const reservationReviewOnly = !selectedProposal && !!reviewProposal
       row = confirmingCandidate
         ? await confirmingProjectionForMovement(tx, movement, confirmingCandidate)
-        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, clientIdentityByProposal.get(String(proposal.propuestaId)))
+        : collectionProjectionForMovement(movement, proposal, invoiceDates, issuedReferences, proposal ? clientIdentityByProposal.get(String(proposal.propuestaId)) : undefined, reservationReviewOnly)
     } catch {
       return null
     }
     rowsByMovement.set(movementId, row)
     // Rebuild only makes FI candidates while the live movement renders through
     // COBRO_PROPUESTA; confirming and transfer precedence deliberately suppress it.
-    if (row.source.kind !== 'COBRO_PROPUESTA') continue
-    for (const invoiceId of proposalIds(proposal)) {
+    if (row.source.kind !== 'COBRO_PROPUESTA' || row.row.color !== 'VERDE') continue
+    const selectedProposal = collectionReservations.selectedByMovement.get(movementId)
+    if (!selectedProposal || String(selectedProposal.propuestaId) !== row.source.propuestaId) return null
+    for (const invoiceId of proposalIds(selectedProposal)) {
       const previous = candidates.get(invoiceId)
-      const next: Candidate = { movementId, color: row.row.color, rowId: row.row.id, propuestaId: String(proposal.propuestaId) }
+      const next: Candidate = { movementId, color: row.row.color, rowId: row.row.id, propuestaId: String(selectedProposal.propuestaId) }
       if (!previous || conciliarColorRank(next.color) < conciliarColorRank(previous.color)) candidates.set(invoiceId, next)
     }
   }
@@ -453,7 +510,10 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
     bank = await readBankInvoicingPopulation(tx as unknown as B7ReadDatabase, {
       enabled: true, assertIsolatedStaging: async () => undefined,
     })
-    cobros = await rebuildClosedCobros(tx, input, closed.proposals, canonicalInvoiceDates(bank), bank.invoices.map(item => item.numFactura))
+    cobros = await rebuildClosedCobros(
+      tx, input, closed.proposals, canonicalInvoiceDates(bank), bank.invoices.map(item => item.numFactura),
+      currentRemittanceInvoices(bank.invoices),
+    )
     if (!cobros) return { projectionSynchronized: false }
   } catch (error) {
     // This block is intentionally only pre-DML. A source ambiguity preserves the
@@ -471,6 +531,11 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
     const row = emittedProjection(settlement, cobros!.candidates.get(settlement.invoiceId))
     return row ? [row] : []
   })
+  // This is deliberately before every DELETE/INSERT below. The helper performs
+  // one bounded set preload for all documentary delta rows (normally confirming)
+  // and returns rebuilt source fingerprints, so decision hashes remain derived
+  // from the sealed server lifecycle state rather than from C11 sourceHash.
+  const guardedProjectionRows = await applyConciliarDocumentLifecycleGuardToRebuildRowsTx(tx, [...emitted, ...cobros!.rows])
   const dirty = await tx.$queryRaw<Array<{ dirty: boolean }>>(Prisma.sql`
     SELECT dirty_at IS NOT NULL AS dirty FROM estado_proyeccion_conciliar WHERE singleton=true LIMIT 1 FOR UPDATE
   `)
@@ -487,7 +552,7 @@ export async function applyConciliarProjectionDeltaTx(base: Prisma.TransactionCl
   await tx.$executeRaw(Prisma.sql`
     DELETE FROM conciliar_proyecciones WHERE tab='COBROS' AND movimiento_id IN (${Prisma.join(cobroMovementIds.map(id => Prisma.sql`${id}`))})
   `)
-  await insertProjectionBatches(tx, [...emitted, ...cobros!.rows])
+  await insertProjectionBatches(tx, guardedProjectionRows)
   const state = await tx.$queryRaw<Array<{ projectionVersion: bigint | number }>>(Prisma.sql`
     UPDATE estado_proyeccion_conciliar
     SET dirty_at=NULL,dirty_reason=NULL,rebuilt_at=CURRENT_TIMESTAMP,projection_version=projection_version+1

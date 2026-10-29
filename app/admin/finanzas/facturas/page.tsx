@@ -13,6 +13,21 @@ import InvoiceQualityWorkspace from '@/components/finanzas/InvoiceQualityWorkspa
 import FiscalEstimatePanel from '@/components/finanzas/fiscal-estimate/FiscalEstimatePanel';
 import SyncJobPanel from '@/components/finanzas/sync-jobs/SyncJobPanel';
 
+type DocumentoVisible = {
+  documentDate: { value: string | null; source: 'SNAPSHOT_ACTUAL' | 'HISTORICO_FACTURA' | 'NO_DISPONIBLE'; label: string };
+  lastRead: { value: null; source: 'NO_PERSISTIDA'; label: string };
+  folder: { state: 'ACTIVO' | 'BORRADO_DE_LA_CARPETA' | 'SIN_SEGUIMIENTO_DOCUMENTAL'; label: string };
+  version: { state: 'VERSION_ACTUAL' | 'SIN_SNAPSHOT_CONSERVADOR' | 'SIN_SEGUIMIENTO_DOCUMENTAL'; number: number | null; label: string };
+  incident: { state: 'SIN_INCIDENCIA_DOCUMENTAL' | 'DOCUMENTO_CAMBIADO'; label: string };
+  duplicate: { state: 'SIN_DUPLICADO_DETECTADO' | 'DUPLICADO_POR_HUELLA_PENDIENTE'; label: string };
+  relations: Array<
+    'ORIGINAL_CON_RECTIFICATIVA_PROPUESTA'
+    | 'ORIGINAL_CON_RECTIFICATIVA_CONFIRMADA'
+    | 'RECTIFICATIVA_DE_ORIGINAL_PROPUESTA'
+    | 'RECTIFICATIVA_DE_ORIGINAL_CONFIRMADA'
+  >;
+};
+
 interface Factura {
   id: string;
   proveedor: string;
@@ -45,6 +60,7 @@ interface Factura {
   duplicadoExterno?: boolean;
   naturalezaDocumento?: string;
   movimientos?: { id: string; fechaOperacion: string; importe: number; concepto: string }[];
+  documentVisibleState?: DocumentoVisible | null;
 }
 
 const ESTADOS = {
@@ -258,6 +274,13 @@ export default function FacturasPage() {
       && factura.naturalezaDocumento === 'FACTURA_RECIBIDA'
       && factura.proveedor.trim().toUpperCase() !== 'ERROR_OCR'
       && factura.proveedor.trim().toUpperCase() !== 'DESCONOCIDO';
+  }
+
+  function etiquetaRelacionDocumental(relation: DocumentoVisible['relations'][number]) {
+    if (relation === 'ORIGINAL_CON_RECTIFICATIVA_PROPUESTA') return 'Original · rectificativa propuesta';
+    if (relation === 'ORIGINAL_CON_RECTIFICATIVA_CONFIRMADA') return 'Original · rectificativa confirmada';
+    if (relation === 'RECTIFICATIVA_DE_ORIGINAL_PROPUESTA') return 'Rectificativa · original propuesta';
+    return 'Rectificativa · original confirmada';
   }
 
   return (
@@ -564,6 +587,7 @@ export default function FacturasPage() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Documento</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Vto.</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Proveedor</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 uppercase">Nº Factura</th>
@@ -580,9 +604,9 @@ export default function FacturasPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={13} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={14} className="px-4 py-8 text-center text-gray-400">Cargando...</td></tr>
               ) : facturas.length === 0 ? (
-                <tr><td colSpan={13} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
+                <tr><td colSpan={14} className="px-4 py-8 text-center text-gray-400">No hay facturas. Sincroniza OneDrive o sube una factura manualmente.</td></tr>
               ) : (
                 facturas.map(f => {
                   const estadoInfo = ESTADOS[f.estado as keyof typeof ESTADOS] || ESTADOS.PENDIENTE_REVISION;
@@ -590,6 +614,41 @@ export default function FacturasPage() {
                     <React.Fragment key={f.id}>
                     <tr className="hover:bg-gray-50 cursor-pointer" onClick={() => router.push(`/admin/finanzas/facturas/${f.id}`)}>
                       <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{formatFecha(f.fecha)}</td>
+                      <td className="px-4 py-3 align-top" onClick={e => e.stopPropagation()}>
+                        {(() => {
+                          const document = f.documentVisibleState;
+                          if (!document) return <span className="text-xs text-gray-400">Estado documental no disponible</span>;
+                          const folderClass = document.folder.state === 'BORRADO_DE_LA_CARPETA'
+                            ? 'bg-red-50 text-red-700'
+                            : document.folder.state === 'ACTIVO'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : 'bg-slate-100 text-slate-600';
+                          return (
+                            <div className="min-w-[215px] space-y-1 text-xs">
+                              <p className="text-slate-700">
+                                <span className="font-medium">{document.documentDate.label}:</span>{' '}
+                                {document.documentDate.value ? formatFecha(document.documentDate.value) : '—'}
+                              </p>
+                              <p className="text-slate-500" title="No existe una marca persistida de última lectura documental para esta factura.">
+                                {document.lastRead.label}
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                <span className={`rounded-full px-2 py-0.5 ${folderClass}`}>{document.folder.label}</span>
+                                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">{document.version.label}</span>
+                                {document.incident.state === 'DOCUMENTO_CAMBIADO' && (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 font-medium text-amber-800">{document.incident.label}</span>
+                                )}
+                                {document.duplicate.state === 'DUPLICADO_POR_HUELLA_PENDIENTE' && (
+                                  <span className="rounded-full bg-violet-50 px-2 py-0.5 text-violet-800">{document.duplicate.label}</span>
+                                )}
+                                {document.relations.map(relation => (
+                                  <span key={relation} className="rounded-full bg-cyan-50 px-2 py-0.5 text-cyan-800">{etiquetaRelacionDocumental(relation)}</span>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">{f.fechaVencimiento ? formatFecha(f.fechaVencimiento) : '—'}</td>
                       <td className="px-4 py-3">
                         <a href={`/admin/finanzas/facturas/${f.id}`} className="text-sm font-medium text-blue-700 hover:text-blue-900 hover:underline">{f.proveedor}</a>
@@ -697,7 +756,7 @@ export default function FacturasPage() {
                     </tr>
                     {concilFacturaId === f.id && (
                       <tr className="concil-row">
-                        <td colSpan={13} className="px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
+                        <td colSpan={14} className="px-4 py-3 bg-blue-50 border-l-4 border-blue-400">
                           {loadingConcil ? (
                             <p className="text-sm text-gray-500">Buscando movimientos...</p>
                           ) : movCandidatos.length === 0 ? (

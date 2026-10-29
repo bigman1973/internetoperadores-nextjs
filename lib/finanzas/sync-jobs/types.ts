@@ -25,6 +25,17 @@ export type SyncSourceItem = {
  * the supplied transaction: it must not open an independent Prisma transaction.
  */
 export interface SyncProvider {
+  /**
+   * Hook exclusivamente servidor antes del inventario nativo. Sólo recibe la
+   * identidad de la reclamación P2; no recibe scopes del navegador ni datos de
+   * proveedor. El worker conserva la propiedad del lease/cancelación.
+   */
+  beforeInventory?(input: Readonly<{
+    jobId: string
+    actorId: number | null
+    source: SyncSource
+    leaseToken: string
+  }>): Promise<void>
   inventory(checkpoint: unknown): Promise<{
     items: SyncSourceItem[]
     checkpoint: unknown

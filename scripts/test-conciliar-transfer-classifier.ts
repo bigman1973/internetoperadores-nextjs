@@ -73,6 +73,21 @@ test('una contrapartida no se reutiliza: ninguna ambigüedad se resuelve por ord
   for (const leg of [cargo, cobroB, cobroC]) assert.deepEqual(result.get(leg.id), { kind: 'PAREJAS_VERIFICADAS_AMBIGUAS', movimientoId: leg.id })
 })
 
+test('varias patas opuestas con redacción genérica de pago quedan ámbar y fuera de Para pedir; una P1 o vínculo documental real continúa vetando', () => {
+  const credit = movement({ id: 'abono-ambiguo-sin-origen', cuentaId: 'cuenta-propia-a', fecha: '2026-10-10', importeCentimos: 71_000, concepto: 'TRANSFERENCIA RECIBIDA' })
+  const paymentB = movement({ id: 'cargo-pago-generico-b', cuentaId: 'cuenta-propia-b', fecha: '2026-10-11', importeCentimos: -71_000, concepto: 'PAGO TRANSFERENCIA' })
+  const paymentC = movement({ id: 'cargo-pago-generico-c', cuentaId: 'cuenta-propia-c', fecha: '2026-10-12', importeCentimos: -71_000, concepto: 'PAGO TRANSFERENCIA' })
+  const result = review(credit, paymentB, paymentC)
+  assert.deepEqual(result.get(credit.id), { kind: 'PAREJAS_VERIFICADAS_AMBIGUAS', movimientoId: credit.id })
+  assert.equal(result.has(paymentB.id), false)
+  assert.equal(result.has(paymentC.id), false)
+
+  const p1Partner = { ...paymentB, id: 'cargo-p1-tercero', thirdPartyConfirmed: true }
+  const blocked = review(credit, p1Partner)
+  assert.equal(blocked.has(credit.id), false)
+  assert.equal(blocked.has(p1Partner.id), false)
+})
+
 test('literal fijo de compañía o IBAN atestado permiten revisión; nombre aproximado y cuenta no atestada no', () => {
   const literal = movement({ id: 'literal-propio', cuentaId: 'cuenta-propia-a', fecha: '2026-10-10', importeCentimos: -9_000, concepto: 'Transferencia Inmediata A Favor De Internet Operadores' })
   const literalSinPista = movement({ id: 'literal-propio-sin-pista', cuentaId: 'cuenta-propia-c', fecha: '2026-10-10', importeCentimos: -9_002, concepto: 'A Favor De Internet Operadores' })
@@ -100,6 +115,39 @@ test('literal fijo de compañía o IBAN atestado permiten revisión; nombre apro
 test('nombre o IBAN del ordenante en metadatos no son evidencia de destinatario propio', () => {
   const external = movement({ id: 'tercero-emisor-en-info', cuentaId: 'cuenta-propia-a', fecha: '2026-10-10', importeCentimos: -8_100, concepto: 'Transferencia a favor de Empresa de Prueba', infoAdicional: 'Ordenante Internet Operadores ES91 2100 0418 4502 0005 1332' })
   assert.equal(hasExactOwnRecipientEvidence(external, new Set([OWN_IBAN])), false)
+})
+
+test('abono identifica sólo un ordenante/remitente propio completo con IBAN propio registrado; el mismo metadato nunca acredita un cargo', () => {
+  const credit = movement({
+    id: 'abono-ordenante-propio', cuentaId: 'cuenta-propia-a', fecha: '2026-10-10', importeCentimos: 8_100,
+    concepto: 'TRANSFERENCIA RECIBIDA', infoAdicional: 'ORDENANTE: Internet Operadores, S.L. ES91-2100-0418-4502-0005-1332',
+  })
+  const debit = { ...credit, id: 'cargo-con-mismo-ordenante', importeCentimos: -8_100 }
+  const incomplete = { ...credit, id: 'abono-razon-incompleta', infoAdicional: 'REMITENTE Internet Operadores ES91 2100 0418 4502 0005 1332' }
+  const appendedParty = { ...credit, id: 'abono-tercero-adjunto', infoAdicional: 'ORDENANTE Internet Operadores, S.L. y Tercero ES91 2100 0418 4502 0005 1332' }
+  const unregisteredIban = { ...credit, id: 'abono-iban-no-registrado', infoAdicional: 'ORDENANTE Internet Operadores, S.L. ES00 0000 0000 0000 0000 0000' }
+  const ibans = new Set([OWN_IBAN])
+  assert.equal(hasExactOwnRecipientEvidence(credit, ibans), true)
+  assert.equal(hasExactOwnRecipientEvidence(debit, ibans), false)
+  assert.equal(hasExactOwnRecipientEvidence(incomplete, ibans), false)
+  assert.equal(hasExactOwnRecipientEvidence(appendedParty, ibans), false)
+  assert.equal(hasExactOwnRecipientEvidence(unregisteredIban, ibans), false)
+})
+
+test('contrapartida propia admite sólo los dos literales fijos autoritativos; la abreviatura exacta queda en revisión ámbar, no verde', () => {
+  const exactComma = movement({ id: 'contrapartida-propia-coma', cuentaId: 'cuenta-propia-a', fecha: '2026-10-10', importeCentimos: 8_200, tercero: 'Internet Operadores, S.L.' })
+  const exactPunctuation = movement({ id: 'contrapartida-propia-puntuacion', cuentaId: 'cuenta-propia-b', fecha: '2026-10-10', importeCentimos: 8_201, tercero: 'internet-operadores s.l.' })
+  const authoritativeAbbreviation = movement({ id: 'contrapartida-abreviatura-autoritativa', cuentaId: 'cuenta-propia-c', fecha: '2026-10-10', importeCentimos: 8_202, tercero: 'Internet Operadores' })
+  const contained = movement({ id: 'contrapartida-con-tercero', cuentaId: 'cuenta-propia-c', fecha: '2026-10-10', importeCentimos: 8_203, tercero: 'Tercero Internet Operadores, S.L.' })
+  const suffixed = movement({ id: 'contrapartida-con-sufijo', cuentaId: 'cuenta-propia-c', fecha: '2026-10-10', importeCentimos: 8_204, tercero: 'Internet Operadores, S.L. y Asociados' })
+  assert.equal(hasExactOwnRecipientEvidence(exactComma, new Set()), true)
+  assert.equal(hasExactOwnRecipientEvidence(exactPunctuation, new Set()), true)
+  assert.equal(hasExactOwnRecipientEvidence(authoritativeAbbreviation, new Set()), true)
+  assert.equal(hasExactOwnRecipientEvidence(contained, new Set()), false)
+  assert.equal(hasExactOwnRecipientEvidence(suffixed, new Set()), false)
+  assert.deepEqual(review({ ...authoritativeAbbreviation, ownRecipientExplicit: true }).get(authoritativeAbbreviation.id), {
+    kind: 'SIN_PAREJA_VERIFICADA', movimientoId: authoritativeAbbreviation.id,
+  })
 })
 
 test('P1 CUENTA_PROPIA conserva evidencia; tercero confirmado o vínculo documental excluyen las dos patas', () => {
@@ -140,7 +188,8 @@ test('integración: reserva antes de proveedor, pareja visual verde no seleccion
   assert.match(reviewBlock, /color: pairedExactly \? 'VERDE' : 'AMBAR'/)
   assert.match(reviewBlock, /grupo: 'TRASPASOS_PROPIOS'/)
   assert.match(reviewBlock, /seleccionable: false/)
-  assert.match(reviewBlock, /kind: 'PENDIENTE_FACTURA_EMITIDA'/)
+  assert.match(reviewBlock, /kind: 'TRANSFERENCIA_PROPIA_MANUAL'/)
+  assert.match(reviewBlock, /proofSource: manualOwnAccounts\.proof\.source/)
   assert.doesNotMatch(strictBlock, /classifyConciliarOwnTransferReviews/)
   assert.match(actions, /if \(row\.color !== 'ROJO'\) fail\(422, 'FILA_NO_PEDIBLE'/)
   assert.match(actions, /if \(!row\.seleccionable\) fail\(422, 'FILA_NO_CONFIRMABLE'/)

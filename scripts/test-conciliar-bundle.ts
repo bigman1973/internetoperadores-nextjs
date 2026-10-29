@@ -11,7 +11,9 @@ const remesaDialog = read('components/finanzas/conciliar/ConciliarRemesaConfirma
 const recentHistory = read('components/finanzas/conciliar/ConciliarRecentHistory.tsx');
 
 test('la primera página conserva datos y tabla SSR sin esperar hidratación', () => {
-  assert.match(page, /const initialData = await readConciliarProjection\(input\)/);
+  assert.match(page, /const \[initialData, confirmingReadingQueue\] = await Promise\.all\(\[/);
+  assert.match(page, /readConciliarProjection\(input\)/);
+  assert(page.indexOf('readConciliarProjection(input)') < page.indexOf('return <>'));
   assert.match(page, /initialData=\{initialData\}/);
   assert.match(workspace, /const initialParsed = useMemo\(\(\) => initialData === undefined \? null : parseConciliarReadResponse\(initialData\)/);
   assert.match(workspace, /const \[data, setData\] = useState<ConciliarReadResponse \| null>\(initialParsed\)/);
