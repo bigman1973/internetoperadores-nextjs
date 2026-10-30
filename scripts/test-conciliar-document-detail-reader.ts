@@ -6,6 +6,7 @@ import ts from 'typescript'
 import { classifyPrisma5RawSqlStatement } from '../lib/prisma'
 import {
   buildConfirmingDocumentDetail,
+  buildCollectionProposalDocumentDetail,
   buildRemittanceDocumentDetail,
 } from '../lib/finanzas/conciliar-document-detail'
 import { parseConciliarDocumentDetail } from '../lib/finanzas/conciliar-document-detail-contract'
@@ -105,6 +106,65 @@ test('remesa sólo cierra cuando la composición íntegra suma el abono concreto
   assert.equal(incomplete.cuadreExacto, false)
   assert.equal(incomplete.lineas.length, 0)
   assert(incomplete.avisos.some(value => value.includes('composición íntegra persistida')))
+})
+
+function propuestaDetalle(lines: ReadonlyArray<Record<string, unknown>>, overrides: Partial<Parameters<typeof buildCollectionProposalDocumentDetail>[0]> = {}) {
+  return buildCollectionProposalDocumentDetail({
+    rowId,
+    fechaAbono: '2026-10-28',
+    banco: 'Banco sintético',
+    cuenta: 'Cuenta sintética',
+    importeBancoCentimos: 10_000,
+    proposalCount: 1,
+    compositionShapeValid: true,
+    compositionCount: lines.length,
+    lines: lines as never,
+    ...overrides,
+  })
+}
+
+test('cobro propuesto claro separa nominal, importe incluido y saldo B4 vigente', () => {
+  const detail = parseConciliarDocumentDetail(propuestaDetalle([{
+    ordinal: 1, facturaEmitidaId: 'factura-sintetica-1', importePropuestoTexto: '10000', numeroFactura: 'INST26/4', cliente: 'Cliente sintético',
+    fechaEmision: '2026-03-01', fechaVencimiento: null, nominalCentimos: 10_000, activeWrapperCount: 1, objetivoCentimos: 10_000,
+    activeLinkCount: 0, validLinkCount: 0, asignadoCentimos: 0, remittanceReceiptCount: 0,
+  }]))
+  assert.equal(detail.kind, 'COBRO_PROPUESTA')
+  assert.equal(detail.pdfHref, null)
+  assert.equal(detail.cuadreExacto, true)
+  assert.equal(detail.sumaPropuestaCentimos, 10_000)
+  assert.equal(detail.sumaSaldosPendientesActualesCentimos, 10_000)
+  assert.deepEqual(detail.lineas[0], {
+    numero: 'INST26/4', cliente: 'Cliente sintético', fechaEmision: '2026-03-01', fechaVencimiento: null, nominalCentimos: 10_000,
+    importePropuestoCentimos: 10_000, saldoPendienteActualCentimos: 10_000, estadoSaldo: 'COINCIDE',
+  })
+})
+
+test('cobro propuesto descuadrado queda ámbar y nunca presenta la propuesta como saldo actual', () => {
+  const detail = propuestaDetalle([{
+    ordinal: 1, facturaEmitidaId: 'factura-sintetica-1', importePropuestoTexto: '10000', numeroFactura: 'INST26/6', cliente: 'Cliente sintético',
+    fechaEmision: '2026-03-01', fechaVencimiento: null, nominalCentimos: 10_000, activeWrapperCount: 1, objetivoCentimos: 10_000,
+    activeLinkCount: 1, validLinkCount: 1, asignadoCentimos: 2_000, remittanceReceiptCount: 0,
+  }])
+  assert.equal(detail.cuadreExacto, false)
+  assert.equal(detail.lineas[0]?.importePropuestoCentimos, 10_000)
+  assert.equal(detail.lineas[0]?.saldoPendienteActualCentimos, 8_000)
+  assert.equal(detail.lineas[0]?.estadoSaldo, 'NO_COINCIDE')
+  assert.equal(detail.sumaSaldosPendientesActualesCentimos, 8_000)
+  assert.equal(detail.diferenciaSaldosPendientesBancoCentimos, -2_000)
+  assert(detail.avisos.some(value => value.includes('no coincide; actualice antes de confirmar')))
+  assert(detail.avisos.some(value => value.includes('Revisión requerida')))
+})
+
+test('cobro propuesto con fuente ausente se cierra sin detalle parcial ni saldo inventado', () => {
+  assert.throws(() => propuestaDetalle([{
+    ordinal: 1, facturaEmitidaId: 'factura-ausente', importePropuestoTexto: '10000', numeroFactura: null, cliente: null,
+    fechaEmision: null, fechaVencimiento: null, nominalCentimos: null, activeWrapperCount: 0, objetivoCentimos: null,
+    activeLinkCount: 0, validLinkCount: 0, asignadoCentimos: 0,
+  }]), (error: unknown) => {
+    assert.equal((error as { code?: unknown }).code, 'DETALLE_PROPUESTA_INCOMPLETO')
+    return true
+  })
 })
 
 test('la ruta aplica runtime, permiso efectivo, rowId opaco y DTO plano sin operaciones de escritura', () => {

@@ -180,3 +180,42 @@ test('remesa usa una única CTE B7 persistida y rechaza cualquier composición p
   assert.match(database.queries[1]!, /WITH candidatos AS \(/)
   assert.match(database.queries[1]!, /LIMIT \?/) // 2.000 + 1 sigue parametrizado y acotado.
 })
+
+test('cobro propuesto ordinario amplía propuesta y B4 en un solo lote tras la proyección', async () => {
+  const database = queued(
+    [projection({ kind: 'COBRO_PROPUESTA', movimientoId: 'movimiento-sintetico', propuestaId: '00000000-0000-4000-8000-000000000003', proposalFingerprint: FINGERPRINT }, 'REF_FACTURA')],
+    [{
+      proposalCount: 1,
+      compositionShapeValid: true,
+      compositionCount: 1,
+      lines: [{
+        ordinal: 1,
+        facturaEmitidaId: 'factura-emitida-sintetica',
+        importePropuestoTexto: '9876',
+        numeroFactura: 'INST26/4',
+        cliente: 'Cliente sintético',
+        fechaEmision: '2026-10-01',
+        fechaVencimiento: null,
+        nominalCentimos: 9876,
+        activeWrapperCount: 1,
+        objetivoCentimos: 9876,
+        activeLinkCount: 0,
+        validLinkCount: 0,
+        asignadoCentimos: 0,
+        remittanceReceiptCount: 0,
+      }],
+    }],
+  )
+  const detail = await readConciliarDocumentDetail(ROW_ID, 1, database.client as never)
+  assert.equal(detail.kind, 'COBRO_PROPUESTA')
+  assert.equal(detail.cuadreExacto, true)
+  assert.equal(detail.pdfHref, null)
+  assert.equal(detail.lineas[0]?.estadoSaldo, 'COINCIDE')
+  assertProjectionThenOneSourceRead(database.queries, 'modo_facil_propuestas_cobro p')
+  assert.match(database.queries[1]!, /WITH current_generation AS \(/)
+  assert.match(database.queries[1]!, /jsonb_array_elements/)
+  assert.match(database.queries[1]!, /FROM documentos_conciliables d/)
+  assert.match(database.queries[1]!, /JOIN vinculos_movimiento_documento v/)
+  assert.match(database.queries[1]!, /FROM lineas_recibo_cobro_remesa_b7 line/)
+  assert.doesNotMatch(database.queries[1]!, /facturas\s+f\b|importe_cobrado|estado.*COBRADA/i)
+})
